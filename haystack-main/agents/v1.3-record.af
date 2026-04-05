@@ -1,9 +1,0 @@
-# →632 haystack record — Asciinema session recording
-FROM claude-sonnet-4-6
-BOOT haystack boot --bail
-PROMPT "Implement →632: haystack record command. The squasher already processes the terminal stream. Add a thin recording layer: haystack record starts an asciinema-format session (JSON events: {version:2, width, height} header + [timestamp, 'o', text] events). Write to .haystack/recordings/<timestamp>.cast. haystack record --stop ends recording. haystack record --list shows recordings. The recording intercepts the same VT100-stripped output the squasher already processes. No external asciinema binary needed — native implementation. Tests: header written, events recorded, file exists after stop. cargo check must pass."
-TOOL sh_run
-TOOL ss
-LIMIT context_pct 80
-LIMIT budget_usd 5
-WORK tags=record,asciinema priority>=P1

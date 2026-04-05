@@ -1,8 +1,0 @@
-# →502 TUI bench pane — add Bench to Pane enum and draw_bench()
-FROM claude-sonnet-4-6
-BOOT haystack bootPROMPT "Your needle is →502. Read src/tui/mod.rs to understand the Pane enum and how draw_fleet/draw_nudges/draw_work are structured. The bench data comes from src/commands/bench.rs ScoreEntry struct loaded via load_results(root). Add: (1) Pane::Bench to enum Pane, wire into Tab cycle after Identity; (2) bench_results: Vec<ScoreEntry> field on App, loaded at startup from bench/results/ via load_results; (3) draw_bench(frame, app, area) — model rows x scenario columns, green=resolved red=fail; (4) wire into draw() layout; (5) add to help overlay. Run cargo check after. Close →502 when it compiles and renders."
-TOOL sh_run
-TOOL ss
-LIMIT context_pct 80
-LIMIT budget_usd 5
-WORK tags=tui,bench,v1.3 priority>=P1

@@ -1,9 +1,0 @@
-# v1.3 fleet — →495 FROM auto
-FROM claude-sonnet-4-6
-BOOT haystack bootPROMPT "You are working on haystack (llmOS). Your needle is →495: FROM auto — model selection as kernel scheduling. Agentfile declares FROM auto, kernel resolves at delegate time using needle priority, domain, budget, vault inventory (available keys), and bench scores. The vault inventory IS the model inventory. Login resolves FROM + SECRET together. Read src/agentfile/parser.rs and src/commands/run.rs, implement FROM auto resolver, add tests. Close →495 when done."
-PROMPT file://../docs/draft/v1-3-tui-release.md
-TOOL sh_run
-TOOL ss
-LIMIT context_pct 80
-LIMIT budget_usd 5
-WORK tags=scheduler,v1.3 priority>=P1

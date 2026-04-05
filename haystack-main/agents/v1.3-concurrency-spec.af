@@ -1,9 +1,0 @@
-# v1.3 fleet — →610 llmOS concurrency spec
-FROM claude-sonnet-4-6
-BOOT haystack bootPROMPT "You are working on haystack (llmOS). Your needle is →610: draft the llmOS concurrency spec. FROM auto as LLM scheduler, vault as CPU inventory, Agentfile as thread descriptor, turn boundary as context switch, .haystack/ as shared memory. The TUI multiplexes streams. This is escape the harness — not ejecting Claude Code but replacing the conversation model with a multiplexed OS interface. Output: docs/spec/llmos-concurrency.md. Read docs/llmOS.md and docs/draft/v1-3-tui-release.md first. Close →610 when spec is written."
-PROMPT file://../docs/draft/v1-3-tui-release.md
-TOOL sh_run
-TOOL ss
-LIMIT context_pct 80
-LIMIT budget_usd 2
-WORK tags=spec,scheduler,v1.3 priority>=P1

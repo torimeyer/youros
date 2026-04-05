@@ -1,7 +1,0 @@
-# Shared Node.js stack trace patterns
-
-[[rules]]
-# Node.js stack trace frames -- dedup (keep first + last, count middle)
-pattern = '^\s+at\s+\S+'
-action = "dedup"
-description = "Node.js stack frame"

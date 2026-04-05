@@ -1,6 +1,0 @@
-{
-  "model_type": "model2vec",
-  "hidden_dim": 256,
-  "vocab_size": 29528,
-  "normalize": true
-}

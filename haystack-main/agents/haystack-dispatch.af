@@ -1,8 +1,0 @@
-# →659 haystack dispatch command
-FROM claude-sonnet-4-6
-BOOT haystack boot --bail
-PROMPT file://../prompts/haystack-dispatch.md
-TOOL sh_run
-LIMIT context_pct 80
-LIMIT budget_usd 5
-WORK tags=agentfile,dispatch,scheduler,v1.4 priority>=P1

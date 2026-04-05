@@ -1,8 +1,0 @@
-# →657 →658 →660 EXTENDS + PROMPT_ARG + haystack run --prompt
-FROM claude-sonnet-4-6
-BOOT haystack boot --bail
-PROMPT file://../prompts/agentfile-parser-v2.md
-TOOL sh_run
-LIMIT context_pct 80
-LIMIT budget_usd 5
-WORK tags=agentfile,parser,v1.4 priority>=P1

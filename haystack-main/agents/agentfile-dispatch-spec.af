@@ -1,8 +1,0 @@
-# →657–660 agentfile-dispatch spec
-FROM claude-sonnet-4-6
-BOOT haystack boot --bail
-PROMPT file://../prompts/agentfile-dispatch-spec.md
-TOOL sh_run
-LIMIT context_pct 75
-LIMIT budget_usd 3
-WORK tags=spec,agentfile,v1.4 priority>=P1

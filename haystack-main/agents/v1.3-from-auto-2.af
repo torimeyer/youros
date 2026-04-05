@@ -1,8 +1,0 @@
-# →495 FROM auto — wire resolve_auto_model() into run()
-FROM claude-sonnet-4-6
-BOOT haystack bootPROMPT "Your needle is →495. The resolve_auto_model() function is already written in src/commands/run.rs. Wire it: in run(), where af.from is used (step 8 print and step 9 stream_response call), intercept when af.from == 'auto' and replace with resolve_auto_model(). Also add tests in the tests module: test that 'auto' with ANTHROPIC_API_KEY set resolves to opus, test that 'auto' with no keys falls back to sonnet default. Run cargo test commands/run after. Close →495 when tests pass."
-TOOL sh_run
-TOOL ss
-LIMIT context_pct 80
-LIMIT budget_usd 3
-WORK tags=scheduler,v1.3 priority>=P1

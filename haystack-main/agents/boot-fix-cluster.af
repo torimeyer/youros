@@ -1,8 +1,0 @@
-# →651 →661 →663 — boot orientation fix cluster
-FROM claude-sonnet-4-6
-BOOT haystack boot --bail
-PROMPT file://../prompts/boot-fix-cluster.md
-TOOL sh_run
-LIMIT context_pct 80
-LIMIT budget_usd 5
-WORK tags=boot,orientation,harness,v1.3 priority>=P0

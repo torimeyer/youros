@@ -1,9 +1,0 @@
-# →633 quota — local token savings counter
-FROM claude-sonnet-4-6
-BOOT haystack boot --bail
-PROMPT "Implement →633: local quota tracking in .haystack/quota.jsonl. Append-only, OS-signed. Past quota: squasher and HSCP pass-through. TUI/fleet unaffected."
-TOOL sh_run
-TOOL ss
-LIMIT context_pct 80
-LIMIT budget_usd 4
-WORK tags=quota,metering priority>=P1

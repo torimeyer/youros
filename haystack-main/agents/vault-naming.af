@@ -1,9 +1,0 @@
-# →639 vault key naming fix — secret list shows all stored keys
-FROM claude-sonnet-4-6
-BOOT haystack boot --bail
-PROMPT "Fix →639: two bugs in src/commands/secret.rs. (1) run_list() only shows KNOWN_KEYS hardcoded list — user-defined keys like OPENROUTER_MANAGEMENT_KEY stored in keychain but invisible. Fix: scan keychain for all keys with account='haystack', show them all with [custom] label for keys not in KNOWN_KEYS. (2) run_set should print: 'stored KEY_NAME in macOS Keychain' using the exact key name passed, so operator can verify what was stored. Add test: set a custom key, list shows it. cargo test after."
-TOOL sh_run
-TOOL ss
-LIMIT context_pct 80
-LIMIT budget_usd 3
-WORK tags=vault,security,p1 priority>=P1

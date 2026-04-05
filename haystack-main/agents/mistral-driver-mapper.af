@@ -1,4 +1,0 @@
-FROM claude-3-7-sonnet-20250219
-PROMPT file://../prompts/mistral-investigation/driver-mapper.md
-LIMIT turns 12
-LIMIT context_pct 80

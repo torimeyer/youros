@@ -1,7 +1,0 @@
-# Shared C/C++ compiler output patterns
-
-[[rules]]
-# Individual compile commands echoed by make
-pattern = '^(gcc|g\+\+|cc|c\+\+|clang|clang\+\+)\s+'
-action = "strip"
-description = "Compiler command echo"

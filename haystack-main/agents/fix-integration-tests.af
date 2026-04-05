@@ -1,8 +1,0 @@
-# Fix remaining integration test failures
-FROM claude-sonnet-4-6
-BOOT haystack boot --bail
-PROMPT "Fix the 1 remaining failing integration test. Run: cargo test --test integration -- --nocapture 2>&1 | tail -30 to identify the failure. The known failures are bd_342_run_parses_agentfile (output format assertions) and bd_205_tier2_assisted_merge_through_mcp (message text assertions). Fix the test assertions to match current implementation output — do NOT change production code unless the implementation is genuinely wrong. cargo test after. All test suites must pass: 817 lib, 117 bin, 16 bench_auth_chain, 5+5 bench, 21 integration."
-TOOL sh_run
-LIMIT context_pct 75
-LIMIT budget_usd 2
-WORK tags=tests,v1.3 priority>=P0

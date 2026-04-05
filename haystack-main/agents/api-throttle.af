@@ -1,9 +1,0 @@
-# →648 LIMIT api_calls_per_minute — Agentfile rate limiting
-FROM claude-sonnet-4-6
-BOOT haystack boot --bail
-PROMPT "Implement →648: LIMIT api_calls_per_minute N in Agentfile parser and run.rs. Add to Agentfile struct + parser (LIMIT api_calls_per_minute 10). In run.rs, add a token bucket rate limiter: track last N call timestamps, sleep if rate exceeded. Also add HUMANFILE api_rate_limit: 10/min as a global fallback (read in run.rs alongside LIMIT). The problem: agents can hammer APIs at full speed — llmOS makes them efficient enough to cause self-DOS. cargo test after."
-TOOL sh_run
-TOOL ss
-LIMIT context_pct 80
-LIMIT budget_usd 4
-WORK tags=security,governance,p0 priority>=P0
