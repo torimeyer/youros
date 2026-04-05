@@ -1,0 +1,12 @@
+.ostk/
+.venv/
+node_modules/
+dist/
+.vite/
+.DS_Store
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+.claude/
+.mcp.json

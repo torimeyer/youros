@@ -1,0 +1,79 @@
+import { create } from 'zustand'
+
+export type AccentColor = 'blue' | 'pink' | 'purple' | 'cyan' | 'orange'
+
+export interface FeatureToggle {
+  label: string
+  enabled: boolean
+}
+
+// Maps Settings provider names to chat model keys
+export const PROVIDER_TO_MODEL: Record<string, string> = {
+  'Anthropic': 'claude',
+  'Google Gemini': 'gemini',
+  'OpenAI': 'gpt',
+}
+
+interface AppState {
+  onboarded: boolean
+  setOnboarded: (v: boolean) => void
+  chatOpen: boolean
+  toggleChat: () => void
+  chatWidth: number
+  setChatWidth: (w: number) => void
+  isResizing: boolean
+  setIsResizing: (v: boolean) => void
+  osName: string
+  setOsName: (name: string) => void
+  darkMode: boolean
+  toggleDarkMode: () => void
+  accentColor: AccentColor
+  setAccentColor: (color: AccentColor) => void
+  features: FeatureToggle[]
+  setFeatures: (features: FeatureToggle[]) => void
+  isFeatureEnabled: (label: string) => boolean
+  defaultChatModel: string
+  setDefaultChatModel: (model: string) => void
+  commandPaletteOpen: boolean
+  setCommandPaletteOpen: (open: boolean) => void
+  toggleCommandPalette: () => void
+}
+
+export const useAppStore = create<AppState>((set, get) => ({
+  onboarded: localStorage.getItem('youros-onboarded') === 'true',
+  setOnboarded: (onboarded) => {
+    localStorage.setItem('youros-onboarded', String(onboarded))
+    set({ onboarded })
+  },
+  chatOpen: true,
+  toggleChat: () => set((s) => ({ chatOpen: !s.chatOpen })),
+  chatWidth: 380,
+  setChatWidth: (chatWidth) => set({ chatWidth: Math.max(300, Math.min(700, chatWidth)) }),
+  isResizing: false,
+  setIsResizing: (isResizing) => set({ isResizing }),
+  osName: 'YourOS',
+  setOsName: (osName) => set({ osName }),
+  darkMode: true,
+  toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
+  accentColor: 'blue',
+  setAccentColor: (accentColor) => set({ accentColor }),
+  features: [
+    { label: 'Chat', enabled: true },
+    { label: 'Tasks', enabled: true },
+    { label: 'Hay/Ideas', enabled: true },
+    { label: 'Agents', enabled: true },
+    { label: 'Projects', enabled: true },
+    { label: 'Docs', enabled: true },
+    { label: 'Transcripts', enabled: false },
+  ],
+  setFeatures: (features) => set({ features }),
+  isFeatureEnabled: (label: string) => {
+    const feature = get().features.find((f) => f.label === label)
+    return feature ? feature.enabled : true
+  },
+  defaultChatModel: 'claude',
+  setDefaultChatModel: (defaultChatModel) => set({ defaultChatModel }),
+  commandPaletteOpen: false,
+  setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
+  toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
+}))
