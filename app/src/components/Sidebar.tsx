@@ -49,7 +49,7 @@ export function Sidebar() {
     }`
 
   return (
-    <aside className="h-screen w-56 fixed left-0 top-0 border-r border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50">
+    <aside data-tour="sidebar" className="h-screen w-56 fixed left-0 top-0 border-r border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50">
       <div className="px-5 mb-8">
         <span className="text-xl font-black accent-text tracking-tight">{osName}</span>
       </div>
@@ -78,7 +78,14 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="px-3">
+      <div className="px-3 flex flex-col gap-1">
+        <button
+          onClick={() => useAppStore.getState().setShowTour(true)}
+          className="group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-slate-800/50"
+        >
+          <Icon name="explore" className="text-xl" />
+          <span className="text-sm font-medium">Tour</span>
+        </button>
         <NavLink
           to="/settings"
           className={({ isActive }) => linkClass(isActive)}

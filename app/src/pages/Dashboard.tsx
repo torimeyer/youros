@@ -25,10 +25,6 @@ interface DashboardData {
   ostk_status: string;
 }
 
-interface CostSummary {
-  total_budget: number;
-  agent_count: number;
-}
 
 const focusIcons = ['code', 'mail', 'smart_toy', 'target', 'bolt'];
 const focusColors = [
@@ -49,26 +45,8 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const toggleChat = useAppStore((s) => s.toggleChat);
   const osName = useAppStore((s) => s.osName);
-  const setShowTour = useAppStore((s) => s.setShowTour);
-
-  const [tourDismissed, setTourDismissed] = useState(
-    () => localStorage.getItem('youros-tour-complete') === 'true',
-  );
-
-  const startTour = () => {
-    setShowTour(true);
-    setTourDismissed(true);
-    localStorage.setItem('youros-tour-complete', 'true');
-  };
-
-  const dismissTour = () => {
-    setTourDismissed(true);
-    localStorage.setItem('youros-tour-complete', 'true');
-  };
-
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [costData, setCostData] = useState<CostSummary | null>(null);
   const [activeAgents, setActiveAgents] = useState<{ name: string; status: string }[]>([]);
   const [summaryBullets, setSummaryBullets] = useState<string[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -88,13 +66,11 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, costRes, agentsRes] = await Promise.all([
+      const [dashRes, agentsRes] = await Promise.all([
         api.get<DashboardData>('/dashboard'),
-        api.get<CostSummary>('/costs?period=all').catch(() => null),
         api.get<{ active: { name: string; status: string; source?: string }[] }>('/agents').catch(() => null),
       ]);
       setData(dashRes);
-      if (costRes) setCostData(costRes);
       if (agentsRes?.active) setActiveAgents(agentsRes.active);
     } catch (e) {
       console.error('Failed to fetch dashboard:', e);
@@ -149,31 +125,11 @@ export default function Dashboard() {
 
       <div className="pt-16 p-8">
         {/* Greeting */}
-        <div className="mb-8">
+        <div data-tour="dashboard" className="mb-8">
           <h1 className="text-3xl font-bold mb-1">Welcome to {osName}</h1>
           <p className="text-slate-400">Ready for your morning deep work session?</p>
         </div>
 
-        {/* Tour Banner */}
-        {!tourDismissed && (
-          <div className="mb-6 bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Icon name="explore" className="text-blue-400" size={24} />
-              <div>
-                <p className="text-sm font-medium text-blue-300">New here?</p>
-                <p className="text-xs text-slate-400">Take a quick tour to learn your way around.</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={startTour} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors">
-                Start Tour
-              </button>
-              <button onClick={dismissTour} className="p-1 text-slate-500 hover:text-white transition-colors">
-                <Icon name="close" size={18} />
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Widget Grid */}
         <div className="grid grid-cols-3 gap-6">
@@ -378,28 +334,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Cost Tracker */}
-          <div className={cardClass} onClick={() => navigate('/costs')} style={{ cursor: 'pointer' }}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Cost Tracker</h2>
-              <Icon name="chevron_right" className="text-slate-500" size={20} />
-            </div>
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs text-slate-400 mb-1">Total Budget Allocated</p>
-                <span className="text-2xl font-bold">
-                  ${costData ? costData.total_budget.toFixed(2) : '0.00'}
-                </span>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400 mb-1">Agents Spawned</p>
-                <span className="text-lg font-semibold">
-                  {costData ? costData.agent_count : 0}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500">Click for detailed breakdown</p>
-            </div>
-          </div>
 
         </div>
       </div>

@@ -592,7 +592,7 @@ export default function Agents() {
   return (
     <>
       <TopBar title="Agents" />
-      <div className="pt-16 p-8">
+      <div data-tour="agents" className="pt-16 p-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-6">

@@ -260,7 +260,7 @@ export default function Tasks() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Tasks" />
 
-      <div className="pt-16 p-8 max-w-6xl mx-auto">
+      <div data-tour="tasks" className="pt-16 p-8 max-w-6xl mx-auto">
         {/* Banner */}
         {banner && (
           <div className="mb-4 px-4 py-3 bg-purple-500/20 border border-purple-500/40 rounded-lg text-sm text-purple-200 flex items-center justify-between">

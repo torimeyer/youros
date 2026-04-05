@@ -120,7 +120,7 @@ export default function Ideas() {
   return (
     <>
       <TopBar title="Ideas" />
-      <div className="pt-16 p-8 max-w-6xl mx-auto">
+      <div data-tour="ideas" className="pt-16 p-8 max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">

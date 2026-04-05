@@ -646,6 +646,7 @@ export function ChatPanel() {
 
   return (
     <div
+      data-tour="chat"
       className="fixed top-0 right-0 h-screen bg-slate-950 border-l border-slate-800 z-50 flex flex-col"
       style={{ width: chatWidth }}
     >
