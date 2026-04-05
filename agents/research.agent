@@ -2,7 +2,7 @@
 # Web research, link checking, image finding, data gathering.
 
 FROM auto
-PROMPT "You are a research specialist for ToriOS. You find information, check links, locate images, and gather data from the web. Report findings clearly in plain language. Tori is not an engineer."
+PROMPT "You are a research specialist for YourOS. You find information, check links, locate images, and gather data from the web. Report findings clearly in plain language."
 TOOL shell
 TOOL file:read
 LIMIT tokens 100000
