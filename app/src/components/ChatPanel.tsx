@@ -96,6 +96,56 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
   )
 }
 
+function ThinkingDots() {
+  return (
+    <span className="inline-flex items-center gap-1 py-1">
+      <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+      <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+      <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+    </span>
+  )
+}
+
+function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: boolean; streaming: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const isLong = text.length > 300
+  // While streaming the last message, only show last ~200 chars to reduce noise
+  if (streaming && isLast && isLong && !expanded) {
+    const lastChunk = text.slice(-200)
+    const breakPoint = lastChunk.indexOf('. ')
+    const display = breakPoint > 0 ? lastChunk.slice(breakPoint + 2) : lastChunk
+    return (
+      <div>
+        <button onClick={() => setExpanded(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mb-1">
+          Show full response ({text.length} chars)
+        </button>
+        <div>{display}</div>
+      </div>
+    )
+  }
+  if (!streaming && isLong && !expanded) {
+    // After streaming is done, show first 300 chars with expand option
+    return (
+      <div>
+        <div>{text.slice(0, 300)}...</div>
+        <button onClick={() => setExpanded(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mt-1">
+          Show more
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div>
+      {text}
+      {isLong && expanded && (
+        <button onClick={() => setExpanded(false)} className="block text-[10px] text-blue-400 hover:text-blue-300 mt-1">
+          Show less
+        </button>
+      )}
+    </div>
+  )
+}
+
 function ReplyPreview({ message, onClick }: { message: Message | undefined; onClick?: () => void }) {
   if (!message) return null
   const sender = message.role === 'user' ? 'You' : (message.model || 'Assistant')
@@ -609,13 +659,15 @@ export function ChatPanel() {
                         ))}
                       </div>
                     )}
-                    {msg.content || (isStreaming && i === messages.length - 1 && !msg.toolCalls?.length ? (
-                      <span className="inline-flex items-center gap-1 py-1">
-                        <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                      </span>
-                    ) : null)}
+                    {msg.content && (
+                      <CollapsibleText text={msg.content} isLast={i === messages.length - 1} streaming={isStreaming} />
+                    )}
+                    {!msg.content && isStreaming && i === messages.length - 1 && !msg.toolCalls?.length && (
+                      <ThinkingDots />
+                    )}
+                    {isStreaming && i === messages.length - 1 && (msg.toolCalls?.some(tc => tc.result === undefined)) && (
+                      <ThinkingDots />
+                    )}
                   </>
                 )}
               </div>
