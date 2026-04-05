@@ -192,7 +192,12 @@ function GiphyPicker({ initialSearch, onSelect, onClose }: {
 
 export function ChatPanel() {
   const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel } = useAppStore()
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const saved = localStorage.getItem('youros-chat-messages')
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentModel, setCurrentModel] = useState<string | null>(null)
@@ -281,6 +286,14 @@ export function ChatPanel() {
       })
     }
   }, [lastMessage, currentModel])
+
+  // Persist messages to localStorage (skip base64 images to avoid quota limits)
+  useEffect(() => {
+    try {
+      const toSave = messages.map(m => m.imageUrl ? { ...m, imageUrl: undefined } : m)
+      localStorage.setItem('youros-chat-messages', JSON.stringify(toSave))
+    } catch { /* quota exceeded, skip */ }
+  }, [messages])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -433,6 +446,7 @@ export function ChatPanel() {
 
   const handleNewConversation = () => {
     setMessages([])
+    localStorage.removeItem('youros-chat-messages')
     setIsStreaming(false)
     setCurrentModel(null)
     setReplyingTo(null)
