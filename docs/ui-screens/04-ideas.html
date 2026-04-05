@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ToriOS - Ideas</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+              "primary": "#3b82f6",
+              "accent": "#ec4899",
+              "warning": "#f97316",
+              "ai": "#8b5cf6",
+              "info": "#06b6d4"
+            },
+            "borderRadius": {
+              "DEFAULT": "0.25rem",
+              "lg": "0.5rem",
+              "xl": "0.75rem",
+              "full": "9999px"
+            },
+            "fontFamily": {
+              "headline": ["Inter", "sans-serif"],
+              "body": ["Inter", "sans-serif"],
+              "label": ["Inter", "sans-serif"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+      body {
+        font-family: 'Inter', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #1e293b;
+        border-radius: 10px;
+      }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-200 min-h-screen flex overflow-hidden">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-64 border-r border-slate-800 bg-slate-950 flex flex-col py-8 px-4 h-full z-50">
+<div class="text-2xl font-black text-pink-500 mb-8 px-2 tracking-tighter">ToriOS</div>
+<nav class="flex flex-col space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:bg-slate-900/80 hover:text-white transition-all cursor-pointer duration-200" href="#">
+<span class="material-symbols-outlined">space_dashboard</span>
+<span class="font-medium text-sm">Dashboard</span>
+</a>
+<!-- Active State: Ideas -->
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-pink-500 bg-slate-900/50 border-r-2 border-pink-500 font-medium text-sm cursor-pointer duration-200" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">lightbulb</span>
+<span class="font-medium text-sm">Ideas</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:bg-slate-900/80 hover:text-white transition-all cursor-pointer duration-200" href="#">
+<span class="material-symbols-outlined">check_circle</span>
+<span class="font-medium text-sm">Tasks</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:bg-slate-900/80 hover:text-white transition-all cursor-pointer duration-200" href="#">
+<span class="material-symbols-outlined">smart_toy</span>
+<span class="font-medium text-sm">Agents</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:bg-slate-900/80 hover:text-white transition-all cursor-pointer duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-medium text-sm">Settings</span>
+</a>
+</nav>
+<div class="mt-auto px-4 py-4 border-t border-slate-800/50">
+<div class="flex items-center gap-3">
+<img alt="User profile" class="w-8 h-8 rounded-full" data-alt="professional headshot of a person with friendly expression, clean lighting, blurred tech office background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAQ0HGp0Ng0p4E7TNNn_oXPjiNGF7VUxGrCiVFFAa1CXh1bY4j87ZJkZGIMCjy9LnRhlyySEijrmPE-ulM7Rlcza0OXcCbYnMsNc6gjm-0si8dfn0vMzLGUV3VV7s7IXWmrYk5maDG0NLGaV0JBQcE6XJjjMYkViWE5X3byMINlmg2V9-U37Bh_E0cs-GVShgSF6dDPKGfiAExNU6oLOVy0wuQSESFh1dd3d2HpiswDmIvOyJYpd0givlDCT8MdtCY5IXluwWqcBHw"/>
+<div>
+<p class="text-xs font-bold text-white leading-none">v1.0.4</p>
+<p class="text-[10px] text-slate-500">System Ready</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Viewport -->
+<main class="flex-1 ml-64 flex flex-col h-screen relative">
+<!-- TopAppBar -->
+<header class="fixed top-0 right-0 left-64 z-40 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 flex justify-between items-center px-6 h-16">
+<div class="flex items-center flex-1 max-w-xl">
+<div class="relative w-full group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-pink-500 transition-colors">search</span>
+<input class="w-full bg-slate-900/50 border border-slate-800 rounded-lg pl-10 pr-4 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-pink-500/50 focus:border-pink-500 transition-all text-slate-200" placeholder="Search ideas..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-slate-400 hover:bg-slate-900 p-2 rounded-lg transition-colors active:scale-95">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-slate-400 hover:bg-slate-900 p-2 rounded-lg transition-colors active:scale-95">
+<span class="material-symbols-outlined">account_circle</span>
+</button>
+</div>
+</header>
+<!-- Scrollable Content -->
+<div class="mt-16 flex-1 overflow-y-auto custom-scrollbar p-8">
+<div class="max-w-4xl mx-auto">
+<!-- Title & Header -->
+<div class="flex items-center justify-between mb-8">
+<div class="flex items-center gap-3">
+<h1 class="text-3xl font-black tracking-tight text-white">Ideas</h1>
+<span class="bg-pink-500 text-white text-xs font-bold px-2 py-0.5 rounded-full mt-1">8</span>
+</div>
+<div class="flex items-center bg-slate-900 rounded-lg p-1 border border-slate-800">
+<button class="px-3 py-1 text-xs font-medium text-white bg-slate-800 rounded shadow-sm">Newest first</button>
+<button class="px-3 py-1 text-xs font-medium text-slate-400 hover:text-white transition-colors">Oldest first</button>
+</div>
+</div>
+<!-- Quick Capture -->
+<div class="mb-10 relative group">
+<div class="absolute -inset-0.5 bg-gradient-to-r from-pink-500/20 to-blue-500/20 rounded-xl blur opacity-30 group-focus-within:opacity-100 transition duration-500"></div>
+<div class="relative bg-slate-900 border border-slate-800 rounded-xl p-1 flex items-center gap-2">
+<input class="flex-1 bg-transparent border-none focus:ring-0 text-slate-200 placeholder-slate-500 px-4 py-3 text-lg" placeholder="What's on your mind?" type="text"/>
+<button class="bg-pink-500 text-white px-5 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 active:scale-95 transition-transform hover:bg-pink-600">
+<span>Send</span>
+<span class="material-symbols-outlined text-sm">send</span>
+</button>
+</div>
+</div>
+<!-- Suggested Compilations (AI-Assisted) -->
+<section class="mb-12">
+<div class="flex items-center gap-2 mb-4 text-purple-400">
+<span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+<h2 class="text-xs font-bold uppercase tracking-widest">Suggested compilations</h2>
+</div>
+<div class="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-6 relative overflow-hidden">
+<div class="absolute top-0 right-0 p-4 opacity-10">
+<span class="material-symbols-outlined text-6xl">smart_toy</span>
+</div>
+<div class="flex flex-col md:flex-row md:items-center gap-6 relative z-10">
+<div class="flex-1">
+<p class="text-sm text-slate-400 mb-4 leading-relaxed">I've grouped <span class="text-purple-300 font-semibold">3 related ideas</span> about platform expansion and connectivity.</p>
+<div class="flex flex-wrap gap-2">
+<span class="px-3 py-1 bg-slate-950/50 border border-slate-800 rounded-full text-[11px] text-slate-300">Voice input to chat</span>
+<span class="px-3 py-1 bg-slate-950/50 border border-slate-800 rounded-full text-[11px] text-slate-300">Webhooks for notifications</span>
+<span class="px-3 py-1 bg-slate-950/50 border border-slate-800 rounded-full text-[11px] text-slate-300">Agent communication</span>
+</div>
+</div>
+<button class="shrink-0 bg-gradient-to-r from-pink-500 to-blue-500 hover:from-pink-600 hover:to-blue-600 text-white px-6 py-3 rounded-xl font-bold text-sm transition-all active:scale-95 shadow-lg shadow-pink-500/20">
+                                Create Tasks
+                            </button>
+</div>
+</div>
+</section>
+<!-- Hay Entries List -->
+<div class="grid grid-cols-1 gap-4">
+<!-- Idea Card 1 -->
+<div class="bg-slate-900 border border-slate-800 hover:border-slate-700 p-5 rounded-xl transition-all group relative">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-2 text-slate-500">
+<span class="material-symbols-outlined text-sm">schedule</span>
+<span class="text-[11px] font-medium uppercase tracking-tight">2h ago</span>
+</div>
+<div class="flex items-center gap-1.5 text-blue-400">
+<span class="material-symbols-outlined text-sm" title="Cluster candidate">bubble_chart</span>
+</div>
+</div>
+<p class="text-slate-200 text-lg leading-relaxed mb-6 font-medium">Maybe we should add voice input to chat</p>
+<div class="flex items-center justify-between pt-4 border-t border-slate-800/50">
+<button class="text-pink-500 hover:bg-pink-500/10 border border-pink-500/30 px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider transition-colors">
+                                Compile
+                            </button>
+<div class="flex -space-x-2">
+<div class="w-6 h-6 rounded-full bg-slate-800 border-2 border-slate-900 flex items-center justify-center text-[10px] text-slate-400">
+<span class="material-symbols-outlined text-xs">more_horiz</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Idea Card 2 -->
+<div class="bg-slate-900 border border-slate-800 hover:border-slate-700 p-5 rounded-xl transition-all group relative">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-2 text-slate-500">
+<span class="material-symbols-outlined text-sm">schedule</span>
+<span class="text-[11px] font-medium uppercase tracking-tight">5h ago</span>
+</div>
+<div class="flex items-center gap-1.5 text-blue-400">
+<span class="material-symbols-outlined text-sm">bubble_chart</span>
+</div>
+</div>
+<p class="text-slate-200 text-lg leading-relaxed mb-6 font-medium">What if agents could talk to each other</p>
+<div class="flex items-center justify-between pt-4 border-t border-slate-800/50">
+<button class="text-pink-500 hover:bg-pink-500/10 border border-pink-500/30 px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider transition-colors">
+                                Compile
+                            </button>
+</div>
+</div>
+<!-- Idea Card 3 -->
+<div class="bg-slate-900 border border-slate-800 hover:border-slate-700 p-5 rounded-xl transition-all group relative">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-2 text-slate-500">
+<span class="material-symbols-outlined text-sm">schedule</span>
+<span class="text-[11px] font-medium uppercase tracking-tight">Yesterday</span>
+</div>
+</div>
+<p class="text-slate-200 text-lg leading-relaxed mb-6 font-medium">Need to research competitor pricing</p>
+<div class="flex items-center justify-between pt-4 border-t border-slate-800/50">
+<button class="text-pink-500 hover:bg-pink-500/10 border border-pink-500/30 px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider transition-colors">
+                                Compile
+                            </button>
+</div>
+</div>
+<!-- Idea Card 4 -->
+<div class="bg-slate-900 border border-slate-800 hover:border-slate-700 p-5 rounded-xl transition-all group relative">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-2 text-slate-500">
+<span class="material-symbols-outlined text-sm">schedule</span>
+<span class="text-[11px] font-medium uppercase tracking-tight">Nov 14</span>
+</div>
+</div>
+<p class="text-slate-200 text-lg leading-relaxed mb-6 font-medium">Landing page should have a demo video</p>
+<div class="flex items-center justify-between pt-4 border-t border-slate-800/50">
+<button class="text-pink-500 hover:bg-pink-500/10 border border-pink-500/30 px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider transition-colors">
+                                Compile
+                            </button>
+</div>
+</div>
+<!-- Idea Card 5 -->
+<div class="bg-slate-900 border border-slate-800 hover:border-slate-700 p-5 rounded-xl transition-all group relative">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-2 text-slate-500">
+<span class="material-symbols-outlined text-sm">schedule</span>
+<span class="text-[11px] font-medium uppercase tracking-tight">Nov 12</span>
+</div>
+<div class="flex items-center gap-1.5 text-blue-400">
+<span class="material-symbols-outlined text-sm">bubble_chart</span>
+</div>
+</div>
+<p class="text-slate-200 text-lg leading-relaxed mb-6 font-medium">Consider adding webhooks for notifications</p>
+<div class="flex items-center justify-between pt-4 border-t border-slate-800/50">
+<button class="text-pink-500 hover:bg-pink-500/10 border border-pink-500/30 px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider transition-colors">
+                                Compile
+                            </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

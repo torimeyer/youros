@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#3b82f6",
+                        accent: "#ec4899",
+                        warning: "#f97316",
+                        ai: "#8b5cf6",
+                        supplementary: "#06b6d4"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    fontFamily: {
+                        "headline": ["Inter", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Inter", "sans-serif"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-200 font-body antialiased overflow-hidden">
+<!-- SideNavBar (Shared Component) -->
+<aside class="fixed left-0 top-0 h-screen w-64 z-40 flex flex-col bg-slate-900 border-r border-slate-800 shadow-xl">
+<div class="p-6">
+<div class="flex items-center gap-3 mb-8">
+<div class="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-500 to-blue-500 flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-xl">grid_view</span>
+</div>
+<div>
+<h1 class="text-lg font-bold text-pink-500 leading-none">ToriOS</h1>
+<p class="text-[10px] text-slate-500 uppercase tracking-widest mt-1">v1.0.2</p>
+</div>
+</div>
+<button class="w-full py-2.5 px-4 bg-blue-500 hover:bg-blue-600 text-white text-sm font-bold rounded-lg transition-all mb-8 flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 active:scale-95 duration-100">
+<span class="material-symbols-outlined text-sm">add</span>
+                New Task
+            </button>
+<nav class="space-y-1">
+<!-- Home -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors rounded-lg group" href="#">
+<span class="material-symbols-outlined group-hover:text-blue-400">grid_view</span>
+<span class="text-sm font-medium">Home</span>
+</a>
+<!-- Tasks (Active) -->
+<a class="flex items-center gap-3 px-4 py-3 bg-blue-500/10 text-blue-400 border-r-4 border-blue-500 transition-colors" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">checklist</span>
+<span class="text-sm font-medium">Tasks</span>
+</a>
+<!-- Agents -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors rounded-lg group" href="#">
+<span class="material-symbols-outlined group-hover:text-blue-400">smart_toy</span>
+<span class="text-sm font-medium">Agents</span>
+</a>
+<!-- Vault -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors rounded-lg group" href="#">
+<span class="material-symbols-outlined group-hover:text-blue-400">lock</span>
+<span class="text-sm font-medium">Vault</span>
+</a>
+</nav>
+</div>
+<div class="mt-auto p-6 space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined text-sm">help_outline</span>
+<span class="text-sm font-medium">Help</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-pink-400 hover:bg-slate-800 transition-colors rounded-lg" href="#">
+<span class="material-symbols-outlined text-sm">power_settings_new</span>
+<span class="text-sm font-medium">Power</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area (Tasks View - Partially Visible) -->
+<main class="ml-64 mr-[350px] min-h-screen p-8 bg-slate-950">
+<header class="flex justify-between items-center mb-8">
+<div>
+<h2 class="text-2xl font-black text-white tracking-tight">Active Tasks</h2>
+<p class="text-slate-500 text-sm">Priority workspace focus</p>
+</div>
+<div class="flex gap-2">
+<button class="p-2 text-slate-400 hover:bg-slate-800 rounded-lg transition-all">
+<span class="material-symbols-outlined">filter_list</span>
+</button>
+<button class="p-2 text-slate-400 hover:bg-slate-800 rounded-lg transition-all">
+<span class="material-symbols-outlined">search</span>
+</button>
+</div>
+</header>
+<!-- Tasks Grid (Bento Style) -->
+<div class="grid grid-cols-2 gap-4">
+<!-- P0 Task 1 -->
+<div class="p-5 bg-slate-900/50 border border-pink-500/30 rounded-xl hover:border-pink-500 transition-all cursor-pointer group">
+<div class="flex justify-between items-start mb-4">
+<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-500/20 text-pink-500 border border-pink-500/50">P0</span>
+<span class="material-symbols-outlined text-slate-600 group-hover:text-pink-500 transition-colors">more_horiz</span>
+</div>
+<h3 class="text-white font-semibold mb-2">#032 Fix lego-app build</h3>
+<p class="text-xs text-slate-400 line-clamp-2 mb-4">CI/CD pipeline failing on node-sass deprecation warnings in the legacy modules.</p>
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
+<span class="material-symbols-outlined text-[14px]">person</span>
+</div>
+<span class="text-[10px] text-slate-500">Assigned to you</span>
+</div>
+</div>
+<!-- P0 Task 2 -->
+<div class="p-5 bg-slate-900/50 border border-pink-500/30 rounded-xl hover:border-pink-500 transition-all cursor-pointer group">
+<div class="flex justify-between items-start mb-4">
+<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-pink-500/20 text-pink-500 border border-pink-500/50">P0</span>
+<span class="material-symbols-outlined text-slate-600 group-hover:text-pink-500 transition-colors">more_horiz</span>
+</div>
+<h3 class="text-white font-semibold mb-2">#031 Refactor auth module</h3>
+<p class="text-xs text-slate-400 line-clamp-2 mb-4">Transitioning from local JWT to OAuth2 provider for enterprise scaling.</p>
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
+<span class="material-symbols-outlined text-[14px]">person</span>
+</div>
+<span class="text-[10px] text-slate-500">Assigned to you</span>
+</div>
+</div>
+<!-- Normal Task -->
+<div class="p-5 bg-slate-900/40 border border-slate-800 rounded-xl hover:border-blue-500/50 transition-all cursor-pointer group">
+<div class="flex justify-between items-start mb-4">
+<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-500 border border-blue-500/50">P2</span>
+<span class="material-symbols-outlined text-slate-600 group-hover:text-blue-500 transition-colors">more_horiz</span>
+</div>
+<h3 class="text-white font-semibold mb-2">Update documentation</h3>
+<p class="text-xs text-slate-400 line-clamp-2 mb-4">Review and update API swagger files for the latest v1.2 endpoints.</p>
+</div>
+</div>
+</main>
+<!-- NavigationDrawer / ToriChat Panel (The Focus) -->
+<aside class="fixed right-0 top-0 h-screen w-[350px] z-40 bg-slate-950 border-l border-slate-800 shadow-2xl flex flex-col slide-in-right transition-transform duration-300">
+<!-- Header -->
+<div class="h-16 flex items-center justify-between px-6 border-b border-slate-800/50">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></div>
+<h2 class="text-purple-400 font-semibold tracking-tight">ToriChat</h2>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-2 text-slate-500 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition-all active:scale-90">
+<span class="material-symbols-outlined">add_comment</span>
+</button>
+<button class="p-2 text-slate-500 hover:text-pink-500 hover:bg-pink-500/10 rounded-lg transition-all active:scale-90">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+</div>
+<!-- Chat Conversation Area -->
+<div class="flex-1 overflow-y-auto p-6 space-y-6">
+<!-- Message 1: User -->
+<div class="flex flex-col items-end gap-2">
+<div class="bg-blue-600 text-white px-4 py-2.5 rounded-2xl rounded-tr-none text-sm max-w-[85%] shadow-md">
+                    Show my open P0 tasks.
+                </div>
+<span class="text-[10px] text-slate-600 mr-1">10:42 AM</span>
+</div>
+<!-- Message 2: AI -->
+<div class="flex flex-col items-start gap-2">
+<div class="flex items-center gap-2 mb-1">
+<div class="w-5 h-5 rounded bg-purple-500/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] text-purple-400" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<span class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Assistant</span>
+</div>
+<div class="bg-slate-900 border border-slate-800 text-slate-200 px-4 py-3 rounded-2xl rounded-tl-none text-sm max-w-[90%] shadow-lg">
+                    You have 2 open P0 tasks: <br/>
+<span class="text-pink-400 font-medium">#032 Fix lego-app build</span> and <br/>
+<span class="text-pink-400 font-medium">#031 Refactor auth module</span>.<br/><br/>
+                    Would you like me to work on either of these?
+                </div>
+</div>
+<!-- Message 3: User -->
+<div class="flex flex-col items-end gap-2">
+<div class="bg-blue-600 text-white px-4 py-2.5 rounded-2xl rounded-tr-none text-sm max-w-[85%] shadow-md">
+                    Yes spawn an agent for #032.
+                </div>
+<span class="text-[10px] text-slate-600 mr-1">10:43 AM</span>
+</div>
+<!-- Message 4: AI -->
+<div class="flex flex-col items-start gap-2">
+<div class="flex items-center gap-2 mb-1">
+<div class="w-5 h-5 rounded bg-purple-500/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] text-purple-400" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<span class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Assistant</span>
+</div>
+<div class="bg-slate-900 border border-slate-800 text-slate-200 px-4 py-3 rounded-2xl rounded-tl-none text-sm max-w-[90%] shadow-lg border-l-2 border-l-purple-500">
+                    Done! I have spawned <span class="text-purple-400 font-bold">research-agent</span> to investigate the build error. <br/><br/>
+                    You can monitor it in the <span class="underline underline-offset-4 decoration-purple-500/50">Agents tab</span>.
+                </div>
+</div>
+</div>
+<!-- Footer / Input Area -->
+<div class="p-4 border-t border-slate-800/50 bg-slate-950/80 backdrop-blur-sm">
+<!-- Suggestion Chips -->
+<div class="flex flex-wrap gap-2 mb-4 overflow-x-auto pb-2 no-scrollbar">
+<button class="whitespace-nowrap px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-full text-[11px] text-slate-400 hover:text-purple-400 transition-colors">Show my open P0 tasks</button>
+<button class="whitespace-nowrap px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-full text-[11px] text-slate-400 hover:text-purple-400 transition-colors">What should I work on next</button>
+<button class="whitespace-nowrap px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-full text-[11px] text-slate-400 hover:text-purple-400 transition-colors">Summarize todays updates</button>
+<button class="whitespace-nowrap px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-full text-[11px] text-slate-400 hover:text-purple-400 transition-colors">Spawn a research agent</button>
+</div>
+<!-- Model Selector & Input -->
+<div class="relative bg-slate-900 border border-slate-800 rounded-xl p-1 shadow-inner focus-within:border-purple-500/50 transition-all">
+<div class="flex items-center px-2 py-1 gap-2 border-b border-slate-800 mb-1">
+<div class="flex items-center gap-1 cursor-pointer group">
+<span class="text-[10px] font-bold text-purple-400 group-hover:text-purple-300 transition-colors">@claude</span>
+<span class="material-symbols-outlined text-[12px] text-slate-600">expand_more</span>
+</div>
+<div class="h-3 w-px bg-slate-800"></div>
+<span class="text-[10px] text-slate-600">Model Selector</span>
+</div>
+<div class="flex items-end gap-2 p-1">
+<textarea class="flex-1 bg-transparent border-none focus:ring-0 text-sm text-slate-200 placeholder-slate-600 resize-none py-2 px-2" placeholder="Message ToriChat" rows="1"></textarea>
+<button class="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center text-white hover:bg-blue-600 transition-all active:scale-90 mb-0.5">
+<span class="material-symbols-outlined text-lg">arrow_upward</span>
+</button>
+</div>
+</div>
+</div>
+</aside>
+<!-- Top Status Bar (Subtle) -->
+<div class="fixed top-0 left-64 right-[350px] h-1.5 flex gap-1 px-8 z-30">
+<div class="flex-1 h-full bg-pink-500/20 rounded-b-full"></div>
+<div class="flex-1 h-full bg-blue-500/10 rounded-b-full"></div>
+<div class="flex-1 h-full bg-slate-800/20 rounded-b-full"></div>
+</div>
+</body></html>

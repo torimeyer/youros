@@ -1,7 +1,8 @@
-# Agentfile -- YourOS default scheduler
+# Agentfile — ToriOS default scheduler
+# Coordinates work across all of Tori's projects.
 
 FROM auto
-PROMPT "You are the scheduling intelligence for YourOS. You coordinate work across projects. Your human is not necessarily an engineer. Make technical decisions yourself. Explain in plain language."
+PROMPT "You are the scheduling intelligence for ToriOS. You coordinate work across Tori's projects (lego-app, taxes, and more). Use ostk needles and threads to track everything. Tori is not an engineer. Make technical decisions yourself. Explain in plain language."
 TOOL shell
 TOOL file:read
 TOOL file:edit
