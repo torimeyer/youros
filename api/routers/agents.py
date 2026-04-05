@@ -22,6 +22,8 @@ from config import AGENTS_DIR
 async def list_agents():
     ps_result = await ostk.kernel_ps()
     audit_agents_list = await ostk.audit_agents()
+    daemon_running = ps_result.get("daemon_running", False)
+    daemon_agent_names = {a["name"] for a in ps_result.get("agents", [])}
 
     # Build a unified agent map: name -> agent info.
     # Priority: daemon (most authoritative) > in-memory > audit log.
@@ -29,15 +31,32 @@ async def list_agents():
 
     # 1. Audit log agents (lowest priority, background context)
     for agent in audit_agents_list:
+        # If no daemon is running and audit says "spawned", the agent is dead.
+        # Also if daemon IS running but this agent isn't in the daemon's list.
+        if agent.get("status") in ("spawned", "running"):
+            if not daemon_running or agent["name"] not in daemon_agent_names:
+                # Check if it's in our in-memory registry (API-spawned this session)
+                if agent["name"] not in active_agents:
+                    agent = {**agent, "status": "stopped"}
         agents_map[agent["name"]] = agent
 
     # 2. In-memory agents (spawned via API this session)
-    for name in active_agents:
-        agents_map[name] = {
-            "name": name,
-            "status": "running",
-            "source": "api",
-        }
+    for name in list(active_agents.keys()):
+        proc = active_agents[name]
+        # Check if the process is still alive
+        if hasattr(proc, 'returncode') and proc.returncode is not None:
+            del active_agents[name]
+            agents_map[name] = {
+                "name": name,
+                "status": "completed" if proc.returncode == 0 else "failed",
+                "source": "api",
+            }
+        else:
+            agents_map[name] = {
+                "name": name,
+                "status": "running",
+                "source": "api",
+            }
 
     # 3. Daemon agents (highest priority, ground truth)
     for agent in ps_result.get("agents", []):
@@ -46,12 +65,11 @@ async def list_agents():
     all_agents = list(agents_map.values())
 
     return {
-        "daemon_running": ps_result.get("daemon_running", False),
+        "daemon_running": daemon_running,
         "status": ps_result.get("raw", "unknown"),
         "active": [
             a["name"] for a in all_agents
             if a.get("status") == "running"
-            or (a.get("status") == "spawned" and a.get("source") != "audit")
         ],
         "agents": all_agents,
     }
