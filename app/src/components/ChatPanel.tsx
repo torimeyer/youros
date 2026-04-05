@@ -25,6 +25,7 @@ const TOOL_LABELS: Record<string, string> = {
   list_tasks: 'List tasks',
   create_task: 'Create task',
   close_task: 'Close task',
+  check_agents: 'Check agents',
   spawn_agent: 'Spawn agent',
   web_search: 'Web search',
   web_fetch: 'Fetch page',

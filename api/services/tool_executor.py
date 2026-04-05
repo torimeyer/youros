@@ -245,6 +245,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "check_agents",
+        "description": "Check the status of background agents. Shows which agents are running, completed, failed, or stopped.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
         "name": "spawn_agent",
         "description": "Spawn a background AI agent to work on a task independently. The agent runs in the background and can be monitored on the Agents page. Use this for tasks that take a while or can run in parallel.",
         "input_schema": {
@@ -303,6 +312,8 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
             return await _git_diff(input_data.get("path", ""))
         elif name == "git_commit":
             return await _git_commit(input_data["message"])
+        elif name == "check_agents":
+            return await _check_agents()
         elif name == "spawn_agent":
             return await _spawn_agent(input_data["name"], input_data["prompt"], input_data.get("model", "sonnet"))
         else:
@@ -545,6 +556,31 @@ async def _git_commit(message: str) -> str:
         return result
     except Exception as e:
         return f"Git commit failed: {e}"
+
+
+async def _check_agents() -> str:
+    try:
+        ps_result = await ostk.kernel_ps()
+        audit_agents = await ostk.audit_agents()
+        daemon_running = ps_result.get("daemon_running", False)
+
+        lines = []
+        if not audit_agents:
+            return "No agents have been spawned yet."
+
+        for agent in audit_agents:
+            status = agent.get("status", "unknown")
+            # If no daemon and status is spawned, it's stopped
+            if status in ("spawned", "running") and not daemon_running:
+                status = "stopped"
+            name = agent.get("name", "unknown")
+            model = agent.get("model", "")
+            timestamp = agent.get("timestamp", "")
+            lines.append(f"{name}: {status.upper()} (model: {model}, spawned: {timestamp})")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Failed to check agents: {e}"
 
 
 async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
