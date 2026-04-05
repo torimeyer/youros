@@ -176,12 +176,12 @@ export default function Agents() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleSpawn = async (name: string) => {
+  const handleSpawn = async (name: string, prompt?: string) => {
     if (!name.trim()) return;
     try {
       await api.post("/agents/spawn", {
         name: name.trim(),
-        prompt: "",
+        prompt: prompt || `You are a ${name.trim()} agent. Do your job well.`,
         model: "sonnet",
         budget: 2.0,
       });
@@ -416,7 +416,10 @@ export default function Agents() {
                     </div>
 
                     {/* Nudge input. Always visible for active agents. */}
-                    <div className="flex gap-2 mt-3">
+                    <p className="text-[10px] text-slate-600 mt-3 mb-1">
+                      Send a message to this agent. Check Transcripts to see its full output.
+                    </p>
+                    <div className="flex gap-2">
                       <input
                         type="text"
                         placeholder="Send a message to this agent..."
@@ -465,21 +468,20 @@ export default function Agents() {
                       </div>
                     )}
 
-                    <div className="flex items-center justify-end mt-4">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleKill(agent.name)}
-                          className="border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1 hover:border-slate-500 transition-colors"
-                        >
-                          Pause
-                        </button>
-                        <button
-                          onClick={() => handleKill(agent.name)}
-                          className="border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1 hover:border-red-500 hover:text-red-400 transition-colors"
-                        >
-                          Kill
-                        </button>
-                      </div>
+                    <div className="flex items-center justify-between mt-4">
+                      <a
+                        href="/transcripts"
+                        className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+                      >
+                        <Icon name="description" size={16} />
+                        View Transcript
+                      </a>
+                      <button
+                        onClick={() => handleKill(agent.name)}
+                        className="border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1 hover:border-red-500 hover:text-red-400 transition-colors"
+                      >
+                        Kill
+                      </button>
                     </div>
                   </div>
                     );
@@ -546,7 +548,10 @@ export default function Agents() {
           {displayTemplates.map((tpl) => (
             <div
               key={tpl.name}
-              onClick={() => handleSpawn(tpl.name.toLowerCase().replace(/\s+/g, "-"))}
+              onClick={() => handleSpawn(
+                tpl.name.toLowerCase().replace(/\s+/g, "-"),
+                tpl.description
+              )}
               className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 text-center hover:border-blue-500 transition-colors cursor-pointer"
             >
               <Icon
