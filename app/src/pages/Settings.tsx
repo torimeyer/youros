@@ -498,10 +498,15 @@ export default function Settings() {
 
         {/* Row 4: Data Management */}
         <div className={cardClass}>
-          <h2 className="text-lg font-semibold mb-2">Data Management</h2>
-          <p className="text-sm text-slate-500 mb-4">
-            Export your settings to a file for backup, or import a previously exported file to restore them.
-          </p>
+          <div className="flex items-center gap-2 mb-2">
+            <h2 className="text-lg font-semibold">Data Management</h2>
+            <div className="group relative">
+              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                Export saves all your settings (theme, API keys, features) to a JSON file. Import loads a previously exported file to restore your settings.
+              </div>
+            </div>
+          </div>
           <div className="flex gap-3">
             <input
               ref={fileInputRef}

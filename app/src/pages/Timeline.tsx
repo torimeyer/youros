@@ -113,13 +113,13 @@ export default function Timeline() {
             <div className="flex items-center gap-1 text-sm bg-slate-800 rounded-lg overflow-hidden">
               <button
                 onClick={() => setStatusFilter("open")}
-                className={`px-3 py-1 ${statusFilter === "open" ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-300"}`}
+                className={`px-3 py-1 ${statusFilter === "open" ? "accent-bg !text-white" : "text-slate-300 hover:text-white"}`}
               >
                 Open
               </button>
               <button
                 onClick={() => setStatusFilter("closed")}
-                className={`px-3 py-1 ${statusFilter === "closed" ? "bg-slate-700 text-white" : "text-slate-400 hover:text-slate-300"}`}
+                className={`px-3 py-1 ${statusFilter === "closed" ? "accent-bg !text-white" : "text-slate-300 hover:text-white"}`}
               >
                 Closed
               </button>
@@ -131,8 +131,8 @@ export default function Timeline() {
                   onClick={() => setPriorityFilter(p === "ALL" ? null : (priorityFilter === p ? null : p))}
                   className={`px-2.5 py-1 rounded-full ${
                     (p === "ALL" && !priorityFilter) || priorityFilter === p
-                      ? "bg-slate-700 text-white"
-                      : "text-slate-500 hover:text-slate-300"
+                      ? "accent-bg !text-white"
+                      : "text-slate-300 hover:text-white"
                   }`}
                 >
                   {p}
