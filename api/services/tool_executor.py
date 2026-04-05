@@ -559,24 +559,30 @@ async def _git_commit(message: str) -> str:
 
 
 async def _check_agents() -> str:
+    """Check agent status via the API endpoint for consistency."""
     try:
-        ps_result = await ostk.kernel_ps()
-        audit_agents = await ostk.audit_agents()
-        daemon_running = ps_result.get("daemon_running", False)
+        import httpx
+        async with httpx.AsyncClient() as client:
+            resp = await client.get("http://127.0.0.1:8000/api/agents", timeout=5)
+            data = resp.json()
 
-        lines = []
-        if not audit_agents:
+        agents = data.get("agents", [])
+        if not agents:
             return "No agents have been spawned yet."
 
-        for agent in audit_agents:
-            status = agent.get("status", "unknown")
-            # If no daemon and status is spawned, it's stopped
-            if status in ("spawned", "running") and not daemon_running:
-                status = "stopped"
-            name = agent.get("name", "unknown")
-            model = agent.get("model", "")
-            timestamp = agent.get("timestamp", "")
-            lines.append(f"{name}: {status.upper()} (model: {model}, spawned: {timestamp})")
+        lines = []
+        for a in agents:
+            name = a.get("name", "unknown")
+            status = a.get("status", "unknown").upper()
+            model = a.get("model", "")
+            source = a.get("source", "")
+            lines.append(f"{name}: {status} (model: {model}, source: {source})")
+
+        active = data.get("active", [])
+        if active:
+            lines.append(f"\nCurrently running: {', '.join(active)}")
+        else:
+            lines.append("\nNo agents currently running.")
 
         return "\n".join(lines)
     except Exception as e:
@@ -584,18 +590,20 @@ async def _check_agents() -> str:
 
 
 async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
+    """Spawn a Claude Code subprocess as a background agent."""
     try:
-        proc = await ostk.kernel_spawn(name, prompt, model, budget=2.0)
-        # Wait briefly for the process to start and check for immediate errors
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3)
-            output = stdout.decode().strip()
-            errors = stderr.decode().strip()
-            if proc.returncode and proc.returncode != 0:
-                return f"Failed to spawn agent '{name}': {errors or output}"
-            return f"Agent '{name}' spawned successfully. {output}".strip()
-        except asyncio.TimeoutError:
-            # Process is still running (good, it's a long-running agent)
-            return f"Agent '{name}' spawned and running in the background. Check the Agents page to monitor it."
+        # Use the API endpoint so it's tracked consistently
+        import httpx
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "http://127.0.0.1:8000/api/agents/spawn",
+                json={"name": name, "prompt": prompt, "model": model, "budget": 2.0},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return f"Agent '{name}' spawned and running (PID {data.get('pid', '?')}). Check the Agents page to monitor it."
+            else:
+                return f"Failed to spawn agent '{name}': {resp.text}"
     except Exception as e:
         return f"Failed to spawn agent '{name}': {e}"

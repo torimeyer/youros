@@ -75,15 +75,61 @@ async def list_agents():
     }
 
 
+CLAUDE_BIN = "/Users/torimeyer/.local/bin/claude"
+
+MODEL_MAP = {
+    "sonnet": "claude-sonnet-4-6",
+    "opus": "claude-opus-4-6",
+    "haiku": "claude-haiku-4-5",
+}
+
+
 @router.post("/agents/spawn")
 async def spawn_agent(body: AgentSpawn):
+    from config import PROJECT_ROOT
+
+    model = MODEL_MAP.get(body.model, body.model)
+    transcript_path = PROJECT_ROOT / "transcripts" / f"{body.name}.md"
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        CLAUDE_BIN, "--print",
+        "--model", model,
+        "--output-format", "text",
+        "--max-budget-usd", str(body.budget),
+        "--permission-mode", "auto",
+    ]
+
     try:
-        proc = await ostk.kernel_spawn(
-            body.name, body.prompt, body.model, body.budget
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=open(str(transcript_path), "w"),
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(PROJECT_ROOT),
         )
+
+        # Send the prompt to stdin and close it
+        if body.prompt:
+            proc.stdin.write(body.prompt.encode())
+            await proc.stdin.drain()
+        proc.stdin.close()
+
         active_agents[body.name] = proc
-        return {"result": f"Agent '{body.name}' spawned", "pid": proc.pid}
-    except OstkError as e:
+
+        # Log to audit
+        try:
+            await ostk._run("os", "audit", "--event", "agent.spawned",
+                           "--data", json.dumps({"name": body.name, "model": model, "budget": str(body.budget)}))
+        except Exception:
+            pass
+
+        return {
+            "result": f"Agent '{body.name}' spawned",
+            "pid": proc.pid,
+            "transcript": str(transcript_path),
+        }
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
