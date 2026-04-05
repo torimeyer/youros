@@ -262,6 +262,10 @@ export function ChatPanel() {
   const [showGiphy, setShowGiphy] = useState(false)
   const [giphyInitialSearch, setGiphyInitialSearch] = useState('')
   const [pendingImage, setPendingImage] = useState<string | null>(null)
+  const [commandHistory, setCommandHistory] = useState<string[]>([])
+  const [historyIndex, setHistoryIndex] = useState(-1)
+  const lastEscRef = useRef(0)
+  const lastUpRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -496,8 +500,59 @@ export function ChatPanel() {
 
   const handleSend = () => {
     if (!input.trim() && !pendingImage) return
+    if (input.trim()) {
+      setCommandHistory(prev => [...prev, input.trim()])
+      setHistoryIndex(-1)
+    }
     sendMessage(input)
     setInput('')
+  }
+
+  const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSend()
+      return
+    }
+
+    if (e.key === 'Escape') {
+      const now = Date.now()
+      if (now - lastEscRef.current < 500) {
+        setInput('')
+        setPendingImage(null)
+        setReplyingTo(null)
+        lastEscRef.current = 0
+      } else {
+        lastEscRef.current = now
+      }
+      return
+    }
+
+    if (e.key === 'ArrowUp' && !input) {
+      const now = Date.now()
+      if (now - lastUpRef.current < 500) {
+        if (commandHistory.length > 0) {
+          const idx = historyIndex === -1 ? commandHistory.length - 1 : Math.max(0, historyIndex - 1)
+          setHistoryIndex(idx)
+          setInput(commandHistory[idx])
+        }
+        lastUpRef.current = 0
+      } else {
+        lastUpRef.current = now
+      }
+      return
+    }
+
+    if (e.key === 'ArrowDown' && historyIndex >= 0) {
+      if (historyIndex < commandHistory.length - 1) {
+        const idx = historyIndex + 1
+        setHistoryIndex(idx)
+        setInput(commandHistory[idx])
+      } else {
+        setHistoryIndex(-1)
+        setInput('')
+      }
+      return
+    }
   }
 
   const handleNewConversation = () => {
@@ -728,7 +783,7 @@ export function ChatPanel() {
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+              onKeyDown={handleInputKeyDown}
               onPaste={handlePaste}
               disabled={isStreaming}
               className="w-full bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50"
