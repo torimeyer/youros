@@ -272,28 +272,30 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* ostk Status */}
+          {/* System Status */}
           <div className={cardClass}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">ostk Status</h2>
-              <span className="flex items-center gap-1.5 text-xs font-medium text-green-400 bg-green-500/10 px-2 py-1 rounded-full">
-                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                {ostkStatus === 'no daemon running' ? 'OFFLINE' : 'LIVE'}
+              <h2 className="text-lg font-semibold">System</h2>
+              <span className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${
+                ostkStatus === 'no daemon running'
+                  ? 'text-slate-400 bg-slate-500/10'
+                  : 'text-green-400 bg-green-500/10'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  ostkStatus === 'no daemon running' ? 'bg-slate-400' : 'bg-green-400 animate-pulse'
+                }`} />
+                {ostkStatus === 'no daemon running' ? 'Ready' : 'Active'}
               </span>
             </div>
-            <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="grid grid-cols-2 gap-3">
               <div className="bg-slate-800/50 rounded-lg p-3">
-                <p className="text-xs text-slate-400">Status</p>
-                <p className="text-sm font-semibold text-green-400">{ostkStatus}</p>
+                <p className="text-xs text-slate-400">Open Tasks</p>
+                <p className="text-lg font-semibold">{openCount}</p>
               </div>
               <div className="bg-slate-800/50 rounded-lg p-3">
-                <p className="text-xs text-slate-400">Hay Count</p>
+                <p className="text-xs text-slate-400">Ideas</p>
                 <p className="text-lg font-semibold">{data?.hay_count ?? 0}</p>
               </div>
-            </div>
-            <div className="flex items-center justify-between text-sm text-slate-400 border-t border-slate-800 pt-3">
-              <span>Last backup: 14m ago</span>
-              <button className="text-blue-400 hover:text-blue-300 transition-colors">View Logs</button>
             </div>
           </div>
 
