@@ -549,7 +549,17 @@ async def _git_commit(message: str) -> str:
 
 async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
     try:
-        result = await ostk.kernel_spawn(name, prompt, model, budget=2.0)
-        return f"Agent '{name}' spawned successfully. Check the Agents page to monitor it.\n{result}"
+        proc = await ostk.kernel_spawn(name, prompt, model, budget=2.0)
+        # Wait briefly for the process to start and check for immediate errors
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3)
+            output = stdout.decode().strip()
+            errors = stderr.decode().strip()
+            if proc.returncode and proc.returncode != 0:
+                return f"Failed to spawn agent '{name}': {errors or output}"
+            return f"Agent '{name}' spawned successfully. {output}".strip()
+        except asyncio.TimeoutError:
+            # Process is still running (good, it's a long-running agent)
+            return f"Agent '{name}' spawned and running in the background. Check the Agents page to monitor it."
     except Exception as e:
         return f"Failed to spawn agent '{name}': {e}"

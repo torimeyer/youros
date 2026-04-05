@@ -683,7 +683,7 @@ export function ChatPanel() {
               <div
                 className={
                   msg.role === 'user'
-                    ? 'bg-blue-500/20 text-blue-100 px-4 py-3 rounded-2xl rounded-br-sm max-w-[75%] w-fit text-sm break-words'
+                    ? 'bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[80%] text-sm'
                     : `border px-4 py-3 rounded-xl text-sm text-slate-300 whitespace-pre-line overflow-hidden break-words ${
                         msg.model ? MODEL_BG[msg.model] ?? 'bg-slate-900 border-slate-800' : 'bg-slate-900 border-slate-800'
                       }`
@@ -747,7 +747,7 @@ export function ChatPanel() {
         />
       )}
 
-      <div className="p-3 border-t border-slate-800">
+      <div className="p-3">
         {/* Reply preview bar */}
         {replyingTo && (
           <div className="flex items-center gap-2 mb-2 px-2">
