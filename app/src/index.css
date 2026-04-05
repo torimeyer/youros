@@ -48,7 +48,7 @@ body {
 [data-theme="light"] .bg-slate-950 { background-color: #f8fafc; }
 [data-theme="light"] .bg-slate-900 { background-color: #f1f5f9; }
 [data-theme="light"] .bg-slate-900\/40 { background-color: rgba(241, 245, 249, 0.8); }
-[data-theme="light"] .bg-slate-800 { background-color: #e2e8f0; }
+[data-theme="light"] .bg-slate-800 { background-color: #ffffff; }
 [data-theme="light"] .bg-slate-800\/50 { background-color: rgba(226, 232, 240, 0.5); }
 [data-theme="light"] .bg-slate-950\/80 { background-color: rgba(248, 250, 252, 0.8); }
 
