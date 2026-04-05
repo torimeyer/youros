@@ -175,6 +175,29 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["task_id"],
         },
     },
+    {
+        "name": "spawn_agent",
+        "description": "Spawn a background AI agent to work on a task independently. The agent runs in the background and can be monitored on the Agents page. Use this for tasks that take a while or can run in parallel.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "A short name for the agent (e.g. 'research-api', 'fix-tests').",
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "Detailed instructions for what the agent should do.",
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Which model to use: sonnet, opus, or haiku.",
+                    "enum": ["sonnet", "opus", "haiku"],
+                },
+            },
+            "required": ["name", "prompt"],
+        },
+    },
 ]
 
 
@@ -201,6 +224,8 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
             return await _create_task(input_data["title"], input_data.get("priority", "P1"))
         elif name == "close_task":
             return await _close_task(input_data["task_id"])
+        elif name == "spawn_agent":
+            return await _spawn_agent(input_data["name"], input_data["prompt"], input_data.get("model", "sonnet"))
         else:
             return f"Unknown tool: {name}"
     except Exception as e:
@@ -334,3 +359,11 @@ async def _create_task(title: str, priority: str = "P1") -> str:
 async def _close_task(task_id: str) -> str:
     result = await ostk.close_task(task_id)
     return result
+
+
+async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
+    try:
+        result = await ostk.kernel_spawn(name, prompt, model, budget=2.0)
+        return f"Agent '{name}' spawned successfully. Check the Agents page to monitor it.\n{result}"
+    except Exception as e:
+        return f"Failed to spawn agent '{name}': {e}"
