@@ -349,7 +349,10 @@ export function ChatPanel() {
     setReplyingTo(null)
 
     // Build the messages payload, including reply context if applicable
-    const apiMessages = updatedMessages.map(m => ({ role: m.role, content: m.content || '[GIF]' }))
+    const apiMessages = updatedMessages.map(m => ({
+      role: m.role,
+      content: m.gifUrl ? `[gif:${m.gifUrl}]` : (m.content || ''),
+    }))
     if (userMessage.replyTo) {
       const repliedMsg = messages.find(m => m.id === userMessage.replyTo)
       if (repliedMsg) {
@@ -372,6 +375,7 @@ export function ChatPanel() {
   }
 
   const sendGif = (gifUrl: string) => {
+    if (isStreaming) return
     const userMessage: Message = {
       id: genId(),
       role: 'user',
@@ -379,9 +383,25 @@ export function ChatPanel() {
       gifUrl,
       replyTo: replyingTo || undefined,
     }
-    setMessages(prev => [...prev, userMessage])
+    const assistantMessage: Message = { id: genId(), role: 'assistant', content: '', model: defaultChatModel }
+    const updatedMessages = [...messages, userMessage]
+    setMessages([...updatedMessages, assistantMessage])
+    setIsStreaming(true)
+    setCurrentModel(defaultChatModel)
     setShowGiphy(false)
     setReplyingTo(null)
+
+    // Send messages with GIF URLs so the AI can see them
+    const apiMessages = updatedMessages.map(m => ({
+      role: m.role,
+      content: m.gifUrl ? `[gif:${m.gifUrl}]` : (m.content || ''),
+    }))
+
+    send({
+      model: `@${defaultChatModel}`,
+      messages: apiMessages,
+      tools: toolsEnabled,
+    })
   }
 
   const handleSend = () => {

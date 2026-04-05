@@ -44,6 +44,35 @@ def strip_mentions(text: str) -> str:
     return MENTION_RE.sub(lambda m: "" if m.group(1).lower() in MODEL_ALIASES else m.group(0), text).strip()
 
 
+GIF_RE = re.compile(r"\[gif:(https?://[^\]]+)\]")
+
+
+def transform_gif_messages(messages: list[dict]) -> list[dict]:
+    """Convert [gif:URL] markers in messages into image content blocks for Claude vision."""
+    result = []
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str) and GIF_RE.search(content):
+            # Build a content array with image blocks and any remaining text
+            blocks: list[dict] = []
+            remaining = content
+            for match in GIF_RE.finditer(content):
+                url = match.group(1)
+                blocks.append({
+                    "type": "image",
+                    "source": {"type": "url", "url": url},
+                })
+                remaining = remaining.replace(match.group(0), "").strip()
+            if remaining:
+                blocks.append({"type": "text", "text": remaining})
+            else:
+                blocks.append({"type": "text", "text": "The user sent this GIF. React to it."})
+            result.append({"role": msg["role"], "content": blocks})
+        else:
+            result.append(msg)
+    return result
+
+
 async def build_context() -> str:
     try:
         tasks = await ostk.list_tasks(status="open")
@@ -128,6 +157,12 @@ async def chat_websocket(websocket: WebSocket):
                 if context:
                     system_msg = f"You are ToriChat, the AI assistant for ToriOS. Here is the current workspace context:\n\n{context}\n\nAnswer the user's question using this context."
                     messages = [{"role": "user", "content": system_msg}] + messages
+
+            # Convert [gif:URL] markers to image content blocks for vision
+            messages = transform_gif_messages(messages)
+
+            # The last message content might now be a list (image blocks), so
+            # extract text for mention parsing from the original last_text.
 
             # Check if this is a "talk to each other" request (multiple models mentioned)
             is_conversation = len(mentioned_models) >= 2 and any(
