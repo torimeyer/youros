@@ -1,9 +1,177 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import { api } from "../lib/api";
 
 const tabs = ["Active", "Recent", "Metrics", "Automation"];
+
+const CUSTOM_TEMPLATES_KEY = "youros-custom-templates";
+
+interface CustomTemplate {
+  name: string;
+  description: string;
+  icon: string;
+  model: string;
+  budget: number;
+}
+
+const marketplaceCategories: { category: string; templates: CustomTemplate[] }[] = [
+  {
+    category: "Productivity",
+    templates: [
+      { name: "Summarizer", description: "Summarize documents, articles, or meeting notes into key points", icon: "summarize", model: "sonnet", budget: 2.0 },
+      { name: "Daily Planner", description: "Review your tasks and create a focused plan for today", icon: "today", model: "sonnet", budget: 2.0 },
+      { name: "Email Drafter", description: "Draft professional emails based on your instructions", icon: "mail", model: "sonnet", budget: 2.0 },
+    ],
+  },
+  {
+    category: "Development",
+    templates: [
+      { name: "Research", description: "Search and summarize information from the web", icon: "search", model: "sonnet", budget: 2.0 },
+      { name: "Code Review", description: "Review code for issues, bugs, and improvements", icon: "code", model: "sonnet", budget: 2.0 },
+      { name: "Write Tests", description: "Generate test cases for your code", icon: "bug_report", model: "sonnet", budget: 2.0 },
+      { name: "Bug Finder", description: "Analyze code for potential bugs and security issues", icon: "pest_control", model: "sonnet", budget: 2.0 },
+    ],
+  },
+  {
+    category: "Creative",
+    templates: [
+      { name: "Brainstorm", description: "Generate creative ideas for any topic or problem", icon: "psychology", model: "sonnet", budget: 2.0 },
+      { name: "Writer", description: "Write blog posts, documentation, or creative content", icon: "edit_note", model: "sonnet", budget: 2.0 },
+      { name: "Name Generator", description: "Come up with names for projects, features, or products", icon: "label", model: "sonnet", budget: 2.0 },
+    ],
+  },
+];
+
+function loadCustomTemplates(): CustomTemplate[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_TEMPLATES_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore parse errors
+  }
+  return [];
+}
+
+function saveCustomTemplates(templates: CustomTemplate[]) {
+  localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(templates));
+}
+
+/* ---------- Template Editor Modal ---------- */
+function TemplateEditorModal({
+  initial,
+  isNew,
+  onSpawn,
+  onSave,
+  onCancel,
+}: {
+  initial: CustomTemplate | null;
+  isNew: boolean;
+  onSpawn: (t: CustomTemplate) => void;
+  onSave: (t: CustomTemplate) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial?.name ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [icon, setIcon] = useState(initial?.icon ?? "smart_toy");
+  const [model, setModel] = useState(initial?.model ?? "sonnet");
+  const [budget, setBudget] = useState(initial?.budget ?? 2.0);
+
+  const current: CustomTemplate = { name, description, icon, model, budget };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-xl">
+        <h3 className="text-lg font-semibold text-white mb-4">
+          {isNew ? "New Template" : "Edit Template"}
+        </h3>
+
+        {/* Name */}
+        <label className="block text-sm text-slate-400 mb-1">Name</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Research Agent"
+          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
+        />
+
+        {/* Description / Prompt */}
+        <label className="block text-sm text-slate-400 mb-1">Description / Prompt</label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          placeholder="What should this agent do?"
+          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4 resize-none"
+        />
+
+        {/* Icon */}
+        <label className="block text-sm text-slate-400 mb-1">Icon</label>
+        <input
+          type="text"
+          value={icon}
+          onChange={(e) => setIcon(e.target.value)}
+          placeholder="Material Symbols icon name"
+          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
+        />
+
+        {/* Model + Budget row */}
+        <div className="flex gap-4 mb-6">
+          <div className="flex-1">
+            <label className="block text-sm text-slate-400 mb-1">Model</label>
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            >
+              <option value="sonnet">Sonnet</option>
+              <option value="opus">Opus</option>
+              <option value="haiku">Haiku</option>
+            </select>
+          </div>
+          <div className="flex-1">
+            <label className="block text-sm text-slate-400 mb-1">Budget ($)</label>
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={budget}
+              onChange={(e) => setBudget(parseFloat(e.target.value) || 0)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="text-slate-400 hover:text-white text-sm transition-colors px-4 py-2"
+          >
+            Cancel
+          </button>
+          {isNew && (
+            <button
+              onClick={() => { if (name.trim()) onSave(current); }}
+              disabled={!name.trim()}
+              className="border border-blue-500 text-blue-400 hover:bg-blue-500/10 disabled:border-slate-700 disabled:text-slate-600 rounded-lg px-4 py-2 text-sm transition-colors"
+            >
+              Save Template
+            </button>
+          )}
+          <button
+            onClick={() => { if (name.trim()) onSpawn(current); }}
+            disabled={!name.trim()}
+            className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
+          >
+            Spawn Agent
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface AgentInfo {
   name: string;
@@ -99,11 +267,55 @@ export default function Agents() {
     }
   }, [expandedAgent]);
 
+  // Template editor modal state
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorInitial, setEditorInitial] = useState<CustomTemplate | null>(null);
+  const [editorIsNew, setEditorIsNew] = useState(false);
+
+  // Custom templates from localStorage
+  const [customTemplates, setCustomTemplates] = useState<CustomTemplate[]>([]);
+
+  // Marketplace
+  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
+
+  // Load custom templates on mount
+  useEffect(() => {
+    setCustomTemplates(loadCustomTemplates());
+  }, []);
+
+  const addCustomTemplate = useCallback((t: CustomTemplate) => {
+    setCustomTemplates((prev) => {
+      const updated = [...prev, t];
+      saveCustomTemplates(updated);
+      return updated;
+    });
+  }, []);
+
+  const deleteCustomTemplate = useCallback((name: string) => {
+    setCustomTemplates((prev) => {
+      const updated = prev.filter((t) => t.name !== name);
+      saveCustomTemplates(updated);
+      return updated;
+    });
+  }, []);
+
+  const isCustomTemplate = useCallback(
+    (name: string) => customTemplates.some((t) => t.name === name),
+    [customTemplates]
+  );
+
   const templateIcons: Record<string, string> = {
     Research: "search",
     "Code Review": "code",
     "Write Tests": "bug_report",
     Deploy: "rocket_launch",
+    Summarizer: "summarize",
+    "Daily Planner": "today",
+    "Email Drafter": "mail",
+    "Bug Finder": "pest_control",
+    Brainstorm: "psychology",
+    Writer: "edit_note",
+    "Name Generator": "label",
   };
 
   const fetchAgents = async () => {
@@ -176,17 +388,18 @@ export default function Agents() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleSpawn = async (name: string, prompt?: string) => {
+  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number) => {
     if (!name.trim()) return;
     try {
       await api.post("/agents/spawn", {
         name: name.trim(),
         prompt: prompt || `You are a ${name.trim()} agent. Do your job well.`,
-        model: "sonnet",
-        budget: 2.0,
+        model: model || "sonnet",
+        budget: budget ?? 2.0,
       });
       setShowNewForm(false);
       setNewAgentName("");
+      setEditorOpen(false);
       await fetchAgents();
     } catch {
       // handle error silently
@@ -214,36 +427,29 @@ export default function Agents() {
     return templateIcons[name] || "smart_toy";
   };
 
-  // Fallback templates if none from API
-  const displayTemplates =
+  // Built-in templates (from API or defaults)
+  const builtInTemplates: { icon: string; name: string; description: string; model: string; budget: number; isBuiltIn: boolean }[] =
     templates.length > 0
       ? templates.map((t) => ({
           icon: getTemplateIcon(t.name),
           name: t.name,
           description: t.content ? t.content.slice(0, 50) : "Agent template",
+          model: "sonnet",
+          budget: 2.0,
+          isBuiltIn: true,
         }))
       : [
-          {
-            icon: "search",
-            name: "Research",
-            description: "Search and summarize information",
-          },
-          {
-            icon: "code",
-            name: "Code Review",
-            description: "Review code for issues and improvements",
-          },
-          {
-            icon: "bug_report",
-            name: "Write Tests",
-            description: "Generate test cases for your code",
-          },
-          {
-            icon: "rocket_launch",
-            name: "Deploy",
-            description: "Automate deployment pipelines",
-          },
+          { icon: "search", name: "Research", description: "Search and summarize information", model: "sonnet", budget: 2.0, isBuiltIn: true },
+          { icon: "code", name: "Code Review", description: "Review code for issues and improvements", model: "sonnet", budget: 2.0, isBuiltIn: true },
+          { icon: "bug_report", name: "Write Tests", description: "Generate test cases for your code", model: "sonnet", budget: 2.0, isBuiltIn: true },
+          { icon: "rocket_launch", name: "Deploy", description: "Automate deployment pipelines", model: "sonnet", budget: 2.0, isBuiltIn: true },
         ];
+
+  // Merge built-in + custom templates
+  const displayTemplates = [
+    ...builtInTemplates,
+    ...customTemplates.map((ct) => ({ ...ct, isBuiltIn: false })),
+  ];
 
   return (
     <>
@@ -541,19 +747,42 @@ export default function Agents() {
         )}
 
         {/* Agent Templates - always visible */}
-        <h2 className="text-lg font-semibold text-white mb-4">
-          Agent Templates
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-white">
+            Agent Templates
+          </h2>
+          <button
+            onClick={() => setMarketplaceOpen(!marketplaceOpen)}
+            className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+          >
+            <Icon name="storefront" size={18} />
+            {marketplaceOpen ? "Hide Marketplace" : "Browse Marketplace"}
+          </button>
+        </div>
         <div className="grid grid-cols-4 gap-4">
           {displayTemplates.map((tpl) => (
             <div
               key={tpl.name}
-              onClick={() => handleSpawn(
-                tpl.name.toLowerCase().replace(/\s+/g, "-"),
-                tpl.description
-              )}
-              className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 text-center hover:border-blue-500 transition-colors cursor-pointer"
+              onClick={() => {
+                setEditorInitial({ name: tpl.name, description: tpl.description, icon: tpl.icon, model: tpl.model, budget: tpl.budget });
+                setEditorIsNew(false);
+                setEditorOpen(true);
+              }}
+              className="group relative bg-slate-900/40 border border-slate-800 rounded-xl p-4 text-center hover:border-blue-500 transition-colors cursor-pointer"
             >
+              {/* Delete button for custom templates */}
+              {!tpl.isBuiltIn && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteCustomTemplate(tpl.name);
+                  }}
+                  className="absolute top-2 right-2 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Remove template"
+                >
+                  <Icon name="delete" size={16} />
+                </button>
+              )}
               <Icon
                 name={tpl.icon}
                 className="text-3xl text-slate-400 mb-2 mx-auto"
@@ -562,7 +791,84 @@ export default function Agents() {
               <p className="text-slate-400 text-xs">{tpl.description}</p>
             </div>
           ))}
+
+          {/* + New Template card */}
+          <div
+            onClick={() => {
+              setEditorInitial(null);
+              setEditorIsNew(true);
+              setEditorOpen(true);
+            }}
+            className="bg-slate-900/20 border-2 border-dashed border-slate-700 rounded-xl p-4 text-center hover:border-blue-500 transition-colors cursor-pointer flex flex-col items-center justify-center"
+          >
+            <Icon name="add" className="text-3xl text-slate-500 mb-2" />
+            <p className="text-slate-400 font-medium">New Template</p>
+          </div>
         </div>
+
+        {/* Marketplace section (collapsible) */}
+        {marketplaceOpen && (
+          <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-xl p-6">
+            <h3 className="text-white font-semibold mb-4">Template Marketplace</h3>
+            {marketplaceCategories.map((cat) => (
+              <div key={cat.category} className="mb-6 last:mb-0">
+                <h4 className="text-sm text-slate-400 font-medium mb-3 uppercase tracking-wider">{cat.category}</h4>
+                <div className="grid grid-cols-3 gap-3">
+                  {cat.templates.map((mt) => {
+                    const alreadyAdded = isCustomTemplate(mt.name) || builtInTemplates.some((b) => b.name === mt.name);
+                    return (
+                      <div
+                        key={mt.name}
+                        className="bg-slate-800/60 border border-slate-700 rounded-lg p-3 flex items-start gap-3"
+                      >
+                        <Icon name={mt.icon} className="text-2xl text-slate-400 mt-0.5 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white text-sm font-medium">{mt.name}</p>
+                          <p className="text-slate-400 text-xs mt-0.5 line-clamp-2">{mt.description}</p>
+                        </div>
+                        {alreadyAdded ? (
+                          <span className="text-green-400 shrink-0 mt-0.5" title="Already added">
+                            <Icon name="check_circle" size={20} />
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => addCustomTemplate(mt)}
+                            className="text-blue-400 hover:text-blue-300 shrink-0 mt-0.5 transition-colors"
+                            title="Add to your templates"
+                          >
+                            <Icon name="add_circle" size={20} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Template Editor Modal */}
+        {editorOpen && (
+          <TemplateEditorModal
+            initial={editorInitial}
+            isNew={editorIsNew}
+            onSpawn={(t) => {
+              handleSpawn(
+                t.name.toLowerCase().replace(/\s+/g, "-"),
+                t.description,
+                t.model,
+                t.budget
+              );
+              setEditorOpen(false);
+            }}
+            onSave={(t) => {
+              addCustomTemplate(t);
+              setEditorOpen(false);
+            }}
+            onCancel={() => setEditorOpen(false)}
+          />
+        )}
       </div>
     </>
   );
