@@ -14,6 +14,27 @@ export const PROVIDER_TO_MODEL: Record<string, string> = {
   'OpenAI': 'gpt',
 }
 
+// Terminology mapping: ostk terms vs plain language
+const OSTK_TERMS = {
+  task: 'Needle', tasks: 'Needles',
+  idea: 'Hay', ideas: 'Hay',
+  note: 'Straw', notes: 'Straws',
+} as const
+
+const STANDARD_TERMS = {
+  task: 'Task', tasks: 'Tasks',
+  idea: 'Idea', ideas: 'Ideas',
+  note: 'Note', notes: 'Notes',
+} as const
+
+export type TermKey = keyof typeof STANDARD_TERMS
+
+export function useTerms() {
+  const ostkTerms = useAppStore((s) => s.useOstkTerms)
+  const map = ostkTerms ? OSTK_TERMS : STANDARD_TERMS
+  return (key: TermKey) => map[key]
+}
+
 interface AppState {
   onboarded: boolean
   setOnboarded: (v: boolean) => void
@@ -39,6 +60,8 @@ interface AppState {
   toggleCommandPalette: () => void
   showTour: boolean
   setShowTour: (show: boolean) => void
+  useOstkTerms: boolean
+  setUseOstkTerms: (v: boolean) => void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -80,4 +103,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
   showTour: false,
   setShowTour: (showTour) => set({ showTour }),
+  useOstkTerms: false,
+  setUseOstkTerms: (useOstkTerms) => set({ useOstkTerms }),
 }))

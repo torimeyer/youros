@@ -34,6 +34,7 @@ export default function Settings() {
     accentColor, setAccentColor,
     features, setFeatures,
     setDefaultChatModel,
+    useOstkTerms, setUseOstkTerms,
   } = useAppStore();
 
   const [selectedProvider, setSelectedProvider] = useState('Anthropic');
@@ -95,6 +96,7 @@ export default function Settings() {
           );
         }
         if (data.quiet_hours !== undefined) setQuietHours(data.quiet_hours);
+        if ((data as any).use_ostk_terms !== undefined) setUseOstkTerms((data as any).use_ostk_terms);
       } catch {
         // API not available, use defaults
       }
@@ -313,7 +315,7 @@ export default function Settings() {
             </div>
 
             {/* OS Identifier */}
-            <div>
+            <div className="mb-5">
               <label className="text-sm text-slate-400 mb-2 block">OS Identifier</label>
               <input
                 type="text"
@@ -322,6 +324,34 @@ export default function Settings() {
                 onBlur={handleOsNameBlur}
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
               />
+            </div>
+
+            {/* Terminology */}
+            <div>
+              <label className="text-sm text-slate-400 mb-2 block">Terminology</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setUseOstkTerms(false); api.patch('/settings', { use_ostk_terms: false }).catch(() => {}) }}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    !useOstkTerms ? 'accent-bg !text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Standard
+                </button>
+                <button
+                  onClick={() => { setUseOstkTerms(true); api.patch('/settings', { use_ostk_terms: true }).catch(() => {}) }}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    useOstkTerms ? 'accent-bg !text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  ostk
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mt-2">
+                {useOstkTerms
+                  ? 'Using ostk terms: Needles, Hay, Straws'
+                  : 'Using standard terms: Tasks, Ideas, Notes'}
+              </p>
             </div>
           </div>
 

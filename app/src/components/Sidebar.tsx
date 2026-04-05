@@ -1,23 +1,24 @@
 import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import Icon from './Icon'
-import { useAppStore } from '../stores/app'
+import { useAppStore, useTerms } from '../stores/app'
 import { api } from '../lib/api'
-
-const allNavItems = [
-  { to: '/', icon: 'home', label: 'Home', featureLabel: null },
-  { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks' },
-  { to: '/timeline', icon: 'timeline', label: 'Timeline', featureLabel: null },
-  { to: '/ideas', icon: 'lightbulb', label: 'Ideas', featureLabel: 'Hay/Ideas' },
-  { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
-  { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
-  { to: '/transcripts', icon: 'record_voice_over', label: 'Transcripts', featureLabel: 'Transcripts' },
-  { to: '/costs', icon: 'payments', label: 'Costs', featureLabel: null },
-]
 
 export function Sidebar() {
   const osName = useAppStore((s) => s.osName)
   const features = useAppStore((s) => s.features)
+  const t = useTerms()
+
+  const allNavItems = [
+    { to: '/', icon: 'home', label: 'Home', featureLabel: null },
+    { to: '/tasks', icon: 'checklist', label: t('tasks'), featureLabel: 'Tasks' },
+    { to: '/timeline', icon: 'timeline', label: 'Timeline', featureLabel: null },
+    { to: '/ideas', icon: 'lightbulb', label: t('ideas'), featureLabel: 'Hay/Ideas' },
+    { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
+    { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
+    { to: '/transcripts', icon: 'record_voice_over', label: 'Transcripts', featureLabel: 'Transcripts' },
+    { to: '/costs', icon: 'payments', label: 'Costs', featureLabel: null },
+  ]
   const [activeAgents, setActiveAgents] = useState(0)
 
   useEffect(() => {
