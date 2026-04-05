@@ -47,6 +47,8 @@ export default function Settings() {
     { label: 'Approval Needed', enabled: true },
   ]);
   const [quietHours, setQuietHours] = useState(true);
+  const [showAllKeys, setShowAllKeys] = useState(false);
+  const [keySaveStatus, setKeySaveStatus] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -115,6 +117,18 @@ export default function Settings() {
     { label: 'New Task', keys: '\u2318N' },
   ];
 
+  const allShortcuts = [
+    ...shortcuts,
+    { label: 'Go to Home', keys: '\u23180' },
+    { label: 'Go to Tasks', keys: '\u23181' },
+    { label: 'Go to Agents', keys: '\u23182' },
+    { label: 'Go to Projects', keys: '\u23183' },
+    { label: 'Go to Files', keys: '\u23184' },
+    { label: 'Go to Transcripts', keys: '\u23185' },
+    { label: 'Go to Settings', keys: '\u2318,' },
+    { label: 'New Note', keys: '\u2318\u21e7N' },
+  ];
+
   const providers = [
     { name: 'Anthropic', model: 'Claude' },
     { name: 'Google Gemini', model: 'Gemini' },
@@ -162,10 +176,18 @@ export default function Settings() {
     OpenAI: 'openai_api_key',
   };
 
-  const handleApiKeyBlur = () => {
+  const handleApiKeySave = () => {
     const field = PROVIDER_KEY_FIELD[selectedProvider];
     if (field) {
-      api.patch('/settings', { [field]: apiKeys[selectedProvider] }).catch(() => {});
+      api.patch('/settings', { [field]: apiKeys[selectedProvider] })
+        .then(() => {
+          setKeySaveStatus('Saved!');
+          setTimeout(() => setKeySaveStatus(null), 2000);
+        })
+        .catch(() => {
+          setKeySaveStatus('Error saving');
+          setTimeout(() => setKeySaveStatus(null), 2000);
+        });
     }
   };
 
@@ -316,9 +338,24 @@ export default function Settings() {
                 </div>
               ))}
             </div>
-            <button className="mt-4 text-sm text-blue-400 hover:text-blue-300 transition-colors">
-              View All Keys
+            <button
+              onClick={() => setShowAllKeys(!showAllKeys)}
+              className="mt-4 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              {showAllKeys ? 'Show Less' : 'View All Keys'}
             </button>
+            {showAllKeys && (
+              <div className="mt-3 pt-3 border-t border-slate-800 space-y-3">
+                {allShortcuts.slice(shortcuts.length).map((s) => (
+                  <div key={s.label} className="flex items-center justify-between py-1">
+                    <span className="text-sm text-slate-300">{s.label}</span>
+                    <kbd className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-md text-xs text-slate-300 font-mono">
+                      {s.keys}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -370,23 +407,31 @@ export default function Settings() {
             {/* API Key */}
             <div className="mb-5">
               <label className="text-sm text-slate-400 mb-2 block">{selectedProvider} API Key</label>
-              <div className="relative">
-                <input
-                  type={apiKeyVisible ? 'text' : 'password'}
-                  value={apiKeys[selectedProvider] || ''}
-                  onChange={(e) => setApiKeys(prev => ({ ...prev, [selectedProvider]: e.target.value }))}
-                  onBlur={handleApiKeyBlur}
-                  placeholder={selectedProvider === 'Anthropic' ? 'sk-ant-xxxx...' : selectedProvider === 'Google Gemini' ? 'AIzaSy...' : 'sk-xxxx...'}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
-                />
-                <button
-                  onClick={() => setApiKeyVisible(!apiKeyVisible)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
-                >
-                  <Icon
-                    name={apiKeyVisible ? 'visibility_off' : 'visibility'}
-                    size={18}
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={apiKeyVisible ? 'text' : 'password'}
+                    value={apiKeys[selectedProvider] || ''}
+                    onChange={(e) => setApiKeys(prev => ({ ...prev, [selectedProvider]: e.target.value }))}
+                    onKeyDown={(e) => e.key === 'Enter' && handleApiKeySave()}
+                    placeholder={selectedProvider === 'Anthropic' ? 'sk-ant-xxxx...' : selectedProvider === 'Google Gemini' ? 'AIzaSy...' : 'sk-xxxx...'}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
                   />
+                  <button
+                    onClick={() => setApiKeyVisible(!apiKeyVisible)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+                  >
+                    <Icon
+                      name={apiKeyVisible ? 'visibility_off' : 'visibility'}
+                      size={18}
+                    />
+                  </button>
+                </div>
+                <button
+                  onClick={handleApiKeySave}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                >
+                  {keySaveStatus || 'Save Key'}
                 </button>
               </div>
             </div>
@@ -453,7 +498,10 @@ export default function Settings() {
 
         {/* Row 4: Data Management */}
         <div className={cardClass}>
-          <h2 className="text-lg font-semibold mb-5">Data Management</h2>
+          <h2 className="text-lg font-semibold mb-2">Data Management</h2>
+          <p className="text-sm text-slate-500 mb-4">
+            Export your settings to a file for backup, or import a previously exported file to restore them.
+          </p>
           <div className="flex gap-3">
             <input
               ref={fileInputRef}

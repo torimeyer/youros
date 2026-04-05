@@ -167,11 +167,12 @@ describe('Settings', () => {
   })
 
   describe('API Key', () => {
-    it('persists API key to API on blur', () => {
+    it('persists API key to API on Save Key click', () => {
       renderSettings()
       const input = screen.getByPlaceholderText('sk-ant-xxxx...')
       fireEvent.change(input, { target: { value: 'sk-ant-test123' } })
-      fireEvent.blur(input)
+      const saveBtn = screen.getByText('Save Key')
+      fireEvent.click(saveBtn)
       expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { anthropic_api_key: 'sk-ant-test123' })
     })
 

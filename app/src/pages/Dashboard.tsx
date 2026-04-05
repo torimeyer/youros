@@ -49,20 +49,39 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const toggleChat = useAppStore((s) => s.toggleChat);
   const osName = useAppStore((s) => s.osName);
+  const setShowTour = useAppStore((s) => s.setShowTour);
+
+  const [tourDismissed, setTourDismissed] = useState(
+    () => localStorage.getItem('youros-tour-complete') === 'true',
+  );
+
+  const startTour = () => {
+    setShowTour(true);
+    setTourDismissed(true);
+    localStorage.setItem('youros-tour-complete', 'true');
+  };
+
+  const dismissTour = () => {
+    setTourDismissed(true);
+    localStorage.setItem('youros-tour-complete', 'true');
+  };
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [costData, setCostData] = useState<CostSummary | null>(null);
+  const [activeAgents, setActiveAgents] = useState<{ name: string; status: string }[]>([]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, costRes] = await Promise.all([
+      const [dashRes, costRes, agentsRes] = await Promise.all([
         api.get<DashboardData>('/dashboard'),
         api.get<CostSummary>('/costs?period=all').catch(() => null),
+        api.get<{ active: { name: string; status: string; source?: string }[] }>('/agents').catch(() => null),
       ]);
       setData(dashRes);
       if (costRes) setCostData(costRes);
+      if (agentsRes?.active) setActiveAgents(agentsRes.active);
     } catch (e) {
       console.error('Failed to fetch dashboard:', e);
     } finally {
@@ -105,11 +124,7 @@ export default function Dashboard() {
     { icon: 'chat', label: 'Open Chat', color: 'text-cyan-400', hoverBorder: 'hover:border-cyan-500' },
   ];
 
-  const goals = [
-    { name: 'Ship v0.1', percent: 35, barColor: 'bg-pink-500' },
-    { name: 'Landing page', percent: 60, barColor: 'bg-blue-500' },
-    { name: 'Docs Architecture', percent: 15, barColor: 'bg-cyan-500' },
-  ];
+  const goals: { name: string; percent: number; barColor: string }[] = [];
 
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-6 rounded-xl hover:border-slate-700 transition-colors';
 
@@ -123,6 +138,27 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold mb-1">Welcome to {osName}</h1>
           <p className="text-slate-400">Ready for your morning deep work session?</p>
         </div>
+
+        {/* Tour Banner */}
+        {!tourDismissed && (
+          <div className="mb-6 bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Icon name="explore" className="text-blue-400" size={24} />
+              <div>
+                <p className="text-sm font-medium text-blue-300">New here?</p>
+                <p className="text-xs text-slate-400">Take a quick tour to learn your way around.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={startTour} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors">
+                Start Tour
+              </button>
+              <button onClick={dismissTour} className="p-1 text-slate-500 hover:text-white transition-colors">
+                <Icon name="close" size={18} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Widget Grid */}
         <div className="grid grid-cols-3 gap-6">
@@ -214,17 +250,25 @@ export default function Dashboard() {
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-4">Goals</h2>
             <div className="space-y-4">
-              {goals.map((goal) => (
-                <div key={goal.name}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm text-slate-300">{goal.name}</span>
-                    <span className="text-sm text-slate-400">{goal.percent}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${goal.barColor}`} style={{ width: `${goal.percent}%` }} />
-                  </div>
+              {goals.length === 0 ? (
+                <div className="text-center py-6">
+                  <Icon name="flag" className="text-slate-700 mb-2" size={32} />
+                  <p className="text-sm text-slate-500">No goals yet.</p>
+                  <p className="text-xs text-slate-600 mt-1">Goals will appear here as you set them up.</p>
                 </div>
-              ))}
+              ) : (
+                goals.map((goal) => (
+                  <div key={goal.name}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm text-slate-300">{goal.name}</span>
+                      <span className="text-sm text-slate-400">{goal.percent}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${goal.barColor}`} style={{ width: `${goal.percent}%` }} />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
@@ -257,30 +301,29 @@ export default function Dashboard() {
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-4">Session Activity</h2>
             <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
-                  <Icon name="smart_toy" className="text-purple-400" size={20} />
+              {activeAgents.length === 0 ? (
+                <div className="text-center py-6">
+                  <Icon name="smart_toy" className="text-slate-700 mb-2" size={32} />
+                  <p className="text-sm text-slate-500">No active agents.</p>
+                  <p className="text-xs text-slate-600 mt-1">Agents you spawn will appear here.</p>
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">Refactoring Agent</p>
-                  <p className="text-xs text-slate-400">processing middleware.ts</p>
-                  <div className="w-full h-1.5 bg-slate-800 rounded-full mt-2 overflow-hidden">
-                    <div className="h-full rounded-full bg-purple-500 w-3/4 animate-pulse" />
+              ) : (
+                activeAgents.map((agent) => (
+                  <div key={agent.name} className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
+                      <Icon name="smart_toy" className="text-purple-400" size={20} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{agent.name}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs font-medium text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
+                          {agent.status}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
-                  <Icon name="search" className="text-cyan-400" size={20} />
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">Researcher Pro</p>
-                  <p className="text-xs text-slate-400">indexing new dev docs</p>
-                  <div className="w-full h-1.5 bg-slate-800 rounded-full mt-2 overflow-hidden">
-                    <div className="h-full rounded-full bg-cyan-500 w-1/2 animate-pulse" />
-                  </div>
-                </div>
-              </div>
+                ))
+              )}
             </div>
           </div>
 

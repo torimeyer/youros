@@ -37,6 +37,8 @@ interface AppState {
   commandPaletteOpen: boolean
   setCommandPaletteOpen: (open: boolean) => void
   toggleCommandPalette: () => void
+  showTour: boolean
+  setShowTour: (show: boolean) => void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -76,4 +78,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   commandPaletteOpen: false,
   setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
   toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
+  showTour: false,
+  setShowTour: (showTour) => set({ showTour }),
 }))

@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { ChatPanel } from './ChatPanel'
 import { CommandPalette } from './CommandPalette'
+import GuidedTour from './GuidedTour'
 import { useAppStore } from '../stores/app'
 
 const ACCENT_CSS_MAP: Record<string, string> = {
@@ -22,6 +23,8 @@ export function Layout() {
   const commandPaletteOpen = useAppStore((s) => s.commandPaletteOpen)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
   const toggleCommandPalette = useAppStore((s) => s.toggleCommandPalette)
+  const showTour = useAppStore((s) => s.showTour)
+  const setShowTour = useAppStore((s) => s.setShowTour)
 
   const closeCommandPalette = useCallback(() => setCommandPaletteOpen(false), [setCommandPaletteOpen])
 
@@ -53,6 +56,7 @@ export function Layout() {
       <Sidebar />
       <ChatPanel />
       <CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} />
+      {showTour && <GuidedTour onComplete={() => setShowTour(false)} />}
       <main
         className={`ml-56 min-h-screen ${isResizing ? '' : 'transition-[margin] duration-200'}`}
         style={chatOpen ? { marginRight: chatWidth } : undefined}

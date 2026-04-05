@@ -156,7 +156,7 @@ describe('OnboardingWizard', () => {
     render(<OnboardingWizard />)
     clickNext(4)
 
-    const input = screen.getByTestId('api-key-input')
+    const input = screen.getByTestId('api-key-input-Anthropic')
     await user.type(input, 'sk-test-123')
     expect(input).toHaveValue('sk-test-123')
   })
@@ -169,7 +169,7 @@ describe('OnboardingWizard', () => {
     expect(screen.getByTestId('summary-os-name')).toHaveTextContent('YourOS')
     expect(screen.getByTestId('summary-theme')).toHaveTextContent('Dark')
     expect(screen.getByTestId('summary-provider')).toHaveTextContent('Anthropic')
-    expect(screen.getByTestId('summary-api-key')).toHaveTextContent('Not set')
+    expect(screen.getByTestId('summary-api-key')).toHaveTextContent('None set')
   })
 
   it('does not show Skip button on Ready step', () => {
