@@ -112,7 +112,7 @@ export default function Agents() {
       setAllAgents(data.agents || []);
       setActiveAgents(data.active || []);
       setDaemonRunning(data.daemon_running ?? false);
-      setConnectionStatus(data.daemon_running ? "Connected" : "No daemon");
+      setConnectionStatus(data.daemon_running ? "Connected" : "Standby");
       setLastUpdate(new Date());
     } catch {
       setConnectionStatus("Disconnected");
@@ -344,7 +344,7 @@ export default function Agents() {
             {allAgents.filter((a) => a.status === "running" || a.status === "spawned").length === 0 ? (
               <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
                 {!daemonRunning
-                  ? "No daemon running. Agents spawned from the command line will appear here once the daemon starts, or when spawned through the app."
+                  ? "No active agents. Click a template below or use the New Agent button to get started."
                   : "No active agents. Spawn one to get started."}
               </div>
             ) : (
