@@ -1,18 +1,15 @@
 # YourOS
 
-Your personal operating system. A web app that sits on top of [ostk](https://ostk.ai) and gives you a visual interface for managing tasks, ideas, AI agents, and chat.
+Your personal AI operating system. A local web app that gives you a workspace with AI chat, background agents, task management, and file browsing. Built on [ostk](https://ostk.ai).
 
-## Quick Install
+## Install
+
+You need Python 3.9+, Node 18+, and git.
 
 ```bash
+git clone https://github.com/torimeyer/youros.git
+cd youros
 ./install.sh
-```
-
-Or if you already have the prerequisites (Python 3.9+, Node 18+):
-
-```bash
-cd api && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
-cd ../app && npm install && npm run build
 ```
 
 ## Start
@@ -21,13 +18,19 @@ cd ../app && npm install && npm run build
 ./start.sh
 ```
 
-This boots ostk, starts the server, and opens your browser to http://localhost:8000.
+Or from anywhere after install:
+
+```bash
+youros
+```
+
+Your browser will open to http://localhost:8000.
 
 ## First Run
 
-When you open YourOS for the first time, a setup wizard walks you through:
+The setup wizard walks you through:
 1. Enter your name
-2. Name your OS (e.g. "MadisonOS")
+2. Name your OS (e.g. "MadisonOS", "AlexOS")
 3. Pick a theme
 4. Connect your AI provider (Anthropic, Gemini, or OpenAI)
 
@@ -35,11 +38,24 @@ You can explore the dashboard, tasks, and ideas without an API key. Chat and age
 
 ## What's Inside
 
-- **Dashboard** - your home screen with tasks, goals, and quick actions
-- **Tasks** - create and manage work items with priorities
+- **Dashboard** - home screen with day summary, tasks, goals, and quick actions
+- **Chat** - talk to Claude or Gemini with tool access (file editing, web search, agent spawning)
+- **Tasks** - create and manage work items with priorities, grouped by goals
+- **Agents** - spawn background AI agents to work on tasks for you
 - **Ideas** - capture raw thoughts and turn them into tasks
-- **Agents** - spawn AI agents to do work for you
-- **Chat** - talk to Claude, Gemini, or GPT from any screen
-- **Files** - browse your workspace
-- **Costs** - track what you're spending on AI
-- **Settings** - customize everything
+- **Files** - browse your workspace with in-app file preview
+- **Timeline** - Gantt-style view of tasks and goals
+- **Settings** - customize theme, connect MCP servers, view keyboard shortcuts
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Cmd+K | Command palette |
+| Cmd+L | Toggle chat |
+| Cmd+N | New task |
+| Cmd+1-8 | Navigate pages |
+
+## Roadmap
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the three-year plan.
