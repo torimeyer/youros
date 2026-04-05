@@ -47,14 +47,27 @@ def strip_mentions(text: str) -> str:
 GIF_RE = re.compile(r"\[gif:(https?://[^\]]+)\]")
 
 
-def transform_gif_messages(messages: list[dict]) -> list[dict]:
-    """Convert [gif:URL] markers in messages into image content blocks for Claude vision."""
+def transform_image_messages(messages: list[dict]) -> list[dict]:
+    """Convert image data (GIF URLs and pasted base64 images) into content blocks for Claude vision."""
     result = []
     for msg in messages:
         content = msg.get("content", "")
-        if isinstance(content, str) and GIF_RE.search(content):
-            # Build a content array with image blocks and any remaining text
+        image_data = msg.get("image")
+
+        if image_data and isinstance(image_data, str) and image_data.startswith("data:"):
+            # Pasted image: data:image/png;base64,...
             blocks: list[dict] = []
+            header, b64 = image_data.split(",", 1)
+            media_type = header.split(":")[1].split(";")[0]
+            blocks.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": b64},
+            })
+            text = content if isinstance(content, str) and content.strip() else "The user pasted this image. Describe what you see."
+            blocks.append({"type": "text", "text": text})
+            result.append({"role": msg["role"], "content": blocks})
+        elif isinstance(content, str) and GIF_RE.search(content):
+            blocks = []
             remaining = content
             for match in GIF_RE.finditer(content):
                 url = match.group(1)
@@ -63,13 +76,10 @@ def transform_gif_messages(messages: list[dict]) -> list[dict]:
                     "source": {"type": "url", "url": url},
                 })
                 remaining = remaining.replace(match.group(0), "").strip()
-            if remaining:
-                blocks.append({"type": "text", "text": remaining})
-            else:
-                blocks.append({"type": "text", "text": "The user sent this GIF. React to it."})
+            blocks.append({"type": "text", "text": remaining or "The user sent this GIF. React to it."})
             result.append({"role": msg["role"], "content": blocks})
         else:
-            result.append(msg)
+            result.append({"role": msg["role"], "content": content})
     return result
 
 
@@ -159,7 +169,7 @@ async def chat_websocket(websocket: WebSocket):
                     messages = [{"role": "user", "content": system_msg}] + messages
 
             # Convert [gif:URL] markers to image content blocks for vision
-            messages = transform_gif_messages(messages)
+            messages = transform_image_messages(messages)
 
             # The last message content might now be a list (image blocks), so
             # extract text for mention parsing from the original last_text.

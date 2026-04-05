@@ -42,6 +42,7 @@ interface Message {
   toolCalls?: ToolCall[]
   replyTo?: string
   gifUrl?: string
+  imageUrl?: string
 }
 
 interface GiphyResult {
@@ -199,6 +200,7 @@ export function ChatPanel() {
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
   const [showGiphy, setShowGiphy] = useState(false)
   const [giphyInitialSearch, setGiphyInitialSearch] = useState('')
+  const [pendingImage, setPendingImage] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -321,6 +323,23 @@ export function ChatPanel() {
 
   if (!chatOpen) return null
 
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        e.preventDefault()
+        const file = items[i].getAsFile()
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = () => {
+          setPendingImage(reader.result as string)
+        }
+        reader.readAsDataURL(file)
+        return
+      }
+    }
+  }
+
   const sendMessage = (text: string) => {
     // Handle /giphy command
     if (text.trim().toLowerCase().startsWith('/giphy')) {
@@ -330,12 +349,13 @@ export function ChatPanel() {
       return
     }
 
-    if (!text.trim() || isStreaming) return
+    if ((!text.trim() && !pendingImage) || isStreaming) return
     const userMessage: Message = {
       id: genId(),
       role: 'user',
       content: text.trim(),
       replyTo: replyingTo || undefined,
+      imageUrl: pendingImage || undefined,
     }
 
     const mentionMatch = text.match(/@(\w+)/i)
@@ -347,18 +367,19 @@ export function ChatPanel() {
     setIsStreaming(true)
     setCurrentModel(detectedModel)
     setReplyingTo(null)
+    setPendingImage(null)
 
-    // Build the messages payload, including reply context if applicable
-    const apiMessages = updatedMessages.map(m => ({
-      role: m.role,
-      content: m.gifUrl ? `[gif:${m.gifUrl}]` : (m.content || ''),
-    }))
+    // Build the messages payload
+    const apiMessages = updatedMessages.map(m => {
+      if (m.imageUrl) return { role: m.role, content: m.content || '[image]', image: m.imageUrl }
+      if (m.gifUrl) return { role: m.role, content: `[gif:${m.gifUrl}]` }
+      return { role: m.role, content: m.content || '' }
+    })
     if (userMessage.replyTo) {
       const repliedMsg = messages.find(m => m.id === userMessage.replyTo)
       if (repliedMsg) {
         const replyContent = repliedMsg.gifUrl ? '[GIF]' : repliedMsg.content
         const sender = repliedMsg.role === 'user' ? 'the user' : (repliedMsg.model || 'the assistant')
-        // Prepend reply context to the last user message
         const lastIdx = apiMessages.length - 1
         apiMessages[lastIdx] = {
           ...apiMessages[lastIdx],
@@ -405,7 +426,7 @@ export function ChatPanel() {
   }
 
   const handleSend = () => {
-    if (!input.trim()) return
+    if (!input.trim() && !pendingImage) return
     sendMessage(input)
     setInput('')
   }
@@ -553,6 +574,16 @@ export function ChatPanel() {
                   />
                 )}
 
+                {/* Pasted image display */}
+                {msg.imageUrl && (
+                  <img
+                    src={msg.imageUrl}
+                    alt="Image"
+                    className="rounded-lg max-w-[250px] max-h-[200px] mb-1"
+                    loading="lazy"
+                  />
+                )}
+
                 {msg.role === 'user' ? (
                   msg.content ? renderText(msg.content) : null
                 ) : (
@@ -606,6 +637,19 @@ export function ChatPanel() {
           </div>
         )}
 
+        {/* Pasted image preview */}
+        {pendingImage && (
+          <div className="mb-2 relative inline-block">
+            <img src={pendingImage} alt="Pasted" className="max-h-32 rounded-lg border border-slate-700" />
+            <button
+              onClick={() => setPendingImage(null)}
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-slate-700 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors"
+            >
+              <Icon name="close" className="text-xs text-white" />
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           <div className="flex-1 relative">
             <input
@@ -613,6 +657,7 @@ export function ChatPanel() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+              onPaste={handlePaste}
               disabled={isStreaming}
               className="w-full bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50"
               placeholder={replyingTo ? 'Type your reply...' : `Message ${defaultChatModel}... (/giphy to search GIFs)`}
@@ -627,7 +672,7 @@ export function ChatPanel() {
           </button>
           <button
             onClick={handleSend}
-            disabled={isStreaming || !input.trim()}
+            disabled={isStreaming || (!input.trim() && !pendingImage)}
             className="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isStreaming ? (
