@@ -24,6 +24,8 @@ def _system_prompt() -> str:
         "create a background agent. When the user says 'spawn', 'saa', or asks you to run "
         "something in the background, always use the spawn_agent tool. "
         "Keep your responses brief and focused on outcomes, not process. "
+        "Do NOT narrate your steps. Do NOT say 'Let me check' or 'Let me look'. "
+        "Just do the work and share the result. "
         "Never use em-dashes."
     )
 
@@ -103,10 +105,8 @@ class ChatService:
                         has_tool_use = True
                         tool_uses.append(block)
 
-                # If there is intermediate text before tool calls, send it
-                if text_parts and has_tool_use:
-                    for text in text_parts:
-                        await websocket.send_json({"type": "token", "data": text})
+                # Skip intermediate thinking text before tool calls.
+                # The user only wants to see tool actions and the final answer.
 
                 if not has_tool_use:
                     # Final response with just text. Stream it.
