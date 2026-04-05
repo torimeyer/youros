@@ -216,7 +216,7 @@ export function ChatPanel() {
     if (!lastMessage) return
 
     if (lastMessage.type === 'model_label') {
-      setCurrentModel(lastMessage.data ?? null)
+      setCurrentModel((lastMessage.data as string) ?? null)
     } else if (lastMessage.type === 'token') {
       setMessages(prev => {
         const updated = [...prev]

@@ -37,7 +37,6 @@ const PRIORITIES = ["P0", "P1", "P2"] as const;
 type StatusFilter = "open" | "closed" | "week";
 
 export default function Tasks() {
-  const toggleChat = useAppStore((s) => s.toggleChat);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [tasks, setTasks] = useState<Task[]>([]);

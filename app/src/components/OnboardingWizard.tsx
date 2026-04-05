@@ -4,7 +4,6 @@ import Icon from './Icon'
 import { api } from '../lib/api'
 
 const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'AI', 'Ready'] as const
-type Step = (typeof STEPS)[number]
 
 const PROVIDER_KEY_FIELD: Record<string, string> = {
   'Anthropic': 'anthropic_api_key',
