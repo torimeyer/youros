@@ -44,6 +44,21 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(100% + 1.5rem));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-toast-in {
+  animation: toast-in 0.2s ease-out;
+}
+
 /* Light mode overrides for Tailwind slate-* classes used in the app */
 [data-theme="light"] .bg-slate-950 { background-color: #f8fafc; }
 [data-theme="light"] .bg-slate-900 { background-color: #f1f5f9; }
@@ -56,12 +71,52 @@ body {
 [data-theme="light"] .text-slate-100 { color: #334155; }
 [data-theme="light"] .text-slate-300 { color: #475569; }
 [data-theme="light"] .text-slate-400 { color: #64748b; }
+[data-theme="light"] .text-slate-200 { color: #1e293b; }
 [data-theme="light"] .text-slate-500 { color: #94a3b8; }
 
 [data-theme="light"] .border-slate-800 { border-color: #cbd5e1; }
 [data-theme="light"] .border-slate-800\/50 { border-color: rgba(203, 213, 225, 0.5); }
 [data-theme="light"] .border-slate-700 { border-color: #cbd5e1; }
 [data-theme="light"] .border-slate-700\/50 { border-color: rgba(203, 213, 225, 0.5); }
+[data-theme="light"] .border-slate-600 { border-color: #94a3b8; }
+
+/* Additional background overrides */
+[data-theme="light"] .bg-slate-900\/50 { background-color: rgba(241, 245, 249, 0.6); }
+[data-theme="light"] .bg-slate-900\/60 { background-color: rgba(241, 245, 249, 0.8); }
+[data-theme="light"] .bg-slate-800\/60 { background-color: rgba(226, 232, 240, 0.6); }
+[data-theme="light"] .bg-slate-700 { background-color: #e2e8f0; }
+[data-theme="light"] .bg-slate-700\/50 { background-color: rgba(226, 232, 240, 0.5); }
+[data-theme="light"] .bg-slate-500\/20 { background-color: rgba(100, 116, 139, 0.15); }
+
+/* Additional text overrides */
+[data-theme="light"] .text-slate-600 { color: #475569; }
+[data-theme="light"] .text-slate-700 { color: #334155; }
+[data-theme="light"] .text-blue-100 { color: #1e40af; }
+[data-theme="light"] .text-amber-400 { color: #b45309; }
+
+/* Placeholder and focus overrides */
+[data-theme="light"] .placeholder-slate-600::placeholder { color: #94a3b8; }
+[data-theme="light"] .placeholder-slate-500::placeholder { color: #94a3b8; }
+[data-theme="light"] .focus\:border-slate-600:focus { border-color: #94a3b8; }
+
+/* Hover overrides */
+[data-theme="light"] .hover\:bg-slate-700:hover { background-color: #e2e8f0; }
+[data-theme="light"] .hover\:bg-slate-800\/50:hover { background-color: rgba(226, 232, 240, 0.5); }
+[data-theme="light"] .hover\:bg-slate-800\/60:hover { background-color: rgba(226, 232, 240, 0.6); }
+[data-theme="light"] .hover\:text-white:hover { color: #1e293b; }
+[data-theme="light"] .hover\:text-slate-300:hover { color: #334155; }
+[data-theme="light"] .hover\:border-slate-700:hover { border-color: #94a3b8; }
+[data-theme="light"] .hover\:border-slate-400:hover { border-color: #64748b; }
+
+/* Disabled state overrides */
+[data-theme="light"] .disabled\:bg-slate-700:disabled { background-color: #e2e8f0; }
+[data-theme="light"] .disabled\:text-slate-600:disabled { color: #94a3b8; }
+[data-theme="light"] .disabled\:text-slate-500:disabled { color: #94a3b8; }
+[data-theme="light"] .disabled\:border-slate-700:disabled { border-color: #cbd5e1; }
+
+/* Scrollbar for light mode */
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: #cbd5e1; }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
 /* Accent color highlight for active sidebar links and interactive elements */
 .accent-highlight {

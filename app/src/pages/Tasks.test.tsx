@@ -142,11 +142,9 @@ describe('Tasks page', () => {
     const input = screen.getByPlaceholderText('What needs to be done?')
     fireEvent.change(input, { target: { value: 'New test task' } })
 
-    // The add button is identifiable as the button next to the input
-    // It's a round blue button with an add icon
+    // The quick-add button is the round blue one next to the input
     const addButtons = screen.getAllByText('add')
-    // The quick-add button is the first one (in the input area)
-    const addButton = addButtons[0].closest('button')!
+    const addButton = addButtons[addButtons.length - 1].closest('button')!
     fireEvent.click(addButton)
 
     await waitFor(() => {
@@ -165,7 +163,7 @@ describe('Tasks page', () => {
     fireEvent.change(input, { target: { value: 'New test task' } })
     expect(input.value).toBe('New test task')
 
-    const addButton = screen.getAllByText('add')[0].closest('button')!
+    const addButton = (() => { const btns = screen.getAllByText('add'); return btns[btns.length - 1].closest('button')!; })()
     fireEvent.click(addButton)
 
     await waitFor(() => {
@@ -180,7 +178,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    const addButton = screen.getAllByText('add')[0].closest('button')!
+    const addButton = (() => { const btns = screen.getAllByText('add'); return btns[btns.length - 1].closest('button')!; })()
     fireEvent.click(addButton)
 
     // api.post should not have been called (only api.get for initial fetch)
@@ -404,5 +402,153 @@ describe('Tasks page', () => {
       // Initial fetch + refetch after close
       expect(mockedApiGet).toHaveBeenCalledTimes(2)
     })
+  })
+
+  // --- Task Threading (042) ---
+
+  it('groups tasks by goal with collapsible headers', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    // Goal group headers are buttons containing the goal name
+    const authHeaders = screen.getAllByText('Auth').filter((el) => el.closest('button')?.classList.contains('group'))
+    expect(authHeaders.length).toBe(1)
+    const uiHeaders = screen.getAllByText('UI').filter((el) => el.closest('button')?.classList.contains('group'))
+    expect(uiHeaders.length).toBe(1)
+    expect(screen.getByText('Other')).toBeInTheDocument()
+  })
+
+  it('shows task count badge on each goal header', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    // Auth has 1 task, UI has 1 task, Other has 1 task (Write docs, no goal)
+    // Each group header has a count badge
+    const badges = screen.getAllByText('1')
+    // At least 3 badges for the 3 groups (may also match task count elements elsewhere)
+    expect(badges.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('collapses a goal group when its header is clicked', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    // Find the Auth group header button (has the 'group' className)
+    const authHeaderText = screen.getAllByText('Auth').find((el) => el.closest('button')?.classList.contains('group'))!
+    const authHeader = authHeaderText.closest('button')!
+    fireEvent.click(authHeader)
+
+    // The task inside Auth should be hidden
+    expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
+
+    // Other groups should still be visible
+    expect(screen.getByText('Add dark mode')).toBeInTheDocument()
+    expect(screen.getByText('Write docs')).toBeInTheDocument()
+  })
+
+  it('expands a collapsed goal group when its header is clicked again', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    const authHeaderText = screen.getAllByText('Auth').find((el) => el.closest('button')?.classList.contains('group'))!
+    const authHeader = authHeaderText.closest('button')!
+
+    // Collapse
+    fireEvent.click(authHeader)
+    expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
+
+    // Expand
+    fireEvent.click(authHeader)
+    expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+  })
+
+  it('puts tasks without a goal in the Other group', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Write docs')).toBeInTheDocument()
+    })
+
+    // "Other" header should exist for the task with goal: null
+    expect(screen.getByText('Other')).toBeInTheDocument()
+
+    // Collapse Other to verify Write docs is inside it
+    const otherHeader = screen.getByText('Other').closest('button')!
+    fireEvent.click(otherHeader)
+    expect(screen.queryByText('Write docs')).not.toBeInTheDocument()
+  })
+
+  // --- Stale Indicator (044) ---
+
+  it('shows stale indicator on open tasks older than 7 days', async () => {
+    const oldDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+    mockedApiGet.mockResolvedValue({
+      tasks: [
+        { id: '10', title: 'Old open task', priority: 'P1', status: 'open', created_at: oldDate, goal: null },
+        { id: '11', title: 'Fresh task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null },
+      ],
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Old open task')).toBeInTheDocument()
+    })
+
+    // The stale text should appear once (only for the old task)
+    const staleLabels = screen.getAllByText('stale')
+    expect(staleLabels).toHaveLength(1)
+  })
+
+  it('does not show stale indicator on closed tasks even if old', async () => {
+    const oldDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+    mockedApiGet.mockResolvedValue({
+      tasks: [
+        { id: '10', title: 'Old closed task', priority: 'P1', status: 'closed', created_at: oldDate, goal: null },
+      ],
+    })
+
+    renderTasks()
+
+    // Switch to closed filter to see it
+    await waitFor(() => {
+      const closedButton = screen.getByRole('button', { name: /Closed/i })
+      fireEvent.click(closedButton)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Old closed task')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('stale')).not.toBeInTheDocument()
+  })
+
+  it('does not show stale indicator on tasks created less than 7 days ago', async () => {
+    const recentDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
+    mockedApiGet.mockResolvedValue({
+      tasks: [
+        { id: '10', title: 'Recent task', priority: 'P1', status: 'open', created_at: recentDate, goal: null },
+      ],
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Recent task')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('stale')).not.toBeInTheDocument()
   })
 })

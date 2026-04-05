@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { Layout } from './Layout'
 import { useAppStore } from '../stores/app'
+
+const mockNavigate = vi.fn()
 
 // Mock child components to isolate Layout behavior
 vi.mock('./Sidebar', () => ({
@@ -12,6 +14,11 @@ vi.mock('./Sidebar', () => ({
 vi.mock('./ChatPanel', () => ({
   ChatPanel: () => <div data-testid="chat-panel" />,
 }))
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom')
+  return { ...actual, useNavigate: () => mockNavigate }
+})
 
 function renderLayout() {
   return render(
@@ -23,6 +30,7 @@ function renderLayout() {
 
 describe('Layout', () => {
   beforeEach(() => {
+    mockNavigate.mockClear()
     useAppStore.setState({
       chatOpen: true,
       chatWidth: 380,
@@ -113,5 +121,92 @@ describe('Layout', () => {
     useAppStore.setState({ accentColor: 'pink' })
     renderLayout()
     expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('#ec4899')
+  })
+
+  describe('keyboard shortcuts', () => {
+    function pressKey(key: string, opts: Partial<KeyboardEventInit> = {}) {
+      fireEvent.keyDown(document, { key, metaKey: true, ...opts })
+    }
+
+    it('Cmd+K toggles command palette', () => {
+      renderLayout()
+      expect(useAppStore.getState().commandPaletteOpen).toBe(false)
+      pressKey('k')
+      expect(useAppStore.getState().commandPaletteOpen).toBe(true)
+      pressKey('k')
+      expect(useAppStore.getState().commandPaletteOpen).toBe(false)
+    })
+
+    it('Cmd+L toggles chat panel', () => {
+      useAppStore.setState({ chatOpen: false })
+      renderLayout()
+      pressKey('l')
+      expect(useAppStore.getState().chatOpen).toBe(true)
+      pressKey('l')
+      expect(useAppStore.getState().chatOpen).toBe(false)
+    })
+
+    it('Cmd+N navigates to /tasks?new=1', () => {
+      renderLayout()
+      pressKey('n')
+      expect(mockNavigate).toHaveBeenCalledWith('/tasks?new=1')
+    })
+
+    it('Cmd+1 navigates to Home', () => {
+      renderLayout()
+      pressKey('1')
+      expect(mockNavigate).toHaveBeenCalledWith('/')
+    })
+
+    it('Cmd+2 navigates to Tasks', () => {
+      renderLayout()
+      pressKey('2')
+      expect(mockNavigate).toHaveBeenCalledWith('/tasks')
+    })
+
+    it('Cmd+5 navigates to Agents', () => {
+      renderLayout()
+      pressKey('5')
+      expect(mockNavigate).toHaveBeenCalledWith('/agents')
+    })
+
+    it('Cmd+8 navigates to Settings', () => {
+      renderLayout()
+      pressKey('8')
+      expect(mockNavigate).toHaveBeenCalledWith('/settings')
+    })
+
+    it('does not fire shortcuts when typing in an input', () => {
+      renderLayout()
+      const input = document.createElement('input')
+      document.body.appendChild(input)
+      fireEvent.keyDown(input, { key: 'l', metaKey: true })
+      // Chat should remain in its initial state (open)
+      expect(useAppStore.getState().chatOpen).toBe(true)
+      document.body.removeChild(input)
+    })
+
+    it('does not fire shortcuts when typing in a textarea', () => {
+      renderLayout()
+      const textarea = document.createElement('textarea')
+      document.body.appendChild(textarea)
+      fireEvent.keyDown(textarea, { key: 'n', metaKey: true })
+      expect(mockNavigate).not.toHaveBeenCalled()
+      document.body.removeChild(textarea)
+    })
+
+    it('does not fire without Cmd/Ctrl modifier', () => {
+      renderLayout()
+      fireEvent.keyDown(document, { key: 'l' })
+      // Chat should stay open (no toggle)
+      expect(useAppStore.getState().chatOpen).toBe(true)
+    })
+
+    it('Ctrl+L also works (for non-Mac users)', () => {
+      useAppStore.setState({ chatOpen: false })
+      renderLayout()
+      fireEvent.keyDown(document, { key: 'l', ctrlKey: true })
+      expect(useAppStore.getState().chatOpen).toBe(true)
+    })
   })
 })

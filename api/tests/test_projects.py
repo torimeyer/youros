@@ -254,3 +254,141 @@ def test_resolve_safe_path_missing():
     with pytest.raises(HTTPException) as exc_info:
         _resolve_safe_path("definitely-not-a-real-path-xyz")
     assert exc_info.value.status_code == 404
+
+
+# --- /files/read endpoint ---
+
+
+@pytest.mark.asyncio
+async def test_read_file_text(client):
+    """Reading a text file should return content and type 'text'."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        (tmppath / "example.py").write_text("print('hello')")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath):
+            resp = await client.get("/api/files/read?path=example.py")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "text"
+    assert data["content"] == "print('hello')"
+    assert data["size"] > 0
+
+
+@pytest.mark.asyncio
+async def test_read_file_json(client):
+    """JSON files should be recognized as text."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        (tmppath / "config.json").write_text('{"key": "value"}')
+
+        with patch("routers.projects.TORIOS_DIR", tmppath):
+            resp = await client.get("/api/files/read?path=config.json")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "text"
+    assert '"key"' in data["content"]
+
+
+@pytest.mark.asyncio
+async def test_read_file_image_png(client):
+    """PNG files should return base64-encoded content with type 'image'."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        # Write a tiny valid PNG (1x1 transparent pixel)
+        import base64
+        png_data = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAB"
+            "Nl7BcQAAAABJRU5ErkJggg=="
+        )
+        (tmppath / "icon.png").write_bytes(png_data)
+
+        with patch("routers.projects.TORIOS_DIR", tmppath):
+            resp = await client.get("/api/files/read?path=icon.png")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "image"
+    assert data["content"].startswith("data:image/png;base64,")
+    assert data["mime"] == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_read_file_svg(client):
+    """SVG files should return raw SVG content with type 'image'."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        svg_content = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg>'
+        (tmppath / "logo.svg").write_text(svg_content)
+
+        with patch("routers.projects.TORIOS_DIR", tmppath):
+            resp = await client.get("/api/files/read?path=logo.svg")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "image"
+    assert data["mime"] == "image/svg+xml"
+    assert "<circle" in data["content"]
+
+
+@pytest.mark.asyncio
+async def test_read_file_binary(client):
+    """Unknown file types should return type 'binary' with no content."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        (tmppath / "data.bin").write_bytes(b"\x00\x01\x02\x03")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath):
+            resp = await client.get("/api/files/read?path=data.bin")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "binary"
+    assert data["content"] is None
+    assert data["size"] == 4
+
+
+@pytest.mark.asyncio
+async def test_read_file_rejects_directory(client):
+    """Reading a directory should return 400."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        (tmppath / "some-dir").mkdir()
+
+        with patch("routers.projects.TORIOS_DIR", tmppath):
+            resp = await client.get("/api/files/read?path=some-dir")
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_read_file_rejects_path_traversal(client):
+    """Path traversal should return 403."""
+    resp = await client.get("/api/files/read?path=../../etc/passwd")
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_read_file_missing(client):
+    """Missing files should return 404."""
+    resp = await client.get("/api/files/read?path=no-such-file.txt")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_read_file_large_text(client):
+    """Text files larger than the limit should return a placeholder message."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        # Create a file just over 1 MB
+        (tmppath / "big.txt").write_text("x" * (1_048_577))
+
+        with patch("routers.projects.TORIOS_DIR", tmppath):
+            resp = await client.get("/api/files/read?path=big.txt")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "text"
+    assert "too large" in data["content"].lower()

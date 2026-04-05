@@ -17,7 +17,6 @@ export function Sidebar() {
     { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
     { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
     { to: '/transcripts', icon: 'record_voice_over', label: 'Transcripts', featureLabel: 'Transcripts' },
-    { to: '/costs', icon: 'payments', label: 'Costs', featureLabel: null },
   ]
   const [activeAgents, setActiveAgents] = useState(0)
 

@@ -27,6 +27,9 @@ const mockAgentsResponse = {
       source: 'daemon',
       model: 'sonnet',
       budget: '2.00',
+      spawned_at: new Date(Date.now() - 83000).toISOString(),
+      transcript_bytes: 12288,
+      transcript_lines: 47,
     },
   ],
 }
@@ -228,5 +231,95 @@ describe('Agents page - Nudge feature', () => {
     expect(
       screen.queryByPlaceholderText('Send a message to this agent...')
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('Agents page - Status bar', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: true, osName: 'YourOS', darkMode: true })
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) return { agent: 'test-agent', nudges: [], session_nudges: [] }
+      return {}
+    })
+  })
+
+  it('renders the status bar for active agents', async () => {
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-status-bar')).toBeInTheDocument()
+    })
+  })
+
+  it('displays model name in status bar', async () => {
+    renderAgents()
+
+    await waitFor(() => {
+      const statusBar = screen.getByTestId('agent-status-bar')
+      expect(statusBar.textContent).toContain('sonnet')
+    })
+  })
+
+  it('displays budget cap in status bar', async () => {
+    renderAgents()
+
+    await waitFor(() => {
+      const statusBar = screen.getByTestId('agent-status-bar')
+      expect(statusBar.textContent).toContain('$2.00 cap')
+    })
+  })
+
+  it('displays transcript size in status bar', async () => {
+    renderAgents()
+
+    await waitFor(() => {
+      const statusBar = screen.getByTestId('agent-status-bar')
+      expect(statusBar.textContent).toContain('12.0KB')
+    })
+  })
+
+  it('displays transcript line count in status bar', async () => {
+    renderAgents()
+
+    await waitFor(() => {
+      const statusBar = screen.getByTestId('agent-status-bar')
+      expect(statusBar.textContent).toContain('47 lines')
+    })
+  })
+
+  it('displays elapsed time in status bar', async () => {
+    renderAgents()
+
+    await waitFor(() => {
+      const statusBar = screen.getByTestId('agent-status-bar')
+      // Should show something like "1:23" (elapsed time from spawned_at)
+      expect(statusBar.textContent).toMatch(/\d+:\d{2}/)
+    })
+  })
+
+  it('does not render status bar when no spawned_at', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        active: ['no-time-agent'],
+        agents: [{ name: 'no-time-agent', status: 'running', source: 'daemon', model: 'sonnet' }],
+      }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) return { agent: 'no-time-agent', nudges: [], session_nudges: [] }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('no-time-agent')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('agent-status-bar')).not.toBeInTheDocument()
   })
 })

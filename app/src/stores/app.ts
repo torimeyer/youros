@@ -73,15 +73,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   chatOpen: true,
   toggleChat: () => set((s) => ({ chatOpen: !s.chatOpen })),
   chatWidth: 380,
-  setChatWidth: (chatWidth) => set({ chatWidth: Math.max(300, Math.min(700, chatWidth)) }),
+  setChatWidth: (chatWidth) => set({ chatWidth: Math.max(300, Math.min(Math.floor(window.innerWidth / 2), chatWidth)) }),
   isResizing: false,
   setIsResizing: (isResizing) => set({ isResizing }),
   osName: 'YourOS',
   setOsName: (osName) => set({ osName }),
-  darkMode: true,
-  toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
-  accentColor: 'blue',
-  setAccentColor: (accentColor) => set({ accentColor }),
+  darkMode: localStorage.getItem('youros-dark-mode') !== 'false',
+  toggleDarkMode: () => set((s) => {
+    const next = !s.darkMode
+    localStorage.setItem('youros-dark-mode', String(next))
+    return { darkMode: next }
+  }),
+  accentColor: (localStorage.getItem('youros-accent-color') as AccentColor) || 'blue',
+  setAccentColor: (accentColor) => {
+    localStorage.setItem('youros-accent-color', accentColor)
+    set({ accentColor })
+  },
   features: [
     { label: 'Chat', enabled: true },
     { label: 'Tasks', enabled: true },

@@ -320,3 +320,168 @@ class TestAgentLoop:
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
         assert call_kwargs["tools"] == TOOL_DEFINITIONS
+
+    @pytest.mark.asyncio
+    async def test_parallel_tools_run_concurrently(self, websocket):
+        """Multiple tools in a single turn execute concurrently, not one after another."""
+        import asyncio
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+        mock_client = MagicMock()
+
+        first_response = _make_response(
+            [
+                _make_tool_use_block("toolu_1", "read_file", {"path": "/p/a"}),
+                _make_tool_use_block("toolu_2", "list_tasks", {}),
+            ],
+            stop_reason="tool_use",
+        )
+        second_response = _make_response([_make_text_block("Done.")])
+        mock_client.messages.create = AsyncMock(side_effect=[first_response, second_response])
+
+        # Use a barrier: both coroutines must be in-flight at the same time to proceed.
+        # If tools ran sequentially, the barrier would never be released and the test would hang.
+        started: list[str] = []
+        barrier = asyncio.Event()
+
+        async def concurrent_tool(name, _input):
+            started.append(name)
+            if len(started) == 2:
+                barrier.set()
+            await barrier.wait()
+            return f"result:{name}"
+
+        with patch("services.chat_providers.settings_store") as mock_settings:
+            mock_settings.get.return_value = "fake-api-key"
+            with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client):
+                with patch("services.chat_providers.execute_tool", side_effect=concurrent_tool):
+                    result = await service.agent_anthropic(
+                        [{"role": "user", "content": "do two things"}],
+                        websocket,
+                    )
+
+        assert result == "Done."
+        assert len(started) == 2
+
+    @pytest.mark.asyncio
+    async def test_all_tool_uses_notified_before_results(self, websocket):
+        """All tool_use (pending) notifications are sent before any tool_result notification."""
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+        mock_client = MagicMock()
+
+        first_response = _make_response(
+            [
+                _make_tool_use_block("toolu_1", "read_file", {"path": "/p/a"}),
+                _make_tool_use_block("toolu_2", "list_tasks", {}),
+                _make_tool_use_block("toolu_3", "git_status", {}),
+            ],
+            stop_reason="tool_use",
+        )
+        second_response = _make_response([_make_text_block("Done.")])
+        mock_client.messages.create = AsyncMock(side_effect=[first_response, second_response])
+
+        with patch("services.chat_providers.settings_store") as mock_settings:
+            mock_settings.get.return_value = "fake-api-key"
+            with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client):
+                with patch("services.chat_providers.execute_tool", new_callable=AsyncMock) as mock_exec:
+                    mock_exec.side_effect = ["file", "tasks", "status"]
+                    await service.agent_anthropic(
+                        [{"role": "user", "content": "three things"}],
+                        websocket,
+                    )
+
+        messages = websocket.messages
+        tool_use_positions = [i for i, m in enumerate(messages) if m.get("type") == "tool_use"]
+        tool_result_positions = [i for i, m in enumerate(messages) if m.get("type") == "tool_result"]
+
+        assert len(tool_use_positions) == 3
+        assert len(tool_result_positions) == 3
+        # Every tool_use notification must appear before every tool_result notification.
+        assert max(tool_use_positions) < min(tool_result_positions)
+
+    @pytest.mark.asyncio
+    async def test_parallel_tool_error_does_not_block_others(self, websocket):
+        """If one tool raises an exception, the others still complete and an error is returned."""
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+        mock_client = MagicMock()
+
+        first_response = _make_response(
+            [
+                _make_tool_use_block("toolu_1", "read_file", {"path": "/p/a"}),
+                _make_tool_use_block("toolu_2", "list_tasks", {}),
+            ],
+            stop_reason="tool_use",
+        )
+        second_response = _make_response([_make_text_block("Done.")])
+        mock_client.messages.create = AsyncMock(side_effect=[first_response, second_response])
+
+        async def tool_one_fails(name, _input):
+            if name == "read_file":
+                raise RuntimeError("disk error")
+            return "task list"
+
+        with patch("services.chat_providers.settings_store") as mock_settings:
+            mock_settings.get.return_value = "fake-api-key"
+            with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client):
+                with patch("services.chat_providers.execute_tool", side_effect=tool_one_fails):
+                    result = await service.agent_anthropic(
+                        [{"role": "user", "content": "read and list"}],
+                        websocket,
+                    )
+
+        assert result == "Done."
+        # The second API call should include both tool results.
+        second_call_messages = mock_client.messages.create.call_args_list[1].kwargs["messages"]
+        tool_contents = second_call_messages[-1]["content"]
+        assert len(tool_contents) == 2
+        error_entry = next(tc for tc in tool_contents if tc["tool_use_id"] == "toolu_1")
+        ok_entry = next(tc for tc in tool_contents if tc["tool_use_id"] == "toolu_2")
+        assert "Error" in error_entry["content"]
+        assert "task list" in ok_entry["content"]
+
+    @pytest.mark.asyncio
+    async def test_tool_results_in_original_order_for_api(self, websocket):
+        """Tool results are sent to Claude in the original call order even if a later tool finishes first."""
+        import asyncio
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+        mock_client = MagicMock()
+
+        first_response = _make_response(
+            [
+                _make_tool_use_block("toolu_1", "read_file", {"path": "/p/a"}),
+                _make_tool_use_block("toolu_2", "list_tasks", {}),
+            ],
+            stop_reason="tool_use",
+        )
+        second_response = _make_response([_make_text_block("Done.")])
+        mock_client.messages.create = AsyncMock(side_effect=[first_response, second_response])
+
+        # toolu_2 finishes faster but must still appear second in the API message.
+        async def out_of_order(name, _input):
+            if name == "read_file":
+                await asyncio.sleep(0.02)
+                return "file result"
+            return "task result"
+
+        with patch("services.chat_providers.settings_store") as mock_settings:
+            mock_settings.get.return_value = "fake-api-key"
+            with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client):
+                with patch("services.chat_providers.execute_tool", side_effect=out_of_order):
+                    await service.agent_anthropic(
+                        [{"role": "user", "content": "read and list"}],
+                        websocket,
+                    )
+
+        second_call_messages = mock_client.messages.create.call_args_list[1].kwargs["messages"]
+        tool_contents = second_call_messages[-1]["content"]
+        assert tool_contents[0]["tool_use_id"] == "toolu_1"
+        assert tool_contents[0]["content"] == "file result"
+        assert tool_contents[1]["tool_use_id"] == "toolu_2"
+        assert tool_contents[1]["content"] == "task result"

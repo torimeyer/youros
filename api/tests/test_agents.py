@@ -824,3 +824,80 @@ async def test_record_agent_killed_writes_audit(tmp_path):
     assert entry["event"] == "agent.killed"
     assert entry["name"] == "my-agent"
     assert entry["source"] == "ui"
+
+
+# ── Transcript metrics ──────────────────────────────────────────────
+
+def test_transcript_metrics_returns_size_and_lines(tmp_path):
+    """_get_transcript_metrics should return byte count and line count."""
+    from routers.agents import _get_transcript_metrics
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir()
+    transcript = transcripts_dir / "my-agent.md"
+    transcript.write_text("line one\nline two\nline three\n")
+
+    with patch("config.PROJECT_ROOT", tmp_path):
+        metrics = _get_transcript_metrics("my-agent")
+
+    assert metrics["transcript_bytes"] == len("line one\nline two\nline three\n")
+    assert metrics["transcript_lines"] == 3
+
+
+def test_transcript_metrics_missing_file(tmp_path):
+    """When no transcript file exists, return zeros."""
+    from routers.agents import _get_transcript_metrics
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir()
+
+    with patch("config.PROJECT_ROOT", tmp_path):
+        metrics = _get_transcript_metrics("nonexistent")
+
+    assert metrics["transcript_bytes"] == 0
+    assert metrics["transcript_lines"] == 0
+
+
+def test_transcript_metrics_empty_file(tmp_path):
+    """An empty transcript should return 0 bytes and 0 lines."""
+    from routers.agents import _get_transcript_metrics
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir()
+    transcript = transcripts_dir / "empty-agent.md"
+    transcript.write_text("")
+
+    with patch("config.PROJECT_ROOT", tmp_path):
+        metrics = _get_transcript_metrics("empty-agent")
+
+    assert metrics["transcript_bytes"] == 0
+    assert metrics["transcript_lines"] == 0
+
+
+@pytest.mark.asyncio
+async def test_list_agents_includes_transcript_metrics():
+    """The /api/agents response should include transcript_bytes and transcript_lines."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        mock_ps = {
+            "raw": "no daemon running",
+            "daemon_running": False,
+            "agents": [],
+        }
+        mock_audit = [
+            {
+                "name": "metrics-agent",
+                "status": "completed",
+                "model": "sonnet",
+                "source": "audit",
+            },
+        ]
+
+        with patch("routers.agents.ostk") as mock_ostk, \
+             patch("routers.agents._get_transcript_metrics", return_value={"transcript_bytes": 5000, "transcript_lines": 20}):
+            mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
+            mock_ostk.audit_agents = AsyncMock(return_value=mock_audit)
+
+            resp = await client.get("/api/agents")
+
+        data = resp.json()
+        agent = [a for a in data["agents"] if a["name"] == "metrics-agent"][0]
+        assert agent["transcript_bytes"] == 5000
+        assert agent["transcript_lines"] == 20

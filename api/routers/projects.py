@@ -1,3 +1,4 @@
+import base64
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,10 +78,10 @@ async def list_projects():
             if readme.is_file():
                 try:
                     text = readme.read_text(errors="replace").strip()
-                    # Grab the first non-heading, non-empty line as a description
+                    # Grab the first non-heading, non-empty, non-HTML line as a description
                     for line in text.splitlines():
                         stripped = line.strip()
-                        if stripped and not stripped.startswith("#"):
+                        if stripped and not stripped.startswith("#") and not stripped.startswith("<"):
                             description = stripped[:120]
                             break
                 except OSError:
@@ -221,3 +222,82 @@ async def open_file(request: OpenFileRequest):
         raise HTTPException(status_code=500, detail=f"Could not open file: {exc}")
 
     return {"status": "ok", "path": str(resolved)}
+
+
+# File extensions recognized as text (viewable in the preview panel).
+_TEXT_EXTENSIONS = {
+    ".ts", ".tsx", ".js", ".jsx", ".py", ".md", ".json", ".html", ".css",
+    ".toml", ".yaml", ".yml", ".txt", ".sh", ".zsh", ".bash", ".rs", ".go",
+    ".cfg", ".ini", ".env", ".sql", ".xml", ".csv", ".lock", ".gitignore",
+    ".dockerignore", ".editorconfig", ".prettierrc",
+}
+
+# File extensions recognized as images.
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico"}
+
+# Maximum file size we will read as text (1 MB).
+_MAX_TEXT_SIZE = 1_048_576
+
+
+@router.get("/files/read")
+async def read_file(path: str = Query(..., description="Relative path to the file")):
+    """Read a file's content for in-app preview.
+
+    Returns the file content (as text or base64-encoded data for images),
+    its detected type, and its size in bytes.
+    """
+    resolved = _resolve_safe_path(path)
+
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file.")
+
+    stat = resolved.stat()
+    size = stat.st_size
+    ext = resolved.suffix.lower()
+
+    if ext in _TEXT_EXTENSIONS:
+        if size > _MAX_TEXT_SIZE:
+            return {
+                "content": f"[File too large to preview: {_format_size(size)}]",
+                "type": "text",
+                "size": size,
+            }
+        try:
+            content = resolved.read_text(errors="replace")
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Could not read file: {exc}")
+        return {"content": content, "type": "text", "size": size}
+
+    if ext in _IMAGE_EXTENSIONS:
+        if ext == ".svg":
+            # SVG is text-based, return raw content
+            try:
+                content = resolved.read_text(errors="replace")
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail=f"Could not read file: {exc}")
+            return {"content": content, "type": "image", "size": size, "mime": "image/svg+xml"}
+        else:
+            # Binary image: return base64-encoded
+            mime_map = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+                ".ico": "image/x-icon",
+            }
+            mime = mime_map.get(ext, "application/octet-stream")
+            try:
+                raw = resolved.read_bytes()
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail=f"Could not read file: {exc}")
+            encoded = base64.b64encode(raw).decode("ascii")
+            return {
+                "content": f"data:{mime};base64,{encoded}",
+                "type": "image",
+                "size": size,
+                "mime": mime,
+            }
+
+    # Unknown / binary file type
+    return {"content": None, "type": "binary", "size": size}

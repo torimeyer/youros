@@ -255,7 +255,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "spawn_agent",
-        "description": "Spawn a background AI agent to work on a task independently. The agent runs in the background and can be monitored on the Agents page. Use this for tasks that take a while or can run in parallel.",
+        "description": "Spawn a background AI agent to work on a task independently. The agent runs in the background and can be monitored on the Agents page. Use this for tasks that take a while or can run in parallel. When writing the agent's prompt, always include instructions to write tests for the work and verify they pass before finishing.",
         "input_schema": {
             "type": "object",
             "properties": {

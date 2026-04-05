@@ -84,9 +84,10 @@ describe('useAppStore', () => {
     expect(useAppStore.getState().chatWidth).toBe(300)
   })
 
-  it('setChatWidth clamps to max 700', () => {
-    useAppStore.getState().setChatWidth(1000)
-    expect(useAppStore.getState().chatWidth).toBe(700)
+  it('setChatWidth clamps to half viewport width', () => {
+    const halfViewport = Math.floor(window.innerWidth / 2)
+    useAppStore.getState().setChatWidth(99999)
+    expect(useAppStore.getState().chatWidth).toBe(halfViewport)
   })
 
   it('setIsResizing updates isResizing', () => {

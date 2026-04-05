@@ -4,6 +4,36 @@ import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import { api } from '../lib/api';
 
+interface MCPServer {
+  name: string;
+  url: string;
+  auth_token?: string;
+  enabled: boolean;
+}
+
+interface MCPDirectoryEntry {
+  name: string;
+  description: string;
+  icon: string;
+  npmPackage: string;
+  setupCommand: string;
+  requiresAuth: boolean;
+  authHint?: string;
+}
+
+const MCP_DIRECTORY: MCPDirectoryEntry[] = [
+  { name: 'Filesystem', description: 'Access local files and folders on your machine', icon: 'folder_open', npmPackage: '@modelcontextprotocol/server-filesystem', setupCommand: 'npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/dir', requiresAuth: false },
+  { name: 'GitHub', description: 'Access repos, issues, and pull requests', icon: 'code', npmPackage: '@modelcontextprotocol/server-github', setupCommand: 'npx -y @modelcontextprotocol/server-github', requiresAuth: true, authHint: 'Needs a GitHub personal access token (set GITHUB_PERSONAL_ACCESS_TOKEN)' },
+  { name: 'Postgres', description: 'Query and manage your databases', icon: 'database', npmPackage: '@modelcontextprotocol/server-postgres', setupCommand: 'npx -y @modelcontextprotocol/server-postgres postgresql://localhost/mydb', requiresAuth: false },
+  { name: 'Brave Search', description: 'Search the web using Brave', icon: 'travel_explore', npmPackage: '@modelcontextprotocol/server-brave-search', setupCommand: 'npx -y @modelcontextprotocol/server-brave-search', requiresAuth: true, authHint: 'Needs a Brave Search API key (set BRAVE_API_KEY)' },
+  { name: 'Puppeteer', description: 'Automate a web browser for scraping or testing', icon: 'web', npmPackage: '@modelcontextprotocol/server-puppeteer', setupCommand: 'npx -y @modelcontextprotocol/server-puppeteer', requiresAuth: false },
+  { name: 'Memory', description: 'Persistent notes and memory that last across sessions', icon: 'psychology', npmPackage: '@modelcontextprotocol/server-memory', setupCommand: 'npx -y @modelcontextprotocol/server-memory', requiresAuth: false },
+  { name: 'Google Calendar', description: 'View and manage your calendar events', icon: 'calendar_month', npmPackage: 'mcp-server-google-calendar', setupCommand: 'npx -y mcp-server-google-calendar', requiresAuth: true, authHint: 'Needs Google OAuth credentials (client ID and secret)' },
+  { name: 'Slack', description: 'Send messages and read channels', icon: 'forum', npmPackage: '@modelcontextprotocol/server-slack', setupCommand: 'npx -y @modelcontextprotocol/server-slack', requiresAuth: true, authHint: 'Needs a Slack Bot token (set SLACK_BOT_TOKEN)' },
+  { name: 'Figma', description: 'Access and inspect design files', icon: 'palette', npmPackage: 'figma-mcp', setupCommand: 'npx -y figma-mcp', requiresAuth: true, authHint: 'Needs a Figma personal access token (set FIGMA_TOKEN)' },
+  { name: 'Google Drive', description: 'Access Google Docs, Sheets, and Drive files', icon: 'folder_shared', npmPackage: '@modelcontextprotocol/server-gdrive', setupCommand: 'npx -y @modelcontextprotocol/server-gdrive', requiresAuth: true, authHint: 'Needs Google OAuth credentials (client ID and secret)' },
+];
+
 interface SettingsData {
   dark_mode?: boolean;
   accent_color?: string;
@@ -14,6 +44,7 @@ interface SettingsData {
   model?: string;
   notifications?: Record<string, boolean>;
   quiet_hours?: boolean;
+  mcp_servers?: MCPServer[];
   [key: string]: unknown;
 }
 
@@ -50,6 +81,13 @@ export default function Settings() {
   const [quietHours, setQuietHours] = useState(true);
   const [showAllKeys, setShowAllKeys] = useState(false);
   const [keySaveStatus, setKeySaveStatus] = useState<string | null>(null);
+  const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
+  const [newMcpName, setNewMcpName] = useState('');
+  const [newMcpUrl, setNewMcpUrl] = useState('');
+  const [newMcpToken, setNewMcpToken] = useState('');
+  const [showBrowse, setShowBrowse] = useState(false);
+  const [browseSearch, setBrowseSearch] = useState('');
+  const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -97,6 +135,7 @@ export default function Settings() {
         }
         if (data.quiet_hours !== undefined) setQuietHours(data.quiet_hours);
         if ((data as any).use_ostk_terms !== undefined) setUseOstkTerms((data as any).use_ostk_terms);
+        if (data.mcp_servers) setMcpServers(data.mcp_servers);
       } catch {
         // API not available, use defaults
       }
@@ -121,14 +160,14 @@ export default function Settings() {
 
   const allShortcuts = [
     ...shortcuts,
-    { label: 'Go to Home', keys: '\u23180' },
-    { label: 'Go to Tasks', keys: '\u23181' },
-    { label: 'Go to Agents', keys: '\u23182' },
-    { label: 'Go to Projects', keys: '\u23183' },
-    { label: 'Go to Files', keys: '\u23184' },
-    { label: 'Go to Transcripts', keys: '\u23185' },
-    { label: 'Go to Settings', keys: '\u2318,' },
-    { label: 'New Note', keys: '\u2318\u21e7N' },
+    { label: 'Go to Home', keys: '\u23181' },
+    { label: 'Go to Tasks', keys: '\u23182' },
+    { label: 'Go to Timeline', keys: '\u23183' },
+    { label: 'Go to Ideas', keys: '\u23184' },
+    { label: 'Go to Agents', keys: '\u23185' },
+    { label: 'Go to Files', keys: '\u23186' },
+    { label: 'Go to Transcripts', keys: '\u23187' },
+    { label: 'Go to Settings', keys: '\u23188' },
   ];
 
   const providers = [
@@ -136,6 +175,46 @@ export default function Settings() {
     { name: 'Google Gemini', model: 'Gemini' },
     { name: 'OpenAI', model: 'GPT' },
   ];
+
+  const saveMcpServers = (servers: MCPServer[]) => {
+    setMcpServers(servers);
+    api.patch('/settings', { mcp_servers: servers }).catch(() => {});
+  };
+
+  const handleAddMcpServer = () => {
+    const name = newMcpName.trim();
+    const url = newMcpUrl.trim();
+    if (!name || !url) return;
+    const server: MCPServer = { name, url, auth_token: newMcpToken.trim() || undefined, enabled: true };
+    saveMcpServers([...mcpServers, server]);
+    setNewMcpName('');
+    setNewMcpUrl('');
+    setNewMcpToken('');
+  };
+
+  const handleRemoveMcpServer = (index: number) => {
+    saveMcpServers(mcpServers.filter((_, i) => i !== index));
+  };
+
+  const handleToggleMcpServer = (index: number) => {
+    saveMcpServers(mcpServers.map((s, i) => i === index ? { ...s, enabled: !s.enabled } : s));
+  };
+
+  const handleSelectDirectoryServer = (entry: MCPDirectoryEntry) => {
+    setNewMcpName(entry.name);
+    setNewMcpUrl('');
+    setNewMcpToken('');
+    setShowBrowse(false);
+    setBrowseSearch('');
+  };
+
+  const isServerAdded = (entryName: string) =>
+    mcpServers.some((s) => s.name.toLowerCase() === entryName.toLowerCase());
+
+  const filteredDirectory = MCP_DIRECTORY.filter((entry) => {
+    const q = browseSearch.toLowerCase();
+    return entry.name.toLowerCase().includes(q) || entry.description.toLowerCase().includes(q);
+  });
 
   const handleDarkModeToggle = (wantDark: boolean) => {
     if (wantDark !== darkMode) {
@@ -526,7 +605,207 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Row 4: Data Management */}
+        {/* Row 4: MCP Servers */}
+        <div className={cardClass}>
+          <div className="flex items-center gap-2 mb-5">
+            <h2 className="text-lg font-semibold">Connected Tools</h2>
+            <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">MCP</span>
+            <div className="group relative ml-1">
+              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                Connect external tool servers (like Stitch, Gmail, Calendar). ToriChat can use their tools the same way it uses built-in tools.
+              </div>
+            </div>
+            <button
+              onClick={() => setShowBrowse(true)}
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
+            >
+              <Icon name="explore" size={16} />
+              Browse
+            </button>
+          </div>
+
+          {/* Existing servers */}
+          {mcpServers.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {mcpServers.map((server, index) => (
+                <div key={index} className="flex items-center gap-3 px-3 py-2.5 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                  <button
+                    onClick={() => handleToggleMcpServer(index)}
+                    className={`w-8 h-5 rounded-full relative flex-shrink-0 transition-colors ${server.enabled ? 'accent-bg' : 'bg-slate-700'}`}
+                    title={server.enabled ? 'Disable' : 'Enable'}
+                  >
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${server.enabled ? 'left-3.5' : 'left-0.5'}`} />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-200 font-medium">{server.name}</p>
+                    <p className="text-xs text-slate-500 truncate">{server.url}</p>
+                  </div>
+                  <button
+                    onClick={() => handleRemoveMcpServer(index)}
+                    className="p-1 text-slate-600 hover:text-red-400 transition-colors flex-shrink-0"
+                    title="Remove"
+                  >
+                    <Icon name="delete" size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add new server */}
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newMcpName}
+                onChange={e => setNewMcpName(e.target.value)}
+                placeholder="Server name (e.g. Stitch)"
+                className="w-36 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <input
+                type="text"
+                value={newMcpUrl}
+                onChange={e => setNewMcpUrl(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddMcpServer()}
+                placeholder="Paste your server URL after running setup"
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <input
+                type="password"
+                value={newMcpToken}
+                onChange={e => setNewMcpToken(e.target.value)}
+                placeholder="Auth token (optional)"
+                className="w-44 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <button
+                onClick={handleAddMcpServer}
+                disabled={!newMcpName.trim() || !newMcpUrl.trim()}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          {/* Browse directory modal */}
+          {showBrowse && (
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => { setShowBrowse(false); setBrowseSearch(''); setExpandedEntry(null); }}>
+              <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+                {/* Modal header */}
+                <div className="flex items-center justify-between px-5 pt-5 pb-3">
+                  <h3 className="text-base font-semibold text-white">Server Directory</h3>
+                  <button
+                    onClick={() => { setShowBrowse(false); setBrowseSearch(''); setExpandedEntry(null); }}
+                    className="p-1 text-slate-400 hover:text-white transition-colors"
+                  >
+                    <Icon name="close" size={20} />
+                  </button>
+                </div>
+
+                {/* Search input */}
+                <div className="px-5 pb-3">
+                  <div className="relative">
+                    <Icon name="search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input
+                      type="text"
+                      value={browseSearch}
+                      onChange={e => setBrowseSearch(e.target.value)}
+                      placeholder="Search servers..."
+                      autoFocus
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {/* Info note */}
+                <div className="px-5 pb-3">
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    MCP servers run locally on your machine. Run the setup command in your terminal, then add the server URL (usually http://localhost:PORT) here.
+                  </p>
+                </div>
+
+                {/* Server list */}
+                <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-2">
+                  {filteredDirectory.length === 0 && (
+                    <p className="text-sm text-slate-500 text-center py-6">No servers match your search.</p>
+                  )}
+                  {filteredDirectory.map((entry) => {
+                    const added = isServerAdded(entry.name);
+                    const isExpanded = expandedEntry === entry.name;
+                    return (
+                      <div
+                        key={entry.name}
+                        className="bg-slate-800/50 rounded-lg border border-slate-700/50 hover:border-slate-600 transition-colors"
+                      >
+                        <div
+                          className="flex items-center gap-3 px-3 py-2.5 cursor-pointer"
+                          onClick={() => setExpandedEntry(isExpanded ? null : entry.name)}
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+                            <Icon name={entry.icon} size={18} className="text-slate-300" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-slate-200 font-medium">{entry.name}</p>
+                            <p className="text-xs text-slate-500">{entry.description}</p>
+                          </div>
+                          <Icon name={isExpanded ? 'expand_less' : 'expand_more'} size={20} className="text-slate-500 flex-shrink-0" />
+                        </div>
+                        {isExpanded && (
+                          <div className="px-3 pb-3 space-y-2.5">
+                            <div className="border-t border-slate-700/50 pt-2.5" />
+                            {/* npm package */}
+                            <div>
+                              <p className="text-xs text-slate-400 mb-1">Package</p>
+                              <code className="text-xs text-blue-400 bg-slate-900/80 px-2 py-1 rounded font-mono block break-all">{entry.npmPackage}</code>
+                            </div>
+                            {/* Setup command */}
+                            <div>
+                              <p className="text-xs text-slate-400 mb-1">Setup command</p>
+                              <div className="flex items-center gap-2">
+                                <code className="text-xs text-emerald-400 bg-slate-900/80 px-2 py-1 rounded font-mono flex-1 break-all">{entry.setupCommand}</code>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(entry.setupCommand); }}
+                                  className="p-1 text-slate-500 hover:text-white transition-colors flex-shrink-0"
+                                  title="Copy command"
+                                >
+                                  <Icon name="content_copy" size={14} />
+                                </button>
+                              </div>
+                            </div>
+                            {/* Auth hint */}
+                            {entry.requiresAuth && entry.authHint && (
+                              <div className="flex items-start gap-2 text-xs text-amber-400/80 bg-amber-900/20 px-2 py-1.5 rounded">
+                                <Icon name="key" size={14} className="flex-shrink-0 mt-0.5" />
+                                <span>{entry.authHint}</span>
+                              </div>
+                            )}
+                            {/* Add button */}
+                            {added ? (
+                              <span className="flex items-center gap-1 text-xs text-green-400">
+                                <Icon name="check_circle" size={16} />
+                                Already added
+                              </span>
+                            ) : (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleSelectDirectoryServer(entry); }}
+                                className="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-md text-xs font-medium text-white transition-colors"
+                              >
+                                Add
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Row 5: Data Management */}
         <div className={cardClass}>
           <div className="flex items-center gap-2 mb-2">
             <h2 className="text-lg font-semibold">Data Management</h2>

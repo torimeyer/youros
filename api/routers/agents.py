@@ -12,10 +12,116 @@ router = APIRouter(tags=["agents"])
 # In-memory registry of active agent processes
 active_agents: dict[str, object] = {}
 
+# Spawn metadata (timestamp, budget, model) for API-spawned agents
+agent_metadata: dict[str, dict] = {}
+
 # In-memory log of nudges sent during this session (visible in UI)
 nudge_history: dict[str, list[dict]] = {}
 
-from config import AGENTS_DIR
+from config import AGENTS_DIR, OSTK_DIR
+
+# Persistent file tracking agent state across server restarts
+AGENT_STATE_PATH = OSTK_DIR / "agent_state.json"
+
+
+def _load_agent_state() -> dict:
+    """Load persisted agent state from disk."""
+    if AGENT_STATE_PATH.exists():
+        try:
+            return json.loads(AGENT_STATE_PATH.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_agent_state():
+    """Persist current agent metadata to disk."""
+    try:
+        AGENT_STATE_PATH.write_text(json.dumps(agent_metadata, indent=2))
+    except OSError:
+        pass
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is still running."""
+    import os
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+# Restore metadata from disk on startup
+agent_metadata.update(_load_agent_state())
+
+# Persistent file for learned agent durations
+DURATION_STATS_PATH = OSTK_DIR / "agent_durations.json"
+
+
+def _load_duration_stats() -> dict:
+    """Load historical agent duration stats from disk."""
+    if DURATION_STATS_PATH.exists():
+        try:
+            return json.loads(DURATION_STATS_PATH.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"durations": []}
+
+
+def _save_duration(model: str, budget: float, duration_sec: float):
+    """Record a completed agent's duration for future estimates."""
+    stats = _load_duration_stats()
+    stats["durations"].append({
+        "model": model,
+        "budget": budget,
+        "duration_sec": round(duration_sec),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    # Keep last 100 entries
+    stats["durations"] = stats["durations"][-100:]
+    try:
+        DURATION_STATS_PATH.write_text(json.dumps(stats, indent=2))
+    except OSError:
+        pass
+
+
+def _avg_minutes_per_dollar() -> dict[str, float]:
+    """Calculate average minutes per dollar of budget from historical data."""
+    stats = _load_duration_stats()
+    # Group by model
+    model_data: dict[str, list[tuple[float, float]]] = {}
+    for entry in stats.get("durations", []):
+        model = entry.get("model", "")
+        budget = entry.get("budget", 0)
+        duration = entry.get("duration_sec", 0)
+        if budget > 0 and duration > 0:
+            model_data.setdefault(model, []).append((budget, duration))
+
+    result = {}
+    for model, entries in model_data.items():
+        total_minutes = sum(d / 60 for _, d in entries)
+        total_budget = sum(b for b, _ in entries)
+        if total_budget > 0:
+            result[model] = round(total_minutes / total_budget, 2)
+    return result
+
+
+def _get_transcript_metrics(name: str) -> dict:
+    """Get activity metrics from an agent's transcript file."""
+    from config import PROJECT_ROOT
+    transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
+    if not transcript.exists():
+        return {"transcript_bytes": 0, "transcript_lines": 0}
+    try:
+        size = transcript.stat().st_size
+        lines = 0
+        with open(transcript, "rb") as f:
+            for _ in f:
+                lines += 1
+        return {"transcript_bytes": size, "transcript_lines": lines}
+    except OSError:
+        return {"transcript_bytes": 0, "transcript_lines": 0}
 
 
 @router.get("/agents")
@@ -30,6 +136,7 @@ async def list_agents():
     agents_map: dict[str, dict] = {}
 
     # 1. Audit log agents (lowest priority, background context)
+    from config import PROJECT_ROOT
     for agent in audit_agents_list:
         # If no daemon is running and audit says "spawned", the agent is dead.
         # Also if daemon IS running but this agent isn't in the daemon's list.
@@ -37,32 +144,76 @@ async def list_agents():
             if not daemon_running or agent["name"] not in daemon_agent_names:
                 # Check if it's in our in-memory registry (API-spawned this session)
                 if agent["name"] not in active_agents:
-                    agent = {**agent, "status": "stopped"}
+                    # Check transcript to determine if agent completed or crashed
+                    transcript = PROJECT_ROOT / "transcripts" / f"{agent['name']}.md"
+                    if transcript.exists() and transcript.stat().st_size > 0:
+                        agent = {**agent, "status": "completed"}
+                    else:
+                        agent = {**agent, "status": "stopped"}
         agents_map[agent["name"]] = agent
 
     # 2. In-memory agents (spawned via API this session)
     for name in list(active_agents.keys()):
         proc = active_agents[name]
+        meta = agent_metadata.get(name, {})
         # Check if the process is still alive
         if hasattr(proc, 'returncode') and proc.returncode is not None:
             del active_agents[name]
+            # Record duration for future estimates
+            if meta.get("spawned_at") and meta.get("budget") and meta.get("model"):
+                try:
+                    start = datetime.fromisoformat(meta["spawned_at"])
+                    duration = (datetime.now(timezone.utc) - start).total_seconds()
+                    _save_duration(meta["model"], float(meta["budget"]), duration)
+                except (ValueError, TypeError):
+                    pass
             agents_map[name] = {
                 "name": name,
                 "status": "completed" if proc.returncode == 0 else "failed",
                 "source": "api",
+                **meta,
             }
         else:
             agents_map[name] = {
                 "name": name,
                 "status": "running",
                 "source": "api",
+                **meta,
             }
+
+    # 2b. Persisted metadata (agents from previous server sessions)
+    for name, meta in agent_metadata.items():
+        if name in active_agents or name in agents_map:
+            continue  # already handled above
+        pid = meta.get("pid")
+        if pid and _is_pid_alive(pid):
+            agents_map[name] = {
+                "name": name,
+                "status": "running",
+                "source": "api",
+                **meta,
+            }
+        else:
+            # Process is dead. Check transcript for completion.
+            transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
+            if transcript.exists() and transcript.stat().st_size > 0:
+                agents_map[name] = {
+                    "name": name,
+                    "status": "completed",
+                    "source": "api",
+                    **meta,
+                }
 
     # 3. Daemon agents (highest priority, ground truth)
     for agent in ps_result.get("agents", []):
         agents_map[agent["name"]] = agent
 
     all_agents = list(agents_map.values())
+
+    # Enrich agents with transcript metrics
+    for agent in all_agents:
+        metrics = _get_transcript_metrics(agent["name"])
+        agent.update(metrics)
 
     return {
         "daemon_running": daemon_running,
@@ -72,6 +223,7 @@ async def list_agents():
             if a.get("status") == "running"
         ],
         "agents": all_agents,
+        "avg_min_per_dollar": _avg_minutes_per_dollar(),
     }
 
 
@@ -97,7 +249,7 @@ async def spawn_agent(body: AgentSpawn):
         "--model", model,
         "--output-format", "text",
         "--max-budget-usd", str(body.budget),
-        "--permission-mode", "auto",
+        "--permission-mode", "bypassPermissions",
     ]
 
     try:
@@ -116,6 +268,13 @@ async def spawn_agent(body: AgentSpawn):
         proc.stdin.close()
 
         active_agents[body.name] = proc
+        agent_metadata[body.name] = {
+            "spawned_at": datetime.now(timezone.utc).isoformat(),
+            "budget": str(body.budget),
+            "model": model,
+            "pid": proc.pid,
+        }
+        _save_agent_state()
 
         # Log to audit
         try:
@@ -131,6 +290,51 @@ async def spawn_agent(body: AgentSpawn):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/agents/register")
+async def register_agent(body: AgentSpawn):
+    """Register an external agent (e.g., Claude Code subagent) without spawning a process.
+
+    This lets ToriOS track agents that are managed by another system.
+    """
+    model = MODEL_MAP.get(body.model, body.model)
+    agent_metadata[body.name] = {
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "budget": str(body.budget),
+        "model": model,
+        "source": "claude-code",
+    }
+    _save_agent_state()
+
+    # Log to audit
+    try:
+        await ostk._run("os", "audit", "--event", "agent.spawned",
+                       "--data", json.dumps({"name": body.name, "model": model, "budget": str(body.budget)}))
+    except Exception:
+        pass
+
+    return {"result": f"Agent '{body.name}' registered", "source": "claude-code"}
+
+
+@router.post("/agents/{name}/complete")
+async def mark_agent_complete(name: str):
+    """Mark an externally managed agent as completed."""
+    meta = agent_metadata.get(name, {})
+    if meta.get("spawned_at"):
+        try:
+            start = datetime.fromisoformat(meta["spawned_at"])
+            duration = (datetime.now(timezone.utc) - start).total_seconds()
+            _save_duration(meta.get("model", ""), float(meta.get("budget", "0")), duration)
+        except (ValueError, TypeError):
+            pass
+    # Write a transcript marker so the status check finds it
+    from config import PROJECT_ROOT
+    transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    if not transcript.exists() or transcript.stat().st_size == 0:
+        transcript.write_text(f"Agent '{name}' completed (registered externally).\n")
+    return {"result": f"Agent '{name}' marked complete"}
 
 
 @router.post("/agents/{name}/kill")

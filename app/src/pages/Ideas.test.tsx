@@ -71,8 +71,12 @@ describe('Ideas page', () => {
     renderIdeas()
 
     // Total: 3 from clusters + 2 unclustered = 5
+    // The count appears in both the header badge and the Active tab button,
+    // so target the specific badge element by its class.
     await waitFor(() => {
-      expect(screen.getByText('5')).toBeInTheDocument()
+      const badge = document.querySelector('.bg-pink-500.text-white.text-xs.rounded-full')
+      expect(badge).not.toBeNull()
+      expect(badge!.textContent).toBe('5')
     })
   })
 
@@ -123,16 +127,19 @@ describe('Ideas page', () => {
   it('send refetches data after submission', async () => {
     renderIdeas()
 
+    // On mount, fetchData() calls both fetchActive() and fetchConverted(),
+    // so api.get is called 2 times initially.
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledTimes(1)
+      expect(mockedApiGet).toHaveBeenCalledTimes(2)
     })
 
     const input = screen.getByPlaceholderText("What's on your mind?")
     fireEvent.change(input, { target: { value: 'Refetch test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
+    // After send, handleSend calls fetchActive() which adds 1 more call.
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledTimes(2)
+      expect(mockedApiGet).toHaveBeenCalledTimes(3)
     })
   })
 
@@ -224,21 +231,21 @@ describe('Ideas page', () => {
     })
   })
 
-  it('per-idea "Break into tasks" buttons call compile endpoint', async () => {
+  it('per-idea "Break into tasks" buttons call convert endpoint', async () => {
     renderIdeas()
 
     await waitFor(() => {
       expect(screen.getAllByText('Redesign sidebar').length).toBeGreaterThanOrEqual(1)
     })
 
-    // Each idea card has a "Break into tasks" button
+    // Each idea card has a "Break into tasks" button that calls handleConvert
     const breakButtons = screen.getAllByRole('button', { name: 'Break into tasks' })
     expect(breakButtons.length).toBeGreaterThan(0)
 
     fireEvent.click(breakButtons[0])
 
     await waitFor(() => {
-      expect(mockedApiPost).toHaveBeenCalledWith('/ideas/compile')
+      expect(mockedApiPost).toHaveBeenCalledWith('/ideas/convert', { straw: 'Redesign sidebar' })
     })
   })
 

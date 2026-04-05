@@ -126,4 +126,97 @@ describe('ChatPanel', () => {
       expect(scrollContainer?.className).toContain('px-10')
     })
   })
+
+  describe('Reactions', () => {
+    it('shows reaction bar with emoji buttons for each message', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello there' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi!', model: 'claude' },
+      ]
+      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+
+      render(<ChatPanel />)
+
+      // Each message should have a reaction bar with emoji buttons
+      const reactionBar1 = screen.getByTestId('reaction-bar-msg-1')
+      const reactionBar2 = screen.getByTestId('reaction-bar-msg-2')
+      expect(reactionBar1).toBeTruthy()
+      expect(reactionBar2).toBeTruthy()
+
+      // Each bar should have 6 emoji buttons
+      const emojiButtons = screen.getAllByTitle(/React with/)
+      expect(emojiButtons.length).toBe(12) // 6 per message, 2 messages
+    })
+
+    it('adds a reaction pill when clicking an emoji', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello there' },
+      ]
+      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+
+      render(<ChatPanel />)
+
+      // Click the thumbs up reaction
+      const thumbsUpButtons = screen.getAllByTitle('React with 👍')
+      fireEvent.click(thumbsUpButtons[0])
+
+      // A reaction pill should appear with the emoji and count
+      const pill = screen.getByTitle('👍 1')
+      expect(pill).toBeTruthy()
+      expect(pill.textContent).toContain('👍')
+      expect(pill.textContent).toContain('1')
+    })
+
+    it('removes a reaction when clicking the same emoji again', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello there' },
+      ]
+      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+
+      render(<ChatPanel />)
+
+      // Click thumbs up to add it
+      const thumbsUpButtons = screen.getAllByTitle('React with 👍')
+      fireEvent.click(thumbsUpButtons[0])
+      expect(screen.getByTitle('👍 1')).toBeTruthy()
+
+      // Click the reaction pill to remove it
+      const pill = screen.getByTitle('👍 1')
+      fireEvent.click(pill)
+
+      // The pill should be gone
+      expect(screen.queryByTitle('👍 1')).toBeNull()
+    })
+
+    it('persists reactions to localStorage', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello there' },
+      ]
+      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+
+      render(<ChatPanel />)
+
+      // Add a reaction
+      const heartButtons = screen.getAllByTitle('React with ❤️')
+      fireEvent.click(heartButtons[0])
+
+      // Check localStorage was updated with reaction
+      const saved = JSON.parse(localStorage.getItem('youros-chat-messages') || '[]')
+      const msg = saved.find((m: { id: string }) => m.id === 'msg-1')
+      expect(msg.reactions).toEqual({ '❤️': 1 })
+    })
+
+    it('loads persisted reactions from localStorage', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello there', reactions: { '🔥': 2, '😂': 1 } },
+      ]
+      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+
+      render(<ChatPanel />)
+
+      // Reaction pills should be rendered from the stored data
+      expect(screen.getByTitle('🔥 2')).toBeTruthy()
+      expect(screen.getByTitle('😂 1')).toBeTruthy()
+    })
+  })
 })

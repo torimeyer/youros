@@ -70,6 +70,20 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [costData, setCostData] = useState<CostSummary | null>(null);
   const [activeAgents, setActiveAgents] = useState<{ name: string; status: string }[]>([]);
+  const [summaryBullets, setSummaryBullets] = useState<string[]>([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  const fetchSummary = useCallback(async () => {
+    setSummaryLoading(true);
+    try {
+      const res = await api.get<{ bullets: string[] }>('/dashboard/summary');
+      setSummaryBullets(res.bullets);
+    } catch (e) {
+      console.error('Failed to fetch summary:', e);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -87,7 +101,8 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+    fetchSummary();
+  }, [fetchSummary]);
 
   useEffect(() => {
     fetchData();
@@ -218,6 +233,40 @@ export default function Dashboard() {
                   <span className="text-sm text-slate-300 mt-2">{item.label}</span>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Day Summary */}
+          <div className={`${cardClass} col-span-2`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Icon name="calendar_today" className="text-cyan-400" size={20} />
+                <h2 className="text-lg font-semibold">Day Summary</h2>
+              </div>
+              <button
+                onClick={fetchSummary}
+                disabled={summaryLoading}
+                className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50"
+              >
+                <Icon name="refresh" size={16} className={summaryLoading ? 'animate-spin' : ''} />
+                Refresh
+              </button>
+            </div>
+            <div className="space-y-2">
+              {summaryLoading && summaryBullets.length === 0 ? (
+                <p className="text-sm text-slate-500">Loading summary...</p>
+              ) : summaryBullets.length === 0 ? (
+                <p className="text-sm text-slate-500">No activity to summarize yet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {summaryBullets.map((bullet, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                      {bullet}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
 

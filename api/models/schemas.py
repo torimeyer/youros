@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 
 class TaskCreate(BaseModel):
@@ -46,6 +46,14 @@ class Settings(BaseModel):
     quiet_hours_enabled: bool = True
     quiet_hours_start: str = "22:00"
     quiet_hours_end: str = "07:00"
+    mcp_servers: List[Dict] = []
+
+
+class MCPServer(BaseModel):
+    name: str
+    url: str
+    auth_token: str = ""
+    enabled: bool = True
 
 
 class AgentSpawn(BaseModel):

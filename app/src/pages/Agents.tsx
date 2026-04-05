@@ -2,8 +2,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import { api } from "../lib/api";
+import { useNotificationStore } from "../stores/notifications";
 
-const tabs = ["Active", "Recent", "Metrics", "Automation"];
+const tabs = ["Active", "Recent", "Metrics"];
 
 const CUSTOM_TEMPLATES_KEY = "youros-custom-templates";
 
@@ -180,6 +181,90 @@ interface AgentInfo {
   model?: string;
   budget?: string;
   timestamp?: string;
+  spawned_at?: string;
+  transcript_bytes?: number;
+  transcript_lines?: number;
+}
+
+// Default estimates (used when no historical data exists)
+const DEFAULT_MIN_PER_DOLLAR: Record<string, number> = {
+  "claude-sonnet-4-6": 3,
+  "claude-sonnet-4-5-20250929": 3,
+  "claude-opus-4-6": 5,
+  "claude-haiku-4-5": 2,
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function formatModelShort(model?: string): string {
+  if (!model) return "---";
+  if (model.includes("sonnet")) return "sonnet";
+  if (model.includes("opus")) return "opus";
+  if (model.includes("haiku")) return "haiku";
+  return model.split("-")[0] || model;
+}
+
+function AgentStatusBar({ spawnedAt, budget, model, learnedRates, transcriptBytes, transcriptLines }: {
+  spawnedAt: string;
+  budget?: string;
+  model?: string;
+  learnedRates?: Record<string, number>;
+  transcriptBytes?: number;
+  transcriptLines?: number;
+}) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const startMs = new Date(spawnedAt).getTime();
+  const elapsedSec = Math.max(0, Math.floor((now - startMs) / 1000));
+  const elapsedMin = Math.floor(elapsedSec / 60);
+  const elapsedRemSec = elapsedSec % 60;
+
+  // Estimate ETA from budget and model
+  let etaText = "";
+  if (budget && model) {
+    const rate = learnedRates?.[model] ?? DEFAULT_MIN_PER_DOLLAR[model] ?? 3;
+    const estimatedTotalMin = parseFloat(budget) * rate;
+    const remainingMin = Math.max(0, Math.round(estimatedTotalMin - elapsedSec / 60));
+    if (remainingMin > 0) {
+      etaText = `~${remainingMin}m left`;
+    } else {
+      etaText = "wrapping up";
+    }
+  }
+
+  const segments = [
+    `${elapsedMin}:${elapsedRemSec.toString().padStart(2, "0")}`,
+    formatModelShort(model),
+    budget ? `$${budget} cap` : null,
+    transcriptBytes ? formatBytes(transcriptBytes) : null,
+    transcriptLines ? `${transcriptLines} lines` : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 font-mono text-xs flex items-center gap-1 flex-wrap" data-testid="agent-status-bar">
+      {segments.map((seg, i) => (
+        <span key={i} className="flex items-center gap-1">
+          {i > 0 && <span className="text-slate-700 mx-0.5">|</span>}
+          <span className={i === 0 ? "text-green-400" : "text-slate-400"}>{seg}</span>
+        </span>
+      ))}
+      {etaText && (
+        <>
+          <span className="text-slate-700 mx-0.5">|</span>
+          <span className="text-blue-400">{etaText}</span>
+        </>
+      )}
+    </div>
+  );
 }
 
 interface AgentsResponse {
@@ -187,6 +272,7 @@ interface AgentsResponse {
   status: string;
   active: string[];
   agents: AgentInfo[];
+  avg_min_per_dollar?: Record<string, number>;
 }
 
 interface TemplatesResponse {
@@ -243,16 +329,42 @@ const statusColor = (status: string) => {
   }
 };
 
+function tryBrowserNotification(agentName: string, status: string) {
+  if (!("Notification" in window)) return;
+  const messages: Record<string, string> = {
+    completed: "finished successfully",
+    failed: "failed",
+    killed: "was cancelled",
+    stopped: "stopped",
+  };
+  const msg = messages[status];
+  if (!msg) return;
+  if (Notification.permission === "granted") {
+    new Notification(`${agentName} ${msg}`, { silent: true });
+  } else if (Notification.permission !== "denied") {
+    Notification.requestPermission().then((perm) => {
+      if (perm === "granted") {
+        new Notification(`${agentName} ${msg}`, { silent: true });
+      }
+    });
+  }
+}
+
 export default function Agents() {
   const [activeTab, setActiveTab] = useState("Active");
   const [allAgents, setAllAgents] = useState<AgentInfo[]>([]);
-  const [activeAgents, setActiveAgents] = useState<string[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState("Connecting...");
+  const [, setActiveAgents] = useState<string[]>([]);
+  const [, setConnectionStatus] = useState("Connecting...");
   const [daemonRunning, setDaemonRunning] = useState(false);
+  const [learnedRates, setLearnedRates] = useState<Record<string, number>>({});
   const [templates, setTemplates] = useState<TemplatesResponse["templates"]>([]);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newAgentName, setNewAgentName] = useState("");
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [, setLastUpdate] = useState<Date | null>(null);
+
+  const addNotification = useNotificationStore((s) => s.addNotification);
+  // Track previous agent statuses to detect changes between polls
+  const prevStatusRef = useRef<Record<string, string>>({});
 
   // Nudge state: per-agent input text and message history
   const [nudgeInputs, setNudgeInputs] = useState<Record<string, string>>({});
@@ -325,10 +437,33 @@ export default function Agents() {
   const fetchAgents = async () => {
     try {
       const data = await api.get<AgentsResponse>("/agents");
-      setAllAgents(data.agents || []);
+      const newAgents = data.agents || [];
+
+      // Detect status changes and fire notifications
+      const prev = prevStatusRef.current;
+      for (const agent of newAgents) {
+        const prevStatus = prev[agent.name];
+        const newStatus = agent.status;
+        if (prevStatus !== undefined && prevStatus !== newStatus) {
+          const wasActive = prevStatus === "running" || prevStatus === "spawned";
+          const isDone =
+            newStatus === "completed" ||
+            newStatus === "failed" ||
+            newStatus === "killed" ||
+            newStatus === "stopped";
+          if (wasActive && isDone) {
+            addNotification(agent.name, prevStatus, newStatus);
+            tryBrowserNotification(agent.name, newStatus);
+          }
+        }
+      }
+      prevStatusRef.current = Object.fromEntries(newAgents.map((a) => [a.name, a.status]));
+
+      setAllAgents(newAgents);
       setActiveAgents(data.active || []);
       setDaemonRunning(data.daemon_running ?? false);
       setConnectionStatus(data.daemon_running ? "Connected" : "Standby");
+      if (data.avg_min_per_dollar) setLearnedRates(data.avg_min_per_dollar);
       setLastUpdate(new Date());
     } catch {
       setConnectionStatus("Disconnected");
@@ -424,12 +559,6 @@ export default function Agents() {
     }
   };
 
-  const formatLastUpdate = () => {
-    if (!lastUpdate) return "Never";
-    const seconds = Math.floor((Date.now() - lastUpdate.getTime()) / 1000);
-    if (seconds < 60) return "Just now";
-    return `${Math.floor(seconds / 60)} min ago`;
-  };
 
   // Default template icons for API templates that don't match known names
   const getTemplateIcon = (name: string) => {
@@ -524,30 +653,6 @@ export default function Agents() {
           </div>
         )}
 
-        {/* Status bar */}
-        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 flex gap-8 mb-8">
-          <div className="flex items-center gap-2 text-sm text-slate-300">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                connectionStatus === "Disconnected"
-                  ? "bg-red-500"
-                  : daemonRunning
-                    ? "bg-green-500"
-                    : "bg-yellow-500"
-              }`}
-            />
-            {connectionStatus}
-          </div>
-          <span className="text-sm text-slate-300">
-            {activeAgents.length} Active Session{activeAgents.length !== 1 ? "s" : ""}
-          </span>
-          <span className="text-sm text-slate-300">
-            {allAgents.length} Total Agent{allAgents.length !== 1 ? "s" : ""} (from log)
-          </span>
-          <span className="text-sm text-slate-300">
-            Last Update: {formatLastUpdate()}
-          </span>
-        </div>
 
         {/* Tab content */}
         {activeTab === "Active" && (
@@ -593,18 +698,16 @@ export default function Agents() {
                         {isExpanded ? "Collapse" : "Expand"}
                       </button>
                     </div>
-                    {agent.model && (
-                      <div className="text-slate-400 text-xs mb-2">Model: {agent.model}</div>
+                    {(agent.spawned_at || agent.timestamp) && (
+                      <AgentStatusBar
+                        spawnedAt={agent.spawned_at || agent.timestamp!}
+                        budget={agent.budget}
+                        model={agent.model}
+                        learnedRates={learnedRates}
+                        transcriptBytes={agent.transcript_bytes}
+                        transcriptLines={agent.transcript_lines}
+                      />
                     )}
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                      <span className="text-green-400 text-xs font-bold">
-                        {statusLabel(agent.status)}
-                      </span>
-                      <span className="text-slate-500 text-xs ml-auto">
-                        via {agent.source}
-                      </span>
-                    </div>
 
                     {/* Session output area with nudge history */}
                     <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs mt-3 max-h-64 overflow-y-auto">
@@ -744,17 +847,117 @@ export default function Agents() {
           </>
         )}
 
-        {activeTab === "Metrics" && (
-          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
-            Metrics coming soon.
-          </div>
-        )}
+        {activeTab === "Metrics" && (() => {
+          const totalSpawned = allAgents.length;
+          const completedAgents = allAgents.filter((a) => a.status === "completed");
+          const failedAgents = allAgents.filter((a) => a.status === "failed");
+          const stoppedAgents = allAgents.filter((a) => a.status === "stopped" || a.status === "killed");
+          const runningAgents = allAgents.filter((a) => a.status === "running" || a.status === "spawned");
 
-        {activeTab === "Automation" && (
-          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
-            Automation coming soon.
-          </div>
-        )}
+          // Compute average duration from learned rates (avg_min_per_dollar)
+          const rateEntries = Object.entries(learnedRates);
+          const avgDuration = rateEntries.length > 0
+            ? (rateEntries.reduce((sum, [, rate]) => sum + rate, 0) / rateEntries.length).toFixed(1)
+            : null;
+
+          // Recent completions (completed or failed, sorted newest first)
+          const recentDone = allAgents
+            .filter((a) => a.status === "completed" || a.status === "failed")
+            .sort((a, b) => {
+              const ta = a.spawned_at || a.timestamp || "";
+              const tb = b.spawned_at || b.timestamp || "";
+              return tb.localeCompare(ta);
+            })
+            .slice(0, 10);
+
+          return (
+            <>
+              {/* Stat cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Total Spawned</p>
+                  <p className="text-3xl font-bold text-white">{totalSpawned}</p>
+                </div>
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Completed</p>
+                  <p className="text-3xl font-bold text-blue-400">{completedAgents.length}</p>
+                </div>
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Failed</p>
+                  <p className="text-3xl font-bold text-red-400">{failedAgents.length}</p>
+                </div>
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Stopped / Cancelled</p>
+                  <p className="text-3xl font-bold text-orange-400">{stoppedAgents.length}</p>
+                </div>
+              </div>
+
+              {/* Secondary stats */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Currently Running</p>
+                  <p className="text-2xl font-bold text-green-400">{runningAgents.length}</p>
+                </div>
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Avg Duration per $1</p>
+                  <p className="text-2xl font-bold text-white">
+                    {avgDuration ? `${avgDuration} min` : "No data yet"}
+                  </p>
+                  <p className="text-slate-500 text-xs mt-1">Based on completed agents</p>
+                </div>
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Success Rate</p>
+                  <p className="text-2xl font-bold text-white">
+                    {completedAgents.length + failedAgents.length > 0
+                      ? `${Math.round((completedAgents.length / (completedAgents.length + failedAgents.length)) * 100)}%`
+                      : "No data yet"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Recent completions table */}
+              <h2 className="text-lg font-semibold text-white mb-4">Recent Completions</h2>
+              {recentDone.length === 0 ? (
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
+                  No completed agents yet. Metrics will appear here as agents finish.
+                </div>
+              ) : (
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden mb-8">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-800">
+                        <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Agent</th>
+                        <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Status</th>
+                        <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Model</th>
+                        <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Budget</th>
+                        <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Started</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentDone.map((agent) => (
+                        <tr key={agent.name} className="border-b border-slate-800/50 last:border-b-0">
+                          <td className="px-5 py-3 text-white font-medium">{agent.name}</td>
+                          <td className="px-5 py-3">
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}>
+                              {statusLabel(agent.status)}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 text-slate-400">{formatModelShort(agent.model)}</td>
+                          <td className="px-5 py-3 text-slate-400">{agent.budget ? `$${agent.budget}` : "N/A"}</td>
+                          <td className="px-5 py-3 text-slate-400">
+                            {agent.spawned_at
+                              ? new Date(agent.spawned_at).toLocaleString()
+                              : agent.timestamp || "Unknown"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* Agent Templates - always visible */}
         <div className="flex items-center justify-between mb-4">

@@ -1,10 +1,23 @@
 import { useEffect, useCallback } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useNavigate } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { ChatPanel } from './ChatPanel'
 import { CommandPalette } from './CommandPalette'
 import GuidedTour from './GuidedTour'
+import NotificationToasts from './NotificationToast'
 import { useAppStore } from '../stores/app'
+
+// Sidebar page order for Cmd+1 through Cmd+8
+const NAV_ROUTES = [
+  '/',            // Cmd+1: Home
+  '/tasks',       // Cmd+2: Tasks
+  '/timeline',    // Cmd+3: Timeline
+  '/ideas',       // Cmd+4: Ideas
+  '/agents',      // Cmd+5: Agents
+  '/files',       // Cmd+6: Files
+  '/transcripts', // Cmd+7: Transcripts
+  '/settings',    // Cmd+8: Settings
+]
 
 const ACCENT_CSS_MAP: Record<string, string> = {
   blue: '#3b82f6',
@@ -23,22 +36,57 @@ export function Layout() {
   const commandPaletteOpen = useAppStore((s) => s.commandPaletteOpen)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
   const toggleCommandPalette = useAppStore((s) => s.toggleCommandPalette)
+  const toggleChat = useAppStore((s) => s.toggleChat)
   const showTour = useAppStore((s) => s.showTour)
   const setShowTour = useAppStore((s) => s.setShowTour)
+  const navigate = useNavigate()
 
   const closeCommandPalette = useCallback(() => setCommandPaletteOpen(false), [setCommandPaletteOpen])
 
-  // Global Cmd+K / Ctrl+K listener
+  // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        toggleCommandPalette()
+      // Skip when user is typing in an input, textarea, or contenteditable
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) {
+        return
+      }
+
+      if (!(e.metaKey || e.ctrlKey)) return
+
+      switch (e.key) {
+        case 'k':
+          e.preventDefault()
+          toggleCommandPalette()
+          break
+        case 'l':
+          e.preventDefault()
+          toggleChat()
+          break
+        case 'n':
+          e.preventDefault()
+          navigate('/tasks?new=1')
+          break
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8': {
+          const index = parseInt(e.key) - 1
+          if (index < NAV_ROUTES.length) {
+            e.preventDefault()
+            navigate(NAV_ROUTES[index])
+          }
+          break
+        }
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [toggleCommandPalette])
+  }, [toggleCommandPalette, toggleChat, navigate])
 
   // Apply dark/light mode to the document element
   useEffect(() => {
@@ -57,6 +105,7 @@ export function Layout() {
       <ChatPanel />
       <CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} />
       {showTour && <GuidedTour onComplete={() => setShowTour(false)} />}
+      <NotificationToasts />
       <main
         className={`ml-56 min-h-screen ${isResizing ? '' : 'transition-[margin] duration-200'}`}
         style={chatOpen ? { marginRight: chatWidth } : undefined}

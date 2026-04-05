@@ -1,3 +1,5 @@
+import asyncio
+
 import anthropic
 from fastapi import WebSocket
 
@@ -6,6 +8,7 @@ from services.settings_store import settings_store
 from services.tool_executor import TOOL_DEFINITIONS, execute_tool
 
 MAX_AGENT_TURNS = 10
+
 
 
 def _system_prompt() -> str:
@@ -21,11 +24,30 @@ def _system_prompt() -> str:
         "When you need information from the codebase, read files or search. "
         f"When {owner} asks you to change something, use the edit or write tools. "
         "When a task is complex or can run in parallel with other work, use spawn_agent to "
-        "create a background agent. When the user says 'spawn', 'saa', or asks you to run "
-        "something in the background, always use the spawn_agent tool. "
+        "create a background agent. When the user says 'spawn' or asks you to run "
+        "something in the background, always use the spawn_agent tool.\n\n"
+        "SAA COMMAND: When the user says 'saa' followed by a task description, this is "
+        "the 'spawn and assign' command. You must follow this exact process:\n"
+        "1. Plan: briefly outline your approach in 2-3 bullet points.\n"
+        "2. Spawn agents: use the spawn_agent tool to create one or more background agents "
+        "to do the actual work. Do NOT try to do the work yourself inline.\n"
+        "3. Each agent's prompt must include clear, specific instructions for its piece of "
+        "the task, and must instruct the agent to write tests for its work and verify they pass.\n"
+        "4. If the task naturally splits into independent pieces, spawn multiple agents "
+        "so they can work in parallel.\n"
+        "5. After spawning, tell the user what agents you launched and what each one is "
+        "working on. Keep it brief.\n"
+        "Remember: 'saa' always means spawn agents. Never do the work inline when the user says 'saa'.\n\n"
+        "DIAGNOSE COMMAND: When the user says 'diagnose' followed by a problem, find the "
+        "root cause, fix it, and write a regression test so it never happens again. "
+        "Read the actual code before making any claims. Never assume.\n\n"
+        "ELIT COMMAND: When the user says 'elit' (explain like I'm Tori), explain the "
+        "topic in plain language with no code, no jargon, and keep it brief.\n\n"
         "Keep your responses brief and focused on outcomes, not process. "
         "Do NOT narrate your steps. Do NOT say 'Let me check' or 'Let me look'. "
         "Just do the work and share the result. "
+        "Be action-oriented: read only what you need, then make edits quickly. "
+        "Do not over-research. If you know enough to make a change, make it. "
         "Never use em-dashes."
     )
 
@@ -62,12 +84,23 @@ class ChatService:
 
         return full_text
 
+    def _get_mcp_servers(self) -> list[dict]:
+        """Return enabled MCP server configs from settings."""
+        servers = settings_store.get("mcp_servers", [])
+        if not isinstance(servers, list):
+            return []
+        return [s for s in servers if isinstance(s, dict) and s.get("enabled", True) and s.get("url")]
+
     async def agent_anthropic(self, messages: list[dict], websocket: WebSocket) -> str:
         """Run the Anthropic agent loop with tool use.
 
         Sends messages with tool definitions, executes any tool calls Claude
         makes, feeds results back, and repeats until Claude responds with
         just text (no more tool calls). Then streams that final text response.
+
+        When MCP servers are configured in settings, uses the Anthropic beta
+        MCP client API. Anthropic fetches tools from those servers and executes
+        MCP tool calls server-side, returning results inline in the response.
         """
         api_key = settings_store.get("anthropic_api_key", "")
         if not api_key:
@@ -78,38 +111,121 @@ class ChatService:
         conversation: list[dict] = list(messages)
         total_input_tokens = 0
         total_output_tokens = 0
+        mcp_servers = self._get_mcp_servers()
+        use_mcp = len(mcp_servers) > 0
 
         try:
-            for turn in range(MAX_AGENT_TURNS):
-                # Non-streaming call so we can inspect content blocks
-                response = await client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=4096,
-                    system=_system_prompt(),
-                    messages=conversation,
-                    tools=TOOL_DEFINITIONS,
-                )
+            turn = 0
+            while True:
+                turn += 1
+                if turn > MAX_AGENT_TURNS:
+                    msg = "Reached max turns limit."
+                    await websocket.send_json({"type": "token", "data": msg})
+                    await websocket.send_json({
+                        "type": "done",
+                        "usage": {
+                            "input_tokens": total_input_tokens,
+                            "output_tokens": total_output_tokens,
+                        },
+                    })
+                    return msg
+
+                # Signal the frontend that we're working
+                await websocket.send_json({"type": "thinking", "data": True})
+
+                if use_mcp:
+                    mcp_server_params = [
+                        {
+                            "name": s["name"],
+                            "type": "url",
+                            "url": s["url"],
+                            **({"authorization_token": s["auth_token"]} if s.get("auth_token") else {}),
+                        }
+                        for s in mcp_servers
+                    ]
+                    response = await client.beta.messages.create(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=4096,
+                        system=_system_prompt(),
+                        messages=conversation,
+                        tools=TOOL_DEFINITIONS,  # type: ignore[arg-type]
+                        mcp_servers=mcp_server_params,  # type: ignore[arg-type]
+                        betas=["mcp-client-2025-04-04"],
+                    )
+                else:
+                    response = await client.messages.create(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=4096,
+                        system=_system_prompt(),
+                        messages=conversation,
+                        tools=TOOL_DEFINITIONS,
+                    )
 
                 total_input_tokens += response.usage.input_tokens
                 total_output_tokens += response.usage.output_tokens
 
-                # Process content blocks
-                has_tool_use = False
+                # Process content blocks. MCP tool blocks (mcp_tool_use /
+                # mcp_tool_result) are handled server-side by Anthropic and
+                # returned inline. Local tool_use blocks need to be executed here.
+                has_local_tool_use = False
                 text_parts = []
-                tool_uses = []
+                local_tool_uses = []
+                assistant_content = []
 
                 for block in response.content:
                     if block.type == "text":
                         text_parts.append(block.text)
+                        assistant_content.append({"type": "text", "text": block.text})
+
                     elif block.type == "tool_use":
-                        has_tool_use = True
-                        tool_uses.append(block)
+                        has_local_tool_use = True
+                        local_tool_uses.append(block)
+                        assistant_content.append({
+                            "type": "tool_use",
+                            "id": block.id,
+                            "name": block.name,
+                            "input": dict(block.input),
+                        })
 
-                # Skip intermediate thinking text before tool calls.
-                # The user only wants to see tool actions and the final answer.
+                    elif block.type == "mcp_tool_use":
+                        # MCP tool called server-side. Notify the frontend.
+                        await websocket.send_json({
+                            "type": "mcp_tool_use",
+                            "data": {
+                                "tool": block.name,
+                                "server": block.server_name,
+                                "input": dict(block.input),
+                                "id": block.id,
+                            },
+                        })
+                        assistant_content.append({
+                            "type": "mcp_tool_use",
+                            "id": block.id,
+                            "name": block.name,
+                            "server_name": block.server_name,
+                            "input": dict(block.input),
+                        })
 
-                if not has_tool_use:
-                    # Final response with just text. Stream it.
+                    elif block.type == "mcp_tool_result":
+                        # Result from the MCP server, already resolved by Anthropic.
+                        content = block.content if isinstance(block.content, str) else str(block.content)
+                        await websocket.send_json({
+                            "type": "mcp_tool_result",
+                            "data": {
+                                "id": block.tool_use_id,
+                                "result": content[:2000] if len(content) > 2000 else content,
+                                "is_error": block.is_error,
+                            },
+                        })
+                        assistant_content.append({
+                            "type": "mcp_tool_result",
+                            "tool_use_id": block.tool_use_id,
+                            "content": content,
+                            "is_error": block.is_error,
+                        })
+
+                if not has_local_tool_use:
+                    # No local tools to execute. Stream the final text and exit.
                     for text in text_parts:
                         await websocket.send_json({"type": "token", "data": text})
                     await websocket.send_json({
@@ -121,28 +237,10 @@ class ChatService:
                     })
                     return "\n".join(text_parts)
 
-                # Build the assistant message with all content blocks
-                assistant_content = []
-                for block in response.content:
-                    if block.type == "text":
-                        assistant_content.append({
-                            "type": "text",
-                            "text": block.text,
-                        })
-                    elif block.type == "tool_use":
-                        assistant_content.append({
-                            "type": "tool_use",
-                            "id": block.id,
-                            "name": block.name,
-                            "input": dict(block.input),
-                        })
-
                 conversation.append({"role": "assistant", "content": assistant_content})
 
-                # Execute each tool and build tool_result messages
-                tool_results = []
-                for block in tool_uses:
-                    # Notify the frontend about the tool call
+                # Notify the frontend of all pending local tool calls upfront.
+                for block in local_tool_uses:
                     await websocket.send_json({
                         "type": "tool_use",
                         "data": {
@@ -152,18 +250,33 @@ class ChatService:
                         },
                     })
 
-                    result = await execute_tool(block.name, dict(block.input))
+                # Execute all local tools in parallel. A lock prevents concurrent
+                # writes to the WebSocket transport.
+                ws_lock = asyncio.Lock()
 
-                    # Notify the frontend about the tool result
-                    await websocket.send_json({
-                        "type": "tool_result",
-                        "data": {
-                            "tool": block.name,
-                            "id": block.id,
-                            "result": result[:2000] if len(result) > 2000 else result,
-                        },
-                    })
+                async def _exec_and_notify(b: object, lock: asyncio.Lock) -> str:
+                    result = await execute_tool(b.name, dict(b.input))
+                    async with lock:
+                        await websocket.send_json({
+                            "type": "tool_result",
+                            "data": {
+                                "tool": b.name,
+                                "id": b.id,
+                                "result": result[:2000] if len(result) > 2000 else result,
+                            },
+                        })
+                    return result
 
+                raw_results = await asyncio.gather(
+                    *[_exec_and_notify(block, ws_lock) for block in local_tool_uses],
+                    return_exceptions=True,
+                )
+
+                # Collect results in original tool call order for the API message.
+                tool_results = []
+                for block, result in zip(local_tool_uses, raw_results):
+                    if isinstance(result, BaseException):
+                        result = f"Error executing {block.name}: {result}"
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
@@ -172,19 +285,7 @@ class ChatService:
 
                 conversation.append({"role": "user", "content": tool_results})
 
-            # If we hit the turn limit, send what we have
-            await websocket.send_json({
-                "type": "token",
-                "data": "\n\n(Reached the maximum number of tool use rounds.)",
-            })
-            await websocket.send_json({
-                "type": "done",
-                "usage": {
-                    "input_tokens": total_input_tokens,
-                    "output_tokens": total_output_tokens,
-                },
-            })
-            return "(max turns reached)"
+            # Loop exits naturally when Claude responds with text only (no tool calls)
 
         except anthropic.APIError as e:
             await websocket.send_json({"type": "error", "data": str(e)})

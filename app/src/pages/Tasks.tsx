@@ -35,6 +35,52 @@ const PRIORITIES = ["P0", "P1", "P2"] as const;
 
 type StatusFilter = "open" | "closed" | "week";
 
+const STALE_DAYS = 7;
+
+function isStale(task: Task): boolean {
+  if (task.status !== "open") return false;
+  const created = new Date(task.created_at).getTime();
+  const now = Date.now();
+  return now - created > STALE_DAYS * 24 * 60 * 60 * 1000;
+}
+
+interface GoalGroup {
+  goal: string;
+  tasks: Task[];
+}
+
+function groupTasksByGoal(tasks: Task[]): GoalGroup[] {
+  const goalMap = new Map<string, Task[]>();
+  const ungrouped: Task[] = [];
+
+  for (const task of tasks) {
+    if (task.goal) {
+      const existing = goalMap.get(task.goal);
+      if (existing) {
+        existing.push(task);
+      } else {
+        goalMap.set(task.goal, [task]);
+      }
+    } else {
+      ungrouped.push(task);
+    }
+  }
+
+  const groups: GoalGroup[] = [];
+  for (const [goal, goalTasks] of goalMap) {
+    groups.push({ goal, tasks: goalTasks });
+  }
+  // Sort goal groups alphabetically
+  groups.sort((a, b) => a.goal.localeCompare(b.goal));
+
+  // "Other" section at the bottom for ungrouped tasks
+  if (ungrouped.length > 0) {
+    groups.push({ goal: "Other", tasks: ungrouped });
+  }
+
+  return groups;
+}
+
 export default function Tasks() {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -48,6 +94,19 @@ export default function Tasks() {
   const [banner, setBanner] = useState<string | null>(null);
   const [openPriorityDropdown, setOpenPriorityDropdown] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"tasks" | "goals">("tasks");
+  const [collapsedGoals, setCollapsedGoals] = useState<Set<string>>(new Set());
+
+  const toggleGoalCollapsed = (goal: string) => {
+    setCollapsedGoals((prev) => {
+      const next = new Set(prev);
+      if (next.has(goal)) {
+        next.delete(goal);
+      } else {
+        next.add(goal);
+      }
+      return next;
+    });
+  };
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
@@ -256,6 +315,13 @@ export default function Tasks() {
             >
               <Icon name="content_copy" className="text-slate-400 text-base" />
             </button>
+            <button
+              onClick={() => inputRef.current?.focus()}
+              className="p-1.5 bg-pink-500 hover:bg-pink-600 rounded-lg"
+              title="New task"
+            >
+              <Icon name="add" className="text-white text-base" />
+            </button>
           </div>
         </div>
 
@@ -353,82 +419,107 @@ export default function Tasks() {
             </div>
 
             {/* Task list */}
-            <div className={viewMode === "grid" ? "grid grid-cols-2 lg:grid-cols-3 gap-2" : "flex flex-col gap-2"}>
+            <div className="flex flex-col gap-2">
               {loading && tasks.length === 0 && (
                 <p className="text-sm text-slate-500 py-4">Loading tasks...</p>
               )}
               {!loading && filteredTasks.length === 0 && (
                 <p className="text-sm text-slate-500 py-4">No tasks match this filter.</p>
               )}
-              {filteredTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-3 flex items-center gap-3 hover:border-slate-700 transition-colors"
-                >
-                  <Icon
-                    name="drag_indicator"
-                    className="text-slate-700 text-lg cursor-grab"
-                  />
+              {groupTasksByGoal(filteredTasks).map((group) => (
+                <div key={group.goal} className="mb-2">
+                  {/* Goal group header */}
                   <button
-                    onClick={() => task.status === "closed" ? reopenTask(task.id) : closeTask(task.id)}
-                    title={task.status === "closed" ? "Reopen task" : "Close task"}
-                    className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
-                      task.status === "closed"
-                        ? "border-green-500 bg-green-500/20 hover:border-amber-400 hover:bg-amber-500/20"
-                        : "border-slate-600 hover:border-slate-400"
-                    }`}
+                    onClick={() => toggleGoalCollapsed(group.goal)}
+                    className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-800/50 transition-colors group"
                   >
-                    {task.status === "closed" && (
-                      <Icon name="check" className="text-green-400 text-xs" />
-                    )}
-                  </button>
-                  <span className="text-slate-500 text-sm font-mono">
-                    #{task.id}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <span className={`text-sm ${task.status === "closed" ? "line-through text-slate-500" : ""}`}>
-                      {task.title}
+                    <Icon
+                      name={collapsedGoals.has(group.goal) ? "chevron_right" : "expand_more"}
+                      className="text-slate-500 text-base"
+                    />
+                    <Icon name={group.goal === "Other" ? "more_horiz" : "flag"} className="text-slate-500 text-sm" />
+                    <span className="text-sm font-medium text-slate-300">{group.goal}</span>
+                    <span className="text-[11px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded-full">
+                      {group.tasks.length}
                     </span>
-                    {task.goal && (
-                      <span className="ml-2 inline-flex items-center gap-1 text-[11px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
-                        <Icon name="flag" className="text-[11px] text-slate-500" />
-                        {task.goal}
-                      </span>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenPriorityDropdown(
-                          openPriorityDropdown === task.id ? null : task.id
-                        );
-                      }}
-                      className={`text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:ring-1 hover:ring-white/30 transition-all ${priorityStyles[task.priority] ?? "bg-slate-500/20 text-slate-400"}`}
-                      title="Change priority"
-                    >
-                      {task.priority}
-                    </button>
-                    {openPriorityDropdown === task.id && (
-                      <div className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[80px]">
-                        {PRIORITIES.map((p) => (
+                  </button>
+
+                  {/* Tasks in this group */}
+                  {!collapsedGoals.has(group.goal) && (
+                    <div className={viewMode === "grid" ? "grid grid-cols-2 lg:grid-cols-3 gap-2 mt-1 ml-4" : "flex flex-col gap-2 mt-1 ml-4"}>
+                      {group.tasks.map((task) => (
+                        <div
+                          key={task.id}
+                          className="bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-3 flex items-center gap-3 hover:border-slate-700 transition-colors"
+                        >
+                          <Icon
+                            name="drag_indicator"
+                            className="text-slate-700 text-lg cursor-grab"
+                          />
                           <button
-                            key={p}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              updatePriority(task.id, p);
-                            }}
-                            className={`w-full text-left px-3 py-1.5 text-xs font-medium flex items-center gap-2 hover:bg-slate-700 transition-colors ${
-                              task.priority === p ? "opacity-50" : ""
+                            onClick={() => task.status === "closed" ? reopenTask(task.id) : closeTask(task.id)}
+                            title={task.status === "closed" ? "Reopen task" : "Close task"}
+                            className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                              task.status === "closed"
+                                ? "border-green-500 bg-green-500/20 hover:border-amber-400 hover:bg-amber-500/20"
+                                : "border-slate-600 hover:border-slate-400"
                             }`}
                           >
-                            <span className={`w-2 h-2 rounded-full ${priorityDotColors[p]}`} />
-                            <span className={priorityStyles[p]}>{p}</span>
+                            {task.status === "closed" && (
+                              <Icon name="check" className="text-green-400 text-xs" />
+                            )}
                           </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                          <span className="text-slate-500 text-sm font-mono">
+                            #{task.id}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <span className={`text-sm ${task.status === "closed" ? "line-through text-slate-500" : ""}`}>
+                              {task.title}
+                            </span>
+                            {isStale(task) && (
+                              <span className="ml-2 inline-flex items-center gap-1 text-[11px] text-slate-500">
+                                <Icon name="schedule" className="text-[11px] text-slate-500" />
+                                stale
+                              </span>
+                            )}
+                          </div>
+                          <div className="relative">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenPriorityDropdown(
+                                  openPriorityDropdown === task.id ? null : task.id
+                                );
+                              }}
+                              className={`text-xs font-medium px-2 py-0.5 rounded cursor-pointer hover:ring-1 hover:ring-white/30 transition-all ${priorityStyles[task.priority] ?? "bg-slate-500/20 text-slate-400"}`}
+                              title="Change priority"
+                            >
+                              {task.priority}
+                            </button>
+                            {openPriorityDropdown === task.id && (
+                              <div className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[80px]">
+                                {PRIORITIES.map((p) => (
+                                  <button
+                                    key={p}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      updatePriority(task.id, p);
+                                    }}
+                                    className={`w-full text-left px-3 py-1.5 text-xs font-medium flex items-center gap-2 hover:bg-slate-700 transition-colors ${
+                                      task.priority === p ? "opacity-50" : ""
+                                    }`}
+                                  >
+                                    <span className={`w-2 h-2 rounded-full ${priorityDotColors[p]}`} />
+                                    <span className={priorityStyles[p]}>{p}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -451,13 +542,6 @@ export default function Tasks() {
         )}
       </div>
 
-      {/* Floating add button */}
-      <button
-        onClick={() => inputRef.current?.focus()}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-pink-500 hover:bg-pink-600 rounded-full flex items-center justify-center shadow-lg shadow-pink-500/25"
-      >
-        <Icon name="add" className="text-white text-2xl" />
-      </button>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import Icon from './Icon'
 import { useAppStore } from '../stores/app'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { renderMarkdown, renderTextWithMarkdown } from '../lib/markdown'
 
 const MODEL_COLORS: Record<string, string> = {
   claude: 'text-blue-400',
@@ -34,11 +35,15 @@ const TOOL_LABELS: Record<string, string> = {
   git_commit: 'Git commit',
 }
 
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '🔥', '👎']
+
 interface ToolCall {
   id: string
   tool: string
   input: Record<string, unknown>
   result?: string
+  isMcp?: boolean
+  mcpServer?: string
 }
 
 interface Message {
@@ -50,6 +55,7 @@ interface Message {
   replyTo?: string
   gifUrl?: string
   imageUrl?: string
+  reactions?: Record<string, number>
 }
 
 interface GiphyResult {
@@ -65,7 +71,9 @@ function genId(): string {
 
 function ToolCallBlock({ call }: { call: ToolCall }) {
   const [expanded, setExpanded] = useState(false)
-  const label = TOOL_LABELS[call.tool] ?? call.tool
+  const label = call.isMcp
+    ? `${call.mcpServer}: ${call.tool}`
+    : (TOOL_LABELS[call.tool] ?? call.tool)
 
   let summary = ''
   if (call.input.path) summary = String(call.input.path)
@@ -74,6 +82,8 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
   else if (call.input.title) summary = String(call.input.title)
   else if (call.input.task_id) summary = String(call.input.task_id)
 
+  const labelColor = call.isMcp ? 'text-purple-400' : 'text-amber-400'
+
   return (
     <div className="my-1.5 border border-slate-700 rounded-lg overflow-hidden bg-slate-900/50">
       <button
@@ -81,7 +91,7 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
         className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-300 hover:bg-slate-800/50 transition-colors"
       >
         <Icon name={expanded ? 'expand_more' : 'chevron_right'} className="text-sm" />
-        <span className="font-medium text-amber-400">{label}</span>
+        <span className={`font-medium ${labelColor}`}>{label}</span>
         {summary && (
           <span className="text-slate-500 truncate max-w-[200px]">{summary}</span>
         )}
@@ -105,10 +115,13 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
 
 function ThinkingDots() {
   return (
-    <span className="inline-flex items-center gap-1 py-1">
-      <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-      <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-      <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+    <span className="inline-flex items-center gap-2 py-1 text-slate-400 text-xs">
+      <span className="inline-flex items-center gap-1">
+        <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+        <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+        <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+      </span>
+      <span>Thinking</span>
     </span>
   )
 }
@@ -126,7 +139,7 @@ function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: bo
         <button onClick={() => setExpanded(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mb-1">
           Show full response ({text.length} chars)
         </button>
-        <div>{display}</div>
+        <div>{renderMarkdown(display)}</div>
       </div>
     )
   }
@@ -134,7 +147,7 @@ function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: bo
     // After streaming is done, show first 300 chars with expand option
     return (
       <div>
-        <div>{text.slice(0, 300)}...</div>
+        <div>{renderMarkdown(text.slice(0, 300))}...</div>
         <button onClick={() => setExpanded(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mt-1">
           Show more
         </button>
@@ -143,7 +156,7 @@ function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: bo
   }
   return (
     <div>
-      {text}
+      {renderMarkdown(text)}
       {isLong && expanded && (
         <button onClick={() => setExpanded(false)} className="block text-[10px] text-blue-400 hover:text-blue-300 mt-1">
           Show less
@@ -285,6 +298,9 @@ export function ChatPanel() {
 
     if (lastMessage.type === 'model_label') {
       setCurrentModel((lastMessage.data as string) ?? null)
+    } else if (lastMessage.type === 'thinking') {
+      // Ensure streaming state is active so ThinkingDots shows
+      setIsStreaming(true)
     } else if (lastMessage.type === 'token') {
       setMessages(prev => {
         const updated = [...prev]
@@ -306,6 +322,18 @@ export function ChatPanel() {
         }
         return updated
       })
+    } else if (lastMessage.type === 'mcp_tool_use') {
+      const data = lastMessage.data as unknown as { tool: string; server: string; input: Record<string, unknown>; id: string }
+      setMessages(prev => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (last && last.role === 'assistant') {
+          const calls = [...(last.toolCalls ?? [])]
+          calls.push({ id: data.id, tool: data.tool, input: data.input, isMcp: true, mcpServer: data.server })
+          updated[updated.length - 1] = { ...last, toolCalls: calls }
+        }
+        return updated
+      })
     } else if (lastMessage.type === 'tool_result') {
       const data = lastMessage.data as unknown as { id: string; result: string }
       setMessages(prev => {
@@ -314,6 +342,19 @@ export function ChatPanel() {
         if (last && last.role === 'assistant' && last.toolCalls) {
           const calls = last.toolCalls.map(tc =>
             tc.id === data.id ? { ...tc, result: data.result } : tc,
+          )
+          updated[updated.length - 1] = { ...last, toolCalls: calls }
+        }
+        return updated
+      })
+    } else if (lastMessage.type === 'mcp_tool_result') {
+      const data = lastMessage.data as unknown as { id: string; result: string; is_error: boolean }
+      setMessages(prev => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (last && last.role === 'assistant' && last.toolCalls) {
+          const calls = last.toolCalls.map(tc =>
+            tc.id === data.id ? { ...tc, result: data.is_error ? `Error: ${data.result}` : data.result } : tc,
           )
           updated[updated.length - 1] = { ...last, toolCalls: calls }
         }
@@ -578,6 +619,20 @@ export function ChatPanel() {
     setShowGiphy(false)
   }
 
+  const toggleReaction = (messageId: string, emoji: string) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id !== messageId) return m
+      const reactions = { ...(m.reactions ?? {}) }
+      if (reactions[emoji]) {
+        reactions[emoji] -= 1
+        if (reactions[emoji] <= 0) delete reactions[emoji]
+      } else {
+        reactions[emoji] = 1
+      }
+      return { ...m, reactions: Object.keys(reactions).length > 0 ? reactions : undefined }
+    }))
+  }
+
   const scrollToMessage = (messageId: string) => {
     const el = document.getElementById(`msg-${messageId}`)
     if (el) {
@@ -587,19 +642,7 @@ export function ChatPanel() {
     }
   }
 
-  const renderText = (text: string) => {
-    const parts = text.split(/(@\w+)/g)
-    return parts.map((part, i) => {
-      if (part.startsWith('@')) {
-        const model = part.slice(1).toLowerCase()
-        const color = MODEL_COLORS[model]
-        if (color) {
-          return <span key={i} className={`${color} font-medium`}>{part}</span>
-        }
-      }
-      return part
-    })
-  }
+  const renderText = (text: string) => renderTextWithMarkdown(text, MODEL_COLORS)
 
   return (
     <div
@@ -680,19 +723,34 @@ export function ChatPanel() {
             )}
 
             <div className="relative">
-              {/* Reply button on hover */}
-              <button
-                onClick={() => handleReply(msg.id)}
-                className={`absolute ${msg.role === 'user' ? '-left-8' : '-right-8'} top-1 opacity-0 group-hover:opacity-100 p-1 text-slate-600 hover:text-blue-400 transition-all`}
-                title="Reply"
-              >
-                <Icon name="reply" className="text-sm" />
-              </button>
+              {/* Reply and reaction buttons on hover */}
+              <div className={`absolute ${msg.role === 'user' ? '-left-8' : '-right-8'} top-1 opacity-0 group-hover:opacity-100 flex flex-col items-center gap-0.5 transition-all`}>
+                <button
+                  onClick={() => handleReply(msg.id)}
+                  className="p-1 text-slate-600 hover:text-blue-400 transition-colors"
+                  title="Reply"
+                >
+                  <Icon name="reply" className="text-sm" />
+                </button>
+                {/* Reaction picker */}
+                <div className="flex flex-col gap-0.5 bg-slate-800 border border-slate-700 rounded-lg p-0.5" data-testid={`reaction-bar-${msg.id}`}>
+                  {REACTION_EMOJIS.map(emoji => (
+                    <button
+                      key={emoji}
+                      onClick={() => toggleReaction(msg.id, emoji)}
+                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-700 transition-colors text-sm"
+                      title={`React with ${emoji}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div
                 className={
                   msg.role === 'user'
-                    ? 'bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[80%] text-sm'
+                    ? 'bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[75%] w-fit text-sm'
                     : `border px-4 py-3 rounded-xl text-sm text-slate-300 whitespace-pre-line overflow-hidden break-words ${
                         msg.model ? MODEL_BG[msg.model] ?? 'bg-slate-900 border-slate-800' : 'bg-slate-900 border-slate-800'
                       }`
@@ -703,7 +761,7 @@ export function ChatPanel() {
                   <img
                     src={msg.gifUrl}
                     alt="GIF"
-                    className="rounded-lg max-w-[250px] max-h-[200px]"
+                    className="rounded-lg max-w-full max-h-[300px] object-contain"
                     loading="lazy"
                   />
                 )}
@@ -713,7 +771,7 @@ export function ChatPanel() {
                   <img
                     src={msg.imageUrl}
                     alt="Image"
-                    className="rounded-lg max-w-[250px] max-h-[200px] mb-1"
+                    className="rounded-lg max-w-full max-h-[400px] object-contain mb-1"
                     loading="lazy"
                   />
                 )}
@@ -741,6 +799,23 @@ export function ChatPanel() {
                   </>
                 )}
               </div>
+
+              {/* Reaction pills */}
+              {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                <div className={`flex flex-wrap gap-1 mt-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {Object.entries(msg.reactions).map(([emoji, count]) => (
+                    <button
+                      key={emoji}
+                      onClick={() => toggleReaction(msg.id, emoji)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-xs transition-colors"
+                      title={`${emoji} ${count}`}
+                    >
+                      <span>{emoji}</span>
+                      <span className="text-slate-400">{count}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
