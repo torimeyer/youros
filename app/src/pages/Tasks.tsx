@@ -3,7 +3,6 @@ import Icon from "../components/Icon";
 import TopBar from "../components/TopBar";
 import GoalsView from "../components/GoalsView";
 import { api } from "../lib/api";
-import { useAppStore } from "../stores/app";
 
 interface Task {
   id: string;
