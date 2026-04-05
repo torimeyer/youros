@@ -1,0 +1,120 @@
+name: E2E Onboarding
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/install.sh'
+      - '.github/workflows/e2e-onboarding.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: x86_64-unknown-linux-musl
+          - runner: macos-14
+            platform: aarch64-apple-darwin
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import verification keyring
+        run: |
+          if command -v gpg >/dev/null 2>&1; then
+            gpg --batch --import .haystack/keys/ostk-keyring.asc
+          fi
+
+      - name: Download latest release binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TMPBIN="$(mktemp -d)"
+          TAG="$(gh release list --repo os-tack/haystack --limit 1 --json tagName -q '.[0].tagName')"
+          if [ -z "$TAG" ]; then
+            echo "No release found — falling back to cargo build"
+            echo "OSTK_FALLBACK=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          TARBALL="ostk-${TAG}-${{ matrix.platform }}.tar.gz"
+          gh release download "$TAG" --repo os-tack/haystack \
+            --pattern "$TARBALL" --pattern "${TARBALL}.asc" \
+            --dir "$TMPBIN" || {
+              echo "Asset download failed — falling back to cargo build"
+              echo "OSTK_FALLBACK=1" >> "$GITHUB_ENV"
+              exit 0
+            }
+          # Verify signature if available
+          if command -v gpg >/dev/null 2>&1 && [ -f "${TMPBIN}/${TARBALL}.asc" ]; then
+            gpg --batch --verify "${TMPBIN}/${TARBALL}.asc" "${TMPBIN}/${TARBALL}"
+            echo "GPG signature verified"
+          fi
+          tar -xzf "${TMPBIN}/${TARBALL}" -C "$TMPBIN"
+          sudo install -m 755 "${TMPBIN}/ostk" /usr/local/bin/ostk
+          sudo ln -sf /usr/local/bin/ostk /usr/local/bin/haystack
+          echo "installed ostk ${TAG}"
+
+      - name: Fallback — build from source
+        if: env.OSTK_FALLBACK == '1'
+        run: |
+          rustup default stable
+          cargo build --release
+          sudo cp target/release/ostk /usr/local/bin/ostk
+          sudo ln -sf /usr/local/bin/ostk /usr/local/bin/haystack
+
+      - name: Test fresh boot
+        run: |
+          WORKDIR="$(mktemp -d)"
+          cd "$WORKDIR"
+          git init
+          git config user.email "e2e@test"
+          git config user.name "e2e"
+          ostk boot
+          echo "PASS: fresh boot"
+          echo "E2E_WORKDIR=$WORKDIR" >> "$GITHUB_ENV"
+
+      - name: Test needle add
+        run: |
+          cd "$E2E_WORKDIR"
+          ostk needle add "e2e test"
+          echo "PASS: needle add"
+
+      - name: Test verify
+        run: |
+          cd "$E2E_WORKDIR"
+          ostk verify
+          echo "PASS: verify"
+
+      - name: Test corrupted audit recovery
+        run: |
+          cd "$E2E_WORKDIR"
+          # Corrupt the audit log by truncating it mid-line
+          if [ -f .haystack/audit.jsonl ]; then
+            head -c 10 .haystack/audit.jsonl > .haystack/audit.jsonl.tmp
+            mv .haystack/audit.jsonl.tmp .haystack/audit.jsonl
+          else
+            echo '{"trunc' > .haystack/audit.jsonl
+          fi
+          # Boot should detect corruption and produce an actionable error
+          if ostk boot 2>&1 | tee /tmp/boot-corrupt.txt; then
+            # Some versions self-heal — that counts as actionable
+            echo "PASS: boot handled corruption (self-healed)"
+          else
+            # Non-zero exit is fine if it gives a useful message
+            if grep -qi 'corrupt\|invalid\|repair\|truncat\|malform\|recover\|integrity' /tmp/boot-corrupt.txt; then
+              echo "PASS: boot detected corruption with actionable error"
+            else
+              echo "FAIL: boot failed without actionable error message"
+              cat /tmp/boot-corrupt.txt
+              exit 1
+            fi
+          fi

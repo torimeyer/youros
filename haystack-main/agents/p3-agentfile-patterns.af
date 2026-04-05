@@ -1,0 +1,5 @@
+FROM claude-sonnet-4-5
+PROMPT file://agents/p3-prompt.md
+TOOL shell
+LIMIT tokens 100000
+LIMIT permissions autonomous

@@ -1,0 +1,8 @@
+# →610 llmOS concurrency spec — write to disk
+FROM claude-sonnet-4-6
+BOOT haystack bootPROMPT "Your needle is →610. The spec content is fully drafted — it was written in a previous agent transcript but never saved to disk. Write docs/spec/llmos-concurrency.md with this content: full spec with 9 sections covering the scheduler model, vault-as-CPU, Agentfile-as-TCB, turn boundary as context switch, .haystack/ as shared memory, scheduler loop (READ/ORIENT/DECIDE/DISPATCH/MONITOR/YIELD), concurrency model (3 execution contexts, thread states, FROM auto resolution, context budget, preemption), TUI as multiplexer, and escape-from-harness table. Add frontmatter: title, needle: →610, status: draft, compounds: v1.3-tui-release escape-harness from-auto scheduler. Close →610 when file exists at docs/spec/llmos-concurrency.md."
+TOOL sh_run
+TOOL ss
+LIMIT context_pct 80
+LIMIT budget_usd 3
+WORK tags=spec,scheduler,v1.3 priority>=P1

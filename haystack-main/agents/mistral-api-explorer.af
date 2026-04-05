@@ -1,0 +1,4 @@
+FROM claude-sonnet-4-6
+PROMPT file://../prompts/mistral-investigation/api-explorer.md
+LIMIT turns 8
+LIMIT context_pct 75

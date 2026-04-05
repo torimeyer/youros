@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            runner: macos-14
+            strip: strip
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            strip: strip
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+            strip: strip
+            musl: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04
+            strip: aarch64-linux-gnu-strip
+            cross: true
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install cross + strip tools
+        if: matrix.cross
+        run: |
+          sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu
+          cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Run unit tests
+        if: ${{ !matrix.cross }}
+        run: cargo test --lib
+        env:
+          OSTK_REGISTRY_DIR: ${{ runner.temp }}/ostk-registry-${{ github.run_id }}-${{ matrix.target }}
+          OSTK_TRUST_TIER: T0
+
+      - name: Build (native)
+        if: ${{ !matrix.cross }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Run needle tests (boot-failure gate)
+        if: ${{ !matrix.cross }}
+        run: |
+          sudo cp target/${{ matrix.target }}/release/ostk /usr/local/bin/ostk
+          sudo ln -sf /usr/local/bin/ostk /usr/local/bin/haystack
+          cargo test --test needle_tests
+
+      - name: Strip binary
+        run: ${{ matrix.strip }} target/${{ matrix.target }}/release/ostk
+
+      - name: Package
+        run: |
+          cd target/${{ matrix.target }}/release
+          # ostk = product binary name, haystack = kernel name (power user)
+          # Both point to the same binary; argv[0] detection handles OS routing
+          cp ostk haystack
+          # Set OSTK_OS_NAME env for ostk invocations (CI verification)
+          # Note: actual env vars are set at runtime by detect_os_name() in main()
+          tar czf ../../../ostk-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz ostk haystack
+          cd ../../..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ostk-${{ matrix.target }}
+          path: ostk-*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | head -2 | tail -1)
+          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "${GITHUB_REF_NAME}" ]; then
+            echo "## Changes since ${PREV_TAG}" > release-notes.md
+            echo "" >> release-notes.md
+            git log ${PREV_TAG}..${GITHUB_REF_NAME} --pretty=format:"- %s (%h)" >> release-notes.md
+          else
+            echo "Initial release" > release-notes.md
+          fi
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Import CI signing key
+        run: echo "${{ secrets.GPG_CI_PRIVATE_KEY }}" | gpg --batch --import
+
+      - name: Sign binaries
+        run: |
+          for f in ostk-*.tar.gz; do
+            gpg --batch --yes --local-user A7B7385963250149C836389BC78631AA6893C46C \
+              --armor --detach-sign "$f"
+          done
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            ostk-*.tar.gz
+            ostk-*.tar.gz.asc
+
+      - name: Mirror release to os-tack/ostk.ai (→588)
+        env:
+          GH_TOKEN: ${{ secrets.OSTK_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "OSTK_RELEASE_TOKEN not set — skipping mirror"
+            exit 0
+          fi
+          TAG="${GITHUB_REF_NAME}"
+          NOTES=$(cat release-notes.md)
+          gh release create "$TAG" \
+            --repo os-tack/ostk.ai \
+            --title "$TAG" \
+            --notes "$NOTES" \
+            ostk-*.tar.gz ostk-*.tar.gz.asc \
+          || gh release upload "$TAG" \
+            --repo os-tack/ostk.ai \
+            --clobber \
+            ostk-*.tar.gz ostk-*.tar.gz.asc

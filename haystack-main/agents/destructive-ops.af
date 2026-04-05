@@ -1,0 +1,9 @@
+# →649 LIMIT destructive_ops — kernel sh_run destructor detection
+FROM claude-sonnet-4-6
+BOOT haystack boot --bail
+PROMPT "Implement →649: LIMIT destructive_ops in Agentfile parser and sh_run handler. Read src/agentfile/parser.rs (add destructive_ops to Limit parsing), src/serve/tools/sh_run.rs (add destructor pattern detection). Patterns: terraform destroy, pulumi destroy, cdk destroy, DROP TABLE, DROP DATABASE, TRUNCATE, rm -rf, rm -r /, docker system prune -a, kubectl delete namespace, helm uninstall, aws s3 rm --recursive, git push --force origin main, git reset --hard, git clean -fd, kill -9, pkill. On match with LIMIT destructive_ops confirm: push haystack nudge to operator with command + 60s countdown, sleep 60, execute. On deny: return error. Default: confirm. Tests: deny blocks, confirm queues nudge, allow passes through. cargo test after."
+TOOL sh_run
+TOOL ss
+LIMIT context_pct 85
+LIMIT budget_usd 6
+WORK tags=security,governance,p0 priority>=P0

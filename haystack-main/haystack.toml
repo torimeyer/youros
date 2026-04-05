@@ -1,0 +1,32 @@
+# ostk.toml — project-level configuration for @ostk.ai.prime
+#
+# This file configures the kernel, squasher, and governance settings.
+# Place in the project root. The kernel reads it at boot time.
+
+[kernel]
+identity = "@ostk.ai.prime"
+version = "2.2.0"
+visibility = "invisible"  # "invisible" = .ostk/ gitignored, "native" = committed
+
+[squasher]
+enabled = true
+quota = "audit-backed"     # "audit-backed" | "local" | "unlimited"
+free_tier_tokens = 100_000_000
+
+[squasher.dedup]
+similarity_threshold = 0.3
+tokenizers = "default"     # or path to custom tokenizer patterns
+
+[squasher.embeddings]
+cosine_threshold = 0.85    # semantic dedup threshold (override: OSTK_EMBEDDINGS_THRESHOLD env var)
+enabled = true             # only active when compiled with --features embeddings
+
+[fcp]
+drivers = []               # e.g. ["fcp-rust", "fcp-python"]
+
+[governance]
+attestation = "optional"   # "optional" | "required"
+required_signatures = 0    # 0 = no signatures needed
+
+[should]
+repo = "os-tack/ostk.ai"

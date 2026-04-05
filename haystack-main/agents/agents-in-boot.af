@@ -1,0 +1,8 @@
+# →661 haystack --agents in boot.md
+FROM claude-sonnet-4-6
+BOOT haystack boot --bail
+PROMPT file://../prompts/agents-in-boot.md
+TOOL sh_run
+LIMIT context_pct 75
+LIMIT budget_usd 3
+WORK tags=boot,orientation,v1.3 priority>=P0

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: cargo check
+        run: cargo check --all-targets
+
+      - name: cargo test --lib
+        run: cargo test --lib
+        env:
+          OSTK_REGISTRY_DIR: ${{ runner.temp }}/ostk-registry-${{ github.run_id }}
+          OSTK_TRUST_TIER: T0
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -W clippy::all || true

@@ -1,0 +1,11 @@
+# haystack review pool — →618
+# Three roles: correctness, security, llmOS-compliance
+# Read-only on src/. Writes to docs/ and .haystack/ only.
+FROM claude-sonnet-4-6
+PROMPT "You are the haystack review pool. Run haystack boot first, then haystack diff."
+PROMPT file://../prompts/review-pool.md
+TOOL sh_run
+TOOL ss
+LIMIT context_pct 70
+LIMIT budget_usd 3
+WORK tags=review,security,v1.3 priority>=P1

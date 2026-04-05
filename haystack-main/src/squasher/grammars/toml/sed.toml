@@ -1,0 +1,13 @@
+[tool]
+name = "sed"
+detect = ["sed"]
+
+[[llm_hints]]
+prefer = "fs_read('read <path>')"
+reason = "for viewing files, fs_read reads directly -- for targeted ranges, read full file and slice"
+mode = "mcp"
+
+[[llm_hints]]
+prefer = "fs_ops 'read <path>'"
+reason = "for viewing files, fs_ops reads directly -- for targeted ranges, read full file and slice"
+mode = "cli"

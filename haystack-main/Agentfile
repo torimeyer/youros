@@ -1,0 +1,17 @@
+# Scheduler — the routing intelligence for `haystack do`
+# →706: persistent agent session that receives free text from the operator
+
+FROM auto
+PROMPT prompts/scheduler-system.md
+TOOL shell
+TOOL file:read
+TOOL file:edit
+SKILL boot
+LIMIT tokens 200000
+LIMIT permissions governed
+BOOT haystack boot
+PIN default
+# Beta features — uncomment to enable
+BETA context-management
+BETA extended-cache-ttl
+BETA fast-mode

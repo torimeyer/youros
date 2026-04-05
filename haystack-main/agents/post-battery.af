@@ -1,0 +1,10 @@
+# POST battery test coordinator — all OpenRouter models
+FROM claude-opus-4-6
+BOOT haystack boot --bail
+PROMPT "You are the POST battery coordinator. Run haystack POST against every available OpenRouter model and collect results."
+PROMPT file://../prompts/post-battery-coordinator.md
+TOOL sh_run
+TOOL ss
+LIMIT context_pct 85
+LIMIT budget_usd 8
+WORK tags=bench,post,battery priority>=P1

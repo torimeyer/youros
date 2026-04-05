@@ -1,0 +1,10 @@
+# v1.3 fleet — →502 TUI bench pane
+FROM claude-sonnet-4-6
+BOOT haystack bootPROMPT "You are working on haystack (llmOS). Your needle is →502: TUI bench pane — show leaderboard scores inline. Model x scenario matrix. Color: green=resolved, red=fail. Updated after each haystack bench run. The TUI IS the leaderboard viewer. Read src/tui/ to understand the pane system (fleet, nudges, work), read haystack bench --help for score data format, then add the bench pane as a Tab-navigable panel. Write tests using headless TestBackend. Close →502 when done."
+PROMPT file://../docs/draft/v1-3-tui-release.md
+TOOL sh_run
+TOOL sh_spawn
+TOOL ss
+LIMIT context_pct 80
+LIMIT budget_usd 5
+WORK tags=tui,bench,v1.3 priority>=P1

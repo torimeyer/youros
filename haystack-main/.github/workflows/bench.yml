@@ -1,0 +1,132 @@
+name: needle-bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Model to benchmark (or "all" for full matrix)'
+        default: 'claude-sonnet-4-6'
+        type: choice
+        options:
+          - claude-sonnet-4-6
+          - claude-haiku-4-5-20251001
+          - claude-opus-4-6
+          - all
+      scenario:
+        description: 'Scenario to run (or "all")'
+        default: 'all'
+        type: string
+  push:
+    paths:
+      - 'bench/scenarios/*/Dockerfile'
+
+permissions:
+  contents: write
+
+jobs:
+  # Gate: cargo tests must pass before spending API tokens
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --lib
+        env:
+          OSTK_TRUST_TIER: T0
+      - name: Build binary for shim tests
+        run: |
+          cargo build
+          sudo cp target/debug/ostk /usr/local/bin/ostk
+          sudo ln -sf /usr/local/bin/ostk /usr/local/bin/haystack
+      - run: cargo test --test needle_tests
+
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      scenarios: ${{ steps.list.outputs.scenarios }}
+      models: ${{ steps.models.outputs.models }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: List scenarios with Dockerfiles
+        id: list
+        run: |
+          if [ "${{ inputs.scenario }}" != "all" ] && [ -n "${{ inputs.scenario }}" ]; then
+            echo "scenarios=[\"${{ inputs.scenario }}\"]" >> "$GITHUB_OUTPUT"
+          else
+            scenarios=$(ls -d bench/scenarios/*/Dockerfile 2>/dev/null | xargs -I{} dirname {} | xargs -I{} basename {} | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set models
+        id: models
+        run: |
+          if [ "${{ inputs.model }}" = "all" ]; then
+            echo 'models=["claude-sonnet-4-6","claude-haiku-4-5-20251001","claude-opus-4-6"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'models=["${{ inputs.model || 'claude-sonnet-4-6' }}"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  bench:
+    needs: [gate, discover]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: ${{ fromJson(needs.discover.outputs.scenarios) }}
+        model: ${{ fromJson(needs.discover.outputs.models) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build base image
+        run: docker build -t haystack-bench-base -f bench/Dockerfile.base .
+
+      - name: Build scenario image
+        run: docker build -t bench-${{ matrix.scenario }} -f bench/scenarios/${{ matrix.scenario }}/Dockerfile .
+
+      - name: Run benchmark
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          CONTAINER=$(docker run -d bench-${{ matrix.scenario }} sleep 600)
+          python3 bench/needle-runner.py "$CONTAINER" \
+            --model ${{ matrix.model }} \
+            --max-turns 20 \
+            --max-tokens 100000 \
+            --output bench/results/${{ matrix.model }}__${{ matrix.scenario }}.json \
+            || true
+          docker rm -f "$CONTAINER" || true
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-${{ matrix.model }}--${{ matrix.scenario }}
+          path: bench/results/${{ matrix.model }}__${{ matrix.scenario }}.json
+
+  collate:
+    needs: bench
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          path: bench/results
+          pattern: result-*
+          merge-multiple: true
+
+      - name: Collate to leaderboard
+        run: bash bench/collate.sh
+
+      - name: Commit scores
+        run: |
+          git config user.name "needle-bench[bot]"
+          git config user.email "bench@haystack.dev"
+          git add leaderboard/scores.json bench/results/
+          git diff --cached --quiet || git commit -m "bench: update leaderboard scores [skip ci]"
+          git push

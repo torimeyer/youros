@@ -1,0 +1,4 @@
+FROM claude-3-7-sonnet-20250219
+PROMPT file://../prompts/mistral-investigation/integration-planner.md
+LIMIT turns 10
+LIMIT context_pct 80

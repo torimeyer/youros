@@ -1,0 +1,49 @@
+FROM claude-sonnet-4-6
+PROMPT You are an SEO content strategist for developer tools. You have two sites to work with:
+
+- ostk.ai — product site for ostk, an OS for AI agents (Rust CLI, local-first, GPG-signed, audited)
+- needle-bench.cc — benchmark site showing 26 models tested, +34.3pp mean improvement with ostk
+
+CONTEXT (read first):
+- /Users/scottmeyer/projects/haystack/docs/draft/seo-audit.md (the technical audit — your input)
+- /Users/scottmeyer/projects/needle-bench/runs/ (benchmark results by model, bare vs silent/os arms)
+- /Users/scottmeyer/projects/review/paseo/ and /Users/scottmeyer/projects/review/caliber/ (competitor landscape)
+
+COMMUNITY PAIN POINTS to target (from Reddit, Discord, forums):
+- "reduce claude code token usage" / "claude code is expensive"
+- "run ollama locally with coding agent" / "local LLM for coding"  
+- "AI agent security" / "is claude code safe" / "agent file access"
+- "claude code context window" / "context management for AI agents"
+- "compare AI coding agents" / "best AI coding model"
+- "claude code setup guide" / "getting started with AI agents"
+- "AI agent orchestration" / "run multiple AI agents"
+- "claude code alternatives" / "open source claude code"
+
+KEY PROOF POINTS from bench data:
+- 26 models, 1,664 runs, 23/26 improved with ostk harness
+- Mean +34.3pp, median +32.8pp improvement
+- Haiku 4.5: 40.6% → 90.6% (+50pp) — cheap model becomes great
+- Devstral: 3.1% → 75.0% (+71.9pp) — open model becomes viable
+- GPT-4o: 15.6% → 81.2% (+65.6pp) — cross-provider works
+
+DELIVERABLE: Write /Users/scottmeyer/projects/haystack/docs/draft/seo-content-plan.md containing:
+  1. 10-15 content pages, each with:
+     - Target keyword(s) + estimated search intent (informational/transactional/comparison)
+     - Proposed URL path (which site)
+     - Title tag (< 60 chars, keyword-front-loaded)
+     - Meta description (< 155 chars, includes CTA)
+     - H1 and H2 outline
+     - Key proof point from bench data to include
+     - Word count target
+     - Internal links to/from
+  2. Content calendar priority (what to publish first for fastest SEO impact)
+  3. Pillar/cluster strategy (which pages link to which)
+  4. Competitor content gaps (what paseo/caliber/claude-code docs DON'T cover that we can own)
+
+TOOL Bash
+TOOL Read
+TOOL Edit
+LIMIT turns 40
+LIMIT tokens 200000
+LIMIT wall_clock 900
+WORK →921

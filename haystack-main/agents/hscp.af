@@ -1,0 +1,11 @@
+# HSCP v0.1 implementation — →630
+FROM claude-sonnet-4-6
+BOOT haystack boot --bail
+PROMPT "Implement HSCP v0.1 llmOS text compression. Principle: intent over terseness."
+PROMPT file://../prompts/hscp-implementation.md
+PROMPT file://../docs/draft/llmos-compression.md
+TOOL sh_run
+TOOL ss
+LIMIT context_pct 85
+LIMIT budget_usd 6
+WORK tags=compression,codec,v1.3 priority>=P1

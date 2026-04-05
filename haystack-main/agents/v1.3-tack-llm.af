@@ -1,0 +1,10 @@
+# →642 tack → LLM response: wire intent tack to haystack serve socket
+FROM claude-sonnet-4-6
+BOOT haystack boot --bail
+PROMPT "Fix →642: when tack is intent-based (.? query, :delegate, bare text), route to haystack serve socket (→619) and stream the LLM response to the TUI OUTPUT pane. Read src/tui/mod.rs dispatch_tack() and src/serve/socket.rs. The scheduler loop (→629) is the design. Add: if tack is not a known kernel verb, connect to .haystack/haystack.sock (if kernel_alive()), send as MCP tools/call, stream response to command_output. Fall back to CLI if socket not live. Close →642 when .? query in TUI shows LLM response in OUTPUT."
+PROMPT file://../docs/spec/llmos-concurrency.md
+TOOL sh_run
+TOOL ss
+LIMIT context_pct 85
+LIMIT budget_usd 8
+WORK tags=tui-polish,scheduler,p0 priority>=P0

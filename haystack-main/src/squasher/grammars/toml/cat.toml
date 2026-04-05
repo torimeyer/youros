@@ -1,0 +1,13 @@
+[tool]
+name = "cat"
+detect = ["cat"]
+
+[[llm_hints]]
+prefer = "fs_read('read <path>')"
+reason = "fs_read reads files directly -- faster, no shell overhead"
+mode = "mcp"
+
+[[llm_hints]]
+prefer = "fs_ops 'read <path>'"
+reason = "fs_ops reads files directly -- faster, no shell overhead"
+mode = "cli"

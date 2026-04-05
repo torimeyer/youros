@@ -1,0 +1,10 @@
+# TUI documentation + ostk.ai walkthrough
+FROM claude-opus-4-6
+BOOT haystack boot --bail
+PROMPT "Write TUI documentation for haystack llmOS. The operator needs to understand what they built."
+PROMPT file://../prompts/tui-docs-writer.md
+TOOL sh_run
+TOOL ss
+LIMIT context_pct 85
+LIMIT budget_usd 6
+WORK tags=docs,tui-polish priority>=P1

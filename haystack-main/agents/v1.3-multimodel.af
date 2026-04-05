@@ -1,0 +1,9 @@
+# →631 multi-model API — OpenRouter routing
+FROM claude-sonnet-4-6
+BOOT haystack boot --bail
+PROMPT "Implement →631: route haystack run to correct API based on model prefix. anthropic/* → Anthropic API (existing). openai/* or gpt-* → OpenAI API. gemini/* → Google API or OpenRouter fallback. OPENROUTER_API_KEY routes any model. Read src/commands/run.rs stream_response() and add routing logic before the API call. Tests: each provider routes correctly. Close →631 when cargo test passes."
+TOOL sh_run
+TOOL ss
+LIMIT context_pct 80
+LIMIT budget_usd 4
+WORK tags=multimodel,api priority>=P1

@@ -1,0 +1,90 @@
+digraph spheres {
+  rankdir=LR
+  bgcolor="#1a1a2e"
+  fontcolor="#e0e0e0"
+  node [fontname="Menlo" fontsize=10 style=filled]
+  edge [color="#555577" fontcolor="#999999" fontsize=8]
+
+  // --- Spheres ---
+  subgraph cluster_s1 {
+    label="Sphere 1 — →975\nagent loop (126 needles, r=3)"
+    style=filled fillcolor="#16213e" fontcolor="#7ec8e3" pencolor="#334466"
+    n975 [label="→975\nagent loop hangs\n(point, d46)" shape=doubleoctagon fillcolor="#0f3460" fontcolor="#e0e0e0"]
+    n1000 [label="→1000\nfcp-rust lifecycle" shape=box fillcolor="#1a1a40" fontcolor="#aaaacc"]
+    n1001 [label="→1001\nembedding index" shape=box fillcolor="#1a1a40" fontcolor="#aaaacc"]
+    n1098 [label="→1098\nstatus bar" shape=box fillcolor="#1a1a40" fontcolor="#aaaacc"]
+    n1099 [label="→1099\nAlt+key macOS" shape=box fillcolor="#1a1a40" fontcolor="#aaaacc"]
+    n_s1_etc [label="... +121 more" shape=plaintext fontcolor="#666688"]
+  }
+
+  subgraph cluster_s2 {
+    label="Sphere 2 — →888\nunified daemon (3 needles, r=1)"
+    style=filled fillcolor="#1a2e1a" fontcolor="#7ee38a" pencolor="#336644"
+    n888 [label="→888 [P0]\nkernel glob/grep\n(point, d2)" shape=doubleoctagon fillcolor="#0f4020" fontcolor="#e0e0e0"]
+    n889 [label="→889 [P0]\nspawn/interact/lock" shape=box fillcolor="#1a401a" fontcolor="#aaccaa"]
+    n890 [label="→890 [P0]\nneedle/hay native" shape=box fillcolor="#1a401a" fontcolor="#aaccaa"]
+    n888 -> n889 [label="depends-on" color="#4a7a4a"]
+    n888 -> n890 [label="depends-on" color="#4a7a4a"]
+  }
+
+  subgraph cluster_s3 {
+    label="Sphere 3 — →654\nHUMANFILE (2 needles)"
+    style=filled fillcolor="#2e1a2e" fontcolor="#e37ec8" pencolor="#664466"
+    n654 [label="→654\nHUMANFILE accum\n(point)" shape=doubleoctagon fillcolor="#401a40" fontcolor="#e0e0e0"]
+    n701 [label="→701\nostk should" shape=box fillcolor="#301a30" fontcolor="#ccaacc"]
+  }
+
+  subgraph cluster_s4 {
+    label="Sphere 4 — →655\nAgentfile (2 needles)"
+    style=filled fillcolor="#2e2e1a" fontcolor="#e3c87e" pencolor="#666644"
+    n655 [label="→655\nAgentfile spawn\n(point)" shape=doubleoctagon fillcolor="#40401a" fontcolor="#e0e0e0"]
+    n658 [label="→658\nPROMPT_ARG" shape=box fillcolor="#30301a" fontcolor="#ccccaa"]
+  }
+
+  subgraph cluster_s5 {
+    label="Sphere 5 — →675\nactive delta (2 needles)"
+    style=filled fillcolor="#1a2e2e" fontcolor="#7ee3e3" pencolor="#446666"
+    n675 [label="→675\nactive.tack\n(point)" shape=doubleoctagon fillcolor="#1a4040" fontcolor="#e0e0e0"]
+    n686 [label="→686\ntack-boot" shape=box fillcolor="#1a3030" fontcolor="#aacccc"]
+  }
+
+  // --- Hay Clusters (bridged) ---
+  subgraph cluster_hay {
+    label="Hay Clusters (16 discovered)"
+    style=dashed fillcolor="#111122" fontcolor="#888899" pencolor="#333344"
+
+    h_daemon [label="DAEMON\n2 hay" shape=note fillcolor="#2a3a2a" fontcolor="#88cc88"]
+    h_idea [label="IDEA\n6 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_thought [label="THOUGHT\n6 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_haystack [label="HAYSTACK\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_sources [label="SOURCES\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_bench [label="BENCH\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_agent [label="AGENT\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_binary [label="BINARY\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_thread [label="THREAD\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_ostk [label="OSTK\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_fcp [label="FCP-RUST\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_see [label="SEE\n2 hay" shape=note fillcolor="#3a2a2a" fontcolor="#cc8888"]
+    h_mode [label="MODE\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_saved [label="SAVED\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_tier [label="TIER\n2 hay" shape=note fillcolor="#2a2a3a" fontcolor="#8888cc"]
+    h_unclust [label="141\nunclustered" shape=plaintext fontcolor="#666666"]
+  }
+
+  // --- Bridges: hay → spheres (Jaccard) ---
+  h_daemon -> n888 [label="bridge" style=dashed color="#7ee38a"]
+  h_haystack -> n975 [label="→083" style=dashed color="#445566"]
+  h_sources -> n975 [label="→485" style=dashed color="#445566"]
+  h_ostk -> n975 [label="bridge" style=dashed color="#445566"]
+  h_fcp -> n975 [label="bridge" style=dashed color="#445566"]
+  h_bench -> n975 [label="bridge" style=dashed color="#445566"]
+  h_agent -> n975 [label="bridge" style=dashed color="#445566"]
+  h_binary -> n975 [label="→1036" style=dashed color="#445566"]
+  h_thread -> n975 [label="bridge" style=dashed color="#445566"]
+  h_mode -> n975 [label="bridge" style=dashed color="#445566"]
+  h_saved -> n975 [label="bridge" style=dashed color="#445566"]
+  h_tier -> n975 [label="bridge" style=dashed color="#445566"]
+
+  // --- Unbridged hay (no sphere match) ---
+  // IDEA (6), THOUGHT (6), SEE (2) — floating
+}

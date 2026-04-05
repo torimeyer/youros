@@ -1,0 +1,10 @@
+# HSCP G4 — intra-session delta digest
+FROM claude-sonnet-4-6
+BOOT haystack boot --bail
+PROMPT "Implement HSCP G4: intra-session delta for [procs] digest. Read docs/draft/llmos-compression.md for spec. Read src/kernel/digest.rs and src/serve/dispatch.rs. Add DigestSessionState to ServerState (turn counter, last_procs HashMap). On turn 1 and every 5 turns: emit [procs] full. Other turns: emit [procs:Δ] with only changed agents. Nothing changed: emit [procs:Δ] ~ (minimal marker). Principle: intent-preserving compression — [procs:Δ] reads as delta. Tests: second turn emits delta, fifth emits full, nothing-changed emits ~. cargo test --lib must pass."
+PROMPT file://../docs/draft/llmos-compression.md
+TOOL sh_run
+TOOL ss
+LIMIT context_pct 80
+LIMIT budget_usd 5
+WORK tags=compression,hscp,g4 priority>=P1

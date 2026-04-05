@@ -1,0 +1,12 @@
+# kernel socket IPC — →619
+# Implement .haystack/sock FIFO pair, wire format, negotiate handshake, compile.d pipeline
+# Evidence: os-tack/ostk.ai PR #1 (dab23888). Spec: docs/spec/kernel-socket.md
+FROM claude-sonnet-4-6
+BOOT haystack bootPROMPT "You are working on haystack (llmOS). Your needle is →619: implement kernel socket IPC. The spec is at docs/spec/kernel-socket.md — read it first. Evidence from os-tack/ostk.ai PR #1 shows the shell prototype; your job is the Rust kernel implementation. Read src/commands/ and src/kernel/ to understand the existing structure, then implement: (1) haystack listen — FIFO pair creation, PID file, wire format parser, command dispatch; (2) kernel_alive() equivalent in Rust; (3) NEGOTIATE command handler wired to existing identity layer; (4) VAULT QUERY command returning vault inventory for FROM auto; (5) tests. Close →619 when spec acceptance criteria pass."
+PROMPT file://../docs/spec/kernel-socket.md
+TOOL sh_run
+TOOL sh_spawn
+TOOL ss
+LIMIT context_pct 80
+LIMIT budget_usd 8
+WORK tags=kernel,socket,ipc priority>=P1
