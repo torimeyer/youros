@@ -5,10 +5,14 @@ etc.) and executes them safely within the workspace boundary.
 """
 
 import asyncio
+import json
 import os
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote_plus
+
+import httpx
 
 from services.ostk import ostk
 
@@ -176,6 +180,71 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "web_search",
+        "description": "Search the web for information. Returns a summary of search results.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "web_fetch",
+        "description": "Fetch the content of a web page. Returns the text content.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to fetch.",
+                },
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "git_status",
+        "description": "Show the current git status of the workspace (modified files, staged changes, branch info).",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "git_diff",
+        "description": "Show the git diff of uncommitted changes in the workspace.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Optional file path to diff. Omit for all changes.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "git_commit",
+        "description": "Stage all changes and create a git commit with the given message.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The commit message.",
+                },
+            },
+            "required": ["message"],
+        },
+    },
+    {
         "name": "spawn_agent",
         "description": "Spawn a background AI agent to work on a task independently. The agent runs in the background and can be monitored on the Agents page. Use this for tasks that take a while or can run in parallel.",
         "input_schema": {
@@ -224,6 +293,16 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
             return await _create_task(input_data["title"], input_data.get("priority", "P1"))
         elif name == "close_task":
             return await _close_task(input_data["task_id"])
+        elif name == "web_search":
+            return await _web_search(input_data["query"])
+        elif name == "web_fetch":
+            return await _web_fetch(input_data["url"])
+        elif name == "git_status":
+            return await _git_status()
+        elif name == "git_diff":
+            return await _git_diff(input_data.get("path", ""))
+        elif name == "git_commit":
+            return await _git_commit(input_data["message"])
         elif name == "spawn_agent":
             return await _spawn_agent(input_data["name"], input_data["prompt"], input_data.get("model", "sonnet"))
         else:
@@ -359,6 +438,113 @@ async def _create_task(title: str, priority: str = "P1") -> str:
 async def _close_task(task_id: str) -> str:
     result = await ostk.close_task(task_id)
     return result
+
+
+async def _web_search(query: str) -> str:
+    """Search the web using DuckDuckGo HTML (no API key needed)."""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            resp = await client.get(
+                "https://html.duckduckgo.com/html/",
+                params={"q": query},
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            # Extract result snippets from the HTML
+            text = resp.text
+            results = []
+            # Parse result blocks
+            import re
+            for match in re.finditer(r'class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>.*?class="result__snippet"[^>]*>(.*?)</span>', text, re.DOTALL):
+                url = match.group(1)
+                title = re.sub(r'<[^>]+>', '', match.group(2)).strip()
+                snippet = re.sub(r'<[^>]+>', '', match.group(3)).strip()
+                if title:
+                    results.append(f"**{title}**\n{url}\n{snippet}")
+                if len(results) >= 5:
+                    break
+            if not results:
+                return f"No results found for: {query}"
+            return "\n\n".join(results)
+    except Exception as e:
+        return f"Search failed: {e}"
+
+
+async def _web_fetch(url: str) -> str:
+    """Fetch a web page and return its text content."""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+            import re
+            # Strip HTML tags for a text-only view
+            text = re.sub(r'<script[^>]*>.*?</script>', '', resp.text, flags=re.DOTALL)
+            text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+            text = re.sub(r'<[^>]+>', ' ', text)
+            text = re.sub(r'\s+', ' ', text).strip()
+            if len(text) > 20_000:
+                text = text[:20_000] + "\n... (truncated)"
+            return text if text else "Page returned no text content."
+    except Exception as e:
+        return f"Fetch failed: {e}"
+
+
+async def _git_status() -> str:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "status", "--short", "--branch",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            cwd=str(WORKSPACE),
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        return stdout.decode().strip() or "Working tree clean."
+    except Exception as e:
+        return f"Git status failed: {e}"
+
+
+async def _git_diff(path: str) -> str:
+    try:
+        cmd = ["git", "diff"]
+        if path:
+            cmd.append(path)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            cwd=str(WORKSPACE),
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        result = stdout.decode().strip()
+        if not result:
+            return "No uncommitted changes."
+        if len(result) > 30_000:
+            result = result[:30_000] + "\n... (diff truncated)"
+        return result
+    except Exception as e:
+        return f"Git diff failed: {e}"
+
+
+async def _git_commit(message: str) -> str:
+    try:
+        # Stage all changes
+        add_proc = await asyncio.create_subprocess_exec(
+            "git", "add", "-A",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            cwd=str(WORKSPACE),
+        )
+        await asyncio.wait_for(add_proc.communicate(), timeout=10)
+
+        # Commit
+        proc = await asyncio.create_subprocess_exec(
+            "git", "commit", "-m", message,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            cwd=str(WORKSPACE),
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+        result = stdout.decode().strip()
+        if proc.returncode != 0:
+            err = stderr.decode().strip()
+            return f"Commit failed: {err}"
+        return result
+    except Exception as e:
+        return f"Git commit failed: {e}"
 
 
 async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:

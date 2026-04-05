@@ -26,6 +26,11 @@ const TOOL_LABELS: Record<string, string> = {
   create_task: 'Create task',
   close_task: 'Close task',
   spawn_agent: 'Spawn agent',
+  web_search: 'Web search',
+  web_fetch: 'Fetch page',
+  git_status: 'Git status',
+  git_diff: 'Git diff',
+  git_commit: 'Git commit',
 }
 
 interface ToolCall {
