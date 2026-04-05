@@ -9,7 +9,7 @@ from services.ostk import ostk
 
 router = APIRouter(tags=["chat"])
 
-GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", "dc6zaTOxFJmzC")
+GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", "uac5bYV974kGSu3Pe0B92ChNrIQypZ0Y")
 
 CONTEXT_KEYWORDS = {"tasks", "needles", "task", "needle", "focus", "agents", "hay", "ideas", "status"}
 
