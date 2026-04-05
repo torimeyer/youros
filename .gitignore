@@ -10,3 +10,7 @@ __pycache__/
 .env
 .claude/
 .mcp.json
+lego-app/
+taxes/
+transcripts/
+docs/new-relic-*
