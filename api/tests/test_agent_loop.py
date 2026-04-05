@@ -124,7 +124,7 @@ class TestAgentLoop:
         # First call: two tool calls
         first_response = _make_response(
             [
-                _make_tool_use_block("toolu_1", "read_file", {"path": "/Users/torimeyer/claude/torios/api/main.py"}),
+                _make_tool_use_block("toolu_1", "read_file", {"path": "./main.py"}),
                 _make_tool_use_block("toolu_2", "list_tasks", {}),
             ],
             stop_reason="tool_use",
@@ -235,7 +235,7 @@ class TestAgentLoop:
         mock_client = MagicMock()
 
         first_response = _make_response(
-            [_make_tool_use_block("toolu_1", "read_file", {"path": "/Users/torimeyer/claude/torios/api/main.py"})],
+            [_make_tool_use_block("toolu_1", "read_file", {"path": "./main.py"})],
             stop_reason="tool_use",
         )
         second_response = _make_response(

@@ -227,7 +227,8 @@ async def list_agents():
     }
 
 
-CLAUDE_BIN = "/Users/torimeyer/.local/bin/claude"
+import shutil
+CLAUDE_BIN = shutil.which("claude") or "claude"
 
 MODEL_MAP = {
     "sonnet": "claude-sonnet-4-6",
