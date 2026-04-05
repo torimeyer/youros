@@ -79,7 +79,7 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
         return ""
 
 
-@router.get("/giphy/search")
+@router.get("/api/giphy/search")
 async def search_giphy(q: str = Query(...), limit: int = Query(default=12, le=25)):
     """Search Giphy for GIFs."""
     async with httpx.AsyncClient() as client:
