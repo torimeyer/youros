@@ -71,14 +71,31 @@ async def spawn_agent(body: AgentSpawn):
 
 @router.post("/agents/{name}/kill")
 async def kill_agent(name: str):
+    # 1. Try the in-memory process handle (API-spawned agents)
     proc = active_agents.get(name)
     if proc:
-        proc.terminate()
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass  # already dead
         del active_agents[name]
-        return {"result": f"Agent '{name}' killed"}
-    # Try ostk reap as fallback
-    result = await ostk.kernel_reap()
-    return {"result": result}
+        return {"result": f"Agent '{name}' killed", "source": "in-memory"}
+
+    # 2. Try system-level kill by finding the process by name
+    kill_result = await ostk.kernel_kill(name)
+    if kill_result["killed"]:
+        return {
+            "result": f"Agent '{name}' killed",
+            "source": "system",
+            "pids": kill_result["pids"],
+        }
+
+    # 3. Last resort: generic reap of dead agents
+    reap_result = await ostk.kernel_reap()
+    raise HTTPException(
+        status_code=404,
+        detail=f"Agent '{name}' not found. No matching process to kill. Reap result: {reap_result}",
+    )
 
 
 @router.post("/agents/{name}/nudge")

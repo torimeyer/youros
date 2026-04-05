@@ -158,4 +158,47 @@ describe('Sidebar', () => {
       expect(mockedApiGet).toHaveBeenCalledWith('/agents')
     })
   })
+
+  it('polls agents every 5 seconds so the badge stays up to date', async () => {
+    vi.useFakeTimers()
+    mockedApiGet.mockResolvedValue({ active: [] })
+    renderSidebar()
+
+    // Initial fetch
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mockedApiGet).toHaveBeenCalledTimes(1)
+
+    // After 5 seconds, should poll again
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(mockedApiGet).toHaveBeenCalledTimes(2)
+
+    // After another 5 seconds, third poll
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(mockedApiGet).toHaveBeenCalledTimes(3)
+
+    vi.useRealTimers()
+  })
+
+  it('updates badge count when API response changes between polls', async () => {
+    // Start with no active agents, then after re-fetch return 3
+    let callCount = 0
+    mockedApiGet.mockImplementation(async () => {
+      callCount++
+      if (callCount === 1) return { active: [] }
+      return { active: ['a1', 'a2', 'a3'] }
+    })
+
+    renderSidebar()
+
+    // Wait for initial fetch
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledTimes(1)
+    })
+    expect(screen.queryByText('3')).not.toBeInTheDocument()
+
+    // Wait for the polling interval to fire and update the badge
+    await waitFor(() => {
+      expect(screen.getByText('3')).toBeInTheDocument()
+    }, { timeout: 10000 })
+  }, 15000)
 })

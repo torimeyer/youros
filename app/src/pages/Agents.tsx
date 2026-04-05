@@ -220,6 +220,8 @@ const statusLabel = (status: string) => {
       return "COMPLETE";
     case "failed":
       return "FAILED";
+    case "killed":
+      return "KILLED";
     default:
       return status.toUpperCase();
   }
@@ -234,6 +236,8 @@ const statusColor = (status: string) => {
       return "bg-blue-500/20 text-blue-400";
     case "failed":
       return "bg-red-500/20 text-red-400";
+    case "killed":
+      return "bg-orange-500/20 text-orange-400";
     default:
       return "bg-slate-500/20 text-slate-400";
   }
@@ -406,12 +410,17 @@ export default function Agents() {
     }
   };
 
+  const [killingAgents, setKillingAgents] = useState<Record<string, boolean>>({});
+
   const handleKill = async (name: string) => {
+    setKillingAgents((prev) => ({ ...prev, [name]: true }));
     try {
       await api.post(`/agents/${name}/kill`);
-      await fetchAgents();
     } catch {
-      // handle error silently
+      // Agent may already be gone, that is fine
+    } finally {
+      setKillingAgents((prev) => ({ ...prev, [name]: false }));
+      await fetchAgents();
     }
   };
 
@@ -684,9 +693,10 @@ export default function Agents() {
                       </a>
                       <button
                         onClick={() => handleKill(agent.name)}
-                        className="border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1 hover:border-red-500 hover:text-red-400 transition-colors"
+                        disabled={killingAgents[agent.name]}
+                        className="border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1 hover:border-red-500 hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
-                        Kill
+                        {killingAgents[agent.name] ? "Cancelling..." : "Cancel"}
                       </button>
                     </div>
                   </div>

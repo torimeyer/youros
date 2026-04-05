@@ -319,7 +319,15 @@ export function ChatPanel() {
         return updated
       })
     } else if (lastMessage.type === 'model_boundary') {
-      setMessages(prev => [...prev, { id: genId(), role: 'assistant', content: '', model: '' }])
+      setMessages(prev => {
+        const last = prev[prev.length - 1]
+        // If the last message is already an empty assistant placeholder (created by sendMessage),
+        // don't push a duplicate. Just keep the existing one.
+        if (last && last.role === 'assistant' && !last.content && !last.toolCalls?.length) {
+          return prev
+        }
+        return [...prev, { id: genId(), role: 'assistant', content: '', model: '' }]
+      })
     } else if (lastMessage.type === 'done') {
       if (currentModel) {
         setMessages(prev => {
@@ -631,7 +639,7 @@ export function ChatPanel() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-10 py-4 space-y-4">
         {messages.length === 0 && (
           <div className="text-center py-8">
             <Icon name="chat" className="text-4xl text-slate-700 mb-2" />
@@ -777,19 +785,18 @@ export function ChatPanel() {
           </div>
         )}
 
+        {/* NEEDLE: removed gray box container around input */}
         <div className="flex items-center gap-2">
-          <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleInputKeyDown}
-              onPaste={handlePaste}
-              disabled={isStreaming}
-              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50"
-              placeholder={replyingTo ? 'Type your reply...' : `Message ${defaultChatModel}... (/giphy to search GIFs)`}
-            />
-          </div>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleInputKeyDown}
+            onPaste={handlePaste}
+            disabled={isStreaming}
+            className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50"
+            placeholder={replyingTo ? 'Type your reply...' : `Message ${defaultChatModel}... (/giphy to search GIFs)`}
+          />
           <button
             onClick={() => { setShowGiphy(!showGiphy); setGiphyInitialSearch('') }}
             className={`p-2 transition-colors rounded-lg ${showGiphy ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}

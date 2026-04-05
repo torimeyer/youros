@@ -31,7 +31,7 @@ export function Sidebar() {
       }
     }
     fetchAgents()
-    const interval = setInterval(fetchAgents, 10000)
+    const interval = setInterval(fetchAgents, 5000)
     return () => clearInterval(interval)
   }, [])
 

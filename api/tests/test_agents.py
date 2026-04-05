@@ -649,3 +649,178 @@ async def test_list_agents_stopped_not_in_active():
 
         data = resp.json()
         assert "old-agent" not in data["active"]
+
+
+# ── Regression tests: Kill button not working ──────────────────────
+#
+# Root cause: kill_agent() only checked the in-memory active_agents dict,
+# which only contains agents spawned via the API during the current server
+# session. Agents spawned via CLI (ostk kernel spawn) or from previous
+# server sessions were not in this dict, so clicking Kill did nothing.
+# The fallback was ostk kernel reap, which is a generic cleanup command
+# that does not target a specific agent.
+#
+# Fix: Added kernel_kill() to OstkService, which uses pgrep to find and
+# SIGTERM the process by its command-line pattern. The kill endpoint now
+# tries: (1) in-memory process, (2) system-level kill, (3) 404 error.
+
+
+@pytest.mark.asyncio
+async def test_kill_agent_in_memory():
+    """Killing an API-spawned agent (in active_agents) should terminate and remove it."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        mock_proc = AsyncMock()
+        mock_proc.terminate = lambda: None
+
+        from routers.agents import active_agents
+        active_agents["my-agent"] = mock_proc
+
+        try:
+            with patch("routers.agents.ostk") as mock_ostk:
+                resp = await client.post("/api/agents/my-agent/kill")
+        finally:
+            active_agents.pop("my-agent", None)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["result"] == "Agent 'my-agent' killed"
+        assert data["source"] == "in-memory"
+        assert "my-agent" not in active_agents
+
+
+@pytest.mark.asyncio
+async def test_kill_agent_via_system_process():
+    """When agent is not in active_agents, kill should use kernel_kill (pgrep)."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.kernel_kill = AsyncMock(return_value={
+                "killed": True,
+                "pids": [12345],
+            })
+
+            resp = await client.post("/api/agents/lego-app/kill")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["result"] == "Agent 'lego-app' killed"
+        assert data["source"] == "system"
+        assert 12345 in data["pids"]
+        mock_ostk.kernel_kill.assert_called_once_with("lego-app")
+
+
+@pytest.mark.asyncio
+async def test_kill_agent_not_found_returns_404():
+    """When no process can be found for the agent, return 404 instead of silently succeeding."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.kernel_kill = AsyncMock(return_value={
+                "killed": False,
+                "pids": [],
+                "error": "no matching process found",
+            })
+            mock_ostk.kernel_reap = AsyncMock(return_value="no agents to reap")
+
+            resp = await client.post("/api/agents/ghost-agent/kill")
+
+        assert resp.status_code == 404
+        assert "ghost-agent" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_kill_agent_already_dead_process():
+    """If the in-memory process is already dead, terminate raises ProcessLookupError.
+    The endpoint should handle this gracefully."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        mock_proc = AsyncMock()
+        mock_proc.terminate = lambda: (_ for _ in ()).throw(ProcessLookupError)
+
+        from routers.agents import active_agents
+        active_agents["dead-agent"] = mock_proc
+
+        try:
+            with patch("routers.agents.ostk") as mock_ostk:
+                resp = await client.post("/api/agents/dead-agent/kill")
+        finally:
+            active_agents.pop("dead-agent", None)
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["result"] == "Agent 'dead-agent' killed"
+
+
+@pytest.mark.asyncio
+async def test_kernel_kill_finds_and_terminates_process(tmp_path):
+    """OstkService.kernel_kill should use pgrep to find and kill the agent process."""
+    svc = OstkService()
+
+    # Mock pgrep returning a PID
+    async def fake_subprocess_exec(*args, **kwargs):
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(return_value=(b"99999\n", b""))
+        return proc
+
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_subprocess_exec):
+        with patch("os.kill") as mock_kill:
+            with patch.object(svc, "_record_agent_killed", new_callable=AsyncMock):
+                result = await svc.kernel_kill("test-agent")
+
+    assert result["killed"] is True
+    assert 99999 in result["pids"]
+    mock_kill.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_kernel_kill_no_matching_process():
+    """kernel_kill should return killed=False when pgrep finds nothing."""
+    svc = OstkService()
+
+    async def fake_subprocess_exec(*args, **kwargs):
+        proc = AsyncMock()
+        proc.communicate = AsyncMock(return_value=(b"", b""))
+        return proc
+
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_subprocess_exec):
+        result = await svc.kernel_kill("nonexistent-agent")
+
+    assert result["killed"] is False
+    assert result["pids"] == []
+
+
+@pytest.mark.asyncio
+async def test_audit_agents_tracks_killed():
+    """Agents marked killed in the audit log should show status=killed."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ostk_dir = Path(tmp)
+        write_audit_log(ostk_dir, [
+            {"event": "agent.spawned", "name": "killed-agent", "model": "sonnet", "timestamp": "2026-04-04T10:00:00Z"},
+            {"event": "agent.killed", "name": "killed-agent", "timestamp": "2026-04-04T10:05:00Z", "source": "ui"},
+        ])
+
+        svc = OstkService()
+        with patch("services.ostk.OSTK_DIR", ostk_dir):
+            agents = await svc.audit_agents()
+
+        assert len(agents) == 1
+        assert agents[0]["status"] == "killed"
+
+
+@pytest.mark.asyncio
+async def test_record_agent_killed_writes_audit(tmp_path):
+    """_record_agent_killed should append an agent.killed event to audit.jsonl."""
+    svc = OstkService()
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.write_text("")  # Create empty file
+
+    with patch("services.ostk.OSTK_DIR", tmp_path):
+        await svc._record_agent_killed("my-agent")
+
+    lines = audit_path.read_text().strip().splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["event"] == "agent.killed"
+    assert entry["name"] == "my-agent"
+    assert entry["source"] == "ui"

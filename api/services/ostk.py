@@ -1,6 +1,8 @@
 import asyncio
 import json
+import os
 import re
+import signal
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
@@ -372,6 +374,10 @@ class OstkService:
                 if name in agents_by_name:
                     agents_by_name[name]["status"] = "failed"
                     agents_by_name[name]["failed_at"] = entry.get("timestamp", "")
+            elif event == "agent.killed" and name:
+                if name in agents_by_name:
+                    agents_by_name[name]["status"] = "killed"
+                    agents_by_name[name]["killed_at"] = entry.get("timestamp", "")
             elif event == "session.shutdown":
                 # A session ended. Any agent still marked "spawned" (i.e. no
                 # completed/failed event arrived before this shutdown) should
@@ -395,6 +401,67 @@ class OstkService:
             cwd=self.cwd,
         )
         return proc
+
+    async def kernel_kill(self, name: str) -> dict:
+        """Kill a running agent by name.
+
+        Strategy:
+        1. Use pgrep to find processes whose command line contains
+           'ostk kernel spawn <name>'.
+        2. Send SIGTERM to each matching process.
+        3. Record an agent.killed event in the audit log.
+
+        Returns a dict with 'killed' (bool) and 'pids' (list of killed PIDs).
+        """
+        # Find processes matching the spawn command for this agent name.
+        # The spawn command looks like: ostk kernel spawn <name> ...
+        pattern = f"ostk kernel spawn {name}"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "pgrep", "-f", pattern,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+        except FileNotFoundError:
+            # pgrep not available on this system
+            return {"killed": False, "pids": [], "error": "pgrep not available"}
+
+        pids_text = stdout.decode().strip()
+        if not pids_text:
+            return {"killed": False, "pids": [], "error": "no matching process found"}
+
+        killed_pids = []
+        for pid_str in pids_text.splitlines():
+            pid_str = pid_str.strip()
+            if not pid_str:
+                continue
+            try:
+                pid = int(pid_str)
+                os.kill(pid, signal.SIGTERM)
+                killed_pids.append(pid)
+            except (ValueError, ProcessLookupError, PermissionError):
+                continue
+
+        if killed_pids:
+            await self._record_agent_killed(name)
+
+        return {"killed": len(killed_pids) > 0, "pids": killed_pids}
+
+    async def _record_agent_killed(self, name: str) -> None:
+        """Append an agent.killed event to audit.jsonl."""
+        audit_path = OSTK_DIR / "audit.jsonl"
+        entry = {
+            "event": "agent.killed",
+            "name": name,
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "source": "ui",
+        }
+        try:
+            with open(audit_path, "a") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
     async def kernel_reap(self) -> str:
         try:
