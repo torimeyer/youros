@@ -63,17 +63,45 @@ if ! command -v ostk &> /dev/null; then
     mkdir -p "$OSTK_BIN_DIR"
 
     ARCH=$(uname -m)
-    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+    case "$ARCH" in
+        arm64) ARCH="aarch64" ;;
+    esac
 
-    # Download the ostk binary for this platform
-    OSTK_URL="https://github.com/os-tack/ostk/releases/latest/download/ostk-${OS}-${ARCH}"
-    if curl -fsSL "$OSTK_URL" -o "$OSTK_BIN_DIR/ostk" 2>/dev/null; then
-        chmod +x "$OSTK_BIN_DIR/ostk"
-        echo -e "${GREEN}ostk installed to $OSTK_BIN_DIR/ostk${NC}"
-    else
-        echo -e "${YELLOW}Could not download ostk automatically.${NC}"
-        echo "You can install it manually later. YourOS will still work without it"
-        echo "for basic features (chat, tasks, settings)."
+    OS_TAG=$(uname -s)
+    case "$OS_TAG" in
+        Linux)  OS_TAG="unknown-linux-musl" ;;
+        Darwin) OS_TAG="apple-darwin" ;;
+        *)      echo -e "${YELLOW}Unsupported OS for ostk. Skipping.${NC}"; OS_TAG="" ;;
+    esac
+
+    if [ -n "$OS_TAG" ]; then
+        PLATFORM="${ARCH}-${OS_TAG}"
+        OSTK_REPO="os-tack/ostk.ai"
+        VERSION=$(curl -fsSL "https://api.github.com/repos/${OSTK_REPO}/releases/latest" \
+            | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+
+        if [ -n "$VERSION" ]; then
+            TARBALL="ostk-${VERSION}-${PLATFORM}.tar.gz"
+            OSTK_URL="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL}"
+            TMPDIR=$(mktemp -d)
+            trap 'rm -rf "$TMPDIR"' EXIT
+
+            if curl -fsSL "$OSTK_URL" -o "$TMPDIR/$TARBALL" 2>/dev/null; then
+                tar -xzf "$TMPDIR/$TARBALL" -C "$TMPDIR"
+                if [ -f "$TMPDIR/ostk" ]; then
+                    install -m 755 "$TMPDIR/ostk" "$OSTK_BIN_DIR/ostk"
+                    echo -e "${GREEN}ostk ${VERSION} installed to $OSTK_BIN_DIR/ostk${NC}"
+                else
+                    echo -e "${YELLOW}Could not find ostk binary in download. Skipping.${NC}"
+                fi
+            else
+                echo -e "${YELLOW}Could not download ostk automatically.${NC}"
+                echo "You can install it manually later. YourOS will still work without it"
+                echo "for basic features (chat, tasks, settings)."
+            fi
+        else
+            echo -e "${YELLOW}Could not determine latest ostk version. Skipping.${NC}"
+        fi
     fi
 
     # Add to PATH if needed
@@ -98,7 +126,7 @@ if [ -d "$INSTALL_DIR" ]; then
     git pull --ff-only 2>/dev/null || echo -e "${YELLOW}Could not auto-update. Continuing with existing files.${NC}"
 else
     echo "Downloading YourOS to $INSTALL_DIR..."
-    git clone https://github.com/os-tack/youros.git "$INSTALL_DIR" 2>/dev/null || {
+    git clone https://github.com/torimeyer/youros.git "$INSTALL_DIR" 2>/dev/null || {
         echo -e "${RED}Could not clone the repo. Check your access and try again.${NC}"
         exit 1
     }
