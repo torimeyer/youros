@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ostk + New Relic</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0e1a;
+    --bg-card: #111827;
+    --bg-card-hover: #1a2236;
+    --blue: #3b82f6;
+    --blue-glow: rgba(59, 130, 246, 0.15);
+    --pink: #ec4899;
+    --purple: #8b5cf6;
+    --cyan: #06b6d4;
+    --orange: #f97316;
+    --green: #10b981;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+    --text-dim: #64748b;
+    --border: rgba(148, 163, 184, 0.1);
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .deck {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+  }
+
+  .slide {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px 100px;
+    opacity: 0;
+    transform: translateX(40px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+    pointer-events: none;
+    overflow-y: auto;
+  }
+
+  .slide.active {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: all;
+  }
+
+  .slide.exit {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+
+  /* Slide counter */
+  .counter {
+    position: fixed;
+    bottom: 24px;
+    right: 40px;
+    font-size: 14px;
+    color: var(--text-dim);
+    font-weight: 500;
+    z-index: 100;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Navigation hint */
+  .nav-hint {
+    position: fixed;
+    bottom: 24px;
+    left: 40px;
+    font-size: 13px;
+    color: var(--text-dim);
+    z-index: 100;
+    opacity: 0.6;
+  }
+
+  /* Progress bar */
+  .progress {
+    position: fixed;
+    top: 0; left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--blue), var(--purple));
+    transition: width 0.4s ease;
+    z-index: 200;
+  }
+
+  /* ===== TYPOGRAPHY ===== */
+  h1 {
+    font-size: 56px;
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -1.5px;
+    margin-bottom: 20px;
+  }
+
+  h2 {
+    font-size: 44px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -1px;
+    margin-bottom: 16px;
+  }
+
+  h3 {
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.3;
+    margin-bottom: 12px;
+  }
+
+  .subtitle {
+    font-size: 22px;
+    color: var(--text-muted);
+    font-weight: 400;
+    line-height: 1.5;
+    max-width: 700px;
+  }
+
+  .big-number {
+    font-size: 72px;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--blue), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .label {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--blue);
+    margin-bottom: 12px;
+  }
+
+  /* ===== LAYOUT HELPERS ===== */
+  .center { text-align: center; }
+  .left { text-align: left; align-items: flex-start; }
+
+  .cols {
+    display: grid;
+    gap: 32px;
+    width: 100%;
+    max-width: 1100px;
+    margin-top: 32px;
+  }
+  .cols-2 { grid-template-columns: 1fr 1fr; }
+  .cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    transition: border-color 0.3s;
+  }
+
+  .card:hover {
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+
+  .card h3 {
+    font-size: 20px;
+    margin-bottom: 10px;
+  }
+
+  .card p {
+    font-size: 16px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .icon-circle {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    margin-bottom: 16px;
+  }
+
+  .icon-blue { background: var(--blue-glow); color: var(--blue); }
+  .icon-pink { background: rgba(236, 72, 153, 0.15); color: var(--pink); }
+  .icon-purple { background: rgba(139, 92, 246, 0.15); color: var(--purple); }
+  .icon-cyan { background: rgba(6, 182, 212, 0.15); color: var(--cyan); }
+  .icon-orange { background: rgba(249, 115, 22, 0.15); color: var(--orange); }
+  .icon-green { background: rgba(16, 185, 129, 0.15); color: var(--green); }
+
+  .bullet-list {
+    list-style: none;
+    margin-top: 24px;
+    max-width: 800px;
+  }
+
+  .bullet-list li {
+    font-size: 20px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    padding: 8px 0;
+    padding-left: 28px;
+    position: relative;
+  }
+
+  .bullet-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 16px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--blue);
+  }
+
+  .bullet-list li strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .highlight {
+    color: var(--blue);
+    font-weight: 600;
+  }
+
+  .highlight-pink { color: var(--pink); }
+  .highlight-purple { color: var(--purple); }
+  .highlight-green { color: var(--green); }
+
+  .divider {
+    width: 60px;
+    height: 4px;
+    background: linear-gradient(90deg, var(--blue), var(--purple));
+    border-radius: 2px;
+    margin: 20px 0;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    margin: 4px;
+  }
+
+  .tag-blue { background: rgba(59, 130, 246, 0.15); color: var(--blue); }
+  .tag-pink { background: rgba(236, 72, 153, 0.15); color: var(--pink); }
+  .tag-purple { background: rgba(139, 92, 246, 0.15); color: var(--purple); }
+  .tag-green { background: rgba(16, 185, 129, 0.15); color: var(--green); }
+  .tag-cyan { background: rgba(6, 182, 212, 0.15); color: var(--cyan); }
+
+  /* Quote block */
+  .quote {
+    border-left: 3px solid var(--blue);
+    padding: 16px 24px;
+    margin: 24px 0;
+    max-width: 700px;
+  }
+  .quote p {
+    font-size: 20px;
+    font-style: italic;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  /* Comparison table */
+  .compare-table {
+    width: 100%;
+    max-width: 900px;
+    margin-top: 28px;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .compare-table th {
+    padding: 14px 20px;
+    text-align: left;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+  .compare-table td {
+    padding: 16px 20px;
+    font-size: 17px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .compare-table td:first-child {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .compare-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Architecture diagram */
+  .arch-row {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    justify-content: center;
+    margin: 8px 0;
+  }
+  .arch-box {
+    padding: 14px 28px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    text-align: center;
+    min-width: 140px;
+  }
+  .arch-arrow {
+    font-size: 24px;
+    color: var(--text-dim);
+  }
+  .arch-blue { background: rgba(59, 130, 246, 0.15); color: var(--blue); border: 1px solid rgba(59, 130, 246, 0.3); }
+  .arch-purple { background: rgba(139, 92, 246, 0.15); color: var(--purple); border: 1px solid rgba(139, 92, 246, 0.3); }
+  .arch-pink { background: rgba(236, 72, 153, 0.15); color: var(--pink); border: 1px solid rgba(236, 72, 153, 0.3); }
+  .arch-cyan { background: rgba(6, 182, 212, 0.15); color: var(--cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
+  .arch-green { background: rgba(16, 185, 129, 0.15); color: var(--green); border: 1px solid rgba(16, 185, 129, 0.3); }
+
+  .spacer { height: 16px; }
+  .spacer-sm { height: 8px; }
+
+  /* Title slide special */
+  .title-meta {
+    font-size: 16px;
+    color: var(--text-dim);
+    margin-top: 24px;
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, var(--blue), var(--purple), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Logos area */
+  .logo-row {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    margin-bottom: 32px;
+  }
+  .logo-text {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+  .logo-divider {
+    width: 2px;
+    height: 36px;
+    background: var(--border);
+  }
+
+  /* Stat blocks */
+  .stat-block { text-align: center; }
+  .stat-block .big-number { font-size: 56px; }
+  .stat-block .stat-label {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin-top: 8px;
+  }
+
+  /* CTA / final slide */
+  .cta-list {
+    list-style: none;
+    margin-top: 32px;
+    text-align: left;
+    max-width: 600px;
+  }
+  .cta-list li {
+    font-size: 20px;
+    padding: 12px 0;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .cta-num {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--blue-glow);
+    color: var(--blue);
+    font-weight: 700;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<div class="counter" id="counter"></div>
+<div class="nav-hint">&larr; &rarr; arrow keys to navigate</div>
+
+<div class="deck" id="deck">
+
+<!-- ==================== SLIDE 1: TITLE ==================== -->
+<div class="slide center">
+  <span class="logo-text gradient-text" style="font-size: 48px; margin-bottom: 32px;">ostk</span>
+  <h1>The Coordination Layer<br>for AI Agents</h1>
+  <p class="subtitle">Governance, compliance, and efficiency for AI agents in the enterprise.</p>
+</div>
+
+<!-- ==================== SLIDE 2: THE SHIFT ==================== -->
+<div class="slide center">
+  <p class="label">The Shift</p>
+  <h2>Software is already <span class="gradient-text">agentic-first</span></h2>
+  <div class="spacer"></div>
+  <ul class="bullet-list" style="text-align: left;">
+    <li>AI agents are writing code, running deployments, handling support tickets, and making decisions.</li>
+    <li>Gartner predicts <strong>40% of enterprise apps will feature AI agents by 2026</strong>, up from less than 5% in 2025. (Gartner, Aug 2025)</li>
+    <li>The EU AI Act requires automatic audit trails, tamper-resistant logs, and transparency about AI systems <strong>starting August 2026</strong>. Most companies aren't ready.</li>
+  </ul>
+</div>
+
+<!-- ==================== SLIDE 3: THE PROBLEM ==================== -->
+<div class="slide center">
+  <p class="label">The Problem</p>
+  <h2>AI agents are <span class="highlight-pink">ungoverned</span></h2>
+  <div class="spacer"></div>
+  <div class="cols cols-2" style="max-width: 1000px;">
+    <div class="card">
+      <div class="icon-circle icon-blue">&#128100;</div>
+      <h3>No standard agent identity</h3>
+      <p>There's no standard way to prove an agent is who it says it is, who authorized it, or what it's allowed to do.</p>
+    </div>
+    <div class="card">
+      <div class="icon-circle icon-purple">&#9881;</div>
+      <h3>Governance requires a lot of infrastructure</h3>
+      <p>Identity provisioning, permission models, scope management, admin controls. Real engineering work for every agent you ship.</p>
+    </div>
+    <div class="card">
+      <div class="icon-circle icon-pink">&#128260;</div>
+      <h3>No coordination</h3>
+      <p>Nothing stops two engineers from assigning agents to the same problem. No shared task queue, no "already in progress" signal.</p>
+    </div>
+    <div class="card">
+      <div class="icon-circle icon-orange">&#128176;</div>
+      <h3>Agents waste tokens</h3>
+      <p>Without compression and coordination, agents use far more tokens than they need to get the job done. That's a direct cost problem at scale.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 4: WHAT IS OSTK ==================== -->
+<div class="slide center">
+  <p class="label">The Solution</p>
+  <h2>ostk is the <span class="highlight">kernel</span> for AI agents</h2>
+  <div class="spacer"></div>
+  <p class="subtitle" style="max-width: 800px;">A kernel is the core of an operating system. It's the permanent layer underneath everything else that controls who can do what, prevents things from colliding, and keeps a record of everything that happens.</p>
+  <div class="spacer"></div>
+  <p class="subtitle" style="max-width: 800px;">Right now, AI agents run without a kernel. Nothing controls their access, nothing prevents conflicts, nothing logs what they did. ostk is that missing layer. It gives agents identity, permissions, coordination, and audit trails that satisfy compliance requirements out of the box.</p>
+</div>
+
+<!-- ==================== SLIDE 5: TERMINOLOGY ==================== -->
+<div class="slide center">
+  <p class="label">Language</p>
+  <h2>How ostk names things</h2>
+  <div class="spacer"></div>
+  <p class="subtitle" style="max-width: 800px; margin-bottom: 24px;">ostk uses a consistent metaphor. Once you know five words, you know the whole system.</p>
+  <table class="compare-table" style="max-width: 750px;">
+    <thead>
+      <tr>
+        <th style="width: 140px;">Term</th>
+        <th>What it means</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="color: var(--blue);">Needle</td>
+        <td>A task. Something that needs to get done. Has a priority, an owner, and a status.</td>
+      </tr>
+      <tr>
+        <td style="color: var(--pink);">Hay</td>
+        <td>A raw idea. Unstructured thinking that hasn't become a task yet. You capture it now, organize it later.</td>
+      </tr>
+      <tr>
+        <td style="color: var(--purple);">Tack</td>
+        <td>ostk's shorthand language. Short commands that compress intent into a few words instead of long instructions.</td>
+      </tr>
+      <tr>
+        <td style="color: var(--cyan);">Pin</td>
+        <td>A permission ruleset. Defines exactly what an agent can read, write, and run. Denied by default.</td>
+      </tr>
+      <tr>
+        <td style="color: var(--green);">Bail</td>
+        <td>A signed, portable package. Everything needed to set up ostk in a new project, verified and tamper-proof.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="spacer"></div>
+  <div class="quote">
+    <p>"Find the needle in the haystack." Tasks are needles. Raw ideas are hay. ostk helps you find and organize the work.</p>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 6: HOW IT WORKS ==================== -->
+<div class="slide center">
+  <p class="label">Architecture</p>
+  <h2>How ostk works</h2>
+  <div class="spacer"></div>
+
+  <div style="max-width: 800px; width: 100%;">
+    <div class="arch-row">
+      <div class="arch-box arch-blue">Your Tools</div>
+      <div class="arch-box arch-blue">CLI</div>
+      <div class="arch-box arch-blue">CI/CD</div>
+      <div class="arch-box arch-blue">API</div>
+    </div>
+    <div class="arch-row"><span class="arch-arrow">&darr;</span></div>
+    <div class="arch-row">
+      <div class="arch-box arch-purple" style="min-width: 500px;">ostk Kernel &nbsp;(coordination, governance, audit)</div>
+    </div>
+    <div class="arch-row"><span class="arch-arrow">&darr;</span></div>
+    <div class="arch-row">
+      <div class="arch-box arch-cyan">Claude</div>
+      <div class="arch-box arch-cyan">Gemini</div>
+      <div class="arch-box arch-cyan">GPT</div>
+      <div class="arch-box arch-cyan">Any LLM</div>
+    </div>
+    <div class="arch-row"><span class="arch-arrow">&darr;</span></div>
+    <div class="arch-row">
+      <div class="arch-box arch-green">Git Repos</div>
+      <div class="arch-box arch-green">Filesystems</div>
+      <div class="arch-box arch-green">APIs</div>
+      <div class="arch-box arch-green">Databases</div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 7: HOW IT WORKS IN PRACTICE ==================== -->
+<div class="slide center">
+  <p class="label">In Practice</p>
+  <h2>What happens when an agent runs through ostk</h2>
+  <div class="spacer"></div>
+  <div style="max-width: 750px; width: 100%; text-align: left;">
+    <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 36px;">
+      <div class="icon-circle icon-blue" style="flex-shrink: 0; width: 40px; height: 40px; font-size: 16px;">1</div>
+      <div>
+        <h3 style="font-size: 19px; margin-bottom: 4px;">Engineer gives an agent a task</h3>
+        <p style="font-size: 16px; color: var(--text-muted);">"Fix the login bug in the auth service." The engineer's identity is recorded in the HUMANFILE with their trust tier. ostk spawns the agent with a model, a budget cap, and a permission set (pin) that controls what the agent can access.</p>
+      </div>
+    </div>
+    <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 36px;">
+      <div class="icon-circle icon-purple" style="flex-shrink: 0; width: 40px; height: 40px; font-size: 16px;">2</div>
+      <div>
+        <h3 style="font-size: 19px; margin-bottom: 4px;">ostk queues the task</h3>
+        <p style="font-size: 16px; color: var(--text-muted);">The agent claims the task from the queue using `needle pull`. This gives each agent the next available task, reducing duplicate work. The spawn event is logged to the audit trail.</p>
+      </div>
+    </div>
+    <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 36px;">
+      <div class="icon-circle icon-cyan" style="flex-shrink: 0; width: 40px; height: 40px; font-size: 16px;">3</div>
+      <div>
+        <h3 style="font-size: 19px; margin-bottom: 4px;">The agent works within its permissions</h3>
+        <p style="font-size: 16px; color: var(--text-muted);">Each agent has a ruleset that lists exactly which folders and files it can access. If it tries to touch anything outside that list, it's blocked. If two agents edit the same file, ostk automatically combines both changes without losing either one.</p>
+      </div>
+    </div>
+    <div style="display: flex; gap: 20px; align-items: flex-start; margin-bottom: 36px;">
+      <div class="icon-circle icon-green" style="flex-shrink: 0; width: 40px; height: 40px; font-size: 16px;">4</div>
+      <div>
+        <h3 style="font-size: 19px; margin-bottom: 4px;">Agent finishes, ostk closes the loop</h3>
+        <p style="font-size: 16px; color: var(--text-muted);">Task marked complete in the audit trail. Session shutdown is logged. The full history of task lifecycle events (created, assigned, completed) is available for review or export.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 8: FIVE LAWS ==================== -->
+<div class="slide center">
+  <p class="label">Design Constraints</p>
+  <h2>Five laws of agent coordination</h2>
+  <div class="spacer"></div>
+  <p class="subtitle" style="max-width: 800px; margin-bottom: 8px;">These are not guidelines. They are load-bearing constraints. If a feature violates a law, the feature is wrong.</p>
+  <div class="cols" style="grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 1000px;">
+    <div class="card" style="padding: 20px;">
+      <div class="icon-circle icon-blue" style="width: 40px; height: 40px; font-size: 18px;">1</div>
+      <h3 style="font-size: 17px;">Invisible write path</h3>
+      <p style="font-size: 14px;">Agents edit files normally. The OS intercepts, coordinates, and audits underneath. No new API. No SDK. No coordination protocol.</p>
+    </div>
+    <div class="card" style="padding: 20px;">
+      <div class="icon-circle icon-purple" style="width: 40px; height: 40px; font-size: 18px;">2</div>
+      <h3 style="font-size: 17px;">Agents are ephemeral</h3>
+      <p style="font-size: 14px;">Agents crash. They hit context limits. They get killed. State lives in the filesystem, not the agent. A new one picks up where the last stopped.</p>
+    </div>
+    <div class="card" style="padding: 20px;">
+      <div class="icon-circle icon-pink" style="width: 40px; height: 40px; font-size: 18px;">3</div>
+      <h3 style="font-size: 17px;">Filesystem is the bus</h3>
+      <p style="font-size: 14px;">No message buses. No pub/sub. No RPC. Agents coordinate by reading and writing files. Every coordination artifact is inspectable.</p>
+    </div>
+    <div class="card" style="padding: 20px;">
+      <div class="icon-circle icon-cyan" style="width: 40px; height: 40px; font-size: 18px;">4</div>
+      <h3 style="font-size: 17px;">Optimistic concurrency</h3>
+      <p style="font-size: 14px;">No locks. Agents write freely and concurrently. When two agents edit the same file, the kernel resolves the conflict. Resolution, not prevention.</p>
+    </div>
+    <div class="card" style="padding: 20px;">
+      <div class="icon-circle icon-green" style="width: 40px; height: 40px; font-size: 18px;">5</div>
+      <h3 style="font-size: 17px;">Invisible infrastructure</h3>
+      <p style="font-size: 14px;">If you have to think about the OS, the OS failed. One command to install. One to init. One to boot. After that, it disappears.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 9: OBSERVABILITY DETAIL ==================== -->
+<div class="slide center">
+  <p class="label">Built-in Observability</p>
+  <h2>Every agent action is <span class="highlight-green">observable</span></h2>
+  <div class="spacer"></div>
+  <div class="cols cols-2" style="max-width: 900px;">
+    <div>
+      <ul class="bullet-list" style="margin-top: 0;">
+        <li><strong>Structured event log</strong> that records when tasks are created, assigned, and completed, when agents are spawned, and when sessions end.</li>
+        <li><strong>Agent spawn tracking</strong> records which model was used, what budget was set, and when it started.</li>
+        <li><strong>Budget caps</strong> set at spawn time so agents can't run up unlimited costs.</li>
+        <li><strong>Live agent status</strong> via `kernel ps` shows what's running right now.</li>
+        <li><strong>Dead agent cleanup</strong> via `kernel reap` removes agents that stopped responding.</li>
+        <li><strong>Real-time TUI</strong> via `ostk tui` shows agents executing, files resolving, and permissions gating in real time.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="card" style="border-color: rgba(16, 185, 129, 0.3);">
+        <h3 style="color: var(--green); font-size: 16px;">Real Audit Entries</h3>
+        <pre style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-top: 12px; font-family: 'SF Mono', monospace; white-space: pre-wrap;">
+{"event": "agent.spawned",
+ "name": "test-agent",
+ "model": "claude-sonnet-4-5",
+ "budget": "0.10",
+ "timestamp": "2026-04-04T20:01:02Z"}
+
+{"event": "task.closed",
+ "id": "#003",
+ "reason": "completed",
+ "timestamp": "2026-04-04T20:14:11Z"}</pre>
+      </div>
+      <div class="card" style="border-color: rgba(6, 182, 212, 0.3); margin-top: 16px;">
+        <h3 style="color: var(--cyan); font-size: 16px;">TUI Status Bar</h3>
+        <pre style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-top: 12px; font-family: 'SF Mono', monospace; white-space: pre-wrap;">86s | 8 tools | @prime+3056 | opus | ctx:142k (71%) | $30.50</pre>
+        <p style="font-size: 12px; color: var(--text-dim); margin-top: 8px;">Elapsed time, tool calls, agent identity, model, context usage, and session cost. All in one line.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 10: GOVERNANCE & SECURITY DEEP DIVE ==================== -->
+<div class="slide center">
+  <p class="label">Governance &amp; Security</p>
+  <h2>Enterprise-grade <span class="highlight">agent governance</span></h2>
+  <div class="spacer"></div>
+  <div class="cols cols-2" style="max-width: 950px;">
+    <div class="card" style="border-color: rgba(59, 130, 246, 0.3);">
+      <div class="icon-circle icon-blue">&#128274;</div>
+      <h3>Verified identity</h3>
+      <p>Every user has a HUMANFILE with their identity and trust tier. Governance documents are GPG-signed. No personal data is collected. Identity is about accountability, not surveillance.</p>
+    </div>
+    <div class="card" style="border-color: rgba(139, 92, 246, 0.3);">
+      <div class="icon-circle icon-purple">&#128737;</div>
+      <h3>Locked-down permissions</h3>
+      <p>Pins define what each agent can read, write, and execute. When set, everything not explicitly allowed is blocked. An agent working on one project can't touch another.</p>
+    </div>
+    <div class="card" style="border-color: rgba(236, 72, 153, 0.3);">
+      <div class="icon-circle icon-pink">&#128220;</div>
+      <h3>Compliance-ready audit trail</h3>
+      <p>Task and agent lifecycle events are logged automatically with timestamps. The log is append-only and exportable. Built to meet requirements like the EU AI Act's mandate for automatic, tamper-resistant AI system logs.</p>
+    </div>
+    <div class="card" style="border-color: rgba(6, 182, 212, 0.3);">
+      <div class="icon-circle icon-cyan">&#128736;</div>
+      <h3>Three-tier conflict resolution</h3>
+      <p>When agents make conflicting edits: (1) non-overlapping changes merge silently, (2) overlapping changes get a suggested merge, (3) true conflicts flag for retry. No lost work.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 11: DESTRUCTIVE OPS GOVERNANCE ==================== -->
+<div class="slide center">
+  <p class="label">Guardrails</p>
+  <h2>Dangerous commands get <span class="highlight-pink">caught</span></h2>
+  <div class="spacer"></div>
+  <p class="subtitle" style="max-width: 800px;">When an agent tries to run a destructive operation, the kernel pauses it and gives the operator 60 seconds to approve or cancel.</p>
+  <div class="spacer"></div>
+  <div class="cols cols-2" style="max-width: 950px;">
+    <div>
+      <table class="compare-table" style="max-width: 450px;">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>Caught commands</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Infrastructure</td>
+            <td style="font-size: 14px;">terraform destroy, pulumi destroy</td>
+          </tr>
+          <tr>
+            <td>Database</td>
+            <td style="font-size: 14px;">DROP TABLE, TRUNCATE</td>
+          </tr>
+          <tr>
+            <td>Filesystem</td>
+            <td style="font-size: 14px;">rm -rf, find -delete</td>
+          </tr>
+          <tr>
+            <td>Containers</td>
+            <td style="font-size: 14px;">kubectl delete namespace</td>
+          </tr>
+          <tr>
+            <td>Cloud</td>
+            <td style="font-size: 14px;">aws s3 rm --recursive</td>
+          </tr>
+          <tr>
+            <td>Git</td>
+            <td style="font-size: 14px;">git push --force origin main</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <div class="card" style="border-color: rgba(236, 72, 153, 0.3);">
+        <h3 style="color: var(--pink); font-size: 16px;">Three Modes</h3>
+        <div style="margin-top: 16px;">
+          <div style="margin-bottom: 16px;">
+            <span class="tag tag-blue">confirm</span>
+            <p style="font-size: 14px; color: var(--text-muted); margin-top: 6px;">Queue the command, notify the operator, execute after 60s if no response. <strong style="color: var(--text);">Default.</strong></p>
+          </div>
+          <div style="margin-bottom: 16px;">
+            <span class="tag tag-pink">deny</span>
+            <p style="font-size: 14px; color: var(--text-muted); margin-top: 6px;">Block entirely. The agent cannot run destructive commands.</p>
+          </div>
+          <div>
+            <span class="tag tag-green">allow</span>
+            <p style="font-size: 14px; color: var(--text-muted); margin-top: 6px;">Pass through. Not recommended for production.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="quote">
+    <p>The question is never "can we trust this agent with production?" It's "what controls exist around destructive actions?"</p>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 12: CONTEXT INJECTION ==================== -->
+<div class="slide center">
+  <p class="label">Context Injection</p>
+  <h2>Budget models <span class="gradient-text">match frontier models</span></h2>
+  <div class="spacer"></div>
+  <p class="subtitle" style="max-width: 800px;">ostk front-loads project context at boot. Agents skip orientation and start solving immediately. Measured across 26 models on needle-bench.</p>
+  <div class="spacer"></div>
+  <div class="cols cols-2" style="max-width: 950px;">
+    <div>
+      <div class="cols" style="grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 0;">
+        <div class="card" style="text-align: center; padding: 20px;">
+          <p class="big-number" style="font-size: 44px;">34.9%</p>
+          <p style="font-size: 14px; color: var(--text-dim); margin-top: 4px;">Mean without context</p>
+        </div>
+        <div class="card" style="text-align: center; padding: 20px; border-color: rgba(16, 185, 129, 0.3);">
+          <p class="big-number" style="font-size: 44px; background: linear-gradient(135deg, var(--green), var(--cyan)); -webkit-background-clip: text; background-clip: text;">69.2%</p>
+          <p style="font-size: 14px; color: var(--text-dim); margin-top: 4px;">Mean with ostk context</p>
+        </div>
+      </div>
+      <p style="font-size: 15px; color: var(--text-dim); text-align: center; margin-top: 12px;"><strong style="color: var(--text);">+34.3 percentage points</strong> mean improvement. 23 of 26 models improved.</p>
+    </div>
+    <div>
+      <ul class="bullet-list" style="margin-top: 0;">
+        <li><strong>Haiku + ostk</strong> (90.6%, $0.80/MTok) matches <strong>Opus bare</strong> (90.6%, $15/MTok). Same results, <span class="highlight-green">1/19th the cost.</span></li>
+        <li><strong>Devstral 24B local</strong> (75.0%, $0) beats <strong>GPT-4.1 API</strong> (50.0%, $2/MTok). No data leaves your network.</li>
+        <li><strong>GPT-4o + ostk</strong> (81.2%) outperforms <strong>GPT-4.1 bare</strong> (50.0%). Last gen + context beats current gen without.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 13: NEEDLE-BENCH RESULTS ==================== -->
+<div class="slide center">
+  <p class="label">Public Benchmark Data</p>
+  <h2>ostk makes agents <span class="gradient-text">dramatically more efficient</span></h2>
+  <div class="spacer"></div>
+  <p class="subtitle" style="max-width: 800px;">needle-bench.cc is an open, public benchmark. 40 real bugs, 34 models, 3 test arms. Same prompt, same bugs, same setup. Results are reproducible and open source.</p>
+  <div class="spacer"></div>
+  <div class="cols cols-2" style="max-width: 950px;">
+    <div>
+      <div class="cols" style="grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 0;">
+        <div class="card" style="text-align: center; padding: 20px;">
+          <p class="big-number" style="font-size: 48px;">63%</p>
+          <p style="font-size: 14px; color: var(--text-dim); margin-top: 4px;">Claude native</p>
+        </div>
+        <div class="card" style="text-align: center; padding: 20px; border-color: rgba(16, 185, 129, 0.3);">
+          <p class="big-number" style="font-size: 48px; background: linear-gradient(135deg, var(--green), var(--cyan)); -webkit-background-clip: text; background-clip: text;">100%</p>
+          <p style="font-size: 14px; color: var(--text-dim); margin-top: 4px;">Claude + ostk</p>
+        </div>
+      </div>
+      <p style="font-size: 15px; color: var(--text-dim); text-align: center; margin-top: 12px;">Average lift across all models: <strong style="color: var(--text);">+28 to 42 percentage points</strong></p>
+    </div>
+    <div>
+      <ul class="bullet-list" style="margin-top: 0;">
+        <li><strong>100% club:</strong> GPT-5 Codex, Claude Haiku, Sonnet, and Opus all hit 100% through ostk.</li>
+        <li><strong>Cheap matches expensive:</strong> Haiku at $1/M + ostk matches Opus at $5/M + ostk. The kernel equalizes.</li>
+        <li><strong>Best value:</strong> Kimi K2.5 solves 95% for $0.71. Devstral solves 92% for $0.56.</li>
+        <li><strong>Unlocks non-agents:</strong> Codestral solves 0% alone but 35% through ostk.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div style="display: flex; gap: 12px; justify-content: center;">
+    <span class="tag tag-green">needle-bench.cc</span>
+    <span class="tag tag-blue">Open Source</span>
+    <span class="tag tag-purple">3,641 test runs</span>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 14: HOW TOKENS ARE SAVED ==================== -->
+<div class="slide center">
+  <p class="label">Under The Hood</p>
+  <h2>How ostk <span class="gradient-text">reduces token usage</span></h2>
+  <div class="spacer"></div>
+  <div class="cols cols-3" style="max-width: 1000px;">
+    <div class="card">
+      <div class="icon-circle icon-blue" style="width: 40px; height: 40px; font-size: 16px;">1</div>
+      <h3 style="font-size: 17px;">Output compression</h3>
+      <p style="font-size: 14px;">A three-layer pipeline strips visual noise, collapses repeated output (like 200 "Compiling..." lines into one summary), and preserves only the signal (errors, warnings, results).</p>
+    </div>
+    <div class="card">
+      <div class="icon-circle icon-purple" style="width: 40px; height: 40px; font-size: 16px;">2</div>
+      <h3 style="font-size: 17px;">Skip what hasn't changed</h3>
+      <p style="font-size: 14px;">If an agent already read a file and it hasn't changed, the kernel says "you already have this" instead of sending the full content again. No wasted tokens on redundant reads.</p>
+    </div>
+    <div class="card">
+      <div class="icon-circle icon-green" style="width: 40px; height: 40px; font-size: 16px;">3</div>
+      <h3 style="font-size: 17px;">Intent compression</h3>
+      <p style="font-size: 14px;">The tack language compresses commands from ~200 tokens of natural language down to ~10 tokens of shorthand. The kernel resolves intent, not instructions.</p>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="quote">
+    <p>The agent doesn't know this is happening. It reads, writes, and runs commands normally. The kernel compresses everything invisibly underneath.</p>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 15: COST SAVINGS ==================== -->
+<div class="slide center">
+  <p class="label">The Business Case</p>
+  <h2>Spend less, get more, <span class="highlight-green">stay governed</span></h2>
+  <div class="spacer"></div>
+  <p class="subtitle" style="max-width: 800px;">ostk reduces token costs through compression and coordination while adding governance, identity, and accountability. Better results for less money, with a full audit trail.</p>
+  <div class="spacer"></div>
+  <div class="cols cols-3">
+    <div class="card" style="text-align: center;">
+      <div class="icon-circle icon-pink" style="margin-left: auto; margin-right: auto;">&#10060;</div>
+      <h3 style="color: var(--pink);">Without ostk</h3>
+      <ul class="bullet-list" style="margin-top: 12px; text-align: left;">
+        <li>Agents run with no record</li>
+        <li>No idea what they cost</li>
+        <li>No way to audit decisions</li>
+        <li>Compliance is a black box</li>
+      </ul>
+    </div>
+    <div class="card" style="text-align: center; border-color: rgba(16, 185, 129, 0.3);">
+      <div class="icon-circle icon-green" style="margin-left: auto; margin-right: auto;">&#10004;</div>
+      <h3 style="color: var(--green);">With ostk</h3>
+      <ul class="bullet-list" style="margin-top: 12px; text-align: left;">
+        <li>Every agent spawn logged with model and budget</li>
+        <li>Budget caps set at spawn time</li>
+        <li>Task lifecycle audit trail for review</li>
+        <li>Permissions prevent agents from overreaching</li>
+      </ul>
+    </div>
+    <div class="card" style="text-align: center; border-color: rgba(59, 130, 246, 0.3);">
+      <div class="icon-circle icon-blue" style="margin-left: auto; margin-right: auto;">&#128200;</div>
+      <h3 style="color: var(--blue);">The result</h3>
+      <ul class="bullet-list" style="margin-top: 12px; text-align: left;">
+        <li>Lower token costs, better results</li>
+        <li>Reduce waste from duplicate work</li>
+        <li>Structured records for compliance review</li>
+        <li>Foundation to measure AI ROI</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+
+<!-- ==================== SLIDE 16: MCP SERVER EXAMPLE ==================== -->
+<div class="slide center">
+  <p class="label">Concrete Example</p>
+  <h2>An MCP server, <span class="gradient-text">without API keys</span></h2>
+  <div class="spacer"></div>
+  <div class="cols cols-2" style="max-width: 950px;">
+    <div>
+      <h3 style="font-size: 18px; margin-bottom: 16px; color: var(--pink);">Today's approach</h3>
+      <ul class="bullet-list" style="margin-top: 0;">
+        <li>User provides their <strong>personal API key</strong> to the MCP server</li>
+        <li>The server calls APIs <strong>as that user</strong></li>
+        <li>No separate identity for the integration itself</li>
+        <li>Admins have limited control over what the integration can do</li>
+        <li>Repeat for every partner integration</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="font-size: 18px; margin-bottom: 16px; color: var(--green);">With ostk bails</h3>
+      <ul class="bullet-list" style="margin-top: 0;">
+        <li>Vendor creates an <strong>Agentfile</strong> defining the MCP server (tools, limits)</li>
+        <li>Permissions set via <strong>pins</strong> (what it can read, write, execute, and what's denied)</li>
+        <li>API credentials stored in <strong>vault</strong>, referenced by HUMANFILE, never exposed</li>
+        <li>Everything <strong>GPG-signed</strong> into a bail. Customers verify offline.</li>
+        <li>No personal API key needed. <strong>One signed package</strong> is the identity, the permissions, and the governance.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="quote">
+    <p>Every partner agent, every integration, every MCP server becomes a signed, verifiable, auditable package. Ship once, verify anywhere, no infrastructure needed.</p>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 17: PARTNERSHIP PATHS ==================== -->
+<div class="slide center">
+  <p class="label">Partnership Paths</p>
+  <h2>Three ways to work together</h2>
+  <div class="spacer"></div>
+  <div class="cols cols-3">
+    <div class="card">
+      <div class="icon-circle icon-green">1</div>
+      <h3>Internal adoption</h3>
+      <p>Use ostk to coordinate your own AI engineering agents. See what your agents are doing, enforce governance, reduce wasted compute.</p>
+      <div class="spacer-sm"></div>
+      <span class="tag tag-green">Low risk, fast start</span>
+    </div>
+    <div class="card">
+      <div class="icon-circle icon-blue">2</div>
+      <h3>Product integration</h3>
+      <p>Add agent observability to your platform. Customers connect ostk and see agent telemetry alongside their existing dashboards.</p>
+      <div class="spacer-sm"></div>
+      <span class="tag tag-blue">New product surface</span>
+    </div>
+    <div class="card">
+      <div class="icon-circle icon-purple">3</div>
+      <h3>Strategic partnership</h3>
+      <p>No one is doing cryptographically signed agent governance today. Build this category together: signed agent packages with built-in identity, permissions, and audit.</p>
+      <div class="spacer-sm"></div>
+      <span class="tag tag-purple">Category creation</span>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 18: REGULATORY READINESS ==================== -->
+<div class="slide center">
+  <p class="label">Regulatory Readiness</p>
+  <h2>Meeting <span class="gradient-text">AI regulations</span> before deadlines hit</h2>
+  <div class="spacer"></div>
+  <div class="cols cols-2" style="max-width: 950px;">
+    <div class="card" style="border-color: rgba(59, 130, 246, 0.3);">
+      <div class="icon-circle icon-blue">&#127758;</div>
+      <h3 style="color: var(--blue); font-size: 17px;">What regulators require</h3>
+      <ul class="bullet-list" style="margin-top: 12px;">
+        <li><strong>EU AI Act (Aug 2026)</strong> mandates automatic, tamper-resistant logs for AI systems and transparency about what AI is doing</li>
+        <li><strong>NIST AI RMF</strong> expects organizations to document AI system behavior, track decisions, and demonstrate accountability</li>
+        <li><strong>SEC and FINRA</strong> guidance increasingly requires firms to show how AI-assisted decisions were made and supervised</li>
+        <li>Every new regulation asks the same question: <strong>"Can you prove what your AI did and why?"</strong></li>
+      </ul>
+    </div>
+    <div class="card" style="border-color: rgba(16, 185, 129, 0.3);">
+      <div class="icon-circle icon-green">&#9989;</div>
+      <h3 style="color: var(--green); font-size: 17px;">How ostk answers those questions today</h3>
+      <ul class="bullet-list" style="margin-top: 12px;">
+        <li><strong>Append-only audit log</strong> gives regulators a tamper-resistant record. Export it for any review period.</li>
+        <li><strong>Signed bail packages</strong> prove who built the agent, what it does, and that it hasn't been modified since signing</li>
+        <li><strong>Agentfile transparency</strong> lets anyone inspect an agent's capabilities, tools, and limits before it runs</li>
+        <li><strong>Pin restrictions</strong> create a provable boundary. You can show exactly what an agent was allowed to access.</li>
+        <li>No custom compliance infrastructure needed. The kernel produces the artifacts automatically.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="quote">
+    <p>When the auditor asks "what did this AI do?", ostk has the answer ready. No scramble, no reconstruction. The records already exist.</p>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 19: IP & DIFFERENTIATION ==================== -->
+<div class="slide center">
+  <p class="label">Intellectual Property</p>
+  <h2>Defensible position</h2>
+  <div class="spacer"></div>
+  <div class="cols cols-2" style="max-width: 800px;">
+    <div class="card">
+      <div class="icon-circle icon-blue">&reg;</div>
+      <h3>Patent filing underway</h3>
+      <p>Patent attorney engaged. Filing covers the core kernel, the identity and trust model, and the agent governance system.</p>
+    </div>
+    <div class="card">
+      <div class="icon-circle icon-purple">&lt;/&gt;</div>
+      <h3>Deep technical moat</h3>
+      <p>100K+ lines of Rust. Multi-provider inference, three-tier conflict resolution, GPU-accelerated compression, and microVM agent isolation. This isn't a wrapper. It's infrastructure.</p>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="quote">
+    <p>This isn't another AI agent tool. It's the governance and coordination layer that every company running agents will need underneath them.</p>
+  </div>
+</div>
+
+<!-- ==================== SLIDE 20: NEXT STEPS ==================== -->
+<div class="slide center">
+  <p class="label">Next Steps</p>
+  <h2>How we move forward</h2>
+  <div class="spacer"></div>
+  <ol class="cta-list">
+    <li>
+      <span class="cta-num">1</span>
+      <span><strong>Technical deep-dive.</strong> Walk your AI team through the kernel, live. Show the audit trail, permission model, and agent coordination in action.</span>
+    </li>
+    <li>
+      <span class="cta-num">2</span>
+      <span><strong>Internal pilot.</strong> Run ostk on an engineering team for 30 days. Measure agent visibility, cost savings, and coordination improvements.</span>
+    </li>
+    <li>
+      <span class="cta-num">3</span>
+      <span><strong>Product exploration.</strong> Joint design session on what agent observability looks like inside your platform.</span>
+    </li>
+    <li>
+      <span class="cta-num">4</span>
+      <span><strong>Partnership structure.</strong> Align on the right model: integration, co-development, or strategic partnership.</span>
+    </li>
+  </ol>
+</div>
+
+<!-- ==================== SLIDE 21: CLOSE ==================== -->
+<div class="slide center">
+  <span class="logo-text gradient-text" style="font-size: 48px; margin-bottom: 32px;">ostk</span>
+  <h1>Let's build the future of<br><span class="gradient-text">AI agent compliance</span></h1>
+  <div class="spacer"></div>
+  <p class="subtitle">tori@ostk.ai</p>
+  <div class="spacer"></div>
+  <div class="card" style="padding: 16px 28px; border-color: rgba(59, 130, 246, 0.3); margin-bottom: 24px;">
+    <pre style="font-size: 16px; color: var(--blue); font-family: 'SF Mono', monospace; text-align: center; margin: 0;">curl -fsSL https://ostk.ai/install | sh</pre>
+  </div>
+  <div style="display: flex; gap: 12px;">
+    <span class="tag tag-blue" style="font-size: 15px; padding: 8px 20px;">ostk.ai</span>
+    <span class="tag tag-purple" style="font-size: 15px; padding: 8px 20px;">github.com/os-tack</span>
+    <span class="tag tag-green" style="font-size: 15px; padding: 8px 20px;">v2.3.0</span>
+  </div>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const counter = document.getElementById('counter');
+  const progress = document.getElementById('progress');
+  let current = 0;
+
+  function show(n) {
+    slides.forEach((s, i) => {
+      s.classList.remove('active', 'exit');
+      if (i === n) s.classList.add('active');
+      else if (i < n) s.classList.add('exit');
+    });
+    counter.textContent = (n + 1) + ' / ' + slides.length;
+    progress.style.width = ((n + 1) / slides.length * 100) + '%';
+    current = n;
+  }
+
+  function next() { if (current < slides.length - 1) show(current + 1); }
+  function prev() { if (current > 0) show(current - 1); }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
+    if (e.key === 'Home') { e.preventDefault(); show(0); }
+    if (e.key === 'End') { e.preventDefault(); show(slides.length - 1); }
+  });
+
+  // Touch/swipe support
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', e => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) { diff > 0 ? next() : prev(); }
+  });
+
+  // Click left/right halves
+  document.addEventListener('click', e => {
+    if (e.clientX > window.innerWidth * 0.6) next();
+    else if (e.clientX < window.innerWidth * 0.4) prev();
+  });
+
+  show(0);
+</script>
+
+</body>
+</html>
