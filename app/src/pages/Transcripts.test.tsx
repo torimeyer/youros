@@ -77,7 +77,7 @@ function renderTranscripts() {
 describe('Transcripts page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: false, osName: 'YourOS', darkMode: true })
+    useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true })
     mockedApiGet.mockResolvedValue(mockTranscriptsResponse)
   })
 
@@ -404,7 +404,7 @@ describe('Transcripts page', () => {
     await waitFor(() => {
       expect(screen.getByText('You')).toBeInTheDocument()
     })
-    expect(screen.getByText('YourOS')).toBeInTheDocument()
+    expect(screen.getByText('myOS')).toBeInTheDocument()
   })
 
   it('detail view has a back button that returns to list', async () => {

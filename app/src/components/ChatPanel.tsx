@@ -262,7 +262,7 @@ export function ChatPanel() {
   const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel } = useAppStore()
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
-      const saved = localStorage.getItem('youros-chat-messages')
+      const saved = localStorage.getItem('myos-chat-messages')
       return saved ? JSON.parse(saved) : []
     } catch { return [] }
   })
@@ -399,7 +399,7 @@ export function ChatPanel() {
   useEffect(() => {
     try {
       const toSave = messages.map(m => m.imageUrl ? { ...m, imageUrl: undefined } : m)
-      localStorage.setItem('youros-chat-messages', JSON.stringify(toSave))
+      localStorage.setItem('myos-chat-messages', JSON.stringify(toSave))
     } catch { /* quota exceeded, skip */ }
   }, [messages])
 
@@ -605,7 +605,7 @@ export function ChatPanel() {
 
   const handleNewConversation = () => {
     setMessages([])
-    localStorage.removeItem('youros-chat-messages')
+    localStorage.removeItem('myos-chat-messages')
     setIsStreaming(false)
     setCurrentModel(null)
     setReplyingTo(null)

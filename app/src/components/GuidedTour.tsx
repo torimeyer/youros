@@ -105,13 +105,13 @@ export default function GuidedTour({ onComplete }: GuidedTourProps) {
   }
 
   const handleFinish = () => {
-    localStorage.setItem('youros-tour-complete', 'true')
+    localStorage.setItem('myos-tour-complete', 'true')
     navigate('/')
     onComplete()
   }
 
   const handleSkip = () => {
-    localStorage.setItem('youros-tour-complete', 'true')
+    localStorage.setItem('myos-tour-complete', 'true')
     navigate('/')
     onComplete()
   }

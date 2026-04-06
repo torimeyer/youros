@@ -45,7 +45,7 @@ MAX_AGENT_TURNS = 10
 
 
 def _system_prompt() -> str:
-    os_name = settings_store.get("os_name", "YourOS")
+    os_name = settings_store.get("os_name", "myOS")
     user_name = settings_store.get("user_name", "")
     owner = user_name if user_name else "the user"
     return (

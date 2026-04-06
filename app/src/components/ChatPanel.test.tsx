@@ -113,7 +113,7 @@ describe('ChatPanel', () => {
         { id: 'msg-1', role: 'user', content: 'Hello there' },
         { id: 'msg-2', role: 'assistant', content: 'Hi!', model: 'claude' },
       ]
-      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
 
       render(<ChatPanel />)
 
@@ -133,7 +133,7 @@ describe('ChatPanel', () => {
         { id: 'msg-1', role: 'user', content: 'Hello there' },
         { id: 'msg-2', role: 'assistant', content: 'Hi!', model: 'claude' },
       ]
-      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
 
       render(<ChatPanel />)
 
@@ -152,7 +152,7 @@ describe('ChatPanel', () => {
       const messages = [
         { id: 'msg-1', role: 'user', content: 'Hello there' },
       ]
-      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
 
       render(<ChatPanel />)
 
@@ -171,7 +171,7 @@ describe('ChatPanel', () => {
       const messages = [
         { id: 'msg-1', role: 'user', content: 'Hello there' },
       ]
-      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
 
       render(<ChatPanel />)
 
@@ -192,7 +192,7 @@ describe('ChatPanel', () => {
       const messages = [
         { id: 'msg-1', role: 'user', content: 'Hello there' },
       ]
-      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
 
       render(<ChatPanel />)
 
@@ -201,7 +201,7 @@ describe('ChatPanel', () => {
       fireEvent.click(heartButtons[0])
 
       // Check localStorage was updated with reaction
-      const saved = JSON.parse(localStorage.getItem('youros-chat-messages') || '[]')
+      const saved = JSON.parse(localStorage.getItem('myos-chat-messages') || '[]')
       const msg = saved.find((m: { id: string }) => m.id === 'msg-1')
       expect(msg.reactions).toEqual({ '❤️': 1 })
     })
@@ -210,7 +210,7 @@ describe('ChatPanel', () => {
       const messages = [
         { id: 'msg-1', role: 'user', content: 'Hello there', reactions: { '🔥': 2, '😂': 1 } },
       ]
-      localStorage.setItem('youros-chat-messages', JSON.stringify(messages))
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
 
       render(<ChatPanel />)
 

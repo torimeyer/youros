@@ -9,7 +9,7 @@ describe('useAppStore', () => {
       chatOpen: true,
       chatWidth: 380,
       isResizing: false,
-      osName: 'YourOS',
+      osName: 'myOS',
       darkMode: true,
       accentColor: 'blue',
       features: [
@@ -27,7 +27,7 @@ describe('useAppStore', () => {
   it('has correct initial state', () => {
     const state = useAppStore.getState()
     expect(state.chatOpen).toBe(true)
-    expect(state.osName).toBe('YourOS')
+    expect(state.osName).toBe('myOS')
     expect(state.darkMode).toBe(true)
     expect(state.accentColor).toBe('blue')
     expect(state.features).toHaveLength(7)

@@ -216,7 +216,7 @@ export default function Transcripts() {
                         msg.role === "user" ? "text-blue-400" : "text-purple-400"
                       }`}
                     >
-                      {msg.role === "user" ? "You" : "YourOS"}
+                      {msg.role === "user" ? "You" : "myOS"}
                     </span>
                     {msg.timestamp && (
                       <span className="text-xs text-slate-500 ml-auto">{msg.timestamp}</span>

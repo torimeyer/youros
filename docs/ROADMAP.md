@@ -1,8 +1,8 @@
-# YourOS Product Roadmap
+# myOS Product Roadmap
 
-## What YourOS is today
+## What myOS is today
 
-YourOS is your personal operating system. It runs locally on your machine and gives your one place to manage tasks, capture ideas, talk to AI, spawn background agents, browse files, review transcripts, and track costs. It is built on ostk and connects to Claude, Gemini, and otyour AI providers through youChat.
+myOS is your personal operating system. It runs locally on your machine and gives your one place to manage tasks, capture ideas, talk to AI, spawn background agents, browse files, review transcripts, and track costs. It is built on ostk and connects to Claude, Gemini, and otyour AI providers through youChat.
 
 ### Current features (April 2026)
 
@@ -27,7 +27,7 @@ YourOS is your personal operating system. It runs locally on your machine and gi
 
 ### Q2 2026: Polish and Reliability
 
-The goal this quarter is to make YourOS solid and pleasant for daily use. No new features that are half-baked. Everything that exists should work smoothly.
+The goal this quarter is to make myOS solid and pleasant for daily use. No new features that are half-baked. Everything that exists should work smoothly.
 
 1. **Notifications and alerts.** Surface important updates (agent finished, task overdue, idea cluster ready) as toast notifications and optional desktop alerts so you does not have to keep checking.
 2. **Search everything.** A single search bar (or enhancement to the command palette) that finds tasks, ideas, transcripts, files, and agent output all at once.
@@ -37,9 +37,9 @@ The goal this quarter is to make YourOS solid and pleasant for daily use. No new
 
 ### Q3 2026: Integrations and Workflows
 
-The goal this quarter is to connect YourOS to the tools you already uses, so she can stay in one place instead of switching between apps.
+The goal this quarter is to connect myOS to the tools you already uses, so she can stay in one place instead of switching between apps.
 
-1. **Calendar integration.** Pull in Google Calendar events and show them on the dashboard and timeline. Let you block time for focus tasks directly from YourOS.
+1. **Calendar integration.** Pull in Google Calendar events and show them on the dashboard and timeline. Let you block time for focus tasks directly from myOS.
 2. **Email summaries.** Connect to Gmail and surface unread email summaries on the dashboard. Let youChat answer questions about recent emails.
 3. **Recurring tasks and routines.** Support tasks that repeat on a schedule (daily standup prep, weekly review) so you does not have to recreate them.
 4. **Quick actions from chat.** Let youChat create tasks, set reminders, and update goals through natural conversation without switching pages.
@@ -47,9 +47,9 @@ The goal this quarter is to connect YourOS to the tools you already uses, so she
 
 ### Q4 2026: Intelligence and Automation
 
-The goal this quarter is to make YourOS proactively helpful instead of waiting to be asked.
+The goal this quarter is to make myOS proactively helpful instead of waiting to be asked.
 
-1. **Morning briefing.** Auto-generate a daily summary when you opens YourOS: what happened overnight (agent results, new emails), what is on the calendar, and suggested priorities for the day.
+1. **Morning briefing.** Auto-generate a daily summary when you opens myOS: what happened overnight (agent results, new emails), what is on the calendar, and suggested priorities for the day.
 2. **Smart task suggestions.** Analyze patterns in how you works (what she does first, what she postpones) and proactively suggest task ordering and priority changes.
 3. **Scheduled agents.** Let you schedule agents to run at specific times or on a recurring basis (e.g., "every Monday morning, check my project status and update the dashboard").
 4. **Stale work detection.** Automatically flag tasks, ideas, and goals that have not had activity in a while and suggest whetyour to close, reprioritize, or break them down further.
@@ -61,9 +61,9 @@ The goal this quarter is to make YourOS proactively helpful instead of waiting t
 
 ### Q1-Q2 2027: Advanced Agent Orchestration
 
-The goal this half is to make agents dramatically more capable, letting you describe complex work and have YourOS coordinate multiple agents to get it done.
+The goal this half is to make agents dramatically more capable, letting you describe complex work and have myOS coordinate multiple agents to get it done.
 
-1. **Multi-agent workflows.** Define a job that requires several agents working in sequence or in parallel (e.g., "research this topic, then draft a document, then review it"). YourOS coordinates handoffs and tracks progress.
+1. **Multi-agent workflows.** Define a job that requires several agents working in sequence or in parallel (e.g., "research this topic, then draft a document, then review it"). myOS coordinates handoffs and tracks progress.
 2. **Agent memory and context.** Agents remember what they have done in past sessions and can pick up where they left off. No more starting from scratch every time.
 3. **Agent collaboration.** Multiple running agents can share information with each otyour through a shared workspace, so one agent's output feeds into another's input automatically.
 4. **Approval workflows.** For high-stakes agent actions (sending emails, modifying important files, spending above a budget threshold), require your approval before proceeding.
@@ -71,13 +71,13 @@ The goal this half is to make agents dramatically more capable, letting you desc
 
 ### Q3-Q4 2027: Knowledge Management and Learning
 
-The goal this half is to make YourOS a second brain that gets smarter over time.
+The goal this half is to make myOS a second brain that gets smarter over time.
 
 1. **Personal knowledge base.** Automatically organize transcripts, agent outputs, ideas, and notes into a searchable knowledge graph. Ask youChat questions like "what did I decide about X last month?" and get accurate answers.
-2. **Pattern recognition.** YourOS learns your work patterns over weeks and months. It notices which types of tasks take longer than expected, which ideas lead to successful outcomes, and which agent configurations work best.
-3. **Document understanding.** Upload PDFs, slide decks, and spreadsheets. YourOS indexes them and makes them available as context for chat and agents. Ask questions about your own documents.
+2. **Pattern recognition.** myOS learns your work patterns over weeks and months. It notices which types of tasks take longer than expected, which ideas lead to successful outcomes, and which agent configurations work best.
+3. **Document understanding.** Upload PDFs, slide decks, and spreadsheets. myOS indexes them and makes them available as context for chat and agents. Ask questions about your own documents.
 4. **Weekly and monthly reviews.** Auto-generated progress reports showing what was accomplished, what slipped, how time was spent, and trends over time.
-5. **Cross-project insights.** When you works on multiple projects, YourOS identifies connections and dependencies between them that might not be obvious.
+5. **Cross-project insights.** When you works on multiple projects, myOS identifies connections and dependencies between them that might not be obvious.
 
 ---
 
@@ -85,20 +85,20 @@ The goal this half is to make YourOS a second brain that gets smarter over time.
 
 ### Q1-Q2 2028: Platform Capabilities
 
-The goal this half is to make YourOS extensible, so it can grow with your needs without requiring engineering work.
+The goal this half is to make myOS extensible, so it can grow with your needs without requiring engineering work.
 
 1. **Custom dashboards.** Let you create your own dashboard layouts with the widgets she cares about most, arranged the way she wants.
-2. **Plugin system.** A simple way to add new integrations (Slack, Jira, Notion, etc.) without modifying YourOS core code. Each plugin adds new data sources, actions, and dashboard widgets.
+2. **Plugin system.** A simple way to add new integrations (Slack, Jira, Notion, etc.) without modifying myOS core code. Each plugin adds new data sources, actions, and dashboard widgets.
 3. **Workflow builder.** A visual tool for creating multi-step automations: "when X happens, do Y, then Z." No coding required. Think of it as personal if-this-then-that for work.
-4. **Team sharing (optional).** Ability to share specific views, goals, or agent outputs with teammates who also run YourOS. Collaboration without centralized servers.
-5. **Voice interface.** Talk to YourOS using voice. Capture ideas, ask questions, and give instructions hands-free.
+4. **Team sharing (optional).** Ability to share specific views, goals, or agent outputs with teammates who also run myOS. Collaboration without centralized servers.
+5. **Voice interface.** Talk to myOS using voice. Capture ideas, ask questions, and give instructions hands-free.
 
 ### Q3-Q4 2028: Long-Term Vision
 
-The goal this half is to make YourOS feel like a true operating system for work, not just a productivity app.
+The goal this half is to make myOS feel like a true operating system for work, not just a productivity app.
 
-1. **Predictive planning.** Based on historical data, YourOS estimates how long goals will take to complete, warns about unrealistic timelines, and suggests how to restructure work to hit deadlines.
-2. **Ambient awareness.** YourOS passively monitors relevant signals (project repos, team channels, industry news) and surfaces only what matters to you, without your having to go looking.
+1. **Predictive planning.** Based on historical data, myOS estimates how long goals will take to complete, warns about unrealistic timelines, and suggests how to restructure work to hit deadlines.
+2. **Ambient awareness.** myOS passively monitors relevant signals (project repos, team channels, industry news) and surfaces only what matters to you, without your having to go looking.
 3. **Career growth tracking.** Track skills developed, projects delivered, impact created, and relationships built over time. Generate narratives for performance reviews and career conversations.
-4. **Portable identity.** your data, preferences, workflows, and agent configurations are fully portable. She can move YourOS to a new machine, a cloud instance, or a different platform and everything comes along.
-5. **Open ecosystem.** Publish ostk and YourOS patterns so others can build their own personal operating systems. YourOS becomes a reference implementation, not a walled garden.
+4. **Portable identity.** your data, preferences, workflows, and agent configurations are fully portable. She can move myOS to a new machine, a cloud instance, or a different platform and everything comes along.
+5. **Open ecosystem.** Publish ostk and myOS patterns so others can build their own personal operating systems. myOS becomes a reference implementation, not a walled garden.

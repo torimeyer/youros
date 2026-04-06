@@ -57,7 +57,7 @@ function renderProjects() {
 describe('Projects page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: false, osName: 'YourOS', darkMode: true })
+    useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true })
     mockedApiGet.mockResolvedValue(mockProjectsResponse)
   })
 
@@ -69,7 +69,7 @@ describe('Projects page', () => {
   it('renders subtitle text', async () => {
     renderProjects()
     expect(
-      screen.getByText('All directories in the YourOS workspace.')
+      screen.getByText('All directories in the myOS workspace.')
     ).toBeInTheDocument()
   })
 

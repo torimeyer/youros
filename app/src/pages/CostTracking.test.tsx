@@ -53,7 +53,7 @@ function renderCostTracking() {
 describe('CostTracking page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: false, osName: 'YourOS', darkMode: true })
+    useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true })
     mockedApiGet.mockResolvedValue(mockCostData)
   })
 

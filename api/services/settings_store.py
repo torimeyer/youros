@@ -3,7 +3,7 @@ from pathlib import Path
 
 from models.schemas import Settings
 
-SETTINGS_PATH = Path.home() / ".youros" / "settings.json"
+SETTINGS_PATH = Path.home() / ".myos" / "settings.json"
 
 # Map old lowercase feature keys to canonical TitleCase labels used by the UI.
 _FEATURE_KEY_MAP: dict[str, str] = {

@@ -49,7 +49,7 @@ function renderAgents() {
 describe('Agents page - Nudge feature', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: true, osName: 'YourOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
 
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return mockAgentsResponse
@@ -237,7 +237,7 @@ describe('Agents page - Nudge feature', () => {
 describe('Agents page - Status bar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: true, osName: 'YourOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
 
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return mockAgentsResponse

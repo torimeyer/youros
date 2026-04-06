@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start YourOS
+# Start myOS
 # Usage: ./start.sh
 
 set -e
@@ -12,7 +12,7 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}Starting YourOS...${NC}"
+echo -e "${BLUE}Starting myOS...${NC}"
 
 # Boot ostk kernel (best-effort, continues if ostk is not installed)
 if command -v ostk &> /dev/null; then
@@ -35,8 +35,8 @@ if [ ! -f .venv/bin/activate ]; then
 fi
 source .venv/bin/activate
 
-echo -e "${GREEN}YourOS is starting at http://localhost:8000${NC}"
-echo "Keep this window open while using YourOS. Press Ctrl+C to stop."
+echo -e "${GREEN}myOS is starting at http://localhost:8000${NC}"
+echo "Keep this window open while using myOS. Press Ctrl+C to stop."
 
 # Open the browser after a brief delay
 if [[ "$(uname)" == "Darwin" ]]; then

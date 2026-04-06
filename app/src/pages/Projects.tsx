@@ -74,7 +74,7 @@ export default function Projects() {
           <div>
             <h1 className="text-3xl font-bold mb-1">Projects</h1>
             <p className="text-slate-400">
-              All directories in the YourOS workspace.
+              All directories in the myOS workspace.
             </p>
           </div>
           <button

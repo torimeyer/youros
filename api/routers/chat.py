@@ -160,7 +160,7 @@ async def chat_websocket(websocket: WebSocket):
             if not use_tools and should_inject_context(last_text):
                 context = await build_context()
                 if context:
-                    system_msg = f"You are the AI assistant for YourOS. Here is the current workspace context:\n\n{context}\n\nAnswer the user's question using this context."
+                    system_msg = f"You are the AI assistant for myOS. Here is the current workspace context:\n\n{context}\n\nAnswer the user's question using this context."
                     messages = [{"role": "user", "content": system_msg}] + messages
 
             # Convert [gif:URL] markers to image content blocks for vision

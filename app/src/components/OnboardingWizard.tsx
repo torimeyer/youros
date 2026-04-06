@@ -3,7 +3,7 @@ import { useAppStore } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
 
-const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'Connect', 'Ready'] as const
+const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'Connect', 'Dream', 'Ready'] as const
 
 const PROVIDER_KEY_FIELD: Record<string, string> = {
   'Anthropic': 'anthropic_api_key',
@@ -27,6 +27,16 @@ export default function OnboardingWizard() {
   const [selectedProvider, setSelectedProvider] = useState('Anthropic')
   const [apiKey, setApiKey] = useState('')
   const [keySaved, setKeySaved] = useState(false)
+
+  // Dream step state
+  const [dreamText, setDreamText] = useState('')
+  const [doneLooksLike, setDoneLooksLike] = useState('')
+  const [dreamResult, setDreamResult] = useState<{
+    goal: { title: string; description: string }
+    tasks: { title: string; priority: string }[]
+  } | null>(null)
+  const [dreamLoading, setDreamLoading] = useState(false)
+  const [dreamPhase, setDreamPhase] = useState<'ask' | 'show'>('ask')
 
   const next = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
   const back = () => setStepIndex((i) => Math.max(i - 1, 0))
@@ -59,6 +69,26 @@ export default function OnboardingWizard() {
   }
 
   const skip = () => next()
+
+  const handleDream = async () => {
+    setDreamLoading(true)
+    try {
+      const result = await api.post<{
+        goal: { title: string; description: string }
+        tasks: { title: string; priority: string }[]
+      }>('/onboarding/dream', {
+        dreading: dreamText,
+        done_looks_like: doneLooksLike || undefined,
+      })
+      setDreamResult(result)
+      setDreamPhase('show')
+    } catch {
+      // If the API fails, just move on
+      next()
+    } finally {
+      setDreamLoading(false)
+    }
+  }
 
   const handleDarkModeChoice = (wantDark: boolean) => {
     if (wantDark !== darkMode) {
@@ -137,6 +167,23 @@ export default function OnboardingWizard() {
               darkMode={darkMode}
               inputCls={inputCls}
               subtextCls={subtextCls}
+            />
+          )}
+          {step === 'Dream' && (
+            <DreamStep
+              osName={osName}
+              dreamText={dreamText}
+              setDreamText={setDreamText}
+              doneLooksLike={doneLooksLike}
+              setDoneLooksLike={setDoneLooksLike}
+              dreamResult={dreamResult}
+              dreamLoading={dreamLoading}
+              dreamPhase={dreamPhase}
+              onSubmit={handleDream}
+              darkMode={darkMode}
+              inputCls={inputCls}
+              subtextCls={subtextCls}
+              cardCls={cardCls}
             />
           )}
           {step === 'Ready' && (
@@ -499,6 +546,152 @@ function ConnectStep({
   )
 }
 
+function DreamStep({
+  osName,
+  dreamText,
+  setDreamText,
+  doneLooksLike,
+  setDoneLooksLike,
+  dreamResult,
+  dreamLoading,
+  dreamPhase,
+  onSubmit,
+  darkMode,
+  inputCls,
+  subtextCls,
+  cardCls,
+}: {
+  osName: string
+  dreamText: string
+  setDreamText: (v: string) => void
+  doneLooksLike: string
+  setDoneLooksLike: (v: string) => void
+  dreamResult: {
+    goal: { title: string; description: string }
+    tasks: { title: string; priority: string }[]
+  } | null
+  dreamLoading: boolean
+  dreamPhase: 'ask' | 'show'
+  onSubmit: () => void
+  darkMode: boolean
+  inputCls: string
+  subtextCls: string
+  cardCls: string
+}) {
+  const [visibleCount, setVisibleCount] = useState(0)
+
+  useEffect(() => {
+    if (dreamPhase !== 'show' || !dreamResult) return
+    setVisibleCount(0)
+    const total = dreamResult.tasks.length
+    let current = 0
+    const timer = setInterval(() => {
+      current++
+      setVisibleCount(current)
+      if (current >= total) clearInterval(timer)
+    }, 200)
+    return () => clearInterval(timer)
+  }, [dreamPhase, dreamResult])
+
+  if (dreamPhase === 'show' && dreamResult) {
+    const priorityColor = (p: string) => {
+      switch (p) {
+        case 'P1': return 'bg-red-500/20 text-red-400'
+        case 'P2': return 'bg-yellow-500/20 text-yellow-400'
+        case 'P3': return 'bg-blue-500/20 text-blue-400'
+        default: return 'bg-slate-500/20 text-slate-400'
+      }
+    }
+
+    return (
+      <div data-testid="step-dream">
+        <div data-testid="dream-phase-show">
+          <h2 className="text-2xl font-bold mb-2" data-testid="dream-goal-title">
+            {dreamResult.goal.title}
+          </h2>
+          <p className={`${subtextCls} mb-6`} data-testid="dream-goal-description">
+            {dreamResult.goal.description}
+          </p>
+
+          <div className={`border rounded-xl p-4 space-y-2 ${cardCls}`} data-testid="dream-tasks">
+            {dreamResult.tasks.map((task, i) => (
+              <div
+                key={i}
+                className={`flex items-center gap-3 py-2 transition-all duration-300 ${
+                  i < visibleCount ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
+                }`}
+                data-testid="dream-task"
+              >
+                <div
+                  className={`w-4 h-4 rounded border-2 flex-shrink-0 ${
+                    darkMode ? 'border-slate-600' : 'border-gray-300'
+                  }`}
+                />
+                <span className="text-sm flex-1">{task.title}</span>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColor(task.priority)}`}
+                >
+                  {task.priority}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <p className={`text-sm mt-4 ${subtextCls}`}>
+            These are waiting for you on your dashboard.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div data-testid="step-dream">
+      <div data-testid="dream-phase-ask">
+        <h2 className="text-2xl font-bold mb-2">Let's get something off your plate</h2>
+        <p className={`${subtextCls} mb-6`}>
+          Tell {osName} something you've been putting off. We'll turn it into a plan.
+        </p>
+
+        <textarea
+          value={dreamText}
+          onChange={(e) => setDreamText(e.target.value)}
+          placeholder="e.g. I need to do my taxes but I have no idea where to start"
+          className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors resize-none ${inputCls}`}
+          rows={3}
+          data-testid="dream-text-input"
+          autoFocus
+        />
+
+        <label className={`block text-sm mt-4 mb-2 ${subtextCls}`}>
+          What would done look like? (optional)
+        </label>
+        <input
+          type="text"
+          value={doneLooksLike}
+          onChange={(e) => setDoneLooksLike(e.target.value)}
+          placeholder="e.g. Taxes filed, no penalties"
+          className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+          data-testid="dream-done-input"
+        />
+
+        <button
+          onClick={onSubmit}
+          disabled={!dreamText.trim() || dreamLoading}
+          className={`mt-6 w-full px-6 py-2.5 rounded-lg text-sm font-medium text-white transition-colors ${
+            !dreamText.trim() || dreamLoading
+              ? 'bg-blue-600/50 cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-500'
+          }`}
+          data-testid="dream-submit"
+        >
+          {dreamLoading ? 'Thinking...' : 'Make it happen'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ReadyStep({
   userName,
   osName,
@@ -535,7 +728,7 @@ function ReadyStep({
         <div className="flex items-center justify-between">
           <span className={`text-sm ${subtextCls}`}>OS Name</span>
           <span className="text-sm font-medium" data-testid="summary-os-name">
-            {osName || 'YourOS'}
+            {osName || 'myOS'}
           </span>
         </div>
         <div className="flex items-center justify-between">

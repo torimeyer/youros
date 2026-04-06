@@ -36,7 +36,7 @@ describe('Settings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({
-      osName: 'YourOS',
+      osName: 'myOS',
       darkMode: true,
       accentColor: 'blue',
       features: [
@@ -112,20 +112,20 @@ describe('Settings', () => {
   describe('OS Identifier', () => {
     it('reads osName from the store', () => {
       renderSettings()
-      const input = screen.getByDisplayValue('YourOS')
+      const input = screen.getByDisplayValue('myOS')
       expect(input).toBeInTheDocument()
     })
 
     it('updates osName in the store on change', () => {
       renderSettings()
-      const input = screen.getByDisplayValue('YourOS')
+      const input = screen.getByDisplayValue('myOS')
       fireEvent.change(input, { target: { value: 'MyOS' } })
       expect(useAppStore.getState().osName).toBe('MyOS')
     })
 
     it('persists osName to API on blur', () => {
       renderSettings()
-      const input = screen.getByDisplayValue('YourOS')
+      const input = screen.getByDisplayValue('myOS')
       fireEvent.change(input, { target: { value: 'MyOS' } })
       fireEvent.blur(input)
       expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { os_name: 'MyOS' })

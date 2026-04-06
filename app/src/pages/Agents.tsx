@@ -6,7 +6,7 @@ import { useNotificationStore } from "../stores/notifications";
 
 const tabs = ["Active", "Recent", "Metrics"];
 
-const CUSTOM_TEMPLATES_KEY = "youros-custom-templates";
+const CUSTOM_TEMPLATES_KEY = "myos-custom-templates";
 
 interface CustomTemplate {
   name: string;

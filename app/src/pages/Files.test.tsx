@@ -91,7 +91,7 @@ function renderFiles() {
 describe('Files page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: false, osName: 'YourOS', darkMode: true })
+    useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true })
     mockedApiGet.mockResolvedValue(mockProjectsResponse)
     mockedApiPost.mockResolvedValue({})
   })

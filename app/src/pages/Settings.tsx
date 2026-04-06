@@ -325,7 +325,7 @@ export default function Settings() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'youros-settings.json';
+      a.download = 'myos-settings.json';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -865,6 +865,16 @@ export default function Settings() {
             >
               <Icon name="download" size={18} />
               Export Config
+            </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem('myos-onboarded');
+                window.location.href = '/';
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
+            >
+              <Icon name="restart_alt" size={18} />
+              Restart Setup
             </button>
           </div>
         </div>

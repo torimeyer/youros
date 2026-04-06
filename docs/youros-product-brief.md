@@ -1,4 +1,4 @@
-# YourOS Product Brief
+# myOS Product Brief
 
 **Version:** 1.0
 **Date:** April 4, 2026
@@ -6,11 +6,11 @@
 
 ---
 
-## What is YourOS?
+## What is myOS?
 
-YourOS is a personal operating system for managing your work, your AI agents, and your thinking. It's a web app that sits on top of ostk (the coordination kernel) and gives you a visual interface for everything ostk can do, plus an always-available AI chat that feels like talking to a teammate.
+myOS is a personal operating system for managing your work, your AI agents, and your thinking. It's a web app that sits on top of ostk (the coordination kernel) and gives you a visual interface for everything ostk can do, plus an always-available AI chat that feels like talking to a teammate.
 
-Think of it as a command center for people who work with AI. You can manage tasks, track goals, spawn AI agents to do work for you, browse your files, review agent transcripts, and chat with multiple AI models, all in one place. The name "YourOS" is the default, but every user can rename it to whatever they want (like "ToriOS").
+Think of it as a command center for people who work with AI. You can manage tasks, track goals, spawn AI agents to do work for you, browse your files, review agent transcripts, and chat with multiple AI models, all in one place. The name "myOS" is the default, but every user can rename it to whatever they want (like "ToriOS").
 
 ---
 
@@ -26,13 +26,13 @@ Think of it as a command center for people who work with AI. You can manage task
 
 ## Core Problems We Solve
 
-1. **AI work is invisible.** When you spawn an AI agent, you can't see what it's doing, what it costs, or what it decided. YourOS makes all agent work visible with live sessions, transcripts, and cost tracking.
+1. **AI work is invisible.** When you spawn an AI agent, you can't see what it's doing, what it costs, or what it decided. myOS makes all agent work visible with live sessions, transcripts, and cost tracking.
 
-2. **Task management doesn't understand AI.** Existing tools (Jira, Linear, Notion) don't know about AI agents. YourOS tasks (needles) can be worked by humans or agents, and the system tracks who did what.
+2. **Task management doesn't understand AI.** Existing tools (Jira, Linear, Notion) don't know about AI agents. myOS tasks (needles) can be worked by humans or agents, and the system tracks who did what.
 
-3. **Thinking is scattered.** Ideas live in Slack, notes in Google Docs, tasks in Linear. YourOS captures raw thinking (hay) and helps you turn it into actionable work (needles), all in one place.
+3. **Thinking is scattered.** Ideas live in Slack, notes in Google Docs, tasks in Linear. myOS captures raw thinking (hay) and helps you turn it into actionable work (needles), all in one place.
 
-4. **Context switching kills flow.** Switching between your chat tool, task tracker, file browser, and project docs breaks concentration. YourOS puts everything in one window with keyboard shortcuts to jump between views instantly.
+4. **Context switching kills flow.** Switching between your chat tool, task tracker, file browser, and project docs breaks concentration. myOS puts everything in one window with keyboard shortcuts to jump between views instantly.
 
 ---
 
@@ -40,7 +40,7 @@ Think of it as a command center for people who work with AI. You can manage task
 
 ### 1. Home Dashboard
 
-The landing page when you open YourOS. Shows you what matters right now.
+The landing page when you open myOS. Shows you what matters right now.
 
 **Widgets:**
 - **Today's Focus** - AI-generated list of what you should work on today, based on priority and deadlines. Refreshable on demand.
@@ -54,7 +54,7 @@ The landing page when you open YourOS. Shows you what matters right now.
 **Design notes:**
 - Two-column widget layout on desktop, single column on mobile.
 - Widgets are cards with headers, subtle borders, and color-coded accents.
-- "Welcome to [YourOS name]" greeting at top.
+- "Welcome to [myOS name]" greeting at top.
 - Dark theme by default, light theme available.
 
 ---
@@ -246,7 +246,7 @@ Configuration and preferences.
 - **Keyboard Shortcuts** - View and customize.
 
 **Adding:**
-- Custom OS name (rename "YourOS" to anything)
+- Custom OS name (rename "myOS" to anything)
 - Theme colors/accent customization
 - Workspace-level settings
 
@@ -312,7 +312,7 @@ One-click daily digest.
 Starting fresh, so here's what we're changing:
 
 1. **Generic by default.** No work-specific features (Publish to DEV, NR-specific integrations). The platform is for anyone.
-2. **Customizable name.** "YourOS" is the default, user picks their name on first launch.
+2. **Customizable name.** "myOS" is the default, user picks their name on first launch.
 3. **Cleaner navigation.** The sidebar had too many items. Grouping into Overview/Work/System sections was good, keeping that.
 4. **No "nerdpacks" or "feedback" features.** Too niche. Can add as plugins later.
 5. **Better onboarding.** New users need a setup wizard: name your OS, connect your API key, pick a theme.

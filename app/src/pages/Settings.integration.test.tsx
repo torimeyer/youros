@@ -119,7 +119,7 @@ describe('Settings integration: Accent color', () => {
 describe('Settings integration: Feature toggles in Sidebar', () => {
   beforeEach(() => {
     useAppStore.setState({
-      osName: 'YourOS',
+      osName: 'myOS',
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
@@ -226,7 +226,7 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
 describe('Settings integration: OS name in Sidebar', () => {
   beforeEach(() => {
     useAppStore.setState({
-      osName: 'YourOS',
+      osName: 'myOS',
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
@@ -241,7 +241,7 @@ describe('Settings integration: OS name in Sidebar', () => {
 
   it('Sidebar displays the osName from the store', () => {
     renderSidebar()
-    expect(screen.getByText('YourOS')).toBeInTheDocument()
+    expect(screen.getByText('myOS')).toBeInTheDocument()
   })
 
   it('Sidebar updates when osName changes', () => {

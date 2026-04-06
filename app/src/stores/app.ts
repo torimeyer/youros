@@ -64,9 +64,9 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  onboarded: localStorage.getItem('youros-onboarded') === 'true',
+  onboarded: localStorage.getItem('myos-onboarded') === 'true',
   setOnboarded: (onboarded) => {
-    localStorage.setItem('youros-onboarded', String(onboarded))
+    localStorage.setItem('myos-onboarded', String(onboarded))
     set({ onboarded })
   },
   chatOpen: true,
@@ -75,17 +75,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   setChatWidth: (chatWidth) => set({ chatWidth: Math.max(300, Math.min(Math.floor(window.innerWidth / 2), chatWidth)) }),
   isResizing: false,
   setIsResizing: (isResizing) => set({ isResizing }),
-  osName: 'YourOS',
+  osName: 'myOS',
   setOsName: (osName) => set({ osName }),
-  darkMode: localStorage.getItem('youros-dark-mode') !== 'false',
+  darkMode: localStorage.getItem('myos-dark-mode') !== 'false',
   toggleDarkMode: () => set((s) => {
     const next = !s.darkMode
-    localStorage.setItem('youros-dark-mode', String(next))
+    localStorage.setItem('myos-dark-mode', String(next))
     return { darkMode: next }
   }),
-  accentColor: (localStorage.getItem('youros-accent-color') as AccentColor) || 'blue',
+  accentColor: (localStorage.getItem('myos-accent-color') as AccentColor) || 'blue',
   setAccentColor: (accentColor) => {
-    localStorage.setItem('youros-accent-color', accentColor)
+    localStorage.setItem('myos-accent-color', accentColor)
     set({ accentColor })
   },
   features: [

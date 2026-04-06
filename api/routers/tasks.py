@@ -21,7 +21,7 @@ _GOAL_LABELS: dict[str, str] = {
     "polish": "Polish",
     "lego-app": "Lego App",
     "torios": "ToriOS",
-    "youros": "YourOS",
+    "myos": "myOS",
     "guess-who": "Guess Who",
 }
 

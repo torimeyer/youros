@@ -188,7 +188,7 @@ class TestSearchFiles:
     @pytest.mark.asyncio
     async def test_search_finds_pattern(self):
         # Search for a string that only appears in main.py
-        result = await execute_tool("search_files", {"pattern": "YourOS API", "path": str(WORKSPACE / "api")})
+        result = await execute_tool("search_files", {"pattern": "myOS API", "path": str(WORKSPACE / "api")})
         assert "main.py" in result
 
     @pytest.mark.asyncio

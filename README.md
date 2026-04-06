@@ -1,4 +1,4 @@
-# YourOS
+# myOS
 
 Your personal AI operating system. A local web app that gives you a workspace with AI chat, background agents, task management, and file browsing. Built on [ostk](https://ostk.ai).
 
@@ -7,8 +7,8 @@ Your personal AI operating system. A local web app that gives you a workspace wi
 You need Python 3.9+, Node 18+, and git.
 
 ```bash
-git clone git@github.com:torimeyer/youros.git ~/youros
-cd ~/youros
+git clone git@github.com:torimeyer/myos.git ~/myos
+cd ~/myos
 ./install.sh
 ```
 
@@ -21,7 +21,7 @@ cd ~/youros
 Or from anywhere after install:
 
 ```bash
-youros
+myos
 ```
 
 Your browser will open to http://localhost:8000.

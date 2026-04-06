@@ -27,7 +27,7 @@ class HayConvert(BaseModel):
 
 
 class Settings(BaseModel):
-    os_name: str = "YourOS"
+    os_name: str = "myOS"
     user_name: str = ""
     dark_mode: bool = True
     accent_color: str = "blue"

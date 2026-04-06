@@ -29,7 +29,7 @@ describe('Sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({
-      osName: 'YourOS',
+      osName: 'myOS',
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
@@ -54,7 +54,7 @@ describe('Sidebar', () => {
 
   it('renders the OS name from the store', () => {
     renderSidebar()
-    expect(screen.getByText('YourOS')).toBeInTheDocument()
+    expect(screen.getByText('myOS')).toBeInTheDocument()
   })
 
   it('renders a custom OS name when store is updated', () => {

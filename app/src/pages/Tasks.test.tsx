@@ -36,7 +36,7 @@ function renderTasks() {
 describe('Tasks page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: true, osName: 'YourOS', darkMode: true })
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
     mockedApiGet.mockResolvedValue({ tasks: mockTasks })
     mockedApiPost.mockResolvedValue({})
   })

@@ -4,9 +4,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth
+from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding
 
-app = FastAPI(title="YourOS API")
+app = FastAPI(title="myOS API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,11 +26,12 @@ app.include_router(projects.router, prefix="/api")
 app.include_router(transcripts.router, prefix="/api")
 app.include_router(costs.router, prefix="/api")
 app.include_router(auth.router)
+app.include_router(onboarding.router, prefix="/api")
 
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "youros-api"}
+    return {"status": "ok", "service": "myos-api"}
 
 
 # Serve the built frontend in production mode. When the app/dist directory

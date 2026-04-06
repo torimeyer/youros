@@ -53,7 +53,7 @@ describe('Dashboard Day Summary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false })
-    localStorage.setItem('youros-tour-complete', 'true')
+    localStorage.setItem('myos-tour-complete', 'true')
 
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/dashboard') return Promise.resolve(mockDashboardData)

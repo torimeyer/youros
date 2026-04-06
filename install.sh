@@ -1,5 +1,5 @@
 #!/bin/bash
-# YourOS installer
+# myOS installer
 # Usage: ./install.sh (from inside the repo)
 
 set -e
@@ -11,10 +11,10 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-INSTALL_DIR="${YOUROS_DIR:-$HOME/youros}"
+INSTALL_DIR="${MYOS_DIR:-$HOME/myos}"
 
 echo ""
-echo -e "${BLUE}=== YourOS Installer ===${NC}"
+echo -e "${BLUE}=== myOS Installer ===${NC}"
 echo ""
 
 # --- Check prerequisites ---
@@ -94,7 +94,7 @@ if ! command -v ostk &> /dev/null; then
                 fi
             else
                 echo -e "${YELLOW}Could not download ostk automatically.${NC}"
-                echo "You can install it manually later. YourOS will still work without it"
+                echo "You can install it manually later. myOS will still work without it"
                 echo "for basic features (chat, tasks, settings)."
             fi
             rm -rf "$OSTK_TMP"
@@ -123,15 +123,15 @@ echo ""
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SCRIPT_DIR/start.sh" ] && [ -d "$SCRIPT_DIR/app" ] && [ -d "$SCRIPT_DIR/api" ]; then
     INSTALL_DIR="$SCRIPT_DIR"
-    echo "Running from existing YourOS repo at $INSTALL_DIR"
+    echo "Running from existing myOS repo at $INSTALL_DIR"
 elif [ -d "$INSTALL_DIR" ]; then
-    echo "YourOS directory already exists at $INSTALL_DIR"
+    echo "myOS directory already exists at $INSTALL_DIR"
     echo "Updating..."
     cd "$INSTALL_DIR"
     git pull --ff-only 2>/dev/null || echo -e "${YELLOW}Could not auto-update. Continuing with existing files.${NC}"
 else
-    echo "Downloading YourOS to $INSTALL_DIR..."
-    git clone git@github.com:torimeyer/youros.git "$INSTALL_DIR" 2>/dev/null || {
+    echo "Downloading myOS to $INSTALL_DIR..."
+    git clone git@github.com:torimeyer/myos.git "$INSTALL_DIR" 2>/dev/null || {
         echo -e "${RED}Could not clone the repo. Check your SSH keys and access, then try again.${NC}"
         exit 1
     }
@@ -177,18 +177,18 @@ SHELL_RC="$HOME/.zshrc"
 [ -f "$HOME/.bashrc" ] && [ ! -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.bashrc"
 
 # Add alias if not already present
-if ! grep -q "alias youros=" "$SHELL_RC" 2>/dev/null; then
+if ! grep -q "alias myos=" "$SHELL_RC" 2>/dev/null; then
     echo "" >> "$SHELL_RC"
-    echo "alias youros='$INSTALL_DIR/start.sh'" >> "$SHELL_RC"
-    echo "Added 'youros' command to $SHELL_RC"
+    echo "alias myos='$INSTALL_DIR/start.sh'" >> "$SHELL_RC"
+    echo "Added 'myos' command to $SHELL_RC"
 fi
 
 echo ""
-echo -e "${GREEN}=== YourOS is installed! ===${NC}"
+echo -e "${GREEN}=== myOS is installed! ===${NC}"
 echo ""
-echo "To start YourOS:"
-echo "  1. Open a new Terminal window (so the 'youros' command is available)"
-echo "  2. Type: youros"
+echo "To start myOS:"
+echo "  1. Open a new Terminal window (so the 'myos' command is available)"
+echo "  2. Type: myos"
 echo "  3. Your browser will open automatically"
 echo ""
 echo "Or run it right now:"
