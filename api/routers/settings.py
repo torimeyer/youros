@@ -40,4 +40,5 @@ async def key_status():
         "anthropic_source": _key_source("anthropic_api_key", "ANTHROPIC_API_KEY"),
         "gemini": _key_source("gemini_api_key", "GEMINI_API_KEY") != "none",
         "gemini_source": _key_source("gemini_api_key", "GEMINI_API_KEY"),
+        "google_oauth_available": bool(os.environ.get("GOOGLE_CLIENT_ID", "")),
     }

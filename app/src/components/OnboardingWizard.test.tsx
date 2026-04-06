@@ -149,11 +149,12 @@ describe('OnboardingWizard', () => {
     expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
   })
 
-  it('switches to Google connect when Gemini is selected', () => {
+  it('switches provider when Gemini is selected', () => {
     render(<OnboardingWizard />)
     clickNext(4)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
-    expect(screen.getByTestId('connect-google')).toBeInTheDocument()
+    // Anthropic connect button should no longer be visible
+    expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
   })
 
   it('advances to Ready step with summary', () => {

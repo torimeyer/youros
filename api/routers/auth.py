@@ -22,7 +22,7 @@ _oauth_states: dict[str, bool] = {}
 async def google_auth(request: Request):
     """Redirect the user to Google's OAuth consent screen."""
     if not GOOGLE_CLIENT_ID:
-        return {"error": "Google OAuth not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables."}
+        return RedirectResponse("/?auth_error=google_not_configured")
 
     state = secrets.token_urlsafe(32)
     _oauth_states[state] = True

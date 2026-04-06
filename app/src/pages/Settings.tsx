@@ -88,6 +88,7 @@ export default function Settings() {
   const [showBrowse, setShowBrowse] = useState(false);
   const [browseSearch, setBrowseSearch] = useState('');
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
+  const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -140,6 +141,9 @@ export default function Settings() {
       }
     };
     fetchSettings();
+    api.get<{ google_oauth_available?: boolean }>('/settings/key-status')
+      .then((data) => setGoogleOAuthAvailable(data.google_oauth_available ?? false))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -516,13 +520,19 @@ export default function Settings() {
 
               {/* Option 1: Sign in (Gemini OAuth or Anthropic console link) */}
               {selectedProvider === 'Google Gemini' ? (
-                <button
-                  onClick={() => window.open('/api/auth/google', '_self')}
-                  className="w-full mb-3 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="login" size={18} />
-                  Sign in with Google
-                </button>
+                googleOAuthAvailable ? (
+                  <button
+                    onClick={() => window.open('/api/auth/google', '_self')}
+                    className="w-full mb-3 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
+                  >
+                    <Icon name="login" size={18} />
+                    Sign in with Google
+                  </button>
+                ) : (
+                  <p className="text-sm text-slate-400 mb-3">
+                    Google sign-in is not set up yet. Paste a Gemini API key below.
+                  </p>
+                )
               ) : (
                 <button
                   onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}

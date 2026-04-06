@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
@@ -390,6 +390,14 @@ function ConnectStep({
   inputCls: string
   subtextCls: string
 }) {
+  const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
+
+  useEffect(() => {
+    api.get<{ google_oauth_available?: boolean }>('/settings/key-status')
+      .then((data) => setGoogleOAuthAvailable(data.google_oauth_available ?? false))
+      .catch(() => {})
+  }, [])
+
   const providers = [
     { name: 'Anthropic', label: 'Anthropic (Claude)' },
     { name: 'Google Gemini', label: 'Google (Gemini)' },
@@ -431,18 +439,24 @@ function ConnectStep({
 
       {/* Connect option */}
       {selectedProvider === 'Google Gemini' ? (
-        <button
-          onClick={() => window.open('/api/auth/google', '_self')}
-          className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-            darkMode
-              ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
-              : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
-          }`}
-          data-testid="connect-google"
-        >
-          <Icon name="login" size={18} />
-          Sign in with Google
-        </button>
+        googleOAuthAvailable ? (
+          <button
+            onClick={() => window.open('/api/auth/google', '_self')}
+            className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+              darkMode
+                ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
+                : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
+            }`}
+            data-testid="connect-google"
+          >
+            <Icon name="login" size={18} />
+            Sign in with Google
+          </button>
+        ) : (
+          <p className={`text-sm mb-3 ${subtextCls}`}>
+            Google sign-in is not set up yet. Paste a Gemini API key below, or switch to Anthropic.
+          </p>
+        )
       ) : (
         <button
           onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
