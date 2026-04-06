@@ -117,17 +117,22 @@ else
 fi
 echo ""
 
-# --- Clone or update the repo ---
+# --- Locate the repo ---
 
-if [ -d "$INSTALL_DIR" ]; then
+# If running from inside the repo, use it directly
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/start.sh" ] && [ -d "$SCRIPT_DIR/app" ] && [ -d "$SCRIPT_DIR/api" ]; then
+    INSTALL_DIR="$SCRIPT_DIR"
+    echo "Running from existing YourOS repo at $INSTALL_DIR"
+elif [ -d "$INSTALL_DIR" ]; then
     echo "YourOS directory already exists at $INSTALL_DIR"
     echo "Updating..."
     cd "$INSTALL_DIR"
     git pull --ff-only 2>/dev/null || echo -e "${YELLOW}Could not auto-update. Continuing with existing files.${NC}"
 else
     echo "Downloading YourOS to $INSTALL_DIR..."
-    git clone https://github.com/torimeyer/youros.git "$INSTALL_DIR" 2>/dev/null || {
-        echo -e "${RED}Could not clone the repo. Check your access and try again.${NC}"
+    git clone git@github.com:torimeyer/youros.git "$INSTALL_DIR" 2>/dev/null || {
+        echo -e "${RED}Could not clone the repo. Check your SSH keys and access, then try again.${NC}"
         exit 1
     }
 fi
