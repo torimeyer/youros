@@ -7,8 +7,8 @@ Your personal AI operating system. A local web app that gives you a workspace wi
 You need Python 3.9+, Node 18+, and git.
 
 ```bash
-git clone https://github.com/torimeyer/youros.git
-cd youros
+git clone git@github.com:torimeyer/youros.git ~/youros
+cd ~/youros
 ./install.sh
 ```
 

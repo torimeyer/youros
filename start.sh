@@ -29,12 +29,20 @@ fi
 
 # Start the API server (serves both API and frontend)
 cd "$DIR/api"
+if [ ! -f .venv/bin/activate ]; then
+    echo "Python environment not found. Run install.sh first."
+    exit 1
+fi
 source .venv/bin/activate
 
 echo -e "${GREEN}YourOS is starting at http://localhost:8000${NC}"
 echo "Keep this window open while using YourOS. Press Ctrl+C to stop."
 
 # Open the browser after a brief delay
-(sleep 2 && open http://localhost:8000 2>/dev/null || xdg-open http://localhost:8000 2>/dev/null) &
+if [[ "$(uname)" == "Darwin" ]]; then
+    (sleep 2 && open http://localhost:8000) &
+else
+    (sleep 2 && xdg-open http://localhost:8000 2>/dev/null) &
+fi
 
 exec uvicorn main:app --host 127.0.0.1 --port 8000

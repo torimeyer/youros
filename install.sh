@@ -1,7 +1,6 @@
 #!/bin/bash
 # YourOS installer
-# Usage: curl -fsSL https://[repo-url]/install.sh | bash
-#    or: ./install.sh
+# Usage: ./install.sh (from inside the repo)
 
 set -e
 
@@ -31,7 +30,7 @@ check_cmd() {
 echo "Checking requirements..."
 
 check_cmd git "Install git: https://git-scm.com"
-
+check_cmd curl "Install curl: https://curl.se"
 check_cmd python3 "Install Python 3: https://python.org/downloads"
 
 PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
@@ -83,13 +82,12 @@ if ! command -v ostk &> /dev/null; then
         if [ -n "$VERSION" ]; then
             TARBALL="ostk-${VERSION}-${PLATFORM}.tar.gz"
             OSTK_URL="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL}"
-            TMPDIR=$(mktemp -d)
-            trap 'rm -rf "$TMPDIR"' EXIT
+            OSTK_TMP=$(mktemp -d)
 
-            if curl -fsSL "$OSTK_URL" -o "$TMPDIR/$TARBALL" 2>/dev/null; then
-                tar -xzf "$TMPDIR/$TARBALL" -C "$TMPDIR"
-                if [ -f "$TMPDIR/ostk" ]; then
-                    install -m 755 "$TMPDIR/ostk" "$OSTK_BIN_DIR/ostk"
+            if curl -fsSL "$OSTK_URL" -o "$OSTK_TMP/$TARBALL" 2>/dev/null; then
+                tar -xzf "$OSTK_TMP/$TARBALL" -C "$OSTK_TMP"
+                if [ -f "$OSTK_TMP/ostk" ]; then
+                    install -m 755 "$OSTK_TMP/ostk" "$OSTK_BIN_DIR/ostk"
                     echo -e "${GREEN}ostk ${VERSION} installed to $OSTK_BIN_DIR/ostk${NC}"
                 else
                     echo -e "${YELLOW}Could not find ostk binary in download. Skipping.${NC}"
@@ -99,6 +97,7 @@ if ! command -v ostk &> /dev/null; then
                 echo "You can install it manually later. YourOS will still work without it"
                 echo "for basic features (chat, tasks, settings)."
             fi
+            rm -rf "$OSTK_TMP"
         else
             echo -e "${YELLOW}Could not determine latest ostk version. Skipping.${NC}"
         fi
@@ -145,6 +144,7 @@ echo "Setting up the backend..."
 cd "$INSTALL_DIR/api"
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -q --upgrade pip
 pip install -q -r requirements.txt
 echo -e "${GREEN}Backend ready.${NC}"
 echo ""
@@ -153,7 +153,7 @@ echo ""
 
 echo "Setting up the frontend..."
 cd "$INSTALL_DIR/app"
-npm install --silent 2>/dev/null
+npm install --silent
 echo "Building the app (this takes a moment)..."
 npm run build
 echo -e "${GREEN}Frontend ready.${NC}"
