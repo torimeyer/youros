@@ -11,7 +11,6 @@ export interface FeatureToggle {
 export const PROVIDER_TO_MODEL: Record<string, string> = {
   'Anthropic': 'claude',
   'Google Gemini': 'gemini',
-  'OpenAI': 'gpt',
 }
 
 // Terminology mapping: ostk terms vs plain language

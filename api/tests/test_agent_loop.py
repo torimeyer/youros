@@ -5,6 +5,7 @@ without making real API calls.
 """
 
 import json
+import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
@@ -182,21 +183,74 @@ class TestAgentLoop:
 
     @pytest.mark.asyncio
     async def test_no_api_key(self, websocket):
-        """Returns an error when no API key is configured."""
+        """Returns an error when no API key is configured anywhere."""
         from services.chat_providers import ChatService
 
         service = ChatService()
         with patch("services.chat_providers.settings_store") as mock_settings:
             mock_settings.get.return_value = ""
-            result = await service.agent_anthropic(
-                [{"role": "user", "content": "Hi"}],
-                websocket,
-            )
+            with patch.dict(os.environ, {}, clear=False):
+                # Remove env var if present
+                os.environ.pop("ANTHROPIC_API_KEY", None)
+                result = await service.agent_anthropic(
+                    [{"role": "user", "content": "Hi"}],
+                    websocket,
+                )
 
         assert result == ""
         errors = websocket.get_messages_of_type("error")
         assert len(errors) == 1
         assert "API key" in errors[0]["data"]
+
+    @pytest.mark.asyncio
+    async def test_env_var_fallback(self, websocket):
+        """Uses environment variable when settings has no key."""
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            return_value=_make_response([_make_text_block("Hello!")])
+        )
+
+        with patch("services.chat_providers.settings_store") as mock_settings:
+            mock_settings.get.return_value = ""
+            with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-env-key"}):
+                with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client) as mock_anthropic:
+                    result = await service.agent_anthropic(
+                        [{"role": "user", "content": "Hi"}],
+                        websocket,
+                    )
+
+        assert result == "Hello!"
+        mock_anthropic.assert_called_once_with(api_key="sk-env-key")
+
+    @pytest.mark.asyncio
+    async def test_settings_key_overrides_env(self, websocket):
+        """Settings key takes priority over environment variable."""
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            return_value=_make_response([_make_text_block("Hello!")])
+        )
+
+        def mock_get(key, default=None):
+            if key == "anthropic_api_key":
+                return "sk-settings-key"
+            return default
+
+        with patch("services.chat_providers.settings_store") as mock_settings:
+            mock_settings.get.side_effect = mock_get
+            with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-env-key"}):
+                with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client) as mock_anthropic:
+                    result = await service.agent_anthropic(
+                        [{"role": "user", "content": "Hi"}],
+                        websocket,
+                    )
+
+        mock_anthropic.assert_called_once_with(api_key="sk-settings-key")
 
     @pytest.mark.asyncio
     async def test_api_error_handled(self, websocket):

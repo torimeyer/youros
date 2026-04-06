@@ -1,15 +1,9 @@
 import { useState } from 'react'
-import { useAppStore, PROVIDER_TO_MODEL } from '../stores/app'
+import { useAppStore } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
 
-const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'AI', 'Ready'] as const
-
-const PROVIDER_KEY_FIELD: Record<string, string> = {
-  'Anthropic': 'anthropic_api_key',
-  'Google Gemini': 'gemini_api_key',
-  'OpenAI': 'openai_api_key',
-}
+const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'Ready'] as const
 
 export default function OnboardingWizard() {
   const [stepIndex, setStepIndex] = useState(0)
@@ -21,22 +15,9 @@ export default function OnboardingWizard() {
   const darkMode = useAppStore((s) => s.darkMode)
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
   const setOnboarded = useAppStore((s) => s.setOnboarded)
-  const setDefaultChatModel = useAppStore((s) => s.setDefaultChatModel)
 
   // Local state
   const [userName, setUserName] = useState('')
-  const [selectedProvider, setSelectedProvider] = useState('Anthropic')
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({
-    'Anthropic': '',
-    'Google Gemini': '',
-    'OpenAI': '',
-  })
-
-  const providers = [
-    { name: 'Anthropic', label: 'Anthropic (Claude)' },
-    { name: 'Google Gemini', label: 'Google (Gemini)' },
-    { name: 'OpenAI', label: 'OpenAI (GPT)' },
-  ]
 
   const next = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
   const back = () => setStepIndex((i) => Math.max(i - 1, 0))
@@ -46,13 +27,6 @@ export default function OnboardingWizard() {
       os_name: osName,
       user_name: userName,
       dark_mode: darkMode,
-      provider: selectedProvider,
-    }
-    // Save all non-empty API keys
-    for (const [provider, field] of Object.entries(PROVIDER_KEY_FIELD)) {
-      if (apiKeys[provider]) {
-        settings[field] = apiKeys[provider]
-      }
     }
     api.patch('/settings', settings).catch(() => {})
     setOnboarded(true)
@@ -65,18 +39,6 @@ export default function OnboardingWizard() {
       toggleDarkMode()
     }
   }
-
-  const handleProviderSelect = (name: string) => {
-    setSelectedProvider(name)
-    const chatModel = PROVIDER_TO_MODEL[name] ?? 'claude'
-    setDefaultChatModel(chatModel)
-  }
-
-  const handleApiKeyChange = (provider: string, key: string) => {
-    setApiKeys((prev) => ({ ...prev, [provider]: key }))
-  }
-
-  const configuredKeyCount = Object.values(apiKeys).filter((k) => k.length > 0).length
 
   // Dark-mode-aware style helpers
   const inputCls = darkMode
@@ -138,26 +100,11 @@ export default function OnboardingWizard() {
               subtextCls={subtextCls}
             />
           )}
-          {step === 'AI' && (
-            <AIStep
-              providers={providers}
-              selectedProvider={selectedProvider}
-              onSelectProvider={handleProviderSelect}
-              apiKeys={apiKeys}
-              onApiKeyChange={handleApiKeyChange}
-              darkMode={darkMode}
-              inputCls={inputCls}
-              subtextCls={subtextCls}
-            />
-          )}
           {step === 'Ready' && (
             <ReadyStep
               userName={userName}
               osName={osName}
               darkMode={darkMode}
-              provider={selectedProvider}
-              configuredKeyCount={configuredKeyCount}
-              totalProviders={providers.length}
               subtextCls={subtextCls}
               cardCls={cardCls}
             />
@@ -382,114 +329,19 @@ function ThemeStep({
   )
 }
 
-function AIStep({
-  providers,
-  selectedProvider,
-  onSelectProvider,
-  apiKeys,
-  onApiKeyChange,
-  darkMode,
-  inputCls,
-  subtextCls,
-}: {
-  providers: { name: string; label: string }[]
-  selectedProvider: string
-  onSelectProvider: (name: string) => void
-  apiKeys: Record<string, string>
-  onApiKeyChange: (provider: string, key: string) => void
-  darkMode: boolean
-  inputCls: string
-  subtextCls: string
-}) {
-  return (
-    <div data-testid="step-ai">
-      <h2 className="text-2xl font-bold mb-2">Connect your AI</h2>
-      <p className={`${subtextCls} mb-6`}>
-        Add API keys for any providers you want to use. Click a card to set it as
-        your default. You can explore everything without a key. Chat and agents
-        need one to work.
-      </p>
-
-      <div className="space-y-3">
-        {providers.map((p) => {
-          const isDefault = selectedProvider === p.name
-          return (
-            <div
-              key={p.name}
-              className={`rounded-lg border-2 transition-colors ${
-                isDefault
-                  ? 'border-blue-500'
-                  : darkMode
-                    ? 'border-slate-700'
-                    : 'border-gray-200'
-              }`}
-            >
-              <button
-                onClick={() => onSelectProvider(p.name)}
-                className={`w-full px-4 pt-3 pb-2 text-left transition-colors rounded-t-lg ${
-                  isDefault
-                    ? 'bg-blue-500/10'
-                    : darkMode
-                      ? 'bg-slate-800/50 hover:bg-slate-800/80'
-                      : 'bg-white hover:bg-gray-50'
-                }`}
-                data-testid={`provider-${p.name}`}
-              >
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">{p.label}</p>
-                  {isDefault && (
-                    <span className="text-xs text-blue-400 font-medium">Default</span>
-                  )}
-                </div>
-              </button>
-              <div className={`px-4 pb-3 pt-1 ${
-                isDefault
-                  ? 'bg-blue-500/5'
-                  : darkMode
-                    ? 'bg-slate-800/30'
-                    : 'bg-gray-50/50'
-              }`}>
-                <input
-                  type="password"
-                  value={apiKeys[p.name] || ''}
-                  onChange={(e) => onApiKeyChange(p.name, e.target.value)}
-                  placeholder="Paste API key (optional)"
-                  className={`w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-                  data-testid={`api-key-input-${p.name}`}
-                />
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 function ReadyStep({
   userName,
   osName,
   darkMode,
-  provider,
-  configuredKeyCount,
-  totalProviders,
   subtextCls,
   cardCls,
 }: {
   userName: string
   osName: string
   darkMode: boolean
-  provider: string
-  configuredKeyCount: number
-  totalProviders: number
   subtextCls: string
   cardCls: string
 }) {
-  const keysSummary =
-    configuredKeyCount > 0
-      ? `${configuredKeyCount} of ${totalProviders} providers configured`
-      : 'None set (add later in Settings)'
-
   return (
     <div className="text-center" data-testid="step-ready">
       <div className="mb-6">
@@ -518,18 +370,6 @@ function ReadyStep({
           <span className={`text-sm ${subtextCls}`}>Theme</span>
           <span className="text-sm font-medium" data-testid="summary-theme">
             {darkMode ? 'Dark' : 'Light'}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className={`text-sm ${subtextCls}`}>Default AI</span>
-          <span className="text-sm font-medium" data-testid="summary-provider">
-            {provider}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className={`text-sm ${subtextCls}`}>API Keys</span>
-          <span className="text-sm font-medium" data-testid="summary-api-key">
-            {keysSummary}
           </span>
         </div>
       </div>

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs
+from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth
 
 app = FastAPI(title="YourOS API")
 
@@ -25,6 +25,7 @@ app.include_router(status.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(transcripts.router, prefix="/api")
 app.include_router(costs.router, prefix="/api")
+app.include_router(auth.router)
 
 
 @app.get("/api/health")

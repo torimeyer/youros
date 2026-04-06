@@ -169,16 +169,16 @@ describe('Settings', () => {
   describe('API Key', () => {
     it('persists API key to API on Save Key click', () => {
       renderSettings()
-      const input = screen.getByPlaceholderText('sk-ant-xxxx...')
+      const input = screen.getByPlaceholderText('Paste API key (sk-ant-xxxx...)')
       fireEvent.change(input, { target: { value: 'sk-ant-test123' } })
-      const saveBtn = screen.getByText('Save Key')
+      const saveBtn = screen.getByText('Save')
       fireEvent.click(saveBtn)
       expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { anthropic_api_key: 'sk-ant-test123' })
     })
 
     it('toggles API key visibility', () => {
       renderSettings()
-      const input = screen.getByPlaceholderText('sk-ant-xxxx...')
+      const input = screen.getByPlaceholderText('Paste API key (sk-ant-xxxx...)')
       expect(input).toHaveAttribute('type', 'password')
 
       // Find the visibility toggle button (the one inside the API key section)

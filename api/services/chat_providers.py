@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 import anthropic
 from fastapi import WebSocket
@@ -6,6 +7,38 @@ from fastapi import WebSocket
 from config import PROJECT_ROOT
 from services.settings_store import settings_store
 from services.tool_executor import TOOL_DEFINITIONS, execute_tool
+
+_ENV_KEY_MAP = {
+    "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "gemini_api_key": "GEMINI_API_KEY",
+}
+
+
+def _make_google_credentials():
+    """Build Google OAuth credentials from stored tokens."""
+    from google.oauth2.credentials import Credentials
+    access_token = settings_store.get("gemini_oauth_access_token", "")
+    refresh_token = settings_store.get("gemini_oauth_refresh_token", "")
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    return Credentials(
+        token=access_token,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
+def _resolve_api_key(settings_key: str) -> str:
+    """Return API key from settings (user override) or environment variable."""
+    key = settings_store.get(settings_key, "")
+    if key:
+        return key
+    env_name = _ENV_KEY_MAP.get(settings_key, "")
+    if env_name:
+        return os.environ.get(env_name, "")
+    return ""
 
 MAX_AGENT_TURNS = 10
 
@@ -54,9 +87,9 @@ def _system_prompt() -> str:
 
 class ChatService:
     async def stream_anthropic(self, messages: list[dict], websocket: WebSocket) -> str:
-        api_key = settings_store.get("anthropic_api_key", "")
+        api_key = _resolve_api_key("anthropic_api_key")
         if not api_key:
-            await websocket.send_json({"type": "error", "data": "No Anthropic API key set. Add one in Settings."})
+            await websocket.send_json({"type": "error", "data": "No Anthropic API key found. Set the ANTHROPIC_API_KEY environment variable or add a key in Settings."})
             return ""
 
         client = anthropic.AsyncAnthropic(api_key=api_key)
@@ -102,9 +135,9 @@ class ChatService:
         MCP client API. Anthropic fetches tools from those servers and executes
         MCP tool calls server-side, returning results inline in the response.
         """
-        api_key = settings_store.get("anthropic_api_key", "")
+        api_key = _resolve_api_key("anthropic_api_key")
         if not api_key:
-            await websocket.send_json({"type": "error", "data": "No Anthropic API key set. Add one in Settings."})
+            await websocket.send_json({"type": "error", "data": "No Anthropic API key found. Set the ANTHROPIC_API_KEY environment variable or add a key in Settings."})
             return ""
 
         client = anthropic.AsyncAnthropic(api_key=api_key)
@@ -292,15 +325,20 @@ class ChatService:
             return ""
 
     async def stream_gemini(self, messages: list[dict], websocket: WebSocket) -> str:
-        api_key = settings_store.get("gemini_api_key", "")
-        if not api_key:
-            await websocket.send_json({"type": "error", "data": "No Gemini API key set. Add one in Settings."})
+        api_key = _resolve_api_key("gemini_api_key")
+        oauth_token = settings_store.get("gemini_oauth_access_token", "")
+
+        if not api_key and not oauth_token:
+            await websocket.send_json({"type": "error", "data": "No Gemini credentials found. Sign in with Google or add an API key in Settings."})
             return ""
 
         full_text = ""
         try:
             import google.generativeai as genai
-            genai.configure(api_key=api_key)
+            if api_key:
+                genai.configure(api_key=api_key)
+            else:
+                genai.configure(credentials=_make_google_credentials())
             model = genai.GenerativeModel("gemini-2.0-flash")
 
             history = []

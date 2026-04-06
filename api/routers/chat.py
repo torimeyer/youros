@@ -19,8 +19,6 @@ MODEL_ALIASES = {
     "anthropic": "claude",
     "gemini": "gemini",
     "google": "gemini",
-    "gpt": "gpt",
-    "openai": "gpt",
 }
 
 MENTION_RE = re.compile(r"@(\w+)", re.IGNORECASE)
@@ -110,9 +108,6 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
         return await chat_service.stream_anthropic(messages, websocket)
     elif provider == "gemini":
         return await chat_service.stream_gemini(messages, websocket)
-    elif provider == "gpt":
-        await websocket.send_json({"type": "error", "data": "GPT not configured yet. Add support in Settings."})
-        return ""
     else:
         await websocket.send_json({"type": "error", "data": f"Unknown model: {provider}"})
         return ""

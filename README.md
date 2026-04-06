@@ -32,7 +32,7 @@ The setup wizard walks you through:
 1. Enter your name
 2. Name your OS (e.g. "MadisonOS", "AlexOS")
 3. Pick a theme
-4. Connect your AI provider (Anthropic, Gemini, or OpenAI)
+4. Connect your AI provider (Anthropic or Gemini)
 
 You can explore the dashboard, tasks, and ideas without an API key. Chat and agents need one.
 

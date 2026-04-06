@@ -28,8 +28,8 @@ class TestParseMentions:
     def test_alias_google(self):
         assert parse_mentions("@google help") == ["gemini"]
 
-    def test_alias_openai(self):
-        assert parse_mentions("@openai help") == ["gpt"]
+    def test_openai_no_longer_recognized(self):
+        assert parse_mentions("@openai help") == []
 
     def test_duplicate_mentions_deduplicated(self):
         result = parse_mentions("@claude say hi @claude again")

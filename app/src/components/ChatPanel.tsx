@@ -7,13 +7,11 @@ import { renderMarkdown, renderTextWithMarkdown } from '../lib/markdown'
 const MODEL_COLORS: Record<string, string> = {
   claude: 'text-blue-400',
   gemini: 'text-emerald-400',
-  gpt: 'text-purple-400',
 }
 
 const MODEL_BG: Record<string, string> = {
   claude: 'bg-blue-500/10 border-blue-500/30',
   gemini: 'bg-emerald-500/10 border-emerald-500/30',
-  gpt: 'bg-purple-500/10 border-purple-500/30',
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -691,7 +689,7 @@ export function ChatPanel() {
             <p className="text-slate-500 text-sm">
               Messages go to <span className={MODEL_COLORS[defaultChatModel] ?? 'text-blue-400'}>{defaultChatModel}</span> by default.
             </p>
-            <p className="text-slate-600 text-xs mt-1">Use @gemini or @gpt to talk to a different model. Change your default in Settings.</p>
+            <p className="text-slate-600 text-xs mt-1">Use @gemini to talk to a different model. Change your default in Settings.</p>
             <p className="text-slate-600 text-xs mt-1">Type <span className="text-blue-400 font-mono">/giphy</span> to search for GIFs.</p>
             {toolsEnabled && (
               <p className="text-amber-500/60 text-xs mt-2">

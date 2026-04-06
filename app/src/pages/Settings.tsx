@@ -69,7 +69,7 @@ export default function Settings() {
   } = useAppStore();
 
   const [selectedProvider, setSelectedProvider] = useState('Anthropic');
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({ Anthropic: '', 'Google Gemini': '', OpenAI: '' });
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({ Anthropic: '', 'Google Gemini': '' });
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [selectedModel, setSelectedModel] = useState('claude-opus-4-20250514');
   const [notifications, setNotifications] = useState([
@@ -122,7 +122,6 @@ export default function Settings() {
           ...prev,
           Anthropic: data.anthropic_api_key || '',
           'Google Gemini': (data as any).gemini_api_key || '',
-          OpenAI: (data as any).openai_api_key || '',
         }));
         if (data.model) setSelectedModel(data.model);
         if (data.notifications) {
@@ -173,7 +172,6 @@ export default function Settings() {
   const providers = [
     { name: 'Anthropic', model: 'Claude' },
     { name: 'Google Gemini', model: 'Gemini' },
-    { name: 'OpenAI', model: 'GPT' },
   ];
 
   const saveMcpServers = (servers: MCPServer[]) => {
@@ -254,7 +252,6 @@ export default function Settings() {
   const PROVIDER_KEY_FIELD: Record<string, string> = {
     Anthropic: 'anthropic_api_key',
     'Google Gemini': 'gemini_api_key',
-    OpenAI: 'openai_api_key',
   };
 
   const handleApiKeySave = () => {
@@ -497,7 +494,7 @@ export default function Settings() {
             <h2 className="text-lg font-semibold mb-5">AI Provider</h2>
 
             {/* Provider Cards */}
-            <div className="grid grid-cols-3 gap-3 mb-5">
+            <div className="grid grid-cols-2 gap-3 mb-5">
               {providers.map((p) => (
                 <div
                   key={p.name}
@@ -513,9 +510,30 @@ export default function Settings() {
               ))}
             </div>
 
-            {/* API Key */}
+            {/* Connection */}
             <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">{selectedProvider} API Key</label>
+              <label className="text-sm text-slate-400 mb-3 block">Connect {selectedProvider}</label>
+
+              {/* Option 1: Sign in (Gemini OAuth or Anthropic console link) */}
+              {selectedProvider === 'Google Gemini' ? (
+                <button
+                  onClick={() => window.open('/api/auth/google', '_self')}
+                  className="w-full mb-3 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
+                >
+                  <Icon name="login" size={18} />
+                  Sign in with Google
+                </button>
+              ) : (
+                <button
+                  onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
+                  className="w-full mb-3 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
+                >
+                  <Icon name="open_in_new" size={18} />
+                  Get a key from Anthropic
+                </button>
+              )}
+
+              {/* Option 2: Paste API key */}
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <input
@@ -523,7 +541,7 @@ export default function Settings() {
                     value={apiKeys[selectedProvider] || ''}
                     onChange={(e) => setApiKeys(prev => ({ ...prev, [selectedProvider]: e.target.value }))}
                     onKeyDown={(e) => e.key === 'Enter' && handleApiKeySave()}
-                    placeholder={selectedProvider === 'Anthropic' ? 'sk-ant-xxxx...' : selectedProvider === 'Google Gemini' ? 'AIzaSy...' : 'sk-xxxx...'}
+                    placeholder={selectedProvider === 'Anthropic' ? 'Paste API key (sk-ant-xxxx...)' : 'Paste API key (AIzaSy...)'}
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
                   />
                   <button
@@ -540,7 +558,7 @@ export default function Settings() {
                   onClick={handleApiKeySave}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
                 >
-                  {keySaveStatus || 'Save Key'}
+                  {keySaveStatus || 'Save'}
                 </button>
               </div>
             </div>
