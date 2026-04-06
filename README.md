@@ -7,10 +7,12 @@ Your personal AI operating system. A local web app that gives you a workspace wi
 You need Python 3.9+, Node 18+, and git.
 
 ```bash
-git clone git@github.com:torimeyer/myos.git ~/myos
+git clone https://github.com/torimeyer/myos.git ~/myos
 cd ~/myos
 ./install.sh
 ```
+
+If you have SSH keys set up, you can also use `git clone git@github.com:torimeyer/myos.git ~/myos`.
 
 ## Start
 

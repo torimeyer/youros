@@ -131,8 +131,9 @@ elif [ -d "$INSTALL_DIR" ]; then
     git pull --ff-only 2>/dev/null || echo -e "${YELLOW}Could not auto-update. Continuing with existing files.${NC}"
 else
     echo "Downloading myOS to $INSTALL_DIR..."
+    git clone https://github.com/torimeyer/myos.git "$INSTALL_DIR" 2>/dev/null || \
     git clone git@github.com:torimeyer/myos.git "$INSTALL_DIR" 2>/dev/null || {
-        echo -e "${RED}Could not clone the repo. Check your SSH keys and access, then try again.${NC}"
+        echo -e "${RED}Could not clone the repo. Check your access and try again.${NC}"
         exit 1
     }
 fi
