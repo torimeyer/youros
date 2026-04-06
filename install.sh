@@ -107,6 +107,7 @@ if ! command -v ostk &> /dev/null; then
     if [[ ":$PATH:" != *":$OSTK_BIN_DIR:"* ]]; then
         SHELL_RC="$HOME/.zshrc"
         [ -f "$HOME/.bashrc" ] && [ ! -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.bashrc"
+        echo "" >> "$SHELL_RC"
         echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_RC"
         export PATH="$OSTK_BIN_DIR:$PATH"
         echo "Added $OSTK_BIN_DIR to PATH in $SHELL_RC"
@@ -177,6 +178,7 @@ SHELL_RC="$HOME/.zshrc"
 
 # Add alias if not already present
 if ! grep -q "alias youros=" "$SHELL_RC" 2>/dev/null; then
+    echo "" >> "$SHELL_RC"
     echo "alias youros='$INSTALL_DIR/start.sh'" >> "$SHELL_RC"
     echo "Added 'youros' command to $SHELL_RC"
 fi

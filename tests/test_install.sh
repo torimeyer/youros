@@ -194,6 +194,16 @@ else
     assert "start.sh uses platform detection for browser open" 1
 fi
 
+# --- Newlines before appended lines in .zshrc/.bashrc ---
+# Without a leading newline, the alias/PATH export lands on the end of the last line
+
+APPEND_LINES=$(grep -c 'echo "" >>' "$DIR/install.sh")
+if [ "$APPEND_LINES" -ge 2 ]; then
+    assert "install.sh adds newline before appending to shell rc" 0
+else
+    assert "install.sh adds newline before appending to shell rc" 1
+fi
+
 # --- ostk release URL is live ---
 
 echo ""
