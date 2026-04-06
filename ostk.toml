@@ -1,14 +1,14 @@
-# ostk.toml — torios
+# ostk.toml — myOS
 # Derived from os-tack/ostk.ai bail
 
 [project]
-name = "torios"
+name = "myos"
 bail = "os-tack/ostk.ai"
 
-# ostk.toml — official v2.2.3 release configuration
+# ostk.toml — official v2.2.9 release configuration
 # os-tack/ostk.ai — the distributed OS seed repository
 
-kernel = ">=2.2.3, <2.3.0"
+kernel = ">=2.2.9, <2.4.0"
 
 [authorization]
 # Trust is GPG web-of-trust, not platform accounts.
