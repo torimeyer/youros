@@ -59,8 +59,8 @@ describe('OnboardingWizard', () => {
   it('shows progress dots equal to the number of steps', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    // 5 steps: Welcome, You, Name, Theme, Ready
-    expect(dots.children).toHaveLength(5)
+    // 6 steps: Welcome, You, Name, Theme, Connect, Ready
+    expect(dots.children).toHaveLength(6)
   })
 
   it('does not show Back button on Welcome step', () => {
@@ -136,32 +136,53 @@ describe('OnboardingWizard', () => {
     expect(useAppStore.getState().darkMode).toBe(true)
   })
 
+  it('advances to Connect step', () => {
+    render(<OnboardingWizard />)
+    clickNext(4) // Welcome -> You -> Name -> Theme -> Connect
+    expect(screen.getByTestId('step-connect')).toBeInTheDocument()
+  })
+
+  it('shows Anthropic connect option by default', () => {
+    render(<OnboardingWizard />)
+    clickNext(4)
+    expect(screen.getByTestId('connect-anthropic')).toBeInTheDocument()
+    expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
+  })
+
+  it('switches to Google connect when Gemini is selected', () => {
+    render(<OnboardingWizard />)
+    clickNext(4)
+    fireEvent.click(screen.getByTestId('provider-Google Gemini'))
+    expect(screen.getByTestId('connect-google')).toBeInTheDocument()
+  })
+
   it('advances to Ready step with summary', () => {
     render(<OnboardingWizard />)
-    clickNext(4) // Welcome -> You -> Name -> Theme -> Ready
+    clickNext(5) // Welcome -> You -> Name -> Theme -> Connect -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     expect(screen.getByTestId('summary-os-name')).toHaveTextContent('YourOS')
     expect(screen.getByTestId('summary-theme')).toHaveTextContent('Dark')
+    expect(screen.getByTestId('summary-provider')).toHaveTextContent('Anthropic')
   })
 
   it('does not show Skip button on Ready step', () => {
     render(<OnboardingWizard />)
-    clickNext(4)
+    clickNext(5)
 
     expect(screen.queryByTestId('skip-button')).not.toBeInTheDocument()
   })
 
   it('shows "Get started" button on Ready step', () => {
     render(<OnboardingWizard />)
-    clickNext(4)
+    clickNext(5)
 
     expect(screen.getByTestId('finish-button')).toHaveTextContent('Get started')
   })
 
   it('sets onboarded to true and persists to localStorage when finished', () => {
     render(<OnboardingWizard />)
-    clickNext(4)
+    clickNext(5)
     fireEvent.click(screen.getByTestId('finish-button'))
 
     expect(useAppStore.getState().onboarded).toBe(true)
@@ -182,22 +203,18 @@ describe('OnboardingWizard', () => {
 
   it('does not show Back button on Ready step', () => {
     render(<OnboardingWizard />)
-    clickNext(4)
+    clickNext(5)
 
     expect(screen.queryByTestId('back-button')).not.toBeInTheDocument()
   })
 
-  it('does not ask for API keys during onboarding', () => {
+  it('Connect step is skippable', () => {
     render(<OnboardingWizard />)
-    // Walk through every step
-    for (let i = 0; i < 4; i++) {
-      expect(screen.queryByTestId('api-key-input-Anthropic')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('step-ai')).not.toBeInTheDocument()
-      if (screen.queryByTestId('next-button')) {
-        fireEvent.click(screen.getByTestId('next-button'))
-      }
-    }
-    // On Ready step, still no API key inputs
-    expect(screen.queryByTestId('api-key-input-Anthropic')).not.toBeInTheDocument()
+    clickNext(4) // Get to Connect step
+    expect(screen.getByTestId('step-connect')).toBeInTheDocument()
+    // Skip button should be available
+    expect(screen.getByTestId('skip-button')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('skip-button'))
+    expect(screen.getByTestId('step-ready')).toBeInTheDocument()
   })
 })

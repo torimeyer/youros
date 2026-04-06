@@ -3,7 +3,12 @@ import { useAppStore } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
 
-const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'Ready'] as const
+const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'Connect', 'Ready'] as const
+
+const PROVIDER_KEY_FIELD: Record<string, string> = {
+  'Anthropic': 'anthropic_api_key',
+  'Google Gemini': 'gemini_api_key',
+}
 
 export default function OnboardingWizard() {
   const [stepIndex, setStepIndex] = useState(0)
@@ -15,9 +20,13 @@ export default function OnboardingWizard() {
   const darkMode = useAppStore((s) => s.darkMode)
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
   const setOnboarded = useAppStore((s) => s.setOnboarded)
+  const setDefaultChatModel = useAppStore((s) => s.setDefaultChatModel)
 
   // Local state
   const [userName, setUserName] = useState('')
+  const [selectedProvider, setSelectedProvider] = useState('Anthropic')
+  const [apiKey, setApiKey] = useState('')
+  const [keySaved, setKeySaved] = useState(false)
 
   const next = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
   const back = () => setStepIndex((i) => Math.max(i - 1, 0))
@@ -27,9 +36,26 @@ export default function OnboardingWizard() {
       os_name: osName,
       user_name: userName,
       dark_mode: darkMode,
+      provider: selectedProvider,
     }
     api.patch('/settings', settings).catch(() => {})
     setOnboarded(true)
+  }
+
+  const handleProviderSelect = (name: string) => {
+    setSelectedProvider(name)
+    setApiKey('')
+    setKeySaved(false)
+    const chatModel = name === 'Google Gemini' ? 'gemini' : 'claude'
+    setDefaultChatModel(chatModel)
+  }
+
+  const handleSaveKey = () => {
+    const field = PROVIDER_KEY_FIELD[selectedProvider]
+    if (field && apiKey) {
+      api.patch('/settings', { [field]: apiKey }).catch(() => {})
+      setKeySaved(true)
+    }
   }
 
   const skip = () => next()
@@ -100,11 +126,25 @@ export default function OnboardingWizard() {
               subtextCls={subtextCls}
             />
           )}
+          {step === 'Connect' && (
+            <ConnectStep
+              selectedProvider={selectedProvider}
+              onSelectProvider={handleProviderSelect}
+              apiKey={apiKey}
+              onApiKeyChange={setApiKey}
+              onSaveKey={handleSaveKey}
+              keySaved={keySaved}
+              darkMode={darkMode}
+              inputCls={inputCls}
+              subtextCls={subtextCls}
+            />
+          )}
           {step === 'Ready' && (
             <ReadyStep
               userName={userName}
               osName={osName}
               darkMode={darkMode}
+              provider={selectedProvider}
               subtextCls={subtextCls}
               cardCls={cardCls}
             />
@@ -329,16 +369,134 @@ function ThemeStep({
   )
 }
 
+function ConnectStep({
+  selectedProvider,
+  onSelectProvider,
+  apiKey,
+  onApiKeyChange,
+  onSaveKey,
+  keySaved,
+  darkMode,
+  inputCls,
+  subtextCls,
+}: {
+  selectedProvider: string
+  onSelectProvider: (name: string) => void
+  apiKey: string
+  onApiKeyChange: (key: string) => void
+  onSaveKey: () => void
+  keySaved: boolean
+  darkMode: boolean
+  inputCls: string
+  subtextCls: string
+}) {
+  const providers = [
+    { name: 'Anthropic', label: 'Anthropic (Claude)' },
+    { name: 'Google Gemini', label: 'Google (Gemini)' },
+  ]
+
+  return (
+    <div data-testid="step-connect">
+      <h2 className="text-2xl font-bold mb-2">Connect your AI</h2>
+      <p className={`${subtextCls} mb-6`}>
+        Pick a provider and sign in or paste an API key. You can change this
+        anytime in Settings.
+      </p>
+
+      {/* Provider selector */}
+      <div className="grid grid-cols-2 gap-3 mb-5">
+        {providers.map((p) => {
+          const isSelected = selectedProvider === p.name
+          return (
+            <button
+              key={p.name}
+              onClick={() => onSelectProvider(p.name)}
+              className={`p-3 rounded-lg border-2 text-center transition-colors ${
+                isSelected
+                  ? 'border-blue-500 bg-blue-500/10'
+                  : darkMode
+                    ? 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+              }`}
+              data-testid={`provider-${p.name}`}
+            >
+              <p className="text-sm font-medium">{p.label}</p>
+              {isSelected && (
+                <span className="text-xs text-blue-400 font-medium">Selected</span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Connect option */}
+      {selectedProvider === 'Google Gemini' ? (
+        <button
+          onClick={() => window.open('/api/auth/google', '_self')}
+          className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+            darkMode
+              ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
+              : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
+          }`}
+          data-testid="connect-google"
+        >
+          <Icon name="login" size={18} />
+          Sign in with Google
+        </button>
+      ) : (
+        <button
+          onClick={() => window.open('https://console.anthropic.com/settings/keys', '_blank')}
+          className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+            darkMode
+              ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
+              : 'bg-white border-gray-300 text-slate-900 hover:border-blue-500'
+          }`}
+          data-testid="connect-anthropic"
+        >
+          <Icon name="open_in_new" size={18} />
+          Sign in to Anthropic to get a key
+        </button>
+      )}
+
+      {/* API key paste */}
+      <div className="flex gap-2">
+        <input
+          type="password"
+          value={apiKey}
+          onChange={(e) => onApiKeyChange(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && onSaveKey()}
+          placeholder={selectedProvider === 'Anthropic' ? 'Paste API key (sk-ant-xxxx...)' : 'Paste API key (AIzaSy...)'}
+          className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+          data-testid="api-key-input"
+        />
+        <button
+          onClick={onSaveKey}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
+          data-testid="save-key-button"
+        >
+          {keySaved ? 'Saved!' : 'Save'}
+        </button>
+      </div>
+
+      <p className={`text-xs mt-3 ${subtextCls}`}>
+        You can skip this step and connect later in Settings.
+      </p>
+    </div>
+  )
+}
+
 function ReadyStep({
   userName,
   osName,
   darkMode,
+  provider,
   subtextCls,
   cardCls,
 }: {
   userName: string
   osName: string
   darkMode: boolean
+  provider: string
   subtextCls: string
   cardCls: string
 }) {
@@ -370,6 +528,12 @@ function ReadyStep({
           <span className={`text-sm ${subtextCls}`}>Theme</span>
           <span className="text-sm font-medium" data-testid="summary-theme">
             {darkMode ? 'Dark' : 'Light'}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className={`text-sm ${subtextCls}`}>AI Provider</span>
+          <span className="text-sm font-medium" data-testid="summary-provider">
+            {provider}
           </span>
         </div>
       </div>

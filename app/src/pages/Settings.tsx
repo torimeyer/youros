@@ -529,7 +529,7 @@ export default function Settings() {
                   className="w-full mb-3 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
                 >
                   <Icon name="open_in_new" size={18} />
-                  Get a key from Anthropic
+                  Sign in to Anthropic to get a key
                 </button>
               )}
 
