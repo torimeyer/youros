@@ -187,15 +187,17 @@ class TestAgentLoop:
         from services.chat_providers import ChatService
 
         service = ChatService()
-        with patch("services.chat_providers.settings_store") as mock_settings:
-            mock_settings.get.return_value = ""
-            with patch.dict(os.environ, {}, clear=False):
-                # Remove env var if present
-                os.environ.pop("ANTHROPIC_API_KEY", None)
-                result = await service.agent_anthropic(
-                    [{"role": "user", "content": "Hi"}],
-                    websocket,
-                )
+        with patch("services.chat_providers.ostk") as mock_ostk:
+            mock_ostk.secret_get = AsyncMock(return_value="")
+            with patch("services.chat_providers.settings_store") as mock_settings:
+                mock_settings.get.return_value = ""
+                with patch.dict(os.environ, {}, clear=False):
+                    # Remove env var if present
+                    os.environ.pop("ANTHROPIC_API_KEY", None)
+                    result = await service.agent_anthropic(
+                        [{"role": "user", "content": "Hi"}],
+                        websocket,
+                    )
 
         assert result == ""
         errors = websocket.get_messages_of_type("error")
@@ -213,14 +215,16 @@ class TestAgentLoop:
             return_value=_make_response([_make_text_block("Hello!")])
         )
 
-        with patch("services.chat_providers.settings_store") as mock_settings:
-            mock_settings.get.return_value = ""
-            with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-env-key"}):
-                with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client) as mock_anthropic:
-                    result = await service.agent_anthropic(
-                        [{"role": "user", "content": "Hi"}],
-                        websocket,
-                    )
+        with patch("services.chat_providers.ostk") as mock_ostk:
+            mock_ostk.secret_get = AsyncMock(return_value="")
+            with patch("services.chat_providers.settings_store") as mock_settings:
+                mock_settings.get.return_value = ""
+                with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-env-key"}):
+                    with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client) as mock_anthropic:
+                        result = await service.agent_anthropic(
+                            [{"role": "user", "content": "Hi"}],
+                            websocket,
+                        )
 
         assert result == "Hello!"
         mock_anthropic.assert_called_once_with(api_key="sk-env-key")
@@ -241,14 +245,16 @@ class TestAgentLoop:
                 return "sk-settings-key"
             return default
 
-        with patch("services.chat_providers.settings_store") as mock_settings:
-            mock_settings.get.side_effect = mock_get
-            with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-env-key"}):
-                with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client) as mock_anthropic:
-                    result = await service.agent_anthropic(
-                        [{"role": "user", "content": "Hi"}],
-                        websocket,
-                    )
+        with patch("services.chat_providers.ostk") as mock_ostk:
+            mock_ostk.secret_get = AsyncMock(return_value="")
+            with patch("services.chat_providers.settings_store") as mock_settings:
+                mock_settings.get.side_effect = mock_get
+                with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-env-key"}):
+                    with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client) as mock_anthropic:
+                        result = await service.agent_anthropic(
+                            [{"role": "user", "content": "Hi"}],
+                            websocket,
+                        )
 
         mock_anthropic.assert_called_once_with(api_key="sk-settings-key")
 

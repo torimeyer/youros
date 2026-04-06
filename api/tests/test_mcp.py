@@ -5,6 +5,7 @@ Covers:
 - _get_mcp_servers filters disabled and URL-less entries
 - agent_anthropic uses the beta API when MCP servers are configured
 - mcp_tool_use and mcp_tool_result blocks are emitted over WebSocket
+- ostk mcp_list() parsing and the /settings/mcp-servers endpoint
 """
 
 import json
@@ -41,8 +42,6 @@ def settings_file_with_mcp(tmp_path):
         "os_name": "ToriOS",
         "dark_mode": True,
         "accent_color": "blue",
-        "anthropic_api_key": "",
-        "gemini_api_key": "",
         "default_model": "@claude",
         "features": {"Chat": True, "Tasks": True, "Hay/Ideas": True, "Agents": True, "Projects": True, "Docs": True, "Transcripts": False},
         "notifications": {"agent_complete": True, "agent_needs_input": True, "agent_failed": True, "approval_needed": True},
@@ -261,3 +260,150 @@ async def test_agent_anthropic_emits_mcp_tool_use_event():
     mcp_use_msg = next(c.args[0] for c in fake_ws.send_json.call_args_list if c.args[0]["type"] == "mcp_tool_use")
     assert mcp_use_msg["data"]["tool"] == "create_design"
     assert mcp_use_msg["data"]["server"] == "stitch"
+
+
+# --- OstkService.mcp_list() parsing tests ---
+
+
+def test_parse_mcp_list_tabular_format():
+    """Parses tab-separated output with header and separator lines."""
+    from services.ostk import OstkService
+    raw = (
+        "name    command\n"
+        "────    ───────\n"
+        "linear  npx -y @anthropic/linear-mcp-server\n"
+        "github  gh mcp-server\n"
+    )
+    result = OstkService._parse_mcp_list(raw)
+    assert len(result) == 2
+    assert result[0] == {"name": "linear", "command": "npx -y @anthropic/linear-mcp-server"}
+    assert result[1] == {"name": "github", "command": "gh mcp-server"}
+
+
+def test_parse_mcp_list_colon_format():
+    """Parses 'name: command' format."""
+    from services.ostk import OstkService
+    raw = "linear: npx -y @anthropic/linear-mcp-server\ngithub: gh mcp-server"
+    result = OstkService._parse_mcp_list(raw)
+    assert len(result) == 2
+    assert result[0]["name"] == "linear"
+    assert result[0]["command"] == "npx -y @anthropic/linear-mcp-server"
+
+
+def test_parse_mcp_list_empty_string():
+    """Empty output returns empty list."""
+    from services.ostk import OstkService
+    assert OstkService._parse_mcp_list("") == []
+
+
+def test_parse_mcp_list_only_headers():
+    """Output with only headers and separator lines returns empty list."""
+    from services.ostk import OstkService
+    raw = "name    command\n────    ───────\n"
+    result = OstkService._parse_mcp_list(raw)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_list_returns_empty_when_none_configured():
+    """mcp_list returns [] when ostk reports no configured servers."""
+    from services.ostk import OstkService
+    svc = OstkService()
+    with patch.object(svc, "_run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = "no MCP servers configured\n\nadd to .ostk/HUMANFILE:\n\n  mcp:\n    linear: npx -y @anthropic/linear-mcp-server"
+        result = await svc.mcp_list()
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_list_returns_parsed_servers():
+    """mcp_list returns parsed server list when servers are configured."""
+    from services.ostk import OstkService
+    svc = OstkService()
+    raw_output = (
+        "name    command\n"
+        "────    ───────\n"
+        "linear  npx -y @anthropic/linear-mcp-server\n"
+        "github  gh mcp-server\n"
+    )
+    with patch.object(svc, "_run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = raw_output
+        result = await svc.mcp_list()
+    assert len(result) == 2
+    assert result[0]["name"] == "linear"
+
+
+@pytest.mark.asyncio
+async def test_mcp_list_returns_empty_on_error():
+    """mcp_list returns [] when ostk command fails."""
+    from services.ostk import OstkService, OstkError
+    svc = OstkService()
+    with patch.object(svc, "_run", new_callable=AsyncMock) as mock_run:
+        mock_run.side_effect = OstkError("command failed")
+        result = await svc.mcp_list()
+    assert result == []
+
+
+# --- /settings/mcp-servers endpoint tests ---
+
+
+@pytest.fixture
+def settings_file_for_mcp_endpoint(tmp_path):
+    sf = tmp_path / "settings.json"
+    sf.write_text(json.dumps({
+        "os_name": "ToriOS",
+        "mcp_servers": [
+            {"name": "stitch", "url": "https://stitch.example.com", "auth_token": "", "enabled": True},
+        ],
+    }))
+    return sf
+
+
+@pytest.mark.asyncio
+async def test_mcp_servers_endpoint_returns_both_sources(client, settings_file_for_mcp_endpoint):
+    """The /settings/mcp-servers endpoint returns ostk and manual servers."""
+    ostk_servers = [{"name": "linear", "command": "npx -y @anthropic/linear-mcp-server"}]
+
+    with patch("services.settings_store.SETTINGS_PATH", settings_file_for_mcp_endpoint), \
+         patch("routers.settings.ostk") as mock_ostk:
+        mock_ostk.mcp_list = AsyncMock(return_value=ostk_servers)
+        resp = await client.get("/api/settings/mcp-servers")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["ostk_servers"]) == 1
+    assert data["ostk_servers"][0]["name"] == "linear"
+    assert len(data["manual_servers"]) == 1
+    assert data["manual_servers"][0]["name"] == "stitch"
+
+
+@pytest.mark.asyncio
+async def test_mcp_servers_endpoint_empty_ostk(client, settings_file_for_mcp_endpoint):
+    """Returns empty ostk list when no servers are configured in ostk."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file_for_mcp_endpoint), \
+         patch("routers.settings.ostk") as mock_ostk:
+        mock_ostk.mcp_list = AsyncMock(return_value=[])
+        resp = await client.get("/api/settings/mcp-servers")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ostk_servers"] == []
+    assert len(data["manual_servers"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_mcp_servers_endpoint_no_manual_servers(client, tmp_path):
+    """Returns empty manual list when no servers are in settings."""
+    sf = tmp_path / "settings.json"
+    sf.write_text(json.dumps({"os_name": "ToriOS"}))
+
+    ostk_servers = [{"name": "github", "command": "gh mcp-server"}]
+    with patch("services.settings_store.SETTINGS_PATH", sf), \
+         patch("routers.settings.ostk") as mock_ostk:
+        mock_ostk.mcp_list = AsyncMock(return_value=ostk_servers)
+        resp = await client.get("/api/settings/mcp-servers")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["ostk_servers"]) == 1
+    assert data["manual_servers"] == []

@@ -5,9 +5,9 @@ import { api } from '../lib/api'
 
 const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'Connect', 'Dream', 'Ready'] as const
 
-const PROVIDER_KEY_FIELD: Record<string, string> = {
-  'Anthropic': 'anthropic_api_key',
-  'Google Gemini': 'gemini_api_key',
+const PROVIDER_SECRET_NAME: Record<string, string> = {
+  'Anthropic': 'ANTHROPIC_API_KEY',
+  'Google Gemini': 'GEMINI_API_KEY',
 }
 
 export default function OnboardingWizard() {
@@ -61,10 +61,11 @@ export default function OnboardingWizard() {
   }
 
   const handleSaveKey = () => {
-    const field = PROVIDER_KEY_FIELD[selectedProvider]
-    if (field && apiKey) {
-      api.patch('/settings', { [field]: apiKey }).catch(() => {})
-      setKeySaved(true)
+    const secretName = PROVIDER_SECRET_NAME[selectedProvider]
+    if (secretName && apiKey) {
+      api.post('/secrets', { key: secretName, value: apiKey })
+        .then(() => setKeySaved(true))
+        .catch(() => {})
     }
   }
 
@@ -440,7 +441,7 @@ function ConnectStep({
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
 
   useEffect(() => {
-    api.get<{ google_oauth_available?: boolean }>('/settings/key-status')
+    api.get<{ google_oauth_available?: boolean }>('/secrets/key-status')
       .then((data) => setGoogleOAuthAvailable(data.google_oauth_available ?? false))
       .catch(() => {})
   }, [])

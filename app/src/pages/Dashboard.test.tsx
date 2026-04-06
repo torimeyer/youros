@@ -41,6 +41,27 @@ const mockCostData = {
   agent_count: 1,
 }
 
+const mockClockData = {
+  kernel: 'v2.2.9 (@prime+0)',
+  session: '3h12m',
+  wall: '2026-04-20T17:46:04Z',
+  audit: '223 events',
+  swap: '~ stale (12h29m)',
+  focus: '',
+}
+
+const mockSessionDiff = {
+  files_changed: [],
+  needles_filed: [],
+  audit_events: [],
+  audit_total: 0,
+}
+
+const mockCompoundsData = {
+  top: null,
+  all: [],
+}
+
 function renderDashboard() {
   return render(
     <MemoryRouter>
@@ -58,9 +79,11 @@ describe('Dashboard Day Summary', () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/dashboard') return Promise.resolve(mockDashboardData)
       if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
       if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
-      if (path === '/agents') return Promise.resolve({ active: [] })
-      return Promise.resolve({})
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
     })
   })
 
@@ -86,9 +109,11 @@ describe('Dashboard Day Summary', () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/dashboard') return Promise.resolve(mockDashboardData)
       if (path === '/dashboard/summary') return Promise.resolve({ bullets: [] })
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
       if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
-      if (path === '/agents') return Promise.resolve({ active: [] })
-      return Promise.resolve({})
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
     })
 
     renderDashboard()
@@ -137,3 +162,4 @@ describe('Dashboard Day Summary', () => {
     })
   })
 })
+

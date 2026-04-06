@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
+import WhatsNew from './WhatsNew'
 import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
 import type { AppNotification } from '../stores/notifications'
@@ -63,6 +65,7 @@ function NotificationItem({ n }: { n: AppNotification }) {
 }
 
 export default function TopBar({ title }: TopBarProps) {
+  const navigate = useNavigate()
   const toggleChat = useAppStore((s) => s.toggleChat)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
   const osName = useAppStore((s) => s.osName)
@@ -92,7 +95,7 @@ export default function TopBar({ title }: TopBarProps) {
         <span className="font-bold text-slate-100 tracking-tight">{title}</span>
       </div>
 
-      <div className="flex-1 max-w-md mx-8">
+      <div data-tour="search" className="flex-1 max-w-md mx-8">
         <button
           onClick={() => setCommandPaletteOpen(true)}
           className="w-full relative group flex items-center bg-slate-900 rounded-lg pl-10 pr-4 py-2 text-sm text-slate-500 hover:text-slate-400 transition-all cursor-pointer border border-transparent hover:border-slate-700"
@@ -107,12 +110,23 @@ export default function TopBar({ title }: TopBarProps) {
 
       <div className="flex items-center gap-4">
         <button
+          onClick={() => {
+            navigate('/tasks')
+            setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-add-task')), 100)
+          }}
+          className="p-2 text-slate-400 hover:text-blue-400 transition-all"
+          title="Add Task"
+        >
+          <Icon name="add_task" />
+        </button>
+        <button
           onClick={toggleChat}
           className="p-2 text-slate-400 hover:text-blue-400 transition-all"
           title="Toggle Chat (⌘L)"
         >
           <Icon name="chat" />
         </button>
+        <WhatsNew />
         <div className="relative">
           <button
             onClick={handleOpenNotifications}

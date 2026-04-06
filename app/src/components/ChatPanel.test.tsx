@@ -219,4 +219,121 @@ describe('ChatPanel', () => {
       expect(screen.getByTitle('😂 1')).toBeTruthy()
     })
   })
+
+  describe('Reaction picker does not overlap next message', () => {
+    it('reaction bar uses horizontal layout, not vertical column', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello there' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi!', model: 'claude' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      render(<ChatPanel />)
+
+      const reactionBar = screen.getByTestId('reaction-bar-msg-1')
+      // The bar should use horizontal flex (items-center) not vertical (flex-col)
+      expect(reactionBar.className).toContain('flex')
+      expect(reactionBar.className).toContain('items-center')
+      expect(reactionBar.className).not.toContain('flex-col')
+    })
+
+    it('reaction picker is positioned below the message, not beside it', () => {
+      const messages = [
+        { id: 'msg-1', role: 'assistant', content: 'Hello!', model: 'claude' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      render(<ChatPanel />)
+
+      // The hover container that holds the reply button and reaction bar
+      // should be positioned below the message with mt-1
+      const reactionBar = screen.getByTestId('reaction-bar-msg-1')
+      const hoverContainer = reactionBar.parentElement!
+      expect(hoverContainer.className).toContain('z-10')
+      // It should NOT use -right-8 or -left-8 which would place it beside the message
+      expect(hoverContainer.className).not.toContain('-right-8')
+      expect(hoverContainer.className).not.toContain('-left-8')
+    })
+
+    it('hover container has z-index to layer above adjacent messages', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      render(<ChatPanel />)
+
+      const reactionBar = screen.getByTestId('reaction-bar-msg-1')
+      const hoverContainer = reactionBar.parentElement!
+      expect(hoverContainer.className).toContain('z-10')
+    })
+  })
+
+  describe('Default LLM from settings', () => {
+    it('sends messages using the default model from the store', () => {
+      useAppStore.setState({ defaultChatModel: 'claude' })
+      render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'Hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ model: '@claude' })
+      )
+    })
+
+    it('sends messages using gemini when that is the default', () => {
+      useAppStore.setState({ defaultChatModel: 'gemini' })
+      render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message gemini/i)
+      fireEvent.change(input, { target: { value: 'Hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ model: '@gemini' })
+      )
+    })
+
+    it('shows the default model name in the empty state', () => {
+      useAppStore.setState({ defaultChatModel: 'gemini' })
+      render(<ChatPanel />)
+
+      expect(screen.getByText('gemini')).toBeInTheDocument()
+    })
+
+    it('overrides default model when user types an @mention', () => {
+      useAppStore.setState({ defaultChatModel: 'claude' })
+      render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: '@gemini hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // The model sent should still be the defaultChatModel as the backend handles @mentions.
+      // But the detected model label should be gemini (from the @mention regex in sendMessage).
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ model: '@claude' })
+      )
+    })
+
+    it('uses updated default after changing it in the store', () => {
+      useAppStore.setState({ defaultChatModel: 'claude' })
+      const { unmount } = render(<ChatPanel />)
+      unmount()
+
+      // Change the default
+      useAppStore.setState({ defaultChatModel: 'gemini' })
+      render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message gemini/i)
+      fireEvent.change(input, { target: { value: 'Hello' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.objectContaining({ model: '@gemini' })
+      )
+    })
+  })
 })

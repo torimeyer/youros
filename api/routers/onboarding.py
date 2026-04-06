@@ -85,7 +85,7 @@ def _fallback_response(dreading: str, done_looks_like: Optional[str]) -> DreamRe
 
 async def _call_llm(dreading: str, done_looks_like: Optional[str]) -> DreamResponse:
     """Ask the LLM to turn a dreaded task into a structured plan."""
-    api_key = _resolve_api_key("anthropic_api_key")
+    api_key = await _resolve_api_key("anthropic_api_key")
     if not api_key:
         logger.warning("No Anthropic API key available, using fallback plan")
         return _fallback_response(dreading, done_looks_like)

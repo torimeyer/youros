@@ -3,6 +3,7 @@
 import os
 import secrets
 
+import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
@@ -10,19 +11,28 @@ from services.settings_store import settings_store
 
 router = APIRouter(tags=["auth"])
 
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_SCOPES = "https://www.googleapis.com/auth/generative-language https://www.googleapis.com/auth/cloud-platform"
+GOOGLE_SCOPES = "https://www.googleapis.com/auth/cloud-platform"
 
 # In-memory state for CSRF protection during OAuth
 _oauth_states: dict[str, bool] = {}
 
 
+def _google_client_id() -> str:
+    """Read the Google client ID from the environment at call time."""
+    return os.environ.get("GOOGLE_CLIENT_ID", "")
+
+
+def _google_client_secret() -> str:
+    """Read the Google client secret from the environment at call time."""
+    return os.environ.get("GOOGLE_CLIENT_SECRET", "")
+
+
 @router.get("/api/auth/google")
 async def google_auth(request: Request):
     """Redirect the user to Google's OAuth consent screen."""
-    if not GOOGLE_CLIENT_ID:
-        return RedirectResponse("/?auth_error=google_not_configured")
+    client_id = _google_client_id()
+    if not client_id:
+        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/?auth_error=google_not_configured")
 
     state = secrets.token_urlsafe(32)
     _oauth_states[state] = True
@@ -33,7 +43,7 @@ async def google_auth(request: Request):
 
     auth_url = (
         "https://accounts.google.com/o/oauth2/v2/auth"
-        f"?client_id={GOOGLE_CLIENT_ID}"
+        f"?client_id={client_id}"
         f"&redirect_uri={redirect_uri}"
         f"&response_type=code"
         f"&scope={GOOGLE_SCOPES}"
@@ -48,17 +58,17 @@ async def google_auth(request: Request):
 async def google_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     """Handle the OAuth callback from Google."""
     if error:
-        return RedirectResponse("/?auth_error=" + error)
+        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/?auth_error=" + error)
 
     if state not in _oauth_states:
-        return RedirectResponse("/?auth_error=invalid_state")
+        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/?auth_error=invalid_state")
     del _oauth_states[state]
 
     if not code:
-        return RedirectResponse("/?auth_error=no_code")
+        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/?auth_error=no_code")
 
-    import httpx
-
+    client_id = _google_client_id()
+    client_secret = _google_client_secret()
     base_url = str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/api/auth/google/callback"
 
@@ -67,8 +77,8 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
         resp = await client.post(
             "https://oauth2.googleapis.com/token",
             data={
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "code": code,
                 "grant_type": "authorization_code",
                 "redirect_uri": redirect_uri,
@@ -76,7 +86,7 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
         )
 
     if resp.status_code != 200:
-        return RedirectResponse("/?auth_error=token_exchange_failed")
+        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/?auth_error=token_exchange_failed")
 
     tokens = resp.json()
     access_token = tokens.get("access_token", "")
@@ -89,4 +99,6 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
         "gemini_auth_method": "oauth",
     })
 
-    return RedirectResponse("/?auth_success=google")
+    # In dev mode, redirect to the Vite dev server instead of the backend
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    return RedirectResponse(f"{frontend_url}/?auth_success=google")

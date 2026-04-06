@@ -9,7 +9,9 @@ import Agents from './pages/Agents'
 import Files from './pages/Files'
 import Settings from './pages/Settings'
 import Transcripts from './pages/Transcripts'
+import Activity from './pages/Activity'
 import CostTracking from './pages/CostTracking'
+import Docs from './pages/Docs'
 import { useAppStore } from './stores/app'
 
 export default function App() {
@@ -26,10 +28,12 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="tasks" element={<Tasks />} />
           <Route path="timeline" element={<Timeline />} />
+          <Route path="activity" element={<Activity />} />
           <Route path="ideas" element={<Ideas />} />
           <Route path="agents" element={<Agents />} />
           <Route path="files" element={<Files />} />
           <Route path="transcripts" element={<Transcripts />} />
+          <Route path="docs" element={<Docs />} />
           <Route path="costs" element={<CostTracking />} />
           <Route path="settings" element={<Settings />} />
         </Route>

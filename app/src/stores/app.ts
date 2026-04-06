@@ -71,7 +71,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   chatOpen: true,
   toggleChat: () => set((s) => ({ chatOpen: !s.chatOpen })),
-  chatWidth: 380,
+  chatWidth: Math.floor(window.innerWidth / 3),
   setChatWidth: (chatWidth) => set({ chatWidth: Math.max(300, Math.min(Math.floor(window.innerWidth / 2), chatWidth)) }),
   isResizing: false,
   setIsResizing: (isResizing) => set({ isResizing }),

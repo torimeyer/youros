@@ -17,12 +17,31 @@ interface RecentTask {
   priority: string;
 }
 
+interface CompoundTask {
+  id: string;
+  title: string;
+  blocks_count: number;
+}
+
+interface CompoundsData {
+  top: CompoundTask | null;
+  all: CompoundTask[];
+}
+
 interface DashboardData {
   counts: { open: number; closed: number; p0: number; p1: number; p2: number };
   focus: FocusTask[];
   recent_tasks: RecentTask[];
   hay_count: number;
   ostk_status: string;
+}
+
+
+interface SessionDiff {
+  files_changed: string[];
+  needles_filed: { id: string; priority: string; title: string }[];
+  audit_events: { count: number; event: string }[];
+  audit_total: number;
 }
 
 
@@ -47,9 +66,10 @@ export default function Dashboard() {
   const osName = useAppStore((s) => s.osName);
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeAgents, setActiveAgents] = useState<{ name: string; status: string }[]>([]);
   const [summaryBullets, setSummaryBullets] = useState<string[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [compounds, setCompounds] = useState<CompoundsData | null>(null);
+  const [sessionDiff, setSessionDiff] = useState<SessionDiff | null>(null);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -66,12 +86,14 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, agentsRes] = await Promise.all([
+      const [dashRes, compoundsRes, diffRes] = await Promise.all([
         api.get<DashboardData>('/dashboard'),
-        api.get<{ active: { name: string; status: string; source?: string }[] }>('/agents').catch(() => null),
+        api.get<CompoundsData>('/dashboard/compounds').catch(() => null),
+        api.get<SessionDiff>('/dashboard/diff').catch(() => null),
       ]);
       setData(dashRes);
-      if (agentsRes?.active) setActiveAgents(agentsRes.active);
+      if (compoundsRes) setCompounds(compoundsRes);
+      if (diffRes) setSessionDiff(diffRes);
     } catch (e) {
       console.error('Failed to fetch dashboard:', e);
     } finally {
@@ -99,7 +121,6 @@ export default function Dashboard() {
 
   const openCount = data?.counts.open ?? 0;
   const closedCount = data?.counts.closed ?? 0;
-  const ostkStatus = data?.ostk_status ?? 'loading...';
 
   const quickLaunchActions: Record<string, () => void> = {
     'New Task': () => navigate('/tasks'),
@@ -115,7 +136,13 @@ export default function Dashboard() {
     { icon: 'chat', label: 'Open Chat', color: 'text-cyan-400', hoverBorder: 'hover:border-cyan-500' },
   ];
 
-  const goals: { name: string; percent: number; barColor: string }[] = [];
+  const [labels, setLabels] = useState<{ id: string; name: string; color: string; task_count: number }[]>([]);
+
+  useEffect(() => {
+    api.get<{ labels: { id: string; name: string; color: string; task_count: number }[] }>('/labels')
+      .then((res) => setLabels(res.labels ?? []))
+      .catch(() => {});
+  }, []);
 
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-6 rounded-xl hover:border-slate-700 transition-colors';
 
@@ -131,11 +158,33 @@ export default function Dashboard() {
         </div>
 
 
-        {/* Widget Grid */}
-        <div className="grid grid-cols-3 gap-6">
+        {/* Focus on this first */}
+        {compounds?.top && (
+          <div
+            onClick={() => navigate('/tasks')}
+            className="mb-6 bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/30 p-6 rounded-xl hover:border-pink-500/50 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-full bg-pink-500/20 flex items-center justify-center">
+                <Icon name="priority_high" className="text-pink-400" size={22} />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-pink-400 uppercase tracking-wide">Focus on this first</p>
+                <h3 className="text-lg font-semibold text-white">{compounds.top.title}</h3>
+              </div>
+            </div>
+            <p className="text-sm text-slate-400 ml-[52px]">
+              Finishing this unblocks {compounds.top.blocks_count} other {compounds.top.blocks_count === 1 ? 'task' : 'tasks'}.
+              Getting it done first lets everything else move forward.
+            </p>
+          </div>
+        )}
 
-          {/* Today's Focus - col-span-2 */}
-          <div className={`${cardClass} col-span-2`}>
+        {/* Widget Grid */}
+        <div className="grid grid-cols-2 gap-6 auto-rows-min">
+
+          {/* Today's Focus */}
+          <div className={cardClass}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Icon name="target" className="text-pink-400" size={20} />
@@ -193,7 +242,7 @@ export default function Dashboard() {
           </div>
 
           {/* Day Summary */}
-          <div className={`${cardClass} col-span-2`}>
+          <div className={cardClass}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Icon name="calendar_today" className="text-cyan-400" size={20} />
@@ -226,6 +275,83 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* What Changed This Session */}
+          <div className={cardClass}>
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="difference" className="text-emerald-400" size={20} />
+              <h2 className="text-lg font-semibold">What Changed</h2>
+              {sessionDiff && sessionDiff.audit_total > 0 && (
+                <span className="text-xs text-slate-400 ml-auto">
+                  {sessionDiff.audit_total} total {sessionDiff.audit_total === 1 ? 'event' : 'events'} this session
+                </span>
+              )}
+            </div>
+            {!sessionDiff || (sessionDiff.files_changed.length === 0 && sessionDiff.needles_filed.length === 0 && sessionDiff.audit_events.length === 0) ? (
+              <p className="text-sm text-slate-500">Nothing has changed yet this session.</p>
+            ) : (
+              <div className="space-y-4">
+                {/* Files modified */}
+                {sessionDiff.files_changed.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Files modified</p>
+                    <div className="space-y-1">
+                      {sessionDiff.files_changed.slice(0, 5).map((file) => (
+                        <div key={file} className="flex items-center gap-2 text-sm text-slate-300">
+                          <Icon name="description" className="text-slate-500" size={14} />
+                          <span className="truncate">{file}</span>
+                        </div>
+                      ))}
+                      {sessionDiff.files_changed.length > 5 && (
+                        <p className="text-xs text-slate-500 ml-5">
+                          and {sessionDiff.files_changed.length - 5} more
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tasks filed */}
+                {sessionDiff.needles_filed.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Tasks filed</p>
+                    <div className="space-y-1">
+                      {sessionDiff.needles_filed.slice(0, 5).map((needle) => (
+                        <div key={needle.id} className="flex items-center gap-2 text-sm">
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${priorityColor(needle.priority)}`}>
+                            {needle.priority}
+                          </span>
+                          <span className="text-slate-300 truncate">{needle.title}</span>
+                        </div>
+                      ))}
+                      {sessionDiff.needles_filed.length > 5 && (
+                        <p className="text-xs text-slate-500 ml-5">
+                          and {sessionDiff.needles_filed.length - 5} more
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Activity breakdown */}
+                {sessionDiff.audit_events.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Activity breakdown</p>
+                    <div className="flex flex-wrap gap-2">
+                      {sessionDiff.audit_events.map((ev) => (
+                        <span
+                          key={ev.event}
+                          className="text-xs px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:bg-slate-800/80 dark:text-slate-300 border border-blue-500/20 dark:border-transparent"
+                        >
+                          {ev.count} {ev.event.replace('.', ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Tasks */}
           <div className={cardClass}>
             <div className="flex items-center justify-between mb-4">
@@ -251,99 +377,50 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Goals */}
+          {/* Labels */}
           <div className={cardClass}>
-            <h2 className="text-lg font-semibold mb-4">Goals</h2>
-            <div className="space-y-4">
-              {goals.length === 0 ? (
+            <h2 className="text-lg font-semibold mb-4">Labels</h2>
+            <div className="space-y-3">
+              {labels.length === 0 ? (
                 <div className="text-center py-6">
-                  <Icon name="flag" className="text-slate-700 mb-2" size={32} />
-                  <p className="text-sm text-slate-500">No goals yet.</p>
-                  <p className="text-xs text-slate-600 mt-1">Goals will appear here as you set them up.</p>
+                  <Icon name="label" className="text-slate-700 mb-2" size={32} />
+                  <p className="text-sm text-slate-500">No labels yet.</p>
+                  <p className="text-xs text-slate-600 mt-1">Create labels in Tasks to organize your work.</p>
                 </div>
               ) : (
-                goals.map((goal) => (
-                  <div key={goal.name}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm text-slate-300">{goal.name}</span>
-                      <span className="text-sm text-slate-400">{goal.percent}%</span>
-                    </div>
-                    <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${goal.barColor}`} style={{ width: `${goal.percent}%` }} />
-                    </div>
-                  </div>
-                ))
+                <div className="flex flex-wrap gap-2">
+                  {labels.map((label) => (
+                    <button
+                      key={label.id}
+                      onClick={() => navigate('/tasks')}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition-colors hover:opacity-80"
+                      style={{
+                        backgroundColor: label.color + '20',
+                        color: label.color,
+                        border: `1px solid ${label.color}40`,
+                      }}
+                    >
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: label.color }} />
+                      {label.name}
+                      <span className="text-[10px] opacity-70">{label.task_count}</span>
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           </div>
 
-          {/* System Status */}
-          <div className={cardClass}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">System</h2>
-              <span className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${
-                ostkStatus === 'no daemon running'
-                  ? 'text-slate-400 bg-slate-500/10'
-                  : 'text-green-400 bg-green-500/10'
-              }`}>
-                <span className={`w-2 h-2 rounded-full ${
-                  ostkStatus === 'no daemon running' ? 'bg-slate-400' : 'bg-green-400 animate-pulse'
-                }`} />
-                {ostkStatus === 'no daemon running' ? 'Ready' : 'Active'}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-800/50 rounded-lg p-3">
-                <p className="text-xs text-slate-400">Open Tasks</p>
-                <p className="text-lg font-semibold">{openCount}</p>
-              </div>
-              <div className="bg-slate-800/50 rounded-lg p-3">
-                <p className="text-xs text-slate-400">Ideas</p>
-                <p className="text-lg font-semibold">{data?.hay_count ?? 0}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Session Activity */}
-          <div className={cardClass}>
-            <h2 className="text-lg font-semibold mb-4">Session Activity</h2>
-            <div className="space-y-4">
-              {activeAgents.length === 0 ? (
-                <div className="text-center py-6">
-                  <Icon name="smart_toy" className="text-slate-700 mb-2" size={32} />
-                  <p className="text-sm text-slate-500">No active agents.</p>
-                  <p className="text-xs text-slate-600 mt-1">Agents you spawn will appear here.</p>
-                </div>
-              ) : (
-                activeAgents.map((agent) => (
-                  <div key={agent.name} className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
-                      <Icon name="smart_toy" className="text-purple-400" size={20} />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{agent.name}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs font-medium text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
-                          {agent.status}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
 
 
         </div>
       </div>
 
-      {/* Floating Action Button */}
+      {/* Floating Action Button - Open Chat */}
       <button
-        onClick={() => navigate('/tasks')}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-pink-500 hover:bg-pink-600 rounded-2xl flex items-center justify-center shadow-lg shadow-pink-500/25 transition-colors"
+        onClick={() => useAppStore.getState().toggleChat()}
+        className="fixed bottom-8 right-8 w-14 h-14 bg-blue-500 hover:bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/25 transition-colors"
       >
-        <Icon name="add" className="text-white" size={28} />
+        <Icon name="chat" className="text-white" size={28} />
       </button>
     </div>
   );

@@ -331,3 +331,329 @@ async def test_dashboard_summary_idea_count(client, tmp_path):
     bullets = resp.json()["bullets"]
     # 3 cluster items + 2 unclustered = 5 ideas
     assert any("5 ideas saved" in b for b in bullets)
+
+
+# --- GET /api/dashboard/compounds ---
+
+
+@pytest.mark.asyncio
+async def test_dashboard_compounds_returns_top_and_all(client):
+    """The compounds endpoint should return top and all fields."""
+    mock_compounds = [
+        {"id": "→042", "title": "Build smart focus", "blocks_count": 5},
+        {"id": "→017", "title": "Fix auth redirect", "blocks_count": 2},
+    ]
+
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.get_compounds = AsyncMock(return_value=mock_compounds)
+        resp = await client.get("/api/dashboard/compounds")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "top" in data
+    assert "all" in data
+    assert data["top"]["id"] == "→042"
+    assert data["top"]["blocks_count"] == 5
+    assert len(data["all"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_dashboard_compounds_top_is_highest_leverage(client):
+    """The top recommendation should be the task that unblocks the most."""
+    mock_compounds = [
+        {"id": "→010", "title": "Task A", "blocks_count": 8},
+        {"id": "→011", "title": "Task B", "blocks_count": 3},
+        {"id": "→012", "title": "Task C", "blocks_count": 1},
+    ]
+
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.get_compounds = AsyncMock(return_value=mock_compounds)
+        resp = await client.get("/api/dashboard/compounds")
+
+    data = resp.json()
+    assert data["top"]["id"] == "→010"
+    assert data["top"]["blocks_count"] == 8
+
+
+@pytest.mark.asyncio
+async def test_dashboard_compounds_empty_when_no_dependencies(client):
+    """When there are no blocking dependencies, top should be null."""
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.get_compounds = AsyncMock(return_value=[])
+        resp = await client.get("/api/dashboard/compounds")
+
+    data = resp.json()
+    assert data["top"] is None
+    assert data["all"] == []
+
+
+@pytest.mark.asyncio
+async def test_dashboard_compounds_handles_ostk_error(client):
+    """When ostk fails, compounds should return empty gracefully."""
+    from services.ostk import OstkError
+
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.get_compounds = AsyncMock(side_effect=OstkError("offline"))
+        resp = await client.get("/api/dashboard/compounds")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["top"] is None
+    assert data["all"] == []
+
+
+# --- OstkService._parse_compounds ---
+
+
+def test_parse_compounds_with_entries():
+    """Parser should extract id, title, and blocks_count from CLI output."""
+    from services.ostk import OstkService
+
+    output = """:compounds — highest compounding work
+
+  →042  Build smart focus  (blocks 5)
+  →017  Fix auth redirect  (blocks 2)
+  →003  Refactor settings page  (blocks 1)
+"""
+    result = OstkService._parse_compounds(output)
+    assert len(result) == 3
+    assert result[0] == {"id": "→042", "title": "Build smart focus", "blocks_count": 5}
+    assert result[1] == {"id": "→017", "title": "Fix auth redirect", "blocks_count": 2}
+    assert result[2] == {"id": "→003", "title": "Refactor settings page", "blocks_count": 1}
+
+
+def test_parse_compounds_empty():
+    """Parser should return empty list when no dependencies found."""
+    from services.ostk import OstkService
+
+    output = """:compounds — highest compounding work
+
+  (no blocking dependencies found)"""
+    result = OstkService._parse_compounds(output)
+    assert result == []
+
+
+def test_parse_compounds_sorts_by_blocks_count():
+    """Parser should sort results so highest blocks_count comes first."""
+    from services.ostk import OstkService
+
+    output = """:compounds — highest compounding work
+
+  →003  Low priority  (blocks 1)
+  →042  High priority  (blocks 9)
+  →017  Mid priority  (blocks 4)
+"""
+    result = OstkService._parse_compounds(output)
+    assert result[0]["blocks_count"] == 9
+    assert result[1]["blocks_count"] == 4
+    assert result[2]["blocks_count"] == 1
+
+
+def test_parse_compounds_single_block():
+    """Parser should handle singular 'block' vs 'blocks'."""
+    from services.ostk import OstkService
+
+    output = """:compounds — highest compounding work
+
+  →001  Only one  (block 1)
+"""
+    result = OstkService._parse_compounds(output)
+    assert len(result) == 1
+    assert result[0]["blocks_count"] == 1
+
+
+# --- GET /api/dashboard/diff ---
+
+
+@pytest.mark.asyncio
+async def test_dashboard_diff_returns_all_fields(client):
+    """The diff endpoint should return files, needles, audit events, and total."""
+    mock_diff = {
+        "files_changed": ["src/main.py"],
+        "needles_filed": [{"id": "\u2192089", "priority": "P1", "title": "Build session diff"}],
+        "audit_events": [{"count": 3, "event": "task.added"}],
+        "audit_total": 3,
+    }
+
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.get_session_diff = AsyncMock(return_value=mock_diff)
+        resp = await client.get("/api/dashboard/diff")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "files_changed" in data
+    assert "needles_filed" in data
+    assert "audit_events" in data
+    assert "audit_total" in data
+
+
+@pytest.mark.asyncio
+async def test_dashboard_diff_returns_correct_data(client):
+    """The diff endpoint should pass through the parsed ostk output."""
+    mock_diff = {
+        "files_changed": ["api/main.py", "app/src/Dashboard.tsx"],
+        "needles_filed": [
+            {"id": "\u2192083", "priority": "P1", "title": "Add task dependencies"},
+            {"id": "\u2192084", "priority": "P0", "title": "Build smart focus"},
+        ],
+        "audit_events": [
+            {"count": 16, "event": "task.added"},
+            {"count": 4, "event": "needle.activated"},
+        ],
+        "audit_total": 22,
+    }
+
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.get_session_diff = AsyncMock(return_value=mock_diff)
+        resp = await client.get("/api/dashboard/diff")
+
+    data = resp.json()
+    assert len(data["files_changed"]) == 2
+    assert data["files_changed"][0] == "api/main.py"
+    assert len(data["needles_filed"]) == 2
+    assert data["needles_filed"][0]["title"] == "Add task dependencies"
+    assert data["audit_total"] == 22
+    assert len(data["audit_events"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_dashboard_diff_handles_ostk_error(client):
+    """When ostk os diff fails, the endpoint should return empty data."""
+    from services.ostk import OstkError
+
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.get_session_diff = AsyncMock(side_effect=OstkError("no boot found"))
+        resp = await client.get("/api/dashboard/diff")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["files_changed"] == []
+    assert data["needles_filed"] == []
+    assert data["audit_events"] == []
+    assert data["audit_total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_dashboard_diff_empty_session(client):
+    """When nothing has happened, all lists should be empty."""
+    mock_diff = {
+        "files_changed": [],
+        "needles_filed": [],
+        "audit_events": [],
+        "audit_total": 0,
+    }
+
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.get_session_diff = AsyncMock(return_value=mock_diff)
+        resp = await client.get("/api/dashboard/diff")
+
+    data = resp.json()
+    assert data["files_changed"] == []
+    assert data["needles_filed"] == []
+    assert data["audit_events"] == []
+    assert data["audit_total"] == 0
+
+
+# --- OstkService._parse_session_diff ---
+
+
+def test_parse_session_diff_full_output():
+    """Parser should extract files, needles, audit events, and total."""
+    from services.ostk import OstkService
+
+    output = """## Files changed since boot
+
+  src/main.py
+  app/Dashboard.tsx
+
+## Needles filed this session
+
+  [P1] \u219283  Add task dependencies and blocking relationships
+  [P1] \u219284  Build smart focus recommendation using compounds
+  [P0] \u219285  Critical fix
+
+## Audit events this session
+
+    16  task.added
+     4  needle.activated
+     2  needle.linked
+  (22 total events)
+
+## Active staging
+
+  (no active.tack \u2014 no intent forming)"""
+
+    svc = OstkService()
+    result = svc._parse_session_diff(output)
+
+    assert result["files_changed"] == ["src/main.py", "app/Dashboard.tsx"]
+    assert len(result["needles_filed"]) == 3
+    assert result["needles_filed"][0]["priority"] == "P1"
+    assert result["needles_filed"][0]["id"] == "\u219283"
+    assert result["needles_filed"][0]["title"] == "Add task dependencies and blocking relationships"
+    assert result["needles_filed"][2]["priority"] == "P0"
+    assert len(result["audit_events"]) == 3
+    assert result["audit_events"][0] == {"count": 16, "event": "task.added"}
+    assert result["audit_events"][1] == {"count": 4, "event": "needle.activated"}
+    assert result["audit_total"] == 22
+
+
+def test_parse_session_diff_no_data():
+    """Parser should handle output with no tracking data."""
+    from services.ostk import OstkService
+
+    output = """## Files changed since boot
+
+  (gen_table.jsonl not found \u2014 no tracking data)
+
+## Needles filed this session
+
+  (0 needle(s) added)
+
+## Audit events this session
+
+  (0 total events)
+
+## Active staging
+
+  (no active.tack \u2014 no intent forming)"""
+
+    svc = OstkService()
+    result = svc._parse_session_diff(output)
+
+    assert result["files_changed"] == []
+    assert result["needles_filed"] == []
+    assert result["audit_events"] == []
+    assert result["audit_total"] == 0
+
+
+def test_parse_session_diff_only_needles():
+    """Parser should handle output with needles but no files or audit events."""
+    from services.ostk import OstkService
+
+    output = """## Files changed since boot
+
+  (gen_table.jsonl not found \u2014 no tracking data)
+
+## Needles filed this session
+
+  [P1] \u219289  Build session diff view
+  (1 needle(s) added)
+
+## Audit events this session
+
+     1  task.added
+  (1 total events)
+
+## Active staging
+
+  (no active.tack \u2014 no intent forming)"""
+
+    svc = OstkService()
+    result = svc._parse_session_diff(output)
+
+    assert result["files_changed"] == []
+    assert len(result["needles_filed"]) == 1
+    assert result["needles_filed"][0]["title"] == "Build session diff view"
+    assert result["audit_events"] == [{"count": 1, "event": "task.added"}]
+    assert result["audit_total"] == 1

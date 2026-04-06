@@ -184,7 +184,7 @@ export default function Timeline() {
 
             {goalNames.length === 0 && (
               <div className="px-4 py-8 text-center text-slate-500 text-sm">
-                No tasks to display. Add tags to your tasks to group them into goals.
+                No tasks to display. Add tags to your tasks to organize them.
               </div>
             )}
 

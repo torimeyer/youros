@@ -174,33 +174,43 @@ async def chat_websocket(websocket: WebSocket):
                 word in last_text.lower() for word in ["talk to", "discuss", "debate", "ask", "tell"]
             )
 
-            if is_conversation:
-                # Multi-model conversation: call first model, then pass response to second
-                clean_text = strip_mentions(last_text)
-                model_a = mentioned_models[0]
-                model_b = mentioned_models[1]
+            try:
+                if is_conversation:
+                    # Multi-model conversation: call first model, then pass response to second
+                    clean_text = strip_mentions(last_text)
+                    model_a = mentioned_models[0]
+                    model_b = mentioned_models[1]
 
-                # First model responds
-                prompt_a = f"The user asked you to have a conversation with another AI ({model_b}). The user said: \"{clean_text}\"\n\nPlease share your thoughts. Be concise."
-                msgs_a = messages[:-1] + [{"role": "user", "content": prompt_a}]
-                await call_model(model_a, msgs_a, websocket, label=model_a.capitalize())
+                    # First model responds
+                    prompt_a = f"The user asked you to have a conversation with another AI ({model_b}). The user said: \"{clean_text}\"\n\nPlease share your thoughts. Be concise."
+                    msgs_a = messages[:-1] + [{"role": "user", "content": prompt_a}]
+                    await call_model(model_a, msgs_a, websocket, label=model_a.capitalize())
 
-                # Signal boundary between models
-                await websocket.send_json({"type": "model_boundary"})
+                    # Signal boundary between models
+                    await websocket.send_json({"type": "model_boundary"})
 
-                # Second model responds to first model's output
-                # We collect the first model's response by re-reading from a buffer approach
-                # For simplicity, just prompt the second model with the same context
-                prompt_b = f"Another AI ({model_a}) was asked about: \"{clean_text}\"\n\nNow it's your turn. Share your perspective. You may agree or disagree. Be concise."
-                msgs_b = messages[:-1] + [{"role": "user", "content": prompt_b}]
-                await call_model(model_b, msgs_b, websocket, label=model_b.capitalize())
+                    # Second model responds to first model's output
+                    # We collect the first model's response by re-reading from a buffer approach
+                    # For simplicity, just prompt the second model with the same context
+                    prompt_b = f"Another AI ({model_a}) was asked about: \"{clean_text}\"\n\nNow it's your turn. Share your perspective. You may agree or disagree. Be concise."
+                    msgs_b = messages[:-1] + [{"role": "user", "content": prompt_b}]
+                    await call_model(model_b, msgs_b, websocket, label=model_b.capitalize())
 
-                await websocket.send_json({"type": "done"})
-            else:
-                # Single model call (even if @mentioned)
-                model = mentioned_models[0]
-                label = model.capitalize() if len(mentioned_models) > 0 else ""
-                await call_model(model, messages, websocket, label=label, use_tools=use_tools)
+                    await websocket.send_json({"type": "done"})
+                else:
+                    # Single model call (even if @mentioned)
+                    model = mentioned_models[0]
+                    label = model.capitalize() if len(mentioned_models) > 0 else ""
+                    await call_model(model, messages, websocket, label=label, use_tools=use_tools)
+            except WebSocketDisconnect:
+                raise
+            except Exception as exc:
+                # Catch-all: make sure the frontend always receives an error
+                # so it can clear the "Thinking" state instead of hanging.
+                try:
+                    await websocket.send_json({"type": "error", "data": str(exc)})
+                except Exception:
+                    pass
 
     except WebSocketDisconnect:
         pass

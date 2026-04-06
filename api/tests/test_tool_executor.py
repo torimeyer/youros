@@ -56,6 +56,7 @@ class TestToolDefinitions:
             "read_file", "write_file", "edit_file", "run_command",
             "list_directory", "search_files", "list_tasks",
             "create_task", "close_task", "spawn_agent",
+            "check_agents",
             "web_search", "web_fetch",
             "git_status", "git_diff", "git_commit",
         }

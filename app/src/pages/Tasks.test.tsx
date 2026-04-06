@@ -10,6 +10,7 @@ vi.mock('../lib/api', () => ({
     post: vi.fn(),
     put: vi.fn(),
     patch: vi.fn(),
+    delete: vi.fn(),
   },
 }))
 
@@ -19,10 +20,15 @@ const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)
 
 const mockTasks = [
-  { id: '1', title: 'Fix login bug', priority: 'P0', status: 'open', created_at: new Date().toISOString(), goal: 'Auth' },
-  { id: '2', title: 'Add dark mode', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: 'UI' },
-  { id: '3', title: 'Write docs', priority: 'P2', status: 'open', created_at: new Date().toISOString(), goal: null },
-  { id: '4', title: 'Old completed task', priority: 'P1', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null },
+  { id: '1', title: 'Fix login bug', priority: 'P0', status: 'open', created_at: new Date().toISOString(), goal: 'Auth', label_ids: ['l1'] },
+  { id: '2', title: 'Add dark mode', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: 'UI', label_ids: [] },
+  { id: '3', title: 'Write docs', priority: 'P2', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: ['l1', 'l2'] },
+  { id: '4', title: 'Old completed task', priority: 'P1', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [] },
+]
+
+const mockLabels = [
+  { id: 'l1', name: 'Bug', color: '#ef4444', task_count: 2 },
+  { id: 'l2', name: 'Docs', color: '#3b82f6', task_count: 1 },
 ]
 
 function renderTasks() {
@@ -37,7 +43,11 @@ describe('Tasks page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
-    mockedApiGet.mockResolvedValue({ tasks: mockTasks })
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      return Promise.resolve({})
+    })
     mockedApiPost.mockResolvedValue({})
   })
 
@@ -59,8 +69,15 @@ describe('Tasks page', () => {
     })
   })
 
+  it('also fetches labels on mount', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/labels')
+    })
+  })
+
   it('shows loading state before tasks arrive', () => {
-    // Make the API hang indefinitely
     mockedApiGet.mockReturnValue(new Promise(() => {}))
     renderTasks()
 
@@ -74,9 +91,6 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // Open count: 3 (tasks 1, 2, 3 are open)
-    // Closed count: 1 (task 4)
-    // The counts appear inside buttons as text
     const openButton = screen.getByRole('button', { name: /Open/i })
     expect(openButton).toHaveTextContent('3')
 
@@ -91,12 +105,9 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // Open tasks should be visible
     expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     expect(screen.getByText('Add dark mode')).toBeInTheDocument()
     expect(screen.getByText('Write docs')).toBeInTheDocument()
-
-    // Closed task should not be visible in the default "open" filter
     expect(screen.queryByText('Old completed task')).not.toBeInTheDocument()
   })
 
@@ -122,11 +133,9 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // Switch to closed
     fireEvent.click(screen.getByRole('button', { name: /Closed/i }))
     expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
 
-    // Switch back to open
     fireEvent.click(screen.getByRole('button', { name: /Open/i }))
     expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     expect(screen.queryByText('Old completed task')).not.toBeInTheDocument()
@@ -142,7 +151,6 @@ describe('Tasks page', () => {
     const input = screen.getByPlaceholderText('What needs to be done?')
     fireEvent.change(input, { target: { value: 'New test task' } })
 
-    // The quick-add button is the round blue one next to the input
     const addButtons = screen.getAllByText('add')
     const addButton = addButtons[addButtons.length - 1].closest('button')!
     fireEvent.click(addButton)
@@ -181,7 +189,6 @@ describe('Tasks page', () => {
     const addButton = (() => { const btns = screen.getAllByText('add'); return btns[btns.length - 1].closest('button')!; })()
     fireEvent.click(addButton)
 
-    // api.post should not have been called (only api.get for initial fetch)
     expect(mockedApiPost).not.toHaveBeenCalled()
   })
 
@@ -208,8 +215,6 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // Close buttons are the circle buttons next to each task
-    // They have title="Close task" for open tasks
     const closeButtons = screen.getAllByTitle('Close task')
     fireEvent.click(closeButtons[0])
 
@@ -225,7 +230,6 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // Switch to closed filter to see closed tasks
     fireEvent.click(screen.getByRole('button', { name: /Closed/i }))
 
     await waitFor(() => {
@@ -240,55 +244,56 @@ describe('Tasks page', () => {
     })
   })
 
-  it('project filter dropdown appears when tasks have goals', async () => {
+  it('displays label pills on tasks that have labels', async () => {
     renderTasks()
 
     await waitFor(() => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // The goal filter is a select dropdown with "All projects" as default option
-    const select = screen.getByDisplayValue('All projects')
-    expect(select).toBeInTheDocument()
+    // Task 1 has label l1 ("Bug"), Task 3 has l1 and l2 ("Bug" and "Docs")
+    // "Bug" label should appear at least twice (on tasks 1 and 3)
+    const bugLabels = screen.getAllByText('Bug')
+    expect(bugLabels.length).toBeGreaterThanOrEqual(2)
 
-    // Should contain the unique goals from tasks
-    const options = select.querySelectorAll('option')
-    const optionTexts = Array.from(options).map((o) => o.textContent)
-    expect(optionTexts).toContain('All projects')
-    expect(optionTexts).toContain('Auth')
-    expect(optionTexts).toContain('UI')
+    // "Docs" label should appear on task 3
+    const docsLabels = screen.getAllByText('Docs')
+    expect(docsLabels.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('project filter dropdown does not appear when no tasks have goals', async () => {
-    mockedApiGet.mockResolvedValue({
-      tasks: [
-        { id: '1', title: 'Task without goal', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null },
-      ],
-    })
-
-    renderTasks()
-
-    await waitFor(() => {
-      expect(screen.getByText('Task without goal')).toBeInTheDocument()
-    })
-
-    expect(screen.queryByDisplayValue('All projects')).not.toBeInTheDocument()
-  })
-
-  it('selecting a project filter shows only tasks with that goal', async () => {
+  it('shows label filter chips in the filter bar', async () => {
     renderTasks()
 
     await waitFor(() => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    const select = screen.getByDisplayValue('All projects')
-    fireEvent.change(select, { target: { value: 'Auth' } })
+    // Label filter chips should be in the filter bar
+    // "Bug" and "Docs" labels appear as filter chips
+    const bugChips = screen.getAllByRole('button', { name: /Bug/ })
+    expect(bugChips.length).toBeGreaterThanOrEqual(1)
+  })
 
-    // Only Auth tasks should be visible
-    expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-    expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
-    expect(screen.queryByText('Write docs')).not.toBeInTheDocument()
+  it('clicking a label filter chip filters tasks', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    // Find the "Bug" filter chip button in the filter bar (not inside a task row)
+    // The filter bar label chip has a colored dot and the label name
+    const bugFilterButtons = screen.getAllByRole('button', { name: /Bug/ })
+    // Click the first one that is a filter chip (outside task rows)
+    fireEvent.click(bugFilterButtons[0])
+
+    // Tasks with "Bug" label (l1): task 1 and task 3
+    // Task 2 (Add dark mode, no label) should be hidden
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      expect(screen.getByText('Write docs')).toBeInTheDocument()
+      expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
+    })
   })
 
   it('priority filter buttons work', async () => {
@@ -298,13 +303,10 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // Click P0 filter button (it contains the count text, e.g. "P0 1")
     const p0Buttons = screen.getAllByRole('button', { name: /P0/i })
-    // The filter button is the one that also contains a count
     const p0FilterButton = p0Buttons.find((b) => b.textContent?.match(/P0\s*1/))!
     fireEvent.click(p0FilterButton)
 
-    // Only P0 tasks should be visible
     expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
     expect(screen.queryByText('Write docs')).not.toBeInTheDocument()
@@ -317,25 +319,26 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // The filter button contains both "P0" and the count
     const p0Buttons = screen.getAllByRole('button', { name: /P0/i })
     const p0FilterButton = p0Buttons.find((b) => b.textContent?.match(/P0\s*1/))!
 
-    // Click to filter
     fireEvent.click(p0FilterButton)
     expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
 
-    // Click again to unfilter
     fireEvent.click(p0FilterButton)
     expect(screen.getByText('Add dark mode')).toBeInTheDocument()
     expect(screen.getByText('Fix login bug')).toBeInTheDocument()
   })
 
   it('shows "No tasks match this filter" when filter yields no results', async () => {
-    mockedApiGet.mockResolvedValue({
-      tasks: [
-        { id: '1', title: 'Only open', priority: 'P1', status: 'open', created_at: new Date().toISOString() },
-      ],
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({
+        tasks: [
+          { id: '1', title: 'Only open', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+        ],
+      })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
     })
 
     renderTasks()
@@ -344,7 +347,6 @@ describe('Tasks page', () => {
       expect(screen.getByText('Only open')).toBeInTheDocument()
     })
 
-    // Switch to closed filter
     fireEvent.click(screen.getByRole('button', { name: /Closed/i }))
     expect(screen.getByText('No tasks match this filter.')).toBeInTheDocument()
   })
@@ -367,9 +369,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // Each task row should show its priority
     const priorities = screen.getAllByText(/^P[012]$/)
-    // 3 open tasks visible + 3 filter buttons = more instances
     expect(priorities.length).toBeGreaterThanOrEqual(3)
   })
 
@@ -380,8 +380,6 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // The footer shows "X Open" and "X Closed" as separate spans
-    // Use getAllByText since "Open" and "Closed" also appear in filter buttons
     const openTexts = screen.getAllByText('Open')
     const closedTexts = screen.getAllByText('Closed')
     expect(openTexts.length).toBeGreaterThanOrEqual(1)
@@ -392,113 +390,32 @@ describe('Tasks page', () => {
     renderTasks()
 
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledTimes(1)
+      expect(mockedApiGet).toHaveBeenCalledWith('/tasks')
     })
 
     const closeButtons = screen.getAllByTitle('Close task')
     fireEvent.click(closeButtons[0])
 
     await waitFor(() => {
-      // Initial fetch + refetch after close
-      expect(mockedApiGet).toHaveBeenCalledTimes(2)
+      // Should have called /tasks at least twice (initial + refetch)
+      const tasksCalls = mockedApiGet.mock.calls.filter((c) => c[0] === '/tasks')
+      expect(tasksCalls.length).toBeGreaterThanOrEqual(2)
     })
   })
 
-  // --- Task Threading (042) ---
-
-  it('groups tasks by goal with collapsible headers', async () => {
-    renderTasks()
-
-    await waitFor(() => {
-      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-    })
-
-    // Goal group headers are buttons containing the goal name
-    const authHeaders = screen.getAllByText('Auth').filter((el) => el.closest('button')?.classList.contains('group'))
-    expect(authHeaders.length).toBe(1)
-    const uiHeaders = screen.getAllByText('UI').filter((el) => el.closest('button')?.classList.contains('group'))
-    expect(uiHeaders.length).toBe(1)
-    expect(screen.getByText('Other')).toBeInTheDocument()
-  })
-
-  it('shows task count badge on each goal header', async () => {
-    renderTasks()
-
-    await waitFor(() => {
-      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-    })
-
-    // Auth has 1 task, UI has 1 task, Other has 1 task (Write docs, no goal)
-    // Each group header has a count badge
-    const badges = screen.getAllByText('1')
-    // At least 3 badges for the 3 groups (may also match task count elements elsewhere)
-    expect(badges.length).toBeGreaterThanOrEqual(3)
-  })
-
-  it('collapses a goal group when its header is clicked', async () => {
-    renderTasks()
-
-    await waitFor(() => {
-      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-    })
-
-    // Find the Auth group header button (has the 'group' className)
-    const authHeaderText = screen.getAllByText('Auth').find((el) => el.closest('button')?.classList.contains('group'))!
-    const authHeader = authHeaderText.closest('button')!
-    fireEvent.click(authHeader)
-
-    // The task inside Auth should be hidden
-    expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
-
-    // Other groups should still be visible
-    expect(screen.getByText('Add dark mode')).toBeInTheDocument()
-    expect(screen.getByText('Write docs')).toBeInTheDocument()
-  })
-
-  it('expands a collapsed goal group when its header is clicked again', async () => {
-    renderTasks()
-
-    await waitFor(() => {
-      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-    })
-
-    const authHeaderText = screen.getAllByText('Auth').find((el) => el.closest('button')?.classList.contains('group'))!
-    const authHeader = authHeaderText.closest('button')!
-
-    // Collapse
-    fireEvent.click(authHeader)
-    expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
-
-    // Expand
-    fireEvent.click(authHeader)
-    expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-  })
-
-  it('puts tasks without a goal in the Other group', async () => {
-    renderTasks()
-
-    await waitFor(() => {
-      expect(screen.getByText('Write docs')).toBeInTheDocument()
-    })
-
-    // "Other" header should exist for the task with goal: null
-    expect(screen.getByText('Other')).toBeInTheDocument()
-
-    // Collapse Other to verify Write docs is inside it
-    const otherHeader = screen.getByText('Other').closest('button')!
-    fireEvent.click(otherHeader)
-    expect(screen.queryByText('Write docs')).not.toBeInTheDocument()
-  })
-
-  // --- Stale Indicator (044) ---
+  // --- Stale Indicator ---
 
   it('shows stale indicator on open tasks older than 7 days', async () => {
     const oldDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
-    mockedApiGet.mockResolvedValue({
-      tasks: [
-        { id: '10', title: 'Old open task', priority: 'P1', status: 'open', created_at: oldDate, goal: null },
-        { id: '11', title: 'Fresh task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null },
-      ],
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({
+        tasks: [
+          { id: '10', title: 'Old open task', priority: 'P1', status: 'open', created_at: oldDate, goal: null, label_ids: [] },
+          { id: '11', title: 'Fresh task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+        ],
+      })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
     })
 
     renderTasks()
@@ -507,22 +424,24 @@ describe('Tasks page', () => {
       expect(screen.getByText('Old open task')).toBeInTheDocument()
     })
 
-    // The stale text should appear once (only for the old task)
     const staleLabels = screen.getAllByText('stale')
     expect(staleLabels).toHaveLength(1)
   })
 
   it('does not show stale indicator on closed tasks even if old', async () => {
     const oldDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
-    mockedApiGet.mockResolvedValue({
-      tasks: [
-        { id: '10', title: 'Old closed task', priority: 'P1', status: 'closed', created_at: oldDate, goal: null },
-      ],
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({
+        tasks: [
+          { id: '10', title: 'Old closed task', priority: 'P1', status: 'closed', created_at: oldDate, goal: null, label_ids: [] },
+        ],
+      })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
     })
 
     renderTasks()
 
-    // Switch to closed filter to see it
     await waitFor(() => {
       const closedButton = screen.getByRole('button', { name: /Closed/i })
       fireEvent.click(closedButton)
@@ -537,10 +456,14 @@ describe('Tasks page', () => {
 
   it('does not show stale indicator on tasks created less than 7 days ago', async () => {
     const recentDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
-    mockedApiGet.mockResolvedValue({
-      tasks: [
-        { id: '10', title: 'Recent task', priority: 'P1', status: 'open', created_at: recentDate, goal: null },
-      ],
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({
+        tasks: [
+          { id: '10', title: 'Recent task', priority: 'P1', status: 'open', created_at: recentDate, goal: null, label_ids: [] },
+        ],
+      })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
     })
 
     renderTasks()
@@ -550,5 +473,356 @@ describe('Tasks page', () => {
     })
 
     expect(screen.queryByText('stale')).not.toBeInTheDocument()
+  })
+
+  // --- Labels tab ---
+
+  it('shows Labels tab that switches to LabelsView', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    const labelsTab = screen.getByRole('button', { name: 'Labels' })
+    expect(labelsTab).toBeInTheDocument()
+  })
+
+  // --- Task context briefing panel ---
+
+  it('clicking a task shows the briefing panel', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: 'point=1, 2 members', neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
+    })
+  })
+
+  it('briefing panel fetches from /tasks/{id}/briefing on click', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/tasks/1/briefing')
+    })
+  })
+
+  it('briefing panel shows blockers when present', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: {
+          task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug',
+          sphere: null, neighbors: [],
+          blocked_by: [
+            { text: '#5 Setup auth provider', resolved: false },
+            { text: '#3 Write docs', resolved: true },
+          ],
+          unblocks: [],
+          all_blockers_resolved: false, raw: ''
+        }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Waiting on')).toBeInTheDocument()
+      expect(screen.getByText('#5 Setup auth provider')).toBeInTheDocument()
+      expect(screen.getByText('#3 Write docs')).toBeInTheDocument()
+    })
+  })
+
+  it('briefing panel shows unblocks when present', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: {
+          task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug',
+          sphere: null, neighbors: [],
+          blocked_by: [],
+          unblocks: ['#7 Deploy to production'],
+          all_blockers_resolved: false, raw: ''
+        }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Finishing this unblocks')).toBeInTheDocument()
+      expect(screen.getByText('#7 Deploy to production')).toBeInTheDocument()
+    })
+  })
+
+  it('briefing panel shows standalone message when no context', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: {
+          task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug',
+          sphere: null, neighbors: [], blocked_by: [], unblocks: [],
+          all_blockers_resolved: false, raw: ''
+        }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByText('This task is standalone. No blockers, no dependencies, no related tasks.')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking the same task again closes the briefing panel', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    // Open
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
+    })
+
+    // Close by clicking again
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('briefing-panel')).not.toBeInTheDocument()
+    })
+  })
+
+  it('shows Context and History tabs in the briefing panel', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: 'Created from idea', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: ['abc123'] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
+    })
+
+    // Should see Context and History tab buttons
+    expect(screen.getByRole('button', { name: 'Context' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'History' })).toBeInTheDocument()
+  })
+
+  // --- History / Trace panel ---
+
+  it('fetches trace data when a task is clicked', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/tasks/1/trace')
+    })
+  })
+
+  it('clicking History tab shows the trace panel with commits', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: {
+          headline: '#1: Fix login bug [P0, open]',
+          specs: ['design/auth.md'],
+          drafts: [],
+          agentfiles: [],
+          depends_on: [],
+          blocks: ['#7 Deploy'],
+          commits: ['abc1234 Fix auth redirect']
+        }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('history-tab')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('history-tab'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('trace-panel')).toBeInTheDocument()
+      expect(screen.getByText('Specs')).toBeInTheDocument()
+      expect(screen.getByText('design/auth.md')).toBeInTheDocument()
+      expect(screen.getByText('Blocks')).toBeInTheDocument()
+      expect(screen.getByText('#7 Deploy')).toBeInTheDocument()
+      expect(screen.getByText('Commits')).toBeInTheDocument()
+      expect(screen.getByText('abc1234 Fix auth redirect')).toBeInTheDocument()
+    })
+  })
+
+  it('History tab shows empty message when trace has no data', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: { task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug', sphere: null, neighbors: [], blocked_by: [], unblocks: [], all_blockers_resolved: false, raw: '' }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('history-tab')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('history-tab'))
+
+    await waitFor(() => {
+      expect(screen.getByText('No history yet. Specs, drafts, commits, and connections will appear here as work happens.')).toBeInTheDocument()
+    })
+  })
+
+
+  // --- Health tab ---
+
+  it('shows Health tab button', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    const healthTab = screen.getByRole('button', { name: 'Health' })
+    expect(healthTab).toBeInTheDocument()
   })
 })

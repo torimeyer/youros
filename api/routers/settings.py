@@ -1,7 +1,6 @@
-import os
-
 from fastapi import APIRouter
 
+from services.ostk import ostk
 from services.settings_store import settings_store
 
 router = APIRouter(tags=["settings"])
@@ -24,21 +23,17 @@ async def patch_settings(body: dict):
     return {"result": "updated"}
 
 
-def _key_source(settings_field: str, env_var: str) -> str:
-    if settings_store.get(settings_field, ""):
-        return "settings"
-    if os.environ.get(env_var, ""):
-        return "env"
-    return "none"
+@router.get("/settings/mcp-servers")
+async def list_mcp_servers():
+    """Return MCP servers from ostk alongside manually configured ones.
 
-
-@router.get("/settings/key-status")
-async def key_status():
-    """Return which providers have an API key configured, without exposing values."""
+    Combines servers from two sources:
+    - ostk-managed servers (configured in HUMANFILE via ``ostk mcp list``)
+    - Manually added servers (stored in settings.json)
+    """
+    ostk_servers = await ostk.mcp_list()
+    manual_servers = settings_store.get("mcp_servers", [])
     return {
-        "anthropic": _key_source("anthropic_api_key", "ANTHROPIC_API_KEY") != "none",
-        "anthropic_source": _key_source("anthropic_api_key", "ANTHROPIC_API_KEY"),
-        "gemini": _key_source("gemini_api_key", "GEMINI_API_KEY") != "none",
-        "gemini_source": _key_source("gemini_api_key", "GEMINI_API_KEY"),
-        "google_oauth_available": bool(os.environ.get("GOOGLE_CLIENT_ID", "")),
+        "ostk_servers": ostk_servers,
+        "manual_servers": manual_servers,
     }

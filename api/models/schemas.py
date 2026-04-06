@@ -16,6 +16,11 @@ class TaskUpdate(BaseModel):
     priority: Optional[str] = None
 
 
+class TaskLink(BaseModel):
+    target: str
+    relation: str = "blocks"
+
+
 class HayCreate(BaseModel):
     thought: str
 
@@ -31,8 +36,6 @@ class Settings(BaseModel):
     user_name: str = ""
     dark_mode: bool = True
     accent_color: str = "blue"
-    anthropic_api_key: str = ""
-    gemini_api_key: str = ""
     default_model: str = "@claude"
     features: Dict[str, bool] = {
         "Chat": True, "Tasks": True, "Hay/Ideas": True,
@@ -65,3 +68,41 @@ class AgentSpawn(BaseModel):
 
 class AgentNudge(BaseModel):
     message: str
+
+
+class GrantApprove(BaseModel):
+    ttl: int = 0
+    scope: Optional[str] = None
+
+
+class GrantDeny(BaseModel):
+    reason: str = "not permitted"
+
+
+class CommitCreate(BaseModel):
+    message: str
+    needle: Optional[str] = None
+    spec: Optional[str] = None
+    section: Optional[str] = None
+    agent: Optional[str] = None
+
+
+class ThreadCreate(BaseModel):
+    name: str
+    needle_ids: Optional[List[str]] = None
+
+
+class ThreadUpdate(BaseModel):
+    name: Optional[str] = None
+
+
+class DocDraft(BaseModel):
+    title: str
+
+
+class DocPromote(BaseModel):
+    path: str
+
+
+class DocDecompose(BaseModel):
+    path: str

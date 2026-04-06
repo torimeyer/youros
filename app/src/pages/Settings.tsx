@@ -11,6 +11,11 @@ interface MCPServer {
   enabled: boolean;
 }
 
+interface OstkMCPServer {
+  name: string;
+  command: string;
+}
+
 interface MCPDirectoryEntry {
   name: string;
   description: string;
@@ -40,7 +45,6 @@ interface SettingsData {
   os_name?: string;
   features?: Record<string, boolean>;
   provider?: string;
-  anthropic_api_key?: string;
   model?: string;
   notifications?: Record<string, boolean>;
   quiet_hours?: boolean;
@@ -69,6 +73,7 @@ export default function Settings() {
   } = useAppStore();
 
   const [selectedProvider, setSelectedProvider] = useState('Anthropic');
+  const [defaultLlm, setDefaultLlm] = useState('Anthropic');
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({ Anthropic: '', 'Google Gemini': '' });
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [selectedModel, setSelectedModel] = useState('claude-opus-4-20250514');
@@ -89,6 +94,10 @@ export default function Settings() {
   const [browseSearch, setBrowseSearch] = useState('');
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [keyAvailable, setKeyAvailable] = useState<Record<string, boolean>>({ Anthropic: false, 'Google Gemini': false });
+  const [keySource, setKeySource] = useState<Record<string, string>>({});
+  const [ostkMcpServers, setOstkMcpServers] = useState<OstkMCPServer[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -99,7 +108,9 @@ export default function Settings() {
         if (data.accent_color) setAccentColor(data.accent_color as AccentColor);
         if (data.os_name) setOsName(data.os_name);
         if (data.dark_mode !== undefined && data.dark_mode !== darkMode) {
-          toggleDarkMode();
+          // Set directly via store to avoid a toggle flash
+          localStorage.setItem('myos-dark-mode', String(data.dark_mode));
+          useAppStore.setState({ darkMode: data.dark_mode });
         }
         if (data.features) {
           // Build a case-insensitive lookup so both "tasks" and "Tasks" work.
@@ -116,14 +127,21 @@ export default function Settings() {
         }
         if (data.provider) {
           setSelectedProvider(data.provider);
+        }
+        // Load the default LLM from the saved default_model field
+        if ((data as any).default_model) {
+          const raw = (data as any).default_model.replace(/^@/, '');
+          const providerName = raw === 'gemini' ? 'Google Gemini' : 'Anthropic';
+          setDefaultLlm(providerName);
+          setDefaultChatModel(raw);
+        } else if (data.provider) {
+          // Fall back to provider if default_model is not set
+          setDefaultLlm(data.provider);
           const chatModel = PROVIDER_TO_MODEL[data.provider] ?? 'claude';
           setDefaultChatModel(chatModel);
         }
-        setApiKeys(prev => ({
-          ...prev,
-          Anthropic: data.anthropic_api_key || '',
-          'Google Gemini': (data as any).gemini_api_key || '',
-        }));
+        // API keys are now stored in the system keychain, not in settings.
+        // The input fields start empty. Users type a new key to save it.
         if (data.model) setSelectedModel(data.model);
         if (data.notifications) {
           setNotifications((prev) =>
@@ -141,8 +159,16 @@ export default function Settings() {
       }
     };
     fetchSettings();
-    api.get<{ google_oauth_available?: boolean }>('/settings/key-status')
-      .then((data) => setGoogleOAuthAvailable(data.google_oauth_available ?? false))
+    api.get<{ google_oauth_available?: boolean; google_connected?: boolean; anthropic?: boolean; gemini?: boolean; anthropic_source?: string; gemini_source?: string }>('/secrets/key-status')
+      .then((data) => {
+        setGoogleOAuthAvailable(data.google_oauth_available ?? false);
+        setGoogleConnected(data.google_connected ?? false);
+        setKeyAvailable({ Anthropic: data.anthropic ?? false, 'Google Gemini': data.gemini ?? false });
+        setKeySource({ Anthropic: data.anthropic_source ?? 'none', 'Google Gemini': data.gemini_source ?? 'none' });
+      })
+      .catch(() => {});
+    api.get<{ ostk_servers?: OstkMCPServer[] }>('/settings/mcp-servers')
+      .then((data) => setOstkMcpServers(data.ostk_servers ?? []))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -248,22 +274,31 @@ export default function Settings() {
 
   const handleProviderSelect = (name: string) => {
     setSelectedProvider(name);
-    const chatModel = PROVIDER_TO_MODEL[name] ?? 'claude';
-    setDefaultChatModel(chatModel);
     api.patch('/settings', { provider: name }).catch(() => {});
   };
 
-  const PROVIDER_KEY_FIELD: Record<string, string> = {
-    Anthropic: 'anthropic_api_key',
-    'Google Gemini': 'gemini_api_key',
+  const handleDefaultLlmChange = (name: string) => {
+    setDefaultLlm(name);
+    const chatModel = PROVIDER_TO_MODEL[name] ?? 'claude';
+    setDefaultChatModel(chatModel);
+    api.patch('/settings', { default_model: `@${chatModel}` }).catch(() => {});
+  };
+
+  const PROVIDER_SECRET_NAME: Record<string, string> = {
+    Anthropic: 'ANTHROPIC_API_KEY',
+    'Google Gemini': 'GEMINI_API_KEY',
   };
 
   const handleApiKeySave = () => {
-    const field = PROVIDER_KEY_FIELD[selectedProvider];
-    if (field) {
-      api.patch('/settings', { [field]: apiKeys[selectedProvider] })
+    const secretName = PROVIDER_SECRET_NAME[selectedProvider];
+    const value = apiKeys[selectedProvider]?.trim();
+    if (secretName && value) {
+      api.post('/secrets', { key: secretName, value })
         .then(() => {
-          setKeySaveStatus('Saved!');
+          setKeySaveStatus('Saved to keychain');
+          setApiKeys(prev => ({ ...prev, [selectedProvider]: '' }));
+          setKeyAvailable(prev => ({ ...prev, [selectedProvider]: true }));
+          setKeySource(prev => ({ ...prev, [selectedProvider]: 'keychain' }));
           setTimeout(() => setKeySaveStatus(null), 2000);
         })
         .catch(() => {
@@ -319,7 +354,14 @@ export default function Settings() {
   const handleExport = async () => {
     try {
       const data = await api.get<SettingsData>('/settings');
-      const blob = new Blob([JSON.stringify(data, null, 2)], {
+      // Strip sensitive fields before exporting
+      const safe = { ...data } as Record<string, unknown>;
+      delete safe.anthropic_api_key;
+      delete safe.gemini_api_key;
+      delete safe.gemini_oauth_access_token;
+      delete safe.gemini_oauth_refresh_token;
+      delete safe.gemini_auth_method;
+      const blob = new Blob([JSON.stringify(safe, null, 2)], {
         type: 'application/json',
       });
       const url = URL.createObjectURL(blob);
@@ -497,30 +539,91 @@ export default function Settings() {
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">AI Provider</h2>
 
-            {/* Provider Cards */}
-            <div className="grid grid-cols-2 gap-3 mb-5">
-              {providers.map((p) => (
-                <div
-                  key={p.name}
-                  onClick={() => handleProviderSelect(p.name)}
-                  className={`p-3 rounded-lg border text-center cursor-pointer transition-colors ${
-                    selectedProvider === p.name
-                      ? 'accent-border accent-highlight'
-                      : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
-                  }`}
-                >
-                  <p className="text-sm font-medium">{p.name}</p>
-                </div>
-              ))}
+            {/* Default Chat AI */}
+            <div className="mb-5">
+              <label className="text-sm text-slate-400 mb-2 block">Default Chat AI</label>
+              <p className="text-xs text-slate-500 mb-3">
+                New conversations will use this AI by default. You can still switch mid-chat by typing @gemini or @claude.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {providers.map((p) => (
+                  <div
+                    key={`default-${p.name}`}
+                    onClick={() => handleDefaultLlmChange(p.name)}
+                    data-testid={`default-llm-${p.name.toLowerCase().replace(/\s+/g, '-')}`}
+                    className={`p-3 rounded-lg border text-center cursor-pointer transition-colors ${
+                      defaultLlm === p.name
+                        ? 'accent-border accent-highlight'
+                        : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                    }`}
+                  >
+                    <p className="text-sm font-medium">{p.model}</p>
+                    <p className="text-xs text-slate-500">{p.name}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Provider for API Key setup */}
+            <div className="mb-5">
+              <label className="text-sm text-slate-400 mb-2 block">Set Up Provider</label>
+              <div className="grid grid-cols-2 gap-3">
+                {providers.map((p) => (
+                  <div
+                    key={p.name}
+                    onClick={() => handleProviderSelect(p.name)}
+                    className={`p-3 rounded-lg border text-center cursor-pointer transition-colors ${
+                      selectedProvider === p.name
+                        ? 'accent-border accent-highlight'
+                        : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                    }`}
+                  >
+                    <p className="text-sm font-medium">{p.name}</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Connection */}
             <div className="mb-5">
               <label className="text-sm text-slate-400 mb-3 block">Connect {selectedProvider}</label>
 
+              {/* Status indicator */}
+              {keyAvailable[selectedProvider] ? (
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-white border border-green-300 rounded-lg">
+                  <Icon name="check_circle" size={16} className="text-green-600" />
+                  <span className="text-sm text-green-700">
+                    Key available (stored in {keySource[selectedProvider] === 'keychain' ? 'system keychain' : keySource[selectedProvider] === 'env' ? 'environment' : 'settings'})
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-amber-900/20 border border-amber-800/30 rounded-lg">
+                  <Icon name="warning" size={16} className="text-amber-400" />
+                  <span className="text-sm text-amber-400">No key found. Paste one below to save it securely.</span>
+                </div>
+              )}
+
               {/* Option 1: Sign in (Gemini OAuth or Anthropic console link) */}
               {selectedProvider === 'Google Gemini' ? (
-                googleOAuthAvailable ? (
+                googleConnected ? (
+                  <div className="mb-3 px-4 py-3 bg-white border border-green-300 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon name="check_circle" size={18} className="text-green-600" />
+                      <span className="text-sm text-green-700 font-medium">Connected with Google</span>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        await api.post('/secrets/google/disconnect', {});
+                        setGoogleConnected(false);
+                        setKeyAvailable(prev => ({ ...prev, 'Google Gemini': false }));
+                        setKeySource(prev => ({ ...prev, 'Google Gemini': 'none' }));
+                      }}
+                      className="text-xs text-slate-400 hover:text-red-400 transition-colors"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                ) : googleOAuthAvailable ? (
                   <button
                     onClick={() => window.open('/api/auth/google', '_self')}
                     className="w-full mb-3 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
@@ -539,11 +642,11 @@ export default function Settings() {
                   className="w-full mb-3 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium text-white hover:border-blue-500 transition-colors flex items-center gap-2"
                 >
                   <Icon name="open_in_new" size={18} />
-                  Sign in to Anthropic to get a key
+                  Get a key from Anthropic
                 </button>
               )}
 
-              {/* Option 2: Paste API key */}
+              {/* Option 2: Paste API key (saved to system keychain) */}
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <input
@@ -551,7 +654,9 @@ export default function Settings() {
                     value={apiKeys[selectedProvider] || ''}
                     onChange={(e) => setApiKeys(prev => ({ ...prev, [selectedProvider]: e.target.value }))}
                     onKeyDown={(e) => e.key === 'Enter' && handleApiKeySave()}
-                    placeholder={selectedProvider === 'Anthropic' ? 'Paste API key (sk-ant-xxxx...)' : 'Paste API key (AIzaSy...)'}
+                    placeholder={keyAvailable[selectedProvider]
+                      ? 'Paste a new key to replace the current one'
+                      : (selectedProvider === 'Anthropic' ? 'Paste API key (sk-ant-xxxx...)' : 'Paste API key (AIzaSy...)')}
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
                   />
                   <button
@@ -566,11 +671,15 @@ export default function Settings() {
                 </div>
                 <button
                   onClick={handleApiKeySave}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                  disabled={!apiKeys[selectedProvider]?.trim()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
                 >
-                  {keySaveStatus || 'Save'}
+                  {keySaveStatus || 'Save to Keychain'}
                 </button>
               </div>
+              <p className="text-xs text-slate-500 mt-2">
+                Keys are stored securely in your system keychain, not in a file.
+              </p>
             </div>
 
             {/* Model Selector */}
@@ -653,9 +762,37 @@ export default function Settings() {
             </button>
           </div>
 
-          {/* Existing servers */}
+          {/* ostk-managed servers */}
+          {ostkMcpServers.length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs text-slate-500 mb-2 flex items-center gap-1.5">
+                <Icon name="settings_suggest" size={14} />
+                Managed by ostk (configured in your HUMANFILE)
+              </p>
+              <div className="space-y-2">
+                {ostkMcpServers.map((server) => (
+                  <div key={server.name} className="flex items-center gap-3 px-3 py-2.5 bg-slate-800/50 rounded-lg border border-emerald-900/40">
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" title="Managed by ostk" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-200 font-medium">{server.name}</p>
+                      <p className="text-xs text-slate-500 truncate font-mono">{server.command}</p>
+                    </div>
+                    <span className="text-xs text-emerald-400/70 flex-shrink-0">ostk</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Manually added servers */}
           {mcpServers.length > 0 && (
             <div className="space-y-2 mb-4">
+              {ostkMcpServers.length > 0 && (
+                <p className="text-xs text-slate-500 mb-1 flex items-center gap-1.5">
+                  <Icon name="tune" size={14} />
+                  Added manually
+                </p>
+              )}
               {mcpServers.map((server, index) => (
                 <div key={index} className="flex items-center gap-3 px-3 py-2.5 bg-slate-800/50 rounded-lg border border-slate-700/50">
                   <button
@@ -840,7 +977,7 @@ export default function Settings() {
             <div className="group relative">
               <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
-                Export saves all your settings (theme, API keys, features) to a JSON file. Import loads a previously exported file to restore your settings.
+                Export saves your preferences (theme, features, notifications) to a JSON file. API keys are stored separately in the system keychain and are not exported. Import loads a previously exported file to restore your preferences.
               </div>
             </div>
           </div>

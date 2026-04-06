@@ -138,13 +138,13 @@ export default function Ideas() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-slate-900/60 rounded-lg p-1 w-fit">
+        <div className="flex gap-2 mb-6">
           <button
             onClick={() => setTab("active")}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               tab === "active"
                 ? "bg-pink-500 text-white"
-                : "text-slate-400 hover:text-white"
+                : "bg-slate-800/50 text-slate-400 hover:text-white border border-slate-700"
             }`}
           >
             Active
@@ -156,10 +156,10 @@ export default function Ideas() {
           </button>
           <button
             onClick={() => setTab("converted")}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               tab === "converted"
                 ? "bg-pink-500 text-white"
-                : "text-slate-400 hover:text-white"
+                : "bg-slate-800/50 text-slate-400 hover:text-white border border-slate-700"
             }`}
           >
             Converted

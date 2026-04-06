@@ -69,6 +69,27 @@ async def get_dashboard():
     }
 
 
+@router.get("/dashboard/compounds")
+async def get_dashboard_compounds():
+    """Return the highest-leverage task that unblocks the most other work.
+
+    Uses ``ostk compounds`` to find tasks where finishing one thing
+    lets several other tasks move forward. The response includes the
+    full sorted list so the UI can show the top recommendation.
+    """
+    try:
+        compounds = await ostk.get_compounds()
+    except OstkError:
+        compounds = []
+
+    top = compounds[0] if compounds else None
+
+    return {
+        "top": top,
+        "all": compounds,
+    }
+
+
 @router.get("/dashboard/summary")
 async def get_dashboard_summary():
     """Generate a plain-text day summary from today's activity."""
@@ -149,3 +170,22 @@ async def get_dashboard_summary():
         bullets.append(f"{open_needle_count} idea{'s' if open_needle_count != 1 else ''} saved and waiting for review.")
 
     return {"bullets": bullets[:5]}
+
+
+@router.get("/dashboard/diff")
+async def get_session_diff():
+    """Return what changed since the last session boot.
+
+    Calls ``ostk os diff`` and returns structured data about files
+    modified, tasks filed, and audit events this session.
+    """
+    try:
+        diff = await ostk.get_session_diff()
+    except OstkError:
+        diff = {
+            "files_changed": [],
+            "needles_filed": [],
+            "audit_events": [],
+            "audit_total": 0,
+        }
+    return diff

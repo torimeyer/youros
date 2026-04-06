@@ -15,44 +15,51 @@ interface TourStep {
 
 const TOUR_STEPS: TourStep[] = [
   {
-    selector: '[data-tour="sidebar"]',
-    title: 'Sidebar',
-    description: 'This is your menu. Use it to jump between different parts of your OS.',
-    route: '/',
-    position: 'right',
-  },
-  {
     selector: '[data-tour="dashboard"]',
     title: 'Dashboard',
-    description: 'Your home screen. It shows what needs your attention right now.',
+    description: 'Your home screen. It shows what needs your attention, a smart focus card that tells you what to work on first, and a summary of what changed.',
     route: '/',
     position: 'bottom',
   },
   {
     selector: '[data-tour="tasks"]',
     title: 'Tasks',
-    description: 'Keep track of what you need to do. Add tasks, set priorities, and check things off.',
+    description: 'Keep track of what you need to do. Add tasks, set priorities, link dependencies, and organize with labels and groups.',
     route: '/tasks',
     position: 'bottom',
   },
   {
     selector: '[data-tour="chat"]',
     title: 'Chat',
-    description: 'Talk to your AI assistant from any screen. Ask questions, get help, or just chat.',
+    description: 'Talk to your AI assistant from any screen. Ask questions, get help, or just chat. Use @gemini to switch models.',
     position: 'left',
   },
   {
     selector: '[data-tour="agents"]',
     title: 'Agents',
-    description: 'Spawn background AI agents to work on tasks for you while you do other things.',
+    description: 'Spawn background AI agents to work on tasks for you. See their permissions, delegate tasks, and track progress.',
     route: '/agents',
     position: 'bottom',
   },
   {
     selector: '[data-tour="ideas"]',
     title: 'Ideas',
-    description: 'Capture thoughts quickly. You can turn them into tasks later.',
+    description: 'Capture thoughts quickly. The AI can group related ideas together and turn them into tasks.',
     route: '/ideas',
+    position: 'bottom',
+  },
+  {
+    selector: 'a[href="/activity"]',
+    title: 'Activity',
+    description: 'A live feed of everything that happened: tasks created, agents run, ideas saved. Filter by category.',
+    route: '/',
+    position: 'right',
+  },
+  {
+    selector: '[data-tour="search"]',
+    title: 'Search',
+    description: 'Press Cmd+K to search across all your tasks and ideas by topic. Also has quick commands.',
+    route: '/',
     position: 'bottom',
   },
 ]
@@ -81,9 +88,19 @@ export default function GuidedTour({ onComplete }: GuidedTourProps) {
     if (current.route) {
       navigate(current.route)
     }
-    // Small delay to let the page render after navigation
-    const timer = setTimeout(findTarget, 300)
-    return () => clearTimeout(timer)
+    // Use rAF for snappy positioning after paint, with a short fallback
+    // for elements that render asynchronously after navigation
+    let raf: number
+    let timer: ReturnType<typeof setTimeout>
+    raf = requestAnimationFrame(() => {
+      findTarget()
+      // Retry once in case the element wasn't in the DOM yet
+      timer = setTimeout(findTarget, 80)
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(timer)
+    }
   }, [step, current.route, navigate, findTarget])
 
   // Reposition on scroll/resize

@@ -26,7 +26,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from main import app
-from services.ostk import OstkService, OSTK_DIR
+from services.ostk import OstkService, OstkError, OSTK_DIR
 
 
 @pytest.fixture
@@ -901,3 +901,444 @@ async def test_list_agents_includes_transcript_metrics():
         agent = [a for a in data["agents"] if a["name"] == "metrics-agent"][0]
         assert agent["transcript_bytes"] == 5000
         assert agent["transcript_lines"] == 20
+
+
+# -- Regression: registered agents (source: "claude-code") not shown on dashboard --
+#
+# Root cause (backend): register_agent() stores metadata with source="claude-code"
+# but no pid. In list_agents(), the step 2b loop for persisted metadata only
+# included agents with a live pid or a non-empty transcript. Registered agents
+# that had neither were silently dropped from the response.
+#
+# Root cause (frontend): Dashboard read agentsRes.active (an array of agent
+# names with status "running") instead of agentsRes.agents (the full agent
+# list). Even if the backend returned registered agents, the dashboard
+# would only display "running" ones.
+#
+# Fix (backend): Registered agents (source == "claude-code") with no pid and
+# no transcript are now treated as "running" since we have no signal they
+# finished.
+#
+# Fix (frontend): Dashboard now reads agentsRes.agents instead of
+# agentsRes.active, showing all agents with color-coded status badges.
+
+
+@pytest.mark.asyncio
+async def test_registered_agent_appears_in_agents_list(tmp_path):
+    """A registered agent (no pid, no transcript) should appear in the agents list
+    with status 'running'."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        mock_ps = {
+            "raw": "no daemon running",
+            "daemon_running": False,
+            "agents": [],
+        }
+        mock_audit = []
+
+        from routers.agents import agent_metadata
+        agent_metadata["cc-registered-agent"] = {
+            "spawned_at": "2026-04-06T17:00:00+00:00",
+            "budget": "2.0",
+            "model": "claude-opus-4-6",
+            "source": "claude-code",
+        }
+
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
+                mock_ostk.audit_agents = AsyncMock(return_value=mock_audit)
+
+                # Ensure no transcript exists
+                transcripts_dir = tmp_path / "transcripts"
+                transcripts_dir.mkdir(parents=True, exist_ok=True)
+
+                resp = await client.get("/api/agents")
+        finally:
+            agent_metadata.pop("cc-registered-agent", None)
+
+        assert resp.status_code == 200
+        data = resp.json()
+
+        agent_names = [a["name"] for a in data["agents"]]
+        assert "cc-registered-agent" in agent_names
+
+        agent = [a for a in data["agents"] if a["name"] == "cc-registered-agent"][0]
+        assert agent["status"] == "running"
+        assert agent["source"] == "claude-code"
+
+
+@pytest.mark.asyncio
+async def test_registered_agent_in_active_list(tmp_path):
+    """A registered agent with status 'running' should appear in the active list."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        mock_ps = {
+            "raw": "no daemon running",
+            "daemon_running": False,
+            "agents": [],
+        }
+        mock_audit = []
+
+        from routers.agents import agent_metadata
+        agent_metadata["cc-active-test"] = {
+            "spawned_at": "2026-04-06T17:00:00+00:00",
+            "budget": "2.0",
+            "model": "claude-opus-4-6",
+            "source": "claude-code",
+        }
+
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
+                mock_ostk.audit_agents = AsyncMock(return_value=mock_audit)
+
+                transcripts_dir = tmp_path / "transcripts"
+                transcripts_dir.mkdir(parents=True, exist_ok=True)
+
+                resp = await client.get("/api/agents")
+        finally:
+            agent_metadata.pop("cc-active-test", None)
+
+        data = resp.json()
+        assert "cc-active-test" in data["active"]
+
+
+@pytest.mark.asyncio
+async def test_registered_agent_completed_with_transcript(tmp_path):
+    """A registered agent that has a non-empty transcript should show as 'completed'."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        mock_ps = {
+            "raw": "no daemon running",
+            "daemon_running": False,
+            "agents": [],
+        }
+        mock_audit = []
+
+        from routers.agents import agent_metadata
+        agent_metadata["cc-done-agent"] = {
+            "spawned_at": "2026-04-06T17:00:00+00:00",
+            "budget": "2.0",
+            "model": "claude-opus-4-6",
+            "source": "claude-code",
+        }
+
+        try:
+            # Create a transcript file so the agent looks completed
+            transcripts_dir = tmp_path / "transcripts"
+            transcripts_dir.mkdir(parents=True, exist_ok=True)
+            (transcripts_dir / "cc-done-agent.md").write_text("Agent completed.\n")
+
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
+                mock_ostk.audit_agents = AsyncMock(return_value=mock_audit)
+
+                resp = await client.get("/api/agents")
+        finally:
+            agent_metadata.pop("cc-done-agent", None)
+
+        data = resp.json()
+        agent = [a for a in data["agents"] if a["name"] == "cc-done-agent"][0]
+        assert agent["status"] == "completed"
+        assert agent["source"] == "claude-code"
+        # Completed agents should NOT be in the active list
+        assert "cc-done-agent" not in data["active"]
+
+
+@pytest.mark.asyncio
+async def test_register_endpoint_stores_metadata():
+    """POST /agents/register should store the agent in agent_metadata so
+    it appears in subsequent GET /agents calls."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk, \
+             patch("routers.agents._save_agent_state"):
+            mock_ostk._run = AsyncMock(return_value="")
+
+            resp = await client.post(
+                "/api/agents/register",
+                json={"name": "cc-new-agent", "prompt": "do stuff", "model": "opus", "budget": 2.0},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["result"] == "Agent 'cc-new-agent' registered"
+        assert data["source"] == "claude-code"
+
+        from routers.agents import agent_metadata
+        try:
+            assert "cc-new-agent" in agent_metadata
+            meta = agent_metadata["cc-new-agent"]
+            assert meta["source"] == "claude-code"
+            assert meta["model"] == "claude-opus-4-6"
+            assert meta["budget"] == "2.0"
+        finally:
+            agent_metadata.pop("cc-new-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_registered_agent_not_duplicated_by_audit(tmp_path):
+    """If an agent exists in both agent_metadata (registered) and the audit log,
+    it should appear only once in the response."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        mock_ps = {
+            "raw": "no daemon running",
+            "daemon_running": False,
+            "agents": [],
+        }
+        mock_audit = [
+            {
+                "name": "cc-dup-agent",
+                "status": "spawned",
+                "model": "claude-opus-4-6",
+                "source": "audit",
+            },
+        ]
+
+        from routers.agents import agent_metadata
+        agent_metadata["cc-dup-agent"] = {
+            "spawned_at": "2026-04-06T17:00:00+00:00",
+            "budget": "2.0",
+            "model": "claude-opus-4-6",
+            "source": "claude-code",
+        }
+
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
+                mock_ostk.audit_agents = AsyncMock(return_value=mock_audit)
+
+                transcripts_dir = tmp_path / "transcripts"
+                transcripts_dir.mkdir(parents=True, exist_ok=True)
+
+                resp = await client.get("/api/agents")
+        finally:
+            agent_metadata.pop("cc-dup-agent", None)
+
+        data = resp.json()
+        matches = [a for a in data["agents"] if a["name"] == "cc-dup-agent"]
+        assert len(matches) == 1, f"Expected 1 entry for cc-dup-agent, got {len(matches)}"
+
+
+# ── Grant / Permission Request Tests ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_grants_returns_empty_when_no_pending():
+    """OstkService.list_grants should return empty list when ostk says no pending requests."""
+    svc = OstkService()
+    with patch.object(svc, "_run_json", new_callable=AsyncMock, side_effect=OstkError("no pending requests")):
+        grants = await svc.list_grants("pending")
+    assert grants == []
+
+
+@pytest.mark.asyncio
+async def test_list_grants_returns_parsed_json():
+    """OstkService.list_grants should return the parsed JSON when ostk returns data."""
+    mock_grants = [
+        {"id": "g-001", "type": "file_access", "agent": "research-agent", "target": "/etc/config", "status": "pending"},
+        {"id": "g-002", "type": "tool", "agent": "build-agent", "target": "bash", "status": "pending"},
+    ]
+    svc = OstkService()
+    with patch.object(svc, "_run_json", new_callable=AsyncMock, return_value=mock_grants):
+        grants = await svc.list_grants("pending")
+    assert len(grants) == 2
+    assert grants[0]["id"] == "g-001"
+    assert grants[1]["type"] == "tool"
+
+
+@pytest.mark.asyncio
+async def test_list_grants_with_status_filter():
+    """OstkService.list_grants should pass the status filter to ostk."""
+    svc = OstkService()
+    with patch.object(svc, "_run_json", new_callable=AsyncMock, return_value=[]) as mock:
+        await svc.list_grants("granted")
+    mock.assert_called_once_with("grant", "list", "--status", "granted", "--json")
+
+
+@pytest.mark.asyncio
+async def test_list_grants_handles_json_decode_error():
+    """OstkService.list_grants should return empty list on JSON parse errors."""
+    svc = OstkService()
+    with patch.object(svc, "_run_json", new_callable=AsyncMock, side_effect=json.JSONDecodeError("err", "", 0)):
+        grants = await svc.list_grants("pending")
+    assert grants == []
+
+
+@pytest.mark.asyncio
+async def test_approve_grant_calls_ostk():
+    """OstkService.approve_grant should call ostk grant approve with correct args."""
+    svc = OstkService()
+    with patch.object(svc, "_run", new_callable=AsyncMock, return_value="approved g-001") as mock:
+        result = await svc.approve_grant("g-001")
+    assert result == "approved g-001"
+    mock.assert_called_once_with("grant", "approve", "g-001", "--ttl", "0")
+
+
+@pytest.mark.asyncio
+async def test_approve_grant_with_ttl_and_scope():
+    """OstkService.approve_grant should pass ttl and scope when provided."""
+    svc = OstkService()
+    with patch.object(svc, "_run", new_callable=AsyncMock, return_value="approved") as mock:
+        await svc.approve_grant("g-002", ttl=3600, scope="/tmp")
+    mock.assert_called_once_with("grant", "approve", "g-002", "--ttl", "3600", "--scope", "/tmp")
+
+
+@pytest.mark.asyncio
+async def test_deny_grant_calls_ostk():
+    """OstkService.deny_grant should call ostk grant deny with correct args."""
+    svc = OstkService()
+    with patch.object(svc, "_run", new_callable=AsyncMock, return_value="denied g-003") as mock:
+        result = await svc.deny_grant("g-003", reason="too risky")
+    assert result == "denied g-003"
+    mock.assert_called_once_with("grant", "deny", "g-003", "--reason", "too risky")
+
+
+@pytest.mark.asyncio
+async def test_deny_grant_default_reason():
+    """OstkService.deny_grant should use default reason when none provided."""
+    svc = OstkService()
+    with patch.object(svc, "_run", new_callable=AsyncMock, return_value="denied") as mock:
+        await svc.deny_grant("g-004")
+    mock.assert_called_once_with("grant", "deny", "g-004", "--reason", "not permitted")
+
+
+@pytest.mark.asyncio
+async def test_list_grants_endpoint_returns_grants():
+    """GET /api/agents/grants should return grants from ostk."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        mock_grants = [
+            {"id": "g-010", "type": "secret", "agent": "worker", "target": "API_KEY", "status": "pending"},
+        ]
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.list_grants = AsyncMock(return_value=mock_grants)
+            resp = await client.get("/api/agents/grants?status=pending")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status_filter"] == "pending"
+        assert len(data["grants"]) == 1
+        assert data["grants"][0]["id"] == "g-010"
+
+
+@pytest.mark.asyncio
+async def test_list_grants_endpoint_empty():
+    """GET /api/agents/grants should return empty list when no grants."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.list_grants = AsyncMock(return_value=[])
+            resp = await client.get("/api/agents/grants")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["grants"] == []
+
+
+@pytest.mark.asyncio
+async def test_approve_grant_endpoint():
+    """POST /api/agents/grants/{id}/approve should approve the grant."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.approve_grant = AsyncMock(return_value="approved g-010")
+            resp = await client.post("/api/agents/grants/g-010/approve")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["grant_id"] == "g-010"
+        assert data["action"] == "approved"
+        mock_ostk.approve_grant.assert_called_once_with("g-010", ttl=0, scope=None)
+
+
+@pytest.mark.asyncio
+async def test_approve_grant_endpoint_with_body():
+    """POST /api/agents/grants/{id}/approve with ttl should pass it through."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.approve_grant = AsyncMock(return_value="approved")
+            resp = await client.post(
+                "/api/agents/grants/g-011/approve",
+                json={"ttl": 7200, "scope": "/home"},
+            )
+
+        assert resp.status_code == 200
+        mock_ostk.approve_grant.assert_called_once_with("g-011", ttl=7200, scope="/home")
+
+
+@pytest.mark.asyncio
+async def test_deny_grant_endpoint():
+    """POST /api/agents/grants/{id}/deny should deny the grant."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.deny_grant = AsyncMock(return_value="denied g-010")
+            resp = await client.post("/api/agents/grants/g-010/deny")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["grant_id"] == "g-010"
+        assert data["action"] == "denied"
+        mock_ostk.deny_grant.assert_called_once_with("g-010", reason="not permitted")
+
+
+@pytest.mark.asyncio
+async def test_deny_grant_endpoint_with_reason():
+    """POST /api/agents/grants/{id}/deny with reason should pass it through."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.deny_grant = AsyncMock(return_value="denied")
+            resp = await client.post(
+                "/api/agents/grants/g-012/deny",
+                json={"reason": "not allowed right now"},
+            )
+
+        assert resp.status_code == 200
+        mock_ostk.deny_grant.assert_called_once_with("g-012", reason="not allowed right now")
+
+
+@pytest.mark.asyncio
+async def test_approve_grant_endpoint_error():
+    """POST /api/agents/grants/{id}/approve should return 400 on OstkError."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.approve_grant = AsyncMock(side_effect=OstkError("request not found"))
+            resp = await client.post("/api/agents/grants/bad-id/approve")
+
+        assert resp.status_code == 400
+        assert "request not found" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_deny_grant_endpoint_error():
+    """POST /api/agents/grants/{id}/deny should return 400 on OstkError."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.deny_grant = AsyncMock(side_effect=OstkError("request not found"))
+            resp = await client.post("/api/agents/grants/bad-id/deny")
+
+        assert resp.status_code == 400
+        assert "request not found" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_list_grants_endpoint_server_error():
+    """GET /api/agents/grants should return 500 when ostk raises an unexpected error."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk:
+            mock_ostk.list_grants = AsyncMock(side_effect=OstkError("daemon crashed"))
+            resp = await client.get("/api/agents/grants")
+
+        assert resp.status_code == 500

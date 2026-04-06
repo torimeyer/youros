@@ -2,9 +2,10 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from models.schemas import AgentSpawn, AgentNudge
+from models.schemas import AgentSpawn, AgentNudge, GrantApprove, GrantDeny
 from services.ostk import ostk, OstkError
 
 router = APIRouter(tags=["agents"])
@@ -186,6 +187,7 @@ async def list_agents():
         if name in active_agents or name in agents_map:
             continue  # already handled above
         pid = meta.get("pid")
+        is_registered = meta.get("source") == "claude-code"
         if pid and _is_pid_alive(pid):
             agents_map[name] = {
                 "name": name,
@@ -194,13 +196,22 @@ async def list_agents():
                 **meta,
             }
         else:
-            # Process is dead. Check transcript for completion.
+            # Process is dead (or externally managed). Check transcript for completion.
             transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
             if transcript.exists() and transcript.stat().st_size > 0:
                 agents_map[name] = {
                     "name": name,
                     "status": "completed",
-                    "source": "api",
+                    "source": meta.get("source", "api"),
+                    **meta,
+                }
+            elif is_registered:
+                # Externally registered agent with no pid and no transcript.
+                # Treat as "running" since we have no signal it finished.
+                agents_map[name] = {
+                    "name": name,
+                    "status": "running",
+                    "source": "claude-code",
                     **meta,
                 }
 
@@ -424,6 +435,20 @@ async def list_agent_nudges(name: str):
     }
 
 
+@router.get("/agents/delegate")
+async def delegation_suggestions(needle_id: Optional[str] = None):
+    """Return tasks that are good candidates for agent delegation.
+
+    Wraps ``ostk work radiate`` which finds nearby open tasks that could
+    be handed off to an agent.
+    """
+    try:
+        data = await ostk.work_radiate(needle_id or None)
+        return data
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/agents/templates")
 async def list_templates():
     templates = []
@@ -436,6 +461,42 @@ async def list_templates():
                 "content": content[:500],
             })
     return {"templates": templates}
+
+
+# ── Grants / Permission Requests ────────────────────────────────────
+
+
+@router.get("/agents/grants")
+async def list_grants(status: str = "pending"):
+    """List agent permission requests, filtered by status (default: pending)."""
+    try:
+        grants = await ostk.list_grants(status)
+        return {"grants": grants, "status_filter": status}
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agents/grants/{grant_id}/approve")
+async def approve_grant(grant_id: str, body: Optional[GrantApprove] = None):
+    """Approve a pending permission request."""
+    ttl = body.ttl if body else 0
+    scope = body.scope if body else None
+    try:
+        result = await ostk.approve_grant(grant_id, ttl=ttl, scope=scope)
+        return {"result": result, "grant_id": grant_id, "action": "approved"}
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/agents/grants/{grant_id}/deny")
+async def deny_grant(grant_id: str, body: Optional[GrantDeny] = None):
+    """Deny a pending permission request."""
+    reason = body.reason if body else "not permitted"
+    try:
+        result = await ostk.deny_grant(grant_id, reason=reason)
+        return {"result": result, "grant_id": grant_id, "action": "denied"}
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.websocket("/ws/agent/{name}")

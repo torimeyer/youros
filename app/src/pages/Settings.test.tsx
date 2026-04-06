@@ -17,6 +17,7 @@ vi.mock('../lib/api', () => ({
 import { api } from '../lib/api'
 
 const mockedApiPatch = vi.mocked(api.patch)
+const mockedApiPost = vi.mocked(api.post)
 
 // Mock useNavigate
 vi.mock('react-router-dom', async () => {
@@ -167,13 +168,13 @@ describe('Settings', () => {
   })
 
   describe('API Key', () => {
-    it('persists API key to API on Save Key click', () => {
+    it('persists API key to keychain on Save click', () => {
       renderSettings()
       const input = screen.getByPlaceholderText('Paste API key (sk-ant-xxxx...)')
       fireEvent.change(input, { target: { value: 'sk-ant-test123' } })
-      const saveBtn = screen.getByText('Save')
+      const saveBtn = screen.getByText('Save to Keychain')
       fireEvent.click(saveBtn)
-      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { anthropic_api_key: 'sk-ant-test123' })
+      expect(mockedApiPost).toHaveBeenCalledWith('/secrets', { key: 'ANTHROPIC_API_KEY', value: 'sk-ant-test123' })
     })
 
     it('toggles API key visibility', () => {
@@ -220,6 +221,70 @@ describe('Settings', () => {
       renderSettings()
       expect(screen.getByText('Import Config')).toBeInTheDocument()
       expect(screen.getByText('Export Config')).toBeInTheDocument()
+    })
+  })
+
+  describe('Default LLM selector', () => {
+    it('renders the Default Chat AI section with Claude and Gemini options', () => {
+      renderSettings()
+      expect(screen.getByText('Default Chat AI')).toBeInTheDocument()
+      // Both provider cards should be rendered via data-testid
+      expect(screen.getByTestId('default-llm-anthropic')).toBeInTheDocument()
+      expect(screen.getByTestId('default-llm-google-gemini')).toBeInTheDocument()
+    })
+
+    it('selects Gemini as default LLM and persists to API', () => {
+      renderSettings()
+      const geminiCard = screen.getByTestId('default-llm-google-gemini')
+      fireEvent.click(geminiCard)
+
+      expect(useAppStore.getState().defaultChatModel).toBe('gemini')
+      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { default_model: '@gemini' })
+    })
+
+    it('selects Claude as default LLM and persists to API', () => {
+      renderSettings()
+      // First select Gemini, then go back to Claude
+      fireEvent.click(screen.getByTestId('default-llm-google-gemini'))
+      vi.clearAllMocks()
+
+      fireEvent.click(screen.getByTestId('default-llm-anthropic'))
+
+      expect(useAppStore.getState().defaultChatModel).toBe('claude')
+      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { default_model: '@claude' })
+    })
+
+    it('loads default_model from API on mount and updates the store', async () => {
+      const mockedApiGet = vi.mocked(api.get)
+      mockedApiGet.mockResolvedValue({
+        default_model: '@gemini',
+      })
+
+      renderSettings()
+
+      await waitFor(() => {
+        expect(useAppStore.getState().defaultChatModel).toBe('gemini')
+      })
+    })
+
+    it('falls back to provider field when default_model is not set', async () => {
+      const mockedApiGet = vi.mocked(api.get)
+      mockedApiGet.mockResolvedValue({
+        provider: 'Google Gemini',
+      })
+
+      renderSettings()
+
+      await waitFor(() => {
+        expect(useAppStore.getState().defaultChatModel).toBe('gemini')
+      })
+    })
+
+    it('describes the feature in plain language', () => {
+      renderSettings()
+      expect(
+        screen.getByText(/new conversations will use this AI by default/i)
+      ).toBeInTheDocument()
     })
   })
 
@@ -284,6 +349,83 @@ describe('Settings', () => {
       const state = useAppStore.getState()
       const chat = state.features.find((f) => f.label === 'Chat')
       expect(chat?.enabled).toBe(true)
+    })
+  })
+
+  describe('ostk-managed MCP servers', () => {
+    it('shows ostk-managed servers from the API', async () => {
+      const mockedApiGet = vi.mocked(api.get)
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/settings/mcp-servers') {
+          return Promise.resolve({
+            ostk_servers: [
+              { name: 'linear', command: 'npx -y @anthropic/linear-mcp-server' },
+              { name: 'github', command: 'gh mcp-server' },
+            ],
+            manual_servers: [],
+          })
+        }
+        if (path === '/secrets/key-status') {
+          return Promise.resolve({ google_oauth_available: false })
+        }
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      await waitFor(() => {
+        expect(screen.getByText('linear')).toBeInTheDocument()
+      })
+      expect(screen.getByText('github')).toBeInTheDocument()
+      expect(screen.getByText('Managed by ostk (configured in your HUMANFILE)')).toBeInTheDocument()
+    })
+
+    it('does not show the ostk section when no ostk servers exist', async () => {
+      const mockedApiGet = vi.mocked(api.get)
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/settings/mcp-servers') {
+          return Promise.resolve({ ostk_servers: [], manual_servers: [] })
+        }
+        if (path === '/secrets/key-status') {
+          return Promise.resolve({ google_oauth_available: false })
+        }
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      // Wait for render cycle
+      await waitFor(() => {
+        expect(screen.getByText('Connected Tools')).toBeInTheDocument()
+      })
+
+      expect(screen.queryByText('Managed by ostk (configured in your HUMANFILE)')).not.toBeInTheDocument()
+    })
+
+    it('shows "Added manually" label when both ostk and manual servers exist', async () => {
+      const mockedApiGet = vi.mocked(api.get)
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/settings/mcp-servers') {
+          return Promise.resolve({
+            ostk_servers: [{ name: 'linear', command: 'npx -y @anthropic/linear-mcp-server' }],
+            manual_servers: [],
+          })
+        }
+        if (path === '/secrets/key-status') {
+          return Promise.resolve({ google_oauth_available: false })
+        }
+        return Promise.resolve({
+          mcp_servers: [{ name: 'stitch', url: 'https://stitch.example.com', enabled: true }],
+        })
+      })
+
+      renderSettings()
+
+      await waitFor(() => {
+        expect(screen.getByText('linear')).toBeInTheDocument()
+      })
+      expect(screen.getByText('stitch')).toBeInTheDocument()
+      expect(screen.getByText('Added manually')).toBeInTheDocument()
     })
   })
 })

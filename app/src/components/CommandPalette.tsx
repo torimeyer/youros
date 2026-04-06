@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
 import { useAppStore } from '../stores/app'
+import { api } from '../lib/api'
 
 export interface Command {
   id: string
@@ -12,16 +13,43 @@ export interface Command {
   section: 'Navigate' | 'Actions'
 }
 
+interface SearchTask {
+  id: string
+  priority: string
+  title: string
+}
+
+interface SearchIdea {
+  straw: string
+  timestamp: string
+  converted: boolean
+}
+
+interface SearchResults {
+  tasks: SearchTask[]
+  ideas: SearchIdea[]
+  query: string
+}
+
 interface CommandPaletteProps {
   open: boolean
   onClose: () => void
 }
 
+const priorityColor = (p: string) => {
+  if (p === 'P0') return 'text-pink-400'
+  if (p === 'P1') return 'text-orange-400'
+  return 'text-blue-400'
+}
+
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [searchResults, setSearchResults] = useState<SearchResults | null>(null)
+  const [searchLoading, setSearchLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const navigate = useNavigate()
   const toggleChat = useAppStore((s) => s.toggleChat)
 
@@ -47,11 +75,56 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     )
   }, [query, commands])
 
+  // Debounced concept search: fires when user types 2+ characters
+  useEffect(() => {
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current)
+    }
+
+    const trimmed = query.trim()
+    if (trimmed.length < 2) {
+      setSearchResults(null)
+      setSearchLoading(false)
+      return
+    }
+
+    setSearchLoading(true)
+    searchTimerRef.current = setTimeout(() => {
+      api.get<SearchResults>(`/search?q=${encodeURIComponent(trimmed)}`)
+        .then((res) => {
+          setSearchResults(res)
+        })
+        .catch(() => {
+          setSearchResults(null)
+        })
+        .finally(() => {
+          setSearchLoading(false)
+        })
+    }, 300)
+
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current)
+      }
+    }
+  }, [query])
+
+  // Build a flat list of all selectable items: commands + search results
+  const totalItems = useMemo(() => {
+    let count = filtered.length
+    if (searchResults) {
+      count += searchResults.tasks.length + searchResults.ideas.length
+    }
+    return count
+  }, [filtered.length, searchResults])
+
   // Reset state when opening
   useEffect(() => {
     if (open) {
       setQuery('')
       setSelectedIndex(0)
+      setSearchResults(null)
+      setSearchLoading(false)
       // Focus the input after a brief delay to ensure the modal is rendered
       requestAnimationFrame(() => {
         inputRef.current?.focus()
@@ -59,12 +132,12 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     }
   }, [open])
 
-  // Keep selected index in bounds when filtered results change
+  // Keep selected index in bounds when results change
   useEffect(() => {
-    if (selectedIndex >= filtered.length) {
-      setSelectedIndex(Math.max(0, filtered.length - 1))
+    if (selectedIndex >= totalItems) {
+      setSelectedIndex(Math.max(0, totalItems - 1))
     }
-  }, [filtered.length, selectedIndex])
+  }, [totalItems, selectedIndex])
 
   // Scroll selected item into view
   useEffect(() => {
@@ -76,21 +149,46 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     }
   }, [selectedIndex])
 
-  const executeSelected = useCallback(() => {
-    if (filtered.length > 0 && selectedIndex < filtered.length) {
-      filtered[selectedIndex].action()
+  const executeAtIndex = useCallback((idx: number) => {
+    // Commands come first
+    if (idx < filtered.length) {
+      filtered[idx].action()
+      return
     }
-  }, [filtered, selectedIndex])
+
+    // Then search result tasks
+    const searchOffset = idx - filtered.length
+    if (searchResults) {
+      if (searchOffset < searchResults.tasks.length) {
+        navigate('/tasks')
+        onClose()
+        return
+      }
+      // Then search result ideas
+      const ideaOffset = searchOffset - searchResults.tasks.length
+      if (ideaOffset < searchResults.ideas.length) {
+        navigate('/ideas')
+        onClose()
+        return
+      }
+    }
+  }, [filtered, searchResults, navigate, onClose])
+
+  const executeSelected = useCallback(() => {
+    if (totalItems > 0 && selectedIndex < totalItems) {
+      executeAtIndex(selectedIndex)
+    }
+  }, [totalItems, selectedIndex, executeAtIndex])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
-        setSelectedIndex((prev) => (prev + 1) % filtered.length)
+        setSelectedIndex((prev) => (prev + 1) % totalItems)
         break
       case 'ArrowUp':
         e.preventDefault()
-        setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length)
+        setSelectedIndex((prev) => (prev - 1 + totalItems) % totalItems)
         break
       case 'Enter':
         e.preventDefault()
@@ -101,7 +199,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         onClose()
         break
     }
-  }, [filtered.length, executeSelected, onClose])
+  }, [totalItems, executeSelected, onClose])
 
   if (!open) return null
 
@@ -114,6 +212,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   // Compute a flat index for each item so section headers don't break selection
   let flatIndex = 0
+
+  const hasSearchContent = searchResults && (searchResults.tasks.length > 0 || searchResults.ideas.length > 0)
+  const showSearchSection = query.trim().length >= 2
 
   return (
     <div
@@ -149,12 +250,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
         {/* Results */}
         <div ref={listRef} className="max-h-80 overflow-y-auto py-2" data-testid="command-palette-list">
-          {filtered.length === 0 && (
+          {filtered.length === 0 && !hasSearchContent && !searchLoading && (
             <div className="px-4 py-8 text-center text-sm text-slate-500">
               No matching commands
             </div>
           )}
 
+          {/* Command sections */}
           {Object.entries(sections).map(([sectionName, items]) => (
             <div key={sectionName}>
               <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
@@ -188,6 +290,94 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               })}
             </div>
           ))}
+
+          {/* Concept search results */}
+          {showSearchSection && (
+            <>
+              {/* Search loading indicator */}
+              {searchLoading && !hasSearchContent && (
+                <div className="px-4 py-3 text-sm text-slate-500 flex items-center gap-2" data-testid="search-loading">
+                  <Icon name="refresh" size={14} className="animate-spin" />
+                  Searching...
+                </div>
+              )}
+
+              {/* Matching tasks */}
+              {searchResults && searchResults.tasks.length > 0 && (
+                <div data-testid="search-tasks-section">
+                  <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 border-t border-slate-800 mt-1 pt-2">
+                    Matching Tasks
+                  </div>
+                  {searchResults.tasks.map((task) => {
+                    const idx = flatIndex++
+                    const isSelected = idx === selectedIndex
+                    return (
+                      <button
+                        key={task.id}
+                        data-command-item
+                        onClick={() => { navigate('/tasks'); onClose() }}
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-500/20 text-blue-100'
+                            : 'text-slate-300 hover:bg-slate-800/50'
+                        }`}
+                        data-testid={`search-task-${task.id}`}
+                      >
+                        <Icon name="checklist" className={`text-lg ${isSelected ? 'text-blue-400' : 'text-slate-500'}`} />
+                        <span className="flex-1 text-left">{task.title}</span>
+                        <span className={`text-xs font-medium ${priorityColor(task.priority)}`}>
+                          {task.priority}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Matching ideas */}
+              {searchResults && searchResults.ideas.length > 0 && (
+                <div data-testid="search-ideas-section">
+                  <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 border-t border-slate-800 mt-1 pt-2">
+                    Matching Ideas
+                  </div>
+                  {searchResults.ideas.map((idea, i) => {
+                    const idx = flatIndex++
+                    const isSelected = idx === selectedIndex
+                    return (
+                      <button
+                        key={`idea-${i}`}
+                        data-command-item
+                        onClick={() => { navigate('/ideas'); onClose() }}
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-500/20 text-blue-100'
+                            : 'text-slate-300 hover:bg-slate-800/50'
+                        }`}
+                        data-testid={`search-idea-${i}`}
+                      >
+                        <Icon name="lightbulb" className={`text-lg ${isSelected ? 'text-blue-400' : idea.converted ? 'text-green-500' : 'text-yellow-500'}`} />
+                        <span className="flex-1 text-left">
+                          {idea.straw}
+                          {idea.converted && (
+                            <span className="ml-2 text-xs text-green-500">(turned into a task)</span>
+                          )}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* No concept search results */}
+              {searchResults && searchResults.tasks.length === 0 && searchResults.ideas.length === 0 && !searchLoading && (
+                <div className="px-4 py-3 text-sm text-slate-500 border-t border-slate-800 mt-1 pt-2" data-testid="search-no-results">
+                  No matching tasks or ideas found.
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

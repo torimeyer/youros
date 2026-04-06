@@ -12,6 +12,8 @@ export function useWebSocket(path: string, autoConnect = false) {
   const [lastMessage, setLastMessage] = useState<WSMessage | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const pathRef = useRef(path)
+  const gotMessageRef = useRef(false)
+  const hadErrorRef = useRef(false)
   pathRef.current = path
 
   const connect = useCallback(() => {
@@ -21,6 +23,9 @@ export function useWebSocket(path: string, autoConnect = false) {
       wsRef.current = null
     }
 
+    gotMessageRef.current = false
+    hadErrorRef.current = false
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${protocol}//${window.location.host}${pathRef.current}`)
     ws.onopen = () => setIsConnected(true)
@@ -29,8 +34,18 @@ export function useWebSocket(path: string, autoConnect = false) {
       if (wsRef.current === ws) {
         wsRef.current = null
       }
+      // Emit a silent done signal so the chat clears its streaming state.
+      // Never inject a visible error message from a normal close.
+      setLastMessage({ type: 'done' })
     }
-    ws.onmessage = (event) => setLastMessage(JSON.parse(event.data))
+    ws.onerror = () => {
+      hadErrorRef.current = true
+      setLastMessage({ type: 'error', data: 'Connection error. Please try again.' })
+    }
+    ws.onmessage = (event) => {
+      gotMessageRef.current = true
+      setLastMessage(JSON.parse(event.data))
+    }
     wsRef.current = ws
   }, [])
 

@@ -152,4 +152,30 @@ describe('useAppStore', () => {
     useAppStore.getState().setFeatures(updated)
     expect(useAppStore.getState().isFeatureEnabled('Transcripts')).toBe(true)
   })
+
+  describe('defaultChatModel', () => {
+    it('defaults to claude', () => {
+      expect(useAppStore.getState().defaultChatModel).toBe('claude')
+    })
+
+    it('setDefaultChatModel updates the value to gemini', () => {
+      useAppStore.getState().setDefaultChatModel('gemini')
+      expect(useAppStore.getState().defaultChatModel).toBe('gemini')
+    })
+
+    it('setDefaultChatModel updates the value back to claude', () => {
+      useAppStore.getState().setDefaultChatModel('gemini')
+      useAppStore.getState().setDefaultChatModel('claude')
+      expect(useAppStore.getState().defaultChatModel).toBe('claude')
+    })
+
+    it('changing defaultChatModel does not affect other state', () => {
+      useAppStore.getState().setDefaultChatModel('gemini')
+      const state = useAppStore.getState()
+      expect(state.defaultChatModel).toBe('gemini')
+      expect(state.osName).toBe('myOS')
+      expect(state.darkMode).toBe(true)
+      expect(state.chatOpen).toBe(true)
+    })
+  })
 })

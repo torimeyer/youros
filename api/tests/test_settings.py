@@ -14,8 +14,6 @@ def settings_file(tmp_path):
         "os_name": "ToriOS",
         "dark_mode": True,
         "accent_color": "blue",
-        "anthropic_api_key": "",
-        "gemini_api_key": "",
         "default_model": "@claude",
         "features": {
             "chat": True, "tasks": True, "hay": True,
@@ -88,8 +86,6 @@ async def test_default_settings_values(settings_file):
     assert data["os_name"] == "ToriOS"
     assert data["dark_mode"] is True
     assert data["accent_color"] == "blue"
-    assert data["anthropic_api_key"] == ""
-    assert data["gemini_api_key"] == ""
     assert data["default_model"] == "@claude"
     assert data["features"]["chat"] is True
     assert data["features"]["transcripts"] is False
@@ -210,3 +206,44 @@ async def test_default_settings_schema_uses_titlecase_feature_keys():
     assert "Hay/Ideas" in defaults.features
     assert "tasks" not in defaults.features
     assert "chat" not in defaults.features
+
+
+# --- Default LLM selection tests ---
+
+
+@pytest.mark.asyncio
+async def test_default_model_can_be_changed_to_gemini(client, settings_file):
+    """Users can set their default chat AI to Gemini via PATCH."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"default_model": "@gemini"})
+        assert resp.status_code == 200
+
+        resp = await client.get("/api/settings")
+        assert resp.json()["default_model"] == "@gemini"
+
+
+@pytest.mark.asyncio
+async def test_default_model_can_be_changed_to_claude(client, settings_file):
+    """Users can set their default chat AI to Claude via PATCH."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        # First change to gemini
+        await client.patch("/api/settings", json={"default_model": "@gemini"})
+        # Then change back to claude
+        resp = await client.patch("/api/settings", json={"default_model": "@claude"})
+        assert resp.status_code == 200
+
+        resp = await client.get("/api/settings")
+        assert resp.json()["default_model"] == "@claude"
+
+
+@pytest.mark.asyncio
+async def test_default_model_persists_alongside_other_settings(client, settings_file):
+    """Changing default_model should not affect other settings."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await client.patch("/api/settings", json={"default_model": "@gemini"})
+        resp = await client.get("/api/settings")
+
+    data = resp.json()
+    assert data["default_model"] == "@gemini"
+    assert data["os_name"] == "ToriOS"
+    assert data["dark_mode"] is True

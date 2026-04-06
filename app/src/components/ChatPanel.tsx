@@ -63,8 +63,21 @@ interface GiphyResult {
   title: string
 }
 
+export interface ChatTab {
+  id: string
+  name: string
+  messages: Message[]
+}
+
 function genId(): string {
   return crypto.randomUUID()
+}
+
+function deriveTabName(messages: Message[]): string {
+  const firstUserMsg = messages.find(m => m.role === 'user' && m.content.trim())
+  if (!firstUserMsg) return 'New Chat'
+  const text = firstUserMsg.content.trim()
+  return text.length > 24 ? text.slice(0, 24) + '...' : text
 }
 
 function ToolCallBlock({ call }: { call: ToolCall }) {
@@ -260,12 +273,32 @@ function GiphyPicker({ initialSearch, onSelect, onClose }: {
 
 export function ChatPanel() {
   const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel } = useAppStore()
-  const [messages, setMessages] = useState<Message[]>(() => {
+
+  // --- Tab state ---
+  const [tabs, setTabs] = useState<ChatTab[]>(() => {
     try {
       const saved = localStorage.getItem('myos-chat-messages')
-      return saved ? JSON.parse(saved) : []
-    } catch { return [] }
+      const msgs: Message[] = saved ? JSON.parse(saved) : []
+      const firstTab: ChatTab = { id: genId(), name: deriveTabName(msgs), messages: msgs }
+      return [firstTab]
+    } catch {
+      return [{ id: genId(), name: 'New Chat', messages: [] }]
+    }
   })
+  const [activeTabId, setActiveTabId] = useState<string>(() => tabs[0]?.id ?? '')
+
+  const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0]
+  const messages = activeTab?.messages ?? []
+
+  const setMessages = useCallback((updater: Message[] | ((prev: Message[]) => Message[])) => {
+    setTabs(prev => prev.map(tab => {
+      if (tab.id !== activeTabId) return tab
+      const newMessages = typeof updater === 'function' ? updater(tab.messages) : updater
+      const newName = tab.name === 'New Chat' ? deriveTabName(newMessages) : tab.name
+      return { ...tab, messages: newMessages, name: newName }
+    }))
+  }, [activeTabId])
+
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentModel, setCurrentModel] = useState<string | null>(null)
@@ -395,7 +428,7 @@ export function ChatPanel() {
     }
   }, [lastMessage, currentModel])
 
-  // Persist messages to localStorage (skip base64 images to avoid quota limits)
+  // Persist active tab messages to localStorage (skip base64 images to avoid quota limits)
   useEffect(() => {
     try {
       const toSave = messages.map(m => m.imageUrl ? { ...m, imageUrl: undefined } : m)
@@ -604,12 +637,40 @@ export function ChatPanel() {
   }
 
   const handleNewConversation = () => {
-    setMessages([])
-    localStorage.removeItem('myos-chat-messages')
+    const newTab: ChatTab = { id: genId(), name: 'New Chat', messages: [] }
+    setTabs(prev => [...prev, newTab])
+    setActiveTabId(newTab.id)
     setIsStreaming(false)
     setCurrentModel(null)
     setReplyingTo(null)
     setShowGiphy(false)
+  }
+
+  const handleCloseTab = (tabId: string) => {
+    if (tabs.length <= 1) return
+    setTabs(prev => {
+      const remaining = prev.filter(t => t.id !== tabId)
+      if (activeTabId === tabId) {
+        const closedIndex = prev.findIndex(t => t.id === tabId)
+        const newActive = remaining[Math.min(closedIndex, remaining.length - 1)]
+        setActiveTabId(newActive.id)
+      }
+      return remaining
+    })
+    setIsStreaming(false)
+    setCurrentModel(null)
+    setReplyingTo(null)
+    setShowGiphy(false)
+  }
+
+  const handleSwitchTab = (tabId: string) => {
+    if (tabId === activeTabId) return
+    setActiveTabId(tabId)
+    setIsStreaming(false)
+    setCurrentModel(null)
+    setReplyingTo(null)
+    setShowGiphy(false)
+    setPendingImage(null)
   }
 
   const handleReply = (messageId: string) => {
@@ -670,16 +731,48 @@ export function ChatPanel() {
           >
             <Icon name="build" />
           </button>
-          <button
-            onClick={handleNewConversation}
-            className="p-1 text-slate-400 hover:text-white transition-colors"
-          >
-            <Icon name="add" />
-          </button>
           <button onClick={toggleChat} className="p-1 text-slate-400 hover:text-white transition-colors">
             <Icon name="close" />
           </button>
         </div>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex items-center gap-0.5 px-2 pt-1 pb-0 border-b border-slate-800 overflow-x-auto" data-testid="tab-bar">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => handleSwitchTab(tab.id)}
+            className={`group/tab flex items-center gap-1 px-3 py-1.5 text-xs rounded-t-lg transition-colors max-w-[160px] ${
+              tab.id === activeTabId
+                ? 'bg-slate-900 text-white border-t border-x border-slate-700'
+                : 'text-slate-500 hover:text-slate-300 hover:bg-slate-900/50'
+            }`}
+            title={tab.name}
+            data-testid={`tab-${tab.id}`}
+          >
+            <span className="truncate">{tab.name}</span>
+            {tabs.length > 1 && (
+              <span
+                role="button"
+                onClick={(e) => { e.stopPropagation(); handleCloseTab(tab.id) }}
+                className="ml-0.5 p-0.5 rounded hover:bg-slate-700 opacity-0 group-hover/tab:opacity-100 transition-opacity"
+                data-testid={`close-tab-${tab.id}`}
+                title="Close tab"
+              >
+                <Icon name="close" className="text-[10px]" />
+              </span>
+            )}
+          </button>
+        ))}
+        <button
+          onClick={handleNewConversation}
+          className="p-1 text-slate-500 hover:text-white transition-colors ml-0.5"
+          title="New conversation"
+          data-testid="new-tab-button"
+        >
+          <Icon name="add" className="text-sm" />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-10 py-4 space-y-4">
@@ -722,34 +815,36 @@ export function ChatPanel() {
             )}
 
             <div className="relative">
-              {/* Reply and reaction buttons on hover */}
-              <div className={`absolute ${msg.role === 'user' ? '-left-8' : '-right-8'} top-1 opacity-0 group-hover:opacity-100 flex flex-col items-center gap-0.5 transition-all`}>
-                <button
-                  onClick={() => handleReply(msg.id)}
-                  className="p-1 text-slate-600 hover:text-blue-400 transition-colors"
-                  title="Reply"
-                >
-                  <Icon name="reply" className="text-sm" />
-                </button>
-                {/* Reaction picker */}
-                <div className="flex flex-col gap-0.5 bg-slate-800 border border-slate-700 rounded-lg p-0.5" data-testid={`reaction-bar-${msg.id}`}>
-                  {REACTION_EMOJIS.map(emoji => (
-                    <button
-                      key={emoji}
-                      onClick={() => toggleReaction(msg.id, emoji)}
-                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-700 transition-colors text-sm"
-                      title={`React with ${emoji}`}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
+              {/* Reply and reaction buttons on hover - below the message */}
+              <div className={`${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'} opacity-0 group-hover:opacity-100 mt-1 transition-all`}>
+                <div className="flex items-center gap-0.5 z-10">
+                  <button
+                    onClick={() => handleReply(msg.id)}
+                    className="p-1 text-slate-600 hover:text-blue-400 transition-colors"
+                    title="Reply"
+                  >
+                    <Icon name="reply" className="text-sm" />
+                  </button>
+                  {/* Reaction picker */}
+                  <div className="flex items-center gap-0.5 bg-slate-800 border border-slate-700 rounded-lg p-0.5" data-testid={`reaction-bar-${msg.id}`}>
+                    {REACTION_EMOJIS.map(emoji => (
+                      <button
+                        key={emoji}
+                        onClick={() => toggleReaction(msg.id, emoji)}
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-700 transition-colors text-sm"
+                        title={`React with ${emoji}`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
               <div
                 className={
                   msg.role === 'user'
-                    ? 'bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[75%] w-fit text-sm'
+                    ? 'bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[90%] w-fit text-sm'
                     : `border px-4 py-3 rounded-xl text-sm text-slate-300 whitespace-pre-line overflow-hidden break-words ${
                         msg.model ? MODEL_BG[msg.model] ?? 'bg-slate-900 border-slate-800' : 'bg-slate-900 border-slate-800'
                       }`

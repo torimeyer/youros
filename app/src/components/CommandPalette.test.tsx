@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { CommandPalette } from './CommandPalette'
@@ -13,6 +13,15 @@ vi.mock('react-router-dom', async () => {
     useNavigate: () => mockNavigate,
   }
 })
+
+vi.mock('../lib/api', () => ({
+  api: {
+    get: vi.fn(),
+  },
+}))
+
+import { api } from '../lib/api'
+const mockedApiGet = vi.mocked(api.get)
 
 function renderPalette(open = true, onClose = vi.fn()) {
   return {
@@ -29,6 +38,7 @@ describe('CommandPalette', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({ chatOpen: true })
+    mockedApiGet.mockResolvedValue({ tasks: [], ideas: [], query: '' })
   })
 
   it('renders nothing when open is false', () => {
@@ -80,14 +90,17 @@ describe('CommandPalette', () => {
     expect(screen.queryByText('Go to Ideas')).not.toBeInTheDocument()
   })
 
-  it('shows empty state when no commands match', async () => {
+  it('shows empty state when no commands match and no search results', async () => {
     const user = userEvent.setup()
+    mockedApiGet.mockResolvedValue({ tasks: [], ideas: [], query: 'xyznonexistent' })
     renderPalette()
 
     const input = screen.getByTestId('command-palette-input')
     await user.type(input, 'xyznonexistent')
 
-    expect(screen.getByText('No matching commands')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('No matching commands')).toBeInTheDocument()
+    })
   })
 
   it('calls onClose when Escape is pressed', () => {
@@ -231,5 +244,138 @@ describe('CommandPalette', () => {
     // The first command item should have the selected styling (bg-blue-500/20)
     const firstItem = screen.getByTestId('command-item-nav-home')
     expect(firstItem.className).toContain('bg-blue-500/20')
+  })
+})
+
+describe('CommandPalette concept search', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    useAppStore.setState({ chatOpen: false })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows search results for matching tasks', async () => {
+    mockedApiGet.mockResolvedValue({
+      tasks: [{ id: '→086', priority: 'P1', title: 'Add concept search' }],
+      ideas: [],
+      query: 'search',
+    })
+
+    renderPalette()
+    const input = screen.getByTestId('command-palette-input')
+
+    // Use fireEvent instead of userEvent since we're using fake timers
+    fireEvent.change(input, { target: { value: 'search' } })
+
+    // Advance past the debounce timer
+    vi.advanceTimersByTime(400)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('search-tasks-section')).toBeInTheDocument()
+      expect(screen.getByText('Add concept search')).toBeInTheDocument()
+    })
+  })
+
+  it('shows search results for matching ideas', async () => {
+    mockedApiGet.mockResolvedValue({
+      tasks: [],
+      ideas: [{ straw: 'add a search bar', timestamp: '2026-04-04T20:00:00Z', converted: false }],
+      query: 'search',
+    })
+
+    renderPalette()
+    const input = screen.getByTestId('command-palette-input')
+    fireEvent.change(input, { target: { value: 'search' } })
+
+    vi.advanceTimersByTime(400)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('search-ideas-section')).toBeInTheDocument()
+      expect(screen.getByText('add a search bar')).toBeInTheDocument()
+    })
+  })
+
+  it('marks converted ideas with a label', async () => {
+    mockedApiGet.mockResolvedValue({
+      tasks: [],
+      ideas: [{ straw: 'search feature idea', timestamp: '2026-04-04T20:00:00Z', converted: true }],
+      query: 'search',
+    })
+
+    renderPalette()
+    const input = screen.getByTestId('command-palette-input')
+    fireEvent.change(input, { target: { value: 'search' } })
+
+    vi.advanceTimersByTime(400)
+
+    await waitFor(() => {
+      expect(screen.getByText('(turned into a task)')).toBeInTheDocument()
+    })
+  })
+
+  it('shows "no results" message when search returns empty', async () => {
+    mockedApiGet.mockResolvedValue({
+      tasks: [],
+      ideas: [],
+      query: 'xyznonexistent',
+    })
+
+    renderPalette()
+    const input = screen.getByTestId('command-palette-input')
+    fireEvent.change(input, { target: { value: 'xyznonexistent' } })
+
+    vi.advanceTimersByTime(400)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('search-no-results')).toBeInTheDocument()
+      expect(screen.getByText('No matching tasks or ideas found.')).toBeInTheDocument()
+    })
+  })
+
+  it('does not search when query is shorter than 2 characters', async () => {
+    renderPalette()
+    const input = screen.getByTestId('command-palette-input')
+    fireEvent.change(input, { target: { value: 'x' } })
+
+    vi.advanceTimersByTime(400)
+
+    // Should not have called the API
+    expect(mockedApiGet).not.toHaveBeenCalledWith(expect.stringContaining('/search'))
+  })
+
+  it('calls the search API with the encoded query', async () => {
+    mockedApiGet.mockResolvedValue({ tasks: [], ideas: [], query: 'my topic' })
+
+    renderPalette()
+    const input = screen.getByTestId('command-palette-input')
+    fireEvent.change(input, { target: { value: 'my topic' } })
+
+    vi.advanceTimersByTime(400)
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/search?q=my%20topic')
+    })
+  })
+
+  it('displays priority badges for tasks', async () => {
+    mockedApiGet.mockResolvedValue({
+      tasks: [{ id: '→001', priority: 'P0', title: 'Critical task' }],
+      ideas: [],
+      query: 'critical',
+    })
+
+    renderPalette()
+    const input = screen.getByTestId('command-palette-input')
+    fireEvent.change(input, { target: { value: 'critical' } })
+
+    vi.advanceTimersByTime(400)
+
+    await waitFor(() => {
+      expect(screen.getByText('P0')).toBeInTheDocument()
+    })
   })
 })

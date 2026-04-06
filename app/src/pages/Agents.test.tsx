@@ -323,3 +323,242 @@ describe('Agents page - Status bar', () => {
     expect(screen.queryByTestId('agent-status-bar')).not.toBeInTheDocument()
   })
 })
+
+describe('Agents page - Permissions tab', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+  })
+
+  it('shows Permissions tab', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.startsWith('/agents/grants')) return { grants: [], status_filter: 'pending' }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('Permissions')).toBeInTheDocument()
+    })
+  })
+
+  it('shows empty state when no pending requests', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.startsWith('/agents/grants')) return { grants: [], status_filter: 'pending' }
+      return {}
+    })
+
+    renderAgents()
+
+    const permTab = screen.getByText('Permissions')
+    fireEvent.click(permTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('No pending requests. Agents will ask for permission here when they need extra access.')).toBeInTheDocument()
+    })
+  })
+
+  it('renders grant cards with approve and deny buttons', async () => {
+    const mockGrants = [
+      {
+        id: 'g-100',
+        type: 'file_access',
+        agent: 'research-bot',
+        target: '/etc/hosts',
+        status: 'pending',
+        requested_at: '2026-04-06T10:00:00Z',
+      },
+    ]
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.startsWith('/agents/grants')) return { grants: mockGrants, status_filter: 'pending' }
+      return {}
+    })
+
+    renderAgents()
+
+    const permTab = screen.getByText('Permissions')
+    fireEvent.click(permTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('research-bot')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('/etc/hosts')).toBeInTheDocument()
+    expect(screen.getByText('File access')).toBeInTheDocument()
+    // The grant card should contain Approve and Deny action buttons
+    const grantCard = screen.getByTestId('grant-card')
+    expect(grantCard.querySelector('button')).toBeTruthy()
+    expect(grantCard.textContent).toContain('Approve')
+    expect(grantCard.textContent).toContain('Deny')
+  })
+
+  it('calls approve endpoint when clicking Approve', async () => {
+    const mockGrants = [
+      {
+        id: 'g-200',
+        type: 'tool',
+        agent: 'builder',
+        target: 'bash',
+        status: 'pending',
+        requested_at: '2026-04-06T10:00:00Z',
+      },
+    ]
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.startsWith('/agents/grants')) return { grants: mockGrants, status_filter: 'pending' }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({ result: 'approved', grant_id: 'g-200', action: 'approved' })
+
+    renderAgents()
+
+    const permTab = screen.getByText('Permissions')
+    fireEvent.click(permTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('builder')).toBeInTheDocument()
+    })
+
+    const grantCard = screen.getByTestId('grant-card')
+    const approveBtn = grantCard.querySelector('button')!
+    fireEvent.click(approveBtn)
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/agents/grants/g-200/approve')
+    })
+  })
+
+  it('calls deny endpoint when clicking Deny', async () => {
+    const mockGrants = [
+      {
+        id: 'g-300',
+        type: 'secret',
+        agent: 'spy-agent',
+        target: 'PASSWORD',
+        status: 'pending',
+        requested_at: '2026-04-06T10:00:00Z',
+      },
+    ]
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.startsWith('/agents/grants')) return { grants: mockGrants, status_filter: 'pending' }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({ result: 'denied', grant_id: 'g-300', action: 'denied' })
+
+    renderAgents()
+
+    const permTab = screen.getByText('Permissions')
+    fireEvent.click(permTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('spy-agent')).toBeInTheDocument()
+    })
+
+    const grantCard = screen.getByTestId('grant-card')
+    const buttons = grantCard.querySelectorAll('button')
+    // Second button is Deny (first is Approve)
+    fireEvent.click(buttons[1])
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/agents/grants/g-300/deny')
+    })
+  })
+
+  it('does not show approve/deny buttons for already-resolved grants', async () => {
+    const mockGrants = [
+      {
+        id: 'g-400',
+        type: 'budget',
+        agent: 'spender',
+        target: '$50',
+        status: 'granted',
+        requested_at: '2026-04-06T09:00:00Z',
+      },
+    ]
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.startsWith('/agents/grants')) return { grants: mockGrants, status_filter: 'granted' }
+      return {}
+    })
+
+    renderAgents()
+
+    const permTab = screen.getByText('Permissions')
+    fireEvent.click(permTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('spender')).toBeInTheDocument()
+    })
+
+    // The grant card should not have Approve/Deny action buttons
+    // (filter buttons "Approved"/"Denied" will still be present)
+    const grantCard = screen.getByTestId('grant-card')
+    const cardButtons = grantCard.querySelectorAll('button')
+    expect(cardButtons.length).toBe(0)
+  })
+
+  it('shows filter buttons for Waiting, Approved, and Denied', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.startsWith('/agents/grants')) return { grants: [], status_filter: 'pending' }
+      return {}
+    })
+
+    renderAgents()
+
+    const permTab = screen.getByText('Permissions')
+    fireEvent.click(permTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('Waiting')).toBeInTheDocument()
+      expect(screen.getByText('Approved')).toBeInTheDocument()
+      expect(screen.getByText('Denied')).toBeInTheDocument()
+    })
+  })
+
+  it('shows correct type labels for different grant types', async () => {
+    const mockGrants = [
+      { id: 'g-501', type: 'file_access', agent: 'a1', target: '/tmp', status: 'pending', requested_at: '' },
+      { id: 'g-502', type: 'tool', agent: 'a2', target: 'npm', status: 'pending', requested_at: '' },
+      { id: 'g-503', type: 'budget', agent: 'a3', target: '$10', status: 'pending', requested_at: '' },
+      { id: 'g-504', type: 'secret', agent: 'a4', target: 'KEY', status: 'pending', requested_at: '' },
+      { id: 'g-505', type: 'model_upgrade', agent: 'a5', target: 'opus', status: 'pending', requested_at: '' },
+    ]
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.startsWith('/agents/grants')) return { grants: mockGrants, status_filter: 'pending' }
+      return {}
+    })
+
+    renderAgents()
+
+    const permTab = screen.getByText('Permissions')
+    fireEvent.click(permTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('File access')).toBeInTheDocument()
+      expect(screen.getByText('Tool usage')).toBeInTheDocument()
+      expect(screen.getByText('Budget increase')).toBeInTheDocument()
+      expect(screen.getByText('Secret access')).toBeInTheDocument()
+      expect(screen.getByText('Model upgrade')).toBeInTheDocument()
+    })
+  })
+})
