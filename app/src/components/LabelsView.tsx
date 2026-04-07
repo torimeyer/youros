@@ -7,6 +7,8 @@ export interface Label {
   name: string;
   color: string;
   task_count: number;
+  open_count?: number;
+  closed_count?: number;
 }
 
 interface LabelsResponse {
@@ -67,13 +69,12 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
   const createLabel = async () => {
     const name = newName.trim();
     if (!name) return;
-    if (!newColor) {
-      setError("Pick a color for the label.");
-      return;
-    }
+    // Pick a random color if the user didn't choose one
+    const color = newColor || colors[Math.floor(Math.random() * colors.length)] || "#3b82f6";
+    setNewColor(color);
     setError(null);
     try {
-      const res = await api.post<CreateLabelResponse>("/labels", { name, color: newColor });
+      const res = await api.post<CreateLabelResponse>("/labels", { name, color });
       setLabels((prev) => [...prev, res.label]);
       setNewName("");
       setNewColor("");
@@ -236,9 +237,9 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
               />
               <span className="text-sm text-slate-300 font-medium">{label.name}</span>
 
-              {/* Task count badge */}
+              {/* Progress: closed / total */}
               <span className="text-[11px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded-full">
-                {label.task_count}
+                {label.closed_count ?? 0}/{label.task_count}
               </span>
 
               {/* Delete button (shows on hover) */}

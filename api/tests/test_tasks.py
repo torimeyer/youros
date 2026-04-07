@@ -1113,3 +1113,110 @@ def test_detect_issues_no_issues_when_clean():
     ]
     issues = OstkService._detect_issues(OstkService(), refined, open_tasks)
     assert len(issues) == 0
+
+
+# --- DELETE /api/tasks/{id} ---
+
+@pytest.mark.asyncio
+async def test_delete_task(client):
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("routers.tasks.task_labels_store") as mock_tls, \
+         patch("routers.tasks.threads_store") as mock_ts:
+        mock_ostk.delete_task = AsyncMock(return_value="deleted t-1")
+        resp = await client.delete("/api/tasks/t-1")
+
+    assert resp.status_code == 200
+    assert resp.json()["result"] == "deleted t-1"
+    mock_ostk.delete_task.assert_called_once_with("t-1")
+    mock_tls.remove_task.assert_called_once_with("t-1")
+    mock_ts.remove_task_from_all_threads.assert_called_once_with("t-1")
+
+
+@pytest.mark.asyncio
+async def test_delete_task_not_found(client):
+    from services.ostk import OstkError
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.delete_task = AsyncMock(side_effect=OstkError("task 't-99' not found"))
+        resp = await client.delete("/api/tasks/t-99")
+
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_delete_task_cleans_up_labels_and_threads(client):
+    """Deleting a task removes its label assignments and thread memberships."""
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("routers.tasks.task_labels_store") as mock_tls, \
+         patch("routers.tasks.threads_store") as mock_ts:
+        mock_ostk.delete_task = AsyncMock(return_value="deleted t-5")
+        resp = await client.delete("/api/tasks/t-5")
+
+    assert resp.status_code == 200
+    mock_tls.remove_task.assert_called_once_with("t-5")
+    mock_ts.remove_task_from_all_threads.assert_called_once_with("t-5")
+
+
+# --- ostk.delete_task unit tests ---
+
+@pytest.mark.asyncio
+async def test_ostk_delete_task_removes_entry(tmp_path):
+    """delete_task removes the matching line from issues.jsonl."""
+    from services.ostk import OstkService
+
+    issues_dir = tmp_path / ".ostk" / "needles"
+    issues_dir.mkdir(parents=True)
+    issues_file = issues_dir / "issues.jsonl"
+    issues_file.write_text(
+        '{"id": "t-1", "title": "First", "status": "open"}\n'
+        '{"id": "t-2", "title": "Second", "status": "open"}\n'
+    )
+
+    svc = OstkService(cwd=str(tmp_path))
+    result = await svc.delete_task("t-1")
+
+    assert result == "deleted t-1"
+    remaining = issues_file.read_text()
+    assert "t-1" not in remaining
+    assert "t-2" in remaining
+
+
+@pytest.mark.asyncio
+async def test_ostk_delete_task_not_found_raises(tmp_path):
+    """delete_task raises OstkError when the task ID does not exist."""
+    from services.ostk import OstkService, OstkError
+
+    issues_dir = tmp_path / ".ostk" / "needles"
+    issues_dir.mkdir(parents=True)
+    issues_file = issues_dir / "issues.jsonl"
+    issues_file.write_text('{"id": "t-1", "title": "Only task", "status": "open"}\n')
+
+    svc = OstkService(cwd=str(tmp_path))
+    with pytest.raises(OstkError, match="not found"):
+        await svc.delete_task("t-99")
+
+
+@pytest.mark.asyncio
+async def test_ostk_delete_task_last_task_leaves_empty_file(tmp_path):
+    """Deleting the only task leaves issues.jsonl empty (not corrupted)."""
+    from services.ostk import OstkService
+
+    issues_dir = tmp_path / ".ostk" / "needles"
+    issues_dir.mkdir(parents=True)
+    issues_file = issues_dir / "issues.jsonl"
+    issues_file.write_text('{"id": "t-1", "title": "Only task", "status": "open"}\n')
+
+    svc = OstkService(cwd=str(tmp_path))
+    await svc.delete_task("t-1")
+
+    assert issues_file.read_text() == ""
+
+
+@pytest.mark.asyncio
+async def test_ostk_delete_task_missing_file_raises(tmp_path):
+    """delete_task raises OstkError when issues.jsonl does not exist."""
+    from services.ostk import OstkService, OstkError
+
+    svc = OstkService(cwd=str(tmp_path))
+    with pytest.raises(OstkError, match="issues.jsonl not found"):
+        await svc.delete_task("t-1")

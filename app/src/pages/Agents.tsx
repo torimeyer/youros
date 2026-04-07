@@ -4,7 +4,7 @@ import Icon from "../components/Icon";
 import { api } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
 
-const tabs = ["Active", "Permissions", "Delegate", "Recent", "Metrics"];
+const tabs = ["Active", "Recent", "Metrics"];
 
 const CUSTOM_TEMPLATES_KEY = "myos-custom-templates";
 
@@ -729,7 +729,7 @@ export default function Agents() {
   return (
     <>
       <TopBar title="Agents" />
-      <div data-tour="agents" className="pt-16 p-8">
+      <div data-tour="agents" className="pt-20 p-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-6">

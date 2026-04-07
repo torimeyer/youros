@@ -220,7 +220,7 @@ export default function Files() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Files" />
 
-      <div className="pt-16 p-8 max-w-6xl mx-auto">
+      <div className="pt-20 p-8 max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">

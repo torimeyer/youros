@@ -78,6 +78,13 @@ class TaskLabelsStore:
         if changed:
             self._save(data)
 
+    def remove_task(self, task_id: str):
+        """Remove all label assignments for a task (used when deleting a task)."""
+        data = self._load()
+        if task_id in data:
+            del data[task_id]
+            self._save(data)
+
     def get_tasks_for_label(self, label_id: str) -> list[str]:
         """Return list of task IDs that have this label assigned."""
         data = self._load()

@@ -182,13 +182,13 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.queryByText('Transcripts')).not.toBeInTheDocument()
   })
 
-  it('always shows Home and Timeline regardless of feature toggles', () => {
+  it('always shows Home and Activity regardless of feature toggles', () => {
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) => ({ ...f, enabled: false })),
     })
     renderSidebar()
     expect(screen.getByText('Home')).toBeInTheDocument()
-    expect(screen.getByText('Timeline')).toBeInTheDocument()
+    expect(screen.getByText('Activity')).toBeInTheDocument()
     expect(screen.getByText('Settings')).toBeInTheDocument()
   })
 

@@ -24,8 +24,8 @@ const mockApi = api as unknown as {
 }
 
 const MOCK_LABELS = [
-  { id: 'l1', name: 'Bug', color: '#ef4444', task_count: 3 },
-  { id: 'l2', name: 'Feature', color: '#22c55e', task_count: 1 },
+  { id: 'l1', name: 'Bug', color: '#ef4444', task_count: 3, open_count: 1, closed_count: 2 },
+  { id: 'l2', name: 'Feature', color: '#22c55e', task_count: 1, open_count: 0, closed_count: 1 },
 ]
 
 const MOCK_COLORS = [
@@ -61,8 +61,8 @@ describe('LabelsView', () => {
   it('shows task count for each label', async () => {
     render(<LabelsView />)
     await waitFor(() => {
-      expect(screen.getByText('3')).toBeTruthy()
-      expect(screen.getByText('1')).toBeTruthy()
+      expect(screen.getByText('2/3')).toBeTruthy()
+      expect(screen.getByText('1/1')).toBeTruthy()
     })
   })
 

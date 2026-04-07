@@ -157,7 +157,7 @@ export default function Transcripts() {
     return (
       <>
         <TopBar title="Transcripts" />
-        <div className="pt-16 p-8">
+        <div className="pt-20 p-8">
           {/* Back button and header */}
           <div className="flex items-center gap-4 mb-6">
             <button
@@ -262,7 +262,7 @@ export default function Transcripts() {
   return (
     <>
       <TopBar title="Transcripts" />
-      <div className="pt-16 p-8">
+      <div className="pt-20 p-8">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-white">Transcripts</h1>

@@ -82,6 +82,28 @@ class OstkService:
         issues_path.write_text("\n".join(updated) + "\n")
         return f"reopened {task_id}"
 
+    async def delete_task(self, task_id: str) -> str:
+        """Permanently remove a task from issues.jsonl."""
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        if not issues_path.exists():
+            raise OstkError("issues.jsonl not found")
+
+        lines = issues_path.read_text().strip().splitlines()
+        updated = []
+        found = False
+        for line in lines:
+            entry = json.loads(line)
+            if entry.get("id") == task_id:
+                found = True
+            else:
+                updated.append(json.dumps(entry, ensure_ascii=False))
+
+        if not found:
+            raise OstkError(f"task '{task_id}' not found")
+
+        issues_path.write_text("\n".join(updated) + ("\n" if updated else ""))
+        return f"deleted {task_id}"
+
     async def update_task_priority(self, task_id: str, priority: str) -> str:
         """Update a task's priority by editing the JSONL file directly."""
         valid = {"P0", "P1", "P2"}

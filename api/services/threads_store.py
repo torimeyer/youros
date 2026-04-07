@@ -110,6 +110,18 @@ class ThreadsStore:
                 return thread
         return None
 
+    def remove_task_from_all_threads(self, task_id: str):
+        """Remove a task from every thread (used when deleting a task)."""
+        threads = self._load()
+        changed = False
+        for thread in threads:
+            needle_ids = thread.get("needle_ids", [])
+            if task_id in needle_ids:
+                thread["needle_ids"] = [nid for nid in needle_ids if nid != task_id]
+                changed = True
+        if changed:
+            self._save(threads)
+
     def get_thread_for_task(self, task_id: str) -> Optional[dict]:
         """Return the thread a task belongs to, or None."""
         for thread in self._load():

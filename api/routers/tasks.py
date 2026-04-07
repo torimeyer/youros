@@ -96,6 +96,18 @@ async def update_task(task_id: str, body: TaskUpdate):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.delete("/tasks/{task_id}")
+async def delete_task(task_id: str):
+    try:
+        result = await ostk.delete_task(task_id)
+    except OstkError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    # Clean up label assignments and thread memberships for this task
+    task_labels_store.remove_task(task_id)
+    threads_store.remove_task_from_all_threads(task_id)
+    return {"result": result}
+
+
 @router.post("/tasks/{task_id}/close")
 async def close_task(task_id: str, body: TaskClose = TaskClose()):
     try:
@@ -255,18 +267,37 @@ async def unlink_task(task_id: str, target: str, relation: str = "blocks"):
 
 @router.get("/labels")
 async def list_labels():
-    """List all labels with task counts."""
+    """List all labels with task counts (total, open, closed)."""
     labels = labels_store.list_labels()
     all_assignments = task_labels_store.get_all_assignments()
 
-    # Count tasks per label
-    label_counts: dict[str, int] = {}
+    # Get task statuses
+    task_statuses: dict[str, str] = {}
+    try:
+        tasks = await ostk.list_tasks()
+        for t in tasks:
+            task_statuses[t.get("id", "")] = t.get("status", "open")
+    except Exception:
+        pass
+
+    # Count tasks per label (total, open, closed)
+    label_counts: dict[str, dict[str, int]] = {}
     for task_id, label_ids in all_assignments.items():
+        status = task_statuses.get(task_id, "open")
         for lid in label_ids:
-            label_counts[lid] = label_counts.get(lid, 0) + 1
+            if lid not in label_counts:
+                label_counts[lid] = {"total": 0, "open": 0, "closed": 0}
+            label_counts[lid]["total"] += 1
+            if status == "closed":
+                label_counts[lid]["closed"] += 1
+            else:
+                label_counts[lid]["open"] += 1
 
     for label in labels:
-        label["task_count"] = label_counts.get(label["id"], 0)
+        counts = label_counts.get(label["id"], {"total": 0, "open": 0, "closed": 0})
+        label["task_count"] = counts["total"]
+        label["open_count"] = counts["open"]
+        label["closed_count"] = counts["closed"]
 
     return {"labels": labels}
 

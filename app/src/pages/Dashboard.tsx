@@ -150,7 +150,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Home Dashboard" />
 
-      <div className="pt-16 p-8">
+      <div className="pt-20 p-8">
         {/* Greeting */}
         <div data-tour="dashboard" className="mb-8">
           <h1 className="text-3xl font-bold mb-1">Welcome to {osName}</h1>

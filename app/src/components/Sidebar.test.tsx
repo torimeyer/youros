@@ -46,7 +46,7 @@ describe('Sidebar', () => {
   it('renders all navigation items when all features enabled', async () => {
     renderSidebar()
 
-    const navLabels = ['Home', 'Tasks', 'Timeline', 'Ideas', 'Agents', 'Files', 'Transcripts', 'Settings']
+    const navLabels = ['Home', 'Tasks', 'Activity', 'Ideas', 'Agents', 'Files', 'Transcripts', 'Settings']
     for (const label of navLabels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
@@ -74,7 +74,7 @@ describe('Sidebar', () => {
     const expectedPaths: Record<string, string> = {
       Home: '/',
       Tasks: '/tasks',
-      Timeline: '/timeline',
+      Activity: '/activity',
       Ideas: '/ideas',
       Agents: '/agents',
       Files: '/files',

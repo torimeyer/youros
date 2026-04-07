@@ -105,7 +105,7 @@ export default function Activity() {
     <div className="min-h-screen bg-slate-950 text-white flex flex-col">
       <TopBar title="Activity" />
 
-      <div data-tour="activity" className="pt-16 p-8 flex-1 flex flex-col">
+      <div data-tour="activity" className="pt-20 p-8 flex-1 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">

@@ -155,5 +155,4 @@ async def dream(body: DreamRequest):
         raise HTTPException(status_code=422, detail="Please describe what you have been putting off.")
 
     plan = await _call_llm(body.dreading, body.done_looks_like)
-    await _persist_tasks(plan)
     return plan

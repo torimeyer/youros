@@ -384,7 +384,7 @@ export default function Settings() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Settings" />
 
-      <div className="pt-16 p-8 space-y-6">
+      <div className="pt-20 p-8 space-y-6">
         {/* Row 1: Appearance + Shortcuts */}
         <div className="grid grid-cols-2 gap-6">
           {/* Appearance */}

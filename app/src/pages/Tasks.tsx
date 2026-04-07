@@ -317,6 +317,20 @@ export default function Tasks() {
     }
   };
 
+  const deleteTask = async (id: string) => {
+    try {
+      await api.delete(`/tasks/${id}`);
+      if (selectedTaskId === id) {
+        setSelectedTaskId(null);
+        setBriefing(null);
+        setTrace(null);
+      }
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+    } catch (e) {
+      console.error("Failed to delete task:", e);
+    }
+  };
+
   const updatePriority = async (id: string, priority: string) => {
     try {
       setTasks((prev) =>
@@ -722,7 +736,7 @@ export default function Tasks() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Tasks" />
 
-      <div data-tour="tasks" className="pt-16 p-8 max-w-6xl mx-auto">
+      <div data-tour="tasks" className="pt-20 p-8 max-w-6xl mx-auto">
         {/* Banner */}
         {banner && (
           <div className="mb-4 px-4 py-3 bg-purple-500/20 border border-purple-500/40 rounded-lg text-sm text-purple-200 flex items-center justify-between">
@@ -1124,6 +1138,16 @@ export default function Tasks() {
                     </div>
                     {renderLinkDropdown(task)}
                     {renderLabelDropdown(task)}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteTask(task.id);
+                      }}
+                      className="p-1 text-slate-700 hover:text-red-400 transition-colors"
+                      title="Delete task permanently"
+                    >
+                      <Icon name="delete" className="text-sm" />
+                    </button>
                     {/* Thread assignment dropdown */}
                     <div className="relative">
                       <button
@@ -1207,7 +1231,7 @@ export default function Tasks() {
 
                   {/* Detail panel (Context + History tabs) */}
                   {selectedTaskId === task.id && (
-                    <div data-testid="briefing-panel" className="ml-8 mt-1 mb-2 bg-slate-900/80 border border-blue-500/30 rounded-lg p-4 text-sm">
+                    <div data-testid="briefing-panel" className="ml-8 mt-1 mb-2 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-blue-500/30 rounded-lg p-4 text-sm text-slate-700 dark:text-slate-300">
                       {/* Tab bar */}
                       <div className="flex items-center gap-4 mb-3 border-b border-slate-800 pb-2">
                         <button

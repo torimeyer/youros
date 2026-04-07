@@ -1,0 +1,198 @@
+<mxfile host="app.diagrams.net" modified="2026-04-06" agent="myOS" version="24.0.0">
+  <diagram name="myOS Architecture" id="arch">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Section: Browser -->
+        <mxCell id="browser-section" value="BROWSER (localhost:3010)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=5;dashed=1;dashPattern=8 4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="860" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="react-app" value="&lt;b&gt;React App&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Dashboard, Tasks&lt;br&gt;Activity, Ideas&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1e3a5f;fontColor=#e2e8f0;strokeColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="60" y="65" width="140" height="65" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="chat-panel" value="&lt;b&gt;Chat Panel&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Tabs, WebSocket&lt;br&gt;Emoji, GIFs&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1e3a5f;fontColor=#e2e8f0;strokeColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="230" y="65" width="140" height="65" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="cmd-k" value="&lt;b&gt;Cmd+K Search&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Concept search&lt;br&gt;across tasks/ideas&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1e3a5f;fontColor=#e2e8f0;strokeColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="400" y="65" width="140" height="65" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="settings-ui" value="&lt;b&gt;Settings&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Keys, OAuth&lt;br&gt;MCP, Theme&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1e3a5f;fontColor=#e2e8f0;strokeColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="570" y="65" width="140" height="65" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="whats-new" value="&lt;b&gt;What's New&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Release notes&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1e3a5f;fontColor=#e2e8f0;strokeColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="740" y="65" width="140" height="65" as="geometry"/>
+        </mxCell>
+
+        <!-- Section: Backend -->
+        <mxCell id="backend-section" value="FASTAPI BACKEND (localhost:8000)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=5;dashed=1;dashPattern=8 4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="860" height="280" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="chat-router" value="&lt;b&gt;Chat Router&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;WebSocket handler&lt;br&gt;Model routing&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d1f3d;fontColor=#e2e8f0;strokeColor=#6c3483;" vertex="1" parent="1">
+          <mxGeometry x="230" y="230" width="140" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="api-routers" value="&lt;b&gt;API Routers&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;tasks, agents, ideas&lt;br&gt;activity, search, docs&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3341;fontColor=#e2e8f0;strokeColor=#2980b9;" vertex="1" parent="1">
+          <mxGeometry x="60" y="230" width="140" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="chat-providers" value="&lt;b&gt;Chat Providers&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;stream_claude()&lt;br&gt;stream_gemini()&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d1f3d;fontColor=#e2e8f0;strokeColor=#6c3483;" vertex="1" parent="1">
+          <mxGeometry x="230" y="320" width="140" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="tool-executor" value="&lt;b&gt;Tool Executor&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;file read/write, shell&lt;br&gt;ostk tools, search&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#3d2d1a;fontColor=#e2e8f0;strokeColor=#f59e0b;" vertex="1" parent="1">
+          <mxGeometry x="420" y="230" width="150" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="ostk-service" value="&lt;b&gt;ostk Service&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;58 commands wrapped&lt;br&gt;~70% coverage&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3326;fontColor=#e2e8f0;strokeColor=#27ae60;" vertex="1" parent="1">
+          <mxGeometry x="60" y="390" width="140" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="secrets-router" value="&lt;b&gt;Secrets&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Keychain via ostk&lt;br&gt;key-status, disconnect&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3326;fontColor=#e2e8f0;strokeColor=#27ae60;" vertex="1" parent="1">
+          <mxGeometry x="420" y="390" width="150" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="settings-store" value="&lt;b&gt;Settings Store&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;~/.myos/settings.json&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3341;fontColor=#e2e8f0;strokeColor=#2980b9;" vertex="1" parent="1">
+          <mxGeometry x="620" y="230" width="150" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="auth-router" value="&lt;b&gt;Google OAuth&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Token exchange&lt;br&gt;CSRF protection&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3341;fontColor=#e2e8f0;strokeColor=#2980b9;" vertex="1" parent="1">
+          <mxGeometry x="620" y="390" width="150" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="labels-store" value="&lt;b&gt;Labels + Threads&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;~/.myos/labels.json&lt;br&gt;~/.myos/threads.json&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3341;fontColor=#e2e8f0;strokeColor=#2980b9;" vertex="1" parent="1">
+          <mxGeometry x="620" y="310" width="150" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- Section: External -->
+        <mxCell id="external-section" value="EXTERNAL SERVICES" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=5;dashed=1;dashPattern=8 4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="530" width="600" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="anthropic" value="&lt;b&gt;Anthropic API&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Claude models&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#3d1a2d;fontColor=#e2e8f0;strokeColor=#c0392b;" vertex="1" parent="1">
+          <mxGeometry x="60" y="560" width="130" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="google-ai" value="&lt;b&gt;Google AI&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Gemini via OAuth or key&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#3d1a2d;fontColor=#e2e8f0;strokeColor=#c0392b;" vertex="1" parent="1">
+          <mxGeometry x="210" y="560" width="130" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="google-oauth" value="&lt;b&gt;Google OAuth&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;accounts.google.com&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#3d1a2d;fontColor=#e2e8f0;strokeColor=#c0392b;" vertex="1" parent="1">
+          <mxGeometry x="360" y="560" width="130" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="giphy" value="&lt;b&gt;Giphy API&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;GIF search&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#3d1a2d;fontColor=#e2e8f0;strokeColor=#c0392b;" vertex="1" parent="1">
+          <mxGeometry x="510" y="560" width="110" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- Section: Local -->
+        <mxCell id="local-section" value="LOCAL SYSTEM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=5;dashed=1;dashPattern=8 4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="680" width="860" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="ostk-cli" value="&lt;b&gt;ostk CLI&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;v2.2.9 binary&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3326;fontColor=#e2e8f0;strokeColor=#27ae60;" vertex="1" parent="1">
+          <mxGeometry x="60" y="710" width="130" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="ostk-dir" value="&lt;b&gt;.ostk/&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;needles, audit, pins&lt;br&gt;threads, bail&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3326;fontColor=#e2e8f0;strokeColor=#27ae60;" vertex="1" parent="1">
+          <mxGeometry x="230" y="710" width="140" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="keychain" value="&lt;b&gt;macOS Keychain&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;API keys, secrets&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3326;fontColor=#e2e8f0;strokeColor=#27ae60;" vertex="1" parent="1">
+          <mxGeometry x="420" y="710" width="150" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="filesystem" value="&lt;b&gt;Filesystem&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;~/myos, projects&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a3326;fontColor=#e2e8f0;strokeColor=#27ae60;" vertex="1" parent="1">
+          <mxGeometry x="620" y="710" width="140" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- Chat flow annotation -->
+        <mxCell id="annotation" value="Chat flow: User message &#8594; WebSocket &#8594; Chat Router &#8594; Provider (Claude/Gemini) &#8594; streaming response.&#xa;Tool calls: Provider asks for a tool &#8594; Tool Executor &#8594; ostk / shell / files &#8594; result back to Provider &#8594; continues response." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="680" y="540" width="220" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- Arrows -->
+        <!-- Browser to Backend -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#6c8ebf;" edge="1" source="react-app" target="api-routers" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1-label" value="REST" style="edgeLabel;fontSize=10;" vertex="1" connectable="0" parent="e1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#6c3483;" edge="1" source="chat-panel" target="chat-router" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2-label" value="WebSocket" style="edgeLabel;fontSize=10;" vertex="1" connectable="0" parent="e2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Chat Router to Providers -->
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#6c3483;" edge="1" source="chat-router" target="chat-providers" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Chat Router to Tool Executor -->
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#f59e0b;dashed=1;dashPattern=8 4;" edge="1" source="chat-router" target="tool-executor" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4-label" value="tool calls" style="edgeLabel;fontSize=10;fontColor=#f59e0b;" vertex="1" connectable="0" parent="e4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Tool Executor to ostk -->
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#f59e0b;dashed=1;dashPattern=8 4;" edge="1" source="tool-executor" target="ostk-service" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- API Routers to ostk -->
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#27ae60;" edge="1" source="api-routers" target="ostk-service" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Providers to Anthropic -->
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#c0392b;" edge="1" source="chat-providers" target="anthropic" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Providers to Google AI -->
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#c0392b;" edge="1" source="chat-providers" target="google-ai" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Auth to Google OAuth -->
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#c0392b;" edge="1" source="auth-router" target="google-oauth" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ostk service to CLI -->
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#27ae60;" edge="1" source="ostk-service" target="ostk-cli" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ostk CLI to .ostk -->
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#27ae60;" edge="1" source="ostk-cli" target="ostk-dir" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Secrets to Keychain -->
+        <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#27ae60;" edge="1" source="secrets-router" target="keychain" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Tool Executor to Filesystem -->
+        <mxCell id="e13" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#f59e0b;dashed=1;dashPattern=8 4;" edge="1" source="tool-executor" target="filesystem" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

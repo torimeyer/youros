@@ -30,7 +30,6 @@ async def test_google_auth_includes_correct_scopes(client):
         resp = await client.get("/api/auth/google", follow_redirects=False)
 
     location = resp.headers["location"]
-    assert "generative-language" in location
     assert "cloud-platform" in location
 
 

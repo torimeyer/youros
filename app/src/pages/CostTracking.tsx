@@ -134,7 +134,7 @@ export default function CostTracking() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Cost Tracking" />
 
-      <div className="pt-16 p-8">
+      <div className="pt-20 p-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>

@@ -12,7 +12,6 @@ export function Sidebar() {
   const allNavItems = [
     { to: '/', icon: 'home', label: 'Home', featureLabel: null },
     { to: '/tasks', icon: 'checklist', label: t('tasks'), featureLabel: 'Tasks' },
-    { to: '/timeline', icon: 'timeline', label: 'Timeline', featureLabel: null },
     { to: '/activity', icon: 'history', label: 'Activity', featureLabel: null },
     { to: '/ideas', icon: 'lightbulb', label: t('ideas'), featureLabel: 'Hay/Ideas' },
     { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
