@@ -161,6 +161,18 @@ npm run build
 echo -e "${GREEN}Frontend ready.${NC}"
 echo ""
 
+# --- Set up default settings if none exist ---
+
+MYOS_CONFIG_DIR="$HOME/.myos"
+if [ ! -f "$MYOS_CONFIG_DIR/settings.json" ]; then
+    mkdir -p "$MYOS_CONFIG_DIR"
+    cp "$INSTALL_DIR/settings.default.json" "$MYOS_CONFIG_DIR/settings.json"
+    echo -e "${GREEN}Default settings created at $MYOS_CONFIG_DIR/settings.json${NC}"
+else
+    echo "Settings already exist. Keeping your current preferences."
+fi
+echo ""
+
 # --- Initialize ostk if available ---
 
 if command -v ostk &> /dev/null; then

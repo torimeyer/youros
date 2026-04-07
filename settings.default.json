@@ -1,0 +1,25 @@
+{
+  "os_name": "myOS",
+  "user_name": "",
+  "dark_mode": true,
+  "accent_color": "blue",
+  "default_model": "@claude",
+  "features": {
+    "Chat": true,
+    "Tasks": true,
+    "Hay/Ideas": true,
+    "Agents": true,
+    "Projects": true,
+    "Transcripts": false
+  },
+  "notifications": {
+    "agent_complete": true,
+    "agent_needs_input": true,
+    "agent_failed": true,
+    "approval_needed": true
+  },
+  "quiet_hours_enabled": true,
+  "quiet_hours_start": "22:00",
+  "quiet_hours_end": "07:00",
+  "mcp_servers": []
+}
