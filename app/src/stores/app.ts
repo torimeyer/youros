@@ -72,6 +72,8 @@ interface AppState {
   setUseOstkTerms: (v: boolean) => void
   tourComplete: boolean
   setTourComplete: (v: boolean) => void
+  powerUserMode: boolean
+  setPowerUserMode: (v: boolean) => void
   whatsNewLastSeen: string
   setWhatsNewLastSeen: (v: string) => void
   customAgentTemplates: CustomAgentTemplate[]
@@ -89,6 +91,7 @@ const LS_KEYS = {
   defaultChatModel: 'myos-default-chat-model',
   useOstkTerms: 'myos-use-ostk-terms',
   tourComplete: 'myos-tour-complete',
+  powerUserMode: 'myos-power-user-mode',
   whatsNewLastSeen: 'myos-whats-new-last-seen',
   customAgentTemplates: 'myos-custom-templates',
 } as const
@@ -220,6 +223,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ tourComplete })
     patchServer({ tour_complete: tourComplete })
   },
+  powerUserMode: lsGet(LS_KEYS.powerUserMode) === 'true',
+  setPowerUserMode: (powerUserMode) => {
+    lsSet(LS_KEYS.powerUserMode, String(powerUserMode))
+    set({ powerUserMode })
+    patchServer({ power_user_mode: powerUserMode })
+  },
   whatsNewLastSeen: initialWhatsNewLastSeen,
   setWhatsNewLastSeen: (whatsNewLastSeen) => {
     lsSet(LS_KEYS.whatsNewLastSeen, whatsNewLastSeen)
@@ -311,6 +320,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       lsSet(LS_KEYS.tourComplete, String(v))
     } else if (state.tourComplete) {
       backfill.tour_complete = state.tourComplete
+    }
+
+    // power_user_mode
+    if (hasValue(server.power_user_mode)) {
+      const v = Boolean(server.power_user_mode)
+      updates.powerUserMode = v
+      lsSet(LS_KEYS.powerUserMode, String(v))
+    } else if (state.powerUserMode) {
+      backfill.power_user_mode = state.powerUserMode
     }
 
     // whats_new_last_seen

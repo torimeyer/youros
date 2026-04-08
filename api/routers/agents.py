@@ -293,14 +293,37 @@ async def list_agents():
                 }
             elif is_registered:
                 # Externally registered agent with no pid and no transcript.
-                # Treat as running since we have no signal it finished.
-                # (Stale ghosts are cleaned up at startup by _recover_stale_agents.)
-                agents_map[name] = {
-                    "name": name,
-                    "status": "running",
-                    "source": "claude-code",
-                    **meta,
-                }
+                # If it has been "running" for more than 20 minutes without
+                # any transcript activity, mark it as abandoned so the UI
+                # does not show forever-stuck ghost agents.
+                from datetime import datetime, timezone
+                spawned_at_str = meta.get("spawned_at", "")
+                is_stale = False
+                if spawned_at_str:
+                    try:
+                        spawned_at = datetime.fromisoformat(spawned_at_str.replace("Z", "+00:00"))
+                        age_seconds = (datetime.now(timezone.utc) - spawned_at).total_seconds()
+                        is_stale = age_seconds > 1200  # 20 minutes
+                    except (ValueError, TypeError):
+                        pass
+                if is_stale:
+                    # Persist the abandoned status so we do not keep recomputing.
+                    meta["status"] = "abandoned"
+                    agent_metadata[name] = meta
+                    _save_agent_state()
+                    agents_map[name] = {
+                        "name": name,
+                        "status": "abandoned",
+                        "source": "claude-code",
+                        **meta,
+                    }
+                else:
+                    agents_map[name] = {
+                        "name": name,
+                        "status": "running",
+                        "source": "claude-code",
+                        **meta,
+                    }
 
     # 3. Daemon agents (highest priority, ground truth)
     for agent in ps_result.get("agents", []):

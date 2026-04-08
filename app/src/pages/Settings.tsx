@@ -70,6 +70,7 @@ export default function Settings() {
     features, setFeatures,
     setDefaultChatModel,
     useOstkTerms, setUseOstkTerms,
+    powerUserMode, setPowerUserMode,
   } = useAppStore();
 
   const [selectedProvider, setSelectedProvider] = useState('Anthropic');
@@ -676,6 +677,33 @@ export default function Settings() {
                 />
               </div>
             ))}
+          </div>
+
+          {/* Power user mode toggle */}
+          <div className="mt-6 pt-6 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-200">Power user mode</span>
+                <div className="group relative">
+                  <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-300 cursor-help" />
+                  <div className="absolute left-0 top-full mt-1 w-80 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                    <p className="font-semibold text-white mb-1">What this unlocks</p>
+                    <p className="mb-2"><strong>Delegate tab:</strong> see suggested tasks an agent could pick up and hand them off with one click.</p>
+                    <p className="mb-2"><strong>Shared Workspace tab:</strong> a message board where multiple agents leave each other notes mid-task, so they can build on each other's findings.</p>
+                    <p>Both are useful when you run multiple agents in parallel. Most people will not need them.</p>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setPowerUserMode(!powerUserMode)}
+                className={`relative w-11 h-6 rounded-full transition-colors ${powerUserMode ? 'bg-blue-500' : 'bg-slate-700'}`}
+                aria-pressed={powerUserMode}
+                aria-label="Toggle power user mode"
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${powerUserMode ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mt-2">Shows advanced agent tabs (Delegate and Shared Workspace) in the Agents page.</p>
           </div>
         </div>
 

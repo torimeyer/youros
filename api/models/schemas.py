@@ -55,6 +55,7 @@ class Settings(BaseModel):
         "Agents": True, "Projects": True, "Docs": True,
         "Transcripts": True,
     }
+    power_user_mode: bool = False
     notifications: Dict[str, bool] = {
         "agent_complete": True, "agent_needs_input": True,
         "agent_failed": True, "approval_needed": True,

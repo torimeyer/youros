@@ -5,7 +5,8 @@ import { api } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 
-const tabs = ["Active", "Permissions", "Delegate", "Recent", "Metrics", "Templates", "Workspace"];
+const BASE_TABS = ["Active", "Recent", "Metrics", "Templates"];
+const POWER_USER_TABS = ["Delegate", "Workspace"];
 
 type CustomTemplate = CustomAgentTemplate;
 
@@ -712,6 +713,8 @@ export default function Agents() {
   // is only a first paint cache.
   const customTemplates = useAppStore((s) => s.customAgentTemplates);
   const setCustomTemplates = useAppStore((s) => s.setCustomAgentTemplates);
+  const powerUserMode = useAppStore((s) => s.powerUserMode);
+  const tabs = powerUserMode ? [...BASE_TABS, ...POWER_USER_TABS] : BASE_TABS;
 
   // Marketplace
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
@@ -1020,14 +1023,17 @@ export default function Agents() {
     }
   }, [activeTab]);
 
-  // Fetch permission requests when the Permissions tab is selected
+  // Fetch permission requests whenever the Active tab is showing, so
+  // pending approvals surface inline on each agent card instead of in a
+  // separate Permissions tab.
   useEffect(() => {
-    if (activeTab === "Permissions") {
-      fetchGrants();
-      const interval = setInterval(() => fetchGrants(), 5000);
+    if (activeTab === "Active") {
+      // Always look at pending grants for inline display.
+      fetchGrants("pending");
+      const interval = setInterval(() => fetchGrants("pending"), 5000);
       return () => clearInterval(interval);
     }
-  }, [activeTab, grantFilter, fetchGrants]);
+  }, [activeTab, fetchGrants]);
 
   // Fetch workspace messages when the Workspace tab is selected
   useEffect(() => {
@@ -1206,6 +1212,9 @@ export default function Agents() {
                     const agentNudges = nudgeHistory[agent.name] || [];
                     const nudgeInput = nudgeInputs[agent.name] || "";
                     const isSending = nudgeSending[agent.name] || false;
+                    const pendingGrants = grants.filter(
+                      (g) => g.status === "pending" && g.agent === agent.name
+                    );
 
                     return (
                   <div
@@ -1218,6 +1227,11 @@ export default function Agents() {
                         <span className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}>
                           {statusLabel(agent.status)}
                         </span>
+                        {pendingGrants.length > 0 && (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
+                            {pendingGrants.length} pending
+                          </span>
+                        )}
                       </div>
                       <button
                         onClick={() => setExpandedAgent(isExpanded ? null : agent.name)}
@@ -1237,6 +1251,46 @@ export default function Agents() {
                         transcriptBytes={agent.transcript_bytes}
                         transcriptLines={agent.transcript_lines}
                       />
+                    )}
+
+                    {/* Inline pending permission requests for this agent */}
+                    {pendingGrants.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {pendingGrants.map((grant) => (
+                          <div
+                            key={grant.id}
+                            className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-start justify-between gap-3"
+                          >
+                            <div className="flex items-start gap-2 flex-1 min-w-0">
+                              <Icon name="lock_open" className="text-yellow-400 mt-0.5" size={18} />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-white">
+                                  Wants to {grant.type === "secret" ? "access secret" : grant.type === "file_access" ? "read file" : grant.type === "tool" ? "use tool" : grant.type === "budget" ? "raise budget" : grant.type === "model_upgrade" ? "upgrade model" : grant.type}: <span className="font-mono text-yellow-300">{grant.target}</span>
+                                </p>
+                                {grant.detail && (
+                                  <p className="text-xs text-slate-400 mt-1 break-words">{grant.detail}</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex gap-1 shrink-0">
+                              <button
+                                onClick={() => handleApproveGrant(grant.id)}
+                                disabled={grantActioning[grant.id]}
+                                className="bg-green-600 hover:bg-green-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-xs rounded px-2.5 py-1 transition-colors"
+                              >
+                                {grantActioning[grant.id] ? "..." : "Approve"}
+                              </button>
+                              <button
+                                onClick={() => handleDenyGrant(grant.id)}
+                                disabled={grantActioning[grant.id]}
+                                className="border border-slate-700 text-slate-300 text-xs rounded px-2.5 py-1 hover:border-red-500 hover:text-red-400 disabled:opacity-50 transition-colors"
+                              >
+                                Deny
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
 
                     {/* Session output area with nudge history */}
