@@ -105,6 +105,14 @@ export default function Settings() {
   const [keySource, setKeySource] = useState<Record<string, string>>({});
   const [ostkMcpServers, setOstkMcpServers] = useState<OstkMCPServer[]>([]);
 
+  // Sync state
+  const [syncConfigured, setSyncConfigured] = useState(false);
+  const [syncRepoUrl, setSyncRepoUrl] = useState<string | null>(null);
+  const [syncLastSynced, setSyncLastSynced] = useState<string | null>(null);
+  const [syncRepoInput, setSyncRepoInput] = useState('');
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -186,6 +194,13 @@ export default function Settings() {
       .catch(() => {});
     api.get<{ ostk_servers?: OstkMCPServer[] }>('/settings/mcp-servers')
       .then((data) => setOstkMcpServers(data.ostk_servers ?? []))
+      .catch(() => {});
+    api.get<{ configured?: boolean; remote_url?: string | null; last_synced?: string | null }>('/sync/status')
+      .then((data) => {
+        setSyncConfigured(data.configured ?? false);
+        setSyncRepoUrl(data.remote_url ?? null);
+        setSyncLastSynced(data.last_synced ?? null);
+      })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -402,6 +417,58 @@ export default function Settings() {
       URL.revokeObjectURL(url);
     } catch {
       // handle error silently
+    }
+  };
+
+  const handleSetupSync = async () => {
+    const url = syncRepoInput.trim();
+    if (!url) return;
+    setSyncLoading(true);
+    setSyncStatus(null);
+    try {
+      await api.post('/sync/configure', { repo_url: url });
+      setSyncConfigured(true);
+      setSyncRepoUrl(url);
+      setSyncRepoInput('');
+      setSyncStatus('Connected');
+      setTimeout(() => setSyncStatus(null), 3000);
+    } catch {
+      setSyncStatus('Could not connect. Check the URL and try again.');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleSyncNow = async () => {
+    setSyncLoading(true);
+    setSyncStatus(null);
+    try {
+      await api.post('/sync/push', {});
+      await api.post('/sync/pull', {});
+      const statusData = await api.get<{ last_synced?: string | null }>('/sync/status');
+      setSyncLastSynced(statusData.last_synced ?? null);
+      setSyncStatus('Synced');
+      setTimeout(() => setSyncStatus(null), 3000);
+    } catch {
+      setSyncStatus('Sync failed. Check your network and repo access.');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleDisconnectSync = async () => {
+    setSyncLoading(true);
+    try {
+      await api.post('/sync/disconnect', {});
+      setSyncConfigured(false);
+      setSyncRepoUrl(null);
+      setSyncLastSynced(null);
+      setSyncStatus('Disconnected');
+      setTimeout(() => setSyncStatus(null), 3000);
+    } catch {
+      setSyncStatus('Could not disconnect.');
+    } finally {
+      setSyncLoading(false);
     }
   };
 
@@ -1080,7 +1147,88 @@ export default function Settings() {
           )}
         </div>
 
-        {/* Row 5: Data Management */}
+        {/* Row 5: Sync */}
+        <div className={cardClass}>
+          <div className="flex items-center gap-2 mb-5">
+            <h2 className="text-lg font-semibold">Sync</h2>
+            <div className="group relative ml-1">
+              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                Keep your settings the same across all your devices using a private git repo you own.
+              </div>
+            </div>
+          </div>
+
+          {syncConfigured ? (
+            <div>
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-emerald-900/20 border border-emerald-800/30 rounded-lg">
+                <Icon name="check_circle" size={16} className="text-emerald-400" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-emerald-300 font-medium">Sync is on</p>
+                  <p className="text-xs text-slate-400 truncate">{syncRepoUrl}</p>
+                </div>
+              </div>
+              {syncLastSynced && (
+                <p className="text-xs text-slate-500 mb-4">
+                  Last synced: {new Date(syncLastSynced).toLocaleString()}
+                </p>
+              )}
+              {syncStatus && (
+                <p className="text-sm text-slate-300 mb-3">{syncStatus}</p>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={handleSyncNow}
+                  disabled={syncLoading}
+                  data-testid="sync-now-button"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-medium text-white transition-colors"
+                >
+                  <Icon name="sync" size={18} />
+                  {syncLoading ? 'Syncing...' : 'Sync now'}
+                </button>
+                <button
+                  onClick={handleDisconnectSync}
+                  disabled={syncLoading}
+                  data-testid="sync-disconnect-button"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-400 hover:text-red-400 hover:border-red-800 transition-colors"
+                >
+                  <Icon name="link_off" size={18} />
+                  Disconnect
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p className="text-sm text-slate-400 mb-4">
+                Enter the URL of a private git repo you own. myOS will use it to keep your settings the same across all your devices.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={syncRepoInput}
+                  onChange={(e) => setSyncRepoInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSetupSync()}
+                  placeholder="git@github.com:you/myos-sync.git"
+                  data-testid="sync-repo-input"
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <button
+                  onClick={handleSetupSync}
+                  disabled={syncLoading || !syncRepoInput.trim()}
+                  data-testid="sync-setup-button"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                >
+                  {syncLoading ? 'Setting up...' : 'Set up sync'}
+                </button>
+              </div>
+              {syncStatus && (
+                <p className="text-sm text-red-400 mt-2">{syncStatus}</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Row 6: Data Management */}
         <div className={cardClass}>
           <div className="flex items-center gap-2 mb-2">
             <h2 className="text-lg font-semibold">Data Management</h2>

@@ -44,6 +44,7 @@ app.include_router(beautify.router, prefix="/api")
 app.include_router(drive.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(upgrade.router, prefix="/api")
+app.include_router(sync.router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -149,6 +150,40 @@ async def schedule_label_backfill():
             pass
 
     asyncio.create_task(_backfill())
+
+
+@app.on_event("startup")
+async def schedule_settings_sync_pull():
+    """After a short delay, if sync is configured, pull from the remote.
+
+    This means opening myOS on a new machine automatically pulls in the
+    settings from the user's other device. We wait 15 seconds so the
+    server is fully up before doing any git network I/O.
+    """
+    import asyncio
+
+    async def _pull():
+        await asyncio.sleep(15)
+        try:
+            from services import settings_sync
+            from services.notifications import notifications_service
+
+            if not settings_sync.is_configured():
+                return
+
+            result = settings_sync.pull()
+            if result.get("files"):
+                notifications_service.add(
+                    type="sync",
+                    title="Settings synced",
+                    body="Settings synced from your other device.",
+                    action_label="View Settings",
+                    action_url="/settings",
+                )
+        except Exception:
+            pass
+
+    asyncio.create_task(_pull())
 
 
 @app.get("/api/health")
