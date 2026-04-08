@@ -14,6 +14,7 @@ import Activity from './pages/Activity'
 import CostTracking from './pages/CostTracking'
 import Docs from './pages/Docs'
 import Drive from './pages/Drive'
+import Calendar from './pages/Calendar'
 import Upgrade from './pages/Upgrade'
 import { useAppStore } from './stores/app'
 
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="transcripts" element={<Transcripts />} />
           <Route path="docs" element={<Docs />} />
           <Route path="drive" element={<Drive />} />
+          <Route path="calendar" element={<Calendar />} />
           <Route path="costs" element={<CostTracking />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/upgrade" element={<Upgrade />} />

@@ -14,6 +14,8 @@ GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", "uac5bYV974kGSu3Pe0B92ChNrIQypZ0
 
 CONTEXT_KEYWORDS = {"tasks", "needles", "task", "needle", "focus", "agents", "hay", "ideas", "status"}
 
+CALENDAR_KEYWORDS = {"calendar", "meeting", "meetings", "schedule", "today", "tomorrow"}
+
 # Phrases that trigger saving the current conversation topic as an idea.
 _SAVE_AS_IDEA_PATTERNS = [
     re.compile(r"\bsave\s+(?:this\s+)?as\s+an?\s+idea\b", re.IGNORECASE),
@@ -148,6 +150,55 @@ def should_inject_context(text: str) -> bool:
     return bool(words & CONTEXT_KEYWORDS)
 
 
+def should_inject_calendar(text: str) -> bool:
+    """Return True if the message likely relates to calendar or schedule."""
+    words = set(re.split(r"\W+", text.lower()))
+    return bool(words & CALENDAR_KEYWORDS)
+
+
+async def build_calendar_context() -> str:
+    """Return a short summary of today's calendar events.
+
+    Returns an empty string if the user is not authenticated or an error occurs.
+    """
+    try:
+        from services.google_auth import is_authenticated
+        if not is_authenticated():
+            return ""
+        from services import calendar as cal_service
+        events = await cal_service.get_today_events()
+        if not events:
+            return ""
+        parts = []
+        for ev in events:
+            title = ev.get("summary", "Untitled")
+            start = ev.get("start", {})
+            end = ev.get("end", {})
+            start_val = start.get("dateTime") or start.get("date") or ""
+            end_val = end.get("dateTime") or end.get("date") or ""
+            # Format times as HHam/pm if possible
+            def _fmt(dt_str: str) -> str:
+                if not dt_str:
+                    return ""
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(dt_str)
+                    return dt.strftime("%-I:%M%p").lower()
+                except Exception:
+                    return dt_str[:5]
+            start_fmt = _fmt(start_val)
+            end_fmt = _fmt(end_val)
+            if start_fmt and end_fmt:
+                parts.append(f"{start_fmt}-{end_fmt}: {title}")
+            elif start_fmt:
+                parts.append(f"{start_fmt}: {title}")
+            else:
+                parts.append(title)
+        return "Today's calendar: " + "; ".join(parts)
+    except Exception:
+        return ""
+
+
 async def call_model(provider: str, messages: list[dict], websocket: WebSocket, label: str = "", use_tools: bool = False):
     """Call a single model and stream the response, returning the full text."""
     if label:
@@ -246,10 +297,19 @@ async def chat_websocket(websocket: WebSocket):
 
             # Inject ostk context if relevant (only when not using tool mode,
             # since the agent can look up context itself via tools)
-            if not use_tools and should_inject_context(last_text):
-                context = await build_context()
-                if context:
-                    system_msg = f"You are the AI assistant for myOS. Here is the current workspace context:\n\n{context}\n\nAnswer the user's question using this context."
+            if not use_tools and (should_inject_context(last_text) or should_inject_calendar(last_text)):
+                context_parts = []
+                if should_inject_context(last_text):
+                    ctx = await build_context()
+                    if ctx:
+                        context_parts.append(ctx)
+                if should_inject_calendar(last_text):
+                    cal_ctx = await build_calendar_context()
+                    if cal_ctx:
+                        context_parts.append(cal_ctx)
+                if context_parts:
+                    combined = "\n\n".join(context_parts)
+                    system_msg = f"You are the AI assistant for myOS. Here is the current workspace context:\n\n{combined}\n\nAnswer the user's question using this context."
                     messages = [{"role": "user", "content": system_msg}] + messages
 
             # Convert [gif:URL] markers to image content blocks for vision

@@ -37,6 +37,15 @@ interface DashboardData {
 }
 
 
+interface CalendarEvent {
+  id: string
+  summary?: string
+  start: { dateTime?: string; date?: string }
+  end: { dateTime?: string; date?: string }
+  location?: string
+  hangoutLink?: string
+}
+
 interface SessionDiff {
   files_changed: string[];
   needles_filed: { id: string; priority: string; title: string }[];
@@ -136,12 +145,27 @@ export default function Dashboard() {
     { icon: 'chat', label: 'Open Chat', color: 'text-cyan-400', hoverBorder: 'hover:border-cyan-500' },
   ];
 
+  const [nextMeeting, setNextMeeting] = useState<CalendarEvent | null | undefined>(undefined);
   const [labels, setLabels] = useState<{ id: string; name: string; color: string; task_count: number }[]>([]);
 
   useEffect(() => {
     api.get<{ labels: { id: string; name: string; color: string; task_count: number }[] }>('/labels')
       .then((res) => setLabels(res.labels ?? []))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api.get<{ events: CalendarEvent[] }>('/calendar/events')
+      .then((res) => {
+        const now = Date.now();
+        const future = (res.events || []).filter((ev) => {
+          const startStr = ev.start?.dateTime || ev.start?.date;
+          if (!startStr) return false;
+          return new Date(startStr).getTime() > now;
+        });
+        setNextMeeting(future[0] ?? null);
+      })
+      .catch(() => setNextMeeting(null));
   }, []);
 
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-6 rounded-xl hover:border-slate-700 transition-colors';
@@ -240,6 +264,59 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
+
+          {/* Next meeting widget -- only shown when authenticated and there is a meeting */}
+          {nextMeeting && (
+            <div
+              className={`${cardClass} col-span-2`}
+              onClick={() => navigate('/calendar')}
+              style={{ cursor: 'pointer' }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
+                    <Icon name="calendar_month" className="text-blue-400" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-0.5">Next meeting</p>
+                    <p className="font-semibold">{nextMeeting.summary || 'Untitled'}</p>
+                    {(() => {
+                      const startStr = nextMeeting.start?.dateTime || nextMeeting.start?.date;
+                      if (!startStr) return null;
+                      try {
+                        const d = new Date(startStr);
+                        const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                        const today = new Date();
+                        const isToday = d.toDateString() === today.toDateString();
+                        const tomorrow = new Date(today);
+                        tomorrow.setDate(today.getDate() + 1);
+                        const isTomorrow = d.toDateString() === tomorrow.toDateString();
+                        const dayStr = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+                        return <p className="text-sm text-slate-400">{dayStr} at {timeStr}</p>;
+                      } catch {
+                        return null;
+                      }
+                    })()}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {nextMeeting.hangoutLink && (
+                    <a
+                      href={nextMeeting.hangoutLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-green-500/20 text-green-400 rounded-lg text-sm hover:bg-green-500/30 transition-colors"
+                    >
+                      <Icon name="video_call" size={16} />
+                      Join Meet
+                    </a>
+                  )}
+                  <Icon name="chevron_right" className="text-slate-500" size={20} />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Day Summary */}
           <div className={cardClass}>

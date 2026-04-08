@@ -207,10 +207,8 @@ function CredentialsPicker({ onSaved }: { onSaved: () => void }) {
 
 function ConnectScreen({
   hasCredentialsFile,
-  onConnected,
 }: {
   hasCredentialsFile: boolean;
-  onConnected: () => void;
 }) {
   const [credsSaved, setCredsSaved] = useState(hasCredentialsFile);
   const [loading, setLoading] = useState(false);
@@ -228,28 +226,7 @@ function ConnectScreen({
     setError(null);
     try {
       const { url } = await api.get<{ url: string }>('/drive/auth/url');
-      window.open(url, '_blank');
-
-      // Poll for auth completion.
-      let attempts = 0;
-      pollRef.current = setInterval(async () => {
-        attempts++;
-        try {
-          const status = await api.get<AuthStatus>('/drive/auth/status');
-          if (status.authenticated) {
-            if (pollRef.current) clearInterval(pollRef.current);
-            setLoading(false);
-            onConnected();
-          }
-        } catch {
-          // Keep polling.
-        }
-        if (attempts >= 30) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          setLoading(false);
-          setError('Sign-in timed out. Please try again.');
-        }
-      }, 2000);
+      window.location.href = url;
     } catch (err: unknown) {
       setLoading(false);
       const msg = err instanceof Error ? err.message : String(err);
@@ -601,12 +578,7 @@ export default function Drive() {
     }
   };
 
-  const handleConnected = async () => {
-    const status = await fetchStatus();
-    if (status?.authenticated) {
-      await fetchFiles();
-    }
-  };
+
 
   const handleDisconnect = async () => {
     try {
@@ -666,7 +638,6 @@ export default function Drive() {
         {authStatus !== null && !authStatus.authenticated && (
           <ConnectScreen
             hasCredentialsFile={authStatus.credentials_file_present}
-            onConnected={handleConnected}
           />
         )}
 

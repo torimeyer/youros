@@ -118,19 +118,31 @@ async def test_complete_persists_status_to_disk(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_recovery_marks_stale_running_as_abandoned(tmp_path):
-    """_recover_stale_agents() must mark running agents with dead PIDs as abandoned."""
+    """_recover_stale_agents() must mark running local-process agents with dead PIDs as abandoned.
+
+    Claude Code agents (source='claude-code') are skipped because they
+    mark themselves complete via the API and have no local PID to check.
+    """
     state_path = _make_state_path(tmp_path)
     now = datetime.now(timezone.utc).isoformat()
 
-    # Write a state file with two running agents: one with a dead PID, one completed.
+    # ghost-agent uses source=local (not claude-code) so recovery applies.
     initial_state = {
         "ghost-agent": {
             "spawned_at": now,
             "budget": "2.0",
             "model": "claude-sonnet-4-6",
+            "source": "local",
+            "status": "running",
+            # No PID recorded.
+        },
+        "cc-agent": {
+            "spawned_at": now,
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
             "source": "claude-code",
             "status": "running",
-            # No PID, simulates an externally registered agent that never completed.
+            # claude-code agents must NOT be touched by recovery.
         },
         "done-agent": {
             "spawned_at": now,
@@ -152,10 +164,14 @@ def test_recovery_marks_stale_running_as_abandoned(tmp_path):
          patch.object(agents_mod, "_is_pid_alive", return_value=False):
         agents_mod._recover_stale_agents()
 
-    # ghost-agent must be abandoned
+    # ghost-agent (local source, no PID) must be abandoned
     assert meta["ghost-agent"]["status"] == "abandoned", \
-        "Agent with no live PID must be marked abandoned on startup"
+        "Local agent with no live PID must be marked abandoned on startup"
     assert "abandoned_at" in meta["ghost-agent"]
+
+    # cc-agent (claude-code source) must be left alone
+    assert meta["cc-agent"]["status"] == "running", \
+        "claude-code agents must not be marked abandoned by recovery"
 
     # done-agent must stay completed
     assert meta["done-agent"]["status"] == "completed", \

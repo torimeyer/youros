@@ -275,6 +275,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_calendar_events",
+        "description": "Get today's events from the user's Google Calendar. Returns a formatted list of today's meetings and events.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
         "name": "spawn_agent",
         "description": "Spawn a background AI agent to work on a task independently. The agent runs in the background and can be monitored on the Agents page. Use this for tasks that take a while or can run in parallel. When writing the agent's prompt, always include instructions to write tests for the work and verify they pass before finishing.",
         "input_schema": {
@@ -337,6 +346,8 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
             return await _check_agents()
         elif name == "capture_idea":
             return await _capture_idea(input_data["thought"])
+        elif name == "get_calendar_events":
+            return await _get_calendar_events()
         elif name == "spawn_agent":
             return await _spawn_agent(input_data["name"], input_data["prompt"], input_data.get("model", "sonnet"))
         else:
@@ -627,6 +638,53 @@ async def _check_agents() -> str:
         return "\n".join(lines)
     except Exception as e:
         return f"Failed to check agents: {e}"
+
+
+async def _get_calendar_events() -> str:
+    """Return today's calendar events as formatted text."""
+    try:
+        from services.google_auth import is_authenticated
+        if not is_authenticated():
+            return "Google Calendar is not connected. Connect your Google account in the Drive settings."
+        from services import calendar as cal_service
+        events = await cal_service.get_today_events()
+        if not events:
+            return "No events on your calendar today."
+        lines = []
+        for ev in events:
+            title = ev.get("summary", "Untitled")
+            start = ev.get("start", {})
+            end = ev.get("end", {})
+            start_val = start.get("dateTime") or start.get("date") or ""
+            end_val = end.get("dateTime") or end.get("date") or ""
+            location = ev.get("location", "")
+            meet_link = ev.get("hangoutLink", "")
+
+            def _fmt(dt_str: str) -> str:
+                if not dt_str:
+                    return ""
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(dt_str)
+                    return dt.strftime("%-I:%M%p").lower()
+                except Exception:
+                    return dt_str[:5]
+
+            time_str = ""
+            if start_val and end_val:
+                time_str = f"{_fmt(start_val)}-{_fmt(end_val)}"
+            elif start_val:
+                time_str = _fmt(start_val)
+
+            line = f"- {time_str}: {title}" if time_str else f"- {title}"
+            if location:
+                line += f" (at {location})"
+            if meet_link:
+                line += f" [Meet: {meet_link}]"
+            lines.append(line)
+        return "Today's calendar events:\n" + "\n".join(lines)
+    except Exception as exc:
+        return f"Could not load calendar events: {exc}"
 
 
 async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:

@@ -17,10 +17,13 @@ TOKEN_PATH = MYOS_DIR / "google_token.json"
 CREDENTIALS_PATH = MYOS_DIR / "google_credentials.json"
 DRIVE_CACHE_DIR = MYOS_DIR / "drive_cache"
 
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/calendar.readonly",
+]
 
 # Redirect URI used during the OAuth flow.  The backend serves the callback.
-REDIRECT_URI = "http://localhost:37373/api/drive/auth/callback"
+REDIRECT_URI = "http://localhost:8000/api/drive/auth/callback"
 
 
 def _ensure_dirs() -> None:
