@@ -333,6 +333,30 @@ class OstkService:
     async def add_hay(self, thought: str) -> str:
         return await self._run("work", "hay", thought)
 
+    async def add_hay_from_chat(self, thought: str) -> str:
+        """Save a hay entry that originated from a chat conversation.
+
+        Calls the ostk CLI to file the hay (so it appears in the active list),
+        then patches the last hay.filed event in audit.jsonl to mark
+        source as 'chat'.
+        """
+        result = await self._run("work", "hay", thought)
+        # Patch the source field on the hay.filed entry we just appended.
+        audit_path = Path(self.cwd) / ".ostk" / "audit.jsonl"
+        if audit_path.exists():
+            lines = audit_path.read_text().strip().splitlines()
+            for i in range(len(lines) - 1, -1, -1):
+                try:
+                    entry = json.loads(lines[i])
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("event") == "hay.filed" and entry.get("straw") == thought:
+                    entry["source"] = "chat"
+                    lines[i] = json.dumps(entry, ensure_ascii=False)
+                    audit_path.write_text("\n".join(lines) + "\n")
+                    break
+        return result
+
     async def compile_hay(self, dry_run: bool = False) -> str:
         args = ["work", "compile"]
         if dry_run:

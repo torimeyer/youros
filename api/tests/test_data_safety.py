@@ -36,6 +36,7 @@ STORE_PATH_CONSTANTS = {
     "services.labels_store": "LABELS_PATH",
     "services.threads_store": "THREADS_PATH",
     "services.task_labels_store": "TASK_LABELS_PATH",
+    "services.templates_store": "TEMPLATES_PATH",
 }
 
 

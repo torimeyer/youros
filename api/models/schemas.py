@@ -23,6 +23,7 @@ class TaskLink(BaseModel):
 
 class HayCreate(BaseModel):
     thought: str
+    template_id: Optional[str] = None
 
 
 class HayConvert(BaseModel):

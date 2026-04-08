@@ -196,6 +196,7 @@ async def test_list_ideas(client):
     mock_hay = {"clusters": [{"name": "design", "count": 2, "items": ["a", "b"]}], "unclustered": ["c"]}
     with patch("routers.ideas.ostk") as mock_ostk:
         mock_ostk.list_hay = AsyncMock(return_value=mock_hay)
+        mock_ostk.list_converted_hay = AsyncMock(return_value=[])
         resp = await client.get("/api/ideas")
 
     assert resp.status_code == 200
@@ -204,6 +205,7 @@ async def test_list_ideas(client):
     assert "unclustered" in data
     assert len(data["clusters"]) == 1
     assert data["clusters"][0]["name"] == "design"
+    # unclustered items are now annotated objects with straw/staleness/source
     assert len(data["unclustered"]) == 1
 
 
@@ -378,6 +380,7 @@ async def test_list_active_ideas_excludes_converted(client):
     mock_hay = {"clusters": [], "unclustered": ["fresh idea"]}
     with patch("routers.ideas.ostk") as mock_ostk:
         mock_ostk.list_hay = AsyncMock(return_value=mock_hay)
+        mock_ostk.list_converted_hay = AsyncMock(return_value=[])
         resp = await client.get("/api/ideas")
 
     assert resp.status_code == 200

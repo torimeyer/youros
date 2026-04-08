@@ -71,7 +71,10 @@ def _fingerprint(title: str, description: str, extra_context: Optional[str]) -> 
 
 
 def _build_prompt(
-    title: str, description: str, extra_context: Optional[str]
+    title: str,
+    description: str,
+    extra_context: Optional[str],
+    breakdown_hint: Optional[str] = None,
 ) -> tuple[str, str]:
     """Return (system, user) prompts for the breakdown classifier.
 
@@ -79,12 +82,19 @@ def _build_prompt(
     question or returning a concrete task list. No em-dashes, plain
     language.
     """
+    hint_line = ""
+    if breakdown_hint and breakdown_hint.strip():
+        hint_line = (
+            f"Context about this idea type: {breakdown_hint.strip()}\n\n"
+        )
+
     system = (
         "You break a user's idea into the concrete list of tasks needed to "
         "ship it. Each task should be small enough to finish in one sitting. "
         "If the idea is too vague to break down well, do not guess. Ask one "
         "clarifying question instead. Plain language. No jargon. Never use "
         "em-dashes.\n\n"
+        f"{hint_line}"
         "You must respond with ONLY valid JSON matching this exact shape:\n"
         "{\n"
         '  "needs_clarification": boolean,\n'
@@ -304,12 +314,17 @@ async def break_down_idea(
     title: str,
     description: str = "",
     extra_context: Optional[str] = None,
+    breakdown_hint: Optional[str] = None,
 ) -> IdeaBreakdownResult:
     """Break an idea into the tasks needed to ship it.
 
     Returns an IdeaBreakdownResult. If Claude thinks the idea is too vague
     it returns needs_clarification=True with a single question. Otherwise
     it returns between 1 and 15 tasks.
+
+    breakdown_hint is an optional sentence that tells Claude what kind of
+    idea this is (e.g. from a template). It is injected into the system
+    prompt to improve task generation.
     """
     title = (title or "").strip()
     description = (description or "").strip()
@@ -328,7 +343,7 @@ async def break_down_idea(
         _cache[cache_key] = result
         return result
 
-    system, user = _build_prompt(title, description, extra_context)
+    system, user = _build_prompt(title, description, extra_context, breakdown_hint)
 
     # First attempt.
     raw = await _call_claude(system, user)

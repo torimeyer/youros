@@ -14,6 +14,56 @@ GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", "uac5bYV974kGSu3Pe0B92ChNrIQypZ0
 
 CONTEXT_KEYWORDS = {"tasks", "needles", "task", "needle", "focus", "agents", "hay", "ideas", "status"}
 
+# Phrases that trigger saving the current conversation topic as an idea.
+_SAVE_AS_IDEA_PATTERNS = [
+    re.compile(r"\bsave\s+(?:this\s+)?as\s+an?\s+idea\b", re.IGNORECASE),
+    re.compile(r"\bpark\s+(?:this\s+)?as\s+an?\s+idea\b", re.IGNORECASE),
+    re.compile(r"\badd\s+(?:this\s+)?to\s+ideas\b", re.IGNORECASE),
+    re.compile(r"\bfile\s+(?:this\s+)?as\s+(?:an?\s+)?idea\b", re.IGNORECASE),
+]
+
+
+def _detect_save_as_idea(text: str) -> bool:
+    """Return True if the message is asking to save the topic as an idea."""
+    for pattern in _SAVE_AS_IDEA_PATTERNS:
+        if pattern.search(text):
+            return True
+    return False
+
+
+def _extract_idea_content(messages: list[dict]) -> str:
+    """Pull the most relevant content to save as an idea from recent messages.
+
+    Looks at the last few assistant and user turns to find something
+    substantive to save. Falls back to the last user message if nothing
+    useful is found.
+    """
+    # Walk backwards through the conversation looking for content.
+    for msg in reversed(messages[:-1]):  # skip the command message itself
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if not isinstance(content, str):
+            continue
+        content = content.strip()
+        if not content:
+            continue
+        if role in ("assistant", "user") and len(content) > 10:
+            # Trim to a reasonable length for an idea title.
+            return content[:200]
+    # Absolute fallback: use the user's command text stripped of the keyword.
+    last = messages[-1].get("content", "") if messages else ""
+    if isinstance(last, str):
+        cleaned = re.sub(
+            r"\b(?:save|park)\s+(?:this\s+)?as\s+an?\s+idea\b|"
+            r"\badd\s+(?:this\s+)?to\s+ideas\b|"
+            r"\bfile\s+(?:this\s+)?as\s+(?:an?\s+)?idea\b",
+            "",
+            last,
+            flags=re.IGNORECASE,
+        ).strip()
+        return cleaned or last[:200]
+    return "Idea from chat"
+
 # Map @mention names to provider keys
 MODEL_ALIASES = {
     "claude": "claude",
@@ -170,6 +220,24 @@ async def chat_websocket(websocket: WebSocket):
             last_text = messages[-1].get("content", "")
             use_tools = data.get("tools", False)
             mentioned_models = parse_mentions(last_text)
+
+            # --- Chat-to-Idea: intercept "save as idea" commands ---
+            if isinstance(last_text, str) and _detect_save_as_idea(last_text):
+                idea_content = _extract_idea_content(messages)
+                try:
+                    await ostk.add_hay_from_chat(idea_content)
+                    saved_ok = True
+                except Exception:
+                    saved_ok = False
+
+                confirm_text = (
+                    "Saved to Ideas. You can break it into tasks from the Ideas page."
+                    if saved_ok
+                    else "I could not save that idea right now. Try again."
+                )
+                await websocket.send_json({"type": "text", "data": confirm_text})
+                await websocket.send_json({"type": "done"})
+                continue
 
             # If no @mentions, use the dropdown selection
             if not mentioned_models:

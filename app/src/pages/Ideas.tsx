@@ -1,12 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import ClarificationPrompt from "../components/ClarificationPrompt";
+import TemplateManager from "../components/TemplateManager";
 import { api } from "../lib/api";
 
+interface IdeaItem {
+  straw: string;
+  staleness: "stale" | "very_stale" | null;
+  source: string | null;
+}
+
 interface IdeasResponse {
-  clusters: { name: string; count: number; items: string[] }[];
-  unclustered: string[];
+  clusters: { name: string; count: number; items: IdeaItem[] }[];
+  unclustered: IdeaItem[];
 }
 
 interface ConvertedItem {
@@ -32,13 +39,24 @@ interface ConvertResponse {
   straw?: string;
 }
 
+interface Template {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  prompt_template: string;
+  breakdown_hint: string;
+  builtin: boolean;
+}
+
 type Tab = "active" | "converted";
+type SortMode = "newest" | "oldest" | "stalest";
 
 export default function Ideas() {
   const [tab, setTab] = useState<Tab>("active");
-  const [sortNewest, setSortNewest] = useState(true);
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [input, setInput] = useState("");
-  const [hayEntries, setHayEntries] = useState<string[]>([]);
+  const [hayEntries, setHayEntries] = useState<IdeaItem[]>([]);
   const [clusters, setClusters] = useState<IdeasResponse["clusters"]>([]);
   const [convertedItems, setConvertedItems] = useState<ConvertedItem[]>([]);
   const [successMessage, setSuccessMessage] = useState("");
@@ -46,11 +64,15 @@ export default function Ideas() {
     straw: string;
     question: string;
   } | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const fetchActive = async () => {
     try {
       const data = await api.get<IdeasResponse>("/ideas");
-      const allItems: string[] = [];
+      const allItems: IdeaItem[] = [];
       if (data.clusters) {
         setClusters(data.clusters);
         for (const cluster of data.clusters) {
@@ -75,19 +97,51 @@ export default function Ideas() {
     }
   };
 
+  const fetchTemplates = async () => {
+    try {
+      const data = await api.get<{ templates: Template[] }>("/ideas/templates");
+      setTemplates(data.templates || []);
+    } catch {
+      // If templates endpoint is unavailable, leave empty
+    }
+  };
+
   const fetchData = async () => {
     await Promise.all([fetchActive(), fetchConverted()]);
   };
 
   useEffect(() => {
     fetchData();
+    fetchTemplates();
   }, []);
+
+  const handleTemplateClick = (template: Template) => {
+    if (selectedTemplateId === template.id) {
+      setSelectedTemplateId(null);
+      return;
+    }
+    setSelectedTemplateId(template.id);
+    setInput(template.prompt_template);
+    // Focus and select the first placeholder so user can immediately type
+    setTimeout(() => {
+      if (inputRef.current) {
+        const text = template.prompt_template;
+        const start = text.indexOf("[");
+        const end = text.indexOf("]") + 1;
+        inputRef.current.focus();
+        if (start >= 0 && end > start) {
+          inputRef.current.setSelectionRange(start, end);
+        }
+      }
+    }, 50);
+  };
 
   const handleSend = async () => {
     if (!input.trim()) return;
     try {
-      await api.post("/ideas", { thought: input });
+      await api.post("/ideas", { thought: input, template_id: selectedTemplateId });
       setInput("");
+      setSelectedTemplateId(null);
       await fetchActive();
     } catch {
       // handle error silently
@@ -149,10 +203,36 @@ export default function Ideas() {
     }
   };
 
-  const displayEntries = sortNewest ? [...hayEntries] : [...hayEntries].reverse();
-  const displayConverted = sortNewest
-    ? [...convertedItems]
-    : [...convertedItems].reverse();
+  const sortEntries = (entries: IdeaItem[]): IdeaItem[] => {
+    if (sortMode === "oldest") return [...entries].reverse();
+    if (sortMode === "stalest") {
+      return [...entries].sort((a, b) => {
+        const rank = (s: IdeaItem["staleness"]) =>
+          s === "very_stale" ? 0 : s === "stale" ? 1 : 2;
+        return rank(a.staleness) - rank(b.staleness);
+      });
+    }
+    return [...entries]; // newest: already in newest-first order from server
+  };
+
+  const displayEntries = sortEntries(hayEntries);
+  const displayConverted = sortMode === "oldest"
+    ? [...convertedItems].reverse()
+    : [...convertedItems];
+
+  const cycleSortMode = () => {
+    setSortMode((prev) => {
+      if (prev === "newest") return "oldest";
+      if (prev === "oldest") return "stalest";
+      return "newest";
+    });
+  };
+
+  const sortLabel = sortMode === "newest"
+    ? "Newest first"
+    : sortMode === "oldest"
+    ? "Oldest first"
+    : "Stalest first";
 
   return (
     <>
@@ -167,10 +247,10 @@ export default function Ideas() {
             </span>
           </div>
           <button
-            onClick={() => setSortNewest(!sortNewest)}
+            onClick={cycleSortMode}
             className="text-sm text-slate-400 hover:text-white transition-colors"
           >
-            {sortNewest ? "Newest First" : "Oldest First"}
+            {sortLabel}
           </button>
         </div>
 
@@ -208,25 +288,58 @@ export default function Ideas() {
           </button>
         </div>
 
-        {/* Quick capture (only on Active tab) */}
+        {/* Template picker + Quick capture (only on Active tab) */}
         {tab === "active" && (
-          <div className="flex gap-3 mb-8">
-            <input
-              type="text"
-              placeholder="Quick dump an idea (or just mention it in chat)"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSend();
-              }}
-              className="flex-1 bg-slate-900/40 border border-slate-800 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
-            />
-            <button
-              onClick={handleSend}
-              className="bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-4 py-2 transition-colors"
-            >
-              Send
-            </button>
+          <div className="mb-8">
+            {/* Template cards */}
+            {templates.length > 0 && (
+              <div className="mb-3">
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {templates.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      onClick={() => handleTemplateClick(tpl)}
+                      title={tpl.description}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                        selectedTemplateId === tpl.id
+                          ? "bg-pink-500 text-white border-pink-500"
+                          : "bg-slate-800/50 text-slate-400 hover:text-white border-slate-700 hover:border-slate-500"
+                      }`}
+                    >
+                      <Icon name={tpl.icon} className="text-sm" />
+                      {tpl.name}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setShowTemplateManager(true)}
+                  className="text-xs text-slate-500 hover:text-pink-400 transition-colors"
+                >
+                  Manage templates
+                </button>
+              </div>
+            )}
+
+            {/* Text input */}
+            <div className="flex gap-3">
+              <input
+                ref={inputRef}
+                type="text"
+                placeholder="Quick dump an idea (or just mention it in chat)"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSend();
+                }}
+                className="flex-1 bg-slate-900/40 border border-slate-800 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
+              />
+              <button
+                onClick={handleSend}
+                className="bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-4 py-2 transition-colors"
+              >
+                Save
+              </button>
+            </div>
           </div>
         )}
 
@@ -256,10 +369,10 @@ export default function Ideas() {
                 <div className="flex flex-wrap gap-2 mb-4">
                   {clusters.flatMap((c) => c.items).map((item) => (
                     <span
-                      key={item}
+                      key={item.straw}
                       className="bg-slate-800 text-slate-300 text-xs rounded-full px-3 py-1"
                     >
-                      {item}
+                      {item.straw}
                     </span>
                   ))}
                 </div>
@@ -276,32 +389,47 @@ export default function Ideas() {
             {displayEntries.length === 0 ? (
               <div className="text-center py-16 text-slate-500">
                 <Icon name="lightbulb" className="text-4xl mb-3 block" />
-                <p>No active ideas yet. Mention one in chat or type one above.</p>
+                <p>No active ideas yet. Pick a template above or type one in.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {displayEntries.map((entry, idx) => (
                   <div
-                    key={`${entry}-${idx}`}
+                    key={`${entry.straw}-${idx}`}
                     className="bg-slate-900/40 border border-slate-800 rounded-xl p-5"
                   >
                     <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-pink-500" />
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="w-2 h-2 rounded-full bg-pink-500 flex-shrink-0" />
                         <span className="text-slate-500 text-sm">idea</span>
+                        {entry.source === "chat" && (
+                          <span className="bg-blue-500/20 text-blue-400 text-xs px-2 py-0.5 rounded-full">
+                            From chat
+                          </span>
+                        )}
+                        {entry.staleness === "very_stale" && (
+                          <span className="bg-red-500/20 text-red-400 text-xs px-2 py-0.5 rounded-full">
+                            Very stale
+                          </span>
+                        )}
+                        {entry.staleness === "stale" && (
+                          <span className="bg-yellow-500/20 text-yellow-400 text-xs px-2 py-0.5 rounded-full">
+                            Getting stale
+                          </span>
+                        )}
                       </div>
                       <button
-                        onClick={() => handleDelete(entry)}
+                        onClick={() => handleDelete(entry.straw)}
                         className="text-slate-600 hover:text-red-400 transition-colors"
                         title="Remove idea"
                       >
                         <Icon name="close" className="text-lg" />
                       </button>
                     </div>
-                    <p className="text-white text-lg font-medium mb-3">{entry}</p>
+                    <p className="text-white text-lg font-medium mb-3">{entry.straw}</p>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleConvert(entry)}
+                        onClick={() => handleConvert(entry.straw)}
                         className="bg-pink-500/20 text-pink-500 text-xs font-bold px-3 py-1 rounded hover:bg-pink-500/30 transition-colors"
                       >
                         Break into tasks
@@ -353,12 +481,22 @@ export default function Ideas() {
           </>
         )}
       </div>
+
       {clarification && (
         <ClarificationPrompt
           straw={clarification.straw}
           question={clarification.question}
           onClose={() => setClarification(null)}
           onCreated={handleClarificationCreated}
+        />
+      )}
+
+      {showTemplateManager && (
+        <TemplateManager
+          onClose={() => {
+            setShowTemplateManager(false);
+            fetchTemplates();
+          }}
         />
       )}
     </>
