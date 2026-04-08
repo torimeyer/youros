@@ -274,14 +274,19 @@ export default function Calendar() {
             </div>
             <h2 className="text-xl font-semibold mb-2">Calendar API not enabled</h2>
             <p className="text-slate-400 mb-4">
-              Your Google Cloud project has Google Calendar API disabled. You need to enable it once in Google Cloud Console.
+              Your Google Cloud project has Google Calendar API disabled. You need to enable it once. It only takes a minute.
             </p>
-            <ol className="text-sm text-slate-300 space-y-2 mb-6 list-decimal list-inside">
-              <li>Go to your Google Cloud Console</li>
-              <li>Search for "Google Calendar API"</li>
-              <li>Click Enable</li>
-              <li>Wait 1-2 minutes, then reload this page</li>
-            </ol>
+            <a
+              href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com"
+              target="_blank"
+              rel="noreferrer"
+              className="w-full block text-center py-3 mb-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
+            >
+              Enable Calendar API in Google Cloud
+            </a>
+            <p className="text-xs text-slate-500 mb-4">
+              After clicking Enable on Google's page, wait 1-2 minutes for the change to propagate, then come back and click Retry.
+            </p>
             <button
               onClick={() => { setApiNotEnabled(false); fetchEvents() }}
               className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"

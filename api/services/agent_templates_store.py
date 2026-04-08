@@ -19,68 +19,10 @@ from typing import Optional
 
 AGENT_TEMPLATES_PATH = Path.home() / ".myos" / "agent_templates.json"
 
-BUILTIN_AGENT_TEMPLATES: list[dict] = [
-    {
-        "id": "builtin-research-spike",
-        "name": "Research spike",
-        "description": "Research a topic thoroughly and write a 1-page summary with key facts, trade-offs, and a recommendation.",
-        "icon": "science",
-        "prompt_template": "Research [topic] thoroughly. Find key facts, trade-offs, and recommendations. Write a 1-page summary.",
-        "model": "sonnet",
-        "budget": 2.0,
-        "builtin": True,
-    },
-    {
-        "id": "builtin-code-review",
-        "name": "Code review",
-        "description": "Review recent changes in a file or area for bugs, security issues, and missing tests.",
-        "icon": "code",
-        "prompt_template": "Review the recent changes in [file/area]. Check for bugs, security issues, and missing tests. File needles for anything found.",
-        "model": "sonnet",
-        "budget": 2.0,
-        "builtin": True,
-    },
-    {
-        "id": "builtin-task-breakdown",
-        "name": "Task breakdown",
-        "description": "Break down a goal into a full list of concrete tasks and create them in myOS.",
-        "icon": "checklist",
-        "prompt_template": "Break down [goal] into a full list of concrete tasks. Create them in myOS with appropriate priorities.",
-        "model": "sonnet",
-        "budget": 2.0,
-        "builtin": True,
-    },
-    {
-        "id": "builtin-weekly-digest",
-        "name": "Weekly digest",
-        "description": "Summarize what was accomplished this week: what shipped, what is blocked, and what is next.",
-        "icon": "summarize",
-        "prompt_template": "Summarize what was accomplished this week from the ostk activity log. Focus on [team/area] if relevant. What shipped, what's blocked, what's next.",
-        "model": "sonnet",
-        "budget": 2.0,
-        "builtin": True,
-    },
-    {
-        "id": "builtin-diagnosis",
-        "name": "Diagnosis",
-        "description": "Find the root cause of a problem, fix it, and write a regression test.",
-        "icon": "troubleshoot",
-        "prompt_template": "Diagnose why [problem] is happening. Find the root cause, fix it, write a regression test.",
-        "model": "sonnet",
-        "budget": 3.0,
-        "builtin": True,
-    },
-    {
-        "id": "builtin-documentation",
-        "name": "Documentation",
-        "description": "Write clear, plain-language documentation for a feature or system.",
-        "icon": "description",
-        "prompt_template": "Write clear documentation for [feature/system]. Plain language, no jargon.",
-        "model": "sonnet",
-        "budget": 2.0,
-        "builtin": True,
-    },
-]
+# No built-in PM-focused templates. Templates are now installed per-user
+# based on their chosen persona during onboarding (see app/src/data/
+# agentMarketplace.ts and the OnboardingWizard Persona step).
+BUILTIN_AGENT_TEMPLATES: list[dict] = []
 
 
 class AgentTemplatesStore:

@@ -43,8 +43,9 @@ def store(tmp_path, monkeypatch):
 
 
 def test_builtin_templates_present():
-    """BUILTIN_AGENT_TEMPLATES has exactly 6 items."""
-    assert len(BUILTIN_AGENT_TEMPLATES) == 6
+    """BUILTIN_AGENT_TEMPLATES is empty now — templates install per-user
+    from the marketplace based on the persona picked during onboarding."""
+    assert BUILTIN_AGENT_TEMPLATES == []
 
 
 def test_builtin_ids_are_builtin_prefixed():
@@ -172,7 +173,10 @@ async def client(tmp_path, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_list_pm_templates_returns_builtins(tmp_path, monkeypatch):
+async def test_list_pm_templates_returns_empty_when_no_custom(tmp_path, monkeypatch):
+    """With no built-ins and no custom templates, the endpoint returns [].
+    Built-ins were removed in favor of persona-based marketplace installs
+    during onboarding."""
     import services.agent_templates_store as mod
     fake_path = tmp_path / "lpt.json"
     monkeypatch.setattr(mod, "AGENT_TEMPLATES_PATH", fake_path)
@@ -183,8 +187,7 @@ async def test_list_pm_templates_returns_builtins(tmp_path, monkeypatch):
     assert resp.status_code == 200
     data = resp.json()
     assert "templates" in data
-    builtin_ids = {t["id"] for t in data["templates"] if t.get("builtin")}
-    assert "builtin-research-spike" in builtin_ids
+    assert data["templates"] == []
 
 
 @pytest.mark.anyio

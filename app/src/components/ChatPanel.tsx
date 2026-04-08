@@ -1038,7 +1038,11 @@ export function ChatPanel() {
                     {msg.content && (
                       <CollapsibleText text={msg.content} isLast={i === messages.length - 1} streaming={isStreaming} />
                     )}
-                    {!msg.content && isStreaming && i === messages.length - 1 && !msg.toolCalls?.length && (
+                    {/* Show thinking dots any time an assistant bubble is
+                        empty and it is the most recent message. This
+                        covers the brief window between the empty bubble
+                        being created and isStreaming flipping true. */}
+                    {!msg.content && i === messages.length - 1 && !msg.toolCalls?.length && (
                       <ThinkingDots />
                     )}
                     {isStreaming && i === messages.length - 1 && (msg.toolCalls?.some(tc => tc.result === undefined)) && (

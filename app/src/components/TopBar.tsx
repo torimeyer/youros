@@ -277,7 +277,18 @@ export default function TopBar({ title }: TopBarProps) {
                 <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
                   <span className="text-sm font-semibold text-white">Notifications</span>
                   <div className="flex items-center gap-3">
-                    {notifications.length > 0 && (
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={() => {
+                          if (agentUnreadCount > 0) markAllRead()
+                          if (persistentUnread > 0) handleMarkAllPersistentRead()
+                        }}
+                        className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                      >
+                        Mark all read
+                      </button>
+                    )}
+                    {(notifications.length > 0 || persistentNotifs.length > 0) && (
                       <button
                         onClick={clearAll}
                         className="text-xs text-slate-500 hover:text-slate-300 transition-colors"

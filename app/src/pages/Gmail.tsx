@@ -220,14 +220,19 @@ export default function Gmail() {
             </div>
             <h2 className="text-xl font-semibold mb-2">Gmail API not enabled</h2>
             <p className="text-slate-400 mb-4">
-              Your Google Cloud project has the Gmail API disabled. You need to turn it on once in Google Cloud Console. Reconnecting will not fix this.
+              Your Google Cloud project has the Gmail API disabled. You need to turn it on once. Reconnecting will not fix this.
             </p>
-            <ol className="text-sm text-slate-300 space-y-2 mb-6 list-decimal list-inside">
-              <li>Open your Google Cloud Console</li>
-              <li>Search for "Gmail API"</li>
-              <li>Click Enable</li>
-              <li>Wait 1 to 2 minutes, then click Retry</li>
-            </ol>
+            <a
+              href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
+              target="_blank"
+              rel="noreferrer"
+              className="w-full block text-center py-3 mb-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
+            >
+              Enable Gmail API in Google Cloud
+            </a>
+            <p className="text-xs text-slate-500 mb-4">
+              After clicking Enable on Google's page, wait 1-2 minutes for the change to propagate, then come back and click Retry.
+            </p>
             <button
               onClick={() => { setApiNotEnabled(false); fetchMessages() }}
               className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"

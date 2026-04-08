@@ -98,8 +98,52 @@ def strip_mentions(text: str) -> str:
 GIF_RE = re.compile(r"\[gif:(https?://[^\]]+)\]")
 
 
+def _extract_gif_frames(url: str, max_frames: int = 4) -> list[dict]:
+    """Download a GIF and extract evenly spaced frames as base64 PNG blocks.
+
+    Returns a list of Anthropic image blocks. If the URL cannot be fetched
+    or decoded, returns a single URL-based image block as a fallback so
+    Claude at least sees the first frame.
+    """
+    import base64
+    import io
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = resp.read()
+        from PIL import Image
+        img = Image.open(io.BytesIO(data))
+        n_frames = getattr(img, "n_frames", 1)
+        if n_frames <= 1:
+            # Static image, just one frame.
+            return [{"type": "image", "source": {"type": "url", "url": url}}]
+        # Pick evenly spaced frame indices including the first and last.
+        take = min(max_frames, n_frames)
+        indices = [round(i * (n_frames - 1) / (take - 1)) for i in range(take)] if take > 1 else [0]
+        blocks: list[dict] = []
+        for idx in indices:
+            img.seek(idx)
+            frame = img.convert("RGB")
+            buf = io.BytesIO()
+            frame.save(buf, format="PNG", optimize=True)
+            b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+            blocks.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": b64},
+            })
+        return blocks
+    except Exception:
+        # Fallback: single URL-based image block.
+        return [{"type": "image", "source": {"type": "url", "url": url}}]
+
+
 def transform_image_messages(messages: list[dict]) -> list[dict]:
-    """Convert image data (GIF URLs and pasted base64 images) into content blocks for Claude vision."""
+    """Convert image data (GIF URLs and pasted base64 images) into content blocks for Claude vision.
+
+    For animated GIFs, extracts up to 4 evenly spaced frames and sends
+    them all so the model can see motion, not just the first frame.
+    """
     result = []
     for msg in messages:
         content = msg.get("content", "")
@@ -122,12 +166,14 @@ def transform_image_messages(messages: list[dict]) -> list[dict]:
             remaining = content
             for match in GIF_RE.finditer(content):
                 url = match.group(1)
-                blocks.append({
-                    "type": "image",
-                    "source": {"type": "url", "url": url},
-                })
+                # Extract multiple frames so the model can see the animation.
+                blocks.extend(_extract_gif_frames(url, max_frames=4))
                 remaining = remaining.replace(match.group(0), "").strip()
-            blocks.append({"type": "text", "text": remaining or "The user sent this GIF. React to it."})
+            text = (
+                remaining
+                or "The user sent this GIF. The multiple frames above show the animation. Describe what is happening and react to it."
+            )
+            blocks.append({"type": "text", "text": text})
             result.append({"role": msg["role"], "content": blocks})
         else:
             result.append({"role": msg["role"], "content": content})

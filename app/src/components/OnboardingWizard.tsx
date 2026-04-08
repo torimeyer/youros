@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react'
 import { useAppStore } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
+import { AGENT_MARKETPLACE, PERSONA_ICONS, type MarketplaceCategory } from '../data/agentMarketplace'
 
-const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'Connect', 'Adventure', 'Ready'] as const
+const STEPS = ['Welcome', 'You', 'Name', 'Persona', 'Theme', 'Connect', 'Adventure', 'Ready'] as const
 
 interface AdventureTemplate {
   id: string
@@ -35,12 +36,14 @@ export default function OnboardingWizard() {
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
   const setOnboarded = useAppStore((s) => s.setOnboarded)
   const setDefaultChatModel = useAppStore((s) => s.setDefaultChatModel)
+  const setCustomAgentTemplates = useAppStore((s) => s.setCustomAgentTemplates)
 
   // Local state
   const [userName, setUserName] = useState('')
   const [selectedProvider, setSelectedProvider] = useState('Anthropic')
   const [apiKey, setApiKey] = useState('')
   const [keySaved, setKeySaved] = useState(false)
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
 
   // Adventure step state
   const [adventures, setAdventures] = useState<AdventureTemplate[]>([])
@@ -53,6 +56,21 @@ export default function OnboardingWizard() {
   const next = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
   const back = () => setStepIndex((i) => Math.max(i - 1, 0))
 
+  const handlePersonaPick = (category: MarketplaceCategory) => {
+    setSelectedPersonaId(category.id)
+    // Pre-populate the user's custom agent templates from the marketplace
+    // category they picked. They can add or remove templates later in the
+    // Agents page.
+    const templates = category.templates.map((t) => ({
+      name: t.name,
+      description: t.description,
+      icon: t.icon,
+      model: t.model,
+      budget: t.budget,
+    }))
+    setCustomAgentTemplates(templates)
+  }
+
   const finish = () => {
     const settings: Record<string, unknown> = {
       os_name: osName,
@@ -60,6 +78,7 @@ export default function OnboardingWizard() {
       dark_mode: darkMode,
       provider: selectedProvider,
     }
+    if (selectedPersonaId) settings.persona = selectedPersonaId
     api.patch('/settings', settings).catch(() => {})
     setOnboarded(true)
   }
@@ -180,6 +199,41 @@ export default function OnboardingWizard() {
               inputCls={inputCls}
               subtextCls={subtextCls}
             />
+          )}
+          {step === 'Persona' && (
+            <div>
+              <h2 className="text-2xl font-bold mb-2">How will you use myOS?</h2>
+              <p className={`mb-6 ${subtextCls}`}>
+                Pick the option that fits best. We'll start you with a handful of useful agent templates for that. You can change these later.
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                {AGENT_MARKETPLACE.map((cat) => {
+                  const isPicked = selectedPersonaId === cat.id
+                  return (
+                    <button
+                      key={cat.id}
+                      onClick={() => handlePersonaPick(cat)}
+                      className={`flex items-center gap-4 p-4 rounded-xl border text-left transition-colors ${
+                        isPicked
+                          ? 'bg-blue-500/20 border-blue-500'
+                          : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+                        isPicked ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        <Icon name={PERSONA_ICONS[cat.id] || 'person'} size={22} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-white">{cat.category}</p>
+                        <p className={`text-sm ${subtextCls}`}>{cat.tagline}</p>
+                      </div>
+                      {isPicked && <Icon name="check_circle" className="text-blue-400" size={20} />}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
           )}
           {step === 'Theme' && (
             <ThemeStep
