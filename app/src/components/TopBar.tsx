@@ -131,6 +131,8 @@ export default function TopBar({ title }: TopBarProps) {
   const toggleChat = useAppStore((s) => s.toggleChat)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
   const osName = useAppStore((s) => s.osName)
+  const chatOpen = useAppStore((s) => s.chatOpen)
+  const chatWidth = useAppStore((s) => s.chatWidth)
   const [showNotifications, setShowNotifications] = useState(false)
   const [, setTick] = useState(0)
   const [persistentNotifs, setPersistentNotifs] = useState<PersistentNotification[]>([])
@@ -205,7 +207,10 @@ export default function TopBar({ title }: TopBarProps) {
   }
 
   return (
-    <header className="fixed top-0 right-0 left-56 h-16 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/50 flex items-center justify-between px-8 z-40">
+    <header
+      className="fixed top-0 left-56 h-16 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/50 flex items-center justify-between px-8 z-40 transition-[right] duration-200"
+      style={{ right: chatOpen ? chatWidth : 0 }}
+    >
       <div className="flex items-center gap-4">
         <span className="font-bold text-slate-100 tracking-tight">{title}</span>
       </div>
