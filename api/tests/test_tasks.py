@@ -1434,3 +1434,52 @@ async def test_list_tasks_deduplicates_by_last_occurrence(tmp_path):
 
     task_140 = next(t for t in result if t["id"] == "\u2192140")
     assert task_140["status"] == "closed", "last occurrence (closed) must win"
+
+
+# --- POST /api/tasks/{id}/labels/auto ---
+
+@pytest.mark.asyncio
+async def test_auto_label_task_assigns_labels(client):
+    """Auto-label endpoint runs labeling and returns the resulting label_ids."""
+    task = _make_task(id="t-auto", title="Fix login page crash")
+    with (
+        patch("routers.tasks.ostk") as mock_ostk,
+        patch("routers.tasks.apply_auto_labels", new_callable=AsyncMock) as mock_apply,
+        patch("routers.tasks.task_labels_store") as mock_tls,
+    ):
+        mock_ostk.list_tasks = AsyncMock(return_value=[task])
+        mock_tls.get_labels_for_task = MagicMock(return_value=["lbl-1", "lbl-2"])
+        resp = await client.post("/api/tasks/t-auto/labels/auto")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "label_ids" in data
+    assert data["label_ids"] == ["lbl-1", "lbl-2"]
+    mock_apply.assert_awaited_once_with("t-auto", "Fix login page crash", "")
+
+
+@pytest.mark.asyncio
+async def test_auto_label_task_not_found_returns_404(client):
+    """Auto-label endpoint returns 404 when the task id does not exist."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        resp = await client.post("/api/tasks/missing-id/labels/auto")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_auto_label_task_no_labels_assigned(client):
+    """When the suggester finds no matching labels, label_ids is empty."""
+    task = _make_task(id="t-unlabeled", title="Something random")
+    with (
+        patch("routers.tasks.ostk") as mock_ostk,
+        patch("routers.tasks.apply_auto_labels", new_callable=AsyncMock),
+        patch("routers.tasks.task_labels_store") as mock_tls,
+    ):
+        mock_ostk.list_tasks = AsyncMock(return_value=[task])
+        mock_tls.get_labels_for_task = MagicMock(return_value=[])
+        resp = await client.post("/api/tasks/t-unlabeled/labels/auto")
+
+    assert resp.status_code == 200
+    assert resp.json()["label_ids"] == []

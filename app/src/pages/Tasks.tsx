@@ -134,6 +134,9 @@ export default function Tasks() {
   const [openThreadDropdown, setOpenThreadDropdown] = useState<string | null>(null);
   const [newThreadName, setNewThreadName] = useState("");
   const [showNewThreadInput, setShowNewThreadInput] = useState(false);
+  const [autoLabelingTaskId, setAutoLabelingTaskId] = useState<string | null>(null);
+  const [labelAllLoading, setLabelAllLoading] = useState(false);
+  const [labelAllResult, setLabelAllResult] = useState<string | null>(null);
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
@@ -419,6 +422,41 @@ export default function Tasks() {
       await fetchTasks();
     } catch (e) {
       console.error("Failed to unlink tasks:", e);
+    }
+  };
+
+  const autoLabelTask = async (taskId: string) => {
+    setAutoLabelingTaskId(taskId);
+    try {
+      const res = await api.post<{ label_ids: string[] }>(`/tasks/${taskId}/labels/auto`);
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, label_ids: res.label_ids ?? t.label_ids } : t
+        )
+      );
+      fetchLabels();
+    } catch (e) {
+      console.error("Auto-label failed:", e);
+    } finally {
+      setAutoLabelingTaskId(null);
+    }
+  };
+
+  const labelAllTasks = async () => {
+    setLabelAllLoading(true);
+    setLabelAllResult(null);
+    try {
+      const res = await api.post<{ labeled: number }>("/tasks/backfill-labels");
+      const count = res.labeled ?? 0;
+      setLabelAllResult(count === 0 ? "All tasks already labeled." : `Labeled ${count} task${count === 1 ? "" : "s"}.`);
+      await fetchTasks();
+      fetchLabels();
+    } catch (e) {
+      setLabelAllResult("Something went wrong. Please try again.");
+      console.error("Label all failed:", e);
+    } finally {
+      setLabelAllLoading(false);
+      setTimeout(() => setLabelAllResult(null), 5000);
     }
   };
 
@@ -807,6 +845,25 @@ export default function Tasks() {
               What should I do next?
             </button>
             <button
+              data-testid="label-all-btn"
+              onClick={labelAllTasks}
+              disabled={labelAllLoading}
+              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm px-3 py-1.5 rounded-lg border border-slate-700"
+              title="Auto-label all unlabeled tasks"
+            >
+              {labelAllLoading ? (
+                <Icon name="hourglass_empty" className="text-purple-400 text-base animate-spin" />
+              ) : (
+                <Icon name="label" className="text-purple-400 text-base" />
+              )}
+              {labelAllLoading ? "Labeling..." : "Label all"}
+            </button>
+            {labelAllResult && (
+              <span className="text-xs text-purple-300 bg-purple-500/10 px-2 py-1 rounded-md border border-purple-500/30">
+                {labelAllResult}
+              </span>
+            )}
+            <button
               onClick={copyTaskList}
               className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700"
               title="Copy task list"
@@ -1151,6 +1208,24 @@ export default function Tasks() {
                     </div>
                     {renderLinkDropdown(task)}
                     {renderLabelDropdown(task)}
+                    {(task.label_ids || []).length === 0 && (
+                      <button
+                        data-testid={`auto-label-btn-${task.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          autoLabelTask(task.id);
+                        }}
+                        disabled={autoLabelingTaskId === task.id}
+                        className="p-1 text-slate-600 hover:text-purple-400 disabled:opacity-50 transition-colors"
+                        title="Auto-label this task"
+                      >
+                        {autoLabelingTaskId === task.id ? (
+                          <Icon name="hourglass_empty" className="text-sm animate-spin" />
+                        ) : (
+                          <Icon name="auto_awesome" className="text-sm" />
+                        )}
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

@@ -161,6 +161,40 @@ async def backfill_labels():
     return {"processed": processed, "labeled": labeled, "total_open": len(tasks)}
 
 
+@router.post("/tasks/{task_id}/labels/auto")
+async def auto_label_task(task_id: str):
+    """Run auto-labeling for a single task and return the assigned labels.
+
+    Applies label suggestions based on the task title. Safe to call at any
+    time. Returns the full list of label IDs now assigned to the task.
+    """
+    import asyncio
+
+    # Fetch the task title so the suggester has something to work with.
+    try:
+        tasks = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    task = next((t for t in tasks if t.get("id") == task_id), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    title = task.get("title", "")
+    try:
+        await asyncio.wait_for(
+            apply_auto_labels(task_id, title, ""),
+            timeout=10.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Auto-labeling timed out")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    label_ids = task_labels_store.get_labels_for_task(task_id)
+    return {"label_ids": label_ids}
+
+
 @router.post("/tasks/{task_id}/close")
 async def close_task(task_id: str, body: TaskClose = TaskClose()):
     try:
