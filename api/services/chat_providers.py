@@ -388,6 +388,14 @@ class ChatService:
         active_system_prompt = _compose_system_prompt(matched_template)
 
         backend = await _resolve_chat_backend()
+
+        # Claude Code CLI cannot receive inline image blocks. If the last
+        # message includes an image (GIF or pasted screenshot), force the
+        # Anthropic API backend so the model can actually see it.
+        if backend == "claude_code" and _messages_contain_images(messages):
+            if api_key:
+                backend = "anthropic_api"
+
         await _send_backend_active(websocket, backend)
 
         # The local program cannot run our Python tool loop today, so when
