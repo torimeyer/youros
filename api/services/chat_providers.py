@@ -105,15 +105,55 @@ MAX_AGENT_TURNS = 10
 
 
 
+_BOOT_CONTEXT_CACHE: Optional[tuple[float, str]] = None
+
+
+def _get_boot_context() -> str:
+    """Run `ostk boot` once per 5 minutes and cache the output.
+
+    The output is injected into the system prompt so the model never has
+    to call the shell tool (and ask for approval) to get session context.
+    """
+    global _BOOT_CONTEXT_CACHE
+    import time as _time
+    now = _time.time()
+    if _BOOT_CONTEXT_CACHE and now - _BOOT_CONTEXT_CACHE[0] < 300:
+        return _BOOT_CONTEXT_CACHE[1]
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["ostk", "boot"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=str(PROJECT_ROOT),
+        )
+        output = (result.stdout or "") + (result.stderr or "")
+        # Strip ANSI escape codes.
+        import re
+        output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output).strip()
+    except Exception:
+        output = ""
+    _BOOT_CONTEXT_CACHE = (now, output)
+    return output
+
+
 def _system_prompt() -> str:
     os_name = settings_store.get("os_name", "myOS")
     user_name = settings_store.get("user_name", "")
     owner = user_name if user_name else "the user"
+    boot_context = _get_boot_context()
+    boot_section = (
+        f"\n\nSESSION CONTEXT (from `ostk boot` — already run, do not run again):\n{boot_context}\n"
+        if boot_context else ""
+    )
     return (
         f"You are {os_name}, {owner}'s personal operating system. "
         "You have access to tools that let you read files, write files, edit files, "
         "run shell commands, search code, manage tasks, search the web, fetch web pages, "
         f"run git operations, and spawn background agents in the workspace at {PROJECT_ROOT}. "
+        "All tools including shell commands are pre-authorized. Never ask the user to approve "
+        "a shell or tool call. Just run it. "
         f"Use these tools to help {owner} with whatever they need. "
         "When you need information from the codebase, read files or search. "
         f"When {owner} asks you to change something, use the edit or write tools. "
@@ -150,6 +190,7 @@ def _system_prompt() -> str:
         "Be action-oriented: read only what you need, then make edits quickly. "
         "Do not over-research. If you know enough to make a change, make it. "
         "Never use em-dashes."
+        + boot_section
     )
 
 

@@ -112,7 +112,7 @@ def _fetch_unread_sync(max_results: int = 20) -> list[dict]:
     service = _build_gmail_service()
 
     list_result = (
-        service.messages()
+        service.users().messages()
         .list(
             userId="me",
             labelIds=["INBOX", "UNREAD"],
@@ -130,7 +130,7 @@ def _fetch_unread_sync(max_results: int = 20) -> list[dict]:
     for ref in message_refs:
         try:
             msg = (
-                service.messages()
+                service.users().messages()
                 .get(
                     userId="me",
                     id=ref["id"],
@@ -168,7 +168,7 @@ def _fetch_thread_sync(thread_id: str) -> dict:
     """Synchronous call to fetch a single thread."""
     service = _build_gmail_service()
     return (
-        service.threads()
+        service.users().threads()
         .get(
             userId="me",
             id=thread_id,
@@ -189,7 +189,7 @@ async def get_thread(thread_id: str) -> dict:
 def _mark_read_sync(message_id: str) -> None:
     """Synchronous call to remove UNREAD label from a message."""
     service = _build_gmail_service()
-    service.messages().modify(
+    service.users().messages().modify(
         userId="me",
         id=message_id,
         body={"removeLabelIds": ["UNREAD"]},

@@ -968,7 +968,7 @@ export function ChatPanel() {
               </div>
             )}
 
-            <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%]' : ''}`}>
+            <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%] w-fit' : ''}`}>
               {/* Reply and reaction buttons on hover - below the message */}
               <div className={`${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'} opacity-0 group-hover:opacity-100 mt-1 transition-all`}>
                 <div className="flex items-center gap-0.5 z-10">
