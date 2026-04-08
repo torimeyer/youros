@@ -136,7 +136,7 @@ export default function Calendar() {
 
   const handleConnect = async () => {
     try {
-      const res = await api.get<ConnectAuthUrl>('/drive/auth/url')
+      const res = await api.get<ConnectAuthUrl>('/drive/auth/url/calendar')
       window.location.href = res.url
     } catch (e: unknown) {
       const err = e as { message?: string }

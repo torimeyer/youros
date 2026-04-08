@@ -32,8 +32,32 @@ from services.google_auth import (
 
 router = APIRouter(tags=["drive"])
 
-# In-memory state map for CSRF protection during the Drive OAuth flow.
-_drive_oauth_states: dict[str, bool] = {}
+# OAuth state map — persisted to disk so server restarts don't invalidate in-flight auth.
+# Maps state token -> {return_to: str, expires: float}
+_OAUTH_STATES_PATH = Path.home() / ".myos" / "oauth_states.json"
+_STATE_TTL_SECONDS = 600  # 10 minutes
+
+
+def _load_oauth_states() -> dict:
+    try:
+        if _OAUTH_STATES_PATH.exists():
+            data = json.loads(_OAUTH_STATES_PATH.read_text())
+            now = time.time()
+            return {k: v for k, v in data.items() if v.get("expires", 0) > now}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_oauth_states(states: dict) -> None:
+    try:
+        _OAUTH_STATES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _OAUTH_STATES_PATH.write_text(json.dumps(states))
+    except Exception:
+        pass
+
+
+_drive_oauth_states: dict[str, dict] = _load_oauth_states()
 
 # MIME types that Google Drive can export to PDF.
 _EXPORTABLE_MIME = {
@@ -130,7 +154,32 @@ async def drive_auth_url():
             ),
         )
     state = secrets.token_urlsafe(32)
-    _drive_oauth_states[state] = True
+    _drive_oauth_states[state] = {
+        "return_to": "http://localhost:5173/drive",
+        "expires": time.time() + _STATE_TTL_SECONDS,
+    }
+    _save_oauth_states(_drive_oauth_states)
+    url = get_auth_url(state)
+    return {"url": url}
+
+
+@router.get("/drive/auth/url/calendar")
+async def drive_auth_url_for_calendar():
+    """Return an OAuth URL that redirects back to the Calendar page after auth."""
+    if not CREDENTIALS_PATH.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No credentials file found at ~/.myos/google_credentials.json. "
+                "Download it from Google Cloud Console and save it there."
+            ),
+        )
+    state = secrets.token_urlsafe(32)
+    _drive_oauth_states[state] = {
+        "return_to": "http://localhost:5173/calendar",
+        "expires": time.time() + _STATE_TTL_SECONDS,
+    }
+    _save_oauth_states(_drive_oauth_states)
     url = get_auth_url(state)
     return {"url": url}
 
@@ -156,24 +205,31 @@ async def drive_auth_callback(
             status_code=302,
         )
 
-    if state not in _drive_oauth_states:
+    # Reload persisted states in case this is a fresh server process.
+    current_states = _load_oauth_states()
+    _drive_oauth_states.update(current_states)
+
+    state_data = _drive_oauth_states.get(state)
+    if not state_data:
         return RedirectResponse(
             url=f"{FRONTEND_DRIVE_URL}?error=invalid_state",
             status_code=302,
         )
+    return_to = state_data.get("return_to", FRONTEND_DRIVE_URL)
     del _drive_oauth_states[state]
+    _save_oauth_states(_drive_oauth_states)
 
     if not code:
         return RedirectResponse(
-            url=f"{FRONTEND_DRIVE_URL}?error=no_code",
+            url=f"{return_to}?error=no_code",
             status_code=302,
         )
 
     try:
         exchange_code(code)
-    except Exception as exc:
+    except Exception:
         return RedirectResponse(
-            url=f"{FRONTEND_DRIVE_URL}?error=token_exchange_failed",
+            url=f"{return_to}?error=token_exchange_failed",
             status_code=302,
         )
 
@@ -184,7 +240,7 @@ async def drive_auth_callback(
         pass
 
     return RedirectResponse(
-        url=f"{FRONTEND_DRIVE_URL}?connected=true",
+        url=f"{return_to}?connected=true",
         status_code=302,
     )
 
