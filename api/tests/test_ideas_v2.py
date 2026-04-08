@@ -37,7 +37,7 @@ class TestTemplatesStore:
         return store
 
     def test_builtin_templates_present(self):
-        assert len(BUILTIN_TEMPLATES) == 5
+        assert len(BUILTIN_TEMPLATES) == 6
         ids = [t["id"] for t in BUILTIN_TEMPLATES]
         assert "builtin-feature" in ids
         assert "builtin-problem" in ids
@@ -125,8 +125,8 @@ class TestTemplatesStore:
             })
             all_templates = store.list_all()
             builtin_ids = {t["id"] for t in BUILTIN_TEMPLATES}
-            first_5_ids = {t["id"] for t in all_templates[:5]}
-            assert first_5_ids == builtin_ids
+            first_6_ids = {t["id"] for t in all_templates[:6]}
+            assert first_6_ids == builtin_ids
 
 
 # --- GET /api/ideas/templates ------------------------------------------------
