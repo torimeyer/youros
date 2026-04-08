@@ -155,11 +155,20 @@ def _read_pptx(path: Path) -> dict:
         for shape in slide.shapes:
             if not getattr(shape, "has_text_frame", False):
                 continue
-            tf = shape.text_frame
-            text = (tf.text or "").strip()
+            try:
+                tf = shape.text_frame
+                text = (tf.text or "").strip()
+            except Exception:
+                continue
             if not text:
                 continue
-            if not title and getattr(shape, "placeholder_format", None) is not None:
+            # python-pptx >= 1.0 raises ValueError (not AttributeError) on
+            # non-placeholder shapes, so we cannot rely on getattr default.
+            try:
+                is_placeholder = shape.placeholder_format is not None
+            except (ValueError, AttributeError):
+                is_placeholder = False
+            if not title and is_placeholder:
                 title = text.splitlines()[0]
                 remainder = "\n".join(text.splitlines()[1:]).strip()
                 if remainder:

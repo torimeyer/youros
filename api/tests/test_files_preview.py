@@ -178,6 +178,42 @@ async def test_preview_pptx(client):
 
 
 @pytest.mark.asyncio
+async def test_preview_pptx_with_textboxes(client):
+    """Regression test for →148: python-pptx >= 1.0 raises ValueError (not
+    AttributeError) when accessing placeholder_format on a non-placeholder
+    shape. A deck with textboxes on a blank slide used to crash with HTTP 500.
+    """
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        pptx_path = tmppath / "ostk-governance-deck.pptx"
+
+        prs = Presentation()
+        # Blank slide layout (index 6) has no placeholders, so all text lives
+        # in free-floating textboxes — the exact shape type that triggers the
+        # ValueError in python-pptx >= 1.0.
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box1 = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+        box1.text_frame.text = "Governance Overview"
+        box2 = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(1))
+        box2.text_frame.text = "Q2 2026 update"
+        prs.save(pptx_path)
+
+        with patch("routers.projects.TORIOS_DIR", tmppath):
+            resp = await client.get("/api/files/preview?path=ostk-governance-deck.pptx")
+
+    # Must not 500. Any 2xx with the right shape is acceptable.
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+    data = resp.json()
+    assert data["kind"] == "slides"
+    assert len(data["slides"]) == 1
+    combined = (data["slides"][0]["title"] or "") + (data["slides"][0]["body"] or "")
+    assert "Governance Overview" in combined
+
+
+@pytest.mark.asyncio
 async def test_preview_pdf(client):
     """Create a minimal PDF on disk and verify pypdf can open it."""
     with tempfile.TemporaryDirectory() as tmpdir:
