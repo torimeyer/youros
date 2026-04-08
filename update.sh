@@ -122,6 +122,101 @@ if [ "$NEED_PULL" -eq 1 ]; then
     echo ""
 fi
 
+# --- Upgrade ostk binary if a newer version is available ---
+
+upgrade_ostk() {
+    if ! command -v ostk &> /dev/null; then
+        echo "ostk is not installed. Run ./install.sh to set it up."
+        return 0
+    fi
+
+    CURRENT_VERSION=$(ostk --version 2>/dev/null | awk '{print $2}' | sed 's/^v//')
+    if [ -z "$CURRENT_VERSION" ]; then
+        echo -e "${YELLOW}Could not read installed ostk version. Skipping upgrade check.${NC}"
+        return 0
+    fi
+
+    echo "Checking for ostk upgrades (installed: $CURRENT_VERSION)..."
+
+    LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/os-tack/ostk.ai/releases/latest" \
+        2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+
+    if [ -z "$LATEST_TAG" ]; then
+        echo -e "${YELLOW}Could not reach GitHub to check for ostk updates. Skipping.${NC}"
+        return 0
+    fi
+
+    LATEST_VERSION=$(echo "$LATEST_TAG" | sed 's/^v//')
+
+    if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ]; then
+        echo -e "${GREEN}ostk is already on the latest version ($CURRENT_VERSION).${NC}"
+        return 0
+    fi
+
+    # Simple semver comparison: split into major.minor.patch and compare numerically.
+    compare_versions() {
+        local v1="$1" v2="$2"
+        local IFS=.
+        local -a a1=($v1) a2=($v2)
+        for i in 0 1 2; do
+            local n1="${a1[$i]:-0}" n2="${a2[$i]:-0}"
+            if [ "$n1" -lt "$n2" ]; then echo "lt"; return; fi
+            if [ "$n1" -gt "$n2" ]; then echo "gt"; return; fi
+        done
+        echo "eq"
+    fi
+
+    RESULT=$(compare_versions "$CURRENT_VERSION" "$LATEST_VERSION")
+    if [ "$RESULT" != "lt" ]; then
+        echo -e "${GREEN}ostk is up to date ($CURRENT_VERSION).${NC}"
+        return 0
+    fi
+
+    echo -e "${BLUE}Upgrading ostk from $CURRENT_VERSION to $LATEST_VERSION...${NC}"
+
+    OSTK_BIN_DIR="$HOME/.local/bin"
+    mkdir -p "$OSTK_BIN_DIR"
+
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        arm64) ARCH="aarch64" ;;
+    esac
+
+    OS_TAG=$(uname -s)
+    case "$OS_TAG" in
+        Linux)  OS_TAG="unknown-linux-musl" ;;
+        Darwin) OS_TAG="apple-darwin" ;;
+        *)
+            echo -e "${YELLOW}Unsupported OS for ostk upgrade. Skipping.${NC}"
+            return 0
+            ;;
+    esac
+
+    PLATFORM="${ARCH}-${OS_TAG}"
+    OSTK_REPO="os-tack/ostk.ai"
+    TARBALL="ostk-${LATEST_TAG}-${PLATFORM}.tar.gz"
+    OSTK_URL="https://github.com/${OSTK_REPO}/releases/download/${LATEST_TAG}/${TARBALL}"
+    OSTK_TMP=$(mktemp -d)
+
+    if curl -fsSL "$OSTK_URL" -o "$OSTK_TMP/$TARBALL" 2>/dev/null; then
+        tar -xzf "$OSTK_TMP/$TARBALL" -C "$OSTK_TMP"
+        if [ -f "$OSTK_TMP/ostk" ]; then
+            OSTK_CURRENT_PATH=$(command -v ostk)
+            install -m 755 "$OSTK_TMP/ostk" "$OSTK_CURRENT_PATH"
+            echo -e "${GREEN}ostk upgraded to $LATEST_VERSION.${NC}"
+        else
+            echo -e "${YELLOW}Could not find ostk binary in the downloaded archive. Skipping upgrade.${NC}"
+        fi
+    else
+        echo -e "${YELLOW}Could not download the new ostk release. Skipping upgrade.${NC}"
+    fi
+
+    rm -rf "$OSTK_TMP"
+}
+
+upgrade_ostk
+echo ""
+
 # --- Re-run the installer to refresh dependencies ---
 
 echo "Refreshing the program (this will not touch your settings)..."

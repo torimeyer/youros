@@ -8,7 +8,7 @@ bail = "os-tack/ostk.ai"
 # ostk.toml — official v2.2.9 release configuration
 # os-tack/ostk.ai — the distributed OS seed repository
 
-kernel = ">=2.2.9, <2.4.0"
+kernel = ">=2.2.9, <2.5.0"
 
 [authorization]
 # Trust is GPG web-of-trust, not platform accounts.
