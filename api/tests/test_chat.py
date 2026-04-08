@@ -1,9 +1,17 @@
+import base64
+import io
 import os
 
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from routers.chat import parse_mentions, strip_mentions, should_inject_context
+from routers.chat import (
+    _extract_gif_frames,
+    parse_mentions,
+    should_inject_context,
+    strip_mentions,
+    transform_image_messages,
+)
 
 
 # --- parse_mentions ---
@@ -743,3 +751,273 @@ class TestChatReachesFrontendWithNonEmptyToken:
         assert first_token_idx < done_idx, (
             "done arrived before any token event, so the bubble is empty when done fires"
         )
+
+
+# --- GIF frame extraction ---
+
+
+def _build_animated_gif_bytes(num_frames: int = 3) -> bytes:
+    """Build a small in-memory animated GIF with the given number of frames."""
+    from PIL import Image
+
+    colors = ["red", "green", "blue", "yellow", "purple", "orange"]
+    frames = [
+        Image.new("RGB", (10, 10), color=colors[i % len(colors)])
+        for i in range(num_frames)
+    ]
+    buf = io.BytesIO()
+    frames[0].save(
+        buf,
+        format="GIF",
+        save_all=True,
+        append_images=frames[1:],
+        duration=100,
+        loop=0,
+    )
+    return buf.getvalue()
+
+
+def _build_static_png_bytes() -> bytes:
+    """Build a small single-frame PNG in memory."""
+    from PIL import Image
+
+    img = Image.new("RGB", (10, 10), color="red")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class _FakeUrlOpenResponse:
+    """Minimal context manager that mimics urllib.request.urlopen()."""
+
+    def __init__(self, data: bytes):
+        self._data = data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False
+
+    def read(self) -> bytes:
+        return self._data
+
+
+class TestExtractGifFrames:
+    """Verify _extract_gif_frames produces the right block shapes."""
+
+    def test_multi_frame_gif_returns_base64_blocks(self):
+        """A real 3-frame GIF should produce 3 base64 image blocks
+        when max_frames=4 (min(4, 3) == 3).
+        """
+        gif_bytes = _build_animated_gif_bytes(num_frames=3)
+        url = "http://example.com/animated.gif"
+
+        def fake_urlopen(target_url, timeout=10):
+            assert target_url == url
+            return _FakeUrlOpenResponse(gif_bytes)
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            blocks = _extract_gif_frames(url, max_frames=4)
+
+        assert len(blocks) == 3
+        for block in blocks:
+            assert block["type"] == "image"
+            assert block["source"]["type"] == "base64"
+            assert block["source"]["media_type"] == "image/png"
+            # The data field must be valid base64 that decodes into PNG bytes.
+            decoded = base64.b64decode(block["source"]["data"])
+            assert decoded[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_max_frames_caps_returned_blocks(self):
+        """A 6-frame GIF with max_frames=4 should return exactly 4 blocks."""
+        gif_bytes = _build_animated_gif_bytes(num_frames=6)
+        url = "http://example.com/six.gif"
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=lambda u, timeout=10: _FakeUrlOpenResponse(gif_bytes),
+        ):
+            blocks = _extract_gif_frames(url, max_frames=4)
+
+        assert len(blocks) == 4
+        for block in blocks:
+            assert block["source"]["type"] == "base64"
+
+    def test_static_image_returns_single_url_block(self):
+        """A static (single-frame) image should return one URL-based
+        block, not a base64 block.
+        """
+        png_bytes = _build_static_png_bytes()
+        url = "http://example.com/static.png"
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=lambda u, timeout=10: _FakeUrlOpenResponse(png_bytes),
+        ):
+            blocks = _extract_gif_frames(url, max_frames=4)
+
+        assert len(blocks) == 1
+        assert blocks[0] == {
+            "type": "image",
+            "source": {"type": "url", "url": url},
+        }
+
+    def test_unreachable_url_returns_url_fallback(self):
+        """If urlopen raises, we must fall back to a single URL block
+        and never propagate the exception.
+        """
+        url = "http://does-not-exist.invalid/foo.gif"
+
+        def boom(target_url, timeout=10):
+            raise OSError("network unreachable")
+
+        with patch("urllib.request.urlopen", side_effect=boom):
+            blocks = _extract_gif_frames(url, max_frames=4)
+
+        assert blocks == [
+            {"type": "image", "source": {"type": "url", "url": url}}
+        ]
+
+    def test_corrupt_image_data_returns_url_fallback(self):
+        """If PIL cannot decode the bytes, fall back to a URL block."""
+        url = "http://example.com/corrupt.gif"
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=lambda u, timeout=10: _FakeUrlOpenResponse(b"not an image"),
+        ):
+            blocks = _extract_gif_frames(url, max_frames=4)
+
+        assert blocks == [
+            {"type": "image", "source": {"type": "url", "url": url}}
+        ]
+
+
+class TestTransformImageMessagesGif:
+    """Verify transform_image_messages handles [gif:URL] markers."""
+
+    def test_gif_marker_becomes_image_blocks_then_text(self, monkeypatch):
+        """A message with [gif:URL] should yield a content list of image
+        blocks followed by the trailing text prompt.
+        """
+        fake_blocks = [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": "AAA"},
+            },
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": "BBB"},
+            },
+        ]
+
+        captured = {}
+
+        def fake_extract(url, max_frames=4):
+            captured["url"] = url
+            captured["max_frames"] = max_frames
+            return fake_blocks
+
+        monkeypatch.setattr("routers.chat._extract_gif_frames", fake_extract)
+
+        messages = [
+            {"role": "user", "content": "[gif:http://example.com/dance.gif]"}
+        ]
+        result = transform_image_messages(messages)
+
+        assert len(result) == 1
+        out = result[0]
+        assert out["role"] == "user"
+        assert isinstance(out["content"], list)
+        # First two entries should be the mocked image blocks.
+        assert out["content"][:2] == fake_blocks
+        # Last entry should be the trailing text prompt.
+        last = out["content"][-1]
+        assert last["type"] == "text"
+        assert "GIF" in last["text"]
+        assert "frames above" in last["text"]
+        assert "Describe what is happening" in last["text"]
+        # And we forwarded max_frames=4 as documented.
+        assert captured["url"] == "http://example.com/dance.gif"
+        assert captured["max_frames"] == 4
+
+    def test_gif_with_surrounding_text_uses_user_text(self, monkeypatch):
+        """If the user typed text alongside the [gif:...] marker, the
+        trailing text block should preserve that user text instead of
+        the canned 'react to it' prompt.
+        """
+        fake_blocks = [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": "ZZZ"},
+            },
+        ]
+        monkeypatch.setattr(
+            "routers.chat._extract_gif_frames",
+            lambda url, max_frames=4: fake_blocks,
+        )
+
+        messages = [
+            {
+                "role": "user",
+                "content": "look at this [gif:http://example.com/x.gif]",
+            }
+        ]
+        result = transform_image_messages(messages)
+
+        out = result[0]
+        assert isinstance(out["content"], list)
+        assert out["content"][0] == fake_blocks[0]
+        assert out["content"][-1]["type"] == "text"
+        assert out["content"][-1]["text"] == "look at this"
+
+    def test_message_without_images_is_unchanged(self):
+        """A normal text message should pass through unchanged."""
+        messages = [
+            {"role": "user", "content": "hello, no images here"},
+            {"role": "assistant", "content": "hi back"},
+        ]
+        result = transform_image_messages(messages)
+
+        assert result == [
+            {"role": "user", "content": "hello, no images here"},
+            {"role": "assistant", "content": "hi back"},
+        ]
+
+    def test_multiple_gifs_in_one_message(self, monkeypatch):
+        """Two [gif:...] markers in one message should produce blocks
+        from both, in order, followed by the trailing text prompt.
+        """
+        call_log: list[str] = []
+
+        def fake_extract(url, max_frames=4):
+            call_log.append(url)
+            return [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": f"data-for-{url}",
+                    },
+                }
+            ]
+
+        monkeypatch.setattr("routers.chat._extract_gif_frames", fake_extract)
+
+        messages = [
+            {
+                "role": "user",
+                "content": "[gif:http://a.com/1.gif][gif:http://a.com/2.gif]",
+            }
+        ]
+        result = transform_image_messages(messages)
+
+        out = result[0]
+        assert call_log == ["http://a.com/1.gif", "http://a.com/2.gif"]
+        # Two image blocks then the trailing text block.
+        assert len(out["content"]) == 3
+        assert out["content"][0]["source"]["data"] == "data-for-http://a.com/1.gif"
+        assert out["content"][1]["source"]["data"] == "data-for-http://a.com/2.gif"
+        assert out["content"][2]["type"] == "text"
