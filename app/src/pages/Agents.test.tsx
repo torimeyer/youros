@@ -347,3 +347,67 @@ describe('Agents page - tabs', () => {
   })
 
 })
+
+describe('Agents page - Recent tab filtering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+  })
+
+  it('shows only completed agents in the Recent tab', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        active: ['running-agent'],
+        agents: [
+          { name: 'running-agent', status: 'running', source: 'daemon', model: 'sonnet', spawned_at: new Date().toISOString() },
+          { name: 'completed-agent', status: 'completed', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
+          { name: 'stopped-agent', status: 'stopped', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
+          { name: 'abandoned-agent', status: 'abandoned', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
+        ],
+      }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      return {}
+    })
+
+    renderAgents()
+
+    const recentTab = await screen.findByRole('button', { name: 'Recent' })
+    fireEvent.click(recentTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('completed-agent')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('stopped-agent')).not.toBeInTheDocument()
+    expect(screen.queryByText('abandoned-agent')).not.toBeInTheDocument()
+    // running-agent is on Active tab, not Recent
+    expect(screen.queryByText('running-agent')).not.toBeInTheDocument()
+  })
+
+  it('shows empty state in Recent tab when no completed agents exist', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        active: [],
+        agents: [
+          { name: 'stopped-agent', status: 'stopped', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
+          { name: 'abandoned-agent', status: 'abandoned', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
+        ],
+      }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      return {}
+    })
+
+    renderAgents()
+
+    const recentTab = await screen.findByRole('button', { name: 'Recent' })
+    fireEvent.click(recentTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('No completed agents yet. Agents you spawn will appear here once they finish.')).toBeInTheDocument()
+    })
+  })
+})

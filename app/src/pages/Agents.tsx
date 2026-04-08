@@ -1171,42 +1171,54 @@ export default function Agents() {
           </>
         )}
 
-        {activeTab === "Recent" && (
-          <>
-            <h2 className="text-lg font-semibold text-white mb-4">
-              Recent Activity
-            </h2>
-            {allAgents.length === 0 ? (
-              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
-                No agent history yet. Agents you spawn will appear here.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2 mb-8">
-                {allAgents.map((agent) => (
-                  <div
-                    key={agent.name}
-                    className="flex items-center justify-between bg-slate-900/40 border border-slate-800 rounded-xl px-5 py-3"
-                  >
-                    <span className="text-white font-medium">{agent.name}</span>
-                    <div className="flex items-center gap-4">
-                      <span
-                        className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}
-                      >
-                        {statusLabel(agent.status)}
-                      </span>
-                      {agent.model && (
-                        <span className="text-slate-500 text-xs">{agent.model}</span>
-                      )}
-                      {agent.timestamp && (
-                        <span className="text-slate-500 text-sm">{agent.timestamp}</span>
-                      )}
+        {activeTab === "Recent" && (() => {
+          const recentAgents = allAgents
+            .filter((a) => a.status === "completed")
+            .sort((a, b) => {
+              const ta = a.spawned_at || a.timestamp || "";
+              const tb = b.spawned_at || b.timestamp || "";
+              return tb.localeCompare(ta);
+            })
+            .slice(0, 20);
+          return (
+            <>
+              <h2 className="text-lg font-semibold text-white mb-4">
+                Completed Agents
+              </h2>
+              {recentAgents.length === 0 ? (
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
+                  No completed agents yet. Agents you spawn will appear here once they finish.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2 mb-8">
+                  {recentAgents.map((agent) => (
+                    <div
+                      key={agent.name}
+                      className="flex items-center justify-between bg-slate-900/40 border border-slate-800 rounded-xl px-5 py-3"
+                    >
+                      <span className="text-white font-medium">{agent.name}</span>
+                      <div className="flex items-center gap-4">
+                        <span
+                          className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}
+                        >
+                          {statusLabel(agent.status)}
+                        </span>
+                        {agent.model && (
+                          <span className="text-slate-500 text-xs">{agent.model}</span>
+                        )}
+                        {(agent.spawned_at || agent.timestamp) && (
+                          <span className="text-slate-500 text-sm">
+                            {new Date(agent.spawned_at || agent.timestamp!).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {activeTab === "Metrics" && (() => {
           const totalSpawned = allAgents.length;
