@@ -142,4 +142,7 @@ async def needs_reauth() -> bool:
         return False
     except Exception as exc:
         msg = str(exc).lower()
-        return "insufficient" in msg or "403" in msg
+        # Only flag as needs_reauth for OAuth scope errors, not API-not-enabled errors
+        if "accessnotconfigured" in msg or "has not been used" in msg:
+            return False
+        return "insufficientpermissions" in msg or "insufficient authentication scopes" in msg

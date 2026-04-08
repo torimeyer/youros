@@ -47,7 +47,12 @@ async def calendar_events():
         events = await calendar_service.get_upcoming_events(days=7)
     except Exception as exc:
         msg = str(exc).lower()
-        if "insufficient" in msg or "403" in msg:
+        if "accessnotconfigured" in msg or "has not been used" in msg:
+            raise HTTPException(
+                status_code=403,
+                detail={"needs_reauth": False, "api_not_enabled": True, "message": "Google Calendar API is not enabled in your Google Cloud project. Enable it in Google Cloud Console, then wait a minute and reload."},
+            ) from exc
+        if "insufficientpermissions" in msg or "insufficient authentication scopes" in msg:
             raise HTTPException(
                 status_code=403,
                 detail={"needs_reauth": True, "message": str(exc)},
