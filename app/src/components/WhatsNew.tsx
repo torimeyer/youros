@@ -69,7 +69,7 @@ export default function WhatsNew() {
         <>
           <div className="fixed inset-0 z-40 bg-black/50" onClick={() => setOpen(false)} />
           <div
-            className="fixed inset-x-0 top-20 mx-auto w-full max-w-lg max-h-[70vh] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col"
+            className="fixed top-0 right-0 h-full w-80 bg-slate-900 border-l border-slate-800 shadow-2xl z-50 overflow-hidden flex flex-col"
             data-testid="whats-new-modal"
           >
             <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">

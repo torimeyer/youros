@@ -65,6 +65,15 @@ BUILTIN_TEMPLATES: list[dict] = [
         "breakdown_hint": "This is a system integration. Break it into tasks for auth, data mapping, error handling, and testing.",
         "builtin": True,
     },
+    {
+        "id": "builtin-website",
+        "name": "Build a website",
+        "description": "Start here if you want a website but have no idea where to begin.",
+        "icon": "language",
+        "prompt_template": "I want a website for [what it's for] that helps people [do what]. I [have / don't have] a domain name. My budget is [rough amount or free].",
+        "breakdown_hint": "This is a website build for someone with no coding background. Break it into plain-language tasks anyone can follow: deciding what the site needs to do, picking a no-code platform (Squarespace, Webflow, Carrd, or similar), choosing and customizing a template, writing the key pages (home, about, contact), adding any images or content, connecting a domain if they have one, and publishing. Every task description must be written as if the reader has never built a website before. No code, no jargon.",
+        "builtin": True,
+    },
 ]
 
 
