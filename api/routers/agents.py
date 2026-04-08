@@ -53,8 +53,32 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
-# Restore metadata from disk on startup
+def _recover_stale_agents():
+    """On startup, mark any persisted 'running' agents as 'abandoned'.
+
+    An agent that was left as 'running' in the state file when the server
+    stopped has no live process now. We cannot know whether it finished or
+    crashed, so we mark it 'abandoned' so it does not show as running forever.
+    """
+    changed = False
+    for name, meta in agent_metadata.items():
+        if meta.get("status") != "running":
+            continue
+        pid = meta.get("pid")
+        # If there is a live PID we can verify, leave it alone.
+        if pid and _is_pid_alive(pid):
+            continue
+        # No live PID (or no PID recorded at all). Mark as abandoned.
+        meta["status"] = "abandoned"
+        meta["abandoned_at"] = datetime.now(timezone.utc).isoformat()
+        changed = True
+    if changed:
+        _save_agent_state()
+
+
+# Restore metadata from disk on startup, then recover any stale running agents.
 agent_metadata.update(_load_agent_state())
+_recover_stale_agents()
 
 # Persistent file for learned agent durations
 DURATION_STATS_PATH = OSTK_DIR / "agent_durations.json"
@@ -201,12 +225,22 @@ async def list_agents():
         # If the register endpoint explicitly stamped this row as running,
         # trust that and show it in the UI immediately. This is the case
         # for Claude Code subagents that register before they start work.
+        # Note: stale running agents from previous server sessions are cleaned
+        # up by _recover_stale_agents() at startup, so any agent that still
+        # has status="running" here was registered during this server session.
         elif persisted_status == "running":
             agents_map[name] = {
                 "name": name,
                 "source": meta.get("source", "api"),
                 **meta,
                 "status": "running",
+            }
+        elif persisted_status == "abandoned":
+            agents_map[name] = {
+                "name": name,
+                "source": meta.get("source", "api"),
+                **meta,
+                "status": "abandoned",
             }
         elif pid and _is_pid_alive(pid):
             agents_map[name] = {
@@ -227,7 +261,8 @@ async def list_agents():
                 }
             elif is_registered:
                 # Externally registered agent with no pid and no transcript.
-                # Treat as "running" since we have no signal it finished.
+                # Treat as running since we have no signal it finished.
+                # (Stale ghosts are cleaned up at startup by _recover_stale_agents.)
                 agents_map[name] = {
                     "name": name,
                     "status": "running",
