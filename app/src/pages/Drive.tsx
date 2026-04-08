@@ -214,6 +214,7 @@ function ConnectScreen({
   const [credsSaved, setCredsSaved] = useState(hasCredentialsFile);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSetupGuide, setShowSetupGuide] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -283,19 +284,123 @@ function ConnectScreen({
           </>
         )}
 
-        <a
-          href="/docs/google-drive-setup"
-          target="_blank"
-          rel="noreferrer"
+        <button
+          type="button"
+          onClick={() => setShowSetupGuide(true)}
           className="inline-flex items-center gap-1 mt-4 text-slate-600 text-xs hover:text-slate-400 underline"
         >
           Setup guide
-          <Icon name="open_in_new" size={12} />
-        </a>
+          <Icon name="help_outline" size={12} />
+        </button>
 
         <p className="text-slate-600 text-xs mt-3">
           myOS can browse, preview, and upload files to a dedicated "myOS" folder in your Drive. It cannot access or modify files you did not upload through myOS.
         </p>
+      </div>
+
+      {showSetupGuide && <SetupGuideModal onClose={() => setShowSetupGuide(false)} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Setup guide modal
+// ---------------------------------------------------------------------------
+
+function SetupGuideModal({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-slate-900 border border-slate-700 rounded-2xl p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto text-left"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-4">
+          <h2 className="text-xl font-bold">Set up your Google credentials</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-300"
+            aria-label="Close"
+          >
+            <Icon name="close" size={20} />
+          </button>
+        </div>
+
+        <p className="text-sm text-slate-400 mb-5">
+          myOS needs a credentials file from Google so it can connect to your Drive, Calendar, and Gmail. You only have to do this once. Here is how.
+        </p>
+
+        <ol className="space-y-4 text-sm text-slate-300">
+          <li>
+            <div className="font-semibold text-slate-200 mb-1">1. Open Google Cloud Console</div>
+            <p className="text-slate-400">
+              Go to{' '}
+              <a
+                href="https://console.cloud.google.com"
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline"
+              >
+                console.cloud.google.com
+              </a>{' '}
+              and sign in with the Google account you want to connect. Create a new project if you do not already have one.
+            </p>
+          </li>
+
+          <li>
+            <div className="font-semibold text-slate-200 mb-1">2. Turn on the APIs you want</div>
+            <p className="text-slate-400 mb-2">
+              In the search bar, find and enable each of these:
+            </p>
+            <ul className="list-disc list-inside space-y-1 text-slate-400 ml-2">
+              <li>Google Drive API</li>
+              <li>Google Calendar API</li>
+              <li>Gmail API</li>
+            </ul>
+            <p className="text-slate-500 text-xs mt-2">
+              For each one, open it and click the blue "Enable" button. This takes about a minute.
+            </p>
+          </li>
+
+          <li>
+            <div className="font-semibold text-slate-200 mb-1">3. Create OAuth credentials</div>
+            <p className="text-slate-400">
+              Go to "APIs and Services" then "Credentials". Click "Create Credentials" and pick "OAuth client ID". Choose "Desktop app" as the type, give it any name, and click Create.
+            </p>
+          </li>
+
+          <li>
+            <div className="font-semibold text-slate-200 mb-1">4. Download the JSON file</div>
+            <p className="text-slate-400">
+              After creating the client, click the download button next to it. You will get a small .json file. Drag that file into the upload box on this page.
+            </p>
+          </li>
+        </ol>
+
+        <div className="mt-6 p-3 bg-slate-800/50 border border-slate-700 rounded-lg">
+          <p className="text-xs text-slate-400">
+            Your credentials file stays on your computer. myOS never uploads it anywhere.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full mt-5 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-medium transition-colors"
+        >
+          Got it
+        </button>
       </div>
     </div>
   );

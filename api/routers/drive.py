@@ -184,6 +184,27 @@ async def drive_auth_url_for_calendar():
     return {"url": url}
 
 
+@router.get("/drive/auth/url/gmail")
+async def drive_auth_url_for_gmail():
+    """Return an OAuth URL that redirects back to the Gmail page after auth."""
+    if not CREDENTIALS_PATH.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No credentials file found at ~/.myos/google_credentials.json. "
+                "Download it from Google Cloud Console and save it there."
+            ),
+        )
+    state = secrets.token_urlsafe(32)
+    _drive_oauth_states[state] = {
+        "return_to": "http://localhost:5173/gmail",
+        "expires": time.time() + _STATE_TTL_SECONDS,
+    }
+    _save_oauth_states(_drive_oauth_states)
+    url = get_auth_url(state)
+    return {"url": url}
+
+
 FRONTEND_DRIVE_URL = "http://localhost:5173/drive"
 
 

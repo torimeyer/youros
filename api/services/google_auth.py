@@ -18,6 +18,8 @@ CREDENTIALS_PATH = MYOS_DIR / "google_credentials.json"
 DRIVE_CACHE_DIR = MYOS_DIR / "drive_cache"
 
 SCOPES = [
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/calendar.readonly",
