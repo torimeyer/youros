@@ -1,0 +1,280 @@
+"""Upgrade check service.
+
+Checks whether myOS or ostk have newer versions available.
+Results are cached in ~/.myos/upgrade_cache.json for 1 hour to avoid
+hammering GitHub on every page load.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+import subprocess
+import tempfile
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import Optional
+
+import httpx
+
+from config import PROJECT_ROOT
+
+MYOS_DIR = Path.home() / ".myos"
+UPGRADE_CACHE_FILE = MYOS_DIR / "upgrade_cache.json"
+CACHE_TTL_SECONDS = 3600  # 1 hour
+
+OSTK_REPO = "os-tack/ostk.ai"
+
+
+def _semver_tuple(version: str) -> tuple[int, ...]:
+    """Convert a semver string like '2.4.0' to a comparable tuple."""
+    parts = re.split(r"[.\-]", version.lstrip("v"))
+    result = []
+    for p in parts[:3]:
+        try:
+            result.append(int(p))
+        except ValueError:
+            break
+    while len(result) < 3:
+        result.append(0)
+    return tuple(result)
+
+
+def _load_cache() -> Optional[dict]:
+    if not UPGRADE_CACHE_FILE.exists():
+        return None
+    try:
+        data = json.loads(UPGRADE_CACHE_FILE.read_text())
+        cached_at = datetime.fromisoformat(data.get("cached_at", ""))
+        age = (datetime.now(timezone.utc) - cached_at).total_seconds()
+        if age < CACHE_TTL_SECONDS:
+            return data.get("result")
+    except (json.JSONDecodeError, ValueError, OSError, KeyError):
+        pass
+    return None
+
+
+def _save_cache(result: dict) -> None:
+    MYOS_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "cached_at": datetime.now(timezone.utc).isoformat(),
+        "result": result,
+    }
+    UPGRADE_CACHE_FILE.write_text(json.dumps(payload, indent=2))
+
+
+def _invalidate_cache() -> None:
+    try:
+        UPGRADE_CACHE_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def check_myos() -> dict:
+    """Return myOS version info: current commit, commits behind origin/main."""
+    repo = str(PROJECT_ROOT)
+    try:
+        subprocess.run(
+            ["git", "-C", repo, "fetch", "origin", "--quiet"],
+            capture_output=True,
+            timeout=15,
+        )
+        result = subprocess.run(
+            ["git", "-C", repo, "rev-list", "HEAD..origin/main", "--count"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        behind = int(result.stdout.strip()) if result.returncode == 0 else 0
+
+        # Current version: latest tag + number of commits since it
+        desc_result = subprocess.run(
+            ["git", "-C", repo, "describe", "--tags", "--long", "--always"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        current = desc_result.stdout.strip() if desc_result.returncode == 0 else "unknown"
+
+        # Latest remote tag
+        remote_tag_result = subprocess.run(
+            ["git", "-C", repo, "describe", "--tags", "--abbrev=0", "origin/main"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        latest = remote_tag_result.stdout.strip() if remote_tag_result.returncode == 0 else current
+
+        return {"current": current, "latest": latest, "behind": behind > 0, "commits_behind": behind}
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return {"current": "unknown", "latest": "unknown", "behind": False, "commits_behind": 0}
+
+
+async def check_ostk() -> dict:
+    """Return ostk version info: current installed version vs. latest GitHub release."""
+    current = "unknown"
+    try:
+        result = subprocess.run(
+            ["ostk", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            output = result.stdout.strip() or result.stderr.strip()
+            # ostk typically outputs something like "ostk 2.4.0" or just "2.4.0"
+            match = re.search(r"(\d+\.\d+[\.\d]*)", output)
+            if match:
+                current = match.group(1)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+
+    latest = "unknown"
+    behind = False
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{OSTK_REPO}/releases/latest",
+                headers={"Accept": "application/vnd.github.v3+json"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                tag = data.get("tag_name", "")
+                latest = tag.lstrip("v")
+                if current != "unknown" and latest != "unknown":
+                    behind = _semver_tuple(latest) > _semver_tuple(current)
+    except (httpx.HTTPError, KeyError, ValueError):
+        pass
+
+    return {"current": current, "latest": latest, "behind": behind}
+
+
+async def check_all(force: bool = False) -> dict:
+    """Return upgrade status for both myOS and ostk, using cache when fresh."""
+    if not force:
+        cached = _load_cache()
+        if cached is not None:
+            return cached
+
+    myos_info, ostk_info = await asyncio.gather(
+        asyncio.to_thread(check_myos),
+        check_ostk(),
+    )
+
+    result = {"myos": myos_info, "ostk": ostk_info}
+    _save_cache(result)
+    return result
+
+
+async def run_upgrade(target: str) -> dict:
+    """Run an upgrade for 'myos', 'ostk', or 'both'. Returns success and message."""
+    targets = ["myos", "ostk"] if target == "both" else [target]
+    messages = []
+    success = True
+
+    for t in targets:
+        if t == "myos":
+            msg = _upgrade_myos()
+        elif t == "ostk":
+            msg = await _upgrade_ostk()
+        else:
+            msg = f"Unknown target: {t}"
+            success = False
+        if msg.startswith("Error"):
+            success = False
+        messages.append(msg)
+
+    # Invalidate cache so the next status check reflects new versions
+    _invalidate_cache()
+
+    return {"success": success, "message": " ".join(messages)}
+
+
+def _upgrade_myos() -> str:
+    repo = str(PROJECT_ROOT)
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo, "pull", "--ff-only", "origin", "main"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            return "myOS updated successfully. Restart myOS to apply the update."
+        err = result.stderr.strip() or result.stdout.strip()
+        return f"Error updating myOS: {err}"
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return f"Error updating myOS: {e}"
+
+
+async def _upgrade_ostk() -> str:
+    """Download and install the latest ostk binary from GitHub releases."""
+    import platform as _platform
+
+    try:
+        # Determine platform strings
+        machine = _platform.machine().lower()
+        arch = "aarch64" if machine in ("arm64", "aarch64") else "x86_64"
+        system = _platform.system()
+        if system == "Darwin":
+            os_tag = "apple-darwin"
+        elif system == "Linux":
+            os_tag = "unknown-linux-musl"
+        else:
+            return f"Error updating ostk: unsupported platform {system}"
+
+        platform_str = f"{arch}-{os_tag}"
+
+        # Fetch latest release info
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{OSTK_REPO}/releases/latest",
+                headers={"Accept": "application/vnd.github.v3+json"},
+            )
+            if resp.status_code != 200:
+                return f"Error updating ostk: could not fetch release info (HTTP {resp.status_code})"
+            data = resp.json()
+            version = data.get("tag_name", "").lstrip("v")
+            if not version:
+                return "Error updating ostk: could not determine latest version"
+
+            tarball_name = f"ostk-v{version}-{platform_str}.tar.gz"
+            download_url = (
+                f"https://github.com/{OSTK_REPO}/releases/download/"
+                f"v{version}/{tarball_name}"
+            )
+
+            # Download the tarball
+            async with client.stream("GET", download_url, follow_redirects=True) as stream:
+                if stream.status_code != 200:
+                    return f"Error updating ostk: download failed (HTTP {stream.status_code})"
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp_path = Path(tmpdir)
+                    tarball_path = tmp_path / tarball_name
+                    with open(tarball_path, "wb") as f:
+                        async for chunk in stream.aiter_bytes(8192):
+                            f.write(chunk)
+
+                    # Extract and install
+                    result = subprocess.run(
+                        ["tar", "-xzf", str(tarball_path), "-C", tmpdir],
+                        capture_output=True,
+                        timeout=30,
+                    )
+                    if result.returncode != 0:
+                        return "Error updating ostk: could not extract tarball"
+
+                    binary = tmp_path / "ostk"
+                    if not binary.exists():
+                        return "Error updating ostk: binary not found in tarball"
+
+                    bin_dir = Path.home() / ".local" / "bin"
+                    bin_dir.mkdir(parents=True, exist_ok=True)
+                    dest = bin_dir / "ostk"
+                    binary.chmod(0o755)
+                    binary.replace(dest)
+
+        return f"ostk updated to {version} successfully."
+    except (httpx.HTTPError, OSError, subprocess.TimeoutExpired) as e:
+        return f"Error updating ostk: {e}"

@@ -1,10 +1,23 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
 import WhatsNew from './WhatsNew'
 import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
 import type { AppNotification } from '../stores/notifications'
+import { api } from '../lib/api'
+
+interface PersistentNotification {
+  id: string
+  type: string
+  title: string
+  body: string
+  action_label: string | null
+  action_url: string | null
+  read: boolean
+  created_at: string
+  metadata: Record<string, unknown>
+}
 
 interface TopBarProps {
   title: string
@@ -64,6 +77,41 @@ function NotificationItem({ n }: { n: AppNotification }) {
   )
 }
 
+function PersistentNotificationItem({
+  n,
+  onRead,
+}: {
+  n: PersistentNotification
+  onRead: (id: string) => void
+}) {
+  const navigate = useNavigate()
+  return (
+    <div
+      className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-800/50 transition-colors cursor-pointer ${n.read ? 'opacity-60' : ''}`}
+      onClick={() => {
+        if (!n.read) onRead(n.id)
+        if (n.action_url) navigate(n.action_url)
+      }}
+    >
+      <Icon
+        name={n.type === 'upgrade' ? 'system_update_alt' : 'info'}
+        size={18}
+        className={n.type === 'upgrade' ? 'text-blue-400 mt-0.5 shrink-0' : 'text-slate-400 mt-0.5 shrink-0'}
+      />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-white font-medium">{n.title}</p>
+        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{n.body}</p>
+        {n.action_label && (
+          <p className="text-xs text-blue-400 mt-1">{n.action_label} &rarr;</p>
+        )}
+      </div>
+      <span className="text-[10px] text-slate-600 shrink-0 mt-0.5">
+        {formatTimeAgo(n.created_at)}
+      </span>
+    </div>
+  )
+}
+
 export default function TopBar({ title }: TopBarProps) {
   const navigate = useNavigate()
   const toggleChat = useAppStore((s) => s.toggleChat)
@@ -71,12 +119,34 @@ export default function TopBar({ title }: TopBarProps) {
   const osName = useAppStore((s) => s.osName)
   const [showNotifications, setShowNotifications] = useState(false)
   const [, setTick] = useState(0)
+  const [persistentNotifs, setPersistentNotifs] = useState<PersistentNotification[]>([])
+  const [persistentUnread, setPersistentUnread] = useState(0)
 
   const notifications = useNotificationStore((s) => s.notifications)
   const markAllRead = useNotificationStore((s) => s.markAllRead)
   const clearAll = useNotificationStore((s) => s.clearAll)
 
-  const unreadCount = notifications.filter((n) => !n.read).length
+  const agentUnreadCount = notifications.filter((n) => !n.read).length
+  const unreadCount = agentUnreadCount + persistentUnread
+
+  const fetchPersistentUnread = useCallback(async () => {
+    try {
+      const data = await api.get<{ count: number }>('/notifications/unread/count')
+      setPersistentUnread(data.count)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const fetchPersistentNotifs = useCallback(async () => {
+    try {
+      const data = await api.get<PersistentNotification[]>('/notifications')
+      setPersistentNotifs(data)
+      setPersistentUnread(data.filter((n) => !n.read).length)
+    } catch {
+      // ignore
+    }
+  }, [])
 
   // Re-render every minute so "X min ago" stays fresh
   useEffect(() => {
@@ -84,9 +154,40 @@ export default function TopBar({ title }: TopBarProps) {
     return () => clearInterval(interval)
   }, [])
 
-  const handleOpenNotifications = () => {
+  // Poll persistent unread count every 60 seconds
+  useEffect(() => {
+    fetchPersistentUnread()
+    const interval = setInterval(fetchPersistentUnread, 60_000)
+    return () => clearInterval(interval)
+  }, [fetchPersistentUnread])
+
+  const handleMarkPersistentRead = useCallback(async (id: string) => {
+    try {
+      await api.post(`/notifications/${id}/read`)
+      setPersistentNotifs((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n))
+      setPersistentUnread((c) => Math.max(0, c - 1))
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const handleMarkAllPersistentRead = useCallback(async () => {
+    try {
+      await api.post('/notifications/read-all')
+      setPersistentNotifs((prev) => prev.map((n) => ({ ...n, read: true })))
+      setPersistentUnread(0)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const handleOpenNotifications = async () => {
     setShowNotifications(true)
-    if (unreadCount > 0) markAllRead()
+    await fetchPersistentNotifs()
+    if (agentUnreadCount > 0) markAllRead()
+    if (persistentUnread > 0) {
+      handleMarkAllPersistentRead()
+    }
   }
 
   return (
@@ -160,14 +261,21 @@ export default function TopBar({ title }: TopBarProps) {
                   </div>
                 </div>
 
-                {notifications.length === 0 ? (
+                {notifications.length === 0 && persistentNotifs.length === 0 ? (
                   <div className="p-6 text-center">
                     <Icon name="notifications_none" size={32} className="text-slate-700 mb-2" />
-                    <p className="text-sm text-slate-500">No notifications yet.</p>
-                    <p className="text-xs text-slate-600 mt-1">Alerts from agents will show up here.</p>
+                    <p className="text-sm text-slate-500">You&apos;re all caught up.</p>
+                    <p className="text-xs text-slate-600 mt-1">Alerts from agents and updates will show up here.</p>
                   </div>
                 ) : (
                   <div className="max-h-80 overflow-y-auto divide-y divide-slate-800/50">
+                    {persistentNotifs.map((n) => (
+                      <PersistentNotificationItem
+                        key={n.id}
+                        n={n}
+                        onRead={handleMarkPersistentRead}
+                      />
+                    ))}
                     {notifications.map((n) => (
                       <NotificationItem key={n.id} n={n} />
                     ))}
