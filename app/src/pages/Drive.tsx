@@ -89,6 +89,119 @@ function mimeLabel(mimeType: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Credentials file picker (Step 1)
+// ---------------------------------------------------------------------------
+
+function CredentialsPicker({ onSaved }: { onSaved: () => void }) {
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const uploadFile = async (file: File) => {
+    setUploading(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const resp = await fetch('/api/drive/credentials', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = (await resp.json()) as { ok: boolean; error?: string };
+      if (data.ok) {
+        setSaved(true);
+        // Move to Step 2 after a short pause so the user sees the confirmation.
+        setTimeout(() => onSaved(), 1200);
+      } else {
+        setError(data.error ?? 'Something went wrong. Please try again.');
+      }
+    } catch {
+      setError('Could not upload the file. Check your connection and try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadFile(file);
+  };
+
+  return (
+    <div className="mb-6">
+      <p className="text-sm font-medium text-slate-300 mb-3 text-left">
+        Step 1: Upload your credentials file
+      </p>
+
+      {saved ? (
+        <div className="flex items-center gap-2 p-4 bg-green-500/10 border border-green-500/30 rounded-lg text-green-300 text-sm">
+          <Icon name="check_circle" size={18} />
+          Credentials saved. Moving on...
+        </div>
+      ) : (
+        <>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => inputRef.current?.click()}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click(); }}
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={handleDrop}
+            className={`flex flex-col items-center justify-center gap-2 p-8 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${
+              dragging
+                ? 'border-blue-400 bg-blue-500/10'
+                : 'border-slate-600 hover:border-slate-400 bg-slate-800/40'
+            }`}
+          >
+            {uploading ? (
+              <>
+                <span
+                  className="w-5 h-5 border-2 border-slate-500 border-t-blue-400 rounded-full animate-spin"
+                  role="status"
+                />
+                <span className="text-sm text-slate-400">Saving...</span>
+              </>
+            ) : (
+              <>
+                <Icon name="upload_file" className="text-3xl text-slate-400" />
+                <span className="text-sm text-slate-300">Drop your Google credentials file here</span>
+                <span className="text-xs text-slate-500">or click to browse</span>
+              </>
+            )}
+          </div>
+
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={handleFileChange}
+            aria-label="Select credentials file"
+          />
+
+          {error && (
+            <div className="mt-3 flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 text-sm">
+              <Icon name="error" size={16} className="flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Connect screen
 // ---------------------------------------------------------------------------
 
@@ -99,6 +212,7 @@ function ConnectScreen({
   hasCredentialsFile: boolean;
   onConnected: () => void;
 }) {
+  const [credsSaved, setCredsSaved] = useState(hasCredentialsFile);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -152,56 +266,56 @@ function ConnectScreen({
           Browse and preview your Docs, Slides, and Sheets right here in myOS.
         </p>
 
-        {!hasCredentialsFile && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mb-6 text-left">
-            <p className="text-amber-300 text-sm font-medium mb-1">Setup required</p>
-            <p className="text-amber-200/80 text-sm">
-              You need a credentials file from Google Cloud Console saved at{' '}
-              <code className="bg-slate-800 px-1 rounded text-xs">
-                ~/.myos/google_credentials.json
-              </code>
-              .
+        {!credsSaved && (
+          <CredentialsPicker onSaved={() => setCredsSaved(true)} />
+        )}
+
+        {credsSaved && (
+          <>
+            <p className="text-sm font-medium text-slate-300 mb-3 text-left">
+              Step 2: Connect your account
             </p>
-            <a
-              href="/docs/google-drive-setup"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 mt-2 text-amber-300 text-xs hover:text-amber-200 underline"
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4 text-red-300 text-sm">
+                {error}
+              </div>
+            )}
+
+            <button
+              onClick={handleConnect}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-white font-medium transition-colors"
             >
-              See the setup guide
-              <Icon name="open_in_new" size={12} />
-            </a>
-          </div>
+              {loading ? (
+                <>
+                  <span
+                    className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"
+                    role="status"
+                  />
+                  Waiting for sign-in...
+                </>
+              ) : (
+                <>
+                  <Icon name="login" size={18} />
+                  Connect your Google account
+                </>
+              )}
+            </button>
+          </>
         )}
 
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4 text-red-300 text-sm">
-            {error}
-          </div>
-        )}
-
-        <button
-          onClick={handleConnect}
-          disabled={loading || !hasCredentialsFile}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-white font-medium transition-colors"
+        <a
+          href="/docs/google-drive-setup"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 mt-4 text-slate-600 text-xs hover:text-slate-400 underline"
         >
-          {loading ? (
-            <>
-              <span
-                className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"
-                role="status"
-              />
-              Waiting for sign-in...
-            </>
-          ) : (
-            <>
-              <Icon name="login" size={18} />
-              Connect your Google account
-            </>
-          )}
-        </button>
+          Setup guide
+          <Icon name="open_in_new" size={12} />
+        </a>
 
-        <p className="text-slate-600 text-xs mt-4">
+        <p className="text-slate-600 text-xs mt-3">
           Only your file list and selected previews are accessed. myOS never modifies your Drive.
         </p>
       </div>

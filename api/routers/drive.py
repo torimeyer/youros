@@ -13,10 +13,11 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
 from services.google_auth import (
+    CREDENTIALS_PATH,
     DRIVE_CACHE_DIR,
     TOKEN_PATH,
     credentials_file_exists,
@@ -51,6 +52,49 @@ _MAX_FILES = 100
 # ---------------------------------------------------------------------------
 # Auth endpoints
 # ---------------------------------------------------------------------------
+
+
+@router.post("/drive/credentials")
+async def drive_upload_credentials(file: UploadFile = File(...)):
+    """Accept a Google credentials JSON file upload and save it to ~/.myos/.
+
+    Validates that the file contains the required fields before saving.
+    Returns {ok: true} on success or {ok: false, error: "..."} on failure.
+    """
+    content = await file.read()
+    if not content:
+        return {"ok": False, "error": "The file was empty. Please download your credentials file again from Google Cloud Console."}
+
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "That file could not be read. Make sure you downloaded the correct JSON file from Google Cloud Console."}
+
+    # Support both 'web' and 'installed' app types, as well as a flat format.
+    cfg = None
+    for key in ("web", "installed"):
+        if key in data:
+            cfg = data[key]
+            break
+    if cfg is None:
+        cfg = data
+
+    # Validate required fields.
+    missing = [f for f in ("client_id", "client_secret") if f not in cfg]
+    has_redirect = "redirect_uris" in cfg or "web" in data
+    if missing or not has_redirect:
+        return {
+            "ok": False,
+            "error": (
+                "That does not look like a Google credentials file. "
+                "Download it again from the Google Cloud Console credentials page."
+            ),
+        }
+
+    MYOS_DIR = CREDENTIALS_PATH.parent
+    MYOS_DIR.mkdir(parents=True, exist_ok=True)
+    CREDENTIALS_PATH.write_bytes(content)
+    return {"ok": True}
 
 
 @router.get("/drive/auth/status")

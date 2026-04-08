@@ -479,3 +479,130 @@ async def test_drive_sync_success(client, tmp_path):
     data = resp.json()
     assert data["ok"] is True
     assert data["file_count"] == 4
+
+
+# ---------------------------------------------------------------------------
+# Credentials upload
+# ---------------------------------------------------------------------------
+
+
+def _valid_credentials_json() -> bytes:
+    """Return a minimal valid Google credentials JSON (installed app format)."""
+    return json.dumps(
+        {
+            "installed": {
+                "client_id": "test-client-id.apps.googleusercontent.com",
+                "client_secret": "test-secret",
+                "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"],
+            }
+        }
+    ).encode()
+
+
+@pytest.mark.asyncio
+async def test_drive_credentials_upload_valid_saves_file(client, tmp_path):
+    """A valid credentials file should be saved to the expected path and return ok=true."""
+    creds_path = tmp_path / "google_credentials.json"
+
+    with patch("routers.drive.CREDENTIALS_PATH", creds_path):
+        resp = await client.post(
+            "/api/drive/credentials",
+            files={"file": ("credentials.json", _valid_credentials_json(), "application/json")},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert creds_path.exists()
+    saved = json.loads(creds_path.read_bytes())
+    assert "installed" in saved
+
+
+@pytest.mark.asyncio
+async def test_drive_credentials_upload_web_format(client, tmp_path):
+    """Credentials in 'web' app format should also be accepted."""
+    creds_path = tmp_path / "google_credentials.json"
+    web_creds = json.dumps(
+        {
+            "web": {
+                "client_id": "web-id.apps.googleusercontent.com",
+                "client_secret": "web-secret",
+                "redirect_uris": ["http://localhost:37373/api/drive/auth/callback"],
+            }
+        }
+    ).encode()
+
+    with patch("routers.drive.CREDENTIALS_PATH", creds_path):
+        resp = await client.post(
+            "/api/drive/credentials",
+            files={"file": ("credentials.json", web_creds, "application/json")},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_drive_credentials_upload_invalid_json_returns_error(client, tmp_path):
+    """Non-JSON content should return ok=false with a plain language error."""
+    creds_path = tmp_path / "google_credentials.json"
+
+    with patch("routers.drive.CREDENTIALS_PATH", creds_path):
+        resp = await client.post(
+            "/api/drive/credentials",
+            files={"file": ("creds.json", b"this is not json!!!", "application/json")},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is False
+    assert "error" in data
+    assert len(data["error"]) > 0
+    assert not creds_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_drive_credentials_upload_missing_keys_returns_error(client, tmp_path):
+    """A JSON file that lacks required fields should return ok=false."""
+    creds_path = tmp_path / "google_credentials.json"
+    bad_creds = json.dumps({"some_random_key": "some_value"}).encode()
+
+    with patch("routers.drive.CREDENTIALS_PATH", creds_path):
+        resp = await client.post(
+            "/api/drive/credentials",
+            files={"file": ("creds.json", bad_creds, "application/json")},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is False
+    assert "error" in data
+    assert not creds_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_status_includes_credentials_present_field(client, tmp_path):
+    """The status endpoint must include credentials_present so the frontend knows which step to show."""
+    token_path = tmp_path / "google_token.json"
+    creds_path = tmp_path / "google_credentials.json"
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+    ):
+        resp = await client.get("/api/drive/auth/status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "credentials_file_present" in data
+    assert data["credentials_file_present"] is False
+
+    # Now write a creds file and check again.
+    creds_path.write_text("{}")
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+    ):
+        resp2 = await client.get("/api/drive/auth/status")
+
+    assert resp2.json()["credentials_file_present"] is True
