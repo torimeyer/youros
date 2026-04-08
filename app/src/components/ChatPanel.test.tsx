@@ -511,4 +511,96 @@ describe('ChatPanel', () => {
       )
     })
   })
+
+  describe('Chat history persistence', () => {
+    it('renders a clear history button in the header', () => {
+      render(<ChatPanel />)
+      const clearBtn = screen.getByTestId('clear-history-button')
+      expect(clearBtn).toBeTruthy()
+    })
+
+    it('clear history button resets to a single empty tab after confirmation', async () => {
+      // Set up localStorage with a message so the panel starts with content.
+      const messages = [
+        { id: 'clear-test-msg-1', role: 'user', content: 'Message to be cleared', updatedAt: new Date().toISOString() },
+        { id: 'clear-test-msg-2', role: 'assistant', content: 'Reply to clear', model: 'claude', updatedAt: new Date().toISOString() },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      // Stub window.confirm to return true (user confirmed)
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+      render(<ChatPanel />)
+
+      // Verify the message DOM elements are present before clear
+      expect(document.getElementById('msg-clear-test-msg-1')).toBeTruthy()
+
+      const clearBtn = screen.getByTestId('clear-history-button')
+      fireEvent.click(clearBtn)
+
+      // After clear the message DOM elements should be gone
+      expect(document.getElementById('msg-clear-test-msg-1')).toBeNull()
+
+      // The api.delete should have been called
+      const { api } = await import('../lib/api')
+      expect(vi.mocked(api.delete)).toHaveBeenCalledWith('/chat/history')
+    })
+
+    it('does not clear when user cancels the confirmation dialog', () => {
+      const messages = [
+        { id: 'cancel-test-msg', role: 'user', content: 'Keep this message' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+      render(<ChatPanel />)
+      expect(document.getElementById('msg-cancel-test-msg')).toBeTruthy()
+
+      fireEvent.click(screen.getByTestId('clear-history-button'))
+
+      // Message should still be visible
+      expect(document.getElementById('msg-cancel-test-msg')).toBeTruthy()
+    })
+
+    it('calls api.get on mount to hydrate history from server', async () => {
+      // Verify the component requests chat history from the server when it mounts.
+      // The default mock returns empty tabs so we just confirm the call was made.
+      const { api } = await import('../lib/api')
+
+      render(<ChatPanel />)
+
+      await vi.waitFor(() =>
+        vi.mocked(api.get).mock.calls.some((c) => c[0] === '/chat/history')
+      )
+
+      const calls = vi.mocked(api.get).mock.calls.filter((c) => c[0] === '/chat/history')
+      expect(calls.length).toBeGreaterThan(0)
+    })
+
+    it('saves tabs to server after hydration completes', async () => {
+      const { api } = await import('../lib/api')
+      vi.mocked(api.get).mockResolvedValueOnce({
+        tabs: [
+          {
+            id: 'tab-x',
+            name: 'Existing',
+            messages: [],
+          },
+        ],
+        active_tab_id: 'tab-x',
+      })
+
+      render(<ChatPanel />)
+
+      // Wait for hydration and the debounced save (500ms debounce in component)
+      await vi.waitFor(
+        () => {
+          const putCalls = vi.mocked(api.put).mock.calls.filter((c) => c[0] === '/chat/history')
+          expect(putCalls.length).toBeGreaterThan(0)
+        },
+        { timeout: 2000 }
+      )
+    })
+  })
 })

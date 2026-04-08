@@ -78,6 +78,8 @@ export interface ChatTab {
   id: string
   name: string
   messages: Message[]
+  /** ISO timestamp of the last message or tab creation. Used to prune old tabs. */
+  updatedAt?: string
 }
 
 function genId(): string {
@@ -310,7 +312,7 @@ export function ChatPanel() {
       if (tab.id !== activeTabId) return tab
       const newMessages = typeof updater === 'function' ? updater(tab.messages) : updater
       const newName = tab.name === 'New Chat' ? deriveTabName(newMessages) : tab.name
-      return { ...tab, messages: newMessages, name: newName }
+      return { ...tab, messages: newMessages, name: newName, updatedAt: new Date().toISOString() }
     }))
   }, [activeTabId])
 
@@ -508,10 +510,31 @@ export function ChatPanel() {
     const handle = setTimeout(() => {
       // Strip base64 images before sending so we never blow past the
       // server payload limit.
-      const tabsToSave = tabs.map((tab) => ({
+      let tabsToSave = tabs.map((tab) => ({
         ...tab,
         messages: tab.messages.map((m) => (m.imageUrl ? { ...m, imageUrl: undefined } : m)),
       }))
+      // Prune tabs older than 30 days.
+      const cutoff = new Date()
+      cutoff.setDate(cutoff.getDate() - 30)
+      tabsToSave = tabsToSave.filter((tab) => {
+        if (!tab.updatedAt) return true
+        return new Date(tab.updatedAt) >= cutoff
+      })
+      // Keep at most 10 tabs. If the active tab would be cut, preserve it.
+      if (tabsToSave.length > 10) {
+        const sorted = [...tabsToSave].sort((a, b) => {
+          const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0
+          const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0
+          return tb - ta
+        })
+        const kept = sorted.slice(0, 10)
+        if (!kept.find((t) => t.id === activeTabId)) {
+          const active = tabsToSave.find((t) => t.id === activeTabId)
+          if (active) kept[kept.length - 1] = active
+        }
+        tabsToSave = kept
+      }
       api
         .put('/chat/history', { tabs: tabsToSave, active_tab_id: activeTabId })
         .catch(() => {
@@ -723,13 +746,32 @@ export function ChatPanel() {
   }
 
   const handleNewConversation = () => {
-    const newTab: ChatTab = { id: genId(), name: 'New Chat', messages: [] }
+    const newTab: ChatTab = { id: genId(), name: 'New Chat', messages: [], updatedAt: new Date().toISOString() }
     setTabs(prev => [...prev, newTab])
     setActiveTabId(newTab.id)
     setIsStreaming(false)
     setCurrentModel(null)
     setReplyingTo(null)
     setShowGiphy(false)
+  }
+
+  const handleClearHistory = () => {
+    if (!window.confirm('Clear all chat history? This cannot be undone.')) return
+    const freshTab: ChatTab = { id: genId(), name: 'New Chat', messages: [], updatedAt: new Date().toISOString() }
+    setTabs([freshTab])
+    setActiveTabId(freshTab.id)
+    setIsStreaming(false)
+    setCurrentModel(null)
+    setReplyingTo(null)
+    setShowGiphy(false)
+    try {
+      localStorage.removeItem(CHAT_CACHE_KEY)
+    } catch {
+      /* ignore */
+    }
+    api.delete('/chat/history').catch(() => {
+      /* best effort */
+    })
   }
 
   const handleCloseTab = (tabId: string) => {
@@ -816,6 +858,14 @@ export function ChatPanel() {
             title={toolsEnabled ? 'Agent mode: ON (can use tools)' : 'Agent mode: OFF (text only)'}
           >
             <Icon name="build" />
+          </button>
+          <button
+            onClick={handleClearHistory}
+            className="p-1 text-slate-500 hover:text-red-400 transition-colors"
+            title="Clear all chat history"
+            data-testid="clear-history-button"
+          >
+            <Icon name="delete_sweep" />
           </button>
           <button onClick={toggleChat} className="p-1 text-slate-400 hover:text-white transition-colors">
             <Icon name="close" />
