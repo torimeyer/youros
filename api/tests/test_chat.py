@@ -1,7 +1,7 @@
 import os
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from routers.chat import parse_mentions, strip_mentions, should_inject_context
 
@@ -320,6 +320,71 @@ class TestGeminiCredentialErrors:
         assert "SDK init failed" in errors[0]["data"]
 
 
+class TestAutoTemplateMatching:
+    """The chat flow should auto-match agent templates and notify the UI.
+
+    These tests exercise the helper that ``stream_anthropic`` and
+    ``agent_anthropic`` use, without spinning up the full Anthropic client.
+    """
+
+    @pytest.mark.asyncio
+    async def test_saa_message_emits_template_matched_event(self, websocket):
+        from services import chat_providers
+        from services.template_matcher import clear_cache
+
+        clear_cache()
+
+        with patch("services.chat_providers.settings_store") as mock_settings:
+            def fake_get(key, default=None):
+                if key == "auto_template_matching":
+                    return True
+                if key == "custom_agent_templates":
+                    return []
+                return default
+            mock_settings.get.side_effect = fake_get
+
+            result = await chat_providers._maybe_match_template(
+                [{"role": "user", "content": "saa fix the login bug"}],
+                websocket,
+                api_key="fake-key",
+            )
+
+        assert result is not None
+        assert result["name"] == "saa"
+
+        events = websocket.get_messages_of_type("template_matched")
+        assert len(events) == 1
+        assert events[0]["data"]["name"] == "saa"
+
+    @pytest.mark.asyncio
+    async def test_irrelevant_message_does_not_match(self, websocket):
+        from services import chat_providers
+        from services.template_matcher import clear_cache
+
+        clear_cache()
+
+        with patch("services.chat_providers.settings_store") as mock_settings:
+            def fake_get(key, default=None):
+                if key == "auto_template_matching":
+                    return True
+                if key == "custom_agent_templates":
+                    return []
+                return default
+            mock_settings.get.side_effect = fake_get
+
+            # api_key="" disables the AI classifier so the matcher only
+            # checks deterministic layers. "hello world" doesn't trip any
+            # built-in trigger.
+            result = await chat_providers._maybe_match_template(
+                [{"role": "user", "content": "hello world"}],
+                websocket,
+                api_key="",
+            )
+
+        assert result is None
+        assert websocket.get_messages_of_type("template_matched") == []
+
+
 class TestChatWebSocketCatchAll:
     """Verify that unexpected exceptions in the chat WebSocket handler
     produce an error message instead of silently dropping the connection.
@@ -344,3 +409,337 @@ class TestChatWebSocketCatchAll:
         labels = websocket.get_messages_of_type("model_label")
         assert len(labels) == 1
         assert labels[0]["data"] == "Gemini"
+
+
+class TestChatBackendDispatch:
+    """Verify the chat router picks the Claude subscription pathway
+    when the local program is available and falls back to the API key
+    pathway otherwise. Also verifies template matching runs in both
+    paths so the helper badge keeps working regardless of backend.
+    """
+
+    @pytest.mark.asyncio
+    async def test_claude_code_available_dispatches_to_local_program(self, websocket):
+        from services import chat_providers
+        from services.chat_providers import ChatService
+        from services.template_matcher import clear_cache
+
+        clear_cache()
+        chat_providers.claude_code_provider.clear_detection_cache()
+
+        service = ChatService()
+
+        async def fake_stream_chat(messages, ws, system_prompt=None):
+            await ws.send_json({"type": "token", "data": "from-claude-code"})
+            await ws.send_json({"type": "done", "usage": {"input_tokens": 1, "output_tokens": 1}})
+            return "from-claude-code"
+
+        matcher_calls: list[str] = []
+
+        async def fake_match(messages, ws, api_key):
+            matcher_calls.append("matched")
+            return None
+
+        with patch(
+            "services.chat_providers.claude_code_provider.is_claude_code_available",
+            new=AsyncMock(return_value=True),
+        ), patch(
+            "services.chat_providers.claude_code_provider.stream_chat",
+            new=fake_stream_chat,
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                "auto" if key == "chat_backend_preference" else default
+            )
+
+            result = await service.stream_anthropic(
+                [{"role": "user", "content": "hello"}], websocket
+            )
+
+        assert result == "from-claude-code"
+
+        # Template matcher must run even on the Claude Code path.
+        assert matcher_calls == ["matched"]
+
+        # The backend_active event fired with the local program name.
+        events = websocket.get_messages_of_type("backend_active")
+        assert len(events) == 1
+        assert events[0]["data"]["name"] == "claude_code"
+        assert "subscription" in events[0]["data"]["label"].lower()
+
+    @pytest.mark.asyncio
+    async def test_claude_code_unavailable_falls_back_to_api(self, websocket):
+        from services import chat_providers
+        from services.chat_providers import ChatService
+        from services.template_matcher import clear_cache
+
+        clear_cache()
+        chat_providers.claude_code_provider.clear_detection_cache()
+
+        service = ChatService()
+
+        matcher_calls: list[str] = []
+
+        async def fake_match(messages, ws, api_key):
+            matcher_calls.append("matched")
+            return None
+
+        with patch(
+            "services.chat_providers.claude_code_provider.is_claude_code_available",
+            new=AsyncMock(return_value=False),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value=""),
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                "auto" if key == "chat_backend_preference" else default
+            )
+
+            # No API key so we expect an error after backend_active is sent.
+            await service.stream_anthropic(
+                [{"role": "user", "content": "hello"}], websocket
+            )
+
+        # Template matcher ran even on the API fallback path.
+        assert matcher_calls == ["matched"]
+
+        events = websocket.get_messages_of_type("backend_active")
+        assert len(events) == 1
+        assert events[0]["data"]["name"] == "anthropic_api"
+        assert "anthropic" in events[0]["data"]["label"].lower()
+
+    @pytest.mark.asyncio
+    async def test_preference_anthropic_api_forces_api_even_when_claude_available(self, websocket):
+        from services import chat_providers
+        from services.chat_providers import ChatService
+        from services.template_matcher import clear_cache
+
+        clear_cache()
+        chat_providers.claude_code_provider.clear_detection_cache()
+
+        service = ChatService()
+
+        claude_stream_called = {"yes": False}
+
+        async def fake_stream_chat(messages, ws, system_prompt=None):
+            claude_stream_called["yes"] = True
+            return ""
+
+        async def fake_match(messages, ws, api_key):
+            return None
+
+        with patch(
+            "services.chat_providers.claude_code_provider.is_claude_code_available",
+            new=AsyncMock(return_value=True),
+        ), patch(
+            "services.chat_providers.claude_code_provider.stream_chat",
+            new=fake_stream_chat,
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value=""),
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                "anthropic_api" if key == "chat_backend_preference" else default
+            )
+
+            await service.stream_anthropic(
+                [{"role": "user", "content": "hello"}], websocket
+            )
+
+        assert claude_stream_called["yes"] is False
+        events = websocket.get_messages_of_type("backend_active")
+        assert events[0]["data"]["name"] == "anthropic_api"
+
+    @pytest.mark.asyncio
+    async def test_agent_anthropic_dispatches_to_claude_code_when_available(self, websocket):
+        from services import chat_providers
+        from services.chat_providers import ChatService
+        from services.template_matcher import clear_cache
+
+        clear_cache()
+        chat_providers.claude_code_provider.clear_detection_cache()
+
+        service = ChatService()
+
+        async def fake_stream_chat(messages, ws, system_prompt=None):
+            await ws.send_json({"type": "token", "data": "agent-path"})
+            await ws.send_json({"type": "done", "usage": {"input_tokens": 1, "output_tokens": 1}})
+            return "agent-path"
+
+        async def fake_match(messages, ws, api_key):
+            return None
+
+        with patch(
+            "services.chat_providers.claude_code_provider.is_claude_code_available",
+            new=AsyncMock(return_value=True),
+        ), patch(
+            "services.chat_providers.claude_code_provider.stream_chat",
+            new=fake_stream_chat,
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value=""),
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                "auto" if key == "chat_backend_preference" else default
+            )
+
+            result = await service.agent_anthropic(
+                [{"role": "user", "content": "hello"}], websocket
+            )
+
+        assert result == "agent-path"
+        events = websocket.get_messages_of_type("backend_active")
+        assert events[0]["data"]["name"] == "claude_code"
+
+
+class TestChatReachesFrontendWithNonEmptyToken:
+    """Regression guard for the empty Claude response bug.
+
+    When Tori sent 'did you complete it?' the chat panel showed the
+    assistant row but with no text. The bug was on the frontend: the
+    WebSocket on-close handler swallowed a mid-turn drop by emitting a
+    silent ``done`` instead of an error, so whenever uvicorn --reload
+    restarted the server mid-response the chat cleared itself and left an
+    empty bubble behind.
+
+    This test pins the BACKEND contract: the full chat entry point must
+    send at least one ``token`` event with non-empty data BEFORE the
+    ``done`` event. If this test passes and the bubble still renders
+    empty, the bug is on the frontend side of the pipe.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_anthropic_emits_non_empty_token_before_done(self, websocket):
+        import json
+
+        from services import chat_providers
+        from services.chat_providers import ChatService
+        from services.template_matcher import clear_cache
+
+        clear_cache()
+        chat_providers.claude_code_provider.clear_detection_cache()
+
+        service = ChatService()
+
+        # Real stream-json events from the local program: one assistant
+        # event with a text block, followed by a result event. This is the
+        # same shape the live ``claude -p --output-format stream-json``
+        # command emits today.
+        assistant_line = (
+            json.dumps({
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "I am running, all good."}]
+                },
+            }) + "\n"
+        ).encode()
+        result_line = (
+            json.dumps({
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "usage": {"input_tokens": 2, "output_tokens": 3},
+            }) + "\n"
+        ).encode()
+
+        class FakeStdout:
+            def __init__(self, lines):
+                self._lines = list(lines)
+
+            async def readline(self):
+                if not self._lines:
+                    return b""
+                return self._lines.pop(0)
+
+        class FakeStderr:
+            async def read(self):
+                return b""
+
+        class FakeProcess:
+            def __init__(self, lines):
+                self.stdout = FakeStdout(lines)
+                self.stderr = FakeStderr()
+                self.returncode = 0
+
+            async def wait(self):
+                return 0
+
+            def kill(self):
+                pass
+
+        async def fake_create_subprocess_exec(*args, **kwargs):
+            return FakeProcess([assistant_line, result_line])
+
+        async def fake_match(messages, ws, api_key):
+            return None
+
+        # Patch subprocess inside services.claude_code_provider's asyncio
+        # reference so unrelated subprocess calls (like ostk.secret_get)
+        # keep working normally. We also short-circuit the api key resolver
+        # so no real keychain lookup happens during the test.
+        with patch(
+            "services.chat_providers.claude_code_provider.is_claude_code_available",
+            new=AsyncMock(return_value=True),
+        ), patch(
+            "services.claude_code_provider._find_claude_binary",
+            return_value="/usr/local/bin/claude",
+        ), patch(
+            "services.claude_code_provider.asyncio.create_subprocess_exec",
+            new=fake_create_subprocess_exec,
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value=""),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                "auto" if key == "chat_backend_preference" else default
+            )
+
+            await service.stream_anthropic(
+                [{"role": "user", "content": "did you complete it?"}],
+                websocket,
+            )
+
+        # Must have sent at least one token event with non-empty data
+        # BEFORE the done event. The frontend uses this ordering to
+        # populate the assistant bubble.
+        tokens = websocket.get_messages_of_type("token")
+        done = websocket.get_messages_of_type("done")
+        assert len(tokens) >= 1, "no token event reached the websocket"
+        assert any(str(t.get("data") or "").strip() for t in tokens), (
+            "all token events were empty. The assistant bubble will render blank."
+        )
+        assert len(done) == 1, "done event should be sent exactly once"
+        # And the token(s) must arrive before the done event in message order.
+        first_token_idx = next(
+            i for i, m in enumerate(websocket.messages) if m.get("type") == "token"
+        )
+        done_idx = next(
+            i for i, m in enumerate(websocket.messages) if m.get("type") == "done"
+        )
+        assert first_token_idx < done_idx, (
+            "done arrived before any token event, so the bubble is empty when done fires"
+        )

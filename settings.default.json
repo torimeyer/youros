@@ -1,9 +1,11 @@
 {
+  "onboarded": false,
   "os_name": "myOS",
   "user_name": "",
   "dark_mode": true,
   "accent_color": "blue",
   "default_model": "@claude",
+  "use_ostk_terms": false,
   "features": {
     "Chat": true,
     "Tasks": true,

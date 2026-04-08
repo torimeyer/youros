@@ -16,6 +16,7 @@ interface Task {
   tags?: string[];
   goal?: string | null;
   label_ids?: string[];
+  auto_label_ids?: string[];
   blocks?: string[];
   depends_on?: string[];
   thread_id?: string | null;
@@ -562,15 +563,18 @@ export default function Tasks() {
   /** Render label pills for a task */
   const renderTaskLabels = (task: Task) => {
     const taskLabelIds = task.label_ids || [];
+    const autoLabelIds = new Set(task.auto_label_ids || []);
     if (taskLabelIds.length === 0) return null;
     return (
       <div className="flex items-center gap-1 flex-shrink-0">
         {taskLabelIds.map((lid) => {
           const label = labelsById.get(lid);
           if (!label) return null;
+          const isAuto = autoLabelIds.has(lid);
           return (
             <span
               key={lid}
+              data-testid={isAuto ? `auto-label-${task.id}-${lid}` : undefined}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium cursor-pointer hover:opacity-80"
               style={{
                 backgroundColor: label.color + "20",
@@ -581,8 +585,17 @@ export default function Tasks() {
                 e.stopPropagation();
                 removeLabel(task.id, lid);
               }}
-              title={`Click to remove "${label.name}" label`}
+              title={
+                isAuto
+                  ? `Auto-applied. Click x to remove "${label.name}".`
+                  : `Click to remove "${label.name}" label`
+              }
             >
+              {isAuto && (
+                <span data-testid={`auto-icon-${task.id}-${lid}`} className="inline-flex">
+                  <Icon name="auto_awesome" className="text-[9px]" />
+                </span>
+              )}
               {label.name}
               <Icon name="close" className="text-[9px]" />
             </span>

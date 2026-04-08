@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import OnboardingWizard from './components/OnboardingWizard'
@@ -16,6 +17,14 @@ import { useAppStore } from './stores/app'
 
 export default function App() {
   const onboarded = useAppStore((s) => s.onboarded)
+  const hydrateFromServer = useAppStore((s) => s.hydrateFromServer)
+
+  // Pull the latest settings from the server once at app boot so the
+  // server is the source of truth. localStorage is only used for the
+  // very first paint to avoid a flash of wrong state.
+  useEffect(() => {
+    hydrateFromServer()
+  }, [hydrateFromServer])
 
   if (!onboarded) {
     return <OnboardingWizard />

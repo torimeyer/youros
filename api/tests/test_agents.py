@@ -1342,3 +1342,309 @@ async def test_list_grants_endpoint_server_error():
             resp = await client.get("/api/agents/grants")
 
         assert resp.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_register_then_complete_persists_status(tmp_path):
+    """Regression test for needle 132: agents stuck showing as running after completion.
+
+    Root cause: mark_agent_complete() only wrote a transcript file and did not
+    update agent_metadata or persist state. If the transcript write did not
+    happen (permissions, missing dir, caller never called /complete) the agent
+    stayed "running" forever.
+
+    This test verifies the full register -> complete -> list flow and asserts
+    the agent shows as "completed" in the listing and is NOT in the active list.
+    """
+    from routers.agents import agent_metadata
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon running",
+                    "daemon_running": False,
+                    "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+
+                # 1. Register the agent
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={"name": "reg-test-agent", "prompt": "do x", "model": "opus", "budget": 2.0},
+                )
+                assert resp.status_code == 200
+
+                # 2. Mark it complete
+                resp = await client.post("/api/agents/reg-test-agent/complete")
+                assert resp.status_code == 200
+                body = resp.json()
+                assert body["status"] == "completed"
+
+                # Canonical store must have the status stamped on it
+                assert agent_metadata["reg-test-agent"]["status"] == "completed"
+                assert "completed_at" in agent_metadata["reg-test-agent"]
+
+                # 3. List: the agent should show as completed, not running
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                data = resp.json()
+                match = [a for a in data["agents"] if a["name"] == "reg-test-agent"]
+                assert len(match) == 1
+                assert match[0]["status"] == "completed"
+                # It must NOT appear in the "active" (running) list
+                assert "reg-test-agent" not in data["active"]
+        finally:
+            agent_metadata.pop("reg-test-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_complete_endpoint_survives_missing_transcript_dir(tmp_path):
+    """Regression test: even when the transcript directory cannot be written,
+    /complete must still persist status=completed in agent_metadata."""
+    from routers.agents import agent_metadata
+
+    # Pre-seed a registered agent (as register would have)
+    agent_metadata["missing-transcript-agent"] = {
+        "spawned_at": "2026-04-06T17:00:00+00:00",
+        "budget": "2.0",
+        "model": "claude-opus-4-6",
+        "source": "claude-code",
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon running",
+                    "daemon_running": False,
+                    "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+
+                resp = await client.post("/api/agents/missing-transcript-agent/complete")
+                assert resp.status_code == 200
+                assert agent_metadata["missing-transcript-agent"]["status"] == "completed"
+
+                # Even without a transcript file, list endpoint must show completed
+                resp = await client.get("/api/agents")
+                data = resp.json()
+                match = [a for a in data["agents"] if a["name"] == "missing-transcript-agent"]
+                assert len(match) == 1
+                assert match[0]["status"] == "completed"
+                assert "missing-transcript-agent" not in data["active"]
+        finally:
+            agent_metadata.pop("missing-transcript-agent", None)
+
+
+# ── Register on spawn: real-time visibility regression tests ────────────────
+#
+# Root cause: /api/agents/register did not persist status="running", so agents
+# only appeared after they finished. Tori could not see agents working in real
+# time. The fix makes register default status="running" and persist it.
+
+
+@pytest.mark.asyncio
+async def test_register_defaults_status_to_running(tmp_path):
+    """POST /agents/register without an explicit status should persist
+    status="running" so the agent shows up immediately in the UI."""
+    from routers.agents import agent_metadata
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={"name": "realtime-agent", "model": "sonnet", "budget": 2.0},
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["status"] == "running"
+
+                assert "realtime-agent" in agent_metadata
+                assert agent_metadata["realtime-agent"]["status"] == "running"
+                assert agent_metadata["realtime-agent"]["source"] == "claude-code"
+        finally:
+            agent_metadata.pop("realtime-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_register_accepts_explicit_status(tmp_path):
+    """Callers can pass status explicitly to override the default."""
+    from routers.agents import agent_metadata
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={
+                        "name": "explicit-status-agent",
+                        "model": "sonnet",
+                        "budget": 2.0,
+                        "status": "running",
+                        "description": "Doing important work",
+                    },
+                )
+                assert resp.status_code == 200
+                assert resp.json()["status"] == "running"
+                assert agent_metadata["explicit-status-agent"]["description"] == "Doing important work"
+        finally:
+            agent_metadata.pop("explicit-status-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_registered_agent_visible_immediately_as_running(tmp_path):
+    """After POST /agents/register, GET /agents must immediately return the
+    agent with status="running". This is the core regression for the bug
+    where running Claude Code agents did not appear in the Agents page."""
+    from routers.agents import agent_metadata
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon running",
+                    "daemon_running": False,
+                    "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+
+                transcripts_dir = tmp_path / "transcripts"
+                transcripts_dir.mkdir(parents=True, exist_ok=True)
+
+                # Register the agent
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={"name": "immediate-agent", "model": "sonnet", "budget": 2.0},
+                )
+                assert resp.status_code == 200
+
+                # Immediately list agents. The agent must be visible as running.
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                data = resp.json()
+
+                matches = [a for a in data["agents"] if a["name"] == "immediate-agent"]
+                assert len(matches) == 1, (
+                    f"Expected registered agent to appear immediately, got: "
+                    f"{[a['name'] for a in data['agents']]}"
+                )
+                assert matches[0]["status"] == "running"
+                assert "immediate-agent" in data["active"]
+        finally:
+            agent_metadata.pop("immediate-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_registered_agent_never_disappears_before_complete(tmp_path):
+    """The full lifecycle: register -> listed as running -> complete ->
+    listed as completed. At no point should the agent disappear from the
+    list. This guards against the bug where agents were invisible during
+    their entire run and only appeared on completion."""
+    from routers.agents import agent_metadata
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon running",
+                    "daemon_running": False,
+                    "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+
+                transcripts_dir = tmp_path / "transcripts"
+                transcripts_dir.mkdir(parents=True, exist_ok=True)
+
+                # Step 1: register
+                await client.post(
+                    "/api/agents/register",
+                    json={"name": "lifecycle-agent", "model": "sonnet", "budget": 2.0},
+                )
+
+                # Step 2: listed as running
+                resp = await client.get("/api/agents")
+                data = resp.json()
+                matches = [a for a in data["agents"] if a["name"] == "lifecycle-agent"]
+                assert len(matches) == 1
+                assert matches[0]["status"] == "running"
+
+                # Step 3: listed again, still running (simulating poll)
+                resp = await client.get("/api/agents")
+                data = resp.json()
+                matches = [a for a in data["agents"] if a["name"] == "lifecycle-agent"]
+                assert len(matches) == 1, "Agent must not disappear between polls"
+                assert matches[0]["status"] == "running"
+
+                # Step 4: mark complete
+                resp = await client.post("/api/agents/lifecycle-agent/complete")
+                assert resp.status_code == 200
+
+                # Step 5: listed as completed, still present
+                resp = await client.get("/api/agents")
+                data = resp.json()
+                matches = [a for a in data["agents"] if a["name"] == "lifecycle-agent"]
+                assert len(matches) == 1, "Agent must not disappear after complete"
+                assert matches[0]["status"] == "completed"
+                assert "lifecycle-agent" not in data["active"]
+        finally:
+            agent_metadata.pop("lifecycle-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_register_with_description_and_prompt_preserved(tmp_path):
+    """Register should store description and a truncated prompt so the UI
+    can show useful context about the running agent."""
+    from routers.agents import agent_metadata
+
+    long_prompt = "x" * 1000
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={
+                        "name": "described-agent",
+                        "model": "sonnet",
+                        "budget": 2.0,
+                        "description": "Research task",
+                        "prompt": long_prompt,
+                    },
+                )
+                assert resp.status_code == 200
+                meta = agent_metadata["described-agent"]
+                assert meta["description"] == "Research task"
+                # Prompt should be stored but truncated for safety
+                assert meta["prompt"] == long_prompt[:500]
+                assert len(meta["prompt"]) == 500
+        finally:
+            agent_metadata.pop("described-agent", None)

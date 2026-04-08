@@ -379,7 +379,7 @@ describe('Files page', () => {
 
   // --- File preview modal ---
 
-  it('clicking a file opens the preview modal', async () => {
+  it('clicking a file opens the preview pane', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -409,7 +409,7 @@ describe('Files page', () => {
     })
   })
 
-  it('preview modal shows file content for text files', async () => {
+  it('preview pane shows file content for text files', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -431,12 +431,15 @@ describe('Files page', () => {
 
     fireEvent.click(screen.getByText('index.ts').closest('button')!)
 
+    // The code highlighter splits content into many token spans, so we
+    // assert on a recognizable piece of the source instead of the whole line.
     await waitFor(() => {
-      expect(screen.getByText('console.log("hello world")')).toBeInTheDocument()
+      expect(screen.getByText('console')).toBeInTheDocument()
     })
+    expect(screen.getByText('log')).toBeInTheDocument()
   })
 
-  it('preview modal has Close preview button', async () => {
+  it('preview pane has Close preview button', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -463,7 +466,7 @@ describe('Files page', () => {
     })
   })
 
-  it('Close preview button dismisses the modal', async () => {
+  it('Close preview button dismisses the pane', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -491,13 +494,13 @@ describe('Files page', () => {
 
     fireEvent.click(screen.getByTitle('Close preview'))
 
-    // Modal should be dismissed. File content should no longer be visible.
+    // Pane should be dismissed. File content should no longer be visible.
     await waitFor(() => {
       expect(screen.queryByTitle('Close preview')).not.toBeInTheDocument()
     })
   })
 
-  it('preview modal has Open externally button', async () => {
+  it('preview pane has Open externally button', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -559,10 +562,26 @@ describe('Files page', () => {
     })
   })
 
-  it('shows binary file message when file type is binary', async () => {
+  it('shows unsupported message when the file type cannot be previewed', async () => {
+    // Use an unknown-extension file so the preview pane lands in the fallback branch.
+    const unknownBrowse = {
+      ...mockBrowseResponse,
+      entries: [
+        {
+          name: 'mystery.xyz',
+          kind: 'file' as const,
+          path: 'my-app/mystery.xyz',
+          item_count: null,
+          size: 4096,
+          size_display: '4.0 KB',
+          last_modified: new Date().toISOString(),
+        },
+      ],
+    }
+
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
-      if (path.startsWith('/projects/browse')) return mockBrowseResponse
+      if (path.startsWith('/projects/browse')) return unknownBrowse
       if (path.startsWith('/files/read'))
         return { content: null, type: 'binary', size: 4096 }
       return {}
@@ -577,14 +596,14 @@ describe('Files page', () => {
     fireEvent.click(screen.getByText('my-app').closest('button')!)
 
     await waitFor(() => {
-      expect(screen.getByText('README.md')).toBeInTheDocument()
+      expect(screen.getByText('mystery.xyz')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('README.md').closest('button')!)
+    fireEvent.click(screen.getByText('mystery.xyz').closest('button')!)
 
     await waitFor(() => {
       expect(
-        screen.getByText('This file cannot be previewed in the browser.')
+        screen.getByText('Preview not available for this file type.')
       ).toBeInTheDocument()
     })
   })
@@ -612,7 +631,7 @@ describe('Files page', () => {
     fireEvent.click(screen.getByText('README.md').closest('button')!)
 
     await waitFor(() => {
-      expect(screen.getByText('Could not load file preview.')).toBeInTheDocument()
+      expect(screen.getByText("Couldn't open this file.")).toBeInTheDocument()
     })
   })
 

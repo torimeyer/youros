@@ -57,8 +57,10 @@ async def test_dream_returns_goal_and_tasks(client):
     assert len(data["tasks"]) == 4
     assert data["tasks"][0]["priority"] == "P1"
 
-    # Verify all tasks were persisted
-    assert mock_ostk.add_task.call_count == 4
+    # The dream endpoint returns the generated plan. Persistence is handled
+    # by the frontend calling /api/tasks for each task, so add_task is not
+    # called from inside this endpoint anymore.
+    assert mock_ostk.add_task.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -119,8 +121,8 @@ async def test_dream_fallback_when_no_api_key(client):
     data = resp.json()
     assert "goal" in data
     assert len(data["tasks"]) > 0
-    # Fallback tasks are still persisted
-    assert mock_ostk.add_task.call_count == len(data["tasks"])
+    # The endpoint returns the plan. Persistence happens on the frontend.
+    assert mock_ostk.add_task.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -204,11 +206,16 @@ async def test_dream_fallback_when_llm_missing_fields(client):
     assert len(data["tasks"]) > 0
 
 
-# --- Task persistence ---
+# --- Returned plan shape ---
 
 @pytest.mark.asyncio
-async def test_dream_persists_tasks_with_correct_priorities(client):
-    """Each generated task should be persisted with its assigned priority."""
+async def test_dream_returns_tasks_with_correct_priorities(client):
+    """Each generated task should appear in the response with its priority.
+
+    Note: the dream endpoint no longer persists tasks itself. The frontend
+    reads the response and calls POST /api/tasks for each task. This test
+    pins the returned ordering and priority so the frontend can rely on it.
+    """
     mock_response = _make_llm_response(VALID_LLM_DATA)
 
     with (
@@ -220,16 +227,22 @@ async def test_dream_persists_tasks_with_correct_priorities(client):
         instance.messages.create = AsyncMock(return_value=mock_response)
         mock_ostk.add_task = AsyncMock(return_value="created t-1")
 
-        await client.post("/api/onboarding/dream", json={
+        resp = await client.post("/api/onboarding/dream", json={
             "dreading": "I need to do my taxes",
         })
 
-    # Check the calls match the expected task titles and priorities
-    calls = mock_ostk.add_task.call_args_list
-    assert calls[0].args == ("Gather W-2s and 1099s from employers and banks", "P1")
-    assert calls[1].args == ("Pick a filing method", "P1")
-    assert calls[2].args == ("Fill out and review the return", "P1")
-    assert calls[3].args == ("Submit the return and save confirmation", "P2")
+    assert resp.status_code == 200
+    tasks = resp.json()["tasks"]
+    assert tasks[0]["title"] == "Gather W-2s and 1099s from employers and banks"
+    assert tasks[0]["priority"] == "P1"
+    assert tasks[1]["title"] == "Pick a filing method"
+    assert tasks[1]["priority"] == "P1"
+    assert tasks[2]["title"] == "Fill out and review the return"
+    assert tasks[2]["priority"] == "P1"
+    assert tasks[3]["title"] == "Submit the return and save confirmation"
+    assert tasks[3]["priority"] == "P2"
+    # The endpoint must not write to ostk directly; the frontend does that.
+    assert mock_ostk.add_task.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -277,3 +290,70 @@ async def test_dream_fallback_uses_done_looks_like_in_description(client):
 
     data = resp.json()
     assert data["goal"]["description"] == "Taxes filed and no penalties"
+
+
+# --- Auto-labeling for the persist helper ---
+
+@pytest.mark.asyncio
+async def test_persist_tasks_schedules_auto_labels():
+    """The onboarding _persist_tasks helper must run auto-labeling on each task.
+
+    Even though the dream endpoint currently lets the frontend do persistence,
+    the helper exists and must wire auto-labeling so any future caller stays
+    consistent with POST /api/tasks.
+    """
+    from routers.onboarding import _persist_tasks, DreamResponse, GoalItem, TaskItem
+
+    plan = DreamResponse(
+        goal=GoalItem(title="Get taxes filed", description="File without stress"),
+        tasks=[
+            TaskItem(title="Gather W-2s", priority="P1"),
+            TaskItem(title="Pick a filing method", priority="P1"),
+        ],
+    )
+
+    with (
+        patch("routers.onboarding.ostk") as mock_ostk,
+        patch("routers.onboarding.schedule_auto_labels") as mock_schedule,
+    ):
+        mock_ostk.add_task = AsyncMock(side_effect=[
+            "added 601: Gather W-2s [P1]",
+            "added 602: Pick a filing method [P1]",
+        ])
+        await _persist_tasks(plan)
+
+    assert mock_schedule.call_count == 2
+    first_args, _ = mock_schedule.call_args_list[0]
+    assert first_args == ("601", "Gather W-2s", "")
+    second_args, _ = mock_schedule.call_args_list[1]
+    assert second_args == ("602", "Pick a filing method", "")
+
+
+@pytest.mark.asyncio
+async def test_persist_tasks_skips_auto_labels_on_ostk_failure():
+    """If ostk.add_task fails, do not schedule auto-labels for that task."""
+    from routers.onboarding import _persist_tasks, DreamResponse, GoalItem, TaskItem
+    from services.ostk import OstkError
+
+    plan = DreamResponse(
+        goal=GoalItem(title="Test goal", description="desc"),
+        tasks=[
+            TaskItem(title="task that fails", priority="P1"),
+            TaskItem(title="task that succeeds", priority="P1"),
+        ],
+    )
+
+    with (
+        patch("routers.onboarding.ostk") as mock_ostk,
+        patch("routers.onboarding.schedule_auto_labels") as mock_schedule,
+    ):
+        mock_ostk.add_task = AsyncMock(side_effect=[
+            OstkError("disk full"),
+            "added 701: task that succeeds [P1]",
+        ])
+        await _persist_tasks(plan)
+
+    # Only the successful task gets auto-labeled.
+    assert mock_schedule.call_count == 1
+    args, _ = mock_schedule.call_args_list[0]
+    assert args == ("701", "task that succeeds", "")

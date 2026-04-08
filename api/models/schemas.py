@@ -32,11 +32,17 @@ class HayConvert(BaseModel):
 
 
 class Settings(BaseModel):
+    onboarded: bool = False
     os_name: str = "myOS"
     user_name: str = ""
     dark_mode: bool = True
     accent_color: str = "blue"
     default_model: str = "@claude"
+    use_ostk_terms: bool = False
+    tour_complete: bool = False
+    whats_new_last_seen: str = ""
+    custom_agent_templates: List[Dict] = []
+    auto_template_matching: bool = True
     features: Dict[str, bool] = {
         "Chat": True, "Tasks": True, "Hay/Ideas": True,
         "Agents": True, "Projects": True, "Docs": True,
@@ -50,6 +56,8 @@ class Settings(BaseModel):
     quiet_hours_start: str = "22:00"
     quiet_hours_end: str = "07:00"
     mcp_servers: List[Dict] = []
+    auto_label_tasks: bool = True
+    chat_backend_preference: str = "auto"
 
 
 class MCPServer(BaseModel):
@@ -64,6 +72,8 @@ class AgentSpawn(BaseModel):
     prompt: str = ""
     model: str = "sonnet"
     budget: float = 2.0
+    status: Optional[str] = None
+    description: Optional[str] = None
 
 
 class AgentNudge(BaseModel):

@@ -95,7 +95,7 @@ describe('Ideas page', () => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
 
-    const input = screen.getByPlaceholderText("What's on your mind?")
+    const input = screen.getByPlaceholderText("Quick dump an idea (or just mention it in chat)")
     fireEvent.change(input, { target: { value: 'Build a rocket ship' } })
 
     const sendButton = screen.getByRole('button', { name: 'Send' })
@@ -113,7 +113,7 @@ describe('Ideas page', () => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
 
-    const input = screen.getByPlaceholderText("What's on your mind?") as HTMLInputElement
+    const input = screen.getByPlaceholderText("Quick dump an idea (or just mention it in chat)") as HTMLInputElement
     fireEvent.change(input, { target: { value: 'My idea' } })
     expect(input.value).toBe('My idea')
 
@@ -133,7 +133,7 @@ describe('Ideas page', () => {
       expect(mockedApiGet).toHaveBeenCalledTimes(2)
     })
 
-    const input = screen.getByPlaceholderText("What's on your mind?")
+    const input = screen.getByPlaceholderText("Quick dump an idea (or just mention it in chat)")
     fireEvent.change(input, { target: { value: 'Refetch test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
@@ -162,7 +162,7 @@ describe('Ideas page', () => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
 
-    const input = screen.getByPlaceholderText("What's on your mind?")
+    const input = screen.getByPlaceholderText("Quick dump an idea (or just mention it in chat)")
     fireEvent.change(input, { target: { value: '   ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
@@ -176,7 +176,7 @@ describe('Ideas page', () => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
 
-    const input = screen.getByPlaceholderText("What's on your mind?")
+    const input = screen.getByPlaceholderText("Quick dump an idea (or just mention it in chat)")
     fireEvent.change(input, { target: { value: 'Enter idea' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -247,6 +247,53 @@ describe('Ideas page', () => {
     await waitFor(() => {
       expect(mockedApiPost).toHaveBeenCalledWith('/ideas/convert', { straw: 'Redesign sidebar' })
     })
+  })
+
+  it('shows "Created N tasks" message when convert returns a task list', async () => {
+    renderIdeas()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Redesign sidebar').length).toBeGreaterThanOrEqual(1)
+    })
+
+    mockedApiPost.mockResolvedValueOnce({
+      status: 'created',
+      tasks: [
+        { id: '1', title: 'A', description: '', priority: 'P2', order: 0 },
+        { id: '2', title: 'B', description: '', priority: 'P2', order: 1 },
+        { id: '3', title: 'C', description: '', priority: 'P2', order: 2 },
+      ],
+    })
+
+    const breakButtons = screen.getAllByRole('button', { name: 'Break into tasks' })
+    fireEvent.click(breakButtons[0])
+
+    await waitFor(() => {
+      expect(screen.getByText('Created 3 tasks.')).toBeInTheDocument()
+    })
+  })
+
+  it('shows clarification prompt when convert returns needs_clarification', async () => {
+    renderIdeas()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Redesign sidebar').length).toBeGreaterThanOrEqual(1)
+    })
+
+    mockedApiPost.mockResolvedValueOnce({
+      status: 'needs_clarification',
+      question: 'Web or mobile?',
+      straw: 'Redesign sidebar',
+    })
+
+    const breakButtons = screen.getAllByRole('button', { name: 'Break into tasks' })
+    fireEvent.click(breakButtons[0])
+
+    await waitFor(() => {
+      expect(screen.getByText('Web or mobile?')).toBeInTheDocument()
+    })
+    // The quick question header appears.
+    expect(screen.getByText('Quick question')).toBeInTheDocument()
   })
 
   it('renders suggested compilations section when clusters exist', async () => {

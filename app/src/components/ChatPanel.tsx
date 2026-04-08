@@ -3,6 +3,17 @@ import Icon from './Icon'
 import { useAppStore } from '../stores/app'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { renderMarkdown, renderTextWithMarkdown } from '../lib/markdown'
+import { api } from '../lib/api'
+
+// Local cache key. The server is the source of truth for chat history.
+// We still mirror to localStorage so the very first paint after a hard
+// refresh shows messages instantly while the server fetch is in flight.
+const CHAT_CACHE_KEY = 'myos-chat-messages'
+
+interface ChatHistoryPayload {
+  tabs: ChatTab[]
+  active_tab_id: string
+}
 
 const MODEL_COLORS: Record<string, string> = {
   claude: 'text-blue-400',
@@ -275,9 +286,12 @@ export function ChatPanel() {
   const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel } = useAppStore()
 
   // --- Tab state ---
+  // First paint reads cached messages from localStorage so the panel is
+  // never blank, then hydrateChatHistory below fetches the authoritative
+  // copy from the server and replaces it.
   const [tabs, setTabs] = useState<ChatTab[]>(() => {
     try {
-      const saved = localStorage.getItem('myos-chat-messages')
+      const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(CHAT_CACHE_KEY) : null
       const msgs: Message[] = saved ? JSON.parse(saved) : []
       const firstTab: ChatTab = { id: genId(), name: deriveTabName(msgs), messages: msgs }
       return [firstTab]
@@ -286,6 +300,7 @@ export function ChatPanel() {
     }
   })
   const [activeTabId, setActiveTabId] = useState<string>(() => tabs[0]?.id ?? '')
+  const [historyHydrated, setHistoryHydrated] = useState(false)
 
   const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0]
   const messages = activeTab?.messages ?? []
@@ -303,6 +318,10 @@ export function ChatPanel() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [toolsEnabled, setToolsEnabled] = useState(true)
+  const [activeTemplate, setActiveTemplate] = useState<{ name: string; description?: string } | null>(null)
+  // Which pathway is powering this response: the local Claude subscription
+  // program or the Anthropic API. Updated from the backend_active event.
+  const [activeBackend, setActiveBackend] = useState<{ name: string; label: string } | null>(null)
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
   const [showGiphy, setShowGiphy] = useState(false)
   const [giphyInitialSearch, setGiphyInitialSearch] = useState('')
@@ -329,6 +348,16 @@ export function ChatPanel() {
 
     if (lastMessage.type === 'model_label') {
       setCurrentModel((lastMessage.data as string) ?? null)
+    } else if (lastMessage.type === 'template_matched') {
+      const data = lastMessage.data as unknown as { name: string; description?: string }
+      if (data?.name) {
+        setActiveTemplate({ name: data.name, description: data.description })
+      }
+    } else if (lastMessage.type === 'backend_active') {
+      const data = lastMessage.data as unknown as { name: string; label: string }
+      if (data?.name) {
+        setActiveBackend({ name: data.name, label: data.label })
+      }
     } else if (lastMessage.type === 'thinking') {
       // Ensure streaming state is active so ThinkingDots shows
       setIsStreaming(true)
@@ -428,13 +457,69 @@ export function ChatPanel() {
     }
   }, [lastMessage, currentModel])
 
-  // Persist active tab messages to localStorage (skip base64 images to avoid quota limits)
+  // Hydrate chat history from the server on first mount. The server is
+  // the source of truth, so anything it returns replaces what was in the
+  // localStorage cache. This makes chat history survive cache clears and
+  // follow the user across devices.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .get<ChatHistoryPayload>('/chat/history')
+      .then((data) => {
+        if (cancelled) return
+        const serverTabs = Array.isArray(data?.tabs) ? data.tabs : []
+        if (serverTabs.length > 0) {
+          setTabs(serverTabs)
+          const activeId = data.active_tab_id && serverTabs.some((t) => t.id === data.active_tab_id)
+            ? data.active_tab_id
+            : serverTabs[0].id
+          setActiveTabId(activeId)
+        }
+      })
+      .catch(() => {
+        // Server unreachable. Keep whatever the localStorage cache gave us.
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryHydrated(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Persist tabs. Cache the active tab in localStorage for fast first
+  // paint, and write the full set of tabs to the server (debounced) so it
+  // survives cache clears and device switches. We only start writing to
+  // the server after the initial hydrate completes so we never overwrite
+  // server state with stale local state.
   useEffect(() => {
     try {
-      const toSave = messages.map(m => m.imageUrl ? { ...m, imageUrl: undefined } : m)
-      localStorage.setItem('myos-chat-messages', JSON.stringify(toSave))
-    } catch { /* quota exceeded, skip */ }
+      const toSave = messages.map((m) => (m.imageUrl ? { ...m, imageUrl: undefined } : m))
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(toSave))
+      }
+    } catch {
+      /* quota exceeded, skip */
+    }
   }, [messages])
+
+  useEffect(() => {
+    if (!historyHydrated) return
+    const handle = setTimeout(() => {
+      // Strip base64 images before sending so we never blow past the
+      // server payload limit.
+      const tabsToSave = tabs.map((tab) => ({
+        ...tab,
+        messages: tab.messages.map((m) => (m.imageUrl ? { ...m, imageUrl: undefined } : m)),
+      }))
+      api
+        .put('/chat/history', { tabs: tabsToSave, active_tab_id: activeTabId })
+        .catch(() => {
+          /* network down, will retry on next change */
+        })
+    }, 500)
+    return () => clearTimeout(handle)
+  }, [tabs, activeTabId, historyHydrated])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -504,6 +589,8 @@ export function ChatPanel() {
     }
 
     if (!text.trim() && !pendingImage) return
+    // Clear any prior template badge so the next response shows its own.
+    setActiveTemplate(null)
     const userMessage: Message = {
       id: genId(),
       role: 'user',
@@ -810,10 +897,28 @@ export function ChatPanel() {
                 {!msg.model && (
                   <span className="text-[10px] text-slate-500 font-bold uppercase">Assistant</span>
                 )}
+                {/* Auto-matched template badge. Shows on the latest assistant
+                    message so the user can see which helper kicked in. */}
+                {i === messages.length - 1 && activeTemplate && (
+                  <span
+                    data-testid="template-badge"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-[10px] text-blue-300"
+                    title={activeTemplate.description || `Using helper: ${activeTemplate.name}`}
+                  >
+                    Using: {activeTemplate.name}
+                    <button
+                      onClick={() => setActiveTemplate(null)}
+                      className="ml-0.5 text-blue-400 hover:text-blue-200"
+                      aria-label="Dismiss helper badge"
+                    >
+                      <Icon name="close" className="text-[10px]" />
+                    </button>
+                  </span>
+                )}
               </div>
             )}
 
-            <div className="relative">
+            <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%]' : ''}`}>
               {/* Reply and reaction buttons on hover - below the message */}
               <div className={`${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'} opacity-0 group-hover:opacity-100 mt-1 transition-all`}>
                 <div className="flex items-center gap-0.5 z-10">
@@ -843,7 +948,7 @@ export function ChatPanel() {
               <div
                 className={
                   msg.role === 'user'
-                    ? 'bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[90%] w-fit text-sm'
+                    ? 'bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm'
                     : `border px-4 py-3 rounded-xl text-sm text-slate-300 whitespace-pre-line overflow-hidden break-words ${
                         msg.model ? MODEL_BG[msg.model] ?? 'bg-slate-900 border-slate-800' : 'bg-slate-900 border-slate-800'
                       }`
@@ -984,6 +1089,17 @@ export function ChatPanel() {
             )}
           </button>
         </div>
+        {/* Tiny indicator showing which pathway is powering the response.
+            Uses plain language so a non-engineer sees at a glance whether
+            the chat is using the Claude subscription or the Anthropic key. */}
+        {activeBackend && (
+          <div
+            data-testid="chat-backend-indicator"
+            className="mt-1.5 text-[11px] text-slate-500"
+          >
+            {activeBackend.label}
+          </div>
+        )}
       </div>
     </div>
   )

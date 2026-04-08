@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
+import FilePreviewPane from '../components/FilePreviewPane';
 import { api } from '../lib/api';
 
 // --- Types ---
@@ -39,13 +40,6 @@ interface BrowseResponse {
   parent_path: string;
   breadcrumbs: Breadcrumb[];
   entries: BrowseEntry[];
-}
-
-interface FileReadResponse {
-  content: string | null;
-  type: 'text' | 'image' | 'binary';
-  size: number;
-  mime?: string;
 }
 
 // --- Helpers ---
@@ -118,11 +112,8 @@ export default function Files() {
   const [browseLoading, setBrowseLoading] = useState(false);
   const [browseError, setBrowseError] = useState<string | null>(null);
 
-  // Preview state
+  // Preview state: the file currently being previewed in the side pane.
   const [previewEntry, setPreviewEntry] = useState<BrowseEntry | null>(null);
-  const [previewData, setPreviewData] = useState<FileReadResponse | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Fetch project list (root view)
   const fetchProjects = useCallback(async () => {
@@ -184,26 +175,13 @@ export default function Files() {
     }
   };
 
-  // Open the preview modal for a file
-  const openPreview = async (entry: BrowseEntry) => {
+  // Open the side preview pane for a file
+  const openPreview = (entry: BrowseEntry) => {
     setPreviewEntry(entry);
-    setPreviewData(null);
-    setPreviewError(null);
-    setPreviewLoading(true);
-    try {
-      const res = await api.get<FileReadResponse>(`/files/read?path=${encodeURIComponent(entry.path)}`);
-      setPreviewData(res);
-    } catch {
-      setPreviewError('Could not load file preview.');
-    } finally {
-      setPreviewLoading(false);
-    }
   };
 
   const closePreview = () => {
     setPreviewEntry(null);
-    setPreviewData(null);
-    setPreviewError(null);
   };
 
   const refresh = () => {
@@ -420,99 +398,12 @@ export default function Files() {
         )}
       </div>
 
-      {/* File preview modal */}
-      {previewEntry && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={(e) => { if (e.target === e.currentTarget) closePreview(); }}
-        >
-          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col mx-4">
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700">
-              <div className="flex items-center gap-3 min-w-0">
-                <Icon name={fileIcon(previewEntry.name)} className="text-xl text-slate-400 flex-shrink-0" />
-                <span className="text-sm font-medium text-slate-100 truncate">{previewEntry.name}</span>
-                {previewEntry.size_display && (
-                  <span className="text-xs text-slate-500 flex-shrink-0">{previewEntry.size_display}</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                <button
-                  onClick={() => openFile(previewEntry.path)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300 transition-colors border border-slate-600"
-                  title="Open in system app"
-                >
-                  <Icon name="open_in_new" size={14} />
-                  Open externally
-                </button>
-                <button
-                  onClick={closePreview}
-                  className="flex items-center justify-center w-8 h-8 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
-                  title="Close preview"
-                >
-                  <Icon name="close" size={18} />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal body */}
-            <div className="flex-1 overflow-auto p-5">
-              {previewLoading && (
-                <p className="text-sm text-slate-500 py-8 text-center">Loading preview...</p>
-              )}
-
-              {previewError && (
-                <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-                  <Icon name="error" className="text-lg" />
-                  <span>{previewError}</span>
-                </div>
-              )}
-
-              {previewData && previewData.type === 'text' && (
-                <pre className="text-sm text-slate-300 font-mono bg-slate-950 rounded-lg p-4 overflow-auto whitespace-pre-wrap break-words leading-relaxed border border-slate-800">
-                  {previewData.content}
-                </pre>
-              )}
-
-              {previewData && previewData.type === 'image' && (
-                <div className="flex items-center justify-center py-4">
-                  {previewData.mime === 'image/svg+xml' ? (
-                    <div
-                      className="max-w-full overflow-auto bg-white rounded-lg p-4"
-                      dangerouslySetInnerHTML={{ __html: previewData.content ?? '' }}
-                    />
-                  ) : (
-                    <img
-                      src={previewData.content ?? ''}
-                      alt={previewEntry.name}
-                      className="max-w-full max-h-[60vh] object-contain rounded-lg"
-                    />
-                  )}
-                </div>
-              )}
-
-              {previewData && previewData.type === 'binary' && (
-                <div className="text-center py-12">
-                  <Icon name="description" className="text-4xl text-slate-600 mb-3" />
-                  <p className="text-sm text-slate-400 mb-1">
-                    This file cannot be previewed in the browser.
-                  </p>
-                  <p className="text-xs text-slate-500 mb-4">
-                    {previewEntry.name} ({previewEntry.size_display})
-                  </p>
-                  <button
-                    onClick={() => openFile(previewEntry.path)}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm text-white transition-colors"
-                  >
-                    <Icon name="open_in_new" size={16} />
-                    Open externally
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* File preview side pane */}
+      <FilePreviewPane
+        entry={previewEntry}
+        onClose={closePreview}
+        onOpenExternally={openFile}
+      />
     </div>
   );
 }

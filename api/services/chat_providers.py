@@ -1,13 +1,57 @@
 import asyncio
 import os
+from typing import Optional
 
 import anthropic
 from fastapi import WebSocket
 
 from config import PROJECT_ROOT
+from services import claude_code_provider
 from services.ostk import ostk
 from services.settings_store import settings_store
+from services.template_matcher import match_template, merge_with_built_ins
 from services.tool_executor import TOOL_DEFINITIONS, execute_tool
+
+
+# Labels used in the ``backend_active`` websocket event so the chat panel
+# can show which pathway is powering the response.
+_BACKEND_LABEL_CLAUDE_CODE = "Powered by your Claude subscription"
+_BACKEND_LABEL_ANTHROPIC_API = "Using Anthropic API"
+
+
+async def _resolve_chat_backend() -> str:
+    """Return the chat backend to use: ``claude_code`` or ``anthropic_api``.
+
+    Honors the ``chat_backend_preference`` setting:
+      - ``auto`` (default): pick ``claude_code`` when the local program is
+        signed in, otherwise fall back to ``anthropic_api``.
+      - ``claude_code``: force the Claude subscription path.
+      - ``anthropic_api``: force the API key path.
+    """
+    preference = str(settings_store.get("chat_backend_preference", "auto") or "auto").lower()
+    if preference == "claude_code":
+        return "claude_code"
+    if preference == "anthropic_api":
+        return "anthropic_api"
+    # auto
+    if await claude_code_provider.is_claude_code_available():
+        return "claude_code"
+    return "anthropic_api"
+
+
+async def _send_backend_active(websocket: WebSocket, backend: str) -> None:
+    """Notify the chat panel which pathway is powering this response."""
+    if backend == "claude_code":
+        label = _BACKEND_LABEL_CLAUDE_CODE
+    else:
+        label = _BACKEND_LABEL_ANTHROPIC_API
+    try:
+        await websocket.send_json({
+            "type": "backend_active",
+            "data": {"name": backend, "label": label},
+        })
+    except Exception:
+        pass
 
 _ENV_KEY_MAP = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
@@ -93,6 +137,13 @@ def _system_prompt() -> str:
         "Read the actual code before making any claims. Never assume.\n\n"
         "ELIT COMMAND: When the user says 'elit' (explain like I'm Tori), explain the "
         "topic in plain language with no code, no jargon, and keep it brief.\n\n"
+        "IDEA CAPTURE: If the user mentions a stray thought, aside, or rough idea in "
+        "passing (phrases like 'random thought', 'idea:', 'btw it would be cool if', "
+        "'note to self', or any musing they want captured but not acted on), silently "
+        "call the capture_idea tool to file it as hay. Do NOT announce that you captured "
+        "it. Do NOT capture questions, direct action requests, or things they want done "
+        "right now. When in doubt, do not capture. After capturing, continue answering "
+        "the rest of their message normally.\n\n"
         "Keep your responses brief and focused on outcomes, not process. "
         "Do NOT narrate your steps. Do NOT say 'Let me check' or 'Let me look'. "
         "Just do the work and share the result. "
@@ -102,21 +153,132 @@ def _system_prompt() -> str:
     )
 
 
+def _extract_last_user_text(messages: list[dict]) -> str:
+    """Return the plain text of the last user message, or ''.
+
+    Handles both string content and list-of-blocks content (for images).
+    """
+    for msg in reversed(messages):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    return str(block.get("text", ""))
+        return ""
+    return ""
+
+
+async def _maybe_match_template(
+    messages: list[dict],
+    websocket: WebSocket,
+    api_key: str,
+) -> Optional[dict]:
+    """Run the template matcher on the last user message and notify the UI.
+
+    Returns the matched template (with ``_match_reason``) or None. When a
+    template matches, sends a ``template_matched`` event over the websocket
+    so the chat panel can show a small "Using: <name>" badge.
+    """
+    if not settings_store.get("auto_template_matching", True):
+        return None
+
+    last_user_text = _extract_last_user_text(messages)
+    if not last_user_text.strip():
+        return None
+
+    custom_raw = settings_store.get("custom_agent_templates", [])
+    custom_list = custom_raw if isinstance(custom_raw, list) else []
+    templates = merge_with_built_ins(custom_list)
+    if not templates:
+        return None
+
+    # Only run the AI classifier when the user has added at least one
+    # custom template. Built-in templates (saa, diagnose, elit) all reach
+    # via explicit triggers, so the classifier adds no value for the
+    # built-in only case and would burn an extra Claude call per chat.
+    enable_classifier = any(
+        isinstance(t, dict) and t.get("name") for t in custom_list
+    )
+
+    matched = await match_template(
+        last_user_text,
+        templates,
+        api_key=api_key,
+        enable_classifier=enable_classifier,
+    )
+    if not matched:
+        return None
+
+    try:
+        await websocket.send_json({
+            "type": "template_matched",
+            "data": {
+                "name": matched.get("name", ""),
+                "description": matched.get("description", ""),
+                "reason": matched.get("_match_reason", ""),
+            },
+        })
+    except Exception:
+        # Never let a websocket hiccup break the chat flow.
+        pass
+    return matched
+
+
+def _compose_system_prompt(matched_template: Optional[dict]) -> str:
+    """Return the system prompt, optionally augmented by a matched template."""
+    base = _system_prompt()
+    if not matched_template:
+        return base
+    extra = str(matched_template.get("prompt") or "").strip()
+    if not extra:
+        return base
+    return base + "\n\n---\nACTIVE TEMPLATE: " + str(matched_template.get("name", "")) + "\n" + extra
+
+
 class ChatService:
     async def stream_anthropic(self, messages: list[dict], websocket: WebSocket) -> str:
+        # Run template matching up front so both backends pick up any
+        # matched helper. The matcher itself uses the API key when one is
+        # available, but it also handles the no-key case gracefully.
         api_key = await _resolve_api_key("anthropic_api_key")
+        matched_template = await _maybe_match_template(messages, websocket, api_key)
+        system_prompt = (
+            _compose_system_prompt(matched_template) if matched_template else None
+        )
+
+        backend = await _resolve_chat_backend()
+        await _send_backend_active(websocket, backend)
+
+        if backend == "claude_code":
+            return await claude_code_provider.stream_chat(
+                messages, websocket, system_prompt=system_prompt
+            )
+
         if not api_key:
-            await websocket.send_json({"type": "error", "data": "No Anthropic API key found. Set the ANTHROPIC_API_KEY environment variable or add a key in Settings."})
+            await websocket.send_json({
+                "type": "error",
+                "data": (
+                    "No Anthropic API key found. Sign in to your Claude subscription "
+                    "by installing the local program, or add an Anthropic key in Settings."
+                ),
+            })
             return ""
 
         client = anthropic.AsyncAnthropic(api_key=api_key)
+        stream_kwargs: dict = {
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 4096,
+            "messages": messages,
+        }
+        if system_prompt:
+            stream_kwargs["system"] = system_prompt
         full_text = ""
         try:
-            async with client.messages.stream(
-                model="claude-sonnet-4-20250514",
-                max_tokens=4096,
-                messages=messages,
-            ) as stream:
+            async with client.messages.stream(**stream_kwargs) as stream:
                 async for text in stream.text_stream:
                     full_text += text
                     await websocket.send_json({"type": "token", "data": text})
@@ -153,8 +315,34 @@ class ChatService:
         MCP tool calls server-side, returning results inline in the response.
         """
         api_key = await _resolve_api_key("anthropic_api_key")
+
+        # Auto-match agent template based on the user's message. If matched,
+        # the system prompt picks up the template's extra instructions and
+        # the chat panel shows a small "Using: <name>" badge. We do this
+        # before picking a backend so both paths get the matched helper.
+        matched_template = await _maybe_match_template(messages, websocket, api_key)
+        active_system_prompt = _compose_system_prompt(matched_template)
+
+        backend = await _resolve_chat_backend()
+        await _send_backend_active(websocket, backend)
+
+        # The local program cannot run our Python tool loop today, so when
+        # the subscription path is active we fall back to text-only chat
+        # and skip the tool loop. The API-key path still runs the full
+        # agent loop below.
+        if backend == "claude_code":
+            return await claude_code_provider.stream_chat(
+                messages, websocket, system_prompt=active_system_prompt
+            )
+
         if not api_key:
-            await websocket.send_json({"type": "error", "data": "No Anthropic API key found. Set the ANTHROPIC_API_KEY environment variable or add a key in Settings."})
+            await websocket.send_json({
+                "type": "error",
+                "data": (
+                    "No Anthropic API key found. Sign in to your Claude subscription "
+                    "by installing the local program, or add an Anthropic key in Settings."
+                ),
+            })
             return ""
 
         client = anthropic.AsyncAnthropic(api_key=api_key)
@@ -196,7 +384,7 @@ class ChatService:
                     response = await client.beta.messages.create(
                         model="claude-sonnet-4-20250514",
                         max_tokens=4096,
-                        system=_system_prompt(),
+                        system=active_system_prompt,
                         messages=conversation,
                         tools=TOOL_DEFINITIONS,  # type: ignore[arg-type]
                         mcp_servers=mcp_server_params,  # type: ignore[arg-type]
@@ -206,7 +394,7 @@ class ChatService:
                     response = await client.messages.create(
                         model="claude-sonnet-4-20250514",
                         max_tokens=4096,
-                        system=_system_prompt(),
+                        system=active_system_prompt,
                         messages=conversation,
                         tools=TOOL_DEFINITIONS,
                     )

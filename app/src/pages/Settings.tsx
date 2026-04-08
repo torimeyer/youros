@@ -74,6 +74,11 @@ export default function Settings() {
 
   const [selectedProvider, setSelectedProvider] = useState('Anthropic');
   const [defaultLlm, setDefaultLlm] = useState('Anthropic');
+  // Chat backend preference: "auto" picks the subscription when ready,
+  // otherwise falls back to the Anthropic key. Users can force either
+  // pathway from the Settings page.
+  const [chatBackendPreference, setChatBackendPreference] = useState<'auto' | 'claude_code' | 'anthropic_api'>('auto');
+  const [claudeCodeReady, setClaudeCodeReady] = useState<boolean | null>(null);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({ Anthropic: '', 'Google Gemini': '' });
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [selectedModel, setSelectedModel] = useState('claude-opus-4-20250514');
@@ -84,6 +89,7 @@ export default function Settings() {
     { label: 'Approval Needed', enabled: true },
   ]);
   const [quietHours, setQuietHours] = useState(true);
+  const [autoTemplateMatching, setAutoTemplateMatching] = useState(true);
   const [showAllKeys, setShowAllKeys] = useState(false);
   const [keySaveStatus, setKeySaveStatus] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
@@ -152,13 +158,24 @@ export default function Settings() {
           );
         }
         if (data.quiet_hours !== undefined) setQuietHours(data.quiet_hours);
+        if ((data as any).auto_template_matching !== undefined) {
+          setAutoTemplateMatching((data as any).auto_template_matching);
+        }
         if ((data as any).use_ostk_terms !== undefined) setUseOstkTerms((data as any).use_ostk_terms);
         if (data.mcp_servers) setMcpServers(data.mcp_servers);
+        const prefRaw = (data as any).chat_backend_preference;
+        if (prefRaw === 'auto' || prefRaw === 'claude_code' || prefRaw === 'anthropic_api') {
+          setChatBackendPreference(prefRaw);
+        }
       } catch {
         // API not available, use defaults
       }
     };
     fetchSettings();
+    // Check whether the local Claude subscription program is ready.
+    api.get<{ claude_code_available?: boolean }>('/settings/chat-backend-status')
+      .then((data) => setClaudeCodeReady(!!data.claude_code_available))
+      .catch(() => setClaudeCodeReady(false));
     api.get<{ google_oauth_available?: boolean; google_connected?: boolean; anthropic?: boolean; gemini?: boolean; anthropic_source?: string; gemini_source?: string }>('/secrets/key-status')
       .then((data) => {
         setGoogleOAuthAvailable(data.google_oauth_available ?? false);
@@ -277,6 +294,11 @@ export default function Settings() {
     api.patch('/settings', { provider: name }).catch(() => {});
   };
 
+  const handleChatBackendPreferenceChange = (value: 'auto' | 'claude_code' | 'anthropic_api') => {
+    setChatBackendPreference(value);
+    api.patch('/settings', { chat_backend_preference: value }).catch(() => {});
+  };
+
   const handleDefaultLlmChange = (name: string) => {
     setDefaultLlm(name);
     const chatModel = PROVIDER_TO_MODEL[name] ?? 'claude';
@@ -329,6 +351,12 @@ export default function Settings() {
     const next = !quietHours;
     setQuietHours(next);
     api.patch('/settings', { quiet_hours: next }).catch(() => {});
+  };
+
+  const handleAutoTemplateMatchingToggle = () => {
+    const next = !autoTemplateMatching;
+    setAutoTemplateMatching(next);
+    api.patch('/settings', { auto_template_matching: next }).catch(() => {});
   };
 
   const handleImport = () => {
@@ -695,6 +723,64 @@ export default function Settings() {
                 <option>claude-haiku-35-20241022</option>
               </select>
             </div>
+
+            {/* Chat backend: pick the subscription or the API key.
+                Default is auto, which uses the subscription when the
+                local program is signed in and falls back to the key
+                otherwise. */}
+            <div className="mt-6 pt-5 border-t border-slate-800">
+              <label className="text-sm text-slate-400 mb-2 block">Chat backend</label>
+              <p className="text-xs text-slate-500 mb-3">
+                Pick which sign-in powers your chat. Your Claude subscription is free if you already pay for Pro or Max. Using your Anthropic key costs money per message.
+              </p>
+              <div className="space-y-2" data-testid="chat-backend-radios">
+                {[
+                  { value: 'auto' as const, label: 'Auto pick the best one' },
+                  { value: 'claude_code' as const, label: 'Always use my Claude subscription' },
+                  { value: 'anthropic_api' as const, label: 'Always use my Anthropic API key' },
+                ].map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                      chatBackendPreference === opt.value
+                        ? 'accent-border accent-highlight'
+                        : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="chat-backend-preference"
+                      value={opt.value}
+                      checked={chatBackendPreference === opt.value}
+                      onChange={() => handleChatBackendPreferenceChange(opt.value)}
+                      className="accent-blue-500"
+                    />
+                    <span className="text-sm text-slate-200">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+              <div
+                data-testid="claude-code-ready-indicator"
+                className="flex items-center gap-2 mt-3 text-xs"
+              >
+                {claudeCodeReady === null ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-slate-500" />
+                    <span className="text-slate-500">Checking your Claude sign-in...</span>
+                  </>
+                ) : claudeCodeReady ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-green-400">Claude subscription is ready</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-slate-500" />
+                    <span className="text-slate-400">Claude subscription is not installed or signed in</span>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Notifications */}
@@ -734,6 +820,30 @@ export default function Settings() {
                   <span
                     className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
                       quietHours ? 'left-5' : 'left-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            <div className="mt-5 pt-4 border-t border-slate-800">
+              <h3 className="text-sm font-semibold text-slate-200 mb-3">Smart suggestions</h3>
+              <div className="flex items-center justify-between">
+                <div className="pr-3">
+                  <p className="text-sm text-slate-300">Pick the right helper automatically</p>
+                  <p className="text-xs text-slate-500">
+                    When you ask a question, myOS chooses the best built-in or saved helper for the job.
+                  </p>
+                </div>
+                <button
+                  data-testid="auto-template-toggle"
+                  onClick={handleAutoTemplateMatchingToggle}
+                  className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
+                    autoTemplateMatching ? 'accent-bg' : 'bg-slate-700'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                      autoTemplateMatching ? 'left-5' : 'left-1'
                     }`}
                   />
                 </button>
@@ -1004,8 +1114,22 @@ export default function Settings() {
               Export Config
             </button>
             <button
-              onClick={() => {
-                localStorage.removeItem('myos-onboarded');
+              onClick={async () => {
+                // Clear both the localStorage cache and the server side
+                // onboarded flag so the user can run setup again. The
+                // server is the source of truth, so the patch must
+                // succeed before we navigate.
+                try {
+                  await api.patch('/settings', { onboarded: false });
+                } catch {
+                  // best effort, still let the user reset locally
+                }
+                try {
+                  localStorage.removeItem('myos-onboarded');
+                } catch {
+                  /* ignore */
+                }
+                useAppStore.setState({ onboarded: false });
                 window.location.href = '/';
               }}
               className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"

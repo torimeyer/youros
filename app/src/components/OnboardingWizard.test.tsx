@@ -16,6 +16,43 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+const MOCK_ADVENTURES = {
+  adventures: [
+    {
+      id: 'build_website',
+      title: 'Build a website',
+      tagline: 'From idea to live site, with the right pieces planned out for you.',
+      icon: 'language',
+      placeholder: 'e.g. A recipe site where I can post my own recipes',
+      system_prompt: 'website prompt',
+    },
+    {
+      id: 'plan_project',
+      title: 'Plan a project',
+      tagline: 'Turn a fuzzy idea into a real plan you can start this week.',
+      icon: 'bolt',
+      placeholder: 'e.g. Launch a small newsletter',
+      system_prompt: 'project prompt',
+    },
+    {
+      id: 'learn_skill',
+      title: 'Learn something new',
+      tagline: 'A starter path so you stop bookmarking courses and actually begin.',
+      icon: 'school',
+      placeholder: 'e.g. Learn enough Spanish to hold a conversation',
+      system_prompt: 'learn prompt',
+    },
+    {
+      id: 'off_plate',
+      title: 'Get something off your plate',
+      tagline: 'The thing you have been avoiding. Let us break it into doable steps.',
+      icon: 'task_alt',
+      placeholder: 'e.g. I need to do my taxes',
+      system_prompt: 'off_plate prompt',
+    },
+  ],
+}
+
 // Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {}
@@ -44,6 +81,11 @@ describe('OnboardingWizard', () => {
       darkMode: true,
       defaultChatModel: 'claude',
     })
+    vi.mocked(api.get).mockReset()
+    vi.mocked(api.post).mockReset()
+    // Default: api.get returns the adventure templates for the Adventure step
+    vi.mocked(api.get).mockResolvedValue(MOCK_ADVENTURES)
+    vi.mocked(api.post).mockResolvedValue({})
   })
 
   it('renders the wizard', () => {
@@ -60,7 +102,7 @@ describe('OnboardingWizard', () => {
   it('shows progress dots equal to the number of steps', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    // 7 steps: Welcome, You, Name, Theme, Connect, Dream, Ready
+    // 7 steps: Welcome, You, Name, Theme, Connect, Adventure, Ready
     expect(dots.children).toHaveLength(7)
   })
 
@@ -158,16 +200,18 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
   })
 
-  it('advances to Dream step', () => {
+  it('advances to Adventure step', async () => {
     render(<OnboardingWizard />)
-    clickNext(5) // Welcome -> You -> Name -> Theme -> Connect -> Dream
-    expect(screen.getByTestId('step-dream')).toBeInTheDocument()
-    expect(screen.getByTestId('dream-phase-ask')).toBeInTheDocument()
+    clickNext(5) // Welcome -> You -> Name -> Theme -> Connect -> Adventure
+    expect(screen.getByTestId('step-adventure')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-phase-pick')).toBeInTheDocument()
+    })
   })
 
   it('advances to Ready step with summary', () => {
     render(<OnboardingWizard />)
-    clickNext(6) // Welcome -> You -> Name -> Theme -> Connect -> Dream -> Ready
+    clickNext(6) // Welcome -> You -> Name -> Theme -> Connect -> Adventure -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     expect(screen.getByTestId('summary-os-name')).toHaveTextContent('myOS')
@@ -217,51 +261,114 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('back-button')).not.toBeInTheDocument()
   })
 
-  it('Connect step is skippable', () => {
+  it('Connect step is skippable', async () => {
     render(<OnboardingWizard />)
     clickNext(4) // Get to Connect step
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
     // Skip button should be available
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('skip-button'))
-    expect(screen.getByTestId('step-dream')).toBeInTheDocument()
+    expect(screen.getByTestId('step-adventure')).toBeInTheDocument()
   })
 
-  it('Dream step is skippable', () => {
+  it('Adventure step is skippable', () => {
     render(<OnboardingWizard />)
-    clickNext(5) // Get to Dream step
-    expect(screen.getByTestId('step-dream')).toBeInTheDocument()
+    clickNext(5) // Get to Adventure step
+    expect(screen.getByTestId('step-adventure')).toBeInTheDocument()
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('skip-button'))
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
   })
 
-  it('Dream step shows text input and done input', () => {
+  it('Adventure picker fetches templates from /adventures/templates', async () => {
     render(<OnboardingWizard />)
     clickNext(5)
-    expect(screen.getByTestId('dream-text-input')).toBeInTheDocument()
-    expect(screen.getByTestId('dream-done-input')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/adventures/templates')
+    })
   })
 
-  it('Dream submit button is disabled when text is empty', () => {
+  it('Adventure picker shows all four cards', async () => {
     render(<OnboardingWizard />)
     clickNext(5)
-    const submitBtn = screen.getByTestId('dream-submit')
-    expect(submitBtn).toBeDisabled()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('adventure-card-plan_project')).toBeInTheDocument()
+    expect(screen.getByTestId('adventure-card-learn_skill')).toBeInTheDocument()
+    expect(screen.getByTestId('adventure-card-off_plate')).toBeInTheDocument()
   })
 
-  it('Dream submit button is enabled when text is entered', async () => {
+  it('clicking an adventure card moves to the describe phase', async () => {
+    render(<OnboardingWizard />)
+    clickNext(5)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
+
+    expect(screen.getByTestId('adventure-phase-describe')).toBeInTheDocument()
+    expect(screen.getByTestId('adventure-description-input')).toBeInTheDocument()
+  })
+
+  it('describe phase shows the placeholder for the chosen adventure', async () => {
+    render(<OnboardingWizard />)
+    clickNext(5)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
+
+    const input = screen.getByTestId('adventure-description-input')
+    expect(input).toHaveAttribute('placeholder', 'e.g. A recipe site where I can post my own recipes')
+  })
+
+  it('back-to-pick button returns to the picker', async () => {
+    render(<OnboardingWizard />)
+    clickNext(5)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
+    expect(screen.getByTestId('adventure-phase-describe')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('adventure-back-to-pick'))
+    expect(screen.getByTestId('adventure-phase-pick')).toBeInTheDocument()
+  })
+
+  it('adventure submit is disabled when description is empty', async () => {
+    render(<OnboardingWizard />)
+    clickNext(5)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
+
+    expect(screen.getByTestId('adventure-submit')).toBeDisabled()
+  })
+
+  it('adventure submit is enabled when description is entered', async () => {
     const user = userEvent.setup()
     render(<OnboardingWizard />)
     clickNext(5)
 
-    await user.type(screen.getByTestId('dream-text-input'), 'Do my taxes')
-    expect(screen.getByTestId('dream-submit')).not.toBeDisabled()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
+
+    await user.type(screen.getByTestId('adventure-description-input'), 'A recipe site')
+    expect(screen.getByTestId('adventure-submit')).not.toBeDisabled()
   })
 
-  it('Dream step shows loading state during API call', async () => {
+  it('adventure shows loading state during API call', async () => {
     const user = userEvent.setup()
-    // Make the API call hang
     let resolvePost: (v: unknown) => void
     vi.mocked(api.post).mockImplementationOnce(
       () => new Promise((resolve) => { resolvePost = resolve })
@@ -270,27 +377,33 @@ describe('OnboardingWizard', () => {
     render(<OnboardingWizard />)
     clickNext(5)
 
-    await user.type(screen.getByTestId('dream-text-input'), 'Do my taxes')
-    await user.click(screen.getByTestId('dream-submit'))
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
 
-    expect(screen.getByTestId('dream-submit')).toHaveTextContent('Thinking...')
+    await user.type(screen.getByTestId('adventure-description-input'), 'Recipe site')
+    await user.click(screen.getByTestId('adventure-submit'))
 
-    // Resolve the promise to clean up
+    expect(screen.getByTestId('adventure-submit')).toHaveTextContent('Building your plan...')
+
     await act(async () => {
       resolvePost!({
-        goal: { title: 'File Taxes', description: 'Get taxes done' },
-        tasks: [{ title: 'Gather documents', priority: 'P1' }],
+        adventure_id: 'build_website',
+        goal: { title: 'Recipe site', description: 'A site for recipes' },
+        tasks: [{ title: 'Pick a domain', priority: 'P1' }],
       })
     })
   })
 
-  it('Dream step shows results after successful API call', async () => {
+  it('adventure shows results after successful API call', async () => {
     const user = userEvent.setup()
     const mockResult = {
-      goal: { title: 'File Your Taxes', description: 'Get your taxes filed on time.' },
+      adventure_id: 'build_website',
+      goal: { title: 'Recipe site for friends', description: 'A site where you post recipes.' },
       tasks: [
-        { title: 'Gather W-2 forms', priority: 'P1' },
-        { title: 'Choose a filing method', priority: 'P2' },
+        { title: 'Pick a name and grab the domain', priority: 'P1' },
+        { title: 'Sign up for a free Vercel account', priority: 'P1' },
       ],
     }
     vi.mocked(api.post).mockResolvedValueOnce(mockResult)
@@ -298,39 +411,49 @@ describe('OnboardingWizard', () => {
     render(<OnboardingWizard />)
     clickNext(5)
 
-    await user.type(screen.getByTestId('dream-text-input'), 'Do my taxes')
-    await user.click(screen.getByTestId('dream-submit'))
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
+
+    await user.type(screen.getByTestId('adventure-description-input'), 'Recipe site')
+    await user.click(screen.getByTestId('adventure-submit'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('dream-phase-show')).toBeInTheDocument()
+      expect(screen.getByTestId('adventure-phase-show')).toBeInTheDocument()
     })
 
-    expect(screen.getByTestId('dream-goal-title')).toHaveTextContent('File Your Taxes')
-    expect(screen.getByTestId('dream-goal-description')).toHaveTextContent('Get your taxes filed on time.')
-    expect(screen.getByTestId('dream-tasks')).toBeInTheDocument()
+    expect(screen.getByTestId('adventure-goal-title')).toHaveTextContent('Recipe site for friends')
+    expect(screen.getByTestId('adventure-tasks')).toBeInTheDocument()
 
-    const tasks = screen.getAllByTestId('dream-task')
+    const tasks = screen.getAllByTestId('adventure-task')
     expect(tasks).toHaveLength(2)
   })
 
-  it('Dream step advances on API error', async () => {
+  it('adventure advances on API error', async () => {
     const user = userEvent.setup()
     vi.mocked(api.post).mockRejectedValueOnce(new Error('fail'))
 
     render(<OnboardingWizard />)
     clickNext(5)
 
-    await user.type(screen.getByTestId('dream-text-input'), 'Do my taxes')
-    await user.click(screen.getByTestId('dream-submit'))
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
+
+    await user.type(screen.getByTestId('adventure-description-input'), 'Recipe site')
+    await user.click(screen.getByTestId('adventure-submit'))
 
     await waitFor(() => {
       expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     })
   })
 
-  it('Dream step sends correct payload to API', async () => {
+  it('adventure sends correct payload to /adventures/start', async () => {
     const user = userEvent.setup()
     vi.mocked(api.post).mockResolvedValueOnce({
+      adventure_id: 'build_website',
       goal: { title: 'Test', description: 'Test' },
       tasks: [],
     })
@@ -338,13 +461,17 @@ describe('OnboardingWizard', () => {
     render(<OnboardingWizard />)
     clickNext(5)
 
-    await user.type(screen.getByTestId('dream-text-input'), 'Do my taxes')
-    await user.type(screen.getByTestId('dream-done-input'), 'Filed on time')
-    await user.click(screen.getByTestId('dream-submit'))
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
 
-    expect(api.post).toHaveBeenCalledWith('/onboarding/dream', {
-      dreading: 'Do my taxes',
-      done_looks_like: 'Filed on time',
+    await user.type(screen.getByTestId('adventure-description-input'), 'A recipe site')
+    await user.click(screen.getByTestId('adventure-submit'))
+
+    expect(api.post).toHaveBeenCalledWith('/adventures/start', {
+      adventure_id: 'build_website',
+      description: 'A recipe site',
     })
   })
 })

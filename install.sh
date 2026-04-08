@@ -18,38 +18,59 @@ echo -e "${BLUE}=== myOS Installer ===${NC}"
 echo ""
 
 # --- Check prerequisites ---
+#
+# myOS lists what it needs and exits if anything is missing. We do not try to
+# install system packages on your behalf. Install the prereqs your way (apt,
+# dnf, pacman, nvm, pyenv, asdf, whatever you use), then run this again.
 
-check_cmd() {
+MISSING=()
+
+need() {
     if ! command -v "$1" &> /dev/null; then
-        echo -e "${RED}Missing: $1${NC}"
-        echo "$2"
-        exit 1
+        MISSING+=("$2")
     fi
 }
 
 echo "Checking requirements..."
 
-check_cmd git "Install git: https://git-scm.com"
-check_cmd curl "Install curl: https://curl.se"
-check_cmd python3 "Install Python 3: https://python.org/downloads"
+need git    "git"
+need curl   "curl"
+need python3 "python3 (3.9 or newer)"
+need node   "node (18 or newer)"
+need npm    "npm (ships with node)"
 
-PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
-PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
-if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 9 ]); then
-    echo -e "${RED}Python 3.9+ required (found $PYTHON_VERSION)${NC}"
-    exit 1
+# Version checks for things that are present but too old.
+if command -v python3 &> /dev/null; then
+    PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+    PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
+    PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
+    if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 9 ]); then
+        MISSING+=("python3 3.9 or newer (found $PYTHON_VERSION)")
+    fi
+    # On Debian/Ubuntu, python3-venv is a separate package. Detect and report,
+    # do not install.
+    if ! python3 -c "import venv" &> /dev/null; then
+        MISSING+=("python3 venv module (the 'venv' standard library package)")
+    fi
 fi
 
-check_cmd node "Install Node.js 18+: https://nodejs.org"
-
-NODE_MAJOR=$(node -v | sed 's/v//' | cut -d. -f1)
-if [ "$NODE_MAJOR" -lt 18 ]; then
-    echo -e "${RED}Node.js 18+ required (found $(node -v))${NC}"
-    exit 1
+if command -v node &> /dev/null; then
+    NODE_MAJOR=$(node -v | sed 's/v//' | cut -d. -f1)
+    if [ "$NODE_MAJOR" -lt 18 ]; then
+        MISSING+=("node 18 or newer (found $(node -v))")
+    fi
 fi
 
-check_cmd npm "npm should come with Node.js. Reinstall Node: https://nodejs.org"
+if [ ${#MISSING[@]} -gt 0 ]; then
+    echo ""
+    echo -e "${RED}Missing prerequisites:${NC}"
+    for item in "${MISSING[@]}"; do
+        echo "  - $item"
+    done
+    echo ""
+    echo "Install these with whatever tool you prefer, then run ./install.sh again."
+    exit 1
+fi
 
 echo -e "${GREEN}All requirements met.${NC}"
 echo ""
@@ -196,6 +217,14 @@ if ! grep -q "alias myos=" "$SHELL_RC" 2>/dev/null; then
     echo "Added 'myos' command to $SHELL_RC"
 fi
 
+# Add safe-update alias if not already present and update.sh exists.
+if [ -f "$INSTALL_DIR/update.sh" ] && ! grep -q "alias myos-update=" "$SHELL_RC" 2>/dev/null; then
+    chmod +x "$INSTALL_DIR/update.sh"
+    echo "" >> "$SHELL_RC"
+    echo "alias myos-update='$INSTALL_DIR/update.sh'" >> "$SHELL_RC"
+    echo "Added 'myos-update' command to $SHELL_RC"
+fi
+
 echo ""
 echo -e "${GREEN}=== myOS is installed! ===${NC}"
 echo ""
@@ -206,4 +235,9 @@ echo "  3. Your browser will open automatically"
 echo ""
 echo "Or run it right now:"
 echo "  $INSTALL_DIR/start.sh"
+echo ""
+echo "Optional: if you want to use a Claude subscription instead of an API key,"
+echo "install the Claude command line tool yourself:"
+echo "  npm install -g @anthropic-ai/claude-code"
+echo "myOS works fine without it."
 echo ""

@@ -45,6 +45,24 @@ def websocket():
     return FakeWebSocket()
 
 
+@pytest.fixture(autouse=True)
+def _force_anthropic_api_backend():
+    """Pin the chat backend to the Anthropic API path for every test in this file.
+
+    Without this fixture the backend resolver checks for a local ``claude``
+    subscription program. On developer machines that program is typically
+    installed and signed in, which makes the resolver pick ``claude_code``
+    and route through ``claude_code_provider.stream_chat``. That bypasses
+    the mocked Anthropic client these tests rely on and triggers real
+    subprocess calls, which is flaky and wrong.
+    """
+    with patch(
+        "services.chat_providers._resolve_chat_backend",
+        new=AsyncMock(return_value="anthropic_api"),
+    ):
+        yield
+
+
 class TestAgentLoop:
     @pytest.mark.asyncio
     async def test_simple_text_response(self, websocket):
@@ -357,6 +375,9 @@ class TestAgentLoop:
         call_kwargs = mock_client.messages.create.call_args.kwargs
         # The system prompt should be a non-empty string
         assert "personal operating system" in call_kwargs["system"]
+        # And should instruct the model to silently capture stray ideas as hay
+        assert "capture_idea" in call_kwargs["system"]
+        assert "IDEA CAPTURE" in call_kwargs["system"]
 
     @pytest.mark.asyncio
     async def test_tools_included_in_api_call(self, websocket):

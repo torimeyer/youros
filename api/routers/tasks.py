@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -9,6 +10,12 @@ from services.ostk import ostk, OstkError
 from services.labels_store import labels_store, LABEL_COLORS
 from services.task_labels_store import task_labels_store
 from services.threads_store import threads_store
+from services.task_labeling import (
+    extract_task_id as _extract_task_id,
+    schedule_auto_labels,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["tasks"])
 
@@ -37,7 +44,7 @@ def _enrich_task(
     all_assignments: Optional[dict] = None,
     task_thread_map: Optional[dict] = None,
 ) -> dict:
-    """Add 'goal', 'label_ids', and 'thread_id' fields to a task."""
+    """Add 'goal', 'label_ids', 'auto_label_ids', and 'thread_id' fields."""
     tags = task.get("tags") or []
     goal = None
     for tag in tags:
@@ -52,6 +59,9 @@ def _enrich_task(
         task["label_ids"] = all_assignments.get(task_id, [])
     else:
         task["label_ids"] = task_labels_store.get_labels_for_task(task_id)
+
+    # Mark which labels were auto-applied so the UI can show an indicator.
+    task["auto_label_ids"] = task_labels_store.get_auto_applied(task_id)
 
     # Attach thread (group) ID if the task belongs to one
     if task_thread_map is not None:
@@ -80,9 +90,13 @@ async def list_tasks(status: Optional[str] = None, priority: Optional[str] = Non
 async def create_task(body: TaskCreate):
     try:
         result = await ostk.add_task(body.title, body.priority)
-        return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Fire-and-forget auto label suggestion. Never blocks task creation.
+    new_id = _extract_task_id(result)
+    schedule_auto_labels(new_id, body.title, body.description or "")
+    return {"result": result, "task_id": new_id}
 
 
 @router.patch("/tasks/{task_id}")
@@ -367,6 +381,11 @@ async def assign_label_to_task(task_id: str, label_id: str):
 
 @router.delete("/tasks/{task_id}/labels/{label_id}")
 async def remove_label_from_task(task_id: str, label_id: str):
-    """Remove a label from a task."""
-    label_ids = task_labels_store.remove_label(task_id, label_id)
+    """Remove a label from a task.
+
+    If the label was auto-applied, mark it as rejected so the auto-suggester
+    will not re-apply it on the next title or description update.
+    """
+    was_auto = task_labels_store.is_auto_applied(task_id, label_id)
+    label_ids = task_labels_store.remove_label(task_id, label_id, mark_rejected=was_auto)
     return {"label_ids": label_ids}

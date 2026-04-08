@@ -2,6 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, fireEvent } from '@testing-library/react'
 import WhatsNew, { getUnseenCount } from './WhatsNew'
 import releaseNotes from '../data/releaseNotes'
+import { useAppStore } from '../stores/app'
+
+// Mock the api module so the patch call inside the store does not
+// hit the network. The store still calls localStorage to keep the
+// fast first paint cache up to date.
+vi.mock('../lib/api', () => ({
+  api: {
+    get: vi.fn().mockResolvedValue({}),
+    post: vi.fn().mockResolvedValue({}),
+    put: vi.fn().mockResolvedValue({}),
+    patch: vi.fn().mockResolvedValue({}),
+    delete: vi.fn().mockResolvedValue({}),
+  },
+}))
 
 // Stub localStorage
 const localStorageMock = (() => {
@@ -20,6 +34,9 @@ describe('WhatsNew', () => {
   beforeEach(() => {
     localStorageMock.clear()
     vi.clearAllMocks()
+    // Reset the persisted last-seen date in the store between tests so
+    // a previous test does not leak its state.
+    useAppStore.setState({ whatsNewLastSeen: '' })
   })
 
   it('renders the sparkle button', () => {
@@ -81,7 +98,8 @@ describe('WhatsNew', () => {
   })
 
   it('does not show a badge when the user has already seen all updates', () => {
-    localStorageMock.setItem('myos-whats-new-last-seen', releaseNotes[0].date)
+    // Server backed: prime the store value so the component reads it.
+    useAppStore.setState({ whatsNewLastSeen: releaseNotes[0].date })
     const { queryByTestId } = render(<WhatsNew />)
     expect(queryByTestId('whats-new-badge')).toBeNull()
   })

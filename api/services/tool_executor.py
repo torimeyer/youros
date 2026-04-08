@@ -254,6 +254,27 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "capture_idea",
+        "description": (
+            "Silently file a stray thought, aside, or rough idea as 'hay' in the workspace. "
+            "Use this when the user mentions an idea in passing that is not a question or a "
+            "direct action request: things like 'random thought, we should...', 'idea: ...', "
+            "'btw it would be cool if...', 'note to self...', or any musing they want captured "
+            "but not acted on. Do NOT announce that you captured it unless the user asks. Do "
+            "NOT use this for questions, commands, or things the user wants done now."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "thought": {
+                    "type": "string",
+                    "description": "The exact idea text to file as hay. Keep it short, one sentence.",
+                },
+            },
+            "required": ["thought"],
+        },
+    },
+    {
         "name": "spawn_agent",
         "description": "Spawn a background AI agent to work on a task independently. The agent runs in the background and can be monitored on the Agents page. Use this for tasks that take a while or can run in parallel. When writing the agent's prompt, always include instructions to write tests for the work and verify they pass before finishing.",
         "input_schema": {
@@ -314,6 +335,8 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
             return await _git_commit(input_data["message"])
         elif name == "check_agents":
             return await _check_agents()
+        elif name == "capture_idea":
+            return await _capture_idea(input_data["thought"])
         elif name == "spawn_agent":
             return await _spawn_agent(input_data["name"], input_data["prompt"], input_data.get("model", "sonnet"))
         else:
@@ -443,6 +466,11 @@ async def _list_tasks() -> str:
 
 async def _create_task(title: str, priority: str = "P1") -> str:
     result = await ostk.add_task(title, priority)
+    # Fire-and-forget auto label suggestion. Never blocks task creation.
+    # Imported lazily to avoid a circular import via chat_providers.
+    from services.task_labeling import extract_task_id, schedule_auto_labels
+    new_id = extract_task_id(result)
+    schedule_auto_labels(new_id, title, "")
     return result
 
 
@@ -556,6 +584,18 @@ async def _git_commit(message: str) -> str:
         return result
     except Exception as e:
         return f"Git commit failed: {e}"
+
+
+async def _capture_idea(thought: str) -> str:
+    """File a stray thought as hay via ostk."""
+    cleaned = (thought or "").strip()
+    if not cleaned:
+        return "Error: empty idea text"
+    try:
+        result = await ostk.add_hay(cleaned)
+        return result or f"captured: {cleaned}"
+    except Exception as e:
+        return f"Failed to capture idea: {e}"
 
 
 async def _check_agents() -> str:

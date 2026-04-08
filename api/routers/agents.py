@@ -188,7 +188,27 @@ async def list_agents():
             continue  # already handled above
         pid = meta.get("pid")
         is_registered = meta.get("source") == "claude-code"
-        if pid and _is_pid_alive(pid):
+        persisted_status = meta.get("status")
+        # If the completion endpoint explicitly stamped this row as completed,
+        # trust that over everything else.
+        if persisted_status == "completed":
+            agents_map[name] = {
+                "name": name,
+                "source": meta.get("source", "api"),
+                **meta,
+                "status": "completed",
+            }
+        # If the register endpoint explicitly stamped this row as running,
+        # trust that and show it in the UI immediately. This is the case
+        # for Claude Code subagents that register before they start work.
+        elif persisted_status == "running":
+            agents_map[name] = {
+                "name": name,
+                "source": meta.get("source", "api"),
+                **meta,
+                "status": "running",
+            }
+        elif pid and _is_pid_alive(pid):
             agents_map[name] = {
                 "name": name,
                 "status": "running",
@@ -308,15 +328,27 @@ async def spawn_agent(body: AgentSpawn):
 async def register_agent(body: AgentSpawn):
     """Register an external agent (e.g., Claude Code subagent) without spawning a process.
 
-    This lets ToriOS track agents that are managed by another system.
+    This lets myOS track agents that are managed by another system. Agents
+    should call this BEFORE they start work so they show up as "running"
+    in the Agents page in real time. The default status is "running" so a
+    simple register call is enough to make the agent visible immediately.
     """
     model = MODEL_MAP.get(body.model, body.model)
-    agent_metadata[body.name] = {
+    # Default status to "running" so newly registered agents appear in the UI
+    # immediately. Callers may pass an explicit status to override.
+    status = body.status or "running"
+    record: dict = {
         "spawned_at": datetime.now(timezone.utc).isoformat(),
         "budget": str(body.budget),
         "model": model,
         "source": "claude-code",
+        "status": status,
     }
+    if body.description:
+        record["description"] = body.description
+    if body.prompt:
+        record["prompt"] = body.prompt[:500]
+    agent_metadata[body.name] = record
     _save_agent_state()
 
     # Log to audit
@@ -326,12 +358,17 @@ async def register_agent(body: AgentSpawn):
     except Exception:
         pass
 
-    return {"result": f"Agent '{body.name}' registered", "source": "claude-code"}
+    return {"result": f"Agent '{body.name}' registered", "source": "claude-code", "status": status}
 
 
 @router.post("/agents/{name}/complete")
 async def mark_agent_complete(name: str):
-    """Mark an externally managed agent as completed."""
+    """Mark an externally managed agent as completed.
+
+    This writes the completion status to the persistent agent metadata store
+    so the agent shows as completed in the UI across server restarts, and
+    also writes a transcript marker as a belt-and-suspenders signal.
+    """
     meta = agent_metadata.get(name, {})
     if meta.get("spawned_at"):
         try:
@@ -340,13 +377,37 @@ async def mark_agent_complete(name: str):
             _save_duration(meta.get("model", ""), float(meta.get("budget", "0")), duration)
         except (ValueError, TypeError):
             pass
-    # Write a transcript marker so the status check finds it
+
+    # Persist completion status so the listing endpoint returns "completed"
+    # even if the transcript file is missing or the server restarts.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if name in agent_metadata:
+        agent_metadata[name]["status"] = "completed"
+        agent_metadata[name]["completed_at"] = now_iso
+    else:
+        # Agent was never registered. Create a minimal record so it still shows up.
+        agent_metadata[name] = {
+            "spawned_at": now_iso,
+            "completed_at": now_iso,
+            "status": "completed",
+            "source": "claude-code",
+        }
+    _save_agent_state()
+
+    # Log to audit so the audit_agents() helper also reflects completion
+    try:
+        await ostk._run("os", "audit", "--event", "agent.completed",
+                       "--data", json.dumps({"name": name}))
+    except Exception:
+        pass
+
+    # Write a transcript marker so the status check finds it even on legacy rows
     from config import PROJECT_ROOT
     transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
     transcript.parent.mkdir(parents=True, exist_ok=True)
     if not transcript.exists() or transcript.stat().st_size == 0:
         transcript.write_text(f"Agent '{name}' completed (registered externally).\n")
-    return {"result": f"Agent '{name}' marked complete"}
+    return {"result": f"Agent '{name}' marked complete", "status": "completed"}
 
 
 @router.post("/agents/{name}/kill")

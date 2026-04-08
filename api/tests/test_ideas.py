@@ -1,7 +1,7 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -283,15 +283,35 @@ async def test_delete_idea_not_found(client):
 
 
 # --- POST /api/ideas/convert ---
+#
+# The convert endpoint now calls break_down_idea first. Every test below
+# mocks the breakdown service so we do not hit Claude and so we can assert
+# the exact task list the router produces.
+
+from services.idea_breakdown import BreakdownTask, IdeaBreakdownResult
+
+
+def _single_task_breakdown(title: str, priority: str = "P1") -> IdeaBreakdownResult:
+    return IdeaBreakdownResult(
+        needs_clarification=False,
+        question=None,
+        tasks=[
+            BreakdownTask(title=title, description="", priority=priority, order=0)
+        ],
+    )
+
 
 @pytest.mark.asyncio
 async def test_convert_idea_to_task(client):
-    with patch("routers.ideas.ostk") as mock_ostk:
-        mock_ostk.convert_hay_to_task = AsyncMock(return_value="created task")
+    with patch("routers.ideas.ostk") as mock_ostk, \
+         patch("routers.ideas.break_down_idea", new=AsyncMock(return_value=_single_task_breakdown("build a rocket"))):
+        mock_ostk.convert_hay_to_task = AsyncMock(return_value="added \u2192042: build a rocket [P1]")
         resp = await client.post("/api/ideas/convert", json={"straw": "build a rocket"})
 
     assert resp.status_code == 200
-    assert resp.json()["result"] == "created task"
+    body = resp.json()
+    assert body["status"] == "created"
+    assert body["tasks"][0]["title"] == "build a rocket"
     mock_ostk.convert_hay_to_task.assert_called_once_with(
         straw="build a rocket", priority="P1", delete_hay=False
     )
@@ -299,8 +319,9 @@ async def test_convert_idea_to_task(client):
 
 @pytest.mark.asyncio
 async def test_convert_idea_custom_priority(client):
-    with patch("routers.ideas.ostk") as mock_ostk:
-        mock_ostk.convert_hay_to_task = AsyncMock(return_value="created task")
+    with patch("routers.ideas.ostk") as mock_ostk, \
+         patch("routers.ideas.break_down_idea", new=AsyncMock(return_value=_single_task_breakdown("urgent idea", priority="P0"))):
+        mock_ostk.convert_hay_to_task = AsyncMock(return_value="added \u2192042: urgent idea [P0]")
         resp = await client.post("/api/ideas/convert", json={
             "straw": "urgent idea", "priority": "P0", "delete_hay": False
         })
@@ -314,7 +335,8 @@ async def test_convert_idea_custom_priority(client):
 @pytest.mark.asyncio
 async def test_convert_idea_ostk_error(client):
     from services.ostk import OstkError
-    with patch("routers.ideas.ostk") as mock_ostk:
+    with patch("routers.ideas.ostk") as mock_ostk, \
+         patch("routers.ideas.break_down_idea", new=AsyncMock(return_value=_single_task_breakdown("bad idea"))):
         mock_ostk.convert_hay_to_task = AsyncMock(side_effect=OstkError("failed"))
         resp = await client.post("/api/ideas/convert", json={"straw": "bad idea"})
 
@@ -362,3 +384,242 @@ async def test_list_active_ideas_excludes_converted(client):
     data = resp.json()
     assert "unclustered" in data
     mock_ostk.list_hay.assert_called_once_with(exclude_converted=True)
+
+
+# --- Auto-label regression for idea-to-task path (needle →137) ------------
+# A task created from an idea (POST /api/ideas/convert) used to skip the
+# auto-label suggester entirely because it called ostk.add_task at the
+# service level, bypassing the task router. The fix routes every task
+# creation path through the shared services.task_labeling helper.
+
+@pytest.mark.asyncio
+async def test_convert_idea_triggers_auto_label(client):
+    """Converting an idea to a task must run the auto-label suggester."""
+    import asyncio as _asyncio
+
+    fake_label = {
+        "id": "l-product",
+        "name": "product",
+        "color": "#8b5cf6",
+        "is_new": False,
+    }
+
+    async def fake_suggest(title, desc, labels):
+        return [fake_label]
+
+    captured = {}
+
+    def fake_replace(task_id, label_ids):
+        captured["task_id"] = task_id
+        captured["label_ids"] = list(label_ids)
+        return list(label_ids)
+
+    with patch("routers.ideas.ostk") as mock_ostk, \
+         patch("routers.ideas.break_down_idea", new=AsyncMock(return_value=_single_task_breakdown("complete notification system"))), \
+         patch("services.task_labeling.suggest_labels", new=fake_suggest), \
+         patch("services.task_labeling.task_labels_store") as mock_tls, \
+         patch("services.task_labeling.settings_store") as mock_settings, \
+         patch("services.task_labeling.labels_store") as mock_labels:
+        mock_ostk.convert_hay_to_task = AsyncMock(
+            return_value="added \u2192301: complete notification system [P1]"
+        )
+        mock_settings.get = MagicMock(return_value=True)
+        mock_labels.list_labels = MagicMock(return_value=[])
+        mock_tls.replace_auto_applied = MagicMock(side_effect=fake_replace)
+
+        resp = await client.post(
+            "/api/ideas/convert",
+            json={"straw": "complete notification system", "priority": "P1"},
+        )
+        # Give the background task a chance to run.
+        await _asyncio.sleep(0.05)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["task_id"] == "\u2192301"
+    assert captured.get("task_id") == "\u2192301"
+    assert captured.get("label_ids") == ["l-product"]
+
+
+@pytest.mark.asyncio
+async def test_convert_idea_skips_auto_label_when_setting_off(client):
+    """If auto_label_tasks is False, conversion must not call the suggester."""
+    import asyncio as _asyncio
+    suggest_called = {"count": 0}
+
+    async def fake_suggest(title, desc, labels):
+        suggest_called["count"] += 1
+        return []
+
+    with patch("routers.ideas.ostk") as mock_ostk, \
+         patch("routers.ideas.break_down_idea", new=AsyncMock(return_value=_single_task_breakdown("another idea"))), \
+         patch("services.task_labeling.suggest_labels", new=fake_suggest), \
+         patch("services.task_labeling.settings_store") as mock_settings:
+        mock_ostk.convert_hay_to_task = AsyncMock(
+            return_value="added \u2192302: another idea [P1]"
+        )
+        mock_settings.get = MagicMock(return_value=False)
+
+        resp = await client.post(
+            "/api/ideas/convert", json={"straw": "another idea"}
+        )
+        await _asyncio.sleep(0.05)
+
+    assert resp.status_code == 200
+    assert suggest_called["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_convert_idea_returns_task_id(client):
+    """The conversion endpoint should echo the first task id for the UI."""
+    with patch("routers.ideas.ostk") as mock_ostk, \
+         patch("routers.ideas.break_down_idea", new=AsyncMock(return_value=_single_task_breakdown("parsed task", priority="P0"))), \
+         patch("services.task_labeling.settings_store") as mock_settings:
+        mock_ostk.convert_hay_to_task = AsyncMock(
+            return_value="added \u2192303: parsed task [P0]"
+        )
+        mock_settings.get = MagicMock(return_value=False)
+        resp = await client.post(
+            "/api/ideas/convert",
+            json={"straw": "parsed task", "priority": "P0"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["task_id"] == "\u2192303"
+    assert body["status"] == "created"
+
+
+# --- New tests for idea breakdown flow -----------------------------------
+
+def _multi_task_breakdown() -> IdeaBreakdownResult:
+    return IdeaBreakdownResult(
+        needs_clarification=False,
+        question=None,
+        tasks=[
+            BreakdownTask(title="Sketch layout", description="Draw wireframes.", priority="P1", order=0),
+            BreakdownTask(title="Pick colors", description="Choose the palette.", priority="P2", order=1),
+            BreakdownTask(title="Ship draft", description="Upload to staging.", priority="P2", order=2),
+        ],
+    )
+
+
+def _clarification_breakdown(question: str) -> IdeaBreakdownResult:
+    return IdeaBreakdownResult(
+        needs_clarification=True,
+        question=question,
+        tasks=[],
+    )
+
+
+@pytest.mark.asyncio
+async def test_convert_idea_creates_multiple_tasks(client):
+    """A multi-task breakdown should call ostk once per task."""
+    async def fake_add_task(title, priority):
+        return f"added \u2192900: {title} [{priority}]"
+
+    with patch("routers.ideas.ostk") as mock_ostk, \
+         patch("routers.ideas.break_down_idea", new=AsyncMock(return_value=_multi_task_breakdown())), \
+         patch("services.task_labeling.settings_store") as mock_settings:
+        mock_ostk.convert_hay_to_task = AsyncMock(
+            return_value="added \u2192900: Sketch layout [P1]"
+        )
+        mock_ostk.add_task = AsyncMock(side_effect=fake_add_task)
+        mock_settings.get = MagicMock(return_value=False)
+
+        resp = await client.post(
+            "/api/ideas/convert",
+            json={"straw": "Redesign landing page", "priority": "P1"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "created"
+    assert len(body["tasks"]) == 3
+    assert body["tasks"][0]["title"] == "Sketch layout"
+    assert body["tasks"][1]["title"] == "Pick colors"
+    assert body["tasks"][2]["title"] == "Ship draft"
+    # First task converts the hay, the rest go through add_task.
+    mock_ostk.convert_hay_to_task.assert_called_once()
+    assert mock_ostk.add_task.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_convert_idea_returns_clarification_when_vague(client):
+    """When Claude cannot break the idea down, no tasks are created."""
+    with patch("routers.ideas.ostk") as mock_ostk, \
+         patch(
+             "routers.ideas.break_down_idea",
+             new=AsyncMock(return_value=_clarification_breakdown("What platform, web or mobile?")),
+         ):
+        mock_ostk.convert_hay_to_task = AsyncMock()
+        mock_ostk.add_task = AsyncMock()
+
+        resp = await client.post(
+            "/api/ideas/convert",
+            json={"straw": "build an app"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "needs_clarification"
+    assert "platform" in body["question"].lower()
+    assert "straw" in body
+    # No tasks were created.
+    mock_ostk.convert_hay_to_task.assert_not_called()
+    mock_ostk.add_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_answer_endpoint_creates_tasks(client):
+    """Posting an answer retries breakdown with extra_context and creates tasks."""
+    mock_breakdown = AsyncMock(return_value=_multi_task_breakdown())
+
+    async def fake_add_task(title, priority):
+        return f"added \u2192901: {title} [{priority}]"
+
+    with patch("routers.ideas.ostk") as mock_ostk, \
+         patch("routers.ideas.break_down_idea", new=mock_breakdown), \
+         patch("services.task_labeling.settings_store") as mock_settings:
+        mock_ostk.convert_hay_to_task = AsyncMock(
+            return_value="added \u2192901: Sketch layout [P1]"
+        )
+        mock_ostk.add_task = AsyncMock(side_effect=fake_add_task)
+        mock_settings.get = MagicMock(return_value=False)
+
+        resp = await client.post(
+            "/api/ideas/answer",
+            json={"straw": "build an app", "answer": "web", "priority": "P1"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "created"
+    assert len(body["tasks"]) == 3
+    # The answer should have been passed as extra_context.
+    call_kwargs = mock_breakdown.call_args.kwargs
+    assert call_kwargs.get("extra_context") == "web"
+
+
+@pytest.mark.asyncio
+async def test_answer_endpoint_can_return_another_question(client):
+    """The answer endpoint can also come back with another clarifying question."""
+    with patch("routers.ideas.ostk") as mock_ostk, \
+         patch(
+             "routers.ideas.break_down_idea",
+             new=AsyncMock(return_value=_clarification_breakdown("Is it for individuals or teams?")),
+         ):
+        mock_ostk.convert_hay_to_task = AsyncMock()
+        mock_ostk.add_task = AsyncMock()
+
+        resp = await client.post(
+            "/api/ideas/answer",
+            json={"straw": "build an app", "answer": "web"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "needs_clarification"
+    assert "teams" in body["question"].lower() or "individuals" in body["question"].lower()
+    mock_ostk.convert_hay_to_task.assert_not_called()
+    mock_ostk.add_task.assert_not_called()

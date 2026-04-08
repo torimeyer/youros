@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAppStore } from '../stores/app'
 
 interface GuidedTourProps {
   onComplete: () => void
@@ -69,6 +70,7 @@ export default function GuidedTour({ onComplete }: GuidedTourProps) {
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const setTourComplete = useAppStore((s) => s.setTourComplete)
 
   const total = TOUR_STEPS.length
   const current = TOUR_STEPS[step]
@@ -122,13 +124,13 @@ export default function GuidedTour({ onComplete }: GuidedTourProps) {
   }
 
   const handleFinish = () => {
-    localStorage.setItem('myos-tour-complete', 'true')
+    setTourComplete(true)
     navigate('/')
     onComplete()
   }
 
   const handleSkip = () => {
-    localStorage.setItem('myos-tour-complete', 'true')
+    setTourComplete(true)
     navigate('/')
     onComplete()
   }

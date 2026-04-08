@@ -825,4 +825,56 @@ describe('Tasks page', () => {
     const healthTab = screen.getByRole('button', { name: 'Health' })
     expect(healthTab).toBeInTheDocument()
   })
+
+  // --- Auto-applied labels ---
+
+  describe('auto-applied labels', () => {
+    const autoTasks = [
+      {
+        id: '1',
+        title: 'Fix login bug',
+        priority: 'P0',
+        status: 'open',
+        created_at: new Date().toISOString(),
+        goal: null,
+        label_ids: ['l1'],
+        auto_label_ids: ['l1'],
+      },
+    ]
+
+    beforeEach(() => {
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: autoTasks })
+        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+        return Promise.resolve({})
+      })
+    })
+
+    it('renders an auto indicator on auto-applied labels', async () => {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('auto-icon-1-l1')).toBeInTheDocument()
+    })
+
+    it('clicking an auto-applied label removes it via the API', async () => {
+      const mockedDelete = vi.mocked(api.delete)
+      mockedDelete.mockResolvedValue({ label_ids: [] })
+
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+
+      const autoIcon = screen.getByTestId('auto-icon-1-l1')
+      const pill = autoIcon.closest('span[class*="rounded-full"]') as HTMLElement
+      expect(pill).not.toBeNull()
+      fireEvent.click(pill)
+
+      await waitFor(() => {
+        expect(mockedDelete).toHaveBeenCalledWith('/tasks/1/labels/l1')
+      })
+    })
+  })
 })

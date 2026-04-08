@@ -1220,3 +1220,186 @@ async def test_ostk_delete_task_missing_file_raises(tmp_path):
     svc = OstkService(cwd=str(tmp_path))
     with pytest.raises(OstkError, match="issues.jsonl not found"):
         await svc.delete_task("t-1")
+
+
+# --- Auto-label suggestion on task create ---------------------------------
+
+@pytest.mark.asyncio
+async def test_create_task_triggers_auto_label_suggestion(client):
+    """Creating a task should kick off the label suggester and apply labels."""
+    import asyncio as _asyncio
+    fake_label = {"id": "l-bug", "name": "bug", "color": "#f97316", "is_new": False}
+
+    async def fake_suggest(title, desc, labels):
+        return [fake_label]
+
+    captured = {}
+
+    def fake_replace(task_id, label_ids):
+        captured["task_id"] = task_id
+        captured["label_ids"] = list(label_ids)
+        return list(label_ids)
+
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("services.task_labeling.suggest_labels", new=fake_suggest), \
+         patch("services.task_labeling.task_labels_store") as mock_tls, \
+         patch("services.task_labeling.settings_store") as mock_settings, \
+         patch("services.task_labeling.labels_store") as mock_labels:
+        mock_ostk.add_task = AsyncMock(return_value="added \u2192201: New thing [P1]")
+        mock_settings.get = MagicMock(return_value=True)
+        mock_labels.list_labels = MagicMock(return_value=[])
+        mock_tls.replace_auto_applied = MagicMock(side_effect=fake_replace)
+
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": "Crash on launch", "priority": "P0", "description": "the app dies"},
+        )
+        # Give the background task a chance to run.
+        await _asyncio.sleep(0.05)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["task_id"] == "\u2192201"
+    assert captured.get("task_id") == "\u2192201"
+    assert captured.get("label_ids") == ["l-bug"]
+
+
+@pytest.mark.asyncio
+async def test_create_task_skips_auto_label_when_setting_off(client):
+    """If auto_label_tasks is False, the suggester must not be called."""
+    import asyncio as _asyncio
+    suggest_called = {"count": 0}
+
+    async def fake_suggest(title, desc, labels):
+        suggest_called["count"] += 1
+        return []
+
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("services.task_labeling.suggest_labels", new=fake_suggest), \
+         patch("services.task_labeling.settings_store") as mock_settings:
+        mock_ostk.add_task = AsyncMock(return_value="added \u2192202: thing [P1]")
+        mock_settings.get = MagicMock(return_value=False)
+
+        resp = await client.post("/api/tasks", json={"title": "thing"})
+        await _asyncio.sleep(0.05)
+
+    assert resp.status_code == 200
+    assert suggest_called["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_remove_auto_applied_label_marks_rejected(client):
+    """Removing an auto-applied label should call remove_label with mark_rejected=True."""
+    captured = {}
+    with patch("routers.tasks.task_labels_store") as mock_tls:
+        mock_tls.is_auto_applied = MagicMock(return_value=True)
+        def fake_remove(task_id, label_id, mark_rejected=False):
+            captured["mark_rejected"] = mark_rejected
+            return []
+        mock_tls.remove_label = MagicMock(side_effect=fake_remove)
+
+        resp = await client.delete("/api/tasks/t-1/labels/l-bug")
+
+    assert resp.status_code == 200
+    assert captured["mark_rejected"] is True
+
+
+@pytest.mark.asyncio
+async def test_remove_manual_label_does_not_mark_rejected(client):
+    """A manually added label should be removed without rejecting it."""
+    captured = {}
+    with patch("routers.tasks.task_labels_store") as mock_tls:
+        mock_tls.is_auto_applied = MagicMock(return_value=False)
+        def fake_remove(task_id, label_id, mark_rejected=False):
+            captured["mark_rejected"] = mark_rejected
+            return []
+        mock_tls.remove_label = MagicMock(side_effect=fake_remove)
+
+        resp = await client.delete("/api/tasks/t-1/labels/l-bug")
+
+    assert resp.status_code == 200
+    assert captured["mark_rejected"] is False
+
+
+def test_extract_task_id_parses_added_string():
+    """The id parser should pull the raw needle id from the ostk add output."""
+    from routers.tasks import _extract_task_id
+    assert _extract_task_id("added \u2192201: my task [P1]") == "\u2192201"
+    assert _extract_task_id("added abc123: another task [P0]") == "abc123"
+    assert _extract_task_id("nonsense") is None
+    assert _extract_task_id("") is None
+
+
+# --- Shared auto-label helper regression tests (needle →137) --------------
+# These tests cover the bug where tasks created from ideas (and other paths
+# that do not hit POST /api/tasks) skipped auto-labeling. The fix extracted
+# the auto-label logic into services/task_labeling.py so every task
+# creation path can share it.
+
+
+@pytest.mark.asyncio
+async def test_schedule_auto_labels_applies_labels_for_any_path():
+    """The shared helper must label a task regardless of which path creates it."""
+    import asyncio as _asyncio
+    from services import task_labeling
+
+    fake_label = {"id": "l-growth", "name": "growth", "color": "#10b981", "is_new": False}
+
+    async def fake_suggest(title, desc, labels):
+        return [fake_label]
+
+    captured = {}
+
+    def fake_replace(task_id, label_ids):
+        captured["task_id"] = task_id
+        captured["label_ids"] = list(label_ids)
+        return list(label_ids)
+
+    with patch("services.task_labeling.suggest_labels", new=fake_suggest), \
+         patch("services.task_labeling.task_labels_store") as mock_tls, \
+         patch("services.task_labeling.settings_store") as mock_settings, \
+         patch("services.task_labeling.labels_store") as mock_labels:
+        mock_settings.get = MagicMock(return_value=True)
+        mock_labels.list_labels = MagicMock(return_value=[])
+        mock_tls.replace_auto_applied = MagicMock(side_effect=fake_replace)
+
+        task_labeling.schedule_auto_labels("\u2192500", "Plan retreat", "")
+        # Give the background task a chance to run.
+        await _asyncio.sleep(0.05)
+
+    assert captured.get("task_id") == "\u2192500"
+    assert captured.get("label_ids") == ["l-growth"]
+
+
+@pytest.mark.asyncio
+async def test_schedule_auto_labels_noop_when_id_missing():
+    """If the task id could not be parsed, the helper must not crash."""
+    from services import task_labeling
+
+    called = {"n": 0}
+
+    async def fake_suggest(title, desc, labels):
+        called["n"] += 1
+        return []
+
+    with patch("services.task_labeling.suggest_labels", new=fake_suggest):
+        task_labeling.schedule_auto_labels(None, "title", "")
+        task_labeling.schedule_auto_labels("", "title", "")
+
+    assert called["n"] == 0
+
+
+def test_task_labeling_extract_task_id_matches_router_helper():
+    """The shared extractor and the router re-export must behave the same."""
+    from services.task_labeling import extract_task_id as shared
+    from routers.tasks import _extract_task_id as router_alias
+
+    samples = [
+        ("added \u2192201: a task [P1]", "\u2192201"),
+        ("added abc: x [P0]", "abc"),
+        ("nothing", None),
+        ("", None),
+    ]
+    for text, expected in samples:
+        assert shared(text) == expected
+        assert router_alias(text) == expected

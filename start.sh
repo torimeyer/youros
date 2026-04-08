@@ -76,4 +76,25 @@ else
     (sleep 2 && xdg-open http://localhost:8000 2>/dev/null) &
 fi
 
-exec uvicorn main:app --host 127.0.0.1 --port 8000
+# Reload watch is scoped to the api/ runtime code only.
+# Test files, pytest cache, and pyc files must NOT trigger a reload, because
+# background agents edit them frequently and a reload mid-stream kills any
+# in-flight chat WebSocket. Routers and services SHOULD still reload so real
+# code changes are picked up. Reload-delay batches back-to-back writes into
+# a single reload instead of many.
+#
+# Note: cwd here is $DIR/api, so --reload-dir api uses the absolute path to
+# keep the intent obvious in the command line.
+exec uvicorn main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --reload \
+    --reload-dir "$DIR/api" \
+    --reload-exclude 'api/tests/*' \
+    --reload-exclude 'api/tests/**/*' \
+    --reload-exclude 'tests/*' \
+    --reload-exclude 'tests/**/*' \
+    --reload-exclude '**/.pytest_cache/*' \
+    --reload-exclude '**/__pycache__/*' \
+    --reload-exclude '**/*.pyc' \
+    --reload-delay 1.0

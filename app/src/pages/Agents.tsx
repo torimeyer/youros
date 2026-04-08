@@ -3,18 +3,11 @@ import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import { api } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
+import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 
 const tabs = ["Active", "Recent", "Metrics"];
 
-const CUSTOM_TEMPLATES_KEY = "myos-custom-templates";
-
-interface CustomTemplate {
-  name: string;
-  description: string;
-  icon: string;
-  model: string;
-  budget: number;
-}
+type CustomTemplate = CustomAgentTemplate;
 
 const marketplaceCategories: { category: string; templates: CustomTemplate[] }[] = [
   {
@@ -43,20 +36,6 @@ const marketplaceCategories: { category: string; templates: CustomTemplate[] }[]
     ],
   },
 ];
-
-function loadCustomTemplates(): CustomTemplate[] {
-  try {
-    const raw = localStorage.getItem(CUSTOM_TEMPLATES_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // ignore parse errors
-  }
-  return [];
-}
-
-function saveCustomTemplates(templates: CustomTemplate[]) {
-  localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(templates));
-}
 
 /* ---------- Template Editor Modal ---------- */
 function TemplateEditorModal({
@@ -440,32 +419,27 @@ export default function Agents() {
   const [editorInitial, setEditorInitial] = useState<CustomTemplate | null>(null);
   const [editorIsNew, setEditorIsNew] = useState(false);
 
-  // Custom templates from localStorage
-  const [customTemplates, setCustomTemplates] = useState<CustomTemplate[]>([]);
+  // Custom templates live on the server via the app store. localStorage
+  // is only a first paint cache.
+  const customTemplates = useAppStore((s) => s.customAgentTemplates);
+  const setCustomTemplates = useAppStore((s) => s.setCustomAgentTemplates);
 
   // Marketplace
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
 
-  // Load custom templates on mount
-  useEffect(() => {
-    setCustomTemplates(loadCustomTemplates());
-  }, []);
+  const addCustomTemplate = useCallback(
+    (t: CustomTemplate) => {
+      setCustomTemplates([...customTemplates, t]);
+    },
+    [customTemplates, setCustomTemplates],
+  );
 
-  const addCustomTemplate = useCallback((t: CustomTemplate) => {
-    setCustomTemplates((prev) => {
-      const updated = [...prev, t];
-      saveCustomTemplates(updated);
-      return updated;
-    });
-  }, []);
-
-  const deleteCustomTemplate = useCallback((name: string) => {
-    setCustomTemplates((prev) => {
-      const updated = prev.filter((t) => t.name !== name);
-      saveCustomTemplates(updated);
-      return updated;
-    });
-  }, []);
+  const deleteCustomTemplate = useCallback(
+    (name: string) => {
+      setCustomTemplates(customTemplates.filter((t) => t.name !== name));
+    },
+    [customTemplates, setCustomTemplates],
+  );
 
   const isCustomTemplate = useCallback(
     (name: string) => customTemplates.some((t) => t.name === name),

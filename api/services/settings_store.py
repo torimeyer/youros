@@ -39,6 +39,16 @@ class SettingsStore:
         data = json.loads(SETTINGS_PATH.read_text())
         if "features" in data and isinstance(data["features"], dict):
             data["features"] = _normalize_features(data["features"])
+        # Backfill any fields missing from an older settings.json with the
+        # pydantic schema defaults. This is how new server-backed settings
+        # like ``tour_complete`` show up for users who were onboarded before
+        # the field existed, without rewriting their file on disk. New
+        # writes (``save`` / ``update``) still carry only what the caller
+        # passed plus what was already on disk.
+        defaults = Settings().model_dump()
+        for key, default_value in defaults.items():
+            if key not in data:
+                data[key] = default_value
         return data
 
     def save(self, data: dict):

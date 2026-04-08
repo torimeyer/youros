@@ -247,3 +247,230 @@ async def test_default_model_persists_alongside_other_settings(client, settings_
     assert data["default_model"] == "@gemini"
     assert data["os_name"] == "ToriOS"
     assert data["dark_mode"] is True
+
+
+# --- Server side user state persistence tests ---
+# These lock in the fix where the server, not localStorage, is the
+# source of truth for onboarding and other user preferences. If a user
+# finishes onboarding, they should never be asked to do it again.
+
+
+@pytest.mark.asyncio
+async def test_patch_persists_onboarded_true(client, settings_file):
+    """PATCH /api/settings with onboarded=true should persist the field."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"onboarded": True})
+        assert resp.status_code == 200
+
+        resp = await client.get("/api/settings")
+
+    data = resp.json()
+    assert data["onboarded"] is True
+    # Verify on disk too
+    saved = json.loads(settings_file.read_text())
+    assert saved["onboarded"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_settings_returns_new_user_state_fields_after_patch(client, settings_file):
+    """GET /api/settings returns the new user state fields once they
+    have been written via PATCH. This is the normal flow the frontend
+    uses: hydrate -> patch missing fields -> hydrate again."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await client.patch("/api/settings", json={
+            "onboarded": True,
+            "accent_color": "purple",
+            "default_model": "@gemini",
+            "use_ostk_terms": True,
+        })
+        resp = await client.get("/api/settings")
+
+    data = resp.json()
+    assert data["onboarded"] is True
+    assert data["accent_color"] == "purple"
+    assert data["default_model"] == "@gemini"
+    assert data["use_ostk_terms"] is True
+
+
+@pytest.mark.asyncio
+async def test_fresh_settings_file_includes_onboarded(tmp_path):
+    """A freshly created settings.json should include onboarded=false
+    so the Settings pydantic defaults reach disk."""
+    fresh_path = tmp_path / "settings.json"
+    # Reimport to get a new SettingsStore pointed at the temp path
+    with patch("services.settings_store.SETTINGS_PATH", fresh_path):
+        from services.settings_store import SettingsStore
+        SettingsStore()  # triggers _ensure_exists
+        data = json.loads(fresh_path.read_text())
+
+    assert data["onboarded"] is False
+    assert data["use_ostk_terms"] is False
+    assert data["accent_color"] == "blue"
+    assert data["default_model"] == "@claude"
+
+
+@pytest.mark.asyncio
+async def test_default_settings_include_onboarded_false():
+    """The Settings schema must default onboarded to False so new users
+    see the onboarding wizard the first time."""
+    from models.schemas import Settings
+    defaults = Settings()
+    assert defaults.onboarded is False
+    assert defaults.use_ostk_terms is False
+    assert defaults.accent_color == "blue"
+    assert defaults.default_model == "@claude"
+
+
+@pytest.mark.asyncio
+async def test_patch_onboarded_then_accent_preserves_both(client, settings_file):
+    """Patching onboarded and then accent_color should preserve both values.
+    This catches the bug where one setter would wipe out another."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await client.patch("/api/settings", json={"onboarded": True})
+        await client.patch("/api/settings", json={"accent_color": "purple"})
+        resp = await client.get("/api/settings")
+
+    data = resp.json()
+    assert data["onboarded"] is True
+    assert data["accent_color"] == "purple"
+
+
+@pytest.mark.asyncio
+async def test_patch_use_ostk_terms_persists(client, settings_file):
+    """Toggling ostk terms should persist on the server."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await client.patch("/api/settings", json={"use_ostk_terms": True})
+        resp = await client.get("/api/settings")
+
+    assert resp.json()["use_ostk_terms"] is True
+
+
+# --- Tour, What's New, and custom agent templates persistence ---
+# These prevent the regression where finishing the tour, dismissing the
+# What's New panel, or building custom agent templates would silently
+# get wiped if the user cleared their browser cache or signed in on a
+# new device.
+
+
+@pytest.mark.asyncio
+async def test_patch_tour_complete_persists(client, settings_file):
+    """Finishing or skipping the guided tour writes to the server."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await client.patch("/api/settings", json={"tour_complete": True})
+        resp = await client.get("/api/settings")
+
+    assert resp.json()["tour_complete"] is True
+    saved = json.loads(settings_file.read_text())
+    assert saved["tour_complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_patch_whats_new_last_seen_persists(client, settings_file):
+    """The last release notes date the user saw is server backed."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await client.patch("/api/settings", json={"whats_new_last_seen": "2026-04-05"})
+        resp = await client.get("/api/settings")
+
+    assert resp.json()["whats_new_last_seen"] == "2026-04-05"
+
+
+@pytest.mark.asyncio
+async def test_patch_custom_agent_templates_persists(client, settings_file):
+    """Custom agent templates are saved server side, not in localStorage."""
+    templates = [
+        {
+            "name": "Researcher",
+            "description": "Searches the web",
+            "icon": "search",
+            "model": "sonnet",
+            "budget": 2.0,
+        }
+    ]
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await client.patch("/api/settings", json={"custom_agent_templates": templates})
+        resp = await client.get("/api/settings")
+
+    assert resp.json()["custom_agent_templates"] == templates
+
+
+@pytest.mark.asyncio
+async def test_new_user_state_fields_survive_store_restart(tmp_path):
+    """All the new server backed fields must be readable after a fresh
+    SettingsStore is constructed against the same file. This is the
+    closest thing we have to "the API process restarted but the data
+    is still there"."""
+    sf = tmp_path / "settings.json"
+    with patch("services.settings_store.SETTINGS_PATH", sf):
+        from services.settings_store import SettingsStore
+        store_a = SettingsStore()
+        store_a.update(
+            {
+                "tour_complete": True,
+                "whats_new_last_seen": "2026-04-05",
+                "custom_agent_templates": [
+                    {
+                        "name": "Helper",
+                        "description": "Does things",
+                        "icon": "star",
+                        "model": "sonnet",
+                        "budget": 1.0,
+                    }
+                ],
+                "onboarded": True,
+                "os_name": "Tori",
+            }
+        )
+
+        # Simulate a restart by constructing a new store against the same file.
+        store_b = SettingsStore()
+        data = store_b.load()
+
+    assert data["tour_complete"] is True
+    assert data["whats_new_last_seen"] == "2026-04-05"
+    assert data["custom_agent_templates"][0]["name"] == "Helper"
+    assert data["onboarded"] is True
+    assert data["os_name"] == "Tori"
+
+
+@pytest.mark.asyncio
+async def test_default_settings_include_new_user_state_fields():
+    """The Settings schema defaults must include the new server backed
+    fields so a brand new settings.json has them present."""
+    from models.schemas import Settings
+    defaults = Settings()
+    assert defaults.tour_complete is False
+    assert defaults.whats_new_last_seen == ""
+    assert defaults.custom_agent_templates == []
+
+
+@pytest.mark.asyncio
+async def test_get_settings_backfills_missing_new_fields_for_old_files(tmp_path):
+    """An existing settings.json from before today's new fields were
+    added must still surface those fields on GET so the frontend never
+    sees ``undefined``. We simulate that by writing a settings file that
+    only has the old fields, then assert the backfilled defaults come
+    back on load.
+    """
+    sf = tmp_path / "settings.json"
+    # Deliberately minimal, no tour_complete, no auto_label_tasks, etc.
+    sf.write_text(json.dumps({
+        "os_name": "myOS",
+        "onboarded": True,
+        "accent_color": "blue",
+    }))
+
+    with patch("services.settings_store.SETTINGS_PATH", sf):
+        from services.settings_store import SettingsStore
+        data = SettingsStore().load()
+
+    # Every new server backed field should now be present with its
+    # schema default even though the file on disk did not have it.
+    assert data["tour_complete"] is False
+    assert data["whats_new_last_seen"] == ""
+    assert data["custom_agent_templates"] == []
+    assert data["auto_label_tasks"] is True
+    assert data["auto_template_matching"] is True
+    assert data["chat_backend_preference"] == "auto"
+    # Pre-existing fields are untouched.
+    assert data["os_name"] == "myOS"
+    assert data["onboarded"] is True

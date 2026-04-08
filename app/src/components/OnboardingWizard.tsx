@@ -3,7 +3,21 @@ import { useAppStore } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
 
-const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'Connect', 'Dream', 'Ready'] as const
+const STEPS = ['Welcome', 'You', 'Name', 'Theme', 'Connect', 'Adventure', 'Ready'] as const
+
+interface AdventureTemplate {
+  id: string
+  title: string
+  tagline: string
+  icon: string
+  placeholder: string
+}
+
+interface AdventurePlan {
+  adventure_id: string
+  goal: { title: string; description: string }
+  tasks: { title: string; priority: string }[]
+}
 
 const PROVIDER_SECRET_NAME: Record<string, string> = {
   'Anthropic': 'ANTHROPIC_API_KEY',
@@ -28,15 +42,13 @@ export default function OnboardingWizard() {
   const [apiKey, setApiKey] = useState('')
   const [keySaved, setKeySaved] = useState(false)
 
-  // Dream step state
-  const [dreamText, setDreamText] = useState('')
-  const [doneLooksLike, setDoneLooksLike] = useState('')
-  const [dreamResult, setDreamResult] = useState<{
-    goal: { title: string; description: string }
-    tasks: { title: string; priority: string }[]
-  } | null>(null)
-  const [dreamLoading, setDreamLoading] = useState(false)
-  const [dreamPhase, setDreamPhase] = useState<'ask' | 'show'>('ask')
+  // Adventure step state
+  const [adventures, setAdventures] = useState<AdventureTemplate[]>([])
+  const [selectedAdventure, setSelectedAdventure] = useState<AdventureTemplate | null>(null)
+  const [adventureDescription, setAdventureDescription] = useState('')
+  const [adventureResult, setAdventureResult] = useState<AdventurePlan | null>(null)
+  const [adventureLoading, setAdventureLoading] = useState(false)
+  const [adventurePhase, setAdventurePhase] = useState<'pick' | 'describe' | 'show'>('pick')
 
   const next = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
   const back = () => setStepIndex((i) => Math.max(i - 1, 0))
@@ -71,24 +83,43 @@ export default function OnboardingWizard() {
 
   const skip = () => next()
 
-  const handleDream = async () => {
-    setDreamLoading(true)
+  // Load adventure templates when reaching the Adventure step
+  useEffect(() => {
+    if (step !== 'Adventure' || adventures.length > 0) return
+    api.get<{ adventures: AdventureTemplate[] }>('/adventures/templates')
+      .then((data) => setAdventures(data.adventures || []))
+      .catch(() => {})
+  }, [step, adventures.length])
+
+  const handlePickAdventure = (adv: AdventureTemplate) => {
+    setSelectedAdventure(adv)
+    setAdventureDescription('')
+    setAdventureResult(null)
+    setAdventurePhase('describe')
+  }
+
+  const handleStartAdventure = async () => {
+    if (!selectedAdventure || !adventureDescription.trim()) return
+    setAdventureLoading(true)
     try {
-      const result = await api.post<{
-        goal: { title: string; description: string }
-        tasks: { title: string; priority: string }[]
-      }>('/onboarding/dream', {
-        dreading: dreamText,
-        done_looks_like: doneLooksLike || undefined,
+      const result = await api.post<AdventurePlan>('/adventures/start', {
+        adventure_id: selectedAdventure.id,
+        description: adventureDescription,
       })
-      setDreamResult(result)
-      setDreamPhase('show')
+      setAdventureResult(result)
+      setAdventurePhase('show')
     } catch {
       // If the API fails, just move on
       next()
     } finally {
-      setDreamLoading(false)
+      setAdventureLoading(false)
     }
+  }
+
+  const handleBackToPicker = () => {
+    setSelectedAdventure(null)
+    setAdventureDescription('')
+    setAdventurePhase('pick')
   }
 
   const handleDarkModeChoice = (wantDark: boolean) => {
@@ -170,17 +201,19 @@ export default function OnboardingWizard() {
               subtextCls={subtextCls}
             />
           )}
-          {step === 'Dream' && (
-            <DreamStep
+          {step === 'Adventure' && (
+            <AdventureStep
               osName={osName}
-              dreamText={dreamText}
-              setDreamText={setDreamText}
-              doneLooksLike={doneLooksLike}
-              setDoneLooksLike={setDoneLooksLike}
-              dreamResult={dreamResult}
-              dreamLoading={dreamLoading}
-              dreamPhase={dreamPhase}
-              onSubmit={handleDream}
+              adventures={adventures}
+              selected={selectedAdventure}
+              description={adventureDescription}
+              setDescription={setAdventureDescription}
+              result={adventureResult}
+              loading={adventureLoading}
+              phase={adventurePhase}
+              onPick={handlePickAdventure}
+              onStart={handleStartAdventure}
+              onBack={handleBackToPicker}
               darkMode={darkMode}
               inputCls={inputCls}
               subtextCls={subtextCls}
@@ -547,33 +580,34 @@ function ConnectStep({
   )
 }
 
-function DreamStep({
+function AdventureStep({
   osName,
-  dreamText,
-  setDreamText,
-  doneLooksLike,
-  setDoneLooksLike,
-  dreamResult,
-  dreamLoading,
-  dreamPhase,
-  onSubmit,
+  adventures,
+  selected,
+  description,
+  setDescription,
+  result,
+  loading,
+  phase,
+  onPick,
+  onStart,
+  onBack,
   darkMode,
   inputCls,
   subtextCls,
   cardCls,
 }: {
   osName: string
-  dreamText: string
-  setDreamText: (v: string) => void
-  doneLooksLike: string
-  setDoneLooksLike: (v: string) => void
-  dreamResult: {
-    goal: { title: string; description: string }
-    tasks: { title: string; priority: string }[]
-  } | null
-  dreamLoading: boolean
-  dreamPhase: 'ask' | 'show'
-  onSubmit: () => void
+  adventures: AdventureTemplate[]
+  selected: AdventureTemplate | null
+  description: string
+  setDescription: (v: string) => void
+  result: AdventurePlan | null
+  loading: boolean
+  phase: 'pick' | 'describe' | 'show'
+  onPick: (a: AdventureTemplate) => void
+  onStart: () => void
+  onBack: () => void
   darkMode: boolean
   inputCls: string
   subtextCls: string
@@ -582,9 +616,9 @@ function DreamStep({
   const [visibleCount, setVisibleCount] = useState(0)
 
   useEffect(() => {
-    if (dreamPhase !== 'show' || !dreamResult) return
+    if (phase !== 'show' || !result) return
     setVisibleCount(0)
-    const total = dreamResult.tasks.length
+    const total = result.tasks.length
     let current = 0
     const timer = setInterval(() => {
       current++
@@ -592,9 +626,115 @@ function DreamStep({
       if (current >= total) clearInterval(timer)
     }, 200)
     return () => clearInterval(timer)
-  }, [dreamPhase, dreamResult])
+  }, [phase, result])
 
-  if (dreamPhase === 'show' && dreamResult) {
+  // --- Phase: pick ---
+  if (phase === 'pick') {
+    return (
+      <div data-testid="step-adventure">
+        <div data-testid="adventure-phase-pick">
+          <h2 className="text-2xl font-bold mb-2">Where do you want to start?</h2>
+          <p className={`${subtextCls} mb-6`}>
+            Pick a starting point. {osName} will turn it into a real plan.
+            You can change direction anytime.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {adventures.map((adv) => (
+              <button
+                key={adv.id}
+                onClick={() => onPick(adv)}
+                className={`text-left p-4 rounded-xl border transition-all hover:border-blue-500 ${
+                  darkMode
+                    ? 'bg-slate-900/60 border-slate-800 hover:bg-slate-900/80'
+                    : 'bg-white border-gray-200 hover:bg-gray-50 shadow-sm'
+                }`}
+                data-testid={`adventure-card-${adv.id}`}
+              >
+                <div className="flex items-start gap-3">
+                  <Icon
+                    name={adv.icon}
+                    size={20}
+                    className={darkMode ? 'text-blue-400 mt-0.5' : 'text-blue-600 mt-0.5'}
+                  />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold mb-1">{adv.title}</p>
+                    <p className={`text-xs leading-relaxed ${subtextCls}`}>
+                      {adv.tagline}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {adventures.length === 0 && (
+            <p className={`text-sm text-center py-8 ${subtextCls}`}>
+              Loading starting points...
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // --- Phase: describe ---
+  if (phase === 'describe' && selected) {
+    return (
+      <div data-testid="step-adventure">
+        <div data-testid="adventure-phase-describe">
+          <button
+            onClick={onBack}
+            className={`text-xs mb-4 ${subtextCls} hover:underline`}
+            data-testid="adventure-back-to-pick"
+          >
+            Pick a different starting point
+          </button>
+
+          <div className="flex items-start gap-3 mb-4">
+            <Icon
+              name={selected.icon}
+              size={24}
+              className={darkMode ? 'text-blue-400 mt-1' : 'text-blue-600 mt-1'}
+            />
+            <div>
+              <h2 className="text-2xl font-bold">{selected.title}</h2>
+              <p className={`text-sm ${subtextCls}`}>{selected.tagline}</p>
+            </div>
+          </div>
+
+          <label className={`block text-sm mb-2 ${subtextCls}`}>
+            Tell {osName} what you have in mind. The more specific, the better the plan.
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={selected.placeholder}
+            className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors resize-none ${inputCls}`}
+            rows={4}
+            data-testid="adventure-description-input"
+            autoFocus
+          />
+
+          <button
+            onClick={onStart}
+            disabled={!description.trim() || loading}
+            className={`mt-6 w-full px-6 py-2.5 rounded-lg text-sm font-medium text-white transition-colors ${
+              !description.trim() || loading
+                ? 'bg-blue-600/50 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-500'
+            }`}
+            data-testid="adventure-submit"
+          >
+            {loading ? 'Building your plan...' : 'Make me a plan'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // --- Phase: show ---
+  if (phase === 'show' && result) {
     const priorityColor = (p: string) => {
       switch (p) {
         case 'P1': return 'bg-red-500/20 text-red-400'
@@ -605,23 +745,23 @@ function DreamStep({
     }
 
     return (
-      <div data-testid="step-dream">
-        <div data-testid="dream-phase-show">
-          <h2 className="text-2xl font-bold mb-2" data-testid="dream-goal-title">
-            {dreamResult.goal.title}
+      <div data-testid="step-adventure">
+        <div data-testid="adventure-phase-show">
+          <h2 className="text-2xl font-bold mb-2" data-testid="adventure-goal-title">
+            {result.goal.title}
           </h2>
-          <p className={`${subtextCls} mb-6`} data-testid="dream-goal-description">
-            {dreamResult.goal.description}
+          <p className={`${subtextCls} mb-6`} data-testid="adventure-goal-description">
+            {result.goal.description}
           </p>
 
-          <div className={`border rounded-xl p-4 space-y-2 ${cardCls}`} data-testid="dream-tasks">
-            {dreamResult.tasks.map((task, i) => (
+          <div className={`border rounded-xl p-4 space-y-2 ${cardCls}`} data-testid="adventure-tasks">
+            {result.tasks.map((task, i) => (
               <div
                 key={i}
                 className={`flex items-center gap-3 py-2 transition-all duration-300 ${
                   i < visibleCount ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
                 }`}
-                data-testid="dream-task"
+                data-testid="adventure-task"
               >
                 <div
                   className={`w-4 h-4 rounded border-2 flex-shrink-0 ${
@@ -646,51 +786,7 @@ function DreamStep({
     )
   }
 
-  return (
-    <div data-testid="step-dream">
-      <div data-testid="dream-phase-ask">
-        <h2 className="text-2xl font-bold mb-2">Let's get something off your plate</h2>
-        <p className={`${subtextCls} mb-6`}>
-          Tell {osName} something you've been putting off. We'll turn it into a plan.
-        </p>
-
-        <textarea
-          value={dreamText}
-          onChange={(e) => setDreamText(e.target.value)}
-          placeholder="e.g. I need to do my taxes but I have no idea where to start"
-          className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors resize-none ${inputCls}`}
-          rows={3}
-          data-testid="dream-text-input"
-          autoFocus
-        />
-
-        <label className={`block text-sm mt-4 mb-2 ${subtextCls}`}>
-          What would done look like? (optional)
-        </label>
-        <input
-          type="text"
-          value={doneLooksLike}
-          onChange={(e) => setDoneLooksLike(e.target.value)}
-          placeholder="e.g. Taxes filed, no penalties"
-          className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-          data-testid="dream-done-input"
-        />
-
-        <button
-          onClick={onSubmit}
-          disabled={!dreamText.trim() || dreamLoading}
-          className={`mt-6 w-full px-6 py-2.5 rounded-lg text-sm font-medium text-white transition-colors ${
-            !dreamText.trim() || dreamLoading
-              ? 'bg-blue-600/50 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-500'
-          }`}
-          data-testid="dream-submit"
-        >
-          {dreamLoading ? 'Thinking...' : 'Make it happen'}
-        </button>
-      </div>
-    </div>
-  )
+  return null
 }
 
 function ReadyStep({

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from services.chat_providers import _resolve_api_key
 from services.ostk import ostk, OstkError
+from services.task_labeling import extract_task_id, schedule_auto_labels
 
 router = APIRouter(tags=["onboarding"])
 
@@ -141,9 +142,13 @@ async def _persist_tasks(plan: DreamResponse) -> None:
     """Save the generated tasks using the ostk task system."""
     for task in plan.tasks:
         try:
-            await ostk.add_task(task.title, task.priority)
+            result = await ostk.add_task(task.title, task.priority)
         except OstkError as exc:
             logger.warning("Failed to persist task '%s': %s", task.title, exc)
+            continue
+        # Fire-and-forget auto label suggestion. Never blocks task creation.
+        new_id = extract_task_id(result)
+        schedule_auto_labels(new_id, task.title, "")
 
 
 # --- Endpoint ---

@@ -4,12 +4,55 @@ Your personal AI operating system. A local web app that gives you a workspace wi
 
 ## Install
 
-You need Python 3.9+, Node 18+, and git.
+You need Python 3.9 or newer, Node 18 or newer, and git. Installing myOS does not require Homebrew. myOS runs on macOS and Linux.
+
+### On macOS
 
 ```bash
 git clone https://github.com/torimeyer/myos.git ~/myos
 cd ~/myos
 ./install.sh
+```
+
+Python and Node come pre-installed on recent macOS, or you can download them from [python.org](https://python.org/downloads) and [nodejs.org](https://nodejs.org).
+
+### On Linux
+
+First install the basic tools with your system package manager. Pick the line for your Linux.
+
+Ubuntu or Debian:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git curl ca-certificates python3 python3-venv python3-pip nodejs npm
+```
+
+Fedora:
+
+```bash
+sudo dnf install -y git curl ca-certificates python3 python3-pip nodejs npm
+```
+
+Arch:
+
+```bash
+sudo pacman -Sy --noconfirm git curl ca-certificates python python-pip nodejs npm
+```
+
+Then clone and run the installer:
+
+```bash
+git clone https://github.com/torimeyer/myos.git ~/myos
+cd ~/myos
+./install.sh
+```
+
+If your distribution ships an older Node, install a newer one with nvm first:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+source ~/.bashrc
+nvm install 20
 ```
 
 If you have SSH keys set up, you can also use `git clone git@github.com:torimeyer/myos.git ~/myos`.

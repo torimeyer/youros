@@ -3,6 +3,20 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { ChatPanel } from './ChatPanel'
 import { useAppStore } from '../stores/app'
 
+// Mock the api module so chat history hydration does not hit fetch.
+// We resolve with an empty payload so the component falls back to its
+// localStorage cache, matching the existing tests that pre populate
+// localStorage.
+vi.mock('../lib/api', () => ({
+  api: {
+    get: vi.fn().mockResolvedValue({ tabs: [], active_tab_id: '' }),
+    post: vi.fn().mockResolvedValue({}),
+    put: vi.fn().mockResolvedValue({}),
+    patch: vi.fn().mockResolvedValue({}),
+    delete: vi.fn().mockResolvedValue({}),
+  },
+}))
+
 // Mock scrollIntoView (not available in jsdom)
 Element.prototype.scrollIntoView = vi.fn()
 
@@ -124,6 +138,88 @@ describe('ChatPanel', () => {
       // The scroll container should have px-10 to prevent overflow clipping
       const scrollContainer = document.querySelector('.overflow-y-auto')
       expect(scrollContainer?.className).toContain('px-10')
+    })
+  })
+
+  describe('Auto template badge', () => {
+    it('shows the helper badge when a template_matched event arrives', () => {
+      // Pre-load an assistant message so the badge has a place to anchor.
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'saa fix the login bug' },
+        { id: 'msg-2', role: 'assistant', content: '', model: 'claude' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      const { rerender } = render(<ChatPanel />)
+
+      // Simulate the backend telling the chat panel a template matched.
+      mockLastMessage = {
+        type: 'template_matched',
+        data: { name: 'saa', description: 'Spawn agents in parallel' },
+      }
+      rerender(<ChatPanel />)
+
+      const badge = screen.getByTestId('template-badge')
+      expect(badge).toBeTruthy()
+      expect(badge.textContent).toContain('saa')
+    })
+
+    it('dismisses the badge when the user clicks the close button', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'diagnose the build' },
+        { id: 'msg-2', role: 'assistant', content: '', model: 'claude' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      const { rerender } = render(<ChatPanel />)
+
+      mockLastMessage = {
+        type: 'template_matched',
+        data: { name: 'diagnose', description: 'Find the root cause' },
+      }
+      rerender(<ChatPanel />)
+
+      const badge = screen.getByTestId('template-badge')
+      const dismiss = badge.querySelector('button')
+      expect(dismiss).toBeTruthy()
+      if (dismiss) fireEvent.click(dismiss)
+
+      expect(screen.queryByTestId('template-badge')).toBeNull()
+    })
+  })
+
+  describe('Chat backend indicator', () => {
+    it('shows the Claude subscription label when the backend is claude_code', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      mockLastMessage = {
+        type: 'backend_active',
+        data: { name: 'claude_code', label: 'Powered by your Claude subscription' },
+      }
+      rerender(<ChatPanel />)
+
+      const indicator = screen.getByTestId('chat-backend-indicator')
+      expect(indicator).toBeTruthy()
+      expect(indicator.textContent).toContain('Claude subscription')
+    })
+
+    it('shows the Anthropic API label when the backend is anthropic_api', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      mockLastMessage = {
+        type: 'backend_active',
+        data: { name: 'anthropic_api', label: 'Using Anthropic API' },
+      }
+      rerender(<ChatPanel />)
+
+      const indicator = screen.getByTestId('chat-backend-indicator')
+      expect(indicator).toBeTruthy()
+      expect(indicator.textContent).toContain('Anthropic API')
+    })
+
+    it('hides the indicator until a backend_active event arrives', () => {
+      render(<ChatPanel />)
+      expect(screen.queryByTestId('chat-backend-indicator')).toBeNull()
     })
   })
 
@@ -266,6 +362,85 @@ describe('ChatPanel', () => {
       const reactionBar = screen.getByTestId('reaction-bar-msg-1')
       const hoverContainer = reactionBar.parentElement!
       expect(hoverContainer.className).toContain('z-10')
+    })
+  })
+
+  describe('Message bubble alignment', () => {
+    it('right-aligns user message bubbles and left-aligns assistant bubbles', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello there' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi back', model: 'claude' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+
+      render(<ChatPanel />)
+
+      const userMsgContainer = document.getElementById('msg-msg-1')
+      const assistantMsgContainer = document.getElementById('msg-msg-2')
+      expect(userMsgContainer).not.toBeNull()
+      expect(assistantMsgContainer).not.toBeNull()
+
+      // User message outer container should use flex-col items-end so the
+      // bubble sits on the right side of the panel, like iMessage.
+      expect(userMsgContainer!.className).toContain('items-end')
+      // Assistant message container should NOT have items-end.
+      expect(assistantMsgContainer!.className).not.toContain('items-end')
+
+      // User bubble wrapper should have ml-auto and a max width to keep it
+      // from spanning the whole panel.
+      const userBubbleWrapper = userMsgContainer!.querySelector('.relative')
+      expect(userBubbleWrapper).not.toBeNull()
+      expect(userBubbleWrapper!.className).toContain('ml-auto')
+      expect(userBubbleWrapper!.className).toContain('max-w-[75%]')
+
+      // Assistant bubble wrapper should NOT have ml-auto.
+      const assistantBubbleWrapper = assistantMsgContainer!.querySelector('.relative')
+      expect(assistantBubbleWrapper).not.toBeNull()
+      expect(assistantBubbleWrapper!.className).not.toContain('ml-auto')
+    })
+  })
+
+  describe('Token streaming into assistant bubble', () => {
+    // Regression guard for the silent empty response bug. When a user sends a
+    // message and the backend replies with a single token event followed by
+    // done, the assistant bubble must render the actual text and not stay
+    // empty. This is the exact failure Tori saw after the Claude Code cutover.
+    it('renders token text into the assistant placeholder created by sendMessage', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      // Send a message. This creates an empty assistant placeholder.
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'did you complete it?' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Backend sends a single token event with the whole response, which is
+      // what claude_code_provider.stream_chat does today.
+      mockLastMessage = { type: 'token', data: 'I am running as expected.' }
+      rerender(<ChatPanel />)
+
+      // The assistant bubble should now contain the streamed text.
+      expect(screen.getByText('I am running as expected.')).toBeTruthy()
+    })
+
+    it('shows an error in the assistant bubble when the stream drops mid-turn', () => {
+      // Regression guard for the silent empty bubble. When the WebSocket
+      // closes before a real done event arrives, useWebSocket surfaces an
+      // error event. The chat panel must render that error text instead of
+      // leaving the assistant row visually empty.
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'did you complete it?' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Simulate useWebSocket's mid-turn drop error.
+      mockLastMessage = {
+        type: 'error',
+        data: 'Connection dropped before the response finished. Please try again.',
+      }
+      rerender(<ChatPanel />)
+
+      expect(screen.getByText(/Connection dropped/i)).toBeTruthy()
     })
   })
 

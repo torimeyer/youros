@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
+import ClarificationPrompt from "../components/ClarificationPrompt";
 import { api } from "../lib/api";
 
 interface IdeasResponse {
@@ -18,6 +19,19 @@ interface ConvertedResponse {
   converted: ConvertedItem[];
 }
 
+interface ConvertResponse {
+  status: "created" | "needs_clarification";
+  question?: string;
+  tasks?: Array<{
+    id: string | null;
+    title: string;
+    description: string;
+    priority: string;
+    order: number;
+  }>;
+  straw?: string;
+}
+
 type Tab = "active" | "converted";
 
 export default function Ideas() {
@@ -28,6 +42,10 @@ export default function Ideas() {
   const [clusters, setClusters] = useState<IdeasResponse["clusters"]>([]);
   const [convertedItems, setConvertedItems] = useState<ConvertedItem[]>([]);
   const [successMessage, setSuccessMessage] = useState("");
+  const [clarification, setClarification] = useState<{
+    straw: string;
+    question: string;
+  } | null>(null);
 
   const fetchActive = async () => {
     try {
@@ -90,14 +108,33 @@ export default function Ideas() {
 
   const handleConvert = async (straw: string) => {
     try {
-      await api.post("/ideas/convert", { straw });
+      const resp = await api.post<ConvertResponse>("/ideas/convert", { straw });
+      if (resp.status === "needs_clarification") {
+        setClarification({
+          straw,
+          question: resp.question || "Tell me a little more about this idea.",
+        });
+        return;
+      }
+      const count = resp.tasks ? resp.tasks.length : 0;
       await fetchData();
-      setSuccessMessage("Idea converted to a task!");
+      setSuccessMessage(
+        count === 1 ? "Created 1 task." : `Created ${count} tasks.`
+      );
       setTimeout(() => setSuccessMessage(""), 3000);
     } catch {
-      setSuccessMessage("Could not convert idea. Try again.");
+      setSuccessMessage("Could not break this idea into tasks. Try again.");
       setTimeout(() => setSuccessMessage(""), 3000);
     }
+  };
+
+  const handleClarificationCreated = async (count: number) => {
+    setClarification(null);
+    await fetchData();
+    setSuccessMessage(
+      count === 1 ? "Created 1 task." : `Created ${count} tasks.`
+    );
+    setTimeout(() => setSuccessMessage(""), 3000);
   };
 
   const handleDelete = async (straw: string) => {
@@ -176,7 +213,7 @@ export default function Ideas() {
           <div className="flex gap-3 mb-8">
             <input
               type="text"
-              placeholder="What's on your mind?"
+              placeholder="Quick dump an idea (or just mention it in chat)"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -239,7 +276,7 @@ export default function Ideas() {
             {displayEntries.length === 0 ? (
               <div className="text-center py-16 text-slate-500">
                 <Icon name="lightbulb" className="text-4xl mb-3 block" />
-                <p>No active ideas yet. Type one above to get started.</p>
+                <p>No active ideas yet. Mention one in chat or type one above.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -316,6 +353,14 @@ export default function Ideas() {
           </>
         )}
       </div>
+      {clarification && (
+        <ClarificationPrompt
+          straw={clarification.straw}
+          question={clarification.question}
+          onClose={() => setClarification(null)}
+          onCreated={handleClarificationCreated}
+        />
+      )}
     </>
   );
 }

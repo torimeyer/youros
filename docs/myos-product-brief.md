@@ -311,10 +311,10 @@ One-click daily digest.
 
 Starting fresh, so here's what we're changing:
 
-1. **Generic by default.** No work-specific features (Publish to DEV, NR-specific integrations). The platform is for anyone.
+1. **Generic by default.** No employer-specific features or integrations. The platform is for anyone.
 2. **Customizable name.** "myOS" is the default, user picks their name on first launch.
 3. **Cleaner navigation.** The sidebar had too many items. Grouping into Overview/Work/System sections was good, keeping that.
-4. **No "nerdpacks" or "feedback" features.** Too niche. Can add as plugins later.
+4. **No niche plugin features.** Too narrow. Can add as plugins later.
 5. **Better onboarding.** New users need a setup wizard: name your OS, connect your API key, pick a theme.
 6. **Mobile-responsive.** The old version was desktop-only.
 

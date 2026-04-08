@@ -4,6 +4,7 @@ import re
 import httpx
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
+from services.chat_history_store import chat_history_store
 from services.chat_providers import chat_service
 from services.ostk import ostk
 
@@ -111,6 +112,26 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
     else:
         await websocket.send_json({"type": "error", "data": f"Unknown model: {provider}"})
         return ""
+
+
+@router.get("/api/chat/history")
+async def get_chat_history():
+    """Return all saved chat tabs and the active tab id."""
+    return chat_history_store.load()
+
+
+@router.put("/api/chat/history")
+async def put_chat_history(body: dict):
+    """Replace the saved chat history with the supplied tabs and active id."""
+    saved = chat_history_store.save(body)
+    return {"result": "saved", "data": saved}
+
+
+@router.delete("/api/chat/history")
+async def clear_chat_history():
+    """Clear all saved chat tabs."""
+    chat_history_store.clear()
+    return {"result": "cleared"}
 
 
 @router.get("/api/giphy/search")

@@ -59,6 +59,7 @@ class TestToolDefinitions:
             "check_agents",
             "web_search", "web_fetch",
             "git_status", "git_diff", "git_commit",
+            "capture_idea",
         }
         assert expected == names
 
@@ -224,12 +225,71 @@ class TestOstkTools:
             mock_ostk.add_task.assert_awaited_once_with("New task", "P0")
 
     @pytest.mark.asyncio
+    async def test_create_task_schedules_auto_labels(self):
+        """The tool_executor create_task path must run auto-labeling like /api/tasks does."""
+        with patch("services.tool_executor.ostk") as mock_ostk, \
+             patch("services.task_labeling.schedule_auto_labels") as mock_schedule:
+            mock_ostk.add_task = AsyncMock(return_value="added 501: New task [P0]")
+            await execute_tool("create_task", {"title": "New task", "priority": "P0"})
+            mock_schedule.assert_called_once()
+            args, _ = mock_schedule.call_args
+            # task id parsed from the ostk return string, then title, then empty desc
+            assert args[0] == "501"
+            assert args[1] == "New task"
+            assert args[2] == ""
+
+    @pytest.mark.asyncio
+    async def test_create_task_schedules_auto_labels_with_arrow_id(self):
+        """Auto-label scheduling must accept the arrow-prefixed id format."""
+        with patch("services.tool_executor.ostk") as mock_ostk, \
+             patch("services.task_labeling.schedule_auto_labels") as mock_schedule:
+            mock_ostk.add_task = AsyncMock(return_value="added \u2192142: do thing [P1]")
+            await execute_tool("create_task", {"title": "do thing", "priority": "P1"})
+            mock_schedule.assert_called_once()
+            args, _ = mock_schedule.call_args
+            assert args[0] == "\u2192142"
+
+    @pytest.mark.asyncio
     async def test_close_task_calls_ostk(self):
         with patch("services.tool_executor.ostk") as mock_ostk:
             mock_ostk.close_task = AsyncMock(return_value="closed T1")
             result = await execute_tool("close_task", {"task_id": "T1"})
             assert "closed" in result
             mock_ostk.close_task.assert_awaited_once_with("T1")
+
+
+# ---- execute_tool: capture_idea ----
+
+class TestCaptureIdea:
+    @pytest.mark.asyncio
+    async def test_capture_idea_calls_ostk_add_hay(self):
+        with patch("services.tool_executor.ostk") as mock_ostk:
+            mock_ostk.add_hay = AsyncMock(return_value="added hay: cool thought")
+            result = await execute_tool("capture_idea", {"thought": "cool thought"})
+            mock_ostk.add_hay.assert_awaited_once_with("cool thought")
+            assert "cool thought" in result or "added" in result
+
+    @pytest.mark.asyncio
+    async def test_capture_idea_strips_whitespace(self):
+        with patch("services.tool_executor.ostk") as mock_ostk:
+            mock_ostk.add_hay = AsyncMock(return_value="ok")
+            await execute_tool("capture_idea", {"thought": "  trimmed  "})
+            mock_ostk.add_hay.assert_awaited_once_with("trimmed")
+
+    @pytest.mark.asyncio
+    async def test_capture_idea_rejects_empty_text(self):
+        with patch("services.tool_executor.ostk") as mock_ostk:
+            mock_ostk.add_hay = AsyncMock()
+            result = await execute_tool("capture_idea", {"thought": "   "})
+            assert "Error" in result or "empty" in result.lower()
+            mock_ostk.add_hay.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_capture_idea_handles_ostk_failure(self):
+        with patch("services.tool_executor.ostk") as mock_ostk:
+            mock_ostk.add_hay = AsyncMock(side_effect=Exception("ostk crashed"))
+            result = await execute_tool("capture_idea", {"thought": "an idea"})
+            assert "Failed" in result or "Error" in result
 
 
 # ---- execute_tool: unknown tool ----

@@ -163,4 +163,81 @@ describe('LabelsView', () => {
 
     expect(screen.getByText('Preview:')).toBeTruthy()
   })
+
+  it('deletes a label when the X button is clicked', async () => {
+    const user = userEvent.setup()
+    const onLabelsChanged = vi.fn()
+    mockApi.delete.mockResolvedValue({})
+    // Stub confirm so the test never shows a modal prompt.
+    const originalConfirm = window.confirm
+    window.confirm = vi.fn(() => true)
+
+    render(<LabelsView onLabelsChanged={onLabelsChanged} />)
+    await waitFor(() => screen.getByText('Bug'))
+
+    // The trashcan button only has title "Delete label".
+    const deleteButtons = screen.getAllByTitle('Delete label')
+    await user.click(deleteButtons[0])
+
+    expect(mockApi.delete).toHaveBeenCalledWith('/labels/l1')
+    expect(onLabelsChanged).toHaveBeenCalled()
+    window.confirm = originalConfirm
+  })
+
+  it('cancels the create form via the X button', async () => {
+    const user = userEvent.setup()
+    render(<LabelsView />)
+    await waitFor(() => screen.getByText('Bug'))
+
+    await user.click(screen.getByText('New label'))
+    expect(screen.getByPlaceholderText('Label name')).toBeTruthy()
+
+    // The cancel X button lives next to the Label name input. It does not
+    // have a title, so find all close icons inside the create card and
+    // click the one that belongs to it.
+    const closeBtns = screen.getAllByRole('button').filter((b) => {
+      const icon = b.querySelector('.material-symbols-outlined')
+      return icon?.textContent?.trim() === 'close'
+    })
+    // The form's X button is the first close icon without a title.
+    const cancelBtn = closeBtns.find((b) => !b.getAttribute('title'))
+    expect(cancelBtn).toBeTruthy()
+    await user.click(cancelBtn!)
+    expect(screen.queryByPlaceholderText('Label name')).toBeNull()
+  })
+
+  it('cancels the create form when the user presses Escape', async () => {
+    const user = userEvent.setup()
+    render(<LabelsView />)
+    await waitFor(() => screen.getByText('Bug'))
+
+    await user.click(screen.getByText('New label'))
+    const input = screen.getByPlaceholderText('Label name')
+    await user.type(input, 'Will be cancelled')
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(screen.queryByPlaceholderText('Label name')).toBeNull()
+  })
+
+  it('creates a label when the user presses Enter', async () => {
+    const user = userEvent.setup()
+    mockApi.post.mockResolvedValue({
+      label: { id: 'l9', name: 'Quick', color: '#eab308', task_count: 0 },
+    })
+    render(<LabelsView />)
+    await waitFor(() => screen.getByText('Bug'))
+
+    await user.click(screen.getByText('New label'))
+    const input = screen.getByPlaceholderText('Label name')
+    await user.type(input, 'Quick')
+
+    const colorButtons = screen.getAllByTitle(/#/)
+    await user.click(colorButtons[2])
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(mockApi.post).toHaveBeenCalled()
+    })
+  })
 })

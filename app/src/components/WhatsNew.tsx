@@ -1,45 +1,50 @@
 import { useState, useEffect, useCallback } from 'react'
 import Icon from './Icon'
 import releaseNotes from '../data/releaseNotes'
+import { useAppStore } from '../stores/app'
 
+// Backwards compatible localStorage key. The store reads it on first
+// paint as a cache, but the server is the source of truth.
 const LAST_SEEN_KEY = 'myos-whats-new-last-seen'
 
-function getLastSeenDate(): string | null {
-  return localStorage.getItem(LAST_SEEN_KEY)
-}
-
-function setLastSeenDate(date: string) {
-  localStorage.setItem(LAST_SEEN_KEY, date)
-}
-
-export function getUnseenCount(): number {
-  const lastSeen = getLastSeenDate()
+// Computes how many release notes are newer than the supplied date.
+// Exported so tests can verify the count logic without rendering the
+// component.
+export function computeUnseenCount(lastSeen: string | null | undefined): number {
   if (!lastSeen) return releaseNotes.length > 0 ? 1 : 0
   return releaseNotes.filter((group) => group.date > lastSeen).length
 }
 
+// Legacy helper kept so existing tests that import getUnseenCount keep
+// working. Reads the cached value out of localStorage when available.
+export function getUnseenCount(): number {
+  let lastSeen: string | null = null
+  try {
+    lastSeen = typeof localStorage !== 'undefined' ? localStorage.getItem(LAST_SEEN_KEY) : null
+  } catch {
+    lastSeen = null
+  }
+  return computeUnseenCount(lastSeen)
+}
+
 export default function WhatsNew() {
+  const whatsNewLastSeen = useAppStore((s) => s.whatsNewLastSeen)
+  const setWhatsNewLastSeen = useAppStore((s) => s.setWhatsNewLastSeen)
   const [open, setOpen] = useState(false)
-  const [unseenCount, setUnseenCount] = useState(getUnseenCount)
+  const [unseenCount, setUnseenCount] = useState(() => computeUnseenCount(whatsNewLastSeen))
+
+  // Recompute the badge whenever the persisted last-seen date changes.
+  useEffect(() => {
+    setUnseenCount(computeUnseenCount(whatsNewLastSeen))
+  }, [whatsNewLastSeen])
 
   const handleOpen = useCallback(() => {
     setOpen(true)
     if (releaseNotes.length > 0) {
-      setLastSeenDate(releaseNotes[0].date)
+      setWhatsNewLastSeen(releaseNotes[0].date)
       setUnseenCount(0)
     }
-  }, [])
-
-  // Recalculate unseen count when localStorage changes from another tab
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === LAST_SEEN_KEY) {
-        setUnseenCount(getUnseenCount())
-      }
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
+  }, [setWhatsNewLastSeen])
 
   return (
     <div className="relative">

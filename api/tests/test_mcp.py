@@ -156,6 +156,7 @@ async def test_agent_anthropic_uses_beta_when_mcp_configured():
     mcp_servers = [{"name": "stitch", "url": "https://stitch.example.com", "auth_token": "", "enabled": True}]
 
     with patch("services.chat_providers.settings_store") as mock_store, \
+         patch("services.chat_providers._resolve_chat_backend", new=AsyncMock(return_value="anthropic_api")), \
          patch("anthropic.AsyncAnthropic", return_value=fake_client):
         mock_store.get.side_effect = lambda key, default=None: (
             "sk-test" if key == "anthropic_api_key" else
@@ -195,6 +196,7 @@ async def test_agent_anthropic_uses_regular_api_without_mcp():
     fake_client.messages.create = regular_create
 
     with patch("services.chat_providers.settings_store") as mock_store, \
+         patch("services.chat_providers._resolve_chat_backend", new=AsyncMock(return_value="anthropic_api")), \
          patch("anthropic.AsyncAnthropic", return_value=fake_client):
         mock_store.get.side_effect = lambda key, default=None: (
             "sk-test" if key == "anthropic_api_key" else
@@ -243,6 +245,7 @@ async def test_agent_anthropic_emits_mcp_tool_use_event():
     mcp_servers = [{"name": "stitch", "url": "https://stitch.example.com", "enabled": True}]
 
     with patch("services.chat_providers.settings_store") as mock_store, \
+         patch("services.chat_providers._resolve_chat_backend", new=AsyncMock(return_value="anthropic_api")), \
          patch("anthropic.AsyncAnthropic", return_value=fake_client):
         mock_store.get.side_effect = lambda key, default=None: (
             "sk-test" if key == "anthropic_api_key" else

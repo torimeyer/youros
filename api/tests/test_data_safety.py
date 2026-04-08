@@ -1,0 +1,106 @@
+"""Regression tests that make sure user data never lives inside the repo.
+
+If anyone adds a new store that writes files inside the repo directory, a
+`git pull` could clobber that user's data on their next update. These tests
+fail loudly when that happens.
+
+Rule: every ``*_store.py`` module under ``api/services/`` must resolve its
+storage path to something OUTSIDE the repo root (typically ``~/.myos/``).
+"""
+
+from __future__ import annotations
+
+import importlib
+from pathlib import Path
+
+import pytest
+
+# The repo root is three levels up from this file: api/tests/.. -> api -> repo
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _is_inside_repo(path: Path) -> bool:
+    """True if ``path`` lives anywhere inside the repo."""
+    try:
+        path.resolve().relative_to(REPO_ROOT)
+        return True
+    except ValueError:
+        return False
+
+
+# Map of store module name -> the module-level path constant it exposes.
+# Every new *_store.py added under api/services/ MUST be added here.
+STORE_PATH_CONSTANTS = {
+    "services.settings_store": "SETTINGS_PATH",
+    "services.chat_history_store": "CHAT_HISTORY_PATH",
+    "services.labels_store": "LABELS_PATH",
+    "services.threads_store": "THREADS_PATH",
+    "services.task_labels_store": "TASK_LABELS_PATH",
+}
+
+
+@pytest.mark.parametrize("module_name,const_name", list(STORE_PATH_CONSTANTS.items()))
+def test_store_path_is_outside_repo(module_name: str, const_name: str):
+    """Every store must write to a path outside the repo directory.
+
+    If this test fails, your new store is at risk of being clobbered by
+    ``git pull``. Fix it by moving the path resolver to ``~/.myos/`` (or
+    another home-directory location).
+    """
+    module = importlib.import_module(module_name)
+    assert hasattr(module, const_name), (
+        f"{module_name} is missing the expected path constant {const_name}. "
+        "Every store module must expose its storage path as a module-level "
+        "constant so data safety can be checked."
+    )
+    path: Path = getattr(module, const_name)
+    assert isinstance(path, Path), f"{module_name}.{const_name} must be a pathlib.Path"
+    assert not _is_inside_repo(path), (
+        f"{module_name}.{const_name} = {path} lives inside the repo at {REPO_ROOT}. "
+        "User data inside the repo is at risk of being overwritten by git pull. "
+        "Move this store to ~/.myos/ or another location outside the repo."
+    )
+
+
+def test_every_services_store_module_is_covered():
+    """Fail if a new *_store.py is added to api/services/ but not listed above.
+
+    This is the "trip wire" that forces anyone adding a new store to think
+    about data safety. If they skip it, this test breaks.
+    """
+    services_dir = REPO_ROOT / "api" / "services"
+    found_stores = sorted(
+        f"services.{p.stem}"
+        for p in services_dir.glob("*_store.py")
+    )
+    covered = sorted(STORE_PATH_CONSTANTS.keys())
+    missing = set(found_stores) - set(covered)
+    assert not missing, (
+        f"New store modules are not covered by the data-safety check: {sorted(missing)}. "
+        f"Add them to STORE_PATH_CONSTANTS in {__file__} with the name of the "
+        "module-level path constant they expose."
+    )
+
+
+def test_myos_home_dir_is_the_canonical_location():
+    """Every tracked store should use ~/.myos/ as the home-directory prefix.
+
+    This is a softer check. It enforces that stores all live under one
+    predictable place the user can back up, inspect, and move around. If
+    you intentionally pick a different home-directory location (e.g.
+    ~/.local/share/myos/), update this test.
+    """
+    home = Path.home().resolve()
+    expected_prefix = home / ".myos"
+    for module_name, const_name in STORE_PATH_CONSTANTS.items():
+        module = importlib.import_module(module_name)
+        path: Path = getattr(module, const_name)
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(expected_prefix)
+        except ValueError:
+            pytest.fail(
+                f"{module_name}.{const_name} = {resolved} is not under {expected_prefix}. "
+                "All myOS stores should live under ~/.myos/ so users have one "
+                "predictable place for their data."
+            )

@@ -1,8 +1,24 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useAppStore } from './app'
+import { api } from '../lib/api'
+
+// Mock the api module so no real network calls fire and we can assert
+// on what the store wrote to the server.
+vi.mock('../lib/api', () => ({
+  api: {
+    get: vi.fn().mockResolvedValue({}),
+    post: vi.fn().mockResolvedValue({}),
+    put: vi.fn().mockResolvedValue({}),
+    patch: vi.fn().mockResolvedValue({}),
+    delete: vi.fn().mockResolvedValue({}),
+  },
+}))
 
 describe('useAppStore', () => {
   beforeEach(() => {
+    // Reset mocks so each test starts with a clean call history
+    vi.mocked(api.get).mockReset().mockResolvedValue({})
+    vi.mocked(api.patch).mockReset().mockResolvedValue({})
     // Reset store to initial state before each test
     useAppStore.setState({
       onboarded: false,
@@ -12,6 +28,11 @@ describe('useAppStore', () => {
       osName: 'myOS',
       darkMode: true,
       accentColor: 'blue',
+      defaultChatModel: 'claude',
+      useOstkTerms: false,
+      tourComplete: false,
+      whatsNewLastSeen: '',
+      customAgentTemplates: [],
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
@@ -22,6 +43,8 @@ describe('useAppStore', () => {
         { label: 'Transcripts', enabled: false },
       ],
     })
+    // Clear localStorage between tests so cached values do not leak
+    try { localStorage.clear() } catch { /* noop */ }
   })
 
   it('has correct initial state', () => {
@@ -176,6 +199,178 @@ describe('useAppStore', () => {
       expect(state.osName).toBe('myOS')
       expect(state.darkMode).toBe(true)
       expect(state.chatOpen).toBe(true)
+    })
+  })
+
+  // ---- Server side persistence ----
+  // These tests lock in the fix where the server is the source of truth
+  // for user state, not localStorage. Every setter should write to the
+  // server and hydrateFromServer should pull the latest values on boot.
+  describe('server persistence', () => {
+    it('setOnboarded writes to the server via api.patch', () => {
+      useAppStore.getState().setOnboarded(true)
+      expect(useAppStore.getState().onboarded).toBe(true)
+      expect(api.patch).toHaveBeenCalledWith('/settings', { onboarded: true })
+    })
+
+    it('toggleDarkMode writes to the server', () => {
+      // darkMode starts at true, toggling makes it false
+      useAppStore.getState().toggleDarkMode()
+      expect(useAppStore.getState().darkMode).toBe(false)
+      expect(api.patch).toHaveBeenCalledWith('/settings', { dark_mode: false })
+    })
+
+    it('setOsName writes to the server', () => {
+      useAppStore.getState().setOsName('TorisOS')
+      expect(useAppStore.getState().osName).toBe('TorisOS')
+      expect(api.patch).toHaveBeenCalledWith('/settings', { os_name: 'TorisOS' })
+    })
+
+    it('setAccentColor writes to the server', () => {
+      useAppStore.getState().setAccentColor('pink')
+      expect(api.patch).toHaveBeenCalledWith('/settings', { accent_color: 'pink' })
+    })
+
+    it('setDefaultChatModel writes to the server with the @ prefix', () => {
+      useAppStore.getState().setDefaultChatModel('gemini')
+      expect(api.patch).toHaveBeenCalledWith('/settings', { default_model: '@gemini' })
+    })
+
+    it('setUseOstkTerms writes to the server', () => {
+      useAppStore.getState().setUseOstkTerms(true)
+      expect(api.patch).toHaveBeenCalledWith('/settings', { use_ostk_terms: true })
+    })
+
+    it('setTourComplete writes to the server', () => {
+      useAppStore.getState().setTourComplete(true)
+      expect(useAppStore.getState().tourComplete).toBe(true)
+      expect(api.patch).toHaveBeenCalledWith('/settings', { tour_complete: true })
+    })
+
+    it('setWhatsNewLastSeen writes to the server', () => {
+      useAppStore.getState().setWhatsNewLastSeen('2026-04-06')
+      expect(useAppStore.getState().whatsNewLastSeen).toBe('2026-04-06')
+      expect(api.patch).toHaveBeenCalledWith('/settings', { whats_new_last_seen: '2026-04-06' })
+    })
+
+    it('setCustomAgentTemplates writes to the server', () => {
+      const templates = [
+        { name: 'Helper', description: 'Does things', icon: 'star', model: 'sonnet', budget: 2 },
+      ]
+      useAppStore.getState().setCustomAgentTemplates(templates)
+      expect(useAppStore.getState().customAgentTemplates).toEqual(templates)
+      expect(api.patch).toHaveBeenCalledWith('/settings', { custom_agent_templates: templates })
+    })
+  })
+
+  describe('hydrateFromServer', () => {
+    it('overwrites store values with server values when present', async () => {
+      vi.mocked(api.get).mockResolvedValueOnce({
+        onboarded: true,
+        os_name: 'ServerOS',
+        dark_mode: false,
+        accent_color: 'purple',
+        default_model: '@gemini',
+        use_ostk_terms: true,
+      })
+
+      await useAppStore.getState().hydrateFromServer()
+
+      const state = useAppStore.getState()
+      expect(state.onboarded).toBe(true)
+      expect(state.osName).toBe('ServerOS')
+      expect(state.darkMode).toBe(false)
+      expect(state.accentColor).toBe('purple')
+      expect(state.defaultChatModel).toBe('gemini')
+      expect(state.useOstkTerms).toBe(true)
+    })
+
+    it('translates server @claude model format to plain claude', async () => {
+      vi.mocked(api.get).mockResolvedValueOnce({ default_model: '@claude' })
+      await useAppStore.getState().hydrateFromServer()
+      expect(useAppStore.getState().defaultChatModel).toBe('claude')
+    })
+
+    it('keeps localStorage value when server is silent and writes it back', async () => {
+      // Simulate a user who onboarded before settings were server backed.
+      // localStorage says onboarded, server file is silent on the field.
+      useAppStore.setState({ onboarded: true })
+      vi.mocked(api.get).mockResolvedValueOnce({
+        os_name: 'ServerOS',
+        dark_mode: true,
+      })
+
+      await useAppStore.getState().hydrateFromServer()
+
+      const state = useAppStore.getState()
+      // Local onboarded value is preserved
+      expect(state.onboarded).toBe(true)
+      // Server side os_name still wins
+      expect(state.osName).toBe('ServerOS')
+      // And we wrote the migration back to the server
+      expect(api.patch).toHaveBeenCalledWith(
+        '/settings',
+        expect.objectContaining({ onboarded: true }),
+      )
+    })
+
+    it('does not overwrite local values when the server fetch fails', async () => {
+      useAppStore.setState({ onboarded: true, osName: 'LocalOS' })
+      vi.mocked(api.get).mockRejectedValueOnce(new Error('network down'))
+
+      await useAppStore.getState().hydrateFromServer()
+
+      const state = useAppStore.getState()
+      expect(state.onboarded).toBe(true)
+      expect(state.osName).toBe('LocalOS')
+    })
+
+    it('treats null server values as silent and falls back to local', async () => {
+      useAppStore.setState({ onboarded: true })
+      vi.mocked(api.get).mockResolvedValueOnce({
+        onboarded: null,
+        os_name: 'ServerOS',
+      })
+
+      await useAppStore.getState().hydrateFromServer()
+
+      expect(useAppStore.getState().onboarded).toBe(true)
+      expect(useAppStore.getState().osName).toBe('ServerOS')
+    })
+
+    it('hydrates tour_complete, whats_new_last_seen, and custom_agent_templates', async () => {
+      const templates = [
+        { name: 'Reviewer', description: 'Reviews code', icon: 'code', model: 'sonnet', budget: 1.5 },
+      ]
+      vi.mocked(api.get).mockResolvedValueOnce({
+        tour_complete: true,
+        whats_new_last_seen: '2026-04-05',
+        custom_agent_templates: templates,
+      })
+
+      await useAppStore.getState().hydrateFromServer()
+
+      const state = useAppStore.getState()
+      expect(state.tourComplete).toBe(true)
+      expect(state.whatsNewLastSeen).toBe('2026-04-05')
+      expect(state.customAgentTemplates).toEqual(templates)
+    })
+
+    it('backfills local custom templates when server is silent', async () => {
+      const templates = [
+        { name: 'Drafter', description: 'Drafts emails', icon: 'mail', model: 'sonnet', budget: 2 },
+      ]
+      useAppStore.setState({ customAgentTemplates: templates })
+      vi.mocked(api.get).mockResolvedValueOnce({})
+
+      await useAppStore.getState().hydrateFromServer()
+
+      // Local templates are preserved, and we wrote them back to the server.
+      expect(useAppStore.getState().customAgentTemplates).toEqual(templates)
+      expect(api.patch).toHaveBeenCalledWith(
+        '/settings',
+        expect.objectContaining({ custom_agent_templates: templates }),
+      )
     })
   })
 })
