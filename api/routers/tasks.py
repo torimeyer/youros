@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from difflib import SequenceMatcher
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 
@@ -280,6 +281,57 @@ async def task_health_check():
         return result
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _normalize_title(title: str) -> str:
+    """Normalize a task title for fuzzy comparison.
+
+    Lowercases, strips surrounding whitespace, and collapses internal
+    whitespace to single spaces so tiny spacing differences do not
+    affect the similarity score.
+    """
+    return " ".join((title or "").lower().split())
+
+
+@router.get("/tasks/duplicates")
+async def find_duplicate_tasks(threshold: float = 0.8):
+    """Find pairs of open tasks with similar titles.
+
+    Uses difflib.SequenceMatcher as a simple Levenshtein-style ratio.
+    Pairs scoring above ``threshold`` (default 0.8) are returned as
+    duplicate candidates. This is a cheap O(n^2) scan over open tasks,
+    which is fine for the typical personal task list size.
+    """
+    try:
+        tasks = await ostk.list_tasks(status="open")
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Precompute normalized titles once so we do not redo the work
+    # for every pair in the inner loop.
+    normalized = [(t, _normalize_title(t.get("title", ""))) for t in tasks]
+
+    duplicates: list[dict] = []
+    for i in range(len(normalized)):
+        task_a, title_a = normalized[i]
+        if not title_a:
+            continue
+        for j in range(i + 1, len(normalized)):
+            task_b, title_b = normalized[j]
+            if not title_b:
+                continue
+            similarity = SequenceMatcher(None, title_a, title_b).ratio()
+            if similarity > threshold:
+                duplicates.append({
+                    "task_a": task_a,
+                    "task_b": task_b,
+                    "similarity": round(similarity, 3),
+                })
+
+    # Highest similarity first so the UI shows the strongest candidates
+    # at the top of the list.
+    duplicates.sort(key=lambda d: d["similarity"], reverse=True)
+    return {"duplicates": duplicates}
 
 
 @router.get("/tasks/{task_id}/briefing")

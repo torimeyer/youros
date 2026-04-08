@@ -988,6 +988,67 @@ async def test_health_check_ostk_error(client):
     assert resp.status_code == 500
 
 
+# --- GET /api/tasks/duplicates ---
+
+@pytest.mark.asyncio
+async def test_find_duplicates_returns_similar_pairs(client):
+    """Two tasks with nearly identical titles should be flagged as duplicates."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Fix the login bug"),
+        _make_task(id="t-2", title="Fix the login bugs"),
+        _make_task(id="t-3", title="Buy groceries"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        resp = await client.get("/api/tasks/duplicates")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "duplicates" in data
+    assert len(data["duplicates"]) == 1
+    pair = data["duplicates"][0]
+    ids = {pair["task_a"]["id"], pair["task_b"]["id"]}
+    assert ids == {"t-1", "t-2"}
+    assert pair["similarity"] > 0.8
+    mock_ostk.list_tasks.assert_called_once_with(status="open")
+
+
+@pytest.mark.asyncio
+async def test_find_duplicates_empty_when_all_unique(client):
+    """No pairs should be returned when all titles are clearly distinct."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Buy groceries"),
+        _make_task(id="t-2", title="Write quarterly report"),
+        _make_task(id="t-3", title="Call the dentist"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        resp = await client.get("/api/tasks/duplicates")
+
+    assert resp.status_code == 200
+    assert resp.json()["duplicates"] == []
+
+
+@pytest.mark.asyncio
+async def test_find_duplicates_sorted_by_similarity(client):
+    """Pairs should come back sorted with the strongest match first."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Refactor the user profile page"),
+        _make_task(id="t-2", title="Refactor the user profile pages"),
+        _make_task(id="t-3", title="Refactor the user profile"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        resp = await client.get("/api/tasks/duplicates")
+
+    assert resp.status_code == 200
+    duplicates = resp.json()["duplicates"]
+    assert len(duplicates) >= 1
+    # Highest similarity must come first.
+    for i in range(len(duplicates) - 1):
+        assert duplicates[i]["similarity"] >= duplicates[i + 1]["similarity"]
+
+
 # --- OstkService._parse_refine unit tests ---
 
 def test_parse_refine_basic():

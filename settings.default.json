@@ -12,7 +12,7 @@
     "Hay/Ideas": true,
     "Agents": true,
     "Projects": true,
-    "Transcripts": false
+    "Transcripts": true
   },
   "notifications": {
     "agent_complete": true,

@@ -1,10 +1,65 @@
-from fastapi import APIRouter
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, HTTPException
 
 from services import claude_code_provider
 from services.ostk import ostk
 from services.settings_store import settings_store
 
 router = APIRouter(tags=["settings"])
+
+
+def _validate_mcp_servers(mcp_servers) -> None:
+    """Reject obviously bad MCP server URLs.
+
+    A URL is bad if the scheme is not http or https, or if a port is
+    present but not a valid integer between 1 and 65535. Raises
+    HTTPException(400) with a plain-language error if any entry is bad.
+    """
+    if not isinstance(mcp_servers, list):
+        raise HTTPException(
+            status_code=400,
+            detail="mcp_servers must be a list",
+        )
+
+    for idx, server in enumerate(mcp_servers):
+        if not isinstance(server, dict):
+            continue
+        url = server.get("url")
+        if url is None:
+            # No URL supplied, nothing to check on this entry.
+            continue
+        if not isinstance(url, str) or not url.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="MCP server URL must start with http:// or https://",
+            )
+
+        parsed = urlparse(url.strip())
+        if parsed.scheme not in ("http", "https"):
+            raise HTTPException(
+                status_code=400,
+                detail="MCP server URL must start with http:// or https://",
+            )
+        if not parsed.netloc:
+            raise HTTPException(
+                status_code=400,
+                detail="MCP server URL must start with http:// or https://",
+            )
+
+        # urlparse raises ValueError on invalid ports when .port is accessed.
+        try:
+            port = parsed.port
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="MCP server URL port must be a number between 1 and 65535",
+            )
+        if port is not None and not (1 <= port <= 65535):
+            raise HTTPException(
+                status_code=400,
+                detail="MCP server URL port must be a number between 1 and 65535",
+            )
 
 
 @router.get("/settings")
@@ -14,12 +69,16 @@ async def get_settings():
 
 @router.put("/settings")
 async def update_settings(body: dict):
+    if "mcp_servers" in body:
+        _validate_mcp_servers(body["mcp_servers"])
     settings_store.save(body)
     return {"result": "saved"}
 
 
 @router.patch("/settings")
 async def patch_settings(body: dict):
+    if "mcp_servers" in body:
+        _validate_mcp_servers(body["mcp_servers"])
     settings_store.update(body)
     return {"result": "updated"}
 

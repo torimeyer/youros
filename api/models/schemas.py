@@ -53,7 +53,7 @@ class Settings(BaseModel):
     features: Dict[str, bool] = {
         "Chat": True, "Tasks": True, "Hay/Ideas": True,
         "Agents": True, "Projects": True, "Docs": True,
-        "Transcripts": False,
+        "Transcripts": True,
     }
     notifications: Dict[str, bool] = {
         "agent_complete": True, "agent_needs_input": True,

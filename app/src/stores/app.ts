@@ -190,7 +190,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     { label: 'Agents', enabled: true },
     { label: 'Projects', enabled: true },
     { label: 'Docs', enabled: true },
-    { label: 'Transcripts', enabled: false },
+    { label: 'Transcripts', enabled: true },
   ],
   setFeatures: (features) => set({ features }),
   isFeatureEnabled: (label: string) => {

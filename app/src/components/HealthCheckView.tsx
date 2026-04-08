@@ -32,16 +32,32 @@ interface HealthCheckResult {
   summary: HealthSummary;
 }
 
+interface DuplicateCandidate {
+  task_a: {
+    id: string;
+    title: string;
+    priority: string;
+  };
+  task_b: {
+    id: string;
+    title: string;
+    priority: string;
+  };
+  similarity: number;
+}
+
+interface DuplicatesResult {
+  duplicates: DuplicateCandidate[];
+}
+
 const issueTypeLabels: Record<string, string> = {
   duplicate: "Duplicate title",
   no_description: "No description",
-  isolated: "No linked tasks",
 };
 
 const issueTypeIcons: Record<string, string> = {
   duplicate: "content_copy",
   no_description: "notes",
-  isolated: "link_off",
 };
 
 const severityColors: Record<string, string> = {
@@ -49,10 +65,17 @@ const severityColors: Record<string, string> = {
   info: "text-blue-400 bg-blue-500/10 border-blue-500/30",
 };
 
-type IssueFilter = "all" | "duplicate" | "no_description" | "isolated";
+// Filter out the noisy "isolated" issue type. Singleton tasks are not
+// actually problems, so we never surface them in the UI.
+function filterUsefulIssues(issues: HealthIssue[]): HealthIssue[] {
+  return issues.filter((i) => i.type !== "isolated");
+}
+
+type IssueFilter = "all" | "duplicate" | "no_description";
 
 export default function HealthCheckView() {
   const [result, setResult] = useState<HealthCheckResult | null>(null);
+  const [duplicates, setDuplicates] = useState<DuplicateCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issueFilter, setIssueFilter] = useState<IssueFilter>("all");
@@ -61,8 +84,12 @@ export default function HealthCheckView() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get<HealthCheckResult>("/tasks/health");
-      setResult(res);
+      const [healthRes, duplicatesRes] = await Promise.all([
+        api.get<HealthCheckResult>("/tasks/health"),
+        api.get<DuplicatesResult>("/tasks/duplicates"),
+      ]);
+      setResult(healthRes);
+      setDuplicates(duplicatesRes.duplicates ?? []);
     } catch (e) {
       setError("Could not run the health check. Try again in a moment.");
       console.error("Health check failed:", e);
@@ -71,12 +98,14 @@ export default function HealthCheckView() {
     }
   }, []);
 
-  const filteredIssues = result?.issues.filter(
+  const usefulIssues = result ? filterUsefulIssues(result.issues) : [];
+
+  const filteredIssues = usefulIssues.filter(
     (i) => issueFilter === "all" || i.type === issueFilter
-  ) ?? [];
+  );
 
   const issueCountByType = (type: string) =>
-    result?.issues.filter((i) => i.type === type).length ?? 0;
+    usefulIssues.filter((i) => i.type === type).length;
 
   if (error) {
     return (
@@ -104,8 +133,8 @@ export default function HealthCheckView() {
         <div className="text-center">
           <h2 className="text-lg font-medium text-white mb-1">Task Health Check</h2>
           <p className="text-sm text-slate-400 max-w-md">
-            Scan your open tasks for problems like duplicates, missing descriptions,
-            and tasks with no connections to other work.
+            Scan your open tasks for problems like duplicates and missing
+            descriptions.
           </p>
         </div>
         <button
@@ -131,7 +160,8 @@ export default function HealthCheckView() {
   if (!result) return null;
 
   const { summary } = result;
-  const allClean = summary.issues === 0;
+  const totalProblems = usefulIssues.length + duplicates.length;
+  const allClean = totalProblems === 0;
 
   return (
     <div className="space-y-6">
@@ -157,22 +187,24 @@ export default function HealthCheckView() {
             </span>
           </div>
           <div className={`text-2xl font-bold ${allClean ? "text-emerald-400" : "text-amber-400"}`}>
-            {summary.issues}
+            {totalProblems}
           </div>
         </div>
         <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
           <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
-            <Icon name="link" className="text-sm" />
-            Connected
+            <Icon name="content_copy" className="text-sm" />
+            Possible duplicates
           </div>
-          <div className="text-2xl font-bold text-white">{summary.connected}</div>
+          <div className="text-2xl font-bold text-white">{duplicates.length}</div>
         </div>
         <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
           <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
-            <Icon name="link_off" className="text-sm" />
-            Isolated
+            <Icon name="notes" className="text-sm" />
+            Missing descriptions
           </div>
-          <div className="text-2xl font-bold text-white">{summary.isolated}</div>
+          <div className="text-2xl font-bold text-white">
+            {issueCountByType("no_description")}
+          </div>
         </div>
       </div>
 
@@ -196,13 +228,51 @@ export default function HealthCheckView() {
           <div>
             <p className="text-sm text-emerald-300 font-medium">All clear</p>
             <p className="text-xs text-emerald-400/70">
-              No duplicates, missing info, or disconnected tasks found.
+              No duplicates or missing info found.
             </p>
           </div>
         </div>
       )}
 
-      {!allClean && (
+      {/* Possible duplicates section (uses the real pairwise detector) */}
+      {duplicates.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium uppercase tracking-wider text-slate-400">
+            Possible duplicate pairs
+          </h4>
+          <div className="flex flex-col gap-2">
+            {duplicates.map((pair, idx) => (
+              <div
+                key={`dup-${idx}`}
+                className="border border-amber-500/30 bg-amber-500/10 rounded-lg px-4 py-3"
+              >
+                <div className="flex items-center gap-2 mb-1 text-amber-400">
+                  <Icon name="content_copy" className="text-base" />
+                  <span className="text-xs font-medium uppercase tracking-wider opacity-80">
+                    {Math.round(pair.similarity * 100)}% similar
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-slate-400">
+                      #{pair.task_a.id}
+                    </span>
+                    <span className="text-white">{pair.task_a.title}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-slate-400">
+                      #{pair.task_b.id}
+                    </span>
+                    <span className="text-white">{pair.task_b.title}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!allClean && usefulIssues.length > 0 && (
         <>
           {/* Issue type filter */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -214,9 +284,9 @@ export default function HealthCheckView() {
                   : "text-slate-400 hover:text-slate-300"
               }`}
             >
-              All ({summary.issues})
+              All ({usefulIssues.length})
             </button>
-            {(["duplicate", "no_description", "isolated"] as const).map((type) => {
+            {(["duplicate", "no_description"] as const).map((type) => {
               const count = issueCountByType(type);
               if (count === 0) return null;
               return (
@@ -274,58 +344,6 @@ export default function HealthCheckView() {
           </div>
         </>
       )}
-
-      {/* Connected tasks (collapsed by default) */}
-      {result.tasks.some((t) => t.degree > 0) && (
-        <details className="group">
-          <summary className="text-sm text-slate-400 hover:text-slate-300 cursor-pointer flex items-center gap-1.5">
-            <Icon name="expand_more" className="text-base group-open:rotate-180 transition-transform" />
-            Connected tasks ({summary.connected})
-          </summary>
-          <div className="mt-3 flex flex-col gap-2">
-            {result.tasks
-              .filter((t) => t.degree > 0)
-              .map((task) => (
-                <div
-                  key={task.id}
-                  className="bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-3"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-mono text-slate-500">#{task.id}</span>
-                    <span className="text-sm text-white">{task.title}</span>
-                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                      priorityStyle(task.priority)
-                    }`}>
-                      {task.priority}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1 flex-wrap">
-                    <span className="text-xs text-slate-500">
-                      Linked to {task.degree} {task.degree === 1 ? "task" : "tasks"}:
-                    </span>
-                    {task.joints.map((j) => (
-                      <span
-                        key={j.id}
-                        className="text-xs text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded"
-                      >
-                        #{j.id} {j.title}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-          </div>
-        </details>
-      )}
     </div>
   );
-}
-
-function priorityStyle(p: string): string {
-  const map: Record<string, string> = {
-    P0: "bg-pink-500/20 text-pink-500",
-    P1: "bg-orange-500/20 text-orange-500",
-    P2: "bg-blue-500/20 text-blue-500",
-  };
-  return map[p] ?? "bg-slate-500/20 text-slate-400";
 }
