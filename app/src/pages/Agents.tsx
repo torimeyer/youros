@@ -11,28 +11,72 @@ type CustomTemplate = CustomAgentTemplate;
 
 const marketplaceCategories: { category: string; templates: CustomTemplate[] }[] = [
   {
-    category: "Productivity",
+    category: "For everyone",
     templates: [
-      { name: "Summarizer", description: "Summarize documents, articles, or meeting notes into key points", icon: "summarize", model: "sonnet", budget: 2.0 },
-      { name: "Daily Planner", description: "Review your tasks and create a focused plan for today", icon: "today", model: "sonnet", budget: 2.0 },
-      { name: "Email Drafter", description: "Draft professional emails based on your instructions", icon: "mail", model: "sonnet", budget: 2.0 },
+      { name: "Summarizer", description: "Summarize documents, articles, or meeting notes into key points.", icon: "summarize", model: "sonnet", budget: 2.0 },
+      { name: "Daily Planner", description: "Review your tasks and create a focused plan for today.", icon: "today", model: "sonnet", budget: 2.0 },
+      { name: "Email Drafter", description: "Draft a clear, friendly email based on your instructions.", icon: "mail", model: "sonnet", budget: 2.0 },
+      { name: "Brainstorm", description: "Generate ideas for any topic or problem you are stuck on.", icon: "psychology", model: "sonnet", budget: 2.0 },
+      { name: "Research", description: "Search the web, read multiple sources, and write a short summary.", icon: "search", model: "sonnet", budget: 2.0 },
     ],
   },
   {
-    category: "Development",
+    category: "Product managers",
     templates: [
-      { name: "Research", description: "Search and summarize information from the web", icon: "search", model: "sonnet", budget: 2.0 },
-      { name: "Code Review", description: "Review code for issues, bugs, and improvements", icon: "code", model: "sonnet", budget: 2.0 },
-      { name: "Write Tests", description: "Generate test cases for your code", icon: "bug_report", model: "sonnet", budget: 2.0 },
-      { name: "Bug Finder", description: "Analyze code for potential bugs and security issues", icon: "pest_control", model: "sonnet", budget: 2.0 },
+      { name: "Competitive Scan", description: "Research what competitors are shipping in a product area.", icon: "monitor_heart", model: "sonnet", budget: 3.0 },
+      { name: "PRD Draft", description: "Turn a rough idea into a product requirements doc.", icon: "article", model: "sonnet", budget: 3.0 },
+      { name: "Customer Interview Notes", description: "Turn raw interview notes into themes and insights.", icon: "record_voice_over", model: "sonnet", budget: 2.0 },
+      { name: "Launch Checklist", description: "Generate a launch checklist for a new feature.", icon: "checklist", model: "sonnet", budget: 2.0 },
+      { name: "Stakeholder Update", description: "Write a weekly update for your leadership team.", icon: "campaign", model: "sonnet", budget: 2.0 },
     ],
   },
   {
-    category: "Creative",
+    category: "Engineers",
     templates: [
-      { name: "Brainstorm", description: "Generate creative ideas for any topic or problem", icon: "psychology", model: "sonnet", budget: 2.0 },
-      { name: "Writer", description: "Write blog posts, documentation, or creative content", icon: "edit_note", model: "sonnet", budget: 2.0 },
-      { name: "Name Generator", description: "Come up with names for projects, features, or products", icon: "label", model: "sonnet", budget: 2.0 },
+      { name: "Code Review", description: "Review code for issues, bugs, and improvements.", icon: "code", model: "sonnet", budget: 2.0 },
+      { name: "Write Tests", description: "Generate test cases for your code.", icon: "bug_report", model: "sonnet", budget: 2.0 },
+      { name: "Bug Finder", description: "Analyze code for potential bugs and security issues.", icon: "pest_control", model: "sonnet", budget: 2.0 },
+      { name: "Debug Helper", description: "Read an error log, find the root cause, and suggest a fix.", icon: "bug_report", model: "sonnet", budget: 2.0 },
+      { name: "Refactor Plan", description: "Review messy code and propose a clean refactoring plan.", icon: "auto_fix_high", model: "sonnet", budget: 3.0 },
+    ],
+  },
+  {
+    category: "Sales and customer success",
+    templates: [
+      { name: "Prospect Research", description: "Dig into a company and decision maker before an outreach call.", icon: "business", model: "sonnet", budget: 3.0 },
+      { name: "Cold Outreach Draft", description: "Draft a personalized outreach email to a prospect.", icon: "outgoing_mail", model: "sonnet", budget: 2.0 },
+      { name: "Call Prep", description: "Build a 1-page call brief for an upcoming customer meeting.", icon: "support_agent", model: "sonnet", budget: 2.0 },
+      { name: "Follow Up", description: "Turn a call into a recap email and next steps.", icon: "forward_to_inbox", model: "sonnet", budget: 2.0 },
+      { name: "Objection Handling", description: "Help you prep answers to common customer objections.", icon: "question_answer", model: "sonnet", budget: 2.0 },
+    ],
+  },
+  {
+    category: "Writers and creators",
+    templates: [
+      { name: "Blog Post", description: "Write a draft blog post from an outline or rough idea.", icon: "edit_note", model: "sonnet", budget: 3.0 },
+      { name: "Social Post", description: "Turn a long post into short, punchy social versions.", icon: "share", model: "sonnet", budget: 2.0 },
+      { name: "Headline Generator", description: "Write 10 headline options for the same piece of content.", icon: "title", model: "sonnet", budget: 2.0 },
+      { name: "Proofreader", description: "Catch typos, grammar issues, and awkward phrasing.", icon: "spellcheck", model: "sonnet", budget: 2.0 },
+      { name: "Name Generator", description: "Come up with names for projects, features, or products.", icon: "label", model: "sonnet", budget: 2.0 },
+    ],
+  },
+  {
+    category: "Home and family",
+    templates: [
+      { name: "Meal Planner", description: "Plan a week of meals based on what is in the fridge.", icon: "restaurant", model: "sonnet", budget: 2.0 },
+      { name: "Grocery List", description: "Turn a meal plan into an organized shopping list.", icon: "shopping_cart", model: "sonnet", budget: 2.0 },
+      { name: "Trip Planner", description: "Plan a day trip or vacation with budget and time constraints.", icon: "flight_takeoff", model: "sonnet", budget: 3.0 },
+      { name: "Gift Finder", description: "Suggest gift ideas for a specific person, budget, and occasion.", icon: "redeem", model: "sonnet", budget: 2.0 },
+      { name: "Homework Helper", description: "Walk a kid through a tricky homework problem step by step.", icon: "school", model: "sonnet", budget: 2.0 },
+    ],
+  },
+  {
+    category: "Students",
+    templates: [
+      { name: "Study Guide", description: "Turn class notes into a study guide with key concepts and example questions.", icon: "menu_book", model: "sonnet", budget: 2.0 },
+      { name: "Essay Outline", description: "Build an outline for a paper based on a prompt or topic.", icon: "format_list_numbered", model: "sonnet", budget: 2.0 },
+      { name: "Flash Cards", description: "Turn a reading into a set of flash-card style Q&A pairs.", icon: "quiz", model: "sonnet", budget: 2.0 },
+      { name: "Citation Helper", description: "Format sources in APA, MLA, or Chicago style.", icon: "format_quote", model: "sonnet", budget: 2.0 },
     ],
   },
 ];
@@ -1744,7 +1788,7 @@ export default function Agents() {
                     <div className="flex-1 min-w-0">
                       <p className="text-white font-medium">{tpl.name}</p>
                       <p className="text-slate-400 text-xs mt-0.5">{tpl.description}</p>
-                      <div className="mt-2 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 font-mono text-xs text-slate-100 line-clamp-2">
+                      <div className="mt-2 bg-slate-950 border border-slate-800 rounded px-2 py-2 font-mono text-xs text-slate-100 whitespace-pre-wrap break-words">
                         {tpl.prompt_template}
                       </div>
                     </div>
@@ -1769,7 +1813,7 @@ export default function Agents() {
               </button>
             </div>
             {pmTemplates.filter((t) => !t.builtin).length === 0 ? (
-              <div className="bg-slate-900/20 border border-dashed border-slate-700 rounded-xl p-8 text-center text-slate-500 mb-8">
+              <div className="border border-dashed border-slate-700 rounded-xl p-8 text-center text-slate-500 mb-8">
                 No custom templates yet. Click "New template" to create one.
               </div>
             ) : (
@@ -1793,7 +1837,7 @@ export default function Agents() {
                       <div className="flex-1 min-w-0">
                         <p className="text-white font-medium">{tpl.name}</p>
                         <p className="text-slate-400 text-xs mt-0.5">{tpl.description}</p>
-                        <div className="mt-2 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 font-mono text-xs text-slate-100 line-clamp-2">
+                        <div className="mt-2 bg-slate-950 border border-slate-800 rounded px-2 py-2 font-mono text-xs text-slate-100 whitespace-pre-wrap break-words">
                           {tpl.prompt_template}
                         </div>
                       </div>
