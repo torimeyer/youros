@@ -408,6 +408,7 @@ export default function Drive() {
   const [syncing, setSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [connectBanner, setConnectBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -433,6 +434,21 @@ export default function Drive() {
       setFilesError('Could not load your Drive files. Check your connection and try again.');
     } finally {
       setFilesLoading(false);
+    }
+  }, []);
+
+  // Check for OAuth callback result in the URL on mount.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('connected');
+    const oauthError = params.get('error');
+    if (connected === 'true') {
+      setConnectBanner({ type: 'success', message: 'Google Drive connected!' });
+      // Clean the URL so a refresh doesn't re-show the banner.
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (oauthError) {
+      setConnectBanner({ type: 'error', message: 'Could not connect Google Drive. Please try again.' });
+      window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
 
@@ -497,6 +513,29 @@ export default function Drive() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold">Google Drive</h1>
         </div>
+
+        {/* OAuth callback banner */}
+        {connectBanner && (
+          <div
+            className={`flex items-center justify-between gap-3 p-4 rounded-lg mb-6 text-sm ${
+              connectBanner.type === 'success'
+                ? 'bg-green-500/10 border border-green-500/30 text-green-300'
+                : 'bg-red-500/10 border border-red-500/30 text-red-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Icon name={connectBanner.type === 'success' ? 'check_circle' : 'error'} size={18} />
+              <span>{connectBanner.message}</span>
+            </div>
+            <button
+              onClick={() => setConnectBanner(null)}
+              className="text-slate-400 hover:text-white"
+              aria-label="Dismiss"
+            >
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+        )}
 
         {/* Auth loading */}
         {authStatus === null && (

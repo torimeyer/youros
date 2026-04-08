@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
 
 from services.google_auth import (
     DRIVE_CACHE_DIR,
@@ -83,30 +83,47 @@ async def drive_auth_url():
     return {"url": url}
 
 
+FRONTEND_DRIVE_URL = "http://localhost:5173/drive"
+
+
 @router.get("/drive/auth/callback")
 async def drive_auth_callback(
     code: str = "",
     state: str = "",
     error: str = "",
 ):
-    """Handle the OAuth callback from Google."""
+    """Handle the OAuth callback from Google.
+
+    On success, redirects the browser back to the myOS Drive page with
+    ?connected=true so the user lands back in the app automatically.
+    On failure, redirects with ?error=<reason>.
+    """
     if error:
-        raise HTTPException(status_code=400, detail=f"Google returned an error: {error}")
+        return RedirectResponse(
+            url=f"{FRONTEND_DRIVE_URL}?error={error}",
+            status_code=302,
+        )
 
     if state not in _drive_oauth_states:
-        raise HTTPException(status_code=400, detail="Invalid or expired state parameter.")
+        return RedirectResponse(
+            url=f"{FRONTEND_DRIVE_URL}?error=invalid_state",
+            status_code=302,
+        )
     del _drive_oauth_states[state]
 
     if not code:
-        raise HTTPException(status_code=400, detail="No authorization code received.")
+        return RedirectResponse(
+            url=f"{FRONTEND_DRIVE_URL}?error=no_code",
+            status_code=302,
+        )
 
     try:
         exchange_code(code)
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Could not complete sign-in with Google: {exc}",
-        ) from exc
+        return RedirectResponse(
+            url=f"{FRONTEND_DRIVE_URL}?error=token_exchange_failed",
+            status_code=302,
+        )
 
     # After saving the token, immediately cache the file list.
     try:
@@ -114,8 +131,10 @@ async def drive_auth_callback(
     except Exception:
         pass
 
-    email = get_email()
-    return {"ok": True, "email": email}
+    return RedirectResponse(
+        url=f"{FRONTEND_DRIVE_URL}?connected=true",
+        status_code=302,
+    )
 
 
 @router.post("/drive/auth/revoke")

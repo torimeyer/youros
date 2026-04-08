@@ -118,31 +118,65 @@ async def test_drive_auth_url_returns_google_url(client, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Auth URL redirect_uri
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_url_contains_correct_redirect_uri(client, tmp_path):
+    """The auth URL must contain the exact redirect_uri the backend expects."""
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "web": {
+                    "client_id": "test-id",
+                    "client_secret": "test-secret",
+                }
+            }
+        )
+    )
+
+    with patch("services.google_auth.CREDENTIALS_PATH", creds_path):
+        resp = await client.get("/api/drive/auth/url")
+
+    assert resp.status_code == 200
+    url = resp.json()["url"]
+    assert "http%3A%2F%2Flocalhost%3A37373%2Fapi%2Fdrive%2Fauth%2Fcallback" in url
+
+
+# ---------------------------------------------------------------------------
 # Auth callback
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_drive_auth_callback_error_param(client):
-    """An error parameter from Google should return 400."""
-    resp = await client.get("/api/drive/auth/callback?error=access_denied")
-    assert resp.status_code == 400
-    assert "access_denied" in resp.json()["detail"]
+    """An error parameter from Google should redirect with ?error= (not 400)."""
+    resp = await client.get(
+        "/api/drive/auth/callback?error=access_denied",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "error=access_denied" in resp.headers["location"]
+    assert "localhost:5173/drive" in resp.headers["location"]
 
 
 @pytest.mark.asyncio
 async def test_drive_auth_callback_invalid_state(client):
-    """An unknown state should return 400."""
+    """An unknown state should redirect with ?error=invalid_state."""
     resp = await client.get(
-        "/api/drive/auth/callback?code=abc&state=bogus-state"
+        "/api/drive/auth/callback?code=abc&state=bogus-state",
+        follow_redirects=False,
     )
-    assert resp.status_code == 400
-    assert "state" in resp.json()["detail"].lower()
+    assert resp.status_code == 302
+    assert "error=invalid_state" in resp.headers["location"]
+    assert "localhost:5173/drive" in resp.headers["location"]
 
 
 @pytest.mark.asyncio
 async def test_drive_auth_callback_success(client, tmp_path):
-    """A valid code+state should exchange tokens and return ok."""
+    """A valid code+state should exchange tokens and redirect to Drive with ?connected=true."""
     from routers.drive import _drive_oauth_states
 
     _drive_oauth_states["valid-state"] = True
@@ -171,11 +205,42 @@ async def test_drive_auth_callback_success(client, tmp_path):
         mock_urlopen.return_value = mock_resp
 
         resp = await client.get(
-            "/api/drive/auth/callback?code=good-code&state=valid-state"
+            "/api/drive/auth/callback?code=good-code&state=valid-state",
+            follow_redirects=False,
         )
 
-    assert resp.status_code == 200
-    assert resp.json()["ok"] is True
+    assert resp.status_code == 302
+    assert "connected=true" in resp.headers["location"]
+    assert "localhost:5173/drive" in resp.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_callback_token_exchange_failure(client, tmp_path):
+    """When token exchange fails, redirect with ?error= instead of a 500."""
+    from routers.drive import _drive_oauth_states
+
+    _drive_oauth_states["fail-state"] = True
+
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        json.dumps({"installed": {"client_id": "cid", "client_secret": "csec"}})
+    )
+
+    with (
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+        patch(
+            "routers.drive.exchange_code",
+            side_effect=RuntimeError("token exchange error"),
+        ),
+    ):
+        resp = await client.get(
+            "/api/drive/auth/callback?code=bad-code&state=fail-state",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    assert "error=token_exchange_failed" in resp.headers["location"]
+    assert "localhost:5173/drive" in resp.headers["location"]
 
 
 # ---------------------------------------------------------------------------

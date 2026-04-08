@@ -40,9 +40,15 @@ A "credentials file" from Google Cloud Console. This file lets myOS sign in to G
 
 1. Go to **APIs and Services > Credentials**.
 2. Click **Create Credentials > OAuth client ID**.
-3. Choose **Desktop app** as the application type.
-4. Give it a name and click **Create**.
-5. A dialog will appear. Click **Download JSON**.
+3. Choose **Web application** as the application type (not "Desktop app").
+4. Give it a name (e.g. "myOS Drive").
+5. Under **Authorized redirect URIs**, click **Add URI** and enter exactly:
+   ```
+   http://localhost:37373/api/drive/auth/callback
+   ```
+   This must match exactly (no trailing slash, port 37373). If it does not match, Google will reject the sign-in with a "redirect_uri_mismatch" error.
+6. Click **Create**.
+7. A dialog will appear. Click **Download JSON**.
 
 ---
 
