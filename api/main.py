@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade
+from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync
 
 app = FastAPI(title="myOS API")
 
@@ -112,6 +112,43 @@ async def schedule_upgrade_check():
 
     import asyncio
     asyncio.create_task(_check())
+
+
+@app.on_event("startup")
+async def schedule_label_backfill():
+    """After a short delay, run auto-labeling on any open tasks that have no labels.
+
+    We wait 5 seconds so the server is fully up and the ostk process is ready.
+    This ensures fresh installs and upgrades never accumulate unlabeled tasks.
+    """
+    import asyncio
+
+    async def _backfill():
+        await asyncio.sleep(5)
+        try:
+            from services.ostk import ostk, OstkError
+            from services.task_labels_store import task_labels_store
+            from services.task_labeling import apply_auto_labels
+
+            tasks = await ostk.list_tasks(status="open")
+            all_assignments = task_labels_store.get_all_assignments()
+            unlabeled = [t for t in tasks if not all_assignments.get(t.get("id", ""))]
+            for task in unlabeled:
+                task_id = task.get("id", "")
+                title = task.get("title", "")
+                if not task_id or not title:
+                    continue
+                try:
+                    await asyncio.wait_for(
+                        apply_auto_labels(task_id, title, ""),
+                        timeout=10.0,
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    asyncio.create_task(_backfill())
 
 
 @app.get("/api/health")

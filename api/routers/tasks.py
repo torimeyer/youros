@@ -11,6 +11,7 @@ from services.labels_store import labels_store, LABEL_COLORS
 from services.task_labels_store import task_labels_store
 from services.threads_store import threads_store
 from services.task_labeling import (
+    apply_auto_labels,
     extract_task_id as _extract_task_id,
     schedule_auto_labels,
 )
@@ -120,6 +121,44 @@ async def delete_task(task_id: str):
     task_labels_store.remove_task(task_id)
     threads_store.remove_task_from_all_threads(task_id)
     return {"result": result}
+
+
+@router.post("/tasks/backfill-labels")
+async def backfill_labels():
+    """Run auto-labeling on every open task that has no labels yet.
+
+    Safe to call at any time. Skips tasks that already have labels.
+    Returns counts of tasks processed and labeled.
+    """
+    import asyncio
+
+    try:
+        tasks = await ostk.list_tasks(status="open")
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    all_assignments = task_labels_store.get_all_assignments()
+    unlabeled = [t for t in tasks if not all_assignments.get(t.get("id", ""))]
+
+    processed = 0
+    labeled = 0
+    for task in unlabeled:
+        task_id = task.get("id", "")
+        title = task.get("title", "")
+        if not task_id or not title:
+            continue
+        processed += 1
+        try:
+            await asyncio.wait_for(
+                apply_auto_labels(task_id, title, ""),
+                timeout=10.0,
+            )
+            if task_labels_store.get_labels_for_task(task_id):
+                labeled += 1
+        except Exception:
+            pass
+
+    return {"processed": processed, "labeled": labeled, "total_open": len(tasks)}
 
 
 @router.post("/tasks/{task_id}/close")
