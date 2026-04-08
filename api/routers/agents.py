@@ -703,12 +703,34 @@ async def delete_pm_template(template_id: str):
 
 @router.get("/agents/grants")
 async def list_grants(status: str = "pending"):
-    """List agent permission requests, filtered by status (default: pending)."""
+    """List agent permission requests, filtered by status (default: pending).
+
+    Normalizes the ostk shape (agent_alias/request_type/timestamp) to the
+    friendlier names the frontend expects (agent/type/requested_at). Also
+    filters out grants from "unknown" agents — those are almost always
+    stale secret-lookup stubs from a missing key, not real agent requests.
+    """
     try:
-        grants = await ostk.list_grants(status)
-        return {"grants": grants, "status_filter": status}
+        raw_grants = await ostk.list_grants(status)
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    normalized: list[dict] = []
+    for g in raw_grants:
+        agent = g.get("agent_alias") or g.get("agent") or ""
+        # Skip stale "unknown" agent requests (usually orphaned secret lookups).
+        if not agent or agent == "unknown":
+            continue
+        normalized.append({
+            "id": g.get("id", ""),
+            "agent": agent,
+            "type": g.get("request_type") or g.get("type") or "other",
+            "target": g.get("target", ""),
+            "status": g.get("status", status),
+            "detail": g.get("reason") or g.get("detail") or "",
+            "requested_at": g.get("timestamp") or g.get("requested_at") or "",
+        })
+    return {"grants": normalized, "status_filter": status}
 
 
 @router.post("/agents/grants/{grant_id}/approve")

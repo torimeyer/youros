@@ -809,9 +809,20 @@ export default function Agents() {
     const agentName = `delegate-${target.id.replace("→", "")}`;
     setSpawningDelegation((prev) => ({ ...prev, [target.id]: true }));
     try {
+      // Fetch the full task details (description, AC) before spawning so
+      // the agent gets real context, not just the title.
+      let taskContext = `Task: "${target.title}"`;
+      try {
+        const briefing = await api.get<{description?: string; acceptance_criteria?: string; priority?: string}>(`/tasks/${encodeURIComponent(target.id)}/briefing`);
+        if (briefing.description) taskContext += `\n\nDescription:\n${briefing.description}`;
+        if (briefing.acceptance_criteria) taskContext += `\n\nAcceptance criteria:\n${briefing.acceptance_criteria}`;
+        if (briefing.priority) taskContext += `\n\nPriority: ${briefing.priority}`;
+      } catch {
+        // fall through with just the title
+      }
       await api.post("/agents/spawn", {
         name: agentName,
-        prompt: `You are working on task ${target.id}: "${target.title}". Complete this task thoroughly. When you finish, summarize what you did.`,
+        prompt: `You have been handed off a task. Read it, complete it, and post a short summary to the shared workspace when done.\n\n${taskContext}\n\nWhen finished, close the task using ostk and report what you did.`,
         model: "sonnet",
         budget: 2.0,
       });
@@ -1116,7 +1127,7 @@ export default function Agents() {
                 value={newAgentPrompt}
                 onChange={(e) => setNewAgentPrompt(e.target.value)}
                 rows={3}
-                placeholder="What should this agent do? (Pre-filled from template — edit the [placeholders] before spawning)"
+                placeholder="What should this agent do? (Pre-filled from template. Edit the [placeholders] before spawning.)"
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm resize-none"
               />
               {newAgentPrompt && /\[.+?\]/.test(newAgentPrompt) && (
@@ -1300,7 +1311,7 @@ export default function Agents() {
                   <div className="group relative">
                     <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-300 cursor-help" />
                     <div className="absolute left-0 top-full mt-1 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
-                      These tasks are open and unblocked — good candidates for an AI agent to handle while you focus on other work. Clicking "Hand off" spawns an agent that will read the task, do the work, and report back when done.
+                      These tasks are open and unblocked. They are good candidates for an AI agent to handle while you focus on other work. Clicking "Hand off" spawns an agent that will read the task, do the work, and report back when done.
                     </div>
                   </div>
                 </h2>
@@ -1843,7 +1854,7 @@ export default function Agents() {
                     <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-300 cursor-help" />
                     <div className="absolute left-0 top-full mt-1 w-80 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
                       <p className="font-semibold text-white mb-1">How agents share context</p>
-                      <p className="mb-2">When you run multiple agents on related tasks, they can leave notes here — findings, questions, and results — so other agents don't duplicate work.</p>
+                      <p className="mb-2">When you run multiple agents on related tasks, they can leave notes here (findings, questions, and results) so other agents don't duplicate work.</p>
                       <p>Every new agent you spawn automatically receives everything in this workspace as context. Clear it when you start a new project or when the notes are no longer relevant.</p>
                     </div>
                   </div>

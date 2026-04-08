@@ -265,6 +265,10 @@ export default function Settings() {
     }
   };
 
+  useEffect(() => {
+    fetchShares();
+  }, []);
+
   const revokeShare = async (token: string) => {
     setRevokingToken(token);
     try {

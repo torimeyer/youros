@@ -39,7 +39,10 @@ export default function SharePopover({ shareType, contentIds, title, onClose }: 
           expires_in_days: 7,
         });
         if (!cancelled) {
-          setUrl(res.url);
+          // The server now returns a relative path like "/share/xyz".
+          // Prepend the frontend origin so the copied URL actually works.
+          const path = res.url.startsWith('http') ? res.url : `${window.location.origin}${res.url}`;
+          setUrl(path);
           setToken(res.token);
         }
       } catch {

@@ -39,9 +39,19 @@ export function Layout() {
   const toggleChat = useAppStore((s) => s.toggleChat)
   const showTour = useAppStore((s) => s.showTour)
   const setShowTour = useAppStore((s) => s.setShowTour)
+  const tourComplete = useAppStore((s) => s.tourComplete)
   const navigate = useNavigate()
 
   const closeCommandPalette = useCallback(() => setCommandPaletteOpen(false), [setCommandPaletteOpen])
+
+  // Auto-start the guided tour for first-time users who haven't completed it yet.
+  useEffect(() => {
+    if (!tourComplete) {
+      // Tiny delay so the app chrome mounts before the tour points at elements.
+      const t = setTimeout(() => setShowTour(true), 800)
+      return () => clearTimeout(t)
+    }
+  }, [tourComplete, setShowTour])
 
   // Global keyboard shortcuts
   useEffect(() => {

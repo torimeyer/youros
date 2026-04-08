@@ -140,11 +140,13 @@ async def create_share(body: ShareCreate, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
     token = share["token"]
-    # Build the public URL: same host, path /share/<token>
-    base_url = str(request.base_url).rstrip("/")
-    url = f"{base_url}/share/{token}"
+    # Return a relative path — the frontend composes the full URL with its
+    # own origin (e.g. http://localhost:5173/share/xyz). Returning an
+    # absolute URL from the backend is wrong because the backend runs on
+    # a different port than the React frontend.
+    path = f"/share/{token}"
 
-    return {"token": token, "url": url, "share": share}
+    return {"token": token, "url": path, "path": path, "share": share}
 
 
 @router.get("/shares")
