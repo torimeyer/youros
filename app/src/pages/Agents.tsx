@@ -1284,11 +1284,17 @@ export default function Agents() {
           <>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-lg font-semibold text-white">
-                  Tasks You Can Hand Off
+                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                  Hand Off Tasks
+                  <div className="group relative">
+                    <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-300 cursor-help" />
+                    <div className="absolute left-0 top-full mt-1 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                      These tasks are open and unblocked — good candidates for an AI agent to handle while you focus on other work. Clicking "Hand off" spawns an agent that will read the task, do the work, and report back when done.
+                    </div>
+                  </div>
                 </h2>
                 <p className="text-sm text-slate-400 mt-1">
-                  These tasks are good candidates for an agent to work on. Click "Spawn agent" to assign one.
+                  Open tasks an agent can pick up for you. Click "Hand off" to start one working on it now.
                 </p>
               </div>
               <button
@@ -1315,20 +1321,6 @@ export default function Agents() {
 
             {!delegationLoading && !delegationError && delegationData && (
               <>
-                {/* Center point info */}
-                {delegationData.point && (
-                  <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 mb-4">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Icon name="my_location" className="text-blue-400" size={18} />
-                      <span className="text-slate-400">Radiating from</span>
-                      <span className="text-white font-mono font-semibold">{delegationData.point}</span>
-                      {delegationData.point_title && (
-                        <span className="text-slate-300">{delegationData.point_title}</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
                 {/* Delegation targets */}
                 {delegationData.delegation_targets.length === 0 ? (
                   <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-6">
@@ -1351,7 +1343,7 @@ export default function Agents() {
                               <span className="text-white font-medium">{target.title}</span>
                             </div>
                             <p className="text-slate-400 text-xs mt-1">
-                              Ready for an agent to pick up
+                              Open and unblocked. An agent can work on this now.
                             </p>
                           </div>
                         </div>
@@ -1361,40 +1353,13 @@ export default function Agents() {
                           className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors flex items-center gap-2"
                         >
                           <Icon name="bolt" size={16} />
-                          {spawningDelegation[target.id] ? "Spawning..." : "Spawn agent"}
+                          {spawningDelegation[target.id] ? "Starting..." : "Hand off"}
                         </button>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Nearby tasks (rings) */}
-                {delegationData.rings.length > 0 && (
-                  <div className="mt-6">
-                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                      Nearby Tasks
-                    </h3>
-                    {delegationData.rings.map((ring) => (
-                      <div key={ring.radius} className="mb-3">
-                        <p className="text-xs text-slate-500 mb-2">
-                          {ring.open} of {ring.total} open at distance {ring.radius}
-                        </p>
-                        <div className="flex flex-col gap-1">
-                          {ring.needles.map((needle) => (
-                            <div
-                              key={needle.id}
-                              className="bg-slate-900/30 border border-slate-800/50 rounded-lg px-4 py-2 flex items-center gap-3 text-sm"
-                            >
-                              <span className="text-white font-mono text-xs">{needle.id}</span>
-                              <span className="text-xs text-slate-500 font-mono">{needle.priority}</span>
-                              <span className="text-slate-300">{needle.title}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </>
             )}
           </>
@@ -1429,7 +1394,7 @@ export default function Agents() {
               <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
                 Loading...
               </div>
-            ) : grants.length === 0 ? (
+            ) : grants.filter((g) => g.agent && g.agent !== "unknown").length === 0 ? (
               <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
                 {grantFilter === "pending"
                   ? "No pending requests. Agents will ask for permission here when they need extra access."
@@ -1439,7 +1404,7 @@ export default function Agents() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {grants.map((grant) => (
+                {grants.filter((g) => g.agent && g.agent !== "unknown").map((grant) => (
                   <div
                     key={grant.id}
                     data-testid="grant-card"
@@ -1863,9 +1828,17 @@ export default function Agents() {
                       {workspaceMessages.length}
                     </span>
                   )}
+                  <div className="group relative">
+                    <Icon name="help_outline" size={16} className="text-slate-500 hover:text-slate-300 cursor-help" />
+                    <div className="absolute left-0 top-full mt-1 w-80 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                      <p className="font-semibold text-white mb-1">How agents share context</p>
+                      <p className="mb-2">When you run multiple agents on related tasks, they can leave notes here — findings, questions, and results — so other agents don't duplicate work.</p>
+                      <p>Every new agent you spawn automatically receives everything in this workspace as context. Clear it when you start a new project or when the notes are no longer relevant.</p>
+                    </div>
+                  </div>
                 </h2>
                 <p className="text-sm text-slate-400 mt-1">
-                  Findings and notes posted by running agents. New agents automatically see this context when they start.
+                  Notes left by agents for each other. New agents see this automatically when they start.
                 </p>
               </div>
               <div className="flex gap-3">
@@ -1943,7 +1916,7 @@ export default function Agents() {
           </>
         )}
 
-        {/* Agent Templates - always visible */}
+        {activeTab === "Templates" && <div className="mt-8 border-t border-slate-800 pt-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white">
             Agent Templates
@@ -2044,6 +2017,8 @@ export default function Agents() {
             ))}
           </div>
         )}
+
+        </div>}
 
         {/* Template Editor Modal */}
         {editorOpen && (
