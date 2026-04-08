@@ -93,7 +93,11 @@ async def list_tasks(status: Optional[str] = None, priority: Optional[str] = Non
 @router.post("/tasks")
 async def create_task(body: TaskCreate):
     try:
-        result = await ostk.add_task(body.title, body.priority)
+        result = await ostk.add_task(
+            body.title,
+            body.priority,
+            description=body.description or "",
+        )
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

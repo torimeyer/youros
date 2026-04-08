@@ -465,9 +465,9 @@ export default function WorkflowBuilder() {
   const isRunning = workflowStatus === "running" || running;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title={id ? "Edit workflow" : "New workflow"} />
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="pt-20 p-8">
         <div className="max-w-2xl mx-auto">
           {/* Header */}
           <div className="flex items-start justify-between gap-4 mb-6">

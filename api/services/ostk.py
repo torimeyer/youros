@@ -61,8 +61,23 @@ class OstkService:
                 seen[task_id] = entry
         return list(seen.values())
 
-    async def add_task(self, title: str, priority: str = "P1") -> str:
-        return await self._run("work", "add", title, "--priority", priority)
+    async def add_task(
+        self,
+        title: str,
+        priority: str = "P1",
+        description: str = "",
+        ac: str = "",
+    ) -> str:
+        # ostk requires --description and --ac. Fall back to sensible defaults
+        # derived from the title so quick-add from the UI still works.
+        desc = description.strip() or title
+        acceptance = ac.strip() or "Task is complete and verified."
+        return await self._run(
+            "work", "add", title,
+            "--priority", priority,
+            "--description", desc,
+            "--ac", acceptance,
+        )
 
     async def close_task(self, task_id: str) -> str:
         return await self._run("work", "close", task_id)

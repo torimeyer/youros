@@ -1722,7 +1722,7 @@ export default function Agents() {
                     <div className="flex-1 min-w-0">
                       <p className="text-white font-medium">{tpl.name}</p>
                       <p className="text-slate-400 text-xs mt-0.5">{tpl.description}</p>
-                      <div className="mt-2 bg-slate-950/60 rounded px-2 py-1 font-mono text-xs text-slate-300 line-clamp-2">
+                      <div className="mt-2 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 font-mono text-xs text-slate-100 line-clamp-2">
                         {tpl.prompt_template}
                       </div>
                     </div>
@@ -1771,7 +1771,7 @@ export default function Agents() {
                       <div className="flex-1 min-w-0">
                         <p className="text-white font-medium">{tpl.name}</p>
                         <p className="text-slate-400 text-xs mt-0.5">{tpl.description}</p>
-                        <div className="mt-2 bg-slate-950/60 rounded px-2 py-1 font-mono text-xs text-slate-300 line-clamp-2">
+                        <div className="mt-2 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 font-mono text-xs text-slate-100 line-clamp-2">
                           {tpl.prompt_template}
                         </div>
                       </div>

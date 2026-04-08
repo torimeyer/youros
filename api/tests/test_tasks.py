@@ -80,7 +80,7 @@ async def test_create_task(client):
 
     assert resp.status_code == 200
     assert resp.json()["result"] == "created t-2"
-    mock_ostk.add_task.assert_called_once_with("New task", "P0")
+    mock_ostk.add_task.assert_called_once_with("New task", "P0", description="")
 
 
 @pytest.mark.asyncio
@@ -90,7 +90,7 @@ async def test_create_task_default_priority(client):
         resp = await client.post("/api/tasks", json={"title": "Basic task"})
 
     assert resp.status_code == 200
-    mock_ostk.add_task.assert_called_once_with("Basic task", "P1")
+    mock_ostk.add_task.assert_called_once_with("Basic task", "P1", description="")
 
 
 # --- POST /api/tasks/{id}/close ---

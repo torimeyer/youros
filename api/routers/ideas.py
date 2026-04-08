@@ -202,7 +202,7 @@ async def _create_tasks_from_breakdown(
                 )
                 first_task_result = add_result
             else:
-                add_result = await ostk.add_task(title, priority)
+                add_result = await ostk.add_task(title, priority, description=description)
         except OstkError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 

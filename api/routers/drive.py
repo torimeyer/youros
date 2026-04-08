@@ -663,11 +663,24 @@ async def drive_file_preview(file_id: str):
     # Only download if Drive reports a non-zero size.
     size = int(meta.get("size", 0))
     if size > 0:
-        # For known previewable formats, download and serve as-is.
-        previewable_uploads = {
+        # Files we can serve directly to the browser.
+        direct_serve = {
             "application/pdf": "application/pdf",
+            "image/png": "image/png",
+            "image/jpeg": "image/jpeg",
+            "image/gif": "image/gif",
+            "image/webp": "image/webp",
+            "image/svg+xml": "image/svg+xml",
+            "text/plain": "text/plain; charset=utf-8",
+            "text/markdown": "text/markdown; charset=utf-8",
+            "text/csv": "text/csv; charset=utf-8",
+            "text/html": "text/html; charset=utf-8",
+            "application/json": "application/json",
         }
-        response_mime = previewable_uploads.get(mime)
+        response_mime = direct_serve.get(mime)
+        # Heuristic: anything with a text/* mime can be served as plain text.
+        if response_mime is None and mime.startswith("text/"):
+            response_mime = "text/plain; charset=utf-8"
         if response_mime:
             try:
                 content = await _download_file(file_id)
@@ -679,6 +692,26 @@ async def drive_file_preview(file_id: str):
             DRIVE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
             cache_path.write_bytes(content)
             return Response(content=content, media_type=response_mime)
+
+        # Office files: download and convert to PDF via Drive's upload+export trick.
+        # Drive can convert .docx/.pptx/.xlsx to Google native, then export as PDF.
+        office_conversion_targets = {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "application/vnd.google-apps.document",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": "application/vnd.google-apps.presentation",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "application/vnd.google-apps.spreadsheet",
+            "application/msword": "application/vnd.google-apps.document",
+            "application/vnd.ms-powerpoint": "application/vnd.google-apps.presentation",
+            "application/vnd.ms-excel": "application/vnd.google-apps.spreadsheet",
+        }
+        if mime in office_conversion_targets:
+            try:
+                pdf_bytes = await _export_office_file_as_pdf(file_id, office_conversion_targets[mime])
+                DRIVE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                cache_path.write_bytes(pdf_bytes)
+                return Response(content=pdf_bytes, media_type="application/pdf")
+            except Exception:
+                # Fall through to the not-previewable response below.
+                pass
 
     # Not previewable inline.
     return {"previewable": False, "webViewLink": web_view_link, "mimeType": mime}
@@ -740,5 +773,46 @@ async def _download_file(file_id: str) -> bytes:
         while not done:
             _, done = downloader.next_chunk()
         return buf.getvalue()
+
+    return await asyncio.get_event_loop().run_in_executor(None, _call)
+
+
+async def _export_office_file_as_pdf(file_id: str, target_google_mime: str) -> bytes:
+    """Copy an Office file to a Google-native format, export as PDF, then delete the copy.
+
+    This lets us preview .docx/.pptx/.xlsx files by round-tripping through Google's
+    converter. The temporary copy is always deleted, even on failure.
+    """
+    import asyncio
+    import io
+
+    def _call():
+        from googleapiclient.http import MediaIoBaseDownload
+
+        service = _build_drive_service()
+        # Step 1: copy the file as a Google-native format.
+        copy_meta = service.files().copy(
+            fileId=file_id,
+            body={"mimeType": target_google_mime, "name": f"_myos_preview_{file_id}"},
+        ).execute()
+        copy_id = copy_meta["id"]
+
+        try:
+            # Step 2: export the copy as PDF.
+            request = service.files().export_media(
+                fileId=copy_id, mimeType="application/pdf"
+            )
+            buf = io.BytesIO()
+            downloader = MediaIoBaseDownload(buf, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            return buf.getvalue()
+        finally:
+            # Step 3: always delete the temporary copy.
+            try:
+                service.files().delete(fileId=copy_id).execute()
+            except Exception:
+                pass
 
     return await asyncio.get_event_loop().run_in_executor(None, _call)

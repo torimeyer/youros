@@ -415,10 +415,10 @@ export default function Workflows() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Workflows" />
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="pt-20 p-8">
         {/* Header row */}
         <div className="flex items-center justify-between mb-6">
           <div>
