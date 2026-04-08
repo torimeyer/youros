@@ -411,3 +411,166 @@ describe('Agents page - Recent tab filtering', () => {
     })
   })
 })
+
+const mockPmTemplatesResponse = {
+  templates: [
+    {
+      id: 'builtin-research-spike',
+      name: 'Research spike',
+      description: 'Research a topic thoroughly and write a 1-page summary.',
+      icon: 'science',
+      prompt_template: 'Research [topic] thoroughly. Find key facts, trade-offs, and recommendations. Write a 1-page summary.',
+      model: 'sonnet',
+      budget: 2.0,
+      builtin: true,
+    },
+    {
+      id: 'custom-abc123',
+      name: 'My Custom',
+      description: 'Does things',
+      icon: 'smart_toy',
+      prompt_template: 'Do [thing] for me.',
+      model: 'sonnet',
+      budget: 1.0,
+      builtin: false,
+    },
+  ],
+}
+
+describe('Agents page - Templates tab', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path === '/agents/pm-templates') return mockPmTemplatesResponse
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({ result: 'ok' })
+  })
+
+  it('shows Templates tab in navigation', async () => {
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Templates' })).toBeInTheDocument()
+    })
+  })
+
+  it('shows PM Templates heading when Templates tab is active', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('PM Templates')).toBeInTheDocument()
+    })
+  })
+
+  it('shows built-in templates when Templates tab is active', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('Research spike')).toBeInTheDocument()
+    })
+  })
+
+  it('shows custom templates in "Your templates" section', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('My Custom')).toBeInTheDocument()
+    })
+  })
+
+  it('shows Use button for built-in templates', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    await waitFor(() => {
+      const useButtons = screen.getAllByRole('button', { name: 'Use' })
+      expect(useButtons.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('clicking Use on a built-in template switches to Active tab and pre-fills name', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('Research spike')).toBeInTheDocument()
+    })
+
+    const useButtons = screen.getAllByRole('button', { name: 'Use' })
+    fireEvent.click(useButtons[0])
+
+    await waitFor(() => {
+      // Should switch back to Active tab and show the spawn form
+      expect(screen.getByText('Active Sessions')).toBeInTheDocument()
+    })
+  })
+
+  it('shows filter input on Templates tab', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Find a template...')).toBeInTheDocument()
+    })
+  })
+
+  it('filters templates by search term', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    await waitFor(() => {
+      expect(screen.getByText('Research spike')).toBeInTheDocument()
+    })
+
+    const searchInput = screen.getByPlaceholderText('Find a template...')
+    fireEvent.change(searchInput, { target: { value: 'research' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('Research spike')).toBeInTheDocument()
+    })
+  })
+
+  it('shows New template button in Your templates section', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /New template/i })).toBeInTheDocument()
+    })
+  })
+
+  it('shows prompt_template text on template cards', async () => {
+    renderAgents()
+
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Research \[topic\] thoroughly/)).toBeInTheDocument()
+    })
+  })
+})

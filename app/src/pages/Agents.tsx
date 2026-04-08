@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 
-const tabs = ["Active", "Recent", "Metrics"];
+const tabs = ["Active", "Recent", "Metrics", "Templates", "Workspace"];
 
 type CustomTemplate = CustomAgentTemplate;
 
@@ -246,6 +246,73 @@ function AgentStatusBar({ spawnedAt, budget, model, learnedRates, transcriptByte
   );
 }
 
+function AgentMemorySection({
+  agentName,
+  memory,
+  clearing,
+  onClear,
+}: {
+  agentName: string;
+  memory: { facts: Record<string, string>; summaries: { text: string; saved_at: string }[] } | undefined;
+  clearing: boolean;
+  onClear: () => void;
+}) {
+  const facts = memory?.facts ?? {};
+  const summaries = memory?.summaries ?? [];
+  const hasSomething = Object.keys(facts).length > 0 || summaries.length > 0;
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+          Memory
+        </span>
+        {hasSomething && (
+          <button
+            onClick={onClear}
+            disabled={clearing}
+            className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors"
+          >
+            {clearing ? "Clearing..." : "Clear memory"}
+          </button>
+        )}
+      </div>
+      {!hasSomething ? (
+        <p className="text-xs text-slate-600">
+          No memory yet. When {agentName} finishes with a summary, it will appear here and load automatically next time this agent runs.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {Object.keys(facts).length > 0 && (
+            <div className="bg-slate-950 rounded-lg p-3 text-xs space-y-1">
+              <p className="text-slate-500 mb-1">Remembered facts</p>
+              {Object.entries(facts).map(([k, v]) => (
+                <div key={k} className="flex gap-2">
+                  <span className="text-slate-400 shrink-0">{k}:</span>
+                  <span className="text-white">{v}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {summaries.length > 0 && (
+            <div className="bg-slate-950 rounded-lg p-3 text-xs space-y-2">
+              <p className="text-slate-500 mb-1">Past sessions</p>
+              {summaries.map((s, i) => (
+                <div key={i} className="flex gap-2">
+                  <span className="text-slate-600 shrink-0 tabular-nums">
+                    {s.saved_at ? s.saved_at.slice(0, 10) : ""}
+                  </span>
+                  <span className="text-slate-300">{s.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface AgentsResponse {
   daemon_running: boolean;
   status: string;
@@ -256,6 +323,21 @@ interface AgentsResponse {
 
 interface TemplatesResponse {
   templates: { name: string; file: string; content: string }[];
+}
+
+interface PMAgentTemplate {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  prompt_template: string;
+  model: string;
+  budget: number;
+  builtin: boolean;
+}
+
+interface PMTemplatesResponse {
+  templates: PMAgentTemplate[];
 }
 
 interface NudgeRecord {
@@ -316,6 +398,34 @@ interface GrantsResponse {
   status_filter: string;
 }
 
+interface AgentMemoryFact {
+  [key: string]: string;
+}
+
+interface AgentMemorySummary {
+  text: string;
+  saved_at: string;
+}
+
+interface AgentMemoryResponse {
+  agent: string;
+  facts: AgentMemoryFact;
+  summaries: AgentMemorySummary[];
+}
+
+interface WorkspaceMessage {
+  id: string;
+  agent_name: string;
+  content: string;
+  message_type: "finding" | "question" | "result" | "context";
+  timestamp: string;
+}
+
+interface WorkspaceMessagesResponse {
+  messages: WorkspaceMessage[];
+  count: number;
+}
+
 const statusLabel = (status: string) => {
   switch (status) {
     case "running":
@@ -368,6 +478,111 @@ function tryBrowserNotification(agentName: string, status: string) {
     });
   }
 }
+function PMTemplateEditorForm({
+  initial,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  initial: PMAgentTemplate | null;
+  saving: boolean;
+  onSave: (data: Partial<PMAgentTemplate>) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial?.name ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [promptTemplate, setPromptTemplate] = useState(initial?.prompt_template ?? "");
+  const [icon, setIcon] = useState(initial?.icon ?? "smart_toy");
+  const [model, setModel] = useState(initial?.model ?? "sonnet");
+  const [budget, setBudget] = useState(initial?.budget ?? 2.0);
+
+  return (
+    <>
+      <label className="block text-sm text-slate-400 mb-1">Name</label>
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="e.g. Competitive analysis"
+        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
+      />
+
+      <label className="block text-sm text-slate-400 mb-1">Description</label>
+      <input
+        type="text"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="One line summary of what this template does"
+        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
+      />
+
+      <label className="block text-sm text-slate-400 mb-1">Prompt template</label>
+      <textarea
+        value={promptTemplate}
+        onChange={(e) => setPromptTemplate(e.target.value)}
+        rows={4}
+        placeholder="Use [placeholders] for parts the user will fill in before spawning"
+        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-1 resize-none"
+      />
+      <p className="text-xs text-slate-500 mb-4">Use [square brackets] for parts the user fills in. Example: Research [topic] and write a summary.</p>
+
+      <label className="block text-sm text-slate-400 mb-1">Icon (Material Symbols name)</label>
+      <input
+        type="text"
+        value={icon}
+        onChange={(e) => setIcon(e.target.value)}
+        placeholder="smart_toy"
+        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
+      />
+
+      <div className="flex gap-4 mb-6">
+        <div className="flex-1">
+          <label className="block text-sm text-slate-400 mb-1">Model</label>
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+          >
+            <option value="sonnet">Sonnet</option>
+            <option value="opus">Opus</option>
+            <option value="haiku">Haiku</option>
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="block text-sm text-slate-400 mb-1">Budget ($)</label>
+          <input
+            type="number"
+            min={0}
+            step={0.5}
+            value={budget}
+            onChange={(e) => setBudget(parseFloat(e.target.value) || 0)}
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-3">
+        <button
+          onClick={onCancel}
+          className="text-slate-400 hover:text-white text-sm transition-colors px-4 py-2"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => {
+            if (name.trim()) {
+              onSave({ name, description, prompt_template: promptTemplate, icon, model, budget });
+            }
+          }}
+          disabled={!name.trim() || saving}
+          className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
+        >
+          {saving ? "Saving..." : "Save Template"}
+        </button>
+      </div>
+    </>
+  );
+}
 
 export default function Agents() {
   const [activeTab, setActiveTab] = useState("Active");
@@ -377,8 +592,17 @@ export default function Agents() {
   const [daemonRunning, setDaemonRunning] = useState(false);
   const [learnedRates, setLearnedRates] = useState<Record<string, number>>({});
   const [templates, setTemplates] = useState<TemplatesResponse["templates"]>([]);
+  const [pmTemplates, setPmTemplates] = useState<PMAgentTemplate[]>([]);
+  const [pmTemplateSearch, setPmTemplateSearch] = useState("");
+  const [pmTemplateEditor, setPmTemplateEditor] = useState<{
+    open: boolean;
+    template: PMAgentTemplate | null;
+    isNew: boolean;
+  }>({ open: false, template: null, isNew: false });
+  const [pmTemplateSaving, setPmTemplateSaving] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newAgentName, setNewAgentName] = useState("");
+  const [newAgentPrompt, setNewAgentPrompt] = useState("");
   const [, setLastUpdate] = useState<Date | null>(null);
 
   const addNotification = useNotificationStore((s) => s.addNotification);
@@ -397,6 +621,15 @@ export default function Agents() {
   const [grantActioning, setGrantActioning] = useState<Record<string, boolean>>({});
   const [grantFilter, setGrantFilter] = useState<"pending" | "granted" | "denied">("pending");
 
+  // Memory state: per-agent memory facts and summaries
+  const [agentMemory, setAgentMemory] = useState<Record<string, AgentMemoryResponse>>({});
+  const [memoryClearing, setMemoryClearing] = useState<Record<string, boolean>>({});
+
+  // Workspace state
+  const [workspaceMessages, setWorkspaceMessages] = useState<WorkspaceMessage[]>([]);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceClearing, setWorkspaceClearing] = useState(false);
+
   // Nudge state: per-agent input text and message history
   const [nudgeInputs, setNudgeInputs] = useState<Record<string, string>>({});
   const [nudgeHistory, setNudgeHistory] = useState<Record<string, NudgeRecord[]>>({});
@@ -404,10 +637,11 @@ export default function Agents() {
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const nudgeEndRef = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // Fetch nudge history when expanding an agent
+  // Fetch nudge history and memory when expanding an agent
   useEffect(() => {
     if (expandedAgent) {
       fetchNudges(expandedAgent);
+      fetchMemory(expandedAgent);
       // Poll nudges while expanded
       const interval = setInterval(() => fetchNudges(expandedAgent), 5000);
       return () => clearInterval(interval);
@@ -505,6 +739,48 @@ export default function Agents() {
     }
   };
 
+  const fetchPmTemplates = async () => {
+    try {
+      const data = await api.get<PMTemplatesResponse>("/agents/pm-templates");
+      setPmTemplates(data.templates || []);
+    } catch {
+      // keep empty
+    }
+  };
+
+  const handleUsePmTemplate = (tpl: PMAgentTemplate) => {
+    setNewAgentName(tpl.name.toLowerCase().replace(/\s+/g, "-"));
+    setNewAgentPrompt(tpl.prompt_template);
+    setShowNewForm(true);
+    setActiveTab("Active");
+  };
+
+  const handleSavePmTemplate = async (d: Partial<PMAgentTemplate>) => {
+    setPmTemplateSaving(true);
+    try {
+      if (pmTemplateEditor.isNew) {
+        await api.post("/agents/pm-templates", d);
+      } else if (pmTemplateEditor.template) {
+        await api.put(`/agents/pm-templates/${pmTemplateEditor.template.id}`, d);
+      }
+      await fetchPmTemplates();
+      setPmTemplateEditor({ open: false, template: null, isNew: false });
+    } catch {
+      // keep
+    } finally {
+      setPmTemplateSaving(false);
+    }
+  };
+
+  const handleDeletePmTemplate = async (templateId: string) => {
+    try {
+      await api.delete(`/agents/pm-templates/${templateId}`);
+      await fetchPmTemplates();
+    } catch {
+      // keep
+    }
+  };
+
   const fetchDelegation = async () => {
     setDelegationLoading(true);
     setDelegationError("");
@@ -574,6 +850,54 @@ export default function Agents() {
     }
   };
 
+  const fetchMemory = async (agentName: string) => {
+    try {
+      const data = await api.get<AgentMemoryResponse>(`/agents/${agentName}/memory`);
+      setAgentMemory((prev) => ({ ...prev, [agentName]: data }));
+    } catch {
+      // keep existing
+    }
+  };
+
+  const handleClearMemory = async (agentName: string) => {
+    setMemoryClearing((prev) => ({ ...prev, [agentName]: true }));
+    try {
+      await api.delete(`/agents/${agentName}/memory`);
+      setAgentMemory((prev) => ({
+        ...prev,
+        [agentName]: { agent: agentName, facts: {}, summaries: [] },
+      }));
+    } catch {
+      // handle silently
+    } finally {
+      setMemoryClearing((prev) => ({ ...prev, [agentName]: false }));
+    }
+  };
+
+  const fetchWorkspace = async () => {
+    setWorkspaceLoading(true);
+    try {
+      const data = await api.get<WorkspaceMessagesResponse>('/workspace/messages');
+      setWorkspaceMessages(data.messages || []);
+    } catch {
+      // keep existing
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const clearWorkspace = async () => {
+    setWorkspaceClearing(true);
+    try {
+      await api.delete('/workspace/messages');
+      setWorkspaceMessages([]);
+    } catch {
+      // handle silently
+    } finally {
+      setWorkspaceClearing(false);
+    }
+  };
+
   const fetchNudges = async (agentName: string) => {
     try {
       const data = await api.get<NudgesListResponse>(`/agents/${agentName}/nudges`);
@@ -616,6 +940,7 @@ export default function Agents() {
   useEffect(() => {
     fetchAgents();
     fetchTemplates();
+    fetchPmTemplates();
 
     // Poll for agent updates every 5 seconds
     const interval = setInterval(fetchAgents, 5000);
@@ -637,6 +962,16 @@ export default function Agents() {
       return () => clearInterval(interval);
     }
   }, [activeTab, grantFilter, fetchGrants]);
+
+  // Fetch workspace messages when the Workspace tab is selected
+  useEffect(() => {
+    if (activeTab === "Workspace") {
+      fetchWorkspace();
+      const interval = setInterval(fetchWorkspace, 5000);
+      return () => clearInterval(interval);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number) => {
     if (!name.trim()) return;
@@ -735,32 +1070,50 @@ export default function Agents() {
 
         {/* New Agent Form */}
         {showNewForm && (
-          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 mb-6 flex gap-3 items-center">
-            <input
-              type="text"
-              placeholder="Agent name (e.g. research-agent)"
-              value={newAgentName}
-              onChange={(e) => setNewAgentName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSpawn(newAgentName);
-              }}
-              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-            />
-            <button
-              onClick={() => handleSpawn(newAgentName)}
-              className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg px-4 py-2 transition-colors"
-            >
-              Spawn
-            </button>
-            <button
-              onClick={() => {
-                setShowNewForm(false);
-                setNewAgentName("");
-              }}
-              className="text-slate-400 hover:text-white transition-colors"
-            >
-              <Icon name="close" size={20} />
-            </button>
+          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 mb-6">
+            <div className="flex gap-3 items-center mb-3">
+              <input
+                type="text"
+                placeholder="Agent name (e.g. research-agent)"
+                value={newAgentName}
+                onChange={(e) => setNewAgentName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !newAgentPrompt) handleSpawn(newAgentName, newAgentPrompt || undefined);
+                }}
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              />
+              <button
+                onClick={() => handleSpawn(newAgentName, newAgentPrompt || undefined)}
+                className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg px-4 py-2 transition-colors"
+              >
+                Spawn
+              </button>
+              <button
+                onClick={() => {
+                  setShowNewForm(false);
+                  setNewAgentName("");
+                  setNewAgentPrompt("");
+                }}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <Icon name="close" size={20} />
+              </button>
+            </div>
+            {/* Prompt field with placeholder highlighting */}
+            <div className="relative">
+              <textarea
+                value={newAgentPrompt}
+                onChange={(e) => setNewAgentPrompt(e.target.value)}
+                rows={3}
+                placeholder="What should this agent do? (Pre-filled from template — edit the [placeholders] before spawning)"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm resize-none"
+              />
+              {newAgentPrompt && /\[.+?\]/.test(newAgentPrompt) && (
+                <p className="text-xs text-amber-400 mt-1">
+                  Replace the <span className="font-mono">[placeholders]</span> above with your specific details before spawning.
+                </p>
+              )}
+            </div>
           </div>
         )}
 
@@ -875,10 +1228,10 @@ export default function Agents() {
                       </button>
                     </div>
 
-                    {/* Expanded view with additional details */}
+                    {/* Expanded view with additional details and memory */}
                     {isExpanded && (
                       <div className="mt-4 pt-4 border-t border-slate-800">
-                        <div className="grid grid-cols-3 gap-4 text-xs">
+                        <div className="grid grid-cols-3 gap-4 text-xs mb-4">
                           <div>
                             <span className="text-slate-500">Source</span>
                             <p className="text-white mt-1">{agent.source}</p>
@@ -894,6 +1247,12 @@ export default function Agents() {
                             <p className="text-white mt-1">{agentNudges.length}</p>
                           </div>
                         </div>
+                        <AgentMemorySection
+                          agentName={agent.name}
+                          memory={agentMemory[agent.name]}
+                          clearing={memoryClearing[agent.name] || false}
+                          onClear={() => handleClearMemory(agent.name)}
+                        />
                       </div>
                     )}
 
@@ -1191,29 +1550,54 @@ export default function Agents() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-2 mb-8">
-                  {recentAgents.map((agent) => (
-                    <div
-                      key={agent.name}
-                      className="flex items-center justify-between bg-slate-900/40 border border-slate-800 rounded-xl px-5 py-3"
-                    >
-                      <span className="text-white font-medium">{agent.name}</span>
-                      <div className="flex items-center gap-4">
-                        <span
-                          className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}
-                        >
-                          {statusLabel(agent.status)}
-                        </span>
-                        {agent.model && (
-                          <span className="text-slate-500 text-xs">{agent.model}</span>
-                        )}
-                        {(agent.spawned_at || agent.timestamp) && (
-                          <span className="text-slate-500 text-sm">
-                            {new Date(agent.spawned_at || agent.timestamp!).toLocaleString()}
-                          </span>
+                  {recentAgents.map((agent) => {
+                    const isRecentExpanded = expandedAgent === agent.name;
+                    return (
+                      <div
+                        key={agent.name}
+                        className="bg-slate-900/40 border border-slate-800 rounded-xl px-5 py-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-white font-medium">{agent.name}</span>
+                          <div className="flex items-center gap-4">
+                            <span
+                              className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}
+                            >
+                              {statusLabel(agent.status)}
+                            </span>
+                            {agent.model && (
+                              <span className="text-slate-500 text-xs">{agent.model}</span>
+                            )}
+                            {(agent.spawned_at || agent.timestamp) && (
+                              <span className="text-slate-500 text-sm">
+                                {new Date(agent.spawned_at || agent.timestamp!).toLocaleString()}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => {
+                                if (!isRecentExpanded) fetchMemory(agent.name);
+                                setExpandedAgent(isRecentExpanded ? null : agent.name);
+                              }}
+                              className="text-slate-500 hover:text-slate-300 transition-colors text-xs flex items-center gap-1"
+                            >
+                              <Icon name={isRecentExpanded ? "expand_less" : "memory"} size={16} />
+                              {isRecentExpanded ? "Hide" : "Memory"}
+                            </button>
+                          </div>
+                        </div>
+                        {isRecentExpanded && (
+                          <div className="mt-3 pt-3 border-t border-slate-800">
+                            <AgentMemorySection
+                              agentName={agent.name}
+                              memory={agentMemory[agent.name]}
+                              clearing={memoryClearing[agent.name] || false}
+                              onClear={() => handleClearMemory(agent.name)}
+                            />
+                          </div>
                         )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -1331,6 +1715,233 @@ export default function Agents() {
             </>
           );
         })()}
+
+
+
+
+        {activeTab === "Templates" && (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-white">PM Templates</h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  Ready-made prompts for common PM tasks. Click "Use" to pre-fill the spawn form.
+                </p>
+              </div>
+              <input
+                type="text"
+                value={pmTemplateSearch}
+                onChange={(e) => setPmTemplateSearch(e.target.value)}
+                placeholder="Find a template..."
+                className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 w-48"
+              />
+            </div>
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Built-in</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8" data-testid="pm-builtin-templates">
+              {pmTemplates
+                .filter((t) => t.builtin)
+                .filter(
+                  (t) =>
+                    !pmTemplateSearch ||
+                    t.name.toLowerCase().includes(pmTemplateSearch.toLowerCase()) ||
+                    t.description.toLowerCase().includes(pmTemplateSearch.toLowerCase()),
+                )
+                .map((tpl) => (
+                  <div
+                    key={tpl.id}
+                    className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 flex items-start gap-4 hover:border-slate-700 transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
+                      <Icon name={tpl.icon} className="text-blue-400" size={22} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-medium">{tpl.name}</p>
+                      <p className="text-slate-400 text-xs mt-0.5">{tpl.description}</p>
+                      <div className="mt-2 bg-slate-950/60 rounded px-2 py-1 font-mono text-xs text-slate-300 line-clamp-2">
+                        {tpl.prompt_template}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleUsePmTemplate(tpl)}
+                      className="shrink-0 bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-3 py-1.5 text-sm transition-colors"
+                      data-testid="use-pm-template"
+                    >
+                      Use
+                    </button>
+                  </div>
+                ))}
+            </div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Your templates</h3>
+              <button
+                onClick={() => setPmTemplateEditor({ open: true, template: null, isNew: true })}
+                className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+              >
+                <Icon name="add" size={18} />
+                New template
+              </button>
+            </div>
+            {pmTemplates.filter((t) => !t.builtin).length === 0 ? (
+              <div className="bg-slate-900/20 border border-dashed border-slate-700 rounded-xl p-8 text-center text-slate-500 mb-8">
+                No custom templates yet. Click "New template" to create one.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                {pmTemplates
+                  .filter((t) => !t.builtin)
+                  .filter(
+                    (t) =>
+                      !pmTemplateSearch ||
+                      t.name.toLowerCase().includes(pmTemplateSearch.toLowerCase()) ||
+                      t.description.toLowerCase().includes(pmTemplateSearch.toLowerCase()),
+                  )
+                  .map((tpl) => (
+                    <div
+                      key={tpl.id}
+                      className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 flex items-start gap-4 hover:border-slate-700 transition-colors"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0">
+                        <Icon name={tpl.icon} className="text-purple-400" size={22} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-medium">{tpl.name}</p>
+                        <p className="text-slate-400 text-xs mt-0.5">{tpl.description}</p>
+                        <div className="mt-2 bg-slate-950/60 rounded px-2 py-1 font-mono text-xs text-slate-300 line-clamp-2">
+                          {tpl.prompt_template}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1 shrink-0">
+                        <button
+                          onClick={() => handleUsePmTemplate(tpl)}
+                          className="bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-3 py-1.5 text-sm transition-colors"
+                        >
+                          Use
+                        </button>
+                        <button
+                          onClick={() => setPmTemplateEditor({ open: true, template: tpl, isNew: false })}
+                          className="text-slate-400 hover:text-white rounded-lg px-3 py-1.5 text-sm transition-colors border border-slate-700"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeletePmTemplate(tpl.id)}
+                          className="text-slate-500 hover:text-red-400 rounded-lg px-3 py-1.5 text-sm transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+            {pmTemplateEditor.open && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+                <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-xl">
+                  <h3 className="text-lg font-semibold text-white mb-4">
+                    {pmTemplateEditor.isNew ? "New Template" : "Edit Template"}
+                  </h3>
+                  <PMTemplateEditorForm
+                    initial={pmTemplateEditor.template}
+                    saving={pmTemplateSaving}
+                    onSave={handleSavePmTemplate}
+                    onCancel={() => setPmTemplateEditor({ open: false, template: null, isNew: false })}
+                  />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === "Workspace" && (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                  Shared Workspace
+                  {workspaceMessages.length > 0 && (
+                    <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                      {workspaceMessages.length}
+                    </span>
+                  )}
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  Findings and notes posted by running agents. New agents automatically see this context when they start.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={fetchWorkspace}
+                  disabled={workspaceLoading}
+                  className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Icon name="refresh" size={18} />
+                  Refresh
+                </button>
+                <button
+                  onClick={clearWorkspace}
+                  disabled={workspaceClearing || workspaceMessages.length === 0}
+                  className="text-sm text-red-400 hover:text-red-300 transition-colors flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Icon name="delete_sweep" size={18} />
+                  {workspaceClearing ? "Clearing..." : "Clear workspace"}
+                </button>
+              </div>
+            </div>
+
+            {workspaceLoading && workspaceMessages.length === 0 ? (
+              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
+                Loading...
+              </div>
+            ) : workspaceMessages.length === 0 ? (
+              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
+                No messages yet. Agents post findings here so other agents can pick them up.
+              </div>
+            ) : (() => {
+              const byAgent: Record<string, WorkspaceMessage[]> = {};
+              for (const msg of workspaceMessages) {
+                if (!byAgent[msg.agent_name]) byAgent[msg.agent_name] = [];
+                byAgent[msg.agent_name].push(msg);
+              }
+              const typeColor = (t: string) => {
+                switch (t) {
+                  case "finding": return "bg-yellow-500/20 text-yellow-400";
+                  case "question": return "bg-purple-500/20 text-purple-400";
+                  case "result": return "bg-green-500/20 text-green-400";
+                  case "context": return "bg-blue-500/20 text-blue-400";
+                  default: return "bg-slate-500/20 text-slate-400";
+                }
+              };
+              return (
+                <div className="flex flex-col gap-4">
+                  {Object.entries(byAgent).map(([agentName, msgs]) => (
+                    <div key={agentName} className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Icon name="smart_toy" className="text-pink-400" size={18} />
+                        <span className="text-white font-semibold">{agentName}</span>
+                        <span className="text-xs text-slate-500">{msgs.length} message{msgs.length !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        {msgs.map((msg) => (
+                          <div key={msg.id} className="flex items-start gap-3 bg-slate-950/50 rounded-lg px-3 py-2">
+                            <span className={"text-xs font-bold px-2 py-0.5 rounded shrink-0 mt-0.5 " + typeColor(msg.message_type)}>
+                              {msg.message_type.toUpperCase()}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-slate-200 text-sm">{msg.content}</p>
+                              <p className="text-slate-600 text-xs mt-1">
+                                {new Date(msg.timestamp).toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </>
+        )}
 
         {/* Agent Templates - always visible */}
         <div className="flex items-center justify-between mb-4">

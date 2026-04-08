@@ -4,9 +4,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from models.schemas import AgentSpawn, AgentNudge, GrantApprove, GrantDeny
 from services.ostk import ostk, OstkError
+import services.agent_memory as agent_memory_svc
+
+
+class AgentMemorySave(BaseModel):
+    key: str
+    value: str
+
+
+class AgentComplete(BaseModel):
+    summary: Optional[str] = None
 
 router = APIRouter(tags=["agents"])
 
@@ -315,6 +326,21 @@ async def spawn_agent(body: AgentSpawn):
     transcript_path = PROJECT_ROOT / "transcripts" / f"{body.name}.md"
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Prepend past memory context so the agent picks up where it left off
+    memory_ctx = agent_memory_svc.get_context(body.name)
+    prompt_with_memory = (memory_ctx + body.prompt) if memory_ctx and body.prompt else body.prompt
+
+    # Prepend shared workspace summary so agents can see findings from peers
+    try:
+        from services.agent_workspace import agent_workspace_service as _aws
+        _workspace_summary = _aws.get_summary()
+        if _workspace_summary and prompt_with_memory:
+            prompt_with_memory = _workspace_summary + "\n\n---\n\n" + prompt_with_memory
+        elif _workspace_summary:
+            prompt_with_memory = _workspace_summary
+    except Exception:
+        pass
+
     cmd = [
         CLAUDE_BIN, "--print",
         "--model", model,
@@ -332,9 +358,9 @@ async def spawn_agent(body: AgentSpawn):
             cwd=str(PROJECT_ROOT),
         )
 
-        # Send the prompt to stdin and close it
-        if body.prompt:
-            proc.stdin.write(body.prompt.encode())
+        # Send the prompt (with prepended memory) to stdin and close it
+        if prompt_with_memory:
+            proc.stdin.write(prompt_with_memory.encode())
             await proc.stdin.drain()
         proc.stdin.close()
 
@@ -401,13 +427,23 @@ async def register_agent(body: AgentSpawn):
 
 
 @router.post("/agents/{name}/complete")
-async def mark_agent_complete(name: str):
+async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     """Mark an externally managed agent as completed.
 
     This writes the completion status to the persistent agent metadata store
     so the agent shows as completed in the UI across server restarts, and
     also writes a transcript marker as a belt-and-suspenders signal.
+
+    If ``body.summary`` is provided it is appended to the agent's persistent
+    memory so future sessions can pick up where this one left off.
     """
+    # Save session summary to memory if provided
+    if body and body.summary:
+        try:
+            agent_memory_svc.append_summary(name, body.summary)
+        except Exception:
+            pass
+
     meta = agent_metadata.get(name, {})
     if meta.get("spawned_at"):
         try:
@@ -464,6 +500,27 @@ async def mark_agent_complete(name: str):
         pass
 
     return {"result": f"Agent '{name}' marked complete", "status": "completed"}
+
+
+@router.get("/agents/{name}/memory")
+async def get_agent_memory(name: str):
+    """Return stored memory (facts and session summaries) for an agent."""
+    data = agent_memory_svc.get_memory(name)
+    return {"agent": name, "facts": data.get("facts", {}), "summaries": data.get("summaries", [])}
+
+
+@router.post("/agents/{name}/memory")
+async def save_agent_memory(name: str, body: AgentMemorySave):
+    """Save a key/value fact to an agent's persistent memory."""
+    agent_memory_svc.save_memory(name, body.key, body.value)
+    return {"result": f"Saved memory for '{name}'", "key": body.key}
+
+
+@router.delete("/agents/{name}/memory")
+async def clear_agent_memory(name: str):
+    """Clear all memory for an agent."""
+    agent_memory_svc.clear_memory(name)
+    return {"result": f"Memory cleared for '{name}'"}
 
 
 @router.post("/agents/{name}/kill")
@@ -578,6 +635,50 @@ async def list_templates():
                 "content": content[:500],
             })
     return {"templates": templates}
+
+
+# ── PM Agent Templates (built-in + custom CRUD) ─────────────────────
+
+
+from services.agent_templates_store import agent_templates_store  # noqa: E402
+
+
+@router.get("/agents/pm-templates")
+async def list_pm_templates():
+    """List all PM-focused agent templates (built-ins + custom)."""
+    return {"templates": agent_templates_store.list_all()}
+
+
+@router.post("/agents/pm-templates")
+async def create_pm_template(body: dict):
+    """Create a new custom agent template."""
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    template = agent_templates_store.create(body)
+    return {"template": template}
+
+
+@router.put("/agents/pm-templates/{template_id}")
+async def update_pm_template(template_id: str, body: dict):
+    """Update an existing custom agent template."""
+    if template_id.startswith("builtin-"):
+        raise HTTPException(status_code=400, detail="Built-in templates cannot be edited")
+    updated = agent_templates_store.update(template_id, body)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"template": updated}
+
+
+@router.delete("/agents/pm-templates/{template_id}")
+async def delete_pm_template(template_id: str):
+    """Delete a custom agent template."""
+    if template_id.startswith("builtin-"):
+        raise HTTPException(status_code=400, detail="Built-in templates cannot be deleted")
+    deleted = agent_templates_store.delete(template_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"result": "deleted", "id": template_id}
 
 
 # ── Grants / Permission Requests ────────────────────────────────────
