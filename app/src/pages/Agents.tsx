@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 
-const tabs = ["Active", "Recent", "Metrics", "Templates", "Workspace"];
+const tabs = ["Active", "Permissions", "Delegate", "Recent", "Metrics", "Templates", "Workspace"];
 
 type CustomTemplate = CustomAgentTemplate;
 
