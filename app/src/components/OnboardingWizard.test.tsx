@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import OnboardingWizard from './OnboardingWizard'
 import { useAppStore } from '../stores/app'
 import { api } from '../lib/api'
+import { AGENT_MARKETPLACE } from '../data/agentMarketplace'
 
 // Mock the api module so network calls don't fire
 vi.mock('../lib/api', () => ({
@@ -102,8 +103,8 @@ describe('OnboardingWizard', () => {
   it('shows progress dots equal to the number of steps', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    // 7 steps: Welcome, You, Name, Theme, Connect, Adventure, Ready
-    expect(dots.children).toHaveLength(7)
+    // 8 steps: Welcome, You, Name, Persona, Theme, Connect, Adventure, Ready
+    expect(dots.children).toHaveLength(8)
   })
 
   it('does not show Back button on Welcome step', () => {
@@ -162,13 +163,13 @@ describe('OnboardingWizard', () => {
 
   it('advances to Theme step', () => {
     render(<OnboardingWizard />)
-    clickNext(3) // Welcome -> You -> Name -> Theme
+    clickNext(4) // Welcome -> You -> Name -> Persona -> Theme
     expect(screen.getByTestId('step-theme')).toBeInTheDocument()
   })
 
   it('toggles dark mode on Theme step', () => {
     render(<OnboardingWizard />)
-    clickNext(3)
+    clickNext(4)
 
     // Currently dark. Click Light.
     fireEvent.click(screen.getByTestId('theme-light'))
@@ -181,20 +182,20 @@ describe('OnboardingWizard', () => {
 
   it('advances to Connect step', () => {
     render(<OnboardingWizard />)
-    clickNext(4) // Welcome -> You -> Name -> Theme -> Connect
+    clickNext(5) // Welcome -> You -> Name -> Persona -> Theme -> Connect
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
   })
 
   it('shows Anthropic connect option by default', () => {
     render(<OnboardingWizard />)
-    clickNext(4)
+    clickNext(5)
     expect(screen.getByTestId('connect-anthropic')).toBeInTheDocument()
     expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
   })
 
   it('switches provider when Gemini is selected', () => {
     render(<OnboardingWizard />)
-    clickNext(4)
+    clickNext(5)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     // Anthropic connect button should no longer be visible
     expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
@@ -202,7 +203,7 @@ describe('OnboardingWizard', () => {
 
   it('advances to Adventure step', async () => {
     render(<OnboardingWizard />)
-    clickNext(5) // Welcome -> You -> Name -> Theme -> Connect -> Adventure
+    clickNext(6) // Welcome -> You -> Name -> Persona -> Theme -> Connect -> Adventure
     expect(screen.getByTestId('step-adventure')).toBeInTheDocument()
     await waitFor(() => {
       expect(screen.getByTestId('adventure-phase-pick')).toBeInTheDocument()
@@ -211,7 +212,7 @@ describe('OnboardingWizard', () => {
 
   it('advances to Ready step with summary', () => {
     render(<OnboardingWizard />)
-    clickNext(6) // Welcome -> You -> Name -> Theme -> Connect -> Adventure -> Ready
+    clickNext(7) // Welcome -> You -> Name -> Persona -> Theme -> Connect -> Adventure -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     expect(screen.getByTestId('summary-os-name')).toHaveTextContent('myOS')
@@ -221,21 +222,21 @@ describe('OnboardingWizard', () => {
 
   it('does not show Skip button on Ready step', () => {
     render(<OnboardingWizard />)
-    clickNext(6)
+    clickNext(7)
 
     expect(screen.queryByTestId('skip-button')).not.toBeInTheDocument()
   })
 
   it('shows "Get started" button on Ready step', () => {
     render(<OnboardingWizard />)
-    clickNext(6)
+    clickNext(7)
 
     expect(screen.getByTestId('finish-button')).toHaveTextContent('Get started')
   })
 
   it('sets onboarded to true and persists to localStorage when finished', () => {
     render(<OnboardingWizard />)
-    clickNext(6)
+    clickNext(7)
     fireEvent.click(screen.getByTestId('finish-button'))
 
     expect(useAppStore.getState().onboarded).toBe(true)
@@ -256,14 +257,14 @@ describe('OnboardingWizard', () => {
 
   it('does not show Back button on Ready step', () => {
     render(<OnboardingWizard />)
-    clickNext(6)
+    clickNext(7)
 
     expect(screen.queryByTestId('back-button')).not.toBeInTheDocument()
   })
 
   it('Connect step is skippable', async () => {
     render(<OnboardingWizard />)
-    clickNext(4) // Get to Connect step
+    clickNext(5) // Get to Connect step
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
     // Skip button should be available
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
@@ -273,7 +274,7 @@ describe('OnboardingWizard', () => {
 
   it('Adventure step is skippable', () => {
     render(<OnboardingWizard />)
-    clickNext(5) // Get to Adventure step
+    clickNext(6) // Get to Adventure step
     expect(screen.getByTestId('step-adventure')).toBeInTheDocument()
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('skip-button'))
@@ -282,7 +283,7 @@ describe('OnboardingWizard', () => {
 
   it('Adventure picker fetches templates from /adventures/templates', async () => {
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith('/adventures/templates')
     })
@@ -290,7 +291,7 @@ describe('OnboardingWizard', () => {
 
   it('Adventure picker shows all four cards', async () => {
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
 
     await waitFor(() => {
       expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
@@ -302,7 +303,7 @@ describe('OnboardingWizard', () => {
 
   it('clicking an adventure card moves to the describe phase', async () => {
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
 
     await waitFor(() => {
       expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
@@ -316,7 +317,7 @@ describe('OnboardingWizard', () => {
 
   it('describe phase shows the placeholder for the chosen adventure', async () => {
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
 
     await waitFor(() => {
       expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
@@ -329,7 +330,7 @@ describe('OnboardingWizard', () => {
 
   it('back-to-pick button returns to the picker', async () => {
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
 
     await waitFor(() => {
       expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
@@ -343,7 +344,7 @@ describe('OnboardingWizard', () => {
 
   it('adventure submit is disabled when description is empty', async () => {
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
 
     await waitFor(() => {
       expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
@@ -356,7 +357,7 @@ describe('OnboardingWizard', () => {
   it('adventure submit is enabled when description is entered', async () => {
     const user = userEvent.setup()
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
 
     await waitFor(() => {
       expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
@@ -375,7 +376,7 @@ describe('OnboardingWizard', () => {
     )
 
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
 
     await waitFor(() => {
       expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
@@ -409,7 +410,7 @@ describe('OnboardingWizard', () => {
     vi.mocked(api.post).mockResolvedValueOnce(mockResult)
 
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
 
     await waitFor(() => {
       expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
@@ -435,7 +436,7 @@ describe('OnboardingWizard', () => {
     vi.mocked(api.post).mockRejectedValueOnce(new Error('fail'))
 
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
 
     await waitFor(() => {
       expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
@@ -459,7 +460,7 @@ describe('OnboardingWizard', () => {
     })
 
     render(<OnboardingWizard />)
-    clickNext(5)
+    clickNext(6)
 
     await waitFor(() => {
       expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
@@ -473,5 +474,97 @@ describe('OnboardingWizard', () => {
       adventure_id: 'build_website',
       description: 'A recipe site',
     })
+  })
+
+  /* ---- Persona step ---- */
+
+  it('advances to Persona step', () => {
+    render(<OnboardingWizard />)
+    clickNext(3) // Welcome -> You -> Name -> Persona
+    expect(screen.getByText('How will you use myOS?')).toBeInTheDocument()
+  })
+
+  it('Persona step shows all 7 category names', () => {
+    render(<OnboardingWizard />)
+    clickNext(3)
+
+    for (const cat of AGENT_MARKETPLACE) {
+      expect(screen.getByText(cat.category)).toBeInTheDocument()
+    }
+  })
+
+  it('Persona step is skippable', () => {
+    render(<OnboardingWizard />)
+    clickNext(3)
+    expect(screen.getByTestId('skip-button')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('skip-button'))
+    expect(screen.getByTestId('step-theme')).toBeInTheDocument()
+  })
+
+  it('clicking a persona populates customAgentTemplates with that category templates', () => {
+    const setCustomAgentTemplates = vi.fn()
+    useAppStore.setState({ setCustomAgentTemplates } as Partial<ReturnType<typeof useAppStore.getState>>)
+
+    render(<OnboardingWizard />)
+    clickNext(3)
+
+    const engineerCat = AGENT_MARKETPLACE.find((c) => c.id === 'engineer')!
+    fireEvent.click(screen.getByText(engineerCat.category))
+
+    expect(setCustomAgentTemplates).toHaveBeenCalledTimes(1)
+    const templatesArg = setCustomAgentTemplates.mock.calls[0][0]
+    expect(templatesArg).toHaveLength(engineerCat.templates.length)
+    // Each call template should match name, description, icon, model, budget
+    for (let i = 0; i < engineerCat.templates.length; i++) {
+      const expected = engineerCat.templates[i]
+      const actual = templatesArg[i]
+      expect(actual.name).toBe(expected.name)
+      expect(actual.description).toBe(expected.description)
+      expect(actual.icon).toBe(expected.icon)
+      expect(actual.model).toBe(expected.model)
+      expect(actual.budget).toBe(expected.budget)
+    }
+  })
+
+  it('clicking the same persona twice does not accumulate duplicates', () => {
+    const setCustomAgentTemplates = vi.fn()
+    useAppStore.setState({ setCustomAgentTemplates } as Partial<ReturnType<typeof useAppStore.getState>>)
+
+    render(<OnboardingWizard />)
+    clickNext(3)
+
+    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
+    fireEvent.click(screen.getByText(pmCat.category))
+    fireEvent.click(screen.getByText(pmCat.category))
+
+    // Each click sends the full category templates list, not appended
+    expect(setCustomAgentTemplates).toHaveBeenCalledTimes(2)
+    const lastCall = setCustomAgentTemplates.mock.calls[1][0]
+    expect(lastCall).toHaveLength(pmCat.templates.length)
+    // Final state matches the picked category
+    const lastNames = lastCall.map((t: { name: string }) => t.name).sort()
+    const expectedNames = pmCat.templates.map((t) => t.name).sort()
+    expect(lastNames).toEqual(expectedNames)
+  })
+
+  it('clicking a persona visually marks it as picked', () => {
+    render(<OnboardingWizard />)
+    clickNext(3)
+
+    const writerCat = AGENT_MARKETPLACE.find((c) => c.id === 'writer')!
+    const cardText = screen.getByText(writerCat.category)
+    // Find the closest button ancestor
+    const card = cardText.closest('button')!
+    expect(card).not.toBeNull()
+    // Before click, no blue background
+    expect(card.className).not.toContain('bg-blue-500/20')
+
+    fireEvent.click(card)
+
+    // After click, the card should have the picked styling
+    const cardAfter = screen.getByText(writerCat.category).closest('button')!
+    expect(cardAfter.className).toContain('bg-blue-500/20')
+    // And the check_circle icon should appear inside the card
+    expect(cardAfter.querySelector('.material-symbols-outlined')).not.toBeNull()
   })
 })
