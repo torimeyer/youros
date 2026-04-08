@@ -25,6 +25,7 @@ from services.google_auth import (
     get_auth_url,
     get_credentials,
     get_email,
+    has_write_scope,
     is_authenticated,
     revoke,
 )
@@ -99,14 +100,21 @@ async def drive_upload_credentials(file: UploadFile = File(...)):
 
 @router.get("/drive/auth/status")
 async def drive_auth_status():
-    """Return whether the user has connected their Google account."""
+    """Return whether the user has connected their Google account.
+
+    Also surfaces needs_reauth=True when the account is connected but the
+    drive.file scope (required for uploads) is missing from the saved token.
+    The user must reconnect their Google account to grant the new permission.
+    """
     authed = is_authenticated()
     email = get_email() if authed else None
     has_creds = credentials_file_exists()
+    needs_reauth = authed and not has_write_scope()
     return {
         "authenticated": authed,
         "email": email,
         "credentials_file_present": has_creds,
+        "needs_reauth": needs_reauth,
     }
 
 
@@ -334,6 +342,214 @@ async def drive_sync():
         ) from exc
 
     return {"ok": True, "file_count": len(files), "synced_at": time.time()}
+
+
+# ---------------------------------------------------------------------------
+# Write endpoints (requires drive.file scope)
+# ---------------------------------------------------------------------------
+
+# Name of the folder myOS creates in the user's Drive root for uploads.
+_MYOS_FOLDER_NAME = "myOS"
+
+
+async def _get_or_create_myos_folder() -> str:
+    """Return the Drive ID of the myOS folder, creating it if it doesn't exist."""
+    import asyncio
+
+    def _call():
+        service = _build_drive_service()
+        # Search for an existing myOS folder in root.
+        results = (
+            service.files()
+            .list(
+                q=(
+                    f"name = '{_MYOS_FOLDER_NAME}' "
+                    "and mimeType = 'application/vnd.google-apps.folder' "
+                    "and trashed = false"
+                ),
+                fields="files(id,name)",
+                pageSize=1,
+            )
+            .execute()
+        )
+        existing = results.get("files", [])
+        if existing:
+            return existing[0]["id"]
+
+        # Create the folder.
+        meta = {
+            "name": _MYOS_FOLDER_NAME,
+            "mimeType": "application/vnd.google-apps.folder",
+        }
+        folder = (
+            service.files()
+            .create(body=meta, fields="id")
+            .execute()
+        )
+        return folder["id"]
+
+    return await asyncio.get_event_loop().run_in_executor(None, _call)
+
+
+@router.post("/drive/files/upload")
+async def drive_upload_file(file: UploadFile = File(...)):
+    """Upload a file to the myOS folder in Google Drive.
+
+    Creates the myOS folder if it doesn't already exist.
+    Returns the new file's id, name, and a link to open it in Drive.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Google Drive.")
+    if not has_write_scope():
+        raise HTTPException(
+            status_code=403,
+            detail="Upload permission not granted. Please reconnect your Google account.",
+        )
+
+    import asyncio
+    import io
+
+    content = await file.read()
+    filename = file.filename or "uploaded-file"
+    mime_type = file.content_type or "application/octet-stream"
+
+    try:
+        folder_id = await _get_or_create_myos_folder()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not access the myOS folder in Drive: {exc}",
+        ) from exc
+
+    def _call():
+        from googleapiclient.http import MediaIoBaseUpload
+
+        service = _build_drive_service()
+        media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime_type, resumable=False)
+        meta = {"name": filename, "parents": [folder_id]}
+        result = (
+            service.files()
+            .create(
+                body=meta,
+                media_body=media,
+                fields="id,name,webViewLink",
+            )
+            .execute()
+        )
+        return result
+
+    try:
+        created = await asyncio.get_event_loop().run_in_executor(None, _call)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not upload the file to Drive: {exc}",
+        ) from exc
+
+    # Bust the file list cache so the new file appears immediately.
+    try:
+        await _sync_file_list()
+    except Exception:
+        pass
+
+    return {
+        "id": created.get("id"),
+        "name": created.get("name"),
+        "webViewLink": created.get("webViewLink"),
+    }
+
+
+from pydantic import BaseModel
+
+
+class FolderCreateBody(BaseModel):
+    name: str
+
+
+@router.post("/drive/folders")
+async def drive_create_folder(body: FolderCreateBody):
+    """Create a new folder in Google Drive.
+
+    Returns the new folder's id and name.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Google Drive.")
+    if not has_write_scope():
+        raise HTTPException(
+            status_code=403,
+            detail="Upload permission not granted. Please reconnect your Google account.",
+        )
+
+    import asyncio
+
+    folder_name = body.name.strip()
+    if not folder_name:
+        raise HTTPException(status_code=400, detail="Folder name cannot be empty.")
+
+    def _call():
+        service = _build_drive_service()
+        meta = {
+            "name": folder_name,
+            "mimeType": "application/vnd.google-apps.folder",
+        }
+        result = (
+            service.files()
+            .create(body=meta, fields="id,name,webViewLink")
+            .execute()
+        )
+        return result
+
+    try:
+        created = await asyncio.get_event_loop().run_in_executor(None, _call)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not create folder in Drive: {exc}",
+        ) from exc
+
+    return {
+        "id": created.get("id"),
+        "name": created.get("name"),
+        "webViewLink": created.get("webViewLink"),
+    }
+
+
+@router.delete("/drive/files/{file_id}")
+async def drive_delete_file(file_id: str):
+    """Move a file to the Drive trash.
+
+    Only works on files that myOS created (drive.file scope restriction).
+    Returns {ok: true} on success.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Google Drive.")
+    if not has_write_scope():
+        raise HTTPException(
+            status_code=403,
+            detail="Delete permission not granted. Please reconnect your Google account.",
+        )
+
+    import asyncio
+
+    def _call():
+        service = _build_drive_service()
+        service.files().update(fileId=file_id, body={"trashed": True}).execute()
+
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _call)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not move the file to trash: {exc}",
+        ) from exc
+
+    # Bust the file list cache.
+    try:
+        await _sync_file_list()
+    except Exception:
+        pass
+
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

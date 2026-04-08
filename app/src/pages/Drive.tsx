@@ -11,6 +11,7 @@ interface AuthStatus {
   authenticated: boolean;
   email: string | null;
   credentials_file_present: boolean;
+  needs_reauth: boolean;
 }
 
 interface DriveFile {
@@ -293,7 +294,7 @@ function ConnectScreen({
         </a>
 
         <p className="text-slate-600 text-xs mt-3">
-          Only your file list and selected previews are accessed. myOS never modifies your Drive.
+          myOS can browse, preview, and upload files to a dedicated "myOS" folder in your Drive. It cannot access or modify files you did not upload through myOS.
         </p>
       </div>
     </div>
@@ -502,6 +503,32 @@ export default function Drive() {
   const [connectBanner, setConnectBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const handleUpload = async (file: File) => {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const resp = await fetch('/api/drive/files/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail ?? 'Upload failed. Please try again.');
+      }
+      await fetchFiles(search || undefined);
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
+    } finally {
+      setUploading(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = '';
+    }
+  };
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -509,7 +536,7 @@ export default function Drive() {
       setAuthStatus(status);
       return status;
     } catch {
-      setAuthStatus({ authenticated: false, email: null, credentials_file_present: false });
+      setAuthStatus({ authenticated: false, email: null, credentials_file_present: false, needs_reauth: false });
       return null;
     }
   }, []);
@@ -583,7 +610,7 @@ export default function Drive() {
   const handleDisconnect = async () => {
     try {
       await api.post('/drive/auth/revoke');
-      setAuthStatus({ authenticated: false, email: null, credentials_file_present: true });
+      setAuthStatus({ authenticated: false, email: null, credentials_file_present: true, needs_reauth: false });
       setFiles([]);
       setPreviewFile(null);
     } catch {
@@ -644,6 +671,31 @@ export default function Drive() {
         {/* Authenticated view */}
         {authStatus?.authenticated && (
           <>
+            {/* Reconnect banner — shown when drive.file scope is missing */}
+            {authStatus.needs_reauth && (
+              <div className="flex items-center justify-between gap-3 p-4 rounded-lg mb-5 text-sm bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                <div className="flex items-center gap-2">
+                  <Icon name="warning" size={18} />
+                  <span>
+                    Reconnect your Google account to enable file uploads.
+                  </span>
+                </div>
+                <button
+                  onClick={async () => {
+                    try {
+                      const { url } = await api.get<{ url: string }>('/drive/auth/url');
+                      window.location.href = url;
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  className="flex-shrink-0 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 rounded-lg text-amber-200 font-medium text-xs transition-colors"
+                >
+                  Reconnect
+                </button>
+              </div>
+            )}
+
             {/* Account + sync bar */}
             <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
               <div className="flex items-center gap-2 text-sm text-slate-400">
@@ -661,9 +713,46 @@ export default function Drive() {
                 {syncError && (
                   <span className="text-xs text-red-400">{syncError}</span>
                 )}
+                {uploadError && (
+                  <span className="text-xs text-red-400">{uploadError}</span>
+                )}
                 <span className="text-xs text-slate-600">
                   {syncTimeLabel(lastSyncedAt)}
                 </span>
+
+                {/* Upload file button */}
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  className="hidden"
+                  aria-label="Select file to upload to Drive"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleUpload(f);
+                  }}
+                />
+                <button
+                  onClick={() => uploadInputRef.current?.click()}
+                  disabled={uploading || authStatus.needs_reauth}
+                  title={authStatus.needs_reauth ? 'Reconnect your account to enable uploads' : 'Upload a file to Drive'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/80 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm text-white transition-colors border border-blue-500/50"
+                >
+                  {uploading ? (
+                    <>
+                      <span
+                        className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"
+                        role="status"
+                      />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="upload" className="text-base" />
+                      Upload to Drive
+                    </>
+                  )}
+                </button>
+
                 <button
                   onClick={handleSync}
                   disabled={syncing}
@@ -737,9 +826,10 @@ export default function Drive() {
 
             {files.length > 0 && (
               <div className="flex flex-col gap-1">
-                <div className="grid grid-cols-[1fr_120px_80px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                <div className="grid grid-cols-[1fr_120px_auto_80px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
                   <span>Name</span>
                   <span>Type</span>
+                  <span></span>
                   <span className="text-right">Modified</span>
                 </div>
 
@@ -747,26 +837,43 @@ export default function Drive() {
                   const { icon, color } = mimeIcon(file.mimeType);
                   const isSelected = previewFile?.id === file.id;
                   return (
-                    <button
+                    <div
                       key={file.id}
-                      onClick={() => setPreviewFile(file)}
-                      className={`grid grid-cols-[1fr_120px_80px] gap-4 items-center border rounded-lg px-4 py-3 transition-colors cursor-pointer text-left w-full ${
+                      className={`grid grid-cols-[1fr_120px_auto_80px] gap-4 items-center border rounded-lg px-4 py-3 transition-colors ${
                         isSelected
                           ? 'bg-blue-600/10 border-blue-500/50'
                           : 'bg-slate-900/60 border-slate-800 hover:border-blue-500/30 hover:bg-slate-800/60'
                       }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      <button
+                        onClick={() => setPreviewFile(file)}
+                        className="flex items-center gap-3 min-w-0 cursor-pointer text-left"
+                      >
                         <Icon name={icon} className={`text-xl ${color} flex-shrink-0`} />
                         <span className="text-sm truncate text-slate-100">{file.name}</span>
-                      </div>
+                      </button>
                       <span className="text-xs text-slate-400 truncate">
                         {mimeLabel(file.mimeType)}
                       </span>
+                      {file.webViewLink ? (
+                        <a
+                          href={file.webViewLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-400 transition-colors whitespace-nowrap"
+                          title="Open in Google Drive"
+                        >
+                          <Icon name="open_in_new" size={12} />
+                          Open
+                        </a>
+                      ) : (
+                        <span />
+                      )}
                       <span className="text-xs text-slate-500 text-right">
                         {timeAgo(file.modifiedTime)}
                       </span>
-                    </button>
+                    </div>
                   );
                 })}
 

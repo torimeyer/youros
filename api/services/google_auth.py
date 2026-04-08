@@ -19,7 +19,10 @@ DRIVE_CACHE_DIR = MYOS_DIR / "drive_cache"
 
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.modify",
 ]
 
 # Redirect URI used during the OAuth flow.  The backend serves the callback.
@@ -184,6 +187,23 @@ def get_email() -> str | None:
         return tokens.get("email")
     except Exception:
         return None
+
+
+def has_write_scope() -> bool:
+    """Return True if the stored token includes the drive.file write scope.
+
+    The token must contain a 'scope' field (Google includes this in the
+    token response).  If the field is missing we assume the old token does
+    not have write access and the user needs to reconnect.
+    """
+    if not TOKEN_PATH.exists():
+        return False
+    try:
+        tokens = json.loads(TOKEN_PATH.read_text())
+        scope_str = tokens.get("scope", "")
+        return "drive.file" in scope_str
+    except Exception:
+        return False
 
 
 def revoke() -> None:

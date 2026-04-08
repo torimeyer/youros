@@ -606,3 +606,268 @@ async def test_drive_auth_status_includes_credentials_present_field(client, tmp_
         resp2 = await client.get("/api/drive/auth/status")
 
     assert resp2.json()["credentials_file_present"] is True
+
+
+# ---------------------------------------------------------------------------
+# needs_reauth flag
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_status_needs_reauth_missing_scope(client, tmp_path):
+    """When the token lacks the drive.file scope, needs_reauth should be True."""
+    token_path = tmp_path / "google_token.json"
+    # Token without drive.file scope in the 'scope' field.
+    token_path.write_text(
+        json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/drive.readonly"})
+    )
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text("{}")
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+    ):
+        resp = await client.get("/api/drive/auth/status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["authenticated"] is True
+    assert data["needs_reauth"] is True
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_status_no_reauth_when_scope_present(client, tmp_path):
+    """When the token includes drive.file scope, needs_reauth should be False."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({
+            "access_token": "ya29.test",
+            "scope": (
+                "https://www.googleapis.com/auth/drive.readonly "
+                "https://www.googleapis.com/auth/drive.file"
+            ),
+        })
+    )
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text("{}")
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+    ):
+        resp = await client.get("/api/drive/auth/status")
+
+    assert resp.status_code == 200
+    assert resp.json()["needs_reauth"] is False
+
+
+# ---------------------------------------------------------------------------
+# Upload endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drive_upload_not_authenticated(client, tmp_path):
+    """Upload should return 401 when not authenticated."""
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.post(
+            "/api/drive/files/upload",
+            files={"file": ("test.txt", b"hello", "text/plain")},
+        )
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_drive_upload_no_write_scope(client, tmp_path):
+    """Upload should return 403 when the drive.file scope is missing."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/drive.readonly"})
+    )
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.post(
+            "/api/drive/files/upload",
+            files={"file": ("test.txt", b"hello", "text/plain")},
+        )
+
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_drive_upload_success(client, tmp_path):
+    """A valid upload should call the Drive API and return the new file's metadata."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({
+            "access_token": "ya29.test",
+            "scope": "https://www.googleapis.com/auth/drive.file",
+        })
+    )
+
+    fake_created = {
+        "id": "new-file-id",
+        "name": "test.txt",
+        "webViewLink": "https://drive.google.com/file/d/new-file-id/view",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_or_create_myos_folder", new=AsyncMock(return_value="folder-id")),
+        patch("routers.drive._sync_file_list", new=AsyncMock(return_value=[])),
+        patch("routers.drive._build_drive_service") as mock_svc,
+    ):
+        mock_files = MagicMock()
+        mock_files.create.return_value.execute.return_value = fake_created
+        mock_svc.return_value.files.return_value = mock_files
+
+        resp = await client.post(
+            "/api/drive/files/upload",
+            files={"file": ("test.txt", b"hello world", "text/plain")},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == "new-file-id"
+    assert data["name"] == "test.txt"
+    assert "webViewLink" in data
+
+
+# ---------------------------------------------------------------------------
+# Create folder endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drive_create_folder_not_authenticated(client, tmp_path):
+    """Create folder should return 401 when not authenticated."""
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.post("/api/drive/folders", json={"name": "My Folder"})
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_drive_create_folder_no_write_scope(client, tmp_path):
+    """Create folder should return 403 when the drive.file scope is missing."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/drive.readonly"})
+    )
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.post("/api/drive/folders", json={"name": "My Folder"})
+
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_drive_create_folder_empty_name(client, tmp_path):
+    """Create folder should return 400 when name is empty."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({
+            "access_token": "ya29.test",
+            "scope": "https://www.googleapis.com/auth/drive.file",
+        })
+    )
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.post("/api/drive/folders", json={"name": "   "})
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_drive_create_folder_success(client, tmp_path):
+    """Create folder should call Drive API and return folder metadata."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({
+            "access_token": "ya29.test",
+            "scope": "https://www.googleapis.com/auth/drive.file",
+        })
+    )
+
+    fake_folder = {
+        "id": "folder-xyz",
+        "name": "My Folder",
+        "webViewLink": "https://drive.google.com/drive/folders/folder-xyz",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._build_drive_service") as mock_svc,
+    ):
+        mock_files = MagicMock()
+        mock_files.create.return_value.execute.return_value = fake_folder
+        mock_svc.return_value.files.return_value = mock_files
+
+        resp = await client.post("/api/drive/folders", json={"name": "My Folder"})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == "folder-xyz"
+    assert data["name"] == "My Folder"
+
+
+# ---------------------------------------------------------------------------
+# Delete (trash) endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drive_delete_not_authenticated(client, tmp_path):
+    """Delete should return 401 when not authenticated."""
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.delete("/api/drive/files/some-id")
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_drive_delete_no_write_scope(client, tmp_path):
+    """Delete should return 403 when the drive.file scope is missing."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/drive.readonly"})
+    )
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.delete("/api/drive/files/some-id")
+
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_drive_delete_success(client, tmp_path):
+    """Delete should move the file to trash and return ok=true."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({
+            "access_token": "ya29.test",
+            "scope": "https://www.googleapis.com/auth/drive.file",
+        })
+    )
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._sync_file_list", new=AsyncMock(return_value=[])),
+        patch("routers.drive._build_drive_service") as mock_svc,
+    ):
+        mock_files = MagicMock()
+        mock_files.update.return_value.execute.return_value = {}
+        mock_svc.return_value.files.return_value = mock_files
+
+        resp = await client.delete("/api/drive/files/file-to-delete")
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True

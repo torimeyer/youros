@@ -59,6 +59,14 @@ function dayLabel(dateStr: string): string {
   return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+function isWithin24Hours(ev: CalendarEvent): boolean {
+  const startStr = ev.start?.dateTime || ev.start?.date
+  if (!startStr) return false
+  const start = new Date(startStr).getTime()
+  const now = Date.now()
+  return start > now && start - now <= 24 * 60 * 60 * 1000
+}
+
 function isNowInEvent(ev: CalendarEvent): boolean {
   const startStr = ev.start?.dateTime
   const endStr = ev.end?.dateTime
@@ -80,6 +88,9 @@ export default function Calendar() {
   const [syncing, setSyncing] = useState(false)
   const [lastSynced, setLastSynced] = useState<Date | null>(null)
   const [createTaskStatus, setCreateTaskStatus] = useState<Record<string, 'loading' | 'done' | 'error'>>({})
+  const [prepStatus, setPrepStatus] = useState<Record<string, 'loading' | 'done' | 'error'>>({})
+  const [prepBriefings, setPrepBriefings] = useState<Record<string, string>>({})
+  const [expandedPrep, setExpandedPrep] = useState<Record<string, boolean>>({})
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -154,6 +165,27 @@ export default function Calendar() {
       setCreateTaskStatus((prev) => ({ ...prev, [eventId]: 'done' }))
     } catch {
       setCreateTaskStatus((prev) => ({ ...prev, [eventId]: 'error' }))
+    }
+  }
+
+  const handlePrep = async (ev: CalendarEvent) => {
+    const eventId = ev.id
+    // Toggle: if briefing already loaded, expand/collapse.
+    if (prepBriefings[eventId]) {
+      setExpandedPrep((prev) => ({ ...prev, [eventId]: !prev[eventId] }))
+      return
+    }
+    setPrepStatus((prev) => ({ ...prev, [eventId]: 'loading' }))
+    try {
+      const res = await api.post<{ briefing: string; event_title: string }>(
+        '/meeting-prep',
+        { event_id: eventId },
+      )
+      setPrepBriefings((prev) => ({ ...prev, [eventId]: res.briefing }))
+      setExpandedPrep((prev) => ({ ...prev, [eventId]: true }))
+      setPrepStatus((prev) => ({ ...prev, [eventId]: 'done' }))
+    } catch {
+      setPrepStatus((prev) => ({ ...prev, [eventId]: 'error' }))
     }
   }
 
@@ -271,59 +303,94 @@ export default function Calendar() {
                 const duration = formatDuration(ev.start?.dateTime, ev.end?.dateTime)
                 const inProgress = isNowInEvent(ev)
                 const taskState = createTaskStatus[ev.id]
+                const within24h = isWithin24Hours(ev) || inProgress
+                const pStatus = prepStatus[ev.id]
+                const briefing = prepBriefings[ev.id]
+                const expanded = expandedPrep[ev.id]
                 return (
-                  <div
-                    key={ev.id}
-                    className={`flex items-start gap-4 p-3 rounded-xl border transition-colors ${
-                      inProgress
-                        ? 'border-blue-500/50 bg-blue-500/10'
-                        : 'border-slate-800 bg-slate-900/30'
-                    }`}
-                  >
-                    <div className="min-w-[72px] text-right shrink-0">
-                      <p className="text-sm font-medium text-slate-200">{startTime}</p>
-                      {duration && <p className="text-xs text-slate-500">{duration}</p>}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-sm truncate">{ev.summary || 'Untitled'}</p>
-                        {inProgress && (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded-full shrink-0">
-                            Now
-                          </span>
+                  <div key={ev.id} className="space-y-2">
+                    <div
+                      className={`flex items-start gap-4 p-3 rounded-xl border transition-colors ${
+                        inProgress
+                          ? 'border-blue-500/50 bg-blue-500/10'
+                          : 'border-slate-800 bg-slate-900/30'
+                      }`}
+                    >
+                      <div className="min-w-[72px] text-right shrink-0">
+                        <p className="text-sm font-medium text-slate-200">{startTime}</p>
+                        {duration && <p className="text-xs text-slate-500">{duration}</p>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-sm truncate">{ev.summary || 'Untitled'}</p>
+                          {inProgress && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded-full shrink-0">
+                              Now
+                            </span>
+                          )}
+                        </div>
+                        {ev.location && (
+                          <p className="text-xs text-slate-400 truncate mt-0.5">{ev.location}</p>
                         )}
                       </div>
-                      {ev.location && (
-                        <p className="text-xs text-slate-400 truncate mt-0.5">{ev.location}</p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {ev.hangoutLink && (
-                        <a
-                          href={ev.hangoutLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-400 rounded-lg text-xs hover:bg-green-500/30 transition-colors"
-                        >
-                          <Icon name="video_call" size={14} />
-                          Meet
-                        </a>
-                      )}
-                      <button
-                        onClick={() => handleCreateTask(ev, 'Today', startTime)}
-                        disabled={taskState === 'loading' || taskState === 'done'}
-                        className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs transition-colors disabled:opacity-50"
-                        title="Create a prep task"
-                      >
-                        {taskState === 'done' ? (
-                          <><Icon name="check" size={14} className="text-green-400" /> Done</>
-                        ) : taskState === 'error' ? (
-                          <><Icon name="error" size={14} className="text-red-400" /> Error</>
-                        ) : (
-                          <><Icon name="add_task" size={14} /> Task</>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {ev.hangoutLink && (
+                          <a
+                            href={ev.hangoutLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-400 rounded-lg text-xs hover:bg-green-500/30 transition-colors"
+                          >
+                            <Icon name="video_call" size={14} />
+                            Meet
+                          </a>
                         )}
-                      </button>
+                        {within24h && (
+                          <button
+                            onClick={() => handlePrep(ev)}
+                            disabled={pStatus === 'loading'}
+                            className="flex items-center gap-1 px-2 py-1 bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 rounded-lg text-xs transition-colors disabled:opacity-50"
+                            title="Get ready for this meeting"
+                          >
+                            {pStatus === 'loading' ? (
+                              <><Icon name="progress_activity" size={14} className="animate-spin" /> Getting ready...</>
+                            ) : pStatus === 'error' ? (
+                              <><Icon name="error" size={14} className="text-red-400" /> Error</>
+                            ) : briefing ? (
+                              <><Icon name="auto_awesome" size={14} /> {expanded ? 'Hide' : 'Prep'}</>
+                            ) : (
+                              <><Icon name="auto_awesome" size={14} /> Prep</>
+                            )}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleCreateTask(ev, 'Today', startTime)}
+                          disabled={taskState === 'loading' || taskState === 'done'}
+                          className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs transition-colors disabled:opacity-50"
+                          title="Create a prep task"
+                        >
+                          {taskState === 'done' ? (
+                            <><Icon name="check" size={14} className="text-green-400" /> Done</>
+                          ) : taskState === 'error' ? (
+                            <><Icon name="error" size={14} className="text-red-400" /> Error</>
+                          ) : (
+                            <><Icon name="add_task" size={14} /> Task</>
+                          )}
+                        </button>
+                      </div>
                     </div>
+                    {briefing && expanded && (
+                      <div className="ml-[88px] bg-violet-500/10 border border-violet-500/20 rounded-xl p-3 space-y-2">
+                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(briefing)}
+                          className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+                        >
+                          <Icon name="content_copy" size={12} />
+                          Copy
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -345,47 +412,81 @@ export default function Calendar() {
                       const startTime = formatTime(ev.start?.dateTime)
                       const duration = formatDuration(ev.start?.dateTime, ev.end?.dateTime)
                       const taskState = createTaskStatus[ev.id]
+                      const within24h = isWithin24Hours(ev)
+                      const pStatus = prepStatus[ev.id]
+                      const briefing = prepBriefings[ev.id]
+                      const expanded = expandedPrep[ev.id]
                       return (
-                        <div
-                          key={ev.id}
-                          className="flex items-start gap-3 p-2.5 rounded-lg border border-slate-800/50 bg-slate-900/20"
-                        >
-                          <div className="min-w-[64px] text-right shrink-0">
-                            <p className="text-xs font-medium text-slate-300">{startTime}</p>
-                            {duration && <p className="text-[10px] text-slate-500">{duration}</p>}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm truncate">{ev.summary || 'Untitled'}</p>
-                            {ev.location && (
-                              <p className="text-xs text-slate-500 truncate">{ev.location}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {ev.hangoutLink && (
-                              <a
-                                href={ev.hangoutLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded text-xs hover:bg-green-500/30 transition-colors"
-                              >
-                                <Icon name="video_call" size={12} />
-                                Meet
-                              </a>
-                            )}
-                            <button
-                              onClick={() => handleCreateTask(ev, label, startTime)}
-                              disabled={taskState === 'loading' || taskState === 'done'}
-                              className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-xs transition-colors disabled:opacity-50"
-                              title="Create a prep task"
-                            >
-                              {taskState === 'done' ? (
-                                <Icon name="check" size={12} className="text-green-400" />
-                              ) : (
-                                <Icon name="add_task" size={12} />
+                        <div key={ev.id} className="space-y-1.5">
+                          <div
+                            className="flex items-start gap-3 p-2.5 rounded-lg border border-slate-800/50 bg-slate-900/20"
+                          >
+                            <div className="min-w-[64px] text-right shrink-0">
+                              <p className="text-xs font-medium text-slate-300">{startTime}</p>
+                              {duration && <p className="text-[10px] text-slate-500">{duration}</p>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm truncate">{ev.summary || 'Untitled'}</p>
+                              {ev.location && (
+                                <p className="text-xs text-slate-500 truncate">{ev.location}</p>
                               )}
-                              <span>Task</span>
-                            </button>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {ev.hangoutLink && (
+                                <a
+                                  href={ev.hangoutLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded text-xs hover:bg-green-500/30 transition-colors"
+                                >
+                                  <Icon name="video_call" size={12} />
+                                  Meet
+                                </a>
+                              )}
+                              {within24h && (
+                                <button
+                                  onClick={() => handlePrep(ev)}
+                                  disabled={pStatus === 'loading'}
+                                  className="flex items-center gap-1 px-1.5 py-0.5 bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 rounded text-xs transition-colors disabled:opacity-50"
+                                  title="Get ready for this meeting"
+                                >
+                                  {pStatus === 'loading' ? (
+                                    <Icon name="progress_activity" size={12} className="animate-spin" />
+                                  ) : pStatus === 'error' ? (
+                                    <Icon name="error" size={12} className="text-red-400" />
+                                  ) : (
+                                    <Icon name="auto_awesome" size={12} />
+                                  )}
+                                  <span>{briefing ? (expanded ? 'Hide' : 'Prep') : pStatus === 'loading' ? 'Getting ready...' : 'Prep'}</span>
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleCreateTask(ev, label, startTime)}
+                                disabled={taskState === 'loading' || taskState === 'done'}
+                                className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-xs transition-colors disabled:opacity-50"
+                                title="Create a prep task"
+                              >
+                                {taskState === 'done' ? (
+                                  <Icon name="check" size={12} className="text-green-400" />
+                                ) : (
+                                  <Icon name="add_task" size={12} />
+                                )}
+                                <span>Task</span>
+                              </button>
+                            </div>
                           </div>
+                          {briefing && expanded && (
+                            <div className="ml-[79px] bg-violet-500/10 border border-violet-500/20 rounded-lg p-2.5 space-y-1.5">
+                              <p className="text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
+                              <button
+                                onClick={() => navigator.clipboard.writeText(briefing)}
+                                className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+                              >
+                                <Icon name="content_copy" size={11} />
+                                Copy
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )
                     })}
