@@ -37,6 +37,8 @@ STORE_PATH_CONSTANTS = {
     "services.threads_store": "THREADS_PATH",
     "services.task_labels_store": "TASK_LABELS_PATH",
     "services.templates_store": "TEMPLATES_PATH",
+    "services.task_order_store": "TASK_ORDER_PATH",
+    "services.agent_templates_store": "AGENT_TEMPLATES_PATH",
 }
 
 

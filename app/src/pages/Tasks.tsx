@@ -1,10 +1,28 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import Icon from "../components/Icon";
 import TopBar from "../components/TopBar";
 import LabelsView from "../components/LabelsView";
 import HealthCheckView from "../components/HealthCheckView";
 import type { Label } from "../components/LabelsView";
 import { api } from "../lib/api";
+import SharePopover from "../components/SharePopover";
 
 interface Task {
   id: string;
@@ -102,6 +120,34 @@ function isStale(task: Task): boolean {
   return now - created > STALE_DAYS * 24 * 60 * 60 * 1000;
 }
 
+interface SortableTaskWrapperProps {
+  taskId: string;
+  children: (dragHandleProps: React.HTMLAttributes<HTMLSpanElement>) => React.ReactNode;
+}
+
+function SortableTaskWrapper({ taskId, children }: SortableTaskWrapperProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: taskId });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      {children({ ...attributes, ...listeners })}
+    </div>
+  );
+}
+
 export default function Tasks() {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -137,6 +183,12 @@ export default function Tasks() {
   const [autoLabelingTaskId, setAutoLabelingTaskId] = useState<string | null>(null);
   const [labelAllLoading, setLabelAllLoading] = useState(false);
   const [labelAllResult, setLabelAllResult] = useState<string | null>(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [showTaskSharePopover, setShowTaskSharePopover] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
@@ -458,6 +510,86 @@ export default function Tasks() {
       setLabelAllLoading(false);
       setTimeout(() => setLabelAllResult(null), 5000);
     }
+  };
+
+  const reorderTask = async (taskId: string, newPriority: string, position: number) => {
+    try {
+      await api.post("/tasks/reorder", { task_id: taskId, new_priority: newPriority, position });
+    } catch (e) {
+      console.error("Failed to save task order:", e);
+      // Revert optimistic update on error
+      await fetchTasks();
+    }
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveDragId(null);
+
+    if (!over) return;
+
+    const activeId = String(active.id);
+    const overId = String(over.id);
+
+    const activeTask = tasks.find((t) => t.id === activeId);
+    if (!activeTask) return;
+
+    // Determine target priority
+    let targetPriority: string;
+    let targetTaskId: string | null = null;
+
+    if (overId.startsWith("group-")) {
+      targetPriority = overId.replace("group-", "");
+    } else {
+      const overTask = tasks.find((t) => t.id === overId);
+      if (!overTask) return;
+      targetPriority = overTask.priority;
+      targetTaskId = overTask.id;
+    }
+
+    // Build ordered list for the target priority group
+    const groupTasks = tasks.filter((t) => t.priority === targetPriority);
+    let newGroupOrder: Task[];
+
+    if (activeTask.priority === targetPriority) {
+      // Reordering within the same group
+      const oldIndex = groupTasks.findIndex((t) => t.id === activeId);
+      const newIndex = targetTaskId
+        ? groupTasks.findIndex((t) => t.id === targetTaskId)
+        : groupTasks.length - 1;
+      if (oldIndex === newIndex) return;
+      newGroupOrder = arrayMove(groupTasks, oldIndex, newIndex);
+    } else {
+      // Moving to a different priority group
+      const newIndex = targetTaskId
+        ? groupTasks.findIndex((t) => t.id === targetTaskId)
+        : groupTasks.length;
+      const insertAt = newIndex < 0 ? groupTasks.length : newIndex;
+      newGroupOrder = [
+        ...groupTasks.slice(0, insertAt),
+        { ...activeTask, priority: targetPriority },
+        ...groupTasks.slice(insertAt),
+      ];
+    }
+
+    // Optimistic UI update
+    setTasks((prev) => {
+      const withoutActive = prev.filter((t) => t.id !== activeId);
+      const updatedActive = { ...activeTask, priority: targetPriority };
+      // Place updated active task at position in the full list
+      const otherPriorityTasks = withoutActive.filter((t) => t.priority !== targetPriority);
+      const merged = [...otherPriorityTasks];
+      // Insert the new group order inline — just append; visual sort is by priority
+      return [...merged, ...newGroupOrder.map((t) => (t.id === activeId ? updatedActive : t))];
+    });
+
+    // Persist: position = index within the new group
+    const newPosition = newGroupOrder.findIndex((t) => t.id === activeId);
+    reorderTask(activeId, targetPriority, newPosition);
   };
 
   const handleNext = async () => {
@@ -870,6 +1002,23 @@ export default function Tasks() {
             >
               <Icon name="content_copy" className="text-slate-400 text-base" />
             </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowTaskSharePopover((v) => !v)}
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700"
+                title="Share this view"
+              >
+                <Icon name="share" className="text-slate-400 text-base" />
+              </button>
+              {showTaskSharePopover && (
+                <SharePopover
+                  shareType="task_list"
+                  contentIds={filteredTasks.map((t) => t.id)}
+                  title={statusFilter === "open" ? "Open tasks" : statusFilter === "closed" ? "Closed tasks" : "Tasks this week"}
+                  onClose={() => setShowTaskSharePopover(false)}
+                />
+              )}
+            </div>
           </div>
         </div>
 
@@ -1140,6 +1289,12 @@ export default function Tasks() {
             </div>
 
             {/* Task list */}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
             <div className={viewMode === "grid" ? "grid grid-cols-2 lg:grid-cols-3 gap-2" : "flex flex-col gap-2"}>
               {loading && tasks.length === 0 && (
                 <p className="text-sm text-slate-500 py-4">Loading tasks...</p>
@@ -1147,8 +1302,19 @@ export default function Tasks() {
               {!loading && filteredTasks.length === 0 && (
                 <p className="text-sm text-slate-500 py-4">No tasks match this filter.</p>
               )}
-              {filteredTasks.map((task) => (
-                <div key={task.id}>
+              {(["P0", "P1", "P2"] as const).map((priority) => {
+                const groupTasks = filteredTasks.filter((t) => t.priority === priority);
+                if (groupTasks.length === 0) return null;
+                return (
+                  <SortableContext
+                    key={priority}
+                    items={groupTasks.map((t) => t.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {groupTasks.map((task) => (
+              <SortableTaskWrapper key={task.id} taskId={task.id}>
+                {(dragHandleProps) => (
+                <div>
                   <div
                     onClick={() => handleTaskClick(task.id)}
                     className={`bg-slate-900/60 border rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors ${
@@ -1157,10 +1323,14 @@ export default function Tasks() {
                         : "border-slate-800 hover:border-slate-700"
                     }`}
                   >
-                    <Icon
-                      name="drag_indicator"
-                      className="text-slate-700 text-lg cursor-grab"
-                    />
+                    <span
+                      {...dragHandleProps}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-slate-700 text-lg cursor-grab touch-none select-none"
+                      title="Drag to reorder"
+                    >
+                      <Icon name="drag_indicator" className="text-lg" />
+                    </span>
                     <button
                       onClick={(e) => { e.stopPropagation(); task.status === "closed" ? reopenTask(task.id) : closeTask(task.id); }}
                       title={task.status === "closed" ? "Reopen task" : "Close task"}
@@ -1590,8 +1760,24 @@ export default function Tasks() {
                     </div>
                   )}
                 </div>
-              ))}
+                )}
+              </SortableTaskWrapper>
+                    ))}
+                  </SortableContext>
+                );
+              })}
             </div>
+            <DragOverlay>
+              {activeDragId ? (
+                <div className="bg-slate-900/90 border border-blue-500/60 rounded-lg px-4 py-3 flex items-center gap-3 shadow-xl opacity-90">
+                  <Icon name="drag_indicator" className="text-slate-400 text-lg" />
+                  <span className="text-sm text-slate-300">
+                    {tasks.find((t) => t.id === activeDragId)?.title ?? activeDragId}
+                  </span>
+                </div>
+              ) : null}
+            </DragOverlay>
+            </DndContext>
 
             {/* Footer */}
             <div className="flex items-center justify-between mt-6 text-sm">

@@ -5,10 +5,11 @@ import re
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 
-from models.schemas import TaskCreate, TaskClose, TaskLink, TaskUpdate, CommitCreate
+from models.schemas import TaskCreate, TaskClose, TaskLink, TaskUpdate, CommitCreate, TaskReorder
 from services.ostk import ostk, OstkError
 from services.labels_store import labels_store, LABEL_COLORS
 from services.task_labels_store import task_labels_store
+from services.task_order_store import task_order_store
 from services.threads_store import threads_store
 from services.task_labeling import (
     apply_auto_labels,
@@ -78,6 +79,8 @@ def _enrich_task(
 async def list_tasks(status: Optional[str] = None, priority: Optional[str] = None):
     try:
         tasks = await ostk.list_tasks(status=status, priority=priority)
+        # Apply custom sort order within each priority group
+        tasks = task_order_store.apply_order(tasks)
         # Load all assignments once for efficiency
         all_assignments = task_labels_store.get_all_assignments()
         task_thread_map = threads_store.get_all_task_thread_map()
@@ -111,15 +114,54 @@ async def update_task(task_id: str, body: TaskUpdate):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/tasks/reorder")
+async def reorder_task(body: TaskReorder):
+    """Change a task's priority and set its custom sort position within that group.
+
+    Body: {task_id, new_priority, position}
+
+    If new_priority differs from the task's current priority, the priority is
+    updated first. Then the custom sort index is saved to task_order.json.
+    The sort index is global across all tasks but only compared within the same
+    priority group, so each group maintains its own relative order.
+    """
+    valid_priorities = {"P0", "P1", "P2"}
+    if body.new_priority not in valid_priorities:
+        raise HTTPException(status_code=400, detail=f"Invalid priority '{body.new_priority}'")
+
+    try:
+        # Load current tasks to check if priority changed
+        tasks = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    task = next((t for t in tasks if t.get("id") == body.task_id), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Update priority in ostk if it changed
+    if task.get("priority") != body.new_priority:
+        try:
+            await ostk.update_task_priority(body.task_id, body.new_priority)
+        except OstkError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # Save custom sort position
+    task_order_store.set_task_position(body.task_id, body.position)
+
+    return {"task_id": body.task_id, "new_priority": body.new_priority, "position": body.position}
+
+
 @router.delete("/tasks/{task_id}")
 async def delete_task(task_id: str):
     try:
         result = await ostk.delete_task(task_id)
     except OstkError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    # Clean up label assignments and thread memberships for this task
+    # Clean up label assignments, thread memberships, and sort order for this task
     task_labels_store.remove_task(task_id)
     threads_store.remove_task_from_all_threads(task_id)
+    task_order_store.remove_task(task_id)
     return {"result": result}
 
 
