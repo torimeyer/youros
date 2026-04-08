@@ -198,13 +198,24 @@ export default function TopBar({ title }: TopBarProps) {
   }, [])
 
   const handleOpenNotifications = async () => {
+    // Just open the drawer. We intentionally do NOT mark everything as read
+    // on open. Users need to see which notifications are new. Individual
+    // items get marked read when clicked, and anything still unread gets
+    // marked read when the drawer closes.
     setShowNotifications(true)
     await fetchPersistentNotifs()
+  }
+
+  const handleCloseNotifications = useCallback(() => {
+    setShowNotifications(false)
+    // On close, flush any remaining unread items so the bell badge clears.
+    // Clicking a specific item already marks that one read, so this only
+    // catches the ones the user glanced at but did not click.
     if (agentUnreadCount > 0) markAllRead()
     if (persistentUnread > 0) {
       handleMarkAllPersistentRead()
     }
-  }
+  }, [agentUnreadCount, markAllRead, persistentUnread, handleMarkAllPersistentRead])
 
   return (
     <header
@@ -261,7 +272,7 @@ export default function TopBar({ title }: TopBarProps) {
           </button>
           {showNotifications && (
             <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
+              <div className="fixed inset-0 z-40" onClick={handleCloseNotifications} />
               <div className="absolute right-0 top-full mt-2 w-80 bg-slate-900 border border-slate-800 rounded-xl shadow-xl z-50 overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
                   <span className="text-sm font-semibold text-white">Notifications</span>
@@ -274,7 +285,7 @@ export default function TopBar({ title }: TopBarProps) {
                         Clear all
                       </button>
                     )}
-                    <button onClick={() => setShowNotifications(false)} className="text-slate-500 hover:text-white">
+                    <button onClick={handleCloseNotifications} className="text-slate-500 hover:text-white">
                       <Icon name="close" size={16} />
                     </button>
                   </div>

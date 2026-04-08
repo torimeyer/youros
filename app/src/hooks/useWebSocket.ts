@@ -18,6 +18,10 @@ export function useWebSocket(path: string, autoConnect = false) {
   // current turn. If the socket closes before that, we treat the close as
   // an unexpected drop and surface an error instead of a silent done.
   const streamEndedRef = useRef(true)
+  // Queue of payloads the caller tried to send before the socket finished
+  // opening. Flushed in order from the onopen handler so nothing is ever
+  // silently dropped on the very first send after connect().
+  const pendingSendsRef = useRef<string[]>([])
   pathRef.current = path
 
   const connect = useCallback(() => {
@@ -33,7 +37,20 @@ export function useWebSocket(path: string, autoConnect = false) {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${protocol}//${window.location.host}${pathRef.current}`)
-    ws.onopen = () => setIsConnected(true)
+    ws.onopen = () => {
+      setIsConnected(true)
+      // Flush any sends that were queued while the socket was still
+      // connecting. Mark the stream as in progress for each so a mid-turn
+      // drop becomes a real error instead of a silent done.
+      if (pendingSendsRef.current.length > 0) {
+        const queued = pendingSendsRef.current
+        pendingSendsRef.current = []
+        for (const payload of queued) {
+          streamEndedRef.current = false
+          ws.send(payload)
+        }
+      }
+    }
     ws.onclose = () => {
       setIsConnected(false)
       if (wsRef.current === ws) {
@@ -79,14 +96,30 @@ export function useWebSocket(path: string, autoConnect = false) {
   }, [])
 
   const send = useCallback((data: unknown) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    const payload = JSON.stringify(data)
+    const ws = wsRef.current
+    if (ws?.readyState === WebSocket.OPEN) {
       // Mark the stream as in progress so a mid-turn close becomes an error
       // instead of a silent done. The server will flip this back to true
       // when it sends a real done or error event.
       streamEndedRef.current = false
-      wsRef.current.send(JSON.stringify(data))
+      ws.send(payload)
+      return
     }
-  }, [])
+    if (ws?.readyState === WebSocket.CONNECTING) {
+      // Socket is still handshaking. Queue the payload so the onopen
+      // handler flushes it as soon as the connection is live. Without this
+      // queue the UI would set isStreaming=true and spin forever on the
+      // first send after opening the chat panel.
+      pendingSendsRef.current.push(payload)
+      return
+    }
+    // No socket yet. Open one and queue the payload so it is sent on open.
+    pendingSendsRef.current.push(payload)
+    if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      connect()
+    }
+  }, [connect])
 
   useEffect(() => {
     if (autoConnect) connect()

@@ -15,6 +15,11 @@ from typing import Optional
 MYOS_DIR = Path.home() / ".myos"
 NOTIFICATIONS_FILE = MYOS_DIR / "notifications.json"
 
+# Hard cap on the persistent notification store. When we hit the cap we
+# drop the oldest entries so the bell never shows hundreds of unread items
+# and the JSON file stays small.
+MAX_NOTIFICATIONS = 100
+
 
 class Notification:
     def __init__(
@@ -75,15 +80,47 @@ class NotificationsService:
             return []
         try:
             raw = json.loads(NOTIFICATIONS_FILE.read_text())
-            return [Notification.from_dict(d) for d in raw]
+            notifications = [Notification.from_dict(d) for d in raw]
         except (json.JSONDecodeError, OSError):
             return []
+        # One-time trim for users whose store was built before the cap
+        # existed. Writes the trimmed version back immediately so the
+        # unread badge drops on the very next poll.
+        if len(notifications) > MAX_NOTIFICATIONS:
+            notifications = notifications[:MAX_NOTIFICATIONS]
+            try:
+                NOTIFICATIONS_FILE.write_text(
+                    json.dumps([n.to_dict() for n in notifications], indent=2)
+                )
+            except OSError:
+                pass
+        return notifications
 
     def _save(self, notifications: list[Notification]) -> None:
         MYOS_DIR.mkdir(parents=True, exist_ok=True)
+        # Enforce the cap on every save so the store can never grow past
+        # MAX_NOTIFICATIONS even if an older version of this service wrote
+        # more entries before the cap existed.
+        if len(notifications) > MAX_NOTIFICATIONS:
+            notifications = notifications[:MAX_NOTIFICATIONS]
         NOTIFICATIONS_FILE.write_text(
             json.dumps([n.to_dict() for n in notifications], indent=2)
         )
+
+    def _target_key(self, n: Notification) -> Optional[str]:
+        """Return a stable identity for dedup on (type, target).
+
+        Prefers an explicit `target` in metadata, then falls back to common
+        identity fields the different callers already put in metadata
+        (agent_name, task_id, etc). If nothing is available we return None
+        and dedup is skipped, so unrelated generic notifications still show.
+        """
+        md = n.metadata or {}
+        for key in ("target", "agent_name", "task_id", "id"):
+            val = md.get(key)
+            if val:
+                return str(val)
+        return None
 
     def add(
         self,
@@ -94,8 +131,17 @@ class NotificationsService:
         action_label: Optional[str] = None,
         action_url: Optional[str] = None,
         metadata: Optional[dict] = None,
+        target: Optional[str] = None,
     ) -> Notification:
         notifications = self._load()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # Build merged metadata so the target lives alongside the caller's
+        # own fields and gets persisted.
+        merged_metadata = dict(metadata or {})
+        if target is not None and "target" not in merged_metadata:
+            merged_metadata["target"] = target
+
         n = Notification(
             id=str(uuid.uuid4()),
             type=type,
@@ -104,10 +150,43 @@ class NotificationsService:
             action_label=action_label,
             action_url=action_url,
             read=False,
-            created_at=datetime.now(timezone.utc).isoformat(),
-            metadata=metadata or {},
+            created_at=now_iso,
+            metadata=merged_metadata,
         )
+
+        # Dedup: if an unread notification with the same (type, target)
+        # already exists, refresh its timestamp and bump a count instead of
+        # inserting a new row. This prevents the flood of duplicate agent
+        # completion notifications.
+        new_target = self._target_key(n)
+        if new_target is not None:
+            for existing in notifications:
+                if (
+                    existing.type == type
+                    and not existing.read
+                    and self._target_key(existing) == new_target
+                ):
+                    existing.created_at = now_iso
+                    existing.title = title
+                    existing.body = body
+                    existing.action_label = action_label
+                    existing.action_url = action_url
+                    prev_count = int(existing.metadata.get("count", 1) or 1)
+                    existing.metadata = {
+                        **existing.metadata,
+                        **merged_metadata,
+                        "count": prev_count + 1,
+                    }
+                    self._save(notifications)
+                    return existing
+
         notifications.insert(0, n)
+
+        # Cap the store. Drop the oldest entries once we exceed the limit
+        # so the bell can never show hundreds of stale unread items.
+        if len(notifications) > MAX_NOTIFICATIONS:
+            notifications = notifications[:MAX_NOTIFICATIONS]
+
         self._save(notifications)
         return n
 

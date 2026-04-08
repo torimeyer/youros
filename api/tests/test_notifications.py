@@ -107,6 +107,124 @@ class TestNotificationsService:
         result = svc.mark_read("bogus-id")
         assert result is False
 
+    def test_store_is_capped_at_max(self, tmp_path):
+        """Adding more than MAX_NOTIFICATIONS drops the oldest entries."""
+        from services.notifications import MAX_NOTIFICATIONS
+
+        svc = self._patched_service(tmp_path)
+        # Use unique targets so nothing dedupes. Add cap+25 entries.
+        for i in range(MAX_NOTIFICATIONS + 25):
+            svc.add(
+                type="agent",
+                title=f"Agent {i}",
+                body="done",
+                metadata={"agent_name": f"agent-{i}"},
+            )
+        all_notifs = svc.list_all()
+        assert len(all_notifs) == MAX_NOTIFICATIONS
+        # Newest stays at the top (insert(0)), oldest is dropped.
+        assert all_notifs[0].title == f"Agent {MAX_NOTIFICATIONS + 24}"
+
+    def test_load_trims_oversized_store_once(self, tmp_path):
+        """Legacy stores that are already over the cap get trimmed on load."""
+        import json as _json
+        import services.notifications as mod
+        from services.notifications import MAX_NOTIFICATIONS, NotificationsService
+
+        # Write an oversized store directly to disk, bypassing the service.
+        oversized = []
+        for i in range(MAX_NOTIFICATIONS + 50):
+            oversized.append({
+                "id": f"id-{i}",
+                "type": "agent",
+                "title": f"T{i}",
+                "body": "b",
+                "action_label": None,
+                "action_url": None,
+                "read": False,
+                "created_at": "2026-04-08T10:00:00+00:00",
+                "metadata": {"agent_name": f"a-{i}"},
+            })
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        notif_file = tmp_path / "notifications.json"
+        notif_file.write_text(_json.dumps(oversized))
+
+        # Point the real module at the tmp file so the real _load trim runs.
+        with patch.object(mod, "MYOS_DIR", tmp_path), patch.object(
+            mod, "NOTIFICATIONS_FILE", notif_file
+        ):
+            svc = NotificationsService()
+            loaded = svc.list_all()
+            assert len(loaded) == MAX_NOTIFICATIONS
+            # The trimmed version should have been written back to disk.
+            on_disk = _json.loads(notif_file.read_text())
+            assert len(on_disk) == MAX_NOTIFICATIONS
+
+    def test_dedup_same_type_and_target_bumps_count(self, tmp_path):
+        """Adding a duplicate (type, target) pair updates the existing one."""
+        svc = self._patched_service(tmp_path)
+        first = svc.add(
+            type="agent",
+            title="Agent done: foo",
+            body="first",
+            metadata={"agent_name": "foo"},
+        )
+        second = svc.add(
+            type="agent",
+            title="Agent done: foo",
+            body="second",
+            metadata={"agent_name": "foo"},
+        )
+        # Same underlying row, not two separate entries.
+        assert first.id == second.id
+        all_notifs = svc.list_all()
+        assert len(all_notifs) == 1
+        assert all_notifs[0].body == "second"
+        assert all_notifs[0].metadata.get("count") == 2
+
+    def test_dedup_only_bumps_unread_entries(self, tmp_path):
+        """A previously-read duplicate does not get re-bumped. A new one appears."""
+        svc = self._patched_service(tmp_path)
+        first = svc.add(
+            type="agent",
+            title="Agent done: foo",
+            body="first",
+            metadata={"agent_name": "foo"},
+        )
+        svc.mark_read(first.id)
+        svc.add(
+            type="agent",
+            title="Agent done: foo",
+            body="second",
+            metadata={"agent_name": "foo"},
+        )
+        all_notifs = svc.list_all()
+        assert len(all_notifs) == 2
+
+    def test_dedup_different_targets_keeps_both(self, tmp_path):
+        svc = self._patched_service(tmp_path)
+        svc.add(
+            type="agent",
+            title="Agent done: foo",
+            body="b",
+            metadata={"agent_name": "foo"},
+        )
+        svc.add(
+            type="agent",
+            title="Agent done: bar",
+            body="b",
+            metadata={"agent_name": "bar"},
+        )
+        assert len(svc.list_all()) == 2
+
+    def test_explicit_target_param_dedupes(self, tmp_path):
+        svc = self._patched_service(tmp_path)
+        svc.add(type="sync", title="Synced", body="ok", target="settings")
+        svc.add(type="sync", title="Synced", body="ok", target="settings")
+        all_notifs = svc.list_all()
+        assert len(all_notifs) == 1
+        assert all_notifs[0].metadata.get("count") == 2
+
 
 # ---------------------------------------------------------------------------
 # Router integration tests
