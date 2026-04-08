@@ -1,0 +1,668 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import Icon from '../components/Icon';
+import TopBar from '../components/TopBar';
+import { api } from '../lib/api';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface AuthStatus {
+  authenticated: boolean;
+  email: string | null;
+  credentials_file_present: boolean;
+}
+
+interface DriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime: string;
+  iconLink: string;
+  webViewLink: string;
+  size: string | null;
+}
+
+interface FilesResponse {
+  files: DriveFile[];
+  cached: boolean;
+}
+
+interface SyncResponse {
+  ok: boolean;
+  file_count: number;
+  synced_at: number;
+}
+
+interface PreviewNotAvailable {
+  previewable: false;
+  webViewLink: string;
+  mimeType: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'yesterday';
+  return `${days}d ago`;
+}
+
+function syncTimeLabel(ts: number | null): string {
+  if (!ts) return 'Never synced';
+  return `Last synced ${timeAgo(new Date(ts * 1000).toISOString())}`;
+}
+
+const MIME_LABELS: Record<string, string> = {
+  'application/vnd.google-apps.document': 'Google Doc',
+  'application/vnd.google-apps.presentation': 'Google Slides',
+  'application/vnd.google-apps.spreadsheet': 'Google Sheets',
+  'application/vnd.google-apps.drawing': 'Google Drawing',
+  'application/vnd.google-apps.folder': 'Folder',
+  'application/pdf': 'PDF',
+};
+
+const MIME_ICONS: Record<string, { icon: string; color: string }> = {
+  'application/vnd.google-apps.document': { icon: 'description', color: 'text-blue-400' },
+  'application/vnd.google-apps.presentation': { icon: 'slideshow', color: 'text-orange-400' },
+  'application/vnd.google-apps.spreadsheet': { icon: 'table_chart', color: 'text-green-400' },
+  'application/vnd.google-apps.drawing': { icon: 'brush', color: 'text-purple-400' },
+  'application/vnd.google-apps.folder': { icon: 'folder', color: 'text-yellow-400' },
+  'application/pdf': { icon: 'picture_as_pdf', color: 'text-red-400' },
+};
+
+function mimeIcon(mimeType: string): { icon: string; color: string } {
+  return MIME_ICONS[mimeType] ?? { icon: 'insert_drive_file', color: 'text-slate-400' };
+}
+
+function mimeLabel(mimeType: string): string {
+  return MIME_LABELS[mimeType] ?? 'File';
+}
+
+// ---------------------------------------------------------------------------
+// Connect screen
+// ---------------------------------------------------------------------------
+
+function ConnectScreen({
+  hasCredentialsFile,
+  onConnected,
+}: {
+  hasCredentialsFile: boolean;
+  onConnected: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const handleConnect = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { url } = await api.get<{ url: string }>('/drive/auth/url');
+      window.open(url, '_blank');
+
+      // Poll for auth completion.
+      let attempts = 0;
+      pollRef.current = setInterval(async () => {
+        attempts++;
+        try {
+          const status = await api.get<AuthStatus>('/drive/auth/status');
+          if (status.authenticated) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            setLoading(false);
+            onConnected();
+          }
+        } catch {
+          // Keep polling.
+        }
+        if (attempts >= 30) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          setLoading(false);
+          setError('Sign-in timed out. Please try again.');
+        }
+      }, 2000);
+    } catch (err: unknown) {
+      setLoading(false);
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 max-w-md w-full">
+        <Icon name="cloud" className="text-5xl text-blue-400 mb-4" />
+        <h2 className="text-2xl font-bold mb-2">Connect Google Drive</h2>
+        <p className="text-slate-400 text-sm mb-6">
+          Browse and preview your Docs, Slides, and Sheets right here in myOS.
+        </p>
+
+        {!hasCredentialsFile && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mb-6 text-left">
+            <p className="text-amber-300 text-sm font-medium mb-1">Setup required</p>
+            <p className="text-amber-200/80 text-sm">
+              You need a credentials file from Google Cloud Console saved at{' '}
+              <code className="bg-slate-800 px-1 rounded text-xs">
+                ~/.myos/google_credentials.json
+              </code>
+              .
+            </p>
+            <a
+              href="/docs/google-drive-setup"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 mt-2 text-amber-300 text-xs hover:text-amber-200 underline"
+            >
+              See the setup guide
+              <Icon name="open_in_new" size={12} />
+            </a>
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4 text-red-300 text-sm">
+            {error}
+          </div>
+        )}
+
+        <button
+          onClick={handleConnect}
+          disabled={loading || !hasCredentialsFile}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-white font-medium transition-colors"
+        >
+          {loading ? (
+            <>
+              <span
+                className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"
+                role="status"
+              />
+              Waiting for sign-in...
+            </>
+          ) : (
+            <>
+              <Icon name="login" size={18} />
+              Connect your Google account
+            </>
+          )}
+        </button>
+
+        <p className="text-slate-600 text-xs mt-4">
+          Only your file list and selected previews are accessed. myOS never modifies your Drive.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Preview panel (overlay)
+// ---------------------------------------------------------------------------
+
+function PreviewPanel({
+  file,
+  onClose,
+}: {
+  file: DriveFile;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [notPreviewable, setNotPreviewable] = useState<PreviewNotAvailable | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+
+  // Close on Escape.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  // Revoke object URL on unmount.
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
+  }, [file.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setPdfUrl(null);
+    setNotPreviewable(null);
+    setError(null);
+
+    async function load() {
+      try {
+        const resp = await fetch(`/api/drive/files/${encodeURIComponent(file.id)}/preview`);
+        if (!resp.ok) {
+          throw new Error(`Could not load this file (${resp.status}).`);
+        }
+        const contentType = resp.headers.get('content-type') ?? '';
+        if (contentType.includes('application/json')) {
+          const data = (await resp.json()) as PreviewNotAvailable;
+          if (!cancelled) setNotPreviewable(data);
+        } else {
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          objectUrlRef.current = url;
+          if (!cancelled) setPdfUrl(url);
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not load preview.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [file.id]);
+
+  const { icon, color } = mimeIcon(file.mimeType);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      data-testid="drive-preview-overlay"
+    >
+      <aside
+        className="bg-slate-900 border-l border-slate-700 shadow-2xl w-full max-w-3xl h-full flex flex-col"
+        role="dialog"
+        aria-label={`Preview of ${file.name}`}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700 flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <Icon name={icon} className={`text-xl ${color} flex-shrink-0`} />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-slate-100 truncate">{file.name}</p>
+              <p className="text-[11px] text-slate-500">{mimeLabel(file.mimeType)}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+            {file.webViewLink && (
+              <a
+                href={file.webViewLink}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300 transition-colors border border-slate-600"
+              >
+                <Icon name="open_in_new" size={14} />
+                Open in Drive
+              </a>
+            )}
+            <button
+              onClick={onClose}
+              className="flex items-center justify-center w-8 h-8 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+              title="Close preview"
+              aria-label="Close preview"
+            >
+              <Icon name="close" size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-hidden">
+          {loading && (
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <div
+                className="w-6 h-6 border-2 border-slate-700 border-t-blue-400 rounded-full animate-spin"
+                role="status"
+                aria-label="Loading preview"
+              />
+              <p className="text-sm text-slate-500">Preparing preview...</p>
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
+              <Icon name="error" className="text-3xl text-red-400" />
+              <p className="text-sm text-red-300">{error}</p>
+              {file.webViewLink && (
+                <a
+                  href={file.webViewLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm text-white transition-colors"
+                >
+                  <Icon name="open_in_new" size={16} />
+                  Open in Google Drive
+                </a>
+              )}
+            </div>
+          )}
+
+          {!loading && notPreviewable && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
+              <Icon name={icon} className={`text-5xl ${color}`} />
+              <p className="text-sm text-slate-300">
+                This file type can't be previewed here.
+              </p>
+              {notPreviewable.webViewLink && (
+                <a
+                  href={notPreviewable.webViewLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm text-white transition-colors"
+                >
+                  <Icon name="open_in_new" size={16} />
+                  Open in Google Drive
+                </a>
+              )}
+            </div>
+          )}
+
+          {!loading && pdfUrl && (
+            <iframe
+              src={pdfUrl}
+              className="w-full h-full border-0"
+              title={`Preview of ${file.name}`}
+            />
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+export default function Drive() {
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [files, setFiles] = useState<DriveFile[]>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [previewFile, setPreviewFile] = useState<DriveFile | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const status = await api.get<AuthStatus>('/drive/auth/status');
+      setAuthStatus(status);
+      return status;
+    } catch {
+      setAuthStatus({ authenticated: false, email: null, credentials_file_present: false });
+      return null;
+    }
+  }, []);
+
+  const fetchFiles = useCallback(async (q?: string) => {
+    setFilesLoading(true);
+    setFilesError(null);
+    try {
+      const path = q ? `/drive/files?q=${encodeURIComponent(q)}` : '/drive/files';
+      const res = await api.get<FilesResponse>(path);
+      setFiles(res.files ?? []);
+    } catch {
+      setFilesError('Could not load your Drive files. Check your connection and try again.');
+    } finally {
+      setFilesLoading(false);
+    }
+  }, []);
+
+  // Load auth status on mount.
+  useEffect(() => {
+    fetchStatus().then((status) => {
+      if (status?.authenticated) {
+        fetchFiles();
+      }
+    });
+  }, [fetchStatus, fetchFiles]);
+
+  // Debounced search.
+  useEffect(() => {
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    if (!authStatus?.authenticated) return;
+    searchTimeout.current = setTimeout(() => {
+      fetchFiles(search || undefined);
+    }, 400);
+    return () => {
+      if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    };
+  }, [search, authStatus, fetchFiles]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      const res = await api.post<SyncResponse>('/drive/sync');
+      setLastSyncedAt(res.synced_at);
+      await fetchFiles(search || undefined);
+    } catch {
+      setSyncError('Sync failed. Please try again.');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleConnected = async () => {
+    const status = await fetchStatus();
+    if (status?.authenticated) {
+      await fetchFiles();
+    }
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      await api.post('/drive/auth/revoke');
+      setAuthStatus({ authenticated: false, email: null, credentials_file_present: true });
+      setFiles([]);
+      setPreviewFile(null);
+    } catch {
+      // Best effort.
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white">
+      <TopBar title="Drive" />
+
+      <div className="pt-20 p-8 max-w-6xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Google Drive</h1>
+        </div>
+
+        {/* Auth loading */}
+        {authStatus === null && (
+          <div className="flex items-center gap-3 py-8 text-slate-500">
+            <span
+              className="w-4 h-4 border-2 border-slate-700 border-t-slate-400 rounded-full animate-spin"
+              role="status"
+            />
+            <span className="text-sm">Checking connection...</span>
+          </div>
+        )}
+
+        {/* Connect screen */}
+        {authStatus !== null && !authStatus.authenticated && (
+          <ConnectScreen
+            hasCredentialsFile={authStatus.credentials_file_present}
+            onConnected={handleConnected}
+          />
+        )}
+
+        {/* Authenticated view */}
+        {authStatus?.authenticated && (
+          <>
+            {/* Account + sync bar */}
+            <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+              <div className="flex items-center gap-2 text-sm text-slate-400">
+                <Icon name="account_circle" className="text-base" />
+                <span>{authStatus.email ?? 'Google account connected'}</span>
+                <button
+                  onClick={handleDisconnect}
+                  className="ml-2 text-xs text-slate-600 hover:text-red-400 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {syncError && (
+                  <span className="text-xs text-red-400">{syncError}</span>
+                )}
+                <span className="text-xs text-slate-600">
+                  {syncTimeLabel(lastSyncedAt)}
+                </span>
+                <button
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 rounded-lg text-sm text-slate-300 transition-colors border border-slate-700"
+                >
+                  <Icon
+                    name="sync"
+                    className={`text-base ${syncing ? 'animate-spin' : ''}`}
+                  />
+                  {syncing ? 'Syncing...' : 'Sync now'}
+                </button>
+              </div>
+            </div>
+
+            {/* Search box */}
+            <div className="relative mb-4">
+              <Icon
+                name="search"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+                size={16}
+              />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search your Drive files..."
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                >
+                  <Icon name="close" size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* File list */}
+            {filesLoading && files.length === 0 && (
+              <div className="flex items-center gap-3 py-8 text-slate-500">
+                <span
+                  className="w-4 h-4 border-2 border-slate-700 border-t-slate-400 rounded-full animate-spin"
+                  role="status"
+                />
+                <span className="text-sm">Loading files...</span>
+              </div>
+            )}
+
+            {filesError && (
+              <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4">
+                <Icon name="error" className="text-lg" />
+                <span>{filesError}</span>
+              </div>
+            )}
+
+            {!filesLoading && !filesError && files.length === 0 && (
+              <div className="text-center py-12 text-slate-500">
+                <Icon name="cloud_off" className="text-4xl mb-2" />
+                <p>{search ? 'No files match your search.' : 'No files found. Try syncing.'}</p>
+                {!search && (
+                  <button
+                    onClick={handleSync}
+                    className="mt-3 text-sm text-blue-400 hover:text-blue-300"
+                  >
+                    Sync now
+                  </button>
+                )}
+              </div>
+            )}
+
+            {files.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <div className="grid grid-cols-[1fr_120px_80px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                  <span>Name</span>
+                  <span>Type</span>
+                  <span className="text-right">Modified</span>
+                </div>
+
+                {files.map((file) => {
+                  const { icon, color } = mimeIcon(file.mimeType);
+                  const isSelected = previewFile?.id === file.id;
+                  return (
+                    <button
+                      key={file.id}
+                      onClick={() => setPreviewFile(file)}
+                      className={`grid grid-cols-[1fr_120px_80px] gap-4 items-center border rounded-lg px-4 py-3 transition-colors cursor-pointer text-left w-full ${
+                        isSelected
+                          ? 'bg-blue-600/10 border-blue-500/50'
+                          : 'bg-slate-900/60 border-slate-800 hover:border-blue-500/30 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Icon name={icon} className={`text-xl ${color} flex-shrink-0`} />
+                        <span className="text-sm truncate text-slate-100">{file.name}</span>
+                      </div>
+                      <span className="text-xs text-slate-400 truncate">
+                        {mimeLabel(file.mimeType)}
+                      </span>
+                      <span className="text-xs text-slate-500 text-right">
+                        {timeAgo(file.modifiedTime)}
+                      </span>
+                    </button>
+                  );
+                })}
+
+                <p className="mt-4 text-xs text-slate-600 text-center">
+                  {files.length} file{files.length === 1 ? '' : 's'} in Drive
+                  {search ? ` matching "${search}"` : ''}
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Preview overlay */}
+      {previewFile && (
+        <PreviewPanel
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
+    </div>
+  );
+}

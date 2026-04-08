@@ -13,6 +13,7 @@ import Transcripts from './pages/Transcripts'
 import Activity from './pages/Activity'
 import CostTracking from './pages/CostTracking'
 import Docs from './pages/Docs'
+import Drive from './pages/Drive'
 import { useAppStore } from './stores/app'
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="files" element={<Files />} />
           <Route path="transcripts" element={<Transcripts />} />
           <Route path="docs" element={<Docs />} />
+          <Route path="drive" element={<Drive />} />
           <Route path="costs" element={<CostTracking />} />
           <Route path="settings" element={<Settings />} />
         </Route>

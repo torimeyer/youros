@@ -1,0 +1,237 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import Drive from './Drive'
+
+vi.mock('../lib/api', () => ({
+  api: {
+    get: vi.fn(),
+    post: vi.fn(),
+  },
+}))
+
+import { api } from '../lib/api'
+
+const mockedApiGet = vi.mocked(api.get)
+const mockedApiPost = vi.mocked(api.post)
+
+const NOT_AUTHENTICATED = {
+  authenticated: false,
+  email: null,
+  credentials_file_present: false,
+}
+
+const NOT_AUTHENTICATED_WITH_CREDS = {
+  authenticated: false,
+  email: null,
+  credentials_file_present: true,
+}
+
+const AUTHENTICATED = {
+  authenticated: true,
+  email: 'tori@example.com',
+  credentials_file_present: true,
+}
+
+const SAMPLE_FILES = [
+  {
+    id: 'file-1',
+    name: 'Q1 Report',
+    mimeType: 'application/vnd.google-apps.document',
+    modifiedTime: new Date().toISOString(),
+    iconLink: '',
+    webViewLink: 'https://docs.google.com/document/d/file-1',
+    size: null,
+  },
+  {
+    id: 'file-2',
+    name: 'Budget 2026',
+    mimeType: 'application/vnd.google-apps.spreadsheet',
+    modifiedTime: new Date().toISOString(),
+    iconLink: '',
+    webViewLink: 'https://docs.google.com/spreadsheets/d/file-2',
+    size: null,
+  },
+]
+
+function renderDrive() {
+  return render(
+    <MemoryRouter>
+      <Drive />
+    </MemoryRouter>
+  )
+}
+
+describe('Drive page', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows a loading spinner while checking auth', async () => {
+    // Never resolves so the spinner stays.
+    mockedApiGet.mockReturnValue(new Promise(() => {}))
+    renderDrive()
+    expect(screen.getByRole('status')).toBeInTheDocument()
+  })
+
+  it('shows the connect screen when not authenticated without credentials', async () => {
+    mockedApiGet.mockResolvedValue(NOT_AUTHENTICATED)
+    renderDrive()
+    await waitFor(() => {
+      expect(screen.getByText('Connect Google Drive')).toBeInTheDocument()
+    })
+    // Setup warning should appear when credentials file is missing.
+    expect(screen.getByText('Setup required')).toBeInTheDocument()
+    // The connect button should be disabled without the credentials file.
+    expect(screen.getByRole('button', { name: /connect your google account/i })).toBeDisabled()
+  })
+
+  it('shows enabled connect button when credentials file is present', async () => {
+    mockedApiGet.mockResolvedValue(NOT_AUTHENTICATED_WITH_CREDS)
+    renderDrive()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /connect your google account/i })).not.toBeDisabled()
+    })
+  })
+
+  it('shows the file list when authenticated', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) {
+        return Promise.resolve(AUTHENTICATED)
+      }
+      if (path.includes('/drive/files')) {
+        return Promise.resolve({ files: SAMPLE_FILES, cached: true })
+      }
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => {
+      expect(screen.getByText('Q1 Report')).toBeInTheDocument()
+      expect(screen.getByText('Budget 2026')).toBeInTheDocument()
+    })
+  })
+
+  it('shows connected email when authenticated', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: [], cached: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => {
+      expect(screen.getByText('tori@example.com')).toBeInTheDocument()
+    })
+  })
+
+  it('shows file type labels', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => {
+      expect(screen.getByText('Google Doc')).toBeInTheDocument()
+      expect(screen.getByText('Google Sheets')).toBeInTheDocument()
+    })
+  })
+
+  it('opens the preview overlay when a file is clicked', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+
+    // Mock fetch for the preview endpoint.
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ previewable: false, webViewLink: 'https://drive.google.com', mimeType: 'application/vnd.google-apps.document' }),
+    } as unknown as Response)
+
+    renderDrive()
+    await waitFor(() => {
+      expect(screen.getByText('Q1 Report')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Q1 Report'))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+  })
+
+  it('closes the preview overlay with the close button', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ previewable: false, webViewLink: '', mimeType: 'application/zip' }),
+    } as unknown as Response)
+
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    fireEvent.click(screen.getByText('Q1 Report'))
+    await waitFor(() => screen.getByRole('dialog'))
+
+    const closeBtn = screen.getByRole('button', { name: /close preview/i })
+    fireEvent.click(closeBtn)
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  it('calls sync endpoint when Sync now is clicked', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: true })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true, file_count: 2, synced_at: Date.now() / 1000 })
+
+    renderDrive()
+    await waitFor(() => screen.getByText('Sync now'))
+
+    fireEvent.click(screen.getByText('Sync now'))
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/drive/sync')
+    })
+  })
+
+  it('calls revoke endpoint when Disconnect is clicked', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: [], cached: false })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true })
+
+    renderDrive()
+    await waitFor(() => screen.getByText('Disconnect'))
+
+    fireEvent.click(screen.getByText('Disconnect'))
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/drive/auth/revoke')
+    })
+  })
+
+  it('shows empty state with sync prompt when no files', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: [], cached: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => {
+      expect(screen.getByText(/No files found/i)).toBeInTheDocument()
+    })
+  })
+})
