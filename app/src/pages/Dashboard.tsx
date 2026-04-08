@@ -5,6 +5,11 @@ import TopBar from '../components/TopBar';
 import { api } from '../lib/api';
 import { useAppStore } from '../stores/app';
 
+interface BriefingData {
+  show: boolean;
+  briefing: string | null;
+}
+
 interface FocusTask {
   title: string;
   id: string;
@@ -79,6 +84,8 @@ export default function Dashboard() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [compounds, setCompounds] = useState<CompoundsData | null>(null);
   const [sessionDiff, setSessionDiff] = useState<SessionDiff | null>(null);
+  const [briefing, setBriefing] = useState<BriefingData | null>(null);
+  const [briefingLoading, setBriefingLoading] = useState(true);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -114,6 +121,19 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    setBriefingLoading(true);
+    api.get<BriefingData>('/briefing')
+      .then((res) => setBriefing(res))
+      .catch(() => setBriefing({ show: false, briefing: null }))
+      .finally(() => setBriefingLoading(false));
+  }, []);
+
+  const handleDismissBriefing = () => {
+    api.post('/briefing/dismiss', {}).catch(() => {});
+    setBriefing({ show: false, briefing: null });
+  };
 
   const focusTasks = (data?.focus ?? []).map((t, i) => ({
     icon: focusIcons[i % focusIcons.length],
@@ -175,6 +195,36 @@ export default function Dashboard() {
       <TopBar title="Home Dashboard" />
 
       <div className="pt-20 p-8">
+        {/* Morning Briefing */}
+        {briefingLoading ? (
+          <div className="mb-6 bg-slate-900/40 border border-slate-800 rounded-xl p-5 animate-pulse">
+            <div className="h-3 bg-slate-700 rounded w-1/4 mb-3" />
+            <div className="h-3 bg-slate-700 rounded w-3/4 mb-2" />
+            <div className="h-3 bg-slate-700 rounded w-2/3" />
+          </div>
+        ) : briefing?.show && briefing.briefing ? (
+          <div className="mb-6 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/30 rounded-xl p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3 flex-1">
+                <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <Icon name="wb_sunny" className="text-blue-400" size={18} />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-1.5">Good morning</p>
+                  <p className="text-sm text-slate-200 leading-relaxed">{briefing.briefing}</p>
+                </div>
+              </div>
+              <button
+                onClick={handleDismissBriefing}
+                className="text-slate-500 hover:text-slate-300 transition-colors shrink-0 mt-0.5"
+                aria-label="Dismiss briefing"
+              >
+                <Icon name="close" size={18} />
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {/* Greeting */}
         <div data-tour="dashboard" className="mb-8">
           <h1 className="text-3xl font-bold mb-1">Welcome to {osName}</h1>

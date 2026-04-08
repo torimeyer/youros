@@ -16,6 +16,12 @@ class TaskUpdate(BaseModel):
     priority: Optional[str] = None
 
 
+class TaskReorder(BaseModel):
+    task_id: str
+    new_priority: str
+    position: int
+
+
 class TaskLink(BaseModel):
     target: str
     relation: str = "blocks"
@@ -59,6 +65,7 @@ class Settings(BaseModel):
     mcp_servers: List[Dict] = []
     auto_label_tasks: bool = True
     chat_backend_preference: str = "auto"
+    morning_briefing_enabled: bool = True
 
 
 class MCPServer(BaseModel):
