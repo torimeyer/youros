@@ -1,0 +1,190 @@
+import { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+
+interface SharedTask {
+  id: string;
+  title: string;
+  priority: string;
+  status: string;
+  created_at: string;
+  description?: string;
+}
+
+interface AgentOutputItem {
+  agent: string;
+  output: string;
+}
+
+type SnapshotItem = SharedTask | AgentOutputItem;
+
+interface Share {
+  token: string;
+  share_type: 'task_list' | 'agent_output' | 'label_view';
+  title: string;
+  content_snapshot: SnapshotItem[];
+  created_at: string;
+  expires_at: string;
+}
+
+const priorityColors: Record<string, string> = {
+  P0: 'bg-pink-500/20 text-pink-400',
+  P1: 'bg-orange-500/20 text-orange-400',
+  P2: 'bg-blue-500/20 text-blue-400',
+};
+
+function TaskRow({ task }: { task: SharedTask }) {
+  return (
+    <div className="flex items-start gap-3 py-3 border-b border-slate-800 last:border-0">
+      <span className={`mt-0.5 shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${priorityColors[task.priority] ?? 'bg-slate-700 text-slate-400'}`}>
+        {task.priority}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-medium ${task.status === 'closed' ? 'line-through text-slate-500' : 'text-slate-100'}`}>
+          {task.title}
+        </p>
+        {task.description && (
+          <p className="text-xs text-slate-500 mt-1 line-clamp-2">{task.description}</p>
+        )}
+      </div>
+      <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${task.status === 'closed' ? 'bg-slate-700/50 text-slate-500' : 'bg-green-500/10 text-green-400'}`}>
+        {task.status}
+      </span>
+    </div>
+  );
+}
+
+function AgentOutput({ item }: { item: AgentOutputItem }) {
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-2">Agent: <span className="font-mono text-slate-400">{item.agent}</span></p>
+      <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono bg-slate-800/50 rounded-lg p-4 overflow-x-auto leading-relaxed">
+        {item.output}
+      </pre>
+    </div>
+  );
+}
+
+function isAgentOutputItem(item: SnapshotItem): item is AgentOutputItem {
+  return 'agent' in item && 'output' in item;
+}
+
+function isSharedTask(item: SnapshotItem): item is SharedTask {
+  return 'title' in item && 'priority' in item;
+}
+
+export default function ShareView() {
+  const { token } = useParams<{ token: string }>();
+  const [share, setShare] = useState<Share | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [expired, setExpired] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/shares/${token}`);
+        if (res.status === 410) {
+          setExpired(true);
+          return;
+        }
+        if (res.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (!res.ok) {
+          setNotFound(true);
+          return;
+        }
+        const data = await res.json();
+        setShare(data);
+      } catch {
+        setNotFound(true);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [token]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <p className="text-slate-400 text-sm">Loading...</p>
+      </div>
+    );
+  }
+
+  if (expired) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
+        <div className="text-6xl">&#128279;</div>
+        <h1 className="text-xl font-semibold text-slate-200">This link has expired.</h1>
+        <p className="text-sm text-slate-500">Share links are only valid for 7 days.</p>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (notFound || !share) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
+        <div className="text-6xl">&#10067;</div>
+        <h1 className="text-xl font-semibold text-slate-200">Link not found.</h1>
+        <p className="text-sm text-slate-500">This share link does not exist or has been revoked.</p>
+        <Footer />
+      </div>
+    );
+  }
+
+  const taskItems = share.content_snapshot.filter(isSharedTask);
+  const agentItems = share.content_snapshot.filter(isAgentOutputItem);
+
+  const expiresDate = new Date(share.expires_at).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  });
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="max-w-2xl mx-auto px-6 py-12">
+        {/* Header */}
+        <div className="mb-8">
+          <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">
+            {share.share_type === 'task_list' ? 'Task list'
+              : share.share_type === 'label_view' ? 'Label view'
+              : 'Agent output'}
+          </p>
+          <h1 className="text-2xl font-bold text-white mb-1">{share.title}</h1>
+          <p className="text-xs text-slate-500">Shared on {new Date(share.created_at).toLocaleDateString()} &middot; Expires {expiresDate}</p>
+        </div>
+
+        {/* Content */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+          {taskItems.length > 0 && (
+            <div>
+              <p className="text-xs text-slate-500 mb-3">{taskItems.length} {taskItems.length === 1 ? 'task' : 'tasks'}</p>
+              {taskItems.map((t) => <TaskRow key={t.id} task={t} />)}
+            </div>
+          )}
+
+          {agentItems.map((item, i) => (
+            <AgentOutput key={i} item={item} />
+          ))}
+
+          {share.content_snapshot.length === 0 && (
+            <p className="text-sm text-slate-500 text-center py-4">Nothing to show here.</p>
+          )}
+        </div>
+
+        <Footer />
+      </div>
+    </div>
+  );
+}
+
+function Footer() {
+  return (
+    <div className="mt-12 text-center">
+      <p className="text-xs text-slate-600">Shared via <span className="font-semibold text-slate-500">myOS</span></p>
+    </div>
+  );
+}

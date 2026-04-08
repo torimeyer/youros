@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import { api } from "../lib/api";
+import SharePopover from "../components/SharePopover";
 
 interface MessageCounts {
   user: number;
@@ -66,6 +67,7 @@ export default function Transcripts() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TranscriptDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [showTranscriptShare, setShowTranscriptShare] = useState(false);
 
   // Search and filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -166,7 +168,7 @@ export default function Transcripts() {
             >
               <Icon name="arrow_back" size={20} />
             </button>
-            <div>
+            <div className="flex-1">
               <h1 className="text-xl font-bold text-white">
                 {summary?.name || detail?.name || "Loading..."}
               </h1>
@@ -181,6 +183,24 @@ export default function Transcripts() {
                   <span className="font-mono text-xs">{detail?.cwd || summary?.cwd}</span>
                 )}
               </div>
+            </div>
+            <div className="relative">
+              <button
+                onClick={() => setShowTranscriptShare((v) => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors"
+                title="Share this transcript"
+              >
+                <Icon name="share" size={16} />
+                Share
+              </button>
+              {showTranscriptShare && (
+                <SharePopover
+                  shareType="agent_output"
+                  contentIds={[summary?.name || detail?.name || selectedId || ""]}
+                  title={summary?.name || detail?.name || "Transcript"}
+                  onClose={() => setShowTranscriptShare(false)}
+                />
+              )}
             </div>
           </div>
 

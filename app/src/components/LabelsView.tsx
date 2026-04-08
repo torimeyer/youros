@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import SharePopover from "./SharePopover";
 import Icon from "./Icon";
 import { api } from "../lib/api";
 
@@ -40,6 +41,7 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [sharingLabelId, setSharingLabelId] = useState<string | null>(null);
 
   const fetchLabels = useCallback(async () => {
     try {
@@ -253,6 +255,24 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
               >
                 <Icon name="close" className="text-sm" />
               </button>
+              {/* Share button (shows on hover) */}
+              <div className="relative" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setSharingLabelId(sharingLabelId === label.id ? null : label.id)}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-500 hover:text-blue-400 transition-opacity"
+                  title="Share this label view"
+                >
+                  <Icon name="share" className="text-sm" />
+                </button>
+                {sharingLabelId === label.id && (
+                  <SharePopover
+                    shareType="label_view"
+                    contentIds={[label.id]}
+                    title={`Label: ${label.name}`}
+                    onClose={() => setSharingLabelId(null)}
+                  />
+                )}
+              </div>
             </div>
           ))}
         </div>

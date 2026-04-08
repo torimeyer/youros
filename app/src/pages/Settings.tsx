@@ -114,6 +114,19 @@ export default function Settings() {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [syncLoading, setSyncLoading] = useState(false);
 
+  // Shared links state
+  interface ShareRecord {
+    token: string;
+    share_type: string;
+    title: string;
+    created_at: string;
+    expires_at: string;
+    expired: boolean;
+  }
+  const [shares, setShares] = useState<ShareRecord[]>([]);
+  const [sharesLoading, setSharesLoading] = useState(false);
+  const [revokingToken, setRevokingToken] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -239,6 +252,30 @@ export default function Settings() {
     { name: 'Anthropic', model: 'Claude' },
     { name: 'Google Gemini', model: 'Gemini' },
   ];
+
+  const fetchShares = async () => {
+    setSharesLoading(true);
+    try {
+      const res = await api.get<{ shares: ShareRecord[] }>('/shares');
+      setShares(res.shares ?? []);
+    } catch {
+      // ignore
+    } finally {
+      setSharesLoading(false);
+    }
+  };
+
+  const revokeShare = async (token: string) => {
+    setRevokingToken(token);
+    try {
+      await api.delete(`/shares/${token}`);
+      setShares((prev) => prev.filter((s) => s.token !== token));
+    } catch {
+      // ignore
+    } finally {
+      setRevokingToken(null);
+    }
+  };
 
   const saveMcpServers = (servers: MCPServer[]) => {
     setMcpServers(servers);
@@ -1320,6 +1357,58 @@ export default function Settings() {
               Restart Setup
             </button>
           </div>
+        </div>
+
+        {/* Row 7: Shared Links */}
+        <div className={cardClass}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Shared links</h2>
+            <button
+              onClick={fetchShares}
+              disabled={sharesLoading}
+              className="text-xs text-slate-400 hover:text-white disabled:opacity-50 transition-colors"
+            >
+              {sharesLoading ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+          {shares.length === 0 && !sharesLoading && (
+            <p className="text-sm text-slate-500">No active shared links. Use the Share button on tasks, transcripts, or labels to create one.</p>
+          )}
+          {shares.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {shares.map((share) => (
+                <div
+                  key={share.token}
+                  className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${share.expired ? 'border-slate-800 opacity-50' : 'border-slate-700 bg-slate-800/40'}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-200 truncate">{share.title}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {share.share_type === 'task_list' ? 'Task list' : share.share_type === 'agent_output' ? 'Agent output' : 'Label view'}
+                      {' '}&middot; Expires {new Date(share.expires_at).toLocaleDateString()}
+                      {share.expired && ' (expired)'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => navigator.clipboard.writeText(`${window.location.origin}/share/${share.token}`)}
+                      className="text-xs text-slate-400 hover:text-blue-400 transition-colors px-2 py-1 rounded"
+                      title="Copy link"
+                    >
+                      Copy link
+                    </button>
+                    <button
+                      onClick={() => revokeShare(share.token)}
+                      disabled={revokingToken === share.token}
+                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors px-2 py-1 rounded"
+                    >
+                      {revokingToken === share.token ? 'Revoking...' : 'Revoke'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

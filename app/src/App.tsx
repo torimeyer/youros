@@ -20,6 +20,7 @@ import Upgrade from './pages/Upgrade'
 import Workflows from './pages/Workflows'
 import WorkflowBuilder from './pages/WorkflowBuilder'
 import { useAppStore } from './stores/app'
+import ShareView from './pages/ShareView'
 
 export default function App() {
   const onboarded = useAppStore((s) => s.onboarded)
@@ -39,6 +40,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="share/:token" element={<ShareView />} />
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="tasks" element={<Tasks />} />
