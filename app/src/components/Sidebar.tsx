@@ -18,9 +18,12 @@ export function Sidebar() {
     { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
     { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: null },
     { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: null },
+    { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: null, gmailBadge: true },
     { to: '/transcripts', icon: 'record_voice_over', label: 'Transcripts', featureLabel: 'Transcripts' },
+    { to: '/workflows', icon: 'account_tree', label: 'Workflows', featureLabel: null },
   ]
   const [activeAgents, setActiveAgents] = useState(0)
+  const [gmailUnread, setGmailUnread] = useState(0)
 
   useEffect(() => {
     const fetchAgents = async () => {
@@ -33,6 +36,22 @@ export function Sidebar() {
     }
     fetchAgents()
     const interval = setInterval(fetchAgents, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    const fetchGmail = async () => {
+      try {
+        const res = await api.get<{ authenticated: boolean; unread_count: number }>('/gmail/auth/status')
+        if (res.authenticated) {
+          setGmailUnread(res.unread_count ?? 0)
+        }
+      } catch {
+        // ignore
+      }
+    }
+    fetchGmail()
+    const interval = setInterval(fetchGmail, 60000)
     return () => clearInterval(interval)
   }, [])
 
@@ -72,6 +91,11 @@ export function Sidebar() {
                   <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                     {activeAgents}
+                  </span>
+                )}
+                {'gmailBadge' in item && item.gmailBadge && gmailUnread > 0 && (
+                  <span className="ml-auto bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {gmailUnread}
                   </span>
                 )}
               </>
