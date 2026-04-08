@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import { api } from '../lib/api';
@@ -87,6 +87,71 @@ function mimeIcon(mimeType: string): { icon: string; color: string } {
 
 function mimeLabel(mimeType: string): string {
   return MIME_LABELS[mimeType] ?? 'File';
+}
+
+// ---------------------------------------------------------------------------
+// Filter types and helpers
+// ---------------------------------------------------------------------------
+
+type FileTypeFilter = 'all' | 'docs' | 'slides' | 'sheets' | 'pdfs' | 'images' | 'folders';
+type ModifiedFilter = 'all' | 'today' | 'week' | 'month';
+
+const FILE_TYPE_OPTIONS: { value: FileTypeFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'docs', label: 'Docs' },
+  { value: 'slides', label: 'Slides' },
+  { value: 'sheets', label: 'Sheets' },
+  { value: 'pdfs', label: 'PDFs' },
+  { value: 'images', label: 'Images' },
+  { value: 'folders', label: 'Folders' },
+];
+
+const MODIFIED_OPTIONS: { value: ModifiedFilter; label: string }[] = [
+  { value: 'all', label: 'All time' },
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'This week' },
+  { value: 'month', label: 'This month' },
+];
+
+function matchesFileType(file: DriveFile, filter: FileTypeFilter): boolean {
+  switch (filter) {
+    case 'all':
+      return true;
+    case 'docs':
+      return file.mimeType === 'application/vnd.google-apps.document';
+    case 'slides':
+      return file.mimeType === 'application/vnd.google-apps.presentation';
+    case 'sheets':
+      return file.mimeType === 'application/vnd.google-apps.spreadsheet';
+    case 'pdfs':
+      return file.mimeType === 'application/pdf';
+    case 'images':
+      return file.mimeType.startsWith('image/');
+    case 'folders':
+      return file.mimeType === 'application/vnd.google-apps.folder';
+    default:
+      return true;
+  }
+}
+
+function matchesModified(file: DriveFile, filter: ModifiedFilter): boolean {
+  if (filter === 'all') return true;
+  if (!file.modifiedTime) return false;
+  const modified = new Date(file.modifiedTime).getTime();
+  if (Number.isNaN(modified)) return false;
+  const now = Date.now();
+  const diff = now - modified;
+  const day = 24 * 60 * 60 * 1000;
+  switch (filter) {
+    case 'today':
+      return diff < day;
+    case 'week':
+      return diff < 7 * day;
+    case 'month':
+      return diff < 30 * day;
+    default:
+      return true;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -601,6 +666,8 @@ export default function Drive() {
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>('all');
+  const [modifiedFilter, setModifiedFilter] = useState<ModifiedFilter>('all');
   const [previewFile, setPreviewFile] = useState<DriveFile | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
@@ -611,6 +678,20 @@ export default function Drive() {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Apply all three filters (file type, modified, search) client-side with AND logic.
+  const filteredFiles = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return files.filter((file) => {
+      if (!matchesFileType(file, fileTypeFilter)) return false;
+      if (!matchesModified(file, modifiedFilter)) return false;
+      if (needle && !file.name.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [files, fileTypeFilter, modifiedFilter, search]);
+
+  const hasActiveFilters =
+    fileTypeFilter !== 'all' || modifiedFilter !== 'all' || search.trim().length > 0;
 
   const handleUpload = async (file: File) => {
     setUploading(true);
@@ -872,28 +953,73 @@ export default function Drive() {
               </div>
             </div>
 
-            {/* Search box */}
-            <div className="relative mb-4">
-              <Icon
-                name="search"
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-                size={16}
-              />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search your Drive files..."
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
-              />
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+            {/* Filter bar: file type pills, modified dropdown, search input */}
+            <div className="flex items-center gap-3 mb-4 flex-wrap">
+              {/* File type pills */}
+              <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-lg p-1 flex-wrap">
+                {FILE_TYPE_OPTIONS.map((opt) => {
+                  const active = fileTypeFilter === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => setFileTypeFilter(opt.value)}
+                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                        active
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Modified dropdown */}
+              <div className="relative">
+                <select
+                  value={modifiedFilter}
+                  onChange={(e) => setModifiedFilter(e.target.value as ModifiedFilter)}
+                  className="appearance-none bg-slate-900 border border-slate-800 rounded-lg pl-3 pr-8 py-1.5 text-xs text-slate-300 cursor-pointer focus:outline-none focus:border-blue-500 transition-colors"
+                  aria-label="Filter by modified time"
                 >
-                  <Icon name="close" size={14} />
-                </button>
-              )}
+                  {MODIFIED_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <Icon
+                  name="expand_more"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"
+                  size={14}
+                />
+              </div>
+
+              {/* Search input */}
+              <div className="relative flex-1 min-w-[200px]">
+                <Icon
+                  name="search"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+                  size={16}
+                />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by filename..."
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-8 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    aria-label="Clear search"
+                  >
+                    <Icon name="close" size={14} />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* File list */}
@@ -917,19 +1043,36 @@ export default function Drive() {
             {!filesLoading && !filesError && files.length === 0 && (
               <div className="text-center py-12 text-slate-500">
                 <Icon name="cloud_off" className="text-4xl mb-2" />
-                <p>{search ? 'No files match your search.' : 'No files found. Try syncing.'}</p>
-                {!search && (
+                <p>No files found. Try syncing.</p>
+                <button
+                  onClick={handleSync}
+                  className="mt-3 text-sm text-blue-400 hover:text-blue-300"
+                >
+                  Sync now
+                </button>
+              </div>
+            )}
+
+            {!filesLoading && !filesError && files.length > 0 && filteredFiles.length === 0 && (
+              <div className="text-center py-12 text-slate-500">
+                <Icon name="filter_alt_off" className="text-4xl mb-2" />
+                <p>No files match your filters.</p>
+                {hasActiveFilters && (
                   <button
-                    onClick={handleSync}
+                    onClick={() => {
+                      setFileTypeFilter('all');
+                      setModifiedFilter('all');
+                      setSearch('');
+                    }}
                     className="mt-3 text-sm text-blue-400 hover:text-blue-300"
                   >
-                    Sync now
+                    Clear filters
                   </button>
                 )}
               </div>
             )}
 
-            {files.length > 0 && (
+            {filteredFiles.length > 0 && (
               <div className="flex flex-col gap-1">
                 <div className="grid grid-cols-[1fr_120px_auto_80px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
                   <span>Name</span>
@@ -938,7 +1081,7 @@ export default function Drive() {
                   <span className="text-right">Modified</span>
                 </div>
 
-                {files.map((file) => {
+                {filteredFiles.map((file) => {
                   const { icon, color } = mimeIcon(file.mimeType);
                   const isSelected = previewFile?.id === file.id;
                   return (
@@ -983,8 +1126,7 @@ export default function Drive() {
                 })}
 
                 <p className="mt-4 text-xs text-slate-600 text-center">
-                  {files.length} file{files.length === 1 ? '' : 's'} in Drive
-                  {search ? ` matching "${search}"` : ''}
+                  {filteredFiles.length} of {files.length} file{files.length === 1 ? '' : 's'}
                 </p>
               </div>
             )}
