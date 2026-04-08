@@ -241,3 +241,37 @@ async def test_update_workflow_not_found(client, tmp_workflows_file):
     async with client as c:
         r = await c.put("/api/workflows/ghost", json={"name": "X", "steps": []})
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/workflows/templates -- built-in automation templates
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_automation_templates(client, tmp_workflows_file):
+    """GET /workflows/templates returns the built-in automation templates."""
+    async with client as c:
+        r = await c.get("/api/workflows/templates")
+    assert r.status_code == 200
+    body = r.json()
+    assert "templates" in body
+    templates = body["templates"]
+    assert len(templates) == 4
+    ids = {t["id"] for t in templates}
+    assert ids == {
+        "builtin-daily-standup",
+        "builtin-weekly-review",
+        "builtin-meeting-prep",
+        "builtin-inbox-triage",
+    }
+    # Each template must have the fields the frontend relies on
+    for tpl in templates:
+        assert tpl["name"]
+        assert tpl["description"]
+        assert tpl["icon"]
+        assert isinstance(tpl["steps"], list)
+        assert len(tpl["steps"]) >= 1
+        for step in tpl["steps"]:
+            assert step["name"]
+            assert step["prompt"]

@@ -266,7 +266,7 @@ export default function WorkflowBuilder() {
   const { id } = useParams<{ id?: string }>();
   const navigate = useNavigate();
 
-  const [name, setName] = useState("My workflow");
+  const [name, setName] = useState("My automation");
   const [steps, setSteps] = useState<StepDraft[]>([emptyStep()]);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -283,7 +283,41 @@ export default function WorkflowBuilder() {
 
   // Load existing workflow if editing
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      // Check for a template prefill left by the Automations page
+      try {
+        const raw = localStorage.getItem("automation-template-prefill");
+        if (raw) {
+          const prefill = JSON.parse(raw) as {
+            name: string;
+            steps: {
+              agent_name: string;
+              prompt: string;
+              model?: string;
+              budget?: number;
+              depends_on?: string[];
+            }[];
+          };
+          if (prefill?.name && Array.isArray(prefill.steps) && prefill.steps.length > 0) {
+            setName(prefill.name);
+            setSteps(
+              prefill.steps.map((s) => ({
+                id: newStepId(),
+                agent_name: s.agent_name,
+                prompt: s.prompt,
+                model: s.model || "sonnet",
+                budget: s.budget ?? 2.0,
+                depends_on: s.depends_on || [],
+              }))
+            );
+          }
+          localStorage.removeItem("automation-template-prefill");
+        }
+      } catch {
+        // ignore bad prefill payloads
+      }
+      return;
+    }
     const load = async () => {
       try {
         const data = await api.get<{ workflow: WorkflowStatus }>(`/workflows/${id}/status`);
@@ -302,7 +336,7 @@ export default function WorkflowBuilder() {
         );
         setWorkflowStatus(wf.status);
       } catch {
-        showMessage("Could not load workflow.", "error");
+        showMessage("Could not load automation.", "error");
       }
     };
     load();
@@ -325,7 +359,7 @@ export default function WorkflowBuilder() {
       if (wf.status !== "running") {
         setPolling(false);
         setRunning(false);
-        if (wf.status === "done") showMessage("Workflow finished.");
+        if (wf.status === "done") showMessage("Automation finished.");
         if (wf.status === "failed") showMessage("One or more steps failed.", "error");
       }
     } catch {
@@ -380,7 +414,7 @@ export default function WorkflowBuilder() {
   // Save
   const handleSave = async () => {
     if (!name.trim()) {
-      showMessage("Give your workflow a name first.", "error");
+      showMessage("Give your automation a name first.", "error");
       return;
     }
     setSaving(true);
@@ -399,16 +433,16 @@ export default function WorkflowBuilder() {
 
       if (workflowId) {
         await api.put(`/workflows/${workflowId}`, body);
-        showMessage("Workflow saved.");
+        showMessage("Automation saved.");
       } else {
         const data = await api.post<{ workflow: { id: string } }>("/workflows", body);
         const newId = data.workflow.id;
         setWorkflowId(newId);
         navigate(`/workflows/builder/${newId}`, { replace: true });
-        showMessage("Workflow saved.");
+        showMessage("Automation saved.");
       }
     } catch {
-      showMessage("Could not save workflow.", "error");
+      showMessage("Could not save automation.", "error");
     } finally {
       setSaving(false);
     }
@@ -421,7 +455,7 @@ export default function WorkflowBuilder() {
     // Auto-save first if needed
     if (!wfId) {
       if (!name.trim()) {
-        showMessage("Give your workflow a name first.", "error");
+        showMessage("Give your automation a name first.", "error");
         return;
       }
       try {
@@ -442,7 +476,7 @@ export default function WorkflowBuilder() {
         setWorkflowId(wfId);
         navigate(`/workflows/builder/${wfId}`, { replace: true });
       } catch {
-        showMessage("Could not save workflow.", "error");
+        showMessage("Could not save automation.", "error");
         setSaving(false);
         return;
       } finally {
@@ -455,10 +489,10 @@ export default function WorkflowBuilder() {
       await api.post(`/workflows/${wfId}/run`);
       setWorkflowStatus("running");
       setPolling(true);
-      showMessage("Workflow started.");
+      showMessage("Automation started.");
     } catch {
       setRunning(false);
-      showMessage("Could not start workflow.", "error");
+      showMessage("Could not start automation.", "error");
     }
   };
 
@@ -466,7 +500,7 @@ export default function WorkflowBuilder() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <TopBar title={id ? "Edit workflow" : "New workflow"} />
+      <TopBar title={id ? "Edit automation" : "New automation"} />
       <div className="pt-20 p-8">
         <div className="max-w-2xl mx-auto">
           {/* Header */}
@@ -476,7 +510,7 @@ export default function WorkflowBuilder() {
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Workflow name"
+                placeholder="Automation name"
                 className="w-full bg-transparent text-2xl font-bold text-slate-100 placeholder-slate-600 outline-none border-b border-transparent focus:border-slate-600 transition-colors pb-1"
               />
               <p className="text-sm text-slate-500 mt-1">
@@ -499,7 +533,7 @@ export default function WorkflowBuilder() {
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40"
               >
                 <Icon name={isRunning ? "hourglass_empty" : "play_arrow"} className="text-base" />
-                {isRunning ? "Running..." : "Run workflow"}
+                {isRunning ? "Running..." : "Run automation"}
               </button>
             </div>
           </div>
@@ -523,9 +557,9 @@ export default function WorkflowBuilder() {
               {workflowStatus === "done" && <Icon name="check_circle" className="text-base" />}
               {workflowStatus === "failed" && <Icon name="error" className="text-base" />}
               <span>
-                {workflowStatus === "running" && "Workflow is running..."}
-                {workflowStatus === "done" && "Workflow finished successfully."}
-                {workflowStatus === "failed" && "Workflow failed. Check steps below."}
+                {workflowStatus === "running" && "Automation is running..."}
+                {workflowStatus === "done" && "Automation finished successfully."}
+                {workflowStatus === "failed" && "Automation failed. Check steps below."}
               </span>
             </div>
           )}
@@ -588,7 +622,7 @@ export default function WorkflowBuilder() {
               onClick={() => navigate("/workflows")}
               className="text-xs text-slate-600 hover:text-slate-400 transition-colors"
             >
-              Back to all workflows
+              Back to all automations
             </button>
           </div>
         </div>

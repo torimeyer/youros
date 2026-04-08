@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import Icon from '../components/Icon'
 import { api } from '../lib/api'
@@ -147,7 +148,7 @@ function WorkflowDetail({
             disabled={workflow.status === 'running'}
             className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
           >
-            {workflow.status === 'running' ? 'Running...' : 'Run workflow'}
+            {workflow.status === 'running' ? 'Running...' : 'Run automation'}
           </button>
         </div>
       </div>
@@ -199,10 +200,10 @@ function NewWorkflowModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[85vh] flex flex-col">
-        <h3 className="text-lg font-semibold text-white mb-4">New workflow</h3>
+        <h3 className="text-lg font-semibold text-white mb-4">New automation</h3>
 
         {/* Name */}
-        <label className="block text-sm text-slate-400 mb-1">Workflow name</label>
+        <label className="block text-sm text-slate-400 mb-1">Automation name</label>
         <input
           type="text"
           value={name}
@@ -337,7 +338,7 @@ function NewWorkflowModal({
             disabled={!valid}
             className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
           >
-            Save workflow
+            Save automation
           </button>
         </div>
       </div>
@@ -346,15 +347,29 @@ function NewWorkflowModal({
 }
 
 // ---------------------------------------------------------------------------
+// Automation templates
+// ---------------------------------------------------------------------------
+
+interface AutomationTemplate {
+  id: string
+  name: string
+  description: string
+  icon: string
+  steps: { name: string; prompt: string }[]
+}
+
+// ---------------------------------------------------------------------------
 // Main Workflows page
 // ---------------------------------------------------------------------------
 
 export default function Workflows() {
+  const navigate = useNavigate()
   const [workflows, setWorkflows] = useState<Workflow[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<Workflow | null>(null)
   const [showNew, setShowNew] = useState(false)
   const [error, setError] = useState('')
+  const [templates, setTemplates] = useState<AutomationTemplate[]>([])
 
   const fetchWorkflows = useCallback(async () => {
     try {
@@ -365,6 +380,19 @@ export default function Workflows() {
     } finally {
       setLoading(false)
     }
+  }, [])
+
+  // Fetch built-in templates once
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const res = await api.get<{ templates: AutomationTemplate[] }>('/workflows/templates')
+        setTemplates(res.templates)
+      } catch {
+        // ignore, templates are non-critical
+      }
+    }
+    fetchTemplates()
   }, [])
 
   useEffect(() => {
@@ -414,25 +442,45 @@ export default function Workflows() {
     }
   }
 
+  const handleUseTemplate = (tpl: AutomationTemplate) => {
+    // Pre-fill the builder via localStorage and navigate to it
+    const prefill = {
+      name: tpl.name,
+      steps: tpl.steps.map((s) => ({
+        agent_name: s.name,
+        prompt: s.prompt,
+        model: 'sonnet',
+        budget: 2.0,
+        depends_on: [],
+      })),
+    }
+    try {
+      localStorage.setItem('automation-template-prefill', JSON.stringify(prefill))
+    } catch {
+      // ignore storage failures
+    }
+    navigate('/workflows/builder')
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <TopBar title="Workflows" />
+      <TopBar title="Automations" />
 
       <div className="pt-20 p-8">
         {/* Header row */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-white">Workflows</h1>
+            <h1 className="text-2xl font-bold text-white">Automations</h1>
             <p className="text-sm text-slate-400 mt-1">
               Chain agents together. Steps run at the same time unless you set dependencies.
             </p>
           </div>
           <button
-            onClick={() => setShowNew(true)}
+            onClick={() => navigate('/workflows/builder')}
             className="flex items-center gap-2 bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-4 py-2 text-sm transition-colors"
           >
             <Icon name="add" className="text-base" />
-            New workflow
+            New automation
           </button>
         </div>
 
@@ -442,15 +490,50 @@ export default function Workflows() {
           </div>
         )}
 
+        {/* Templates section */}
+        {templates.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-sm font-semibold text-slate-300 mb-2">Templates</h2>
+            <p className="text-xs text-slate-500 mb-3">
+              Start from a ready-made automation. Click Use to open it in the builder.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {templates.map((tpl) => (
+                <div
+                  key={tpl.id}
+                  className="flex items-start gap-3 p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-600 transition-colors"
+                >
+                  <Icon name={tpl.icon} className="text-2xl text-pink-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-white">{tpl.name}</span>
+                      <span className="text-[10px] text-slate-500">
+                        {tpl.steps.length} {tpl.steps.length === 1 ? 'step' : 'steps'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">{tpl.description}</p>
+                  </div>
+                  <button
+                    onClick={() => handleUseTemplate(tpl)}
+                    className="shrink-0 bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-medium rounded-lg px-3 py-1.5 transition-colors"
+                  >
+                    Use
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Workflow list */}
         {loading ? (
           <div className="text-slate-500 text-sm">Loading...</div>
         ) : workflows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Icon name="account_tree" className="text-5xl text-slate-700 mb-4" />
-            <p className="text-slate-400 text-lg font-medium">No workflows yet</p>
+            <p className="text-slate-400 text-lg font-medium">No automations yet</p>
             <p className="text-slate-600 text-sm mt-1">
-              Create a workflow to run multiple agents in a sequence or at the same time.
+              Create an automation to run multiple agents in a sequence or at the same time.
             </p>
           </div>
         ) : (
@@ -509,14 +592,21 @@ export default function Workflows() {
                   <button
                     onClick={(e) => { e.stopPropagation(); handleRun(wf.id) }}
                     disabled={wf.status === 'running'}
-                    title="Run workflow"
+                    title="Run automation"
                     className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:text-slate-700 transition-colors"
                   >
                     <Icon name="play_arrow" className="text-base" />
                   </button>
                   <button
+                    onClick={(e) => { e.stopPropagation(); navigate(`/workflows/builder/${wf.id}`) }}
+                    title="Edit automation"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  >
+                    <Icon name="edit" className="text-base" />
+                  </button>
+                  <button
                     onClick={(e) => { e.stopPropagation(); handleDelete(wf.id) }}
-                    title="Delete workflow"
+                    title="Delete automation"
                     className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors"
                   >
                     <Icon name="delete" className="text-base" />

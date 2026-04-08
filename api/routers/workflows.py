@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from services.automation_templates import BUILTIN_AUTOMATION_TEMPLATES
 from services.workflows import (
     create_workflow,
     delete_workflow,
@@ -45,6 +46,12 @@ class WorkflowCreate(BaseModel):
 async def list_all_workflows() -> dict[str, Any]:
     """Return all saved workflows, newest first."""
     return {"workflows": list_workflows()}
+
+
+@router.get("/workflows/templates")
+async def list_automation_templates() -> dict[str, Any]:
+    """Return the built-in automation templates shown on the Automations page."""
+    return {"templates": BUILTIN_AUTOMATION_TEMPLATES}
 
 
 @router.post("/workflows")

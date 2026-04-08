@@ -20,7 +20,7 @@ export function Sidebar() {
     { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: null },
     { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: null, gmailBadge: true },
     { to: '/transcripts', icon: 'record_voice_over', label: 'Transcripts', featureLabel: 'Transcripts' },
-    { to: '/workflows', icon: 'account_tree', label: 'Workflows', featureLabel: null },
+    { to: '/workflows', icon: 'account_tree', label: 'Automations', featureLabel: null },
   ]
   const [activeAgents, setActiveAgents] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
