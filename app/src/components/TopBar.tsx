@@ -94,9 +94,23 @@ function PersistentNotificationItem({
       }}
     >
       <Icon
-        name={n.type === 'upgrade' ? 'system_update_alt' : 'info'}
+        name={
+          n.type === 'upgrade' ? 'system_update_alt'
+          : n.type === 'agent' ? 'check_circle'
+          : n.type === 'sync' ? 'sync'
+          : n.type === 'task_overdue' ? 'schedule'
+          : n.type === 'idea' ? 'lightbulb'
+          : 'info'
+        }
         size={18}
-        className={n.type === 'upgrade' ? 'text-blue-400 mt-0.5 shrink-0' : 'text-slate-400 mt-0.5 shrink-0'}
+        className={
+          (n.type === 'upgrade' ? 'text-blue-400'
+          : n.type === 'agent' ? 'text-green-400'
+          : n.type === 'sync' ? 'text-purple-400'
+          : n.type === 'task_overdue' ? 'text-orange-400'
+          : n.type === 'idea' ? 'text-yellow-400'
+          : 'text-slate-400') + ' mt-0.5 shrink-0'
+        }
       />
       <div className="flex-1 min-w-0">
         <p className="text-sm text-white font-medium">{n.title}</p>

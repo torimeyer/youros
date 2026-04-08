@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar
+from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, meeting_prep
 
 app = FastAPI(title="myOS API")
 
@@ -46,6 +46,8 @@ app.include_router(notifications.router, prefix="/api")
 app.include_router(upgrade.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
 app.include_router(calendar.router, prefix="/api")
+app.include_router(gmail.router, prefix="/api")
+app.include_router(meeting_prep.router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -185,6 +187,87 @@ async def schedule_settings_sync_pull():
             pass
 
     asyncio.create_task(_pull())
+
+
+@app.on_event("startup")
+async def schedule_gmail_unread_notification():
+    """After a short delay, check for unread Gmail and fire a notification.
+
+    Only fires if Gmail is authenticated and there are unread messages.
+    Skips if an unread gmail notification already exists.
+    """
+    import asyncio
+
+    async def _check():
+        await asyncio.sleep(12)
+        try:
+            from services.google_auth import is_authenticated
+            from services.notifications import notifications_service
+            from services import gmail as gmail_service
+
+            if not is_authenticated():
+                return
+
+            if notifications_service.has_unread_of_type("gmail"):
+                return
+
+            messages = await gmail_service.get_unread_summary()
+            count = len(messages)
+            if count > 0:
+                word = "email" if count == 1 else "emails"
+                notifications_service.add(
+                    type="gmail",
+                    title="Unread email",
+                    body=f"You have {count} unread {word}.",
+                    action_label="Open Gmail",
+                    action_url="/gmail",
+                )
+        except Exception:
+            pass
+
+    asyncio.create_task(_check())
+
+
+@app.on_event("startup")
+async def schedule_overdue_task_check():
+    """After a short delay, check for overdue tasks and fire a notification.
+
+    A task is overdue when it has a due date in the past and is still open.
+    Only fires once per day by checking for an existing unread overdue notification.
+    """
+    import asyncio
+
+    async def _check():
+        await asyncio.sleep(20)
+        try:
+            from datetime import date
+            from services.ostk import ostk as _ostk
+            from services.notifications import notifications_service
+
+            if notifications_service.has_unread_of_type("task_overdue"):
+                return
+
+            tasks = await _ostk.list_tasks(status="open")
+            today = date.today().isoformat()
+            overdue = [
+                t for t in tasks
+                if t.get("due") and t["due"] < today
+            ]
+            if overdue:
+                count = len(overdue)
+                word = "task" if count == 1 else "tasks"
+                notifications_service.add(
+                    type="task_overdue",
+                    title=f"{count} overdue {word}",
+                    body=f"You have {count} {word} past their due date.",
+                    action_label="View tasks",
+                    action_url="/tasks",
+                    metadata={"count": count},
+                )
+        except Exception:
+            pass
+
+    asyncio.create_task(_check())
 
 
 @app.get("/api/health")

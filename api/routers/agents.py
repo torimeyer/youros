@@ -446,6 +446,23 @@ async def mark_agent_complete(name: str):
     transcript.parent.mkdir(parents=True, exist_ok=True)
     if not transcript.exists() or transcript.stat().st_size == 0:
         transcript.write_text(f"Agent '{name}' completed (registered externally).\n")
+
+    # Fire a persistent notification so the bell lights up when an agent finishes.
+    try:
+        from services.notifications import notifications_service
+        description = agent_metadata.get(name, {}).get("description", "")
+        body = description if description else f"Agent '{name}' finished its work."
+        notifications_service.add(
+            type="agent",
+            title=f"Agent done: {name}",
+            body=body,
+            action_label="View agents",
+            action_url="/agents",
+            metadata={"agent_name": name},
+        )
+    except Exception:
+        pass
+
     return {"result": f"Agent '{name}' marked complete", "status": "completed"}
 
 

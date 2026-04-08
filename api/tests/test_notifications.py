@@ -171,3 +171,54 @@ async def test_delete_endpoint_not_found(client):
         mock_svc.delete.return_value = False
         resp = await client.delete("/api/notifications/bad-id")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Agent completion fires a notification
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_agent_complete_fires_notification(tmp_path):
+    """When an agent calls /complete, a persistent notification with type='agent'
+    must be created so the bell lights up in the UI."""
+    from unittest.mock import AsyncMock, MagicMock
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+    from routers.agents import agent_metadata
+
+    agent_metadata["notif-test-agent"] = {
+        "spawned_at": "2026-04-08T10:00:00+00:00",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "source": "claude-code",
+        "description": "Runs the notification test.",
+    }
+
+    fired: list[dict] = []
+
+    def fake_add(**kwargs):
+        fired.append(kwargs)
+        n = MagicMock()
+        n.id = "fake-notif-id"
+        return n
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("services.notifications.notifications_service") as mock_notif_svc, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_notif_svc.add.side_effect = fake_add
+
+                resp = await client.post("/api/agents/notif-test-agent/complete")
+                assert resp.status_code == 200
+
+        finally:
+            agent_metadata.pop("notif-test-agent", None)
+
+    assert len(fired) == 1, "Expected exactly one notification to be fired"
+    assert fired[0]["type"] == "agent"
+    assert "notif-test-agent" in fired[0]["title"]
+    assert fired[0]["action_url"] == "/agents"
