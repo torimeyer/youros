@@ -64,6 +64,10 @@ def _recover_stale_agents():
     for name, meta in agent_metadata.items():
         if meta.get("status") != "running":
             continue
+        # Claude Code agents have no local PID — they run as remote subprocesses.
+        # Leave them alone; they mark themselves complete via the API.
+        if meta.get("source") == "claude-code":
+            continue
         pid = meta.get("pid")
         # If there is a live PID we can verify, leave it alone.
         if pid and _is_pid_alive(pid):

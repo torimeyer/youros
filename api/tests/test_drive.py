@@ -142,7 +142,7 @@ async def test_drive_auth_url_contains_correct_redirect_uri(client, tmp_path):
 
     assert resp.status_code == 200
     url = resp.json()["url"]
-    assert "http%3A%2F%2Flocalhost%3A37373%2Fapi%2Fdrive%2Fauth%2Fcallback" in url
+    assert "http%3A%2F%2Flocalhost%3A8000%2Fapi%2Fdrive%2Fauth%2Fcallback" in url
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +527,7 @@ async def test_drive_credentials_upload_web_format(client, tmp_path):
             "web": {
                 "client_id": "web-id.apps.googleusercontent.com",
                 "client_secret": "web-secret",
-                "redirect_uris": ["http://localhost:37373/api/drive/auth/callback"],
+                "redirect_uris": ["http://localhost:8000/api/drive/auth/callback"],
             }
         }
     ).encode()
