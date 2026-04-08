@@ -50,7 +50,16 @@ class OstkService:
             args += ["--status", status]
         if priority:
             args += ["--priority", priority]
-        return await self._run_json(*args)
+        raw: list[dict] = await self._run_json(*args)
+        # issues.jsonl is append-only: closing a task appends a new entry with
+        # the same id. Deduplicate by keeping only the LAST occurrence of each
+        # id so the most-recent status wins.
+        seen: dict[str, dict] = {}
+        for entry in raw:
+            task_id = entry.get("id")
+            if task_id:
+                seen[task_id] = entry
+        return list(seen.values())
 
     async def add_task(self, title: str, priority: str = "P1") -> str:
         return await self._run("work", "add", title, "--priority", priority)

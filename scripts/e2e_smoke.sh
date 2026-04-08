@@ -181,6 +181,12 @@ if [ "$SKIP_LIVE" != "1" ]; then
             -d "{\"title\":\"$title\",\"priority\":\"P2\"}")
         if echo "$create_resp" | grep -q '"task_id"'; then
             phase_pass "POST /api/tasks creates a task"
+            # Extract the task id and clean up so smoke tasks never accumulate.
+            smoke_task_id=$(echo "$create_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null || true)
+            if [ -n "$smoke_task_id" ]; then
+                curl -sS -X POST "${API_BASE}/api/tasks/${smoke_task_id}/close" \
+                    -H 'content-type: application/json' > /dev/null 2>&1 || true
+            fi
         else
             phase_fail "POST /api/tasks (body: $create_resp)"
         fi

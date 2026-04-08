@@ -1403,3 +1403,34 @@ def test_task_labeling_extract_task_id_matches_router_helper():
     for text, expected in samples:
         assert shared(text) == expected
         assert router_alias(text) == expected
+
+
+# --- Regression: issues.jsonl deduplication ---
+
+@pytest.mark.asyncio
+async def test_list_tasks_deduplicates_by_last_occurrence(tmp_path):
+    """When the same task ID appears twice in issues.jsonl (open then closed),
+    list_tasks must return it only once with the status from the last entry."""
+    from unittest.mock import patch as _patch
+    from services.ostk import OstkService
+
+    # Simulate ostk CLI returning two entries for the same id: open first,
+    # then closed (the append-only log pattern).
+    duplicate_entries = [
+        {"id": "\u2192140", "title": "e2e-smoke-task", "status": "open", "priority": "P2", "tags": []},
+        {"id": "\u2192140", "title": "e2e-smoke-task", "status": "closed", "priority": "P2", "tags": []},
+        {"id": "\u2192141", "title": "Another task", "status": "open", "priority": "P1", "tags": []},
+    ]
+
+    svc = OstkService.__new__(OstkService)
+    svc.cwd = str(tmp_path)
+
+    with _patch.object(svc, "_run_json", return_value=duplicate_entries):
+        result = await svc.list_tasks()
+
+    ids = [t["id"] for t in result]
+    assert ids.count("\u2192140") == 1, "duplicate id must appear only once"
+    assert ids.count("\u2192141") == 1
+
+    task_140 = next(t for t in result if t["id"] == "\u2192140")
+    assert task_140["status"] == "closed", "last occurrence (closed) must win"
