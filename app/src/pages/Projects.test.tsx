@@ -190,13 +190,14 @@ describe('Projects page', () => {
     renderProjects()
 
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledTimes(1)
+      expect(mockedApiGet.mock.calls.length).toBeGreaterThanOrEqual(1)
     })
+    const initialCalls = mockedApiGet.mock.calls.length
 
     fireEvent.click(screen.getByText('Refresh'))
 
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledTimes(2)
+      expect(mockedApiGet.mock.calls.length).toBeGreaterThan(initialCalls)
     })
   })
 

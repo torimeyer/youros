@@ -127,9 +127,10 @@ describe('Dashboard Day Summary', () => {
     await waitFor(() => {
       expect(screen.getByText('Day Summary')).toBeInTheDocument()
     })
-    // There are multiple Refresh buttons (Today's Focus also has one)
+    // Today's Focus no longer has a refresh button (auto-refreshes every 15s)
+    // so there is only one Refresh button, on the Day Summary card.
     const refreshButtons = screen.getAllByText('Refresh')
-    expect(refreshButtons.length).toBeGreaterThanOrEqual(2)
+    expect(refreshButtons.length).toBeGreaterThanOrEqual(1)
   })
 
   it('calls the summary API again when Refresh is clicked', async () => {

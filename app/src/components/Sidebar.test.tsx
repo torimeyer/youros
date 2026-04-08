@@ -161,38 +161,47 @@ describe('Sidebar', () => {
 
   it('polls agents every 5 seconds so the badge stays up to date', async () => {
     vi.useFakeTimers()
-    mockedApiGet.mockResolvedValue({ active: [] })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/agents') return Promise.resolve({ active: [] })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
     renderSidebar()
+
+    // Count only /agents calls since the Sidebar also polls Gmail auth status
+    const agentCalls = () => mockedApiGet.mock.calls.filter(c => c[0] === '/agents').length
 
     // Initial fetch
     await vi.advanceTimersByTimeAsync(0)
-    expect(mockedApiGet).toHaveBeenCalledTimes(1)
+    expect(agentCalls()).toBe(1)
 
     // After 5 seconds, should poll again
     await vi.advanceTimersByTimeAsync(5000)
-    expect(mockedApiGet).toHaveBeenCalledTimes(2)
+    expect(agentCalls()).toBe(2)
 
     // After another 5 seconds, third poll
     await vi.advanceTimersByTimeAsync(5000)
-    expect(mockedApiGet).toHaveBeenCalledTimes(3)
+    expect(agentCalls()).toBe(3)
 
     vi.useRealTimers()
   })
 
   it('updates badge count when API response changes between polls', async () => {
     // Start with no active agents, then after re-fetch return 3
-    let callCount = 0
-    mockedApiGet.mockImplementation(async () => {
-      callCount++
-      if (callCount === 1) return { active: [] }
-      return { active: ['a1', 'a2', 'a3'] }
+    let agentCallCount = 0
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/agents') {
+        agentCallCount++
+        if (agentCallCount === 1) return { active: [] }
+        return { active: ['a1', 'a2', 'a3'] }
+      }
+      return { authenticated: false, unread_count: 0 }
     })
 
     renderSidebar()
 
     // Wait for initial fetch
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledTimes(1)
+      expect(agentCallCount).toBeGreaterThanOrEqual(1)
     })
     expect(screen.queryByText('3')).not.toBeInTheDocument()
 

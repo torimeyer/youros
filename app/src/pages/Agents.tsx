@@ -1045,6 +1045,17 @@ export default function Agents() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  // Listen for the dashboard "Spawn Agent" quick launch so the form
+  // opens the moment the user lands on this page.
+  useEffect(() => {
+    const handler = () => {
+      setActiveTab("Active");
+      setShowNewForm(true);
+    };
+    window.addEventListener('myos-quick-spawn-agent', handler);
+    return () => window.removeEventListener('myos-quick-spawn-agent', handler);
+  }, []);
+
   const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number) => {
     if (!name.trim()) return;
     try {

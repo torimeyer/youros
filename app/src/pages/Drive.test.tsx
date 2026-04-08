@@ -80,10 +80,10 @@ describe('Drive page', () => {
     await waitFor(() => {
       expect(screen.getByText('Connect Google Drive')).toBeInTheDocument()
     })
-    // Setup warning should appear when credentials file is missing.
-    expect(screen.getByText('Setup required')).toBeInTheDocument()
-    // The connect button should be disabled without the credentials file.
-    expect(screen.getByRole('button', { name: /connect your google account/i })).toBeDisabled()
+    // When no credentials file is present, the CredentialsPicker is shown
+    // instead of an enabled connect button. The user cannot connect until
+    // they save a credentials file first.
+    expect(screen.queryByRole('button', { name: /connect your google account/i })).not.toBeInTheDocument()
   })
 
   it('shows enabled connect button when credentials file is present', async () => {

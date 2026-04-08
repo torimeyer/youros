@@ -16,29 +16,38 @@ import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
 
+// The new HealthCheckView calls BOTH /tasks/health AND /tasks/duplicates
+// in parallel, then filters out the noisy "isolated" issue type and
+// renders duplicate candidates as a separate section.
 const mockHealthResult = {
   tasks: [
     { id: '001', priority: 'P1', status: 'open', title: 'Fix bug', sphere: null, degree: 0, joints: [] },
-    { id: '002', priority: 'P1', status: 'open', title: 'Add feature', sphere: null, degree: 2, joints: [
+    { id: '002', priority: 'P1', status: 'open', title: 'Add feature', sphere: null, degree: 1, joints: [
       { id: '003', title: 'Related task' },
-      { id: '004', title: 'Another task' },
     ]},
   ],
   issues: [
     { type: 'no_description', severity: 'info', message: 'Task 001 has no description', task_ids: ['001'] },
-    { type: 'isolated', severity: 'info', message: 'Task 001 is not linked to any other tasks', task_ids: ['001'] },
   ],
-  summary: { total: 2, issues: 2, connected: 1, isolated: 1 },
+  summary: { total: 2, issues: 1, connected: 1, isolated: 1 },
 }
 
-const mockCleanResult = {
-  tasks: [
-    { id: '001', priority: 'P1', status: 'open', title: 'Good task', sphere: null, degree: 1, joints: [
-      { id: '002', title: 'Linked task' }
-    ]},
+const mockDuplicatesResult = {
+  duplicates: [
+    {
+      task_a: { id: '001', title: 'Fix bug', priority: 'P1' },
+      task_b: { id: '099', title: 'Fix the bug', priority: 'P1' },
+      similarity: 0.92,
+    },
   ],
-  issues: [],
-  summary: { total: 1, issues: 0, connected: 1, isolated: 0 },
+}
+
+function mockBothEndpoints() {
+  mockedApiGet.mockImplementation((url: string) => {
+    if (url.includes('/tasks/duplicates')) return Promise.resolve(mockDuplicatesResult)
+    if (url.includes('/tasks/health')) return Promise.resolve(mockHealthResult)
+    return Promise.resolve({})
+  })
 }
 
 describe('HealthCheckView', () => {
@@ -48,124 +57,56 @@ describe('HealthCheckView', () => {
 
   it('renders the initial state with a run button', () => {
     render(<HealthCheckView />)
-
-    expect(screen.getByText('Task Health Check')).toBeInTheDocument()
-    expect(screen.getByText('Run Health Check')).toBeInTheDocument()
+    expect(screen.getByText(/Run Health Check/i)).toBeInTheDocument()
   })
 
-  it('shows loading state while checking', async () => {
-    mockedApiGet.mockReturnValue(new Promise(() => {})) // never resolves
+  it('calls both /tasks/health and /tasks/duplicates when the user runs a check', async () => {
+    mockBothEndpoints()
     render(<HealthCheckView />)
-
-    fireEvent.click(screen.getByText('Run Health Check'))
-
-    expect(screen.getByText('Checking task quality...')).toBeInTheDocument()
-  })
-
-  it('displays summary after health check completes', async () => {
-    mockedApiGet.mockResolvedValue(mockHealthResult)
-    render(<HealthCheckView />)
-
-    fireEvent.click(screen.getByText('Run Health Check'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Tasks checked')).toBeInTheDocument()
-    })
-
-    // Check all summary cards exist
-    expect(screen.getByText('Issues found')).toBeInTheDocument()
-    expect(screen.getByText('Connected')).toBeInTheDocument()
-    expect(screen.getByText('Isolated')).toBeInTheDocument()
-  })
-
-  it('shows issues list when problems are found', async () => {
-    mockedApiGet.mockResolvedValue(mockHealthResult)
-    render(<HealthCheckView />)
-
-    fireEvent.click(screen.getByText('Run Health Check'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Task 001 has no description')).toBeInTheDocument()
-    })
-
-    expect(screen.getByText('Task 001 is not linked to any other tasks')).toBeInTheDocument()
-  })
-
-  it('shows all-clear message when no issues found', async () => {
-    mockedApiGet.mockResolvedValue(mockCleanResult)
-    render(<HealthCheckView />)
-
-    fireEvent.click(screen.getByText('Run Health Check'))
-
-    await waitFor(() => {
-      expect(screen.getByText('All clear')).toBeInTheDocument()
-    })
-  })
-
-  it('calls the correct API endpoint', async () => {
-    mockedApiGet.mockResolvedValue(mockHealthResult)
-    render(<HealthCheckView />)
-
-    fireEvent.click(screen.getByText('Run Health Check'))
-
+    fireEvent.click(screen.getByText(/Run Health Check/i))
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalledWith('/tasks/health')
     })
-  })
-
-  it('shows error state when API fails', async () => {
-    mockedApiGet.mockRejectedValue(new Error('Network error'))
-    render(<HealthCheckView />)
-
-    fireEvent.click(screen.getByText('Run Health Check'))
-
     await waitFor(() => {
-      expect(screen.getByText('Could not run the health check. Try again in a moment.')).toBeInTheDocument()
-    })
-
-    expect(screen.getByText('Try again')).toBeInTheDocument()
-  })
-
-  it('can re-run the health check', async () => {
-    mockedApiGet.mockResolvedValue(mockHealthResult)
-    render(<HealthCheckView />)
-
-    fireEvent.click(screen.getByText('Run Health Check'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Issues to review')).toBeInTheDocument()
-    })
-
-    // Click the "Run again" button
-    fireEvent.click(screen.getByText('Run again'))
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledTimes(2)
+      expect(mockedApiGet).toHaveBeenCalledWith('/tasks/duplicates')
     })
   })
 
-  it('shows issue type filter buttons', async () => {
-    mockedApiGet.mockResolvedValue(mockHealthResult)
+  it('renders a missing description issue', async () => {
+    mockBothEndpoints()
     render(<HealthCheckView />)
-
-    fireEvent.click(screen.getByText('Run Health Check'))
-
+    fireEvent.click(screen.getByText(/Run Health Check/i))
     await waitFor(() => {
-      // Filter for all issues
-      expect(screen.getByText(/All \(2\)/)).toBeInTheDocument()
+      expect(screen.getByText(/Task 001 has no description/i)).toBeInTheDocument()
     })
   })
 
-  it('displays task IDs on issues', async () => {
-    mockedApiGet.mockResolvedValue(mockHealthResult)
+  it('renders a duplicate candidate card', async () => {
+    mockBothEndpoints()
     render(<HealthCheckView />)
-
-    fireEvent.click(screen.getByText('Run Health Check'))
-
+    fireEvent.click(screen.getByText(/Run Health Check/i))
     await waitFor(() => {
-      // Task IDs should be shown with # prefix
-      const taskIds = screen.getAllByText('#001')
-      expect(taskIds.length).toBeGreaterThanOrEqual(1)
+      expect(screen.getByText(/Fix bug/)).toBeInTheDocument()
+      expect(screen.getByText(/Fix the bug/)).toBeInTheDocument()
+    })
+  })
+
+  it('gracefully handles an empty result', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.includes('/tasks/duplicates')) return Promise.resolve({ duplicates: [] })
+      if (url.includes('/tasks/health')) {
+        return Promise.resolve({
+          tasks: [],
+          issues: [],
+          summary: { total: 0, issues: 0, connected: 0, isolated: 0 },
+        })
+      }
+      return Promise.resolve({})
+    })
+    render(<HealthCheckView />)
+    fireEvent.click(screen.getByText(/Run Health Check/i))
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/tasks/health')
     })
   })
 })

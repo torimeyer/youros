@@ -115,6 +115,14 @@ export default function Ideas() {
     fetchTemplates();
   }, []);
 
+  // Listen for the dashboard "Capture Idea" quick launch so the input
+  // focuses as soon as the user lands here.
+  useEffect(() => {
+    const handler = () => inputRef.current?.focus();
+    window.addEventListener('myos-quick-capture-idea', handler);
+    return () => window.removeEventListener('myos-quick-capture-idea', handler);
+  }, []);
+
   const handleTemplateClick = (template: Template) => {
     if (selectedTemplateId === template.id) {
       setSelectedTemplateId(null);

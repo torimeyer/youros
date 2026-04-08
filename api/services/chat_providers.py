@@ -105,6 +105,20 @@ MAX_AGENT_TURNS = 10
 
 
 
+def _messages_contain_images(messages: list[dict]) -> bool:
+    """True if any message has an image block in its content.
+
+    Used to route around backends that cannot receive vision input.
+    """
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "image":
+                    return True
+    return False
+
+
 _BOOT_CONTEXT_CACHE: Optional[tuple[float, str]] = None
 
 
@@ -292,6 +306,15 @@ class ChatService:
         )
 
         backend = await _resolve_chat_backend()
+
+        # Claude Code CLI cannot receive inline image blocks. If the last
+        # message includes an image (GIF or pasted screenshot), force the
+        # Anthropic API backend so the model can actually see it.
+        if backend == "claude_code" and _messages_contain_images(messages):
+            api_key = await _resolve_api_key("anthropic_api_key")
+            if api_key:
+                backend = "anthropic_api"
+
         await _send_backend_active(websocket, backend)
 
         if backend == "claude_code":

@@ -68,12 +68,6 @@ const focusColors = [
   'bg-orange-500/20 text-orange-400',
 ];
 
-const priorityColor = (p: string) => {
-  if (p === 'P0') return 'bg-pink-500/20 text-pink-400';
-  if (p === 'P1') return 'bg-orange-500/20 text-orange-400';
-  return 'bg-blue-500/20 text-blue-400';
-};
-
 export default function Dashboard() {
   const navigate = useNavigate();
   const toggleChat = useAppStore((s) => s.toggleChat);
@@ -83,7 +77,7 @@ export default function Dashboard() {
   const [summaryBullets, setSummaryBullets] = useState<string[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [compounds, setCompounds] = useState<CompoundsData | null>(null);
-  const [sessionDiff, setSessionDiff] = useState<SessionDiff | null>(null);
+  const [, setSessionDiff] = useState<SessionDiff | null>(null);
   const [briefing, setBriefing] = useState<BriefingData | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(true);
 
@@ -120,6 +114,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchData();
+    // Auto-refresh every 15s so 'Today's Focus' stays current without a refresh button.
+    const interval = setInterval(fetchData, 15000);
+    return () => clearInterval(interval);
   }, [fetchData]);
 
   useEffect(() => {
@@ -142,37 +139,33 @@ export default function Dashboard() {
     color: focusColors[i % focusColors.length],
   }));
 
-  const tasks = (data?.recent_tasks ?? []).map((t) => ({
-    title: t.title,
-    priority: t.priority,
-    color: priorityColor(t.priority),
-  }));
-
   const openCount = data?.counts.open ?? 0;
   const closedCount = data?.counts.closed ?? 0;
 
   const quickLaunchActions: Record<string, () => void> = {
-    'New Task': () => navigate('/tasks'),
-    'Spawn Agent': () => navigate('/agents'),
-    'Quick Note': () => navigate('/ideas'),
+    'New Task': () => {
+      navigate('/tasks');
+      setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-add-task')), 100);
+    },
+    'Spawn Agent': () => {
+      navigate('/agents');
+      setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-spawn-agent')), 100);
+    },
+    'Capture Idea': () => {
+      navigate('/ideas');
+      setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-capture-idea')), 100);
+    },
     'Open Chat': () => toggleChat(),
   };
 
   const quickLaunch = [
     { icon: 'add_task', label: 'New Task', color: 'text-blue-400', hoverBorder: 'hover:border-blue-500' },
     { icon: 'bolt', label: 'Spawn Agent', color: 'text-purple-400', hoverBorder: 'hover:border-purple-500' },
-    { icon: 'note_add', label: 'Quick Note', color: 'text-pink-400', hoverBorder: 'hover:border-pink-500' },
+    { icon: 'note_add', label: 'Capture Idea', color: 'text-pink-400', hoverBorder: 'hover:border-pink-500' },
     { icon: 'chat', label: 'Open Chat', color: 'text-cyan-400', hoverBorder: 'hover:border-cyan-500' },
   ];
 
   const [nextMeeting, setNextMeeting] = useState<CalendarEvent | null | undefined>(undefined);
-  const [labels, setLabels] = useState<{ id: string; name: string; color: string; task_count: number }[]>([]);
-
-  useEffect(() => {
-    api.get<{ labels: { id: string; name: string; color: string; task_count: number }[] }>('/labels')
-      .then((res) => setLabels(res.labels ?? []))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     api.get<{ events: CalendarEvent[] }>('/calendar/events')
@@ -278,14 +271,10 @@ export default function Dashboard() {
                 <Icon name="target" className="text-pink-400" size={20} />
                 <h2 className="text-lg font-semibold">Today's Focus</h2>
               </div>
-              <button
-                onClick={fetchData}
-                disabled={loading}
-                className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50"
-              >
-                <Icon name="refresh" size={16} className={loading ? 'animate-spin' : ''} />
-                {loading ? 'Refreshing...' : 'Refresh'}
-              </button>
+              <div className="flex items-center gap-3 text-sm">
+                <span className="text-pink-400">{openCount} open</span>
+                <span className="text-blue-400">{closedCount} done</span>
+              </div>
             </div>
             <div className="space-y-3">
               {loading && focusTasks.length === 0 ? (
@@ -418,143 +407,6 @@ export default function Dashboard() {
             </div>
           </div>
           )}
-
-          {/* What Changed This Session */}
-          <div className={cardClass}>
-            <div className="flex items-center gap-2 mb-4">
-              <Icon name="difference" className="text-emerald-400" size={20} />
-              <h2 className="text-lg font-semibold">What Changed</h2>
-              {sessionDiff && sessionDiff.audit_total > 0 && (
-                <span className="text-xs text-slate-400 ml-auto">
-                  {sessionDiff.audit_total} total {sessionDiff.audit_total === 1 ? 'event' : 'events'} this session
-                </span>
-              )}
-            </div>
-            {!sessionDiff || (sessionDiff.files_changed.length === 0 && sessionDiff.needles_filed.length === 0 && sessionDiff.audit_events.length === 0) ? (
-              <p className="text-sm text-slate-500">Nothing has changed yet this session.</p>
-            ) : (
-              <div className="space-y-4">
-                {/* Files modified */}
-                {sessionDiff.files_changed.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Files modified</p>
-                    <div className="space-y-1">
-                      {sessionDiff.files_changed.slice(0, 5).map((file) => (
-                        <div key={file} className="flex items-center gap-2 text-sm text-slate-300">
-                          <Icon name="description" className="text-slate-500" size={14} />
-                          <span className="truncate">{file}</span>
-                        </div>
-                      ))}
-                      {sessionDiff.files_changed.length > 5 && (
-                        <p className="text-xs text-slate-500 ml-5">
-                          and {sessionDiff.files_changed.length - 5} more
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Tasks filed */}
-                {sessionDiff.needles_filed.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Tasks filed</p>
-                    <div className="space-y-1">
-                      {sessionDiff.needles_filed.slice(0, 5).map((needle) => (
-                        <div key={needle.id} className="flex items-center gap-2 text-sm">
-                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${priorityColor(needle.priority)}`}>
-                            {needle.priority}
-                          </span>
-                          <span className="text-slate-300 truncate">{needle.title}</span>
-                        </div>
-                      ))}
-                      {sessionDiff.needles_filed.length > 5 && (
-                        <p className="text-xs text-slate-500 ml-5">
-                          and {sessionDiff.needles_filed.length - 5} more
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Activity breakdown */}
-                {sessionDiff.audit_events.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Activity breakdown</p>
-                    <div className="flex flex-wrap gap-2">
-                      {sessionDiff.audit_events.map((ev) => (
-                        <span
-                          key={ev.event}
-                          className="text-xs px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:bg-slate-800/80 dark:text-slate-300 border border-blue-500/20 dark:border-transparent"
-                        >
-                          {ev.count} {ev.event.replace('.', ' ')}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Tasks */}
-          <div className={cardClass}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Tasks</h2>
-              <div className="flex items-center gap-3 text-sm">
-                <span className="text-pink-400">{openCount} Open</span>
-                <span className="text-blue-400">{closedCount} Closed</span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {tasks.length === 0 && !loading && (
-                <p className="text-sm text-slate-500">No recent tasks.</p>
-              )}
-              {tasks.map((task) => (
-                <div key={task.title} className="flex items-center gap-3 py-2">
-                  <div className={`w-2 h-2 rounded-full ${task.priority === 'P0' ? 'bg-pink-400' : task.priority === 'P1' ? 'bg-orange-400' : 'bg-blue-400'}`} />
-                  <span className="flex-1 text-sm text-slate-300">{task.title}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${task.color}`}>
-                    {task.priority}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Labels */}
-          <div className={cardClass}>
-            <h2 className="text-lg font-semibold mb-4">Labels</h2>
-            <div className="space-y-3">
-              {labels.length === 0 ? (
-                <div className="text-center py-6">
-                  <Icon name="label" className="text-slate-700 mb-2" size={32} />
-                  <p className="text-sm text-slate-500">No labels yet.</p>
-                  <p className="text-xs text-slate-600 mt-1">Create labels in Tasks to organize your work.</p>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {labels.map((label) => (
-                    <button
-                      key={label.id}
-                      onClick={() => navigate('/tasks')}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition-colors hover:opacity-80"
-                      style={{
-                        backgroundColor: label.color + '20',
-                        color: label.color,
-                        border: `1px solid ${label.color}40`,
-                      }}
-                    >
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: label.color }} />
-                      {label.name}
-                      <span className="text-[10px] opacity-70">{label.task_count}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-
 
         </div>
       </div>
