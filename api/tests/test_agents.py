@@ -937,8 +937,11 @@ async def test_registered_agent_appears_in_agents_list(tmp_path):
         mock_audit = []
 
         from routers.agents import agent_metadata
+        # Use a recent spawned_at so the stale-agent cleanup (20 min) does
+        # not mark this test fixture as abandoned.
+        from datetime import datetime, timezone
         agent_metadata["cc-registered-agent"] = {
-            "spawned_at": "2026-04-06T17:00:00+00:00",
+            "spawned_at": datetime.now(timezone.utc).isoformat(),
             "budget": "2.0",
             "model": "claude-opus-4-6",
             "source": "claude-code",
@@ -982,8 +985,9 @@ async def test_registered_agent_in_active_list(tmp_path):
         mock_audit = []
 
         from routers.agents import agent_metadata
+        from datetime import datetime, timezone
         agent_metadata["cc-active-test"] = {
-            "spawned_at": "2026-04-06T17:00:00+00:00",
+            "spawned_at": datetime.now(timezone.utc).isoformat(),
             "budget": "2.0",
             "model": "claude-opus-4-6",
             "source": "claude-code",

@@ -518,7 +518,7 @@ def _clarification_breakdown(question: str) -> IdeaBreakdownResult:
 @pytest.mark.asyncio
 async def test_convert_idea_creates_multiple_tasks(client):
     """A multi-task breakdown should call ostk once per task."""
-    async def fake_add_task(title, priority):
+    async def fake_add_task(title, priority, description=""):
         return f"added \u2192900: {title} [{priority}]"
 
     with patch("routers.ideas.ostk") as mock_ostk, \
@@ -578,7 +578,7 @@ async def test_answer_endpoint_creates_tasks(client):
     """Posting an answer retries breakdown with extra_context and creates tasks."""
     mock_breakdown = AsyncMock(return_value=_multi_task_breakdown())
 
-    async def fake_add_task(title, priority):
+    async def fake_add_task(title, priority, description=""):
         return f"added \u2192901: {title} [{priority}]"
 
     with patch("routers.ideas.ostk") as mock_ostk, \
