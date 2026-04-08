@@ -266,10 +266,11 @@ export default function Dashboard() {
               </div>
               <button
                 onClick={fetchData}
-                className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1"
+                disabled={loading}
+                className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50"
               >
-                <Icon name="refresh" size={16} />
-                Refresh
+                <Icon name="refresh" size={16} className={loading ? 'animate-spin' : ''} />
+                {loading ? 'Refreshing...' : 'Refresh'}
               </button>
             </div>
             <div className="space-y-3">

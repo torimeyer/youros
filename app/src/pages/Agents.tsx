@@ -604,6 +604,17 @@ export default function Agents() {
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
   const [, setLastUpdate] = useState<Date | null>(null);
+  const [transcriptModal, setTranscriptModal] = useState<{name: string; content: string; loading: boolean} | null>(null);
+
+  const openTranscript = async (name: string) => {
+    setTranscriptModal({name, content: "", loading: true});
+    try {
+      const data = await api.get<{content: string}>(`/agents/${encodeURIComponent(name)}/transcript`);
+      setTranscriptModal({name, content: data.content, loading: false});
+    } catch {
+      setTranscriptModal({name, content: "No transcript available for this agent yet.", loading: false});
+    }
+  };
 
   const addNotification = useNotificationStore((s) => s.addNotification);
   // Track previous agent statuses to detect changes between polls
@@ -1257,13 +1268,13 @@ export default function Agents() {
                     )}
 
                     <div className="flex items-center justify-between mt-4">
-                      <a
-                        href="/transcripts"
+                      <button
+                        onClick={() => openTranscript(agent.name)}
                         className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
                       >
                         <Icon name="description" size={16} />
                         View Transcript
-                      </a>
+                      </button>
                       <button
                         onClick={() => handleKill(agent.name)}
                         disabled={killingAgents[agent.name]}
@@ -2042,6 +2053,38 @@ export default function Agents() {
           />
         )}
       </div>
+
+      {/* Transcript viewer modal */}
+      {transcriptModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setTranscriptModal(null); }}
+        >
+          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+              <div className="flex items-center gap-2 min-w-0">
+                <Icon name="description" className="text-blue-400" size={20} />
+                <span className="text-white font-semibold truncate">{transcriptModal.name}</span>
+                <span className="text-xs text-slate-500">transcript</span>
+              </div>
+              <button
+                onClick={() => setTranscriptModal(null)}
+                className="text-slate-500 hover:text-white transition-colors"
+                aria-label="Close transcript"
+              >
+                <Icon name="close" size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {transcriptModal.loading ? (
+                <div className="text-slate-400 text-sm">Loading...</div>
+              ) : (
+                <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words">{transcriptModal.content}</pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

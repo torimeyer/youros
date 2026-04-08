@@ -58,6 +58,7 @@ export default function Gmail() {
   const [syncing, setSyncing] = useState(false)
   const [lastSynced, setLastSynced] = useState<Date | null>(null)
   const [markingRead, setMarkingRead] = useState<Set<string>>(new Set())
+  const [apiNotEnabled, setApiNotEnabled] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -73,8 +74,11 @@ export default function Gmail() {
       const res = await api.get<{ messages: GmailMessage[] }>('/gmail/messages')
       setMessages(res.messages || [])
       setLastSynced(new Date())
-    } catch {
+      setApiNotEnabled(false)
+    } catch (err: unknown) {
       setMessages([])
+      const detail = (err as { response?: { data?: { detail?: { api_not_enabled?: boolean } } } })?.response?.data?.detail
+      if (detail?.api_not_enabled) setApiNotEnabled(true)
     }
   }, [])
 
@@ -199,6 +203,37 @@ export default function Gmail() {
                 </button>
               </>
             )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (apiNotEnabled) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <TopBar title="Gmail" />
+        <div className="pt-20 p-8 max-w-md">
+          <div className="bg-slate-900/40 border border-amber-800/40 p-8 rounded-2xl">
+            <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
+              <Icon name="warning" className="text-amber-400" size={24} />
+            </div>
+            <h2 className="text-xl font-semibold mb-2">Gmail API not enabled</h2>
+            <p className="text-slate-400 mb-4">
+              Your Google Cloud project has the Gmail API disabled. You need to turn it on once in Google Cloud Console. Reconnecting will not fix this.
+            </p>
+            <ol className="text-sm text-slate-300 space-y-2 mb-6 list-decimal list-inside">
+              <li>Open your Google Cloud Console</li>
+              <li>Search for "Gmail API"</li>
+              <li>Click Enable</li>
+              <li>Wait 1 to 2 minutes, then click Retry</li>
+            </ol>
+            <button
+              onClick={() => { setApiNotEnabled(false); fetchMessages() }}
+              className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
+            >
+              Retry
+            </button>
           </div>
         </div>
       </div>

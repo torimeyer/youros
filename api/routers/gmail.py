@@ -59,7 +59,12 @@ async def gmail_messages():
         messages = await gmail_service.get_unread_summary()
     except Exception as exc:
         msg = str(exc).lower()
-        if "insufficient" in msg or "403" in msg:
+        if "accessnotconfigured" in msg or "has not been used" in msg:
+            raise HTTPException(
+                status_code=403,
+                detail={"needs_reauth": False, "api_not_enabled": True, "message": "Gmail API is not enabled in your Google Cloud project. Enable it in Google Cloud Console, then wait a minute and reload."},
+            ) from exc
+        if "insufficientpermissions" in msg or "insufficient authentication scopes" in msg:
             raise HTTPException(
                 status_code=403,
                 detail={"needs_reauth": True, "message": str(exc)},

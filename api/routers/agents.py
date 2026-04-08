@@ -164,6 +164,23 @@ def _get_transcript_metrics(name: str) -> dict:
         return {"transcript_bytes": 0, "transcript_lines": 0}
 
 
+@router.get("/agents/{name}/transcript")
+async def get_agent_transcript(name: str):
+    """Return the raw transcript content for a specific agent."""
+    from config import PROJECT_ROOT
+    # Basic safety: reject path traversal.
+    if "/" in name or ".." in name:
+        raise HTTPException(status_code=400, detail="Invalid agent name")
+    transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
+    if not transcript.exists():
+        raise HTTPException(status_code=404, detail=f"No transcript found for agent '{name}'")
+    try:
+        content = transcript.read_text(errors="replace")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not read transcript: {exc}") from exc
+    return {"name": name, "content": content, "bytes": len(content)}
+
+
 @router.get("/agents")
 async def list_agents():
     ps_result = await ostk.kernel_ps()
