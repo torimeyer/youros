@@ -75,7 +75,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     )
   }, [query, commands])
 
-  // Debounced concept search: fires when user types 2+ characters
+  // Debounced search: fires when user types 2+ characters
   useEffect(() => {
     if (searchTimerRef.current) {
       clearTimeout(searchTimerRef.current)
@@ -291,7 +291,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             </div>
           ))}
 
-          {/* Concept search results */}
+          {/* Search results */}
           {showSearchSection && (
             <>
               {/* Search loading indicator */}
@@ -370,7 +370,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 </div>
               )}
 
-              {/* No concept search results */}
+              {/* No search results */}
               {searchResults && searchResults.tasks.length === 0 && searchResults.ideas.length === 0 && !searchLoading && (
                 <div className="px-4 py-3 text-sm text-slate-500 border-t border-slate-800 mt-1 pt-2" data-testid="search-no-results">
                   No matching tasks or ideas found.

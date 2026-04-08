@@ -190,6 +190,20 @@ export default function Dashboard() {
 
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-6 rounded-xl hover:border-slate-700 transition-colors';
 
+  const hour = new Date().getHours();
+  let greetingLabel: string;
+  let greetingSubtitle: string;
+  if (hour < 12) {
+    greetingLabel = 'Good morning';
+    greetingSubtitle = 'Ready to get started?';
+  } else if (hour < 18) {
+    greetingLabel = 'Good afternoon';
+    greetingSubtitle = "What's on your plate?";
+  } else {
+    greetingLabel = 'Good evening';
+    greetingSubtitle = 'Wrapping up for today?';
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Home Dashboard" />
@@ -210,7 +224,7 @@ export default function Dashboard() {
                   <Icon name="wb_sunny" className="text-blue-400" size={18} />
                 </div>
                 <div className="flex-1">
-                  <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-1.5">Good morning</p>
+                  <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-1.5">{greetingLabel}</p>
                   <p className="text-sm text-slate-200 leading-relaxed">{briefing.briefing}</p>
                 </div>
               </div>
@@ -228,7 +242,7 @@ export default function Dashboard() {
         {/* Greeting */}
         <div data-tour="dashboard" className="mb-8">
           <h1 className="text-3xl font-bold mb-1">Welcome to {osName}</h1>
-          <p className="text-slate-400">Ready for your morning deep work session?</p>
+          <p className="text-slate-400">{greetingSubtitle}</p>
         </div>
 
 
@@ -255,7 +269,7 @@ export default function Dashboard() {
         )}
 
         {/* Widget Grid */}
-        <div className="grid grid-cols-2 gap-6 auto-rows-min">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 auto-rows-min">
 
           {/* Today's Focus */}
           <div className={cardClass}>
@@ -319,7 +333,7 @@ export default function Dashboard() {
           {/* Next meeting widget -- only shown when authenticated and there is a meeting */}
           {nextMeeting && (
             <div
-              className={`${cardClass} col-span-2`}
+              className={`${cardClass} lg:col-span-2`}
               onClick={() => navigate('/calendar')}
               style={{ cursor: 'pointer' }}
             >
@@ -369,7 +383,8 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Day Summary */}
+          {/* Day Summary - hidden when briefing is showing to avoid duplicate daily summary */}
+          {!briefing?.show && (
           <div className={cardClass}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -402,6 +417,7 @@ export default function Dashboard() {
               )}
             </div>
           </div>
+          )}
 
           {/* What Changed This Session */}
           <div className={cardClass}>

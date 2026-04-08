@@ -247,7 +247,7 @@ describe('CommandPalette', () => {
   })
 })
 
-describe('CommandPalette concept search', () => {
+describe('CommandPalette search', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers({ shouldAdvanceTime: true })

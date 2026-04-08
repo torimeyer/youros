@@ -27,8 +27,8 @@ const releaseNotes: ReleaseGroup[] = [
         description: 'Shows you which task to work on next based on priority and what is blocking what.',
       },
       {
-        title: 'Concept search',
-        description: 'Press Cmd+K to search across all your tasks and ideas in one place.',
+        title: 'Global search',
+        description: 'Press Cmd+K to search across all your tasks and ideas by keyword.',
       },
       {
         title: 'Activity feed',
