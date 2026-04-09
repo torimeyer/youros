@@ -579,6 +579,142 @@ describe('Tasks page', () => {
     })
   })
 
+  it('briefing panel shows enriched blocker card with title, priority, and status', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: {
+          task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug',
+          sphere: null, neighbors: [],
+          blocked_by: [
+            {
+              text: '\u2192160 [open] Mobile-friendly layout',
+              resolved: false,
+              blocker_id: '160',
+              blocker_task: {
+                id: '\u2192160',
+                title: 'Mobile-friendly layout',
+                description: 'Make every page work on a phone screen',
+                priority: 'P1',
+                status: 'open',
+              },
+              explanation: 'The dashboard needs to work on phones first.',
+            },
+          ],
+          unblocks: [],
+          all_blockers_resolved: false, raw: ''
+        }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Waiting on')).toBeInTheDocument()
+    })
+    const card = screen.getByTestId('blocker-card-0')
+    // Card content: id reference, title, priority, status, description, explanation.
+    expect(card).toHaveTextContent('Blocked by \u2192160')
+    expect(card).toHaveTextContent('Mobile-friendly layout')
+    expect(card).toHaveTextContent('P1')
+    expect(card).toHaveTextContent('Open')
+    expect(card).toHaveTextContent('Make every page work on a phone screen')
+    expect(card).toHaveTextContent('The dashboard needs to work on phones first.')
+  })
+
+  it('briefing panel shows multiple blocker cards', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: {
+          task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug',
+          sphere: null, neighbors: [],
+          blocked_by: [
+            {
+              text: '\u2192100 [open] Tests',
+              resolved: false,
+              blocker_id: '100',
+              blocker_task: { id: '\u2192100', title: 'Tests', description: '', priority: 'P1', status: 'open' },
+              explanation: null,
+            },
+            {
+              text: '\u2192101 [open] Docs',
+              resolved: false,
+              blocker_id: '101',
+              blocker_task: { id: '\u2192101', title: 'Docs', description: '', priority: 'P2', status: 'open' },
+              explanation: null,
+            },
+          ],
+          unblocks: [],
+          all_blockers_resolved: false, raw: ''
+        }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('blocker-card-0')).toBeInTheDocument()
+      expect(screen.getByTestId('blocker-card-1')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('blocker-card-0')).toHaveTextContent('Tests')
+    expect(screen.getByTestId('blocker-card-1')).toHaveTextContent('Docs')
+  })
+
+  it('briefing panel hides Waiting on section when no blockers', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path.includes('/briefing')) return Promise.resolve({
+        briefing: {
+          task_id: '1', priority: 'P0', status: 'open', title: 'Fix login bug',
+          sphere: null, neighbors: [], blocked_by: [], unblocks: [],
+          all_blockers_resolved: false, raw: ''
+        }
+      })
+      if (path.includes('/trace')) return Promise.resolve({
+        trace: { headline: '', specs: [], drafts: [], agentfiles: [], depends_on: [], blocks: [], commits: [] }
+      })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Fix login bug'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Waiting on')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('blocker-card-0')).not.toBeInTheDocument()
+  })
+
   it('briefing panel shows unblocks when present', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })

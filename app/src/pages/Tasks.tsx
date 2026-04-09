@@ -51,9 +51,20 @@ interface ThreadsResponse {
   threads: Thread[];
 }
 
+interface BlockerTask {
+  id: string;
+  title: string;
+  description?: string | null;
+  priority?: string | null;
+  status?: string | null;
+}
+
 interface Blocker {
   text: string;
   resolved: boolean;
+  blocker_id?: string;
+  blocker_task?: BlockerTask | null;
+  explanation?: string | null;
 }
 
 interface TaskBriefing {
@@ -1564,21 +1575,67 @@ export default function Tasks() {
                               {briefing.blocked_by.length > 0 && (
                                 <div>
                                   <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Waiting on</h4>
-                                  <ul className="space-y-1">
-                                    {briefing.blocked_by.map((b, i) => (
-                                      <li key={i} className="flex items-center gap-2">
-                                        <Icon
-                                          name={b.resolved ? "check_circle" : "block"}
-                                          className={`text-sm ${b.resolved ? "text-green-400" : "text-amber-400"}`}
-                                        />
-                                        <span className={b.resolved ? "text-slate-500 line-through" : "text-slate-300"}>
-                                          {b.text}
-                                        </span>
-                                      </li>
-                                    ))}
-                                  </ul>
+                                  <div className="space-y-2">
+                                    {briefing.blocked_by.map((b, i) => {
+                                      const blockerTask = b.blocker_task ?? null;
+                                      const title = blockerTask?.title ?? b.text;
+                                      const description = (blockerTask?.description ?? "").trim();
+                                      const priority = blockerTask?.priority ?? "";
+                                      const status = blockerTask?.status ?? "";
+                                      const blockerId = b.blocker_id ?? "";
+                                      const idLabel = blockerId ? `\u2192${blockerId}` : "";
+                                      const priorityClass = priority && priorityStyles[priority] ? priorityStyles[priority] : "bg-slate-700 text-slate-300";
+                                      const statusLabel = status === "open" ? "Open" : status === "closed" ? "Closed" : status;
+                                      const isClickable = Boolean(blockerId);
+                                      return (
+                                        <div
+                                          key={i}
+                                          data-testid={`blocker-card-${i}`}
+                                          onClick={() => {
+                                            if (isClickable) handleTaskClick(`\u2192${blockerId}`);
+                                          }}
+                                          className={`rounded-md border p-2 ${
+                                            b.resolved
+                                              ? "border-green-500/30 bg-green-500/5 opacity-60"
+                                              : "border-amber-500/30 bg-amber-500/5"
+                                          } ${isClickable ? "cursor-pointer hover:border-amber-400" : ""}`}
+                                        >
+                                          <div className="flex items-center gap-2 text-xs">
+                                            <Icon
+                                              name={b.resolved ? "check_circle" : "block"}
+                                              className={`text-sm ${b.resolved ? "text-green-400" : "text-amber-400"}`}
+                                            />
+                                            {idLabel && (
+                                              <span className="font-mono text-slate-400">Blocked by {idLabel}</span>
+                                            )}
+                                            {priority && (
+                                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${priorityClass}`}>
+                                                {priority}
+                                              </span>
+                                            )}
+                                            {statusLabel && (
+                                              <span className="text-slate-400">{statusLabel}</span>
+                                            )}
+                                          </div>
+                                          <div className={`mt-1 text-sm font-medium ${b.resolved ? "text-slate-500 line-through" : "text-slate-700 dark:text-slate-200"}`}>
+                                            {title}
+                                          </div>
+                                          {description && (
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+                                              {description}
+                                            </p>
+                                          )}
+                                          {b.explanation && !b.resolved && (
+                                            <p className="mt-2 text-xs italic text-slate-600 dark:text-slate-300">
+                                              {b.explanation}
+                                            </p>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                   {briefing.all_blockers_resolved && (
-                                    <p className="mt-1 text-green-400 text-xs flex items-center gap-1">
+                                    <p className="mt-2 text-green-400 text-xs flex items-center gap-1">
                                       <Icon name="check_circle" className="text-sm" />
                                       All blockers resolved. Ready to go.
                                     </p>

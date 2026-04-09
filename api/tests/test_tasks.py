@@ -339,6 +339,7 @@ async def test_task_briefing_returns_parsed_data(client):
     }
     with patch("routers.tasks.ostk") as mock_ostk:
         mock_ostk.activate_task = AsyncMock(return_value=mock_briefing)
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
         resp = await client.get("/api/tasks/088/briefing")
 
     assert resp.status_code == 200
@@ -347,6 +348,8 @@ async def test_task_briefing_returns_parsed_data(client):
     assert data["briefing"]["task_id"] == "\u2192088"
     assert data["briefing"]["title"] == "Add task context briefing"
     mock_ostk.activate_task.assert_called_once_with("088")
+    # No blockers means the enriched list stays empty.
+    assert data["briefing"]["blocked_by"] == []
 
 
 @pytest.mark.asyncio
@@ -363,15 +366,149 @@ async def test_task_briefing_with_blockers(client):
         "all_blockers_resolved": True,
         "raw": "test",
     }
+    blocker_task = {
+        "id": "\u2192001",
+        "title": "fix images",
+        "description": "Patch the broken image URLs",
+        "priority": "P1",
+        "status": "closed",
+    }
+    self_task = {
+        "id": "\u2192002",
+        "title": "add computer question answering",
+        "description": "Let the computer answer questions",
+        "priority": "P1",
+        "status": "closed",
+    }
     with patch("routers.tasks.ostk") as mock_ostk:
         mock_ostk.activate_task = AsyncMock(return_value=mock_briefing)
+        mock_ostk.list_tasks = AsyncMock(return_value=[blocker_task, self_task])
         resp = await client.get("/api/tasks/002/briefing")
 
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["briefing"]["blocked_by"]) == 1
-    assert data["briefing"]["blocked_by"][0]["resolved"] is True
+    blocker = data["briefing"]["blocked_by"][0]
+    assert blocker["resolved"] is True
+    assert blocker["blocker_id"] == "001"
+    assert blocker["blocker_task"]["title"] == "fix images"
+    assert blocker["blocker_task"]["priority"] == "P1"
+    assert blocker["blocker_task"]["status"] == "closed"
+    # Resolved blockers do not need an explanation, the AI is skipped.
+    assert blocker["explanation"] is None
     assert data["briefing"]["all_blockers_resolved"] is True
+
+
+@pytest.mark.asyncio
+async def test_task_briefing_with_unresolved_blocker_enriches(client):
+    """An open blocker should get the full task record and (when AI is
+    available) a plain-language explanation."""
+    mock_briefing = {
+        "task_id": "\u2192163",
+        "priority": "P1",
+        "status": "open",
+        "title": "Integration health dashboard",
+        "sphere": None,
+        "neighbors": [],
+        "blocked_by": [{"text": "\u2192160 [open] Mobile-friendly layout", "resolved": False}],
+        "unblocks": [],
+        "all_blockers_resolved": False,
+        "raw": "test",
+    }
+    blocker_task = {
+        "id": "\u2192160",
+        "title": "Mobile-friendly layout",
+        "description": "Make every page work on a phone screen",
+        "priority": "P1",
+        "status": "open",
+    }
+    self_task = {
+        "id": "\u2192163",
+        "title": "Integration health dashboard",
+        "description": "Show every integration's status at a glance",
+        "priority": "P1",
+        "status": "open",
+    }
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("services.blocker_explanation.explain_blocker", new=AsyncMock(return_value="Phones first.")):
+        mock_ostk.activate_task = AsyncMock(return_value=mock_briefing)
+        mock_ostk.list_tasks = AsyncMock(return_value=[blocker_task, self_task])
+        resp = await client.get("/api/tasks/163/briefing")
+
+    assert resp.status_code == 200
+    blocker = resp.json()["briefing"]["blocked_by"][0]
+    assert blocker["blocker_id"] == "160"
+    assert blocker["blocker_task"]["title"] == "Mobile-friendly layout"
+    assert blocker["blocker_task"]["status"] == "open"
+    assert blocker["blocker_task"]["priority"] == "P1"
+    assert blocker["explanation"] == "Phones first."
+
+
+@pytest.mark.asyncio
+async def test_task_briefing_with_multiple_blockers(client):
+    """Multiple unresolved blockers should each get their own enriched entry."""
+    mock_briefing = {
+        "task_id": "\u2192300",
+        "priority": "P0",
+        "status": "open",
+        "title": "Ship release",
+        "sphere": None,
+        "neighbors": [],
+        "blocked_by": [
+            {"text": "\u2192100 [open] Tests", "resolved": False},
+            {"text": "\u2192101 [open] Docs", "resolved": False},
+        ],
+        "unblocks": [],
+        "all_blockers_resolved": False,
+        "raw": "test",
+    }
+    tasks = [
+        {"id": "\u2192100", "title": "Tests", "description": "Add tests", "priority": "P1", "status": "open"},
+        {"id": "\u2192101", "title": "Docs", "description": "Write docs", "priority": "P2", "status": "open"},
+        {"id": "\u2192300", "title": "Ship release", "description": "ship", "priority": "P0", "status": "open"},
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("services.blocker_explanation.explain_blocker", new=AsyncMock(return_value=None)):
+        mock_ostk.activate_task = AsyncMock(return_value=mock_briefing)
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        resp = await client.get("/api/tasks/300/briefing")
+
+    assert resp.status_code == 200
+    blockers = resp.json()["briefing"]["blocked_by"]
+    assert len(blockers) == 2
+    titles = {b["blocker_task"]["title"] for b in blockers}
+    assert titles == {"Tests", "Docs"}
+    # explain_blocker returned None, so explanation field is None on both.
+    assert all(b["explanation"] is None for b in blockers)
+
+
+@pytest.mark.asyncio
+async def test_task_briefing_blocker_no_match(client):
+    """When the blocker id is not in the task list, the entry still
+    returns the raw text and a None blocker_task."""
+    mock_briefing = {
+        "task_id": "\u2192500",
+        "priority": "P1",
+        "status": "open",
+        "title": "Some task",
+        "sphere": None,
+        "neighbors": [],
+        "blocked_by": [{"text": "\u2192999 [open] Mystery task", "resolved": False}],
+        "unblocks": [],
+        "all_blockers_resolved": False,
+        "raw": "test",
+    }
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("services.blocker_explanation.explain_blocker", new=AsyncMock(return_value=None)):
+        mock_ostk.activate_task = AsyncMock(return_value=mock_briefing)
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        resp = await client.get("/api/tasks/500/briefing")
+
+    assert resp.status_code == 200
+    blocker = resp.json()["briefing"]["blocked_by"][0]
+    assert blocker["blocker_id"] == "999"
+    assert blocker["blocker_task"] is None
+    assert blocker["text"] == "\u2192999 [open] Mystery task"
 
 
 @pytest.mark.asyncio
@@ -390,6 +527,7 @@ async def test_task_briefing_with_unblocks(client):
     }
     with patch("routers.tasks.ostk") as mock_ostk:
         mock_ostk.activate_task = AsyncMock(return_value=mock_briefing)
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
         resp = await client.get("/api/tasks/001/briefing")
 
     assert resp.status_code == 200
