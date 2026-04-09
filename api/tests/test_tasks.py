@@ -5,14 +5,17 @@ import pytest
 
 # --- Helpers ---
 
-def _make_task(id="t-1", title="Test task", priority="P1", status="open", tags=None):
-    return {
+def _make_task(id="t-1", title="Test task", priority="P1", status="open", tags=None, description=None):
+    task = {
         "id": id,
         "title": title,
         "priority": priority,
         "status": status,
         "tags": tags or [],
     }
+    if description is not None:
+        task["description"] = description
+    return task
 
 
 def _patch_ostk_and_labels(**ostk_attrs):
@@ -91,6 +94,57 @@ async def test_create_task_default_priority(client):
 
     assert resp.status_code == 200
     mock_ostk.add_task.assert_called_once_with("Basic task", "P1", description="")
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_description_round_trip(client):
+    """Regression: a task created with a description must surface that description
+    when the task list is fetched. Catches the data-source-drift bug where the
+    writer (POST /tasks) accepted description but the reader (GET /tasks) dropped
+    it before the UI could render it."""
+    created_task = _make_task(
+        id="t-desc-1",
+        title="New task with summary",
+        description="This is a one-line summary that should appear in the list.",
+    )
+
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("routers.tasks.task_labels_store") as mock_tls, \
+         patch("routers.tasks.threads_store") as mock_threads:
+        mock_ostk.add_task = AsyncMock(return_value="created t-desc-1")
+        mock_ostk.list_tasks = AsyncMock(return_value=[created_task])
+        mock_tls.get_all_assignments = MagicMock(return_value={})
+        mock_tls.get_auto_applied = MagicMock(return_value=[])
+        mock_threads.get_all_task_thread_map = MagicMock(return_value={})
+
+        # 1. Create the task with a description in the body
+        create_resp = await client.post(
+            "/api/tasks",
+            json={
+                "title": "New task with summary",
+                "priority": "P1",
+                "description": "This is a one-line summary that should appear in the list.",
+            },
+        )
+        assert create_resp.status_code == 200
+        mock_ostk.add_task.assert_called_once_with(
+            "New task with summary",
+            "P1",
+            description="This is a one-line summary that should appear in the list.",
+        )
+
+        # 2. GET the task list
+        list_resp = await client.get("/api/tasks")
+
+    assert list_resp.status_code == 200
+    data = list_resp.json()
+    tasks = data.get("tasks", [])
+
+    # 3. Assert the created task in the response has a non-empty description
+    match = next((t for t in tasks if t["id"] == "t-desc-1"), None)
+    assert match is not None, "created task missing from list response"
+    assert match.get("description"), "description field missing or empty in list response"
+    assert match["description"] == "This is a one-line summary that should appear in the list."
 
 
 # --- POST /api/tasks/{id}/close ---

@@ -1375,6 +1375,15 @@ export default function Tasks() {
                           </span>
                         )}
                       </div>
+                      {task.description && (
+                        <p
+                          data-testid={`task-description-${task.id}`}
+                          className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5"
+                          title={task.description}
+                        >
+                          {task.description}
+                        </p>
+                      )}
                     </div>
                     {renderLinkDropdown(task)}
                     {renderLabelDropdown(task)}
@@ -1525,10 +1534,26 @@ export default function Tasks() {
                             </div>
                           )}
                           {!briefingLoading && !briefing && (
-                            <p className="text-slate-500">No briefing available for this task.</p>
+                            <div className="space-y-3">
+                              {task.description && (
+                                <div data-testid={`task-summary-${task.id}`}>
+                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Summary</h4>
+                                  <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{task.description}</p>
+                                </div>
+                              )}
+                              {!task.description && (
+                                <p className="text-slate-500">No briefing available for this task.</p>
+                              )}
+                            </div>
                           )}
                           {!briefingLoading && briefing && (
                             <div className="space-y-3">
+                              {task.description && (
+                                <div data-testid={`task-summary-${task.id}`}>
+                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Summary</h4>
+                                  <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{task.description}</p>
+                                </div>
+                              )}
                               {briefing.sphere && (
                                 <div>
                                   <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Where this task sits</h4>
