@@ -59,20 +59,34 @@ _ENV_KEY_MAP = {
 }
 
 
-def _make_google_credentials():
-    """Build Google OAuth credentials from stored tokens."""
-    from google.oauth2.credentials import Credentials
-    access_token = settings_store.get("gemini_oauth_access_token", "")
-    refresh_token = settings_store.get("gemini_oauth_refresh_token", "")
-    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
-    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-    return Credentials(
-        token=access_token,
-        refresh_token=refresh_token,
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=client_id,
-        client_secret=client_secret,
-    )
+_GEMINI_AUTH_HINTS = (
+    "ACCESS_TOKEN_TYPE_UNSUPPORTED",
+    "API_KEY_INVALID",
+    "API key not valid",
+    "invalid authentication credentials",
+    "401",
+    "PERMISSION_DENIED",
+)
+
+
+def _friendly_gemini_error(error_text: str) -> str:
+    """Translate Google's cryptic auth errors into a friendly message.
+
+    The Generative Language API returns long, jargon-heavy errors when the
+    credentials are wrong (for example ``ACCESS_TOKEN_TYPE_UNSUPPORTED``
+    when a user OAuth token is sent where an API key is expected). For
+    those cases we return a one-liner the user can act on. For all other
+    errors we pass the original message through unchanged.
+    """
+    lowered = error_text.lower()
+    for hint in _GEMINI_AUTH_HINTS:
+        if hint.lower() in lowered:
+            return (
+                "Gemini API key is missing or invalid. Add one in Settings "
+                "under AI Provider, or get a free key at "
+                "https://aistudio.google.com/apikey."
+            )
+    return error_text
 
 
 async def _resolve_api_key(settings_key: str) -> str:
@@ -602,32 +616,31 @@ class ChatService:
             return ""
 
     async def stream_gemini(self, messages: list[dict], websocket: WebSocket) -> str:
+        # Gemini's public Generative Language API only accepts API keys.
+        # User OAuth tokens (even with cloud-platform scope) are rejected
+        # with ACCESS_TOKEN_TYPE_UNSUPPORTED, so we no longer try to use
+        # them here. The Google sign-in flow is for Drive/Calendar/Gmail,
+        # not for Gemini chat.
         api_key = await _resolve_api_key("gemini_api_key")
-        oauth_token = settings_store.get("gemini_oauth_access_token", "")
 
-        # OAuth tokens are only usable when the OAuth client env vars are set.
-        # Without GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET the SDK cannot
-        # refresh the token and may hang or fail silently.
-        oauth_usable = bool(
-            oauth_token
-            and os.environ.get("GOOGLE_CLIENT_ID")
-            and os.environ.get("GOOGLE_CLIENT_SECRET")
-        )
-
-        if not api_key and not oauth_usable:
+        if not api_key:
             await websocket.send_json({
                 "type": "error",
-                "data": "No Gemini credentials found. Add an API key or sign in with Google in Settings.",
+                "data": (
+                    "Gemini API key is missing. Add one in Settings under AI Provider, "
+                    "or get a free key at https://aistudio.google.com/apikey."
+                ),
             })
             return ""
 
         full_text = ""
         try:
             import google.generativeai as genai
-            if api_key:
-                genai.configure(api_key=api_key)
-            else:
-                genai.configure(credentials=_make_google_credentials())
+            # Always pass the API key explicitly so the SDK never falls back
+            # to ambient default credentials (ADC), which could pick up the
+            # user's Drive/Calendar OAuth token and fail with
+            # ACCESS_TOKEN_TYPE_UNSUPPORTED.
+            genai.configure(api_key=api_key)
             model = genai.GenerativeModel("gemini-2.0-flash")
 
             history = []
@@ -644,7 +657,9 @@ class ChatService:
 
             await websocket.send_json({"type": "done"})
         except Exception as e:
-            await websocket.send_json({"type": "error", "data": str(e)})
+            error_text = str(e)
+            friendly = _friendly_gemini_error(error_text)
+            await websocket.send_json({"type": "error", "data": friendly})
 
         return full_text
 

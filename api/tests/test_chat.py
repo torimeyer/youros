@@ -124,65 +124,84 @@ def websocket():
 
 
 class TestGeminiCredentialErrors:
-    """Regression tests for the Gemini 'Thinking forever' bug.
+    """Regression tests for Gemini auth.
 
-    When no valid Gemini credentials are available, the backend must send
-    an error message so the frontend can clear the streaming/thinking state.
-    Previously, stale OAuth tokens without matching GOOGLE_CLIENT_ID /
-    GOOGLE_CLIENT_SECRET caused the Gemini SDK to hang, leaving the user
-    stuck on 'Thinking' indefinitely.
+    The Gemini public Generative Language API only accepts API keys. User
+    OAuth tokens (even with cloud-platform scope) are rejected with the
+    cryptic error ``ACCESS_TOKEN_TYPE_UNSUPPORTED``. The chat provider must:
+    1. Refuse to call Gemini at all when no API key is present (and surface
+       a friendly Settings hint instead of hanging or leaking the cryptic
+       Google error).
+    2. Always pass the API key explicitly to ``genai.configure`` so the SDK
+       never falls back to ambient default credentials (ADC), which could
+       pick up the user's Drive/Calendar OAuth token.
+    3. Translate any 401 / ACCESS_TOKEN_TYPE_UNSUPPORTED error coming back
+       from the API into the same friendly Settings hint.
     """
 
     @pytest.mark.asyncio
-    async def test_no_api_key_no_oauth_sends_error(self, websocket):
-        """With no API key and no OAuth tokens, an error is returned immediately."""
+    async def test_no_api_key_sends_friendly_error(self, websocket):
+        """With no Gemini API key, the user sees a friendly Settings hint
+        instead of a hang or a cryptic Google error."""
         from services.chat_providers import ChatService
 
         service = ChatService()
 
-        with patch("services.chat_providers.settings_store") as mock_settings:
-            mock_settings.get.side_effect = lambda key, default="": default
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("GEMINI_API_KEY", None)
-                os.environ.pop("GOOGLE_CLIENT_ID", None)
-                os.environ.pop("GOOGLE_CLIENT_SECRET", None)
-                result = await service.stream_gemini(
-                    [{"role": "user", "content": "hello"}],
-                    websocket,
-                )
+        async def fake_resolve(_key):
+            return ""
+
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=fake_resolve,
+        ):
+            result = await service.stream_gemini(
+                [{"role": "user", "content": "hello"}],
+                websocket,
+            )
 
         assert result == ""
         errors = websocket.get_messages_of_type("error")
         assert len(errors) == 1
-        assert "No Gemini credentials found" in errors[0]["data"]
-        assert "Settings" in errors[0]["data"]
+        msg = errors[0]["data"]
+        assert "Gemini API key is missing" in msg
+        assert "Settings" in msg
         # No 'done' should be sent since the request never started.
         assert websocket.get_messages_of_type("done") == []
 
     @pytest.mark.asyncio
-    async def test_stale_oauth_without_client_vars_sends_error(self, websocket):
-        """Stale OAuth tokens without GOOGLE_CLIENT_ID/SECRET send an error
-        instead of hanging. This was the root cause of the 'Thinking forever' bug.
+    async def test_oauth_token_alone_sends_friendly_error(self, websocket):
+        """Regression: even with a Drive OAuth token in settings AND
+        GOOGLE_CLIENT_ID / SECRET set in the env, ``stream_gemini`` must
+        NOT try to use the OAuth token. Drive OAuth tokens are user
+        credentials that the public Generative Language API rejects with
+        ``ACCESS_TOKEN_TYPE_UNSUPPORTED``. The user must see a friendly
+        Settings hint instead.
         """
         from services.chat_providers import ChatService
 
         service = ChatService()
 
+        async def fake_resolve(_key):
+            return ""
+
         def mock_get(key, default=""):
-            if key == "gemini_api_key":
-                return ""
             if key == "gemini_oauth_access_token":
-                return "ya29.stale-token"
+                return "ya29.drive-token-not-valid-for-gemini"
             if key == "gemini_oauth_refresh_token":
-                return "1//stale-refresh"
+                return "1//drive-refresh"
             return default
 
-        with patch("services.chat_providers.settings_store") as mock_settings:
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=fake_resolve,
+        ), patch("services.chat_providers.settings_store") as mock_settings:
             mock_settings.get.side_effect = mock_get
-            with patch.dict(os.environ, {}, clear=False):
+            with patch.dict(
+                os.environ,
+                {"GOOGLE_CLIENT_ID": "drive-id", "GOOGLE_CLIENT_SECRET": "drive-secret"},
+                clear=False,
+            ):
                 os.environ.pop("GEMINI_API_KEY", None)
-                os.environ.pop("GOOGLE_CLIENT_ID", None)
-                os.environ.pop("GOOGLE_CLIENT_SECRET", None)
                 result = await service.stream_gemini(
                     [{"role": "user", "content": "hello"}],
                     websocket,
@@ -191,41 +210,15 @@ class TestGeminiCredentialErrors:
         assert result == ""
         errors = websocket.get_messages_of_type("error")
         assert len(errors) == 1
-        assert "No Gemini credentials found" in errors[0]["data"]
+        assert "Gemini API key is missing" in errors[0]["data"]
 
     @pytest.mark.asyncio
-    async def test_oauth_with_client_id_only_sends_error(self, websocket):
-        """OAuth token with client ID but no client secret should still error."""
-        from services.chat_providers import ChatService
-
-        service = ChatService()
-
-        def mock_get(key, default=""):
-            if key == "gemini_api_key":
-                return ""
-            if key == "gemini_oauth_access_token":
-                return "ya29.some-token"
-            return default
-
-        with patch("services.chat_providers.settings_store") as mock_settings:
-            mock_settings.get.side_effect = mock_get
-            with patch.dict(os.environ, {"GOOGLE_CLIENT_ID": "some-id"}, clear=False):
-                os.environ.pop("GEMINI_API_KEY", None)
-                os.environ.pop("GOOGLE_CLIENT_SECRET", None)
-                result = await service.stream_gemini(
-                    [{"role": "user", "content": "hello"}],
-                    websocket,
-                )
-
-        assert result == ""
-        errors = websocket.get_messages_of_type("error")
-        assert len(errors) == 1
-        assert "No Gemini credentials found" in errors[0]["data"]
-
-    @pytest.mark.asyncio
-    async def test_api_key_from_env_skips_error(self, websocket):
-        """When GEMINI_API_KEY env var is set, the error check is skipped
-        and the SDK is called (mocked here to avoid a real API call).
+    async def test_api_key_is_passed_to_configure(self, websocket):
+        """When the API key is present, ``stream_gemini`` must pass it
+        explicitly to ``genai.configure(api_key=...)``. It must NOT use
+        ``configure(credentials=...)`` and must NOT call configure with no
+        arguments (which would fall back to ambient ADC and could pick up
+        the Drive OAuth token).
         """
         import sys
         from unittest.mock import MagicMock
@@ -233,33 +226,84 @@ class TestGeminiCredentialErrors:
 
         service = ChatService()
 
-        # Create a mock module to replace the google.generativeai import
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
         mock_chat = mock_model.start_chat.return_value
         mock_chunk = type("Chunk", (), {"text": "Hi from Gemini"})()
         mock_chat.send_message.return_value = [mock_chunk]
 
-        with patch("services.chat_providers.settings_store") as mock_settings:
-            mock_settings.get.side_effect = lambda key, default="": default
-            with patch.dict(os.environ, {"GEMINI_API_KEY": "AIza-fake-key"}, clear=False):
-                os.environ.pop("GOOGLE_CLIENT_ID", None)
-                os.environ.pop("GOOGLE_CLIENT_SECRET", None)
-                with patch.dict(sys.modules, {"google.generativeai": mock_genai}):
-                    result = await service.stream_gemini(
-                        [{"role": "user", "content": "hello"}],
-                        websocket,
-                    )
+        async def fake_resolve(key):
+            return "AIza-fake-key" if key == "gemini_api_key" else ""
+
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=fake_resolve,
+        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}):
+            result = await service.stream_gemini(
+                [{"role": "user", "content": "hello"}],
+                websocket,
+            )
 
         assert result == "Hi from Gemini"
+
+        # Must have called configure with api_key, not credentials.
+        mock_genai.configure.assert_called_once_with(api_key="AIza-fake-key")
+        kwargs = mock_genai.configure.call_args.kwargs
+        assert "credentials" not in kwargs
+
         errors = websocket.get_messages_of_type("error")
         assert errors == []
         done = websocket.get_messages_of_type("done")
         assert len(done) == 1
 
     @pytest.mark.asyncio
-    async def test_valid_oauth_with_client_vars_skips_error(self, websocket):
-        """When OAuth token AND client vars are all present, the SDK is called."""
+    async def test_access_token_type_unsupported_translated(self, websocket):
+        """Regression: when Google returns the cryptic 401
+        ``ACCESS_TOKEN_TYPE_UNSUPPORTED`` error, the user must see the
+        friendly Settings hint instead of the raw Google error text.
+        """
+        import sys
+        from unittest.mock import MagicMock
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+
+        cryptic_error = (
+            "401 Request had invalid authentication credentials. Expected "
+            "OAuth 2 access token, login cookie or other valid authentication "
+            "credential. [reason: \"ACCESS_TOKEN_TYPE_UNSUPPORTED\"]"
+        )
+
+        mock_genai = MagicMock()
+        mock_model = mock_genai.GenerativeModel.return_value
+        mock_chat = mock_model.start_chat.return_value
+        mock_chat.send_message.side_effect = RuntimeError(cryptic_error)
+
+        async def fake_resolve(key):
+            return "AIza-stale-key" if key == "gemini_api_key" else ""
+
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=fake_resolve,
+        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}):
+            result = await service.stream_gemini(
+                [{"role": "user", "content": "hello"}],
+                websocket,
+            )
+
+        assert result == ""
+        errors = websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        msg = errors[0]["data"]
+        assert "Gemini API key is missing or invalid" in msg
+        assert "Settings" in msg
+        # The cryptic Google text must NOT be in the user-facing error.
+        assert "ACCESS_TOKEN_TYPE_UNSUPPORTED" not in msg
+
+    @pytest.mark.asyncio
+    async def test_invalid_api_key_error_translated(self, websocket):
+        """An ``API_KEY_INVALID`` error from Google is translated to the
+        friendly Settings hint."""
         import sys
         from unittest.mock import MagicMock
         from services.chat_providers import ChatService
@@ -269,41 +313,32 @@ class TestGeminiCredentialErrors:
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
         mock_chat = mock_model.start_chat.return_value
-        mock_chunk = type("Chunk", (), {"text": "OAuth works"})()
-        mock_chat.send_message.return_value = [mock_chunk]
+        mock_chat.send_message.side_effect = RuntimeError(
+            "400 API key not valid. Please pass a valid API key. "
+            "[reason: \"API_KEY_INVALID\"]"
+        )
 
-        def mock_get(key, default=""):
-            if key == "gemini_api_key":
-                return ""
-            if key == "gemini_oauth_access_token":
-                return "ya29.valid-token"
-            if key == "gemini_oauth_refresh_token":
-                return "1//valid-refresh"
-            return default
+        async def fake_resolve(key):
+            return "AIza-bad" if key == "gemini_api_key" else ""
 
-        with patch("services.chat_providers.settings_store") as mock_settings:
-            mock_settings.get.side_effect = mock_get
-            with patch.dict(
-                os.environ,
-                {"GOOGLE_CLIENT_ID": "test-id", "GOOGLE_CLIENT_SECRET": "test-secret"},
-                clear=False,
-            ):
-                os.environ.pop("GEMINI_API_KEY", None)
-                with patch.dict(sys.modules, {"google.generativeai": mock_genai}):
-                    result = await service.stream_gemini(
-                        [{"role": "user", "content": "hello"}],
-                        websocket,
-                    )
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=fake_resolve,
+        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}):
+            result = await service.stream_gemini(
+                [{"role": "user", "content": "hello"}],
+                websocket,
+            )
 
-        assert result == "OAuth works"
+        assert result == ""
         errors = websocket.get_messages_of_type("error")
-        assert errors == []
+        assert len(errors) == 1
+        assert "Gemini API key is missing or invalid" in errors[0]["data"]
 
     @pytest.mark.asyncio
-    async def test_gemini_sdk_exception_sends_error(self, websocket):
-        """If the Gemini SDK throws, the exception is caught and an error
-        message is sent so the frontend does not get stuck.
-        """
+    async def test_non_auth_sdk_exception_passed_through(self, websocket):
+        """Non-auth errors (rate limits, network issues) keep their original
+        message so the user has actionable detail."""
         import sys
         from unittest.mock import MagicMock
         from services.chat_providers import ChatService
@@ -311,21 +346,26 @@ class TestGeminiCredentialErrors:
         service = ChatService()
 
         mock_genai = MagicMock()
-        mock_genai.GenerativeModel.side_effect = RuntimeError("SDK init failed")
+        mock_genai.GenerativeModel.side_effect = RuntimeError(
+            "Connection reset by peer"
+        )
 
-        with patch("services.chat_providers.settings_store") as mock_settings:
-            mock_settings.get.side_effect = lambda key, default="": default
-            with patch.dict(os.environ, {"GEMINI_API_KEY": "AIza-fake-key"}, clear=False):
-                with patch.dict(sys.modules, {"google.generativeai": mock_genai}):
-                    result = await service.stream_gemini(
-                        [{"role": "user", "content": "hello"}],
-                        websocket,
-                    )
+        async def fake_resolve(key):
+            return "AIza-fake" if key == "gemini_api_key" else ""
+
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=fake_resolve,
+        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}):
+            result = await service.stream_gemini(
+                [{"role": "user", "content": "hello"}],
+                websocket,
+            )
 
         assert result == ""
         errors = websocket.get_messages_of_type("error")
         assert len(errors) == 1
-        assert "SDK init failed" in errors[0]["data"]
+        assert "Connection reset" in errors[0]["data"]
 
 
 class TestAutoTemplateMatching:

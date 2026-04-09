@@ -58,14 +58,17 @@ async def key_status():
     anthropic_src = _source("ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")
     gemini_src = _source("GEMINI_API_KEY", "GEMINI_API_KEY")
 
-    # Check if Google OAuth tokens are stored
+    # Check if Google OAuth tokens are stored. The Drive/Calendar/Gmail
+    # sign-in flow stores tokens here, but those tokens are NOT valid for
+    # the Gemini chat API. The public Generative Language API only accepts
+    # API keys, so Gemini chat readiness is determined by gemini_src alone.
     google_connected = bool(settings_store.get("gemini_oauth_access_token", ""))
 
     return {
         "anthropic": anthropic_src != "none",
         "anthropic_source": anthropic_src,
-        "gemini": gemini_src != "none" or google_connected,
-        "gemini_source": "google" if google_connected else gemini_src,
+        "gemini": gemini_src != "none",
+        "gemini_source": gemini_src,
         "google_oauth_available": bool(os.environ.get("GOOGLE_CLIENT_ID", "")),
         "google_connected": google_connected,
     }

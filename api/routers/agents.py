@@ -147,16 +147,110 @@ def _avg_minutes_per_dollar() -> dict[str, float]:
     return result
 
 
-def _get_transcript_metrics(name: str) -> dict:
-    """Get activity metrics from an agent's transcript file."""
+def _claude_code_projects_dir() -> Path:
+    """Return the Claude Code projects directory.
+
+    Wrapped in a function so tests can patch ``Path.home`` or this
+    helper directly.
+    """
+    return Path.home() / ".claude" / "projects"
+
+
+def _resolve_transcript_source(name: str) -> Optional[Path]:
+    """Resolve the on-disk transcript for an agent.
+
+    Looks in three places, in order, and returns the first hit:
+
+    1. ``PROJECT_ROOT/transcripts/{name}.md`` (legacy daemon-spawned).
+    2. The ``transcript_path`` recorded in the agent's metadata at
+       register time.
+    3. The freshest JSONL session file under
+       ``~/.claude/projects/<dashes>/`` whose first user message
+       references this agent name. This is where Claude Code
+       subagents (``saa``-spawned) actually write their transcripts.
+
+    Returns ``None`` if no candidate exists. The same resolver is used
+    by every reader (View Transcript, list metrics, share snapshot)
+    so they cannot drift apart again.
+    """
     from config import PROJECT_ROOT
-    transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
-    if not transcript.exists():
+
+    # 1. Legacy markdown.
+    md = PROJECT_ROOT / "transcripts" / f"{name}.md"
+    if md.exists() and md.stat().st_size > 0:
+        return md
+
+    # 2. Per-agent JSONL recorded at register time.
+    meta = agent_metadata.get(name) or {}
+    raw_path = meta.get("transcript_path")
+    if raw_path:
+        candidate = Path(raw_path)
+        if candidate.exists() and candidate.stat().st_size > 0:
+            return candidate
+
+    # 3. Scan Claude Code project JSONL files for one whose first
+    #    user message mentions this agent name. We restrict to the
+    #    project dir matching PROJECT_ROOT so we do not accidentally
+    #    surface a transcript from an unrelated repo.
+    projects_dir = _claude_code_projects_dir()
+    if not projects_dir.exists():
+        return None
+
+    project_label = str(PROJECT_ROOT).replace("/", "-").lstrip("-")
+    project_dir = projects_dir / f"-{project_label}"
+    if not project_dir.exists():
+        return None
+
+    needle = name.lower()
+    best: Optional[Path] = None
+    best_mtime = 0.0
+    for jsonl_path in project_dir.glob("*.jsonl"):
+        try:
+            mtime = jsonl_path.stat().st_mtime
+        except OSError:
+            continue
+        if mtime <= best_mtime:
+            continue
+        if _jsonl_mentions_agent(jsonl_path, needle):
+            best = jsonl_path
+            best_mtime = mtime
+    return best
+
+
+def _jsonl_mentions_agent(path: Path, needle_lower: str) -> bool:
+    """True if any of the first 50 lines of ``path`` references the agent name.
+
+    Cheap, bounded scan: a Claude Code subagent's first message is
+    always the spawn prompt, which contains the agent name (it is the
+    first thing the parent prints). We do not scan the whole file
+    because some sessions are megabytes long.
+    """
+    try:
+        with open(path, "r", errors="replace") as f:
+            for i, line in enumerate(f):
+                if i >= 50:
+                    return False
+                if needle_lower in line.lower():
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def _get_transcript_metrics(name: str) -> dict:
+    """Get activity metrics from an agent's transcript file.
+
+    Looks at every transcript source the resolver knows about, so
+    Claude Code subagents (which write JSONL, not markdown) report
+    real byte and line counts on the Agents page.
+    """
+    source = _resolve_transcript_source(name)
+    if source is None:
         return {"transcript_bytes": 0, "transcript_lines": 0}
     try:
-        size = transcript.stat().st_size
+        size = source.stat().st_size
         lines = 0
-        with open(transcript, "rb") as f:
+        with open(source, "rb") as f:
             for _ in f:
                 lines += 1
         return {"transcript_bytes": size, "transcript_lines": lines}
@@ -239,53 +333,43 @@ def _format_jsonl_transcript(jsonl_path: Path) -> str:
 async def get_agent_transcript(name: str):
     """Return the readable transcript content for a specific agent.
 
-    Looks in three places, in order:
-      1. The legacy markdown file at PROJECT_ROOT/transcripts/{name}.md
-         (where daemon-spawned agents write their stdout).
-      2. A JSONL output file recorded in this agent's metadata under
-         ``transcript_path`` (where Claude Code subagents write their
-         per-message stream). JSONL is parsed into a readable transcript
-         with clear speaker labels.
-      3. (Future) Best-effort glob over /private/tmp/claude-501/**.
+    Resolves the on-disk source via :func:`_resolve_transcript_source`
+    so every reader (this endpoint, the list metrics, the share
+    snapshot) agrees on where transcripts live. Markdown files are
+    returned as-is; JSONL files are parsed into a readable transcript
+    with clear speaker labels.
     """
-    from config import PROJECT_ROOT
     # Basic safety: reject path traversal.
     if "/" in name or ".." in name:
         raise HTTPException(status_code=400, detail="Invalid agent name")
 
-    # Source 1: legacy markdown file from daemon-spawned agents.
-    transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
-    if transcript.exists() and transcript.stat().st_size > 0:
-        try:
-            content = transcript.read_text(errors="replace")
-        except OSError as exc:
-            raise HTTPException(status_code=500, detail=f"Could not read transcript: {exc}") from exc
-        return {"name": name, "content": content, "bytes": len(content)}
+    source = _resolve_transcript_source(name)
+    if source is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No transcript found for agent '{name}'. This can happen if "
+                f"the agent was spawned by an older myOS version without "
+                f"transcript tracking."
+            ),
+        )
 
-    # Source 2: per-agent JSONL output recorded at register time.
-    meta = agent_metadata.get(name) or {}
-    raw_path = meta.get("transcript_path")
-    if raw_path:
-        jsonl_path = Path(raw_path)
-        if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
-            suffix = jsonl_path.suffix.lower()
-            if suffix in (".output", ".jsonl") or _looks_like_jsonl(jsonl_path):
-                content = _format_jsonl_transcript(jsonl_path)
-            else:
-                try:
-                    content = jsonl_path.read_text(errors="replace")
-                except OSError as exc:
-                    raise HTTPException(status_code=500, detail=f"Could not read transcript: {exc}") from exc
-            if content:
-                return {"name": name, "content": content, "bytes": len(content)}
+    suffix = source.suffix.lower()
+    try:
+        if suffix in (".output", ".jsonl") or _looks_like_jsonl(source):
+            content = _format_jsonl_transcript(source)
+        else:
+            content = source.read_text(errors="replace")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not read transcript: {exc}") from exc
 
-    raise HTTPException(
-        status_code=404,
-        detail=(
-            f"No transcript found for agent '{name}'. This can happen if the "
-            f"agent was spawned by an older myOS version without transcript tracking."
-        ),
-    )
+    if not content:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Transcript for '{name}' is empty.",
+        )
+
+    return {"name": name, "content": content, "bytes": len(content)}
 
 
 def _looks_like_jsonl(path: Path) -> bool:

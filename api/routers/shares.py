@@ -79,13 +79,25 @@ async def _snapshot_all_tasks_with_label(label_id: str) -> list[dict]:
 
 
 async def _snapshot_agent_output(agent_name: str) -> list[dict]:
-    """Return a snippet of an agent's transcript as the snapshot."""
-    from config import PROJECT_ROOT
-    transcript = PROJECT_ROOT / "transcripts" / f"{agent_name}.md"
-    if not transcript.exists():
+    """Return a snippet of an agent's transcript as the snapshot.
+
+    Uses the unified transcript resolver in ``routers.agents`` so this
+    function picks up Claude Code subagents (JSONL session files under
+    ``~/.claude/projects``) as well as legacy ``.md`` files. Without
+    this, sharing any Claude Code agent silently snapshots an empty
+    list.
+    """
+    from routers.agents import _resolve_transcript_source, _format_jsonl_transcript, _looks_like_jsonl
+
+    source = _resolve_transcript_source(agent_name)
+    if source is None:
         return []
     try:
-        text = transcript.read_text(encoding="utf-8", errors="replace")
+        suffix = source.suffix.lower()
+        if suffix in (".output", ".jsonl") or _looks_like_jsonl(source):
+            text = _format_jsonl_transcript(source)
+        else:
+            text = source.read_text(encoding="utf-8", errors="replace")
         # Return up to 8000 characters to keep shares reasonable
         snippet = text[:8000]
         return [{"agent": agent_name, "output": snippet}]
