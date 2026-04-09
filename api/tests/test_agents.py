@@ -16,7 +16,7 @@ These tests verify that:
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient, ASGITransport
@@ -1845,13 +1845,27 @@ async def test_register_with_description_and_prompt_preserved(tmp_path):
 
 
 def _build_jsonl_session(name: str) -> str:
-    """Build a tiny but realistic Claude Code session JSONL."""
+    """Build a tiny but realistic Claude Code subagent JSONL.
+
+    The first line must be the spawn prompt containing the register
+    POST body, mirroring the real saa template. The resolver's strict
+    matcher only looks at the first line, so that is where the name
+    has to appear. We JSON-escape the embedded register body the same
+    way Claude Code does (``\\"name\\": \\"<name>\\"``) so the pattern
+    matches in test data exactly as it matches on disk.
+    """
+    prompt_content = (
+        "You are a myOS agent. Your FIRST action before any work: "
+        "POST to http://localhost:8000/agents/register with body "
+        f'{{"name": "{name}", "status": "running"}} — fire and forget.\n\n'
+        "Do the work."
+    )
     lines = [
         json.dumps({
             "type": "user",
             "message": {
                 "role": "user",
-                "content": f"You are agent {name}. Do the work.",
+                "content": prompt_content,
             },
         }),
         json.dumps({
@@ -1868,12 +1882,32 @@ def _build_jsonl_session(name: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _write_subagent_jsonl(project_dir: Path, agent_name: str, session: str = "session-abc123") -> Path:
+    """Drop a fake subagent JSONL file at the real on-disk path.
+
+    Claude Code stores each subagent's transcript at
+    ``<project_dir>/<session-id>/subagents/agent-<id>.jsonl``, not at
+    the top level of ``project_dir``. Tests must use this exact layout
+    or the resolver will not find them. Returns the path so the caller
+    can assert against it.
+    """
+    subagents_dir = project_dir / session / "subagents"
+    subagents_dir.mkdir(parents=True, exist_ok=True)
+    # File name is the agent's task id; the resolver does not care
+    # what the id is, only that the first line matches.
+    jsonl = subagents_dir / f"agent-{agent_name.replace('/', '_')}.jsonl"
+    jsonl.write_text(_build_jsonl_session(agent_name))
+    return jsonl
+
+
 def test_resolve_transcript_finds_jsonl_in_claude_projects(tmp_path):
     """A Claude Code subagent's JSONL session must be discovered by name.
 
-    Reproduction: register an agent without a transcript_path, drop a JSONL
-    session file at the real Claude Code projects path, and confirm the
-    resolver returns it. This is the exact path Claude Code subagents use.
+    Reproduction: register an agent without a transcript_path, drop a
+    subagent JSONL file at the real Claude Code path
+    (``<project>/<session>/subagents/agent-*.jsonl``), and confirm the
+    resolver returns it. This is the exact layout Claude Code subagents
+    use on disk.
     """
     from routers import agents as agents_module
     from routers.agents import _resolve_transcript_source, agent_metadata
@@ -1884,8 +1918,7 @@ def test_resolve_transcript_finds_jsonl_in_claude_projects(tmp_path):
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
     project_dir.mkdir(parents=True)
-    jsonl = project_dir / "session-abc123.jsonl"
-    jsonl.write_text(_build_jsonl_session("audit-test-coverage"))
+    jsonl = _write_subagent_jsonl(project_dir, "audit-test-coverage")
 
     agent_metadata["audit-test-coverage"] = {
         "spawned_at": "2026-04-08T20:00:00+00:00",
@@ -1895,6 +1928,7 @@ def test_resolve_transcript_finds_jsonl_in_claude_projects(tmp_path):
     }
     try:
         with patch.object(agents_module, "_claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"), \
+             patch.object(agents_module, "_claude_code_tasks_root", return_value=tmp_path / "tasks-root"), \
              patch("config.PROJECT_ROOT", fake_repo):
             source = _resolve_transcript_source("audit-test-coverage")
         assert source is not None, "resolver returned None for a Claude Code agent with a real JSONL session"
@@ -1904,7 +1938,7 @@ def test_resolve_transcript_finds_jsonl_in_claude_projects(tmp_path):
 
 
 def test_resolve_transcript_picks_freshest_matching_jsonl(tmp_path):
-    """When multiple JSONL files mention the agent name, pick the newest."""
+    """When multiple subagent JSONL files target the same name, pick the newest."""
     from routers import agents as agents_module
     from routers.agents import _resolve_transcript_source, agent_metadata
 
@@ -1915,21 +1949,19 @@ def test_resolve_transcript_picks_freshest_matching_jsonl(tmp_path):
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
     project_dir.mkdir(parents=True)
 
-    older = project_dir / "older.jsonl"
-    older.write_text(_build_jsonl_session("scout-agent"))
+    older = _write_subagent_jsonl(project_dir, "scout-agent", session="session-older")
     import os, time
     older_time = time.time() - 600
     os.utime(older, (older_time, older_time))
 
-    newer = project_dir / "newer.jsonl"
-    newer.write_text(_build_jsonl_session("scout-agent"))
+    newer = _write_subagent_jsonl(project_dir, "scout-agent", session="session-newer")
 
-    unrelated = project_dir / "other.jsonl"
-    unrelated.write_text(_build_jsonl_session("different-agent"))
+    unrelated = _write_subagent_jsonl(project_dir, "different-agent", session="session-other")
 
     agent_metadata["scout-agent"] = {"source": "claude-code", "status": "running"}
     try:
         with patch.object(agents_module, "_claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"), \
+             patch.object(agents_module, "_claude_code_tasks_root", return_value=tmp_path / "tasks-root"), \
              patch("config.PROJECT_ROOT", fake_repo):
             source = _resolve_transcript_source("scout-agent")
         assert source == newer
@@ -1939,10 +1971,11 @@ def test_resolve_transcript_picks_freshest_matching_jsonl(tmp_path):
 
 @pytest.mark.asyncio
 async def test_view_transcript_endpoint_returns_jsonl_for_claude_code_agent(tmp_path):
-    """End-to-end: register a Claude Code subagent, drop a JSONL at the real
-    Claude Code path, hit the View Transcript endpoint, and assert the
-    response contains the agent's actual conversation. This is the regression
-    test that would have caught the original View Transcript bug."""
+    """End-to-end: register a Claude Code subagent, drop a subagent
+    JSONL at the real Claude Code path, hit the View Transcript
+    endpoint, and assert the response contains the agent's actual
+    conversation. This is the regression test that would have caught
+    the original View Transcript bug."""
     from routers.agents import agent_metadata
 
     fake_home = tmp_path / "home"
@@ -1951,13 +1984,13 @@ async def test_view_transcript_endpoint_returns_jsonl_for_claude_code_agent(tmp_
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
     project_dir.mkdir(parents=True)
-    jsonl = project_dir / "session.jsonl"
-    jsonl.write_text(_build_jsonl_session("end-to-end-agent"))
+    _write_subagent_jsonl(project_dir, "end-to-end-agent")
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         try:
             with patch("routers.agents._claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"), \
+                 patch("routers.agents._claude_code_tasks_root", return_value=tmp_path / "tasks-root"), \
                  patch("config.PROJECT_ROOT", fake_repo), \
                  patch("routers.agents._save_agent_state"), \
                  patch("routers.agents.ostk") as mock_ostk:
@@ -1993,13 +2026,13 @@ def test_transcript_metrics_reads_jsonl_for_claude_code_agent(tmp_path):
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
     project_dir.mkdir(parents=True)
-    jsonl = project_dir / "session.jsonl"
-    body = _build_jsonl_session("metrics-jsonl-agent")
-    jsonl.write_text(body)
+    jsonl = _write_subagent_jsonl(project_dir, "metrics-jsonl-agent")
+    body = jsonl.read_text()
 
     agent_metadata["metrics-jsonl-agent"] = {"source": "claude-code", "status": "running"}
     try:
         with patch("routers.agents._claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"), \
+             patch("routers.agents._claude_code_tasks_root", return_value=tmp_path / "tasks-root"), \
              patch("config.PROJECT_ROOT", fake_repo):
             metrics = _get_transcript_metrics("metrics-jsonl-agent")
         assert metrics["transcript_bytes"] == len(body)
@@ -2021,12 +2054,12 @@ async def test_share_snapshot_includes_jsonl_for_claude_code_agent(tmp_path):
     project_label = str(fake_repo).replace("/", "-").lstrip("-")
     project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
     project_dir.mkdir(parents=True)
-    jsonl = project_dir / "session.jsonl"
-    jsonl.write_text(_build_jsonl_session("share-jsonl-agent"))
+    _write_subagent_jsonl(project_dir, "share-jsonl-agent")
 
     agent_metadata["share-jsonl-agent"] = {"source": "claude-code", "status": "completed"}
     try:
         with patch("routers.agents._claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"), \
+             patch("routers.agents._claude_code_tasks_root", return_value=tmp_path / "tasks-root"), \
              patch("config.PROJECT_ROOT", fake_repo):
             snippets = await _snapshot_agent_output("share-jsonl-agent")
         assert len(snippets) == 1
@@ -2034,3 +2067,312 @@ async def test_share_snapshot_includes_jsonl_for_claude_code_agent(tmp_path):
         assert snippets[0]["output"], "snapshot output is empty"
     finally:
         agent_metadata.pop("share-jsonl-agent", None)
+
+
+def _write_tasks_output(tasks_root: Path, agent_name: str, session: str = "sess-a") -> Path:
+    """Drop a fake Claude Code ``.output`` file at the tasks path.
+
+    The Claude Code Agent tool writes each subagent's streaming output
+    to ``<tasks_root>/<project-label>/<session-id>/tasks/<task>.output``.
+    Tests must use this exact layout or the resolver will not find them.
+    """
+    project_dir = tasks_root
+    task_dir = project_dir / session / "tasks"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    out = task_dir / f"{agent_name.replace('/', '_')}.output"
+    out.write_text(_build_jsonl_session(agent_name))
+    return out
+
+
+@pytest.mark.asyncio
+async def test_view_transcript_discovers_tasks_output_for_claude_code_agent(tmp_path):
+    """Regression test for the "View Transcript shows empty" bug.
+
+    Reproduces the exact real-world path:
+
+    1. Drop a ``.output`` file under the Claude Code scratch tasks
+       root at ``<root>/<project-label>/<session>/tasks/<id>.output``.
+    2. Register an agent via ``POST /api/agents/register`` with only
+       a name (no ``transcript_path``), exactly as Claude Code's
+       subagents do when they self-register.
+    3. Hit ``GET /api/agents/<name>/transcript`` and assert the
+       response is the parsed transcript, not a 404 or a stub.
+
+    This test would have caught the previous bug: the resolver
+    globbed the wrong directory, so no real Claude Code subagent
+    was ever resolved even though the unit tests passed.
+    """
+    from routers.agents import agent_metadata
+
+    fake_home = tmp_path / "home"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
+    project_dir.mkdir(parents=True)
+
+    fake_tasks_root = tmp_path / "tasks-root"
+    tasks_project_dir = fake_tasks_root / f"-{project_label}"
+    _write_tasks_output(tasks_project_dir, "test-real-fallback")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents._claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"), \
+                 patch("routers.agents._claude_code_tasks_root", return_value=fake_tasks_root), \
+                 patch("config.PROJECT_ROOT", fake_repo), \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk._run = AsyncMock(return_value="")
+                # Register the agent the same way a Claude Code subagent
+                # does: name only, no transcript_path.
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={"name": "test-real-fallback", "model": "sonnet", "budget": 2.0},
+                )
+                assert resp.status_code == 200
+
+                # View Transcript must return the parsed conversation,
+                # not a 404 or a completion stub.
+                resp = await client.get("/api/agents/test-real-fallback/transcript")
+                assert resp.status_code == 200, resp.text
+                data = resp.json()
+                assert data["name"] == "test-real-fallback"
+                assert data["bytes"] > 0
+                assert "test-real-fallback" in data["content"] or "Do the work" in data["content"]
+                assert "registered externally" not in data["content"]
+        finally:
+            agent_metadata.pop("test-real-fallback", None)
+
+
+@pytest.mark.asyncio
+async def test_complete_does_not_clobber_real_transcript_with_stub(tmp_path):
+    """mark_agent_complete must not overwrite a real transcript with
+    the tiny "completed (registered externally)" stub.
+
+    Before this fix, every call to /complete unconditionally wrote the
+    stub into ``PROJECT_ROOT/transcripts/<name>.md``. The resolver's
+    step-1 legacy markdown check then returned the stub instead of
+    falling through to the real JSONL, so View Transcript showed
+    "completed (registered externally)" for every Claude Code agent
+    that Tori ever clicked.
+    """
+    from routers.agents import agent_metadata
+
+    fake_home = tmp_path / "home"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
+    project_dir.mkdir(parents=True)
+    _write_subagent_jsonl(project_dir, "clobber-test-agent")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents._claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"), \
+                 patch("routers.agents._claude_code_tasks_root", return_value=tmp_path / "tasks-root"), \
+                 patch("config.PROJECT_ROOT", fake_repo), \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents.ostk") as mock_ostk, \
+                 patch("services.notifications.notifications_service") as mock_notif:
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_notif.add = MagicMock(return_value=None)
+
+                # Register, then complete, then view.
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={"name": "clobber-test-agent", "model": "sonnet", "budget": 2.0},
+                )
+                assert resp.status_code == 200
+
+                resp = await client.post(
+                    "/api/agents/clobber-test-agent/complete",
+                    json={"summary": "done"},
+                )
+                assert resp.status_code == 200
+
+                resp = await client.get("/api/agents/clobber-test-agent/transcript")
+                assert resp.status_code == 200, resp.text
+                data = resp.json()
+                # The real subagent JSONL must win, not the completion stub.
+                assert "clobber-test-agent" in data["content"] or "Do the work" in data["content"]
+                assert "registered externally" not in data["content"], \
+                    "mark_agent_complete wrote a stub that masked the real JSONL"
+        finally:
+            agent_metadata.pop("clobber-test-agent", None)
+
+
+def test_strict_match_ignores_tool_result_mentions(tmp_path):
+    """The strict matcher must only look at the first line (spawn prompt).
+
+    If an agent's transcript contains the name of another agent in a
+    tool result or later assistant text (for example, a diagnose agent
+    that echoes ``curl /api/agents`` output), that should NOT count as
+    the agent's transcript. Only the first-line spawn prompt does.
+    """
+    from routers.agents import _jsonl_strict_match
+
+    # Simulate a file whose first line is about 'other-agent' but
+    # whose later lines mention 'target-agent' in a tool result.
+    f = tmp_path / "noisy.jsonl"
+    first = json.dumps({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": (
+                'You are a myOS agent. POST to http://localhost:8000/agents/'
+                'register with body {"name": "other-agent"}'
+            ),
+        },
+    })
+    later = json.dumps({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "content": '{"name": "target-agent", "status": "running"}',
+                },
+            ],
+        },
+    })
+    f.write_text(first + "\n" + later + "\n")
+
+    # First line strict-matches 'other-agent'.
+    assert _jsonl_strict_match(f, "other-agent") is True
+    # Must NOT strict-match 'target-agent' just because it appears later.
+    assert _jsonl_strict_match(f, "target-agent") is False
+
+
+def test_strict_match_accepts_complete_endpoint_shape(tmp_path):
+    """The strict matcher must also match the saa template shape that
+    says ``POST /api/agents/<name>/complete`` instead of using a
+    register body. Many real saa-spawned agents use this shape.
+    """
+    from routers.agents import _jsonl_strict_match
+
+    f = tmp_path / "endpoint.jsonl"
+    first = json.dumps({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": (
+                "You are building a new backend feature.\n"
+                "POST http://localhost:8000/api/agents/build-widget/complete when done\n"
+            ),
+        },
+    })
+    f.write_text(first + "\n")
+
+    assert _jsonl_strict_match(f, "build-widget") is True
+    assert _jsonl_strict_match(f, "build-calendar") is False
+
+
+def test_resolve_transcript_rejects_stub_markdown(tmp_path):
+    """Step 1 of the resolver must skip the tiny completion stub so
+    the real JSONL from step 3/4 wins."""
+    from routers import agents as agents_module
+    from routers.agents import _resolve_transcript_source, agent_metadata
+
+    fake_home = tmp_path / "home"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    # Stub markdown at the legacy location.
+    transcripts_dir = fake_repo / "transcripts"
+    transcripts_dir.mkdir()
+    stub = transcripts_dir / "stub-agent.md"
+    stub.write_text("Agent 'stub-agent' completed (registered externally).\n")
+
+    # Real subagent jsonl at the Claude Code path.
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
+    project_dir.mkdir(parents=True)
+    real = _write_subagent_jsonl(project_dir, "stub-agent")
+
+    agent_metadata["stub-agent"] = {"source": "claude-code", "status": "completed"}
+    try:
+        with patch.object(agents_module, "_claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"), \
+             patch.object(agents_module, "_claude_code_tasks_root", return_value=tmp_path / "tasks-root"), \
+             patch("config.PROJECT_ROOT", fake_repo):
+            source = _resolve_transcript_source("stub-agent")
+        assert source == real, f"resolver returned the stub markdown instead of the real jsonl: {source}"
+    finally:
+        agent_metadata.pop("stub-agent", None)
+
+
+def test_resolve_transcript_falls_back_to_stub_when_no_real_transcript(tmp_path):
+    """When no real transcript exists anywhere, the resolver may return
+    the stub markdown as a last resort so the UI shows at least
+    "completed (registered externally)" instead of a 404.
+    """
+    from routers import agents as agents_module
+    from routers.agents import _resolve_transcript_source, agent_metadata
+
+    fake_home = tmp_path / "home"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    transcripts_dir = fake_repo / "transcripts"
+    transcripts_dir.mkdir()
+    stub = transcripts_dir / "lonely-agent.md"
+    stub.write_text("Agent 'lonely-agent' completed (registered externally).\n")
+
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
+    project_dir.mkdir(parents=True)
+    # No real subagent jsonl anywhere.
+
+    agent_metadata["lonely-agent"] = {"source": "claude-code", "status": "completed"}
+    try:
+        with patch.object(agents_module, "_claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"), \
+             patch.object(agents_module, "_claude_code_tasks_root", return_value=tmp_path / "tasks-root"), \
+             patch("config.PROJECT_ROOT", fake_repo):
+            source = _resolve_transcript_source("lonely-agent")
+        assert source == stub
+    finally:
+        agent_metadata.pop("lonely-agent", None)
+
+
+def test_register_autodiscovers_transcript_path_from_tasks_root(tmp_path):
+    """``POST /api/agents/register`` without an explicit transcript_path
+    should auto-discover the freshest ``.output`` file in the scratch
+    tasks root so future View Transcript calls find it.
+    """
+    from routers import agents as agents_module
+    from routers.agents import _autodiscover_recent_transcript_path
+
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    fake_tasks_root = tmp_path / "tasks-root"
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    tasks_project_dir = fake_tasks_root / f"-{project_label}"
+    recent_out = _write_tasks_output(tasks_project_dir, "discover-me", session="sess-fresh")
+
+    with patch.object(agents_module, "_claude_code_tasks_root", return_value=fake_tasks_root), \
+         patch("config.PROJECT_ROOT", fake_repo):
+        discovered = _autodiscover_recent_transcript_path()
+    assert discovered == str(recent_out)
+
+
+def test_register_autodiscover_ignores_stale_files(tmp_path):
+    """Files older than the cutoff must not be picked up by
+    ``_autodiscover_recent_transcript_path``.
+    """
+    from routers import agents as agents_module
+    from routers.agents import _autodiscover_recent_transcript_path
+
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    fake_tasks_root = tmp_path / "tasks-root"
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    tasks_project_dir = fake_tasks_root / f"-{project_label}"
+    old_out = _write_tasks_output(tasks_project_dir, "stale-agent", session="sess-old")
+    import os, time
+    old_time = time.time() - 3600  # one hour ago
+    os.utime(old_out, (old_time, old_time))
+
+    with patch.object(agents_module, "_claude_code_tasks_root", return_value=fake_tasks_root), \
+         patch("config.PROJECT_ROOT", fake_repo):
+        discovered = _autodiscover_recent_transcript_path(max_age_seconds=60)
+    assert discovered is None

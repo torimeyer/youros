@@ -156,29 +156,75 @@ def _claude_code_projects_dir() -> Path:
     return Path.home() / ".claude" / "projects"
 
 
+def _claude_code_tasks_root() -> Path:
+    """Return the Claude Code scratch tasks root.
+
+    The Claude Code Agent tool writes each subagent's streaming output
+    to ``/private/tmp/claude-<uid>/<project-label>/<session-id>/tasks/
+    <task-id>.output``. Wrapped so tests can patch it.
+    """
+    import os
+    uid = os.getuid() if hasattr(os, "getuid") else 0
+    return Path(f"/private/tmp/claude-{uid}")
+
+
+# Completion stubs look like this: "Agent 'X' completed (registered externally).".
+# They are tiny single-line markdown files written by mark_agent_complete when
+# no real transcript has been recorded yet. Treat anything under this threshold
+# as "not a real transcript" so a real JSONL transcript wins over the stub.
+_STUB_MAX_BYTES = 256
+
+
+def _is_stub_markdown(path: Path) -> bool:
+    """True if ``path`` is a tiny completion-stub markdown file."""
+    try:
+        if path.stat().st_size > _STUB_MAX_BYTES:
+            return False
+        text = path.read_text(errors="replace").strip()
+    except OSError:
+        return False
+    return text.endswith("(registered externally).") or text.endswith("completed.")
+
+
 def _resolve_transcript_source(name: str) -> Optional[Path]:
     """Resolve the on-disk transcript for an agent.
 
-    Looks in three places, in order, and returns the first hit:
+    Looks in several places and returns the first real hit:
 
-    1. ``PROJECT_ROOT/transcripts/{name}.md`` (legacy daemon-spawned).
+    1. ``PROJECT_ROOT/transcripts/{name}.md`` from the legacy
+       daemon-spawned flow, but only if the file is not the tiny
+       "completed externally" stub that :func:`mark_agent_complete`
+       writes for Claude Code subagents.
     2. The ``transcript_path`` recorded in the agent's metadata at
        register time.
-    3. The freshest JSONL session file under
-       ``~/.claude/projects/<dashes>/`` whose first user message
-       references this agent name. This is where Claude Code
-       subagents (``saa``-spawned) actually write their transcripts.
+    3. The freshest ``subagents/agent-*.jsonl`` file under
+       ``~/.claude/projects/<dashes>/<session>/subagents/`` whose
+       spawn prompt references this agent name. This is where Claude
+       Code subagents (``saa``-spawned) actually write their
+       transcripts.
+    4. The freshest ``tasks/*.output`` file under
+       ``/private/tmp/claude-<uid>/<dashes>/<session>/tasks/`` whose
+       first line references this agent name. Same format, different
+       location.
+    5. The legacy stub markdown (only if nothing else matched), so
+       at least "completed externally" is still returned for agents
+       that genuinely have no transcript.
 
-    Returns ``None`` if no candidate exists. The same resolver is used
-    by every reader (View Transcript, list metrics, share snapshot)
-    so they cannot drift apart again.
+    Returns ``None`` if no candidate exists. The same resolver is
+    used by every reader (View Transcript, list metrics, share
+    snapshot) so they cannot drift apart again.
     """
     from config import PROJECT_ROOT
 
-    # 1. Legacy markdown.
+    stub_md: Optional[Path] = None
+
+    # 1. Legacy markdown. Only trust it if it is not a tiny completion stub.
     md = PROJECT_ROOT / "transcripts" / f"{name}.md"
     if md.exists() and md.stat().st_size > 0:
-        return md
+        if _is_stub_markdown(md):
+            stub_md = md
+        else:
+            return md
 
     # 2. Per-agent JSONL recorded at register time.
     meta = agent_metadata.get(name) or {}
@@ -188,53 +234,209 @@ def _resolve_transcript_source(name: str) -> Optional[Path]:
         if candidate.exists() and candidate.stat().st_size > 0:
             return candidate
 
-    # 3. Scan Claude Code project JSONL files for one whose first
-    #    user message mentions this agent name. We restrict to the
-    #    project dir matching PROJECT_ROOT so we do not accidentally
-    #    surface a transcript from an unrelated repo.
+    # 3. Scan Claude Code subagent JSONL files whose spawn prompt
+    #    mentions this agent name. We restrict to the project dir
+    #    matching PROJECT_ROOT so we do not surface a transcript
+    #    from an unrelated repo.
     projects_dir = _claude_code_projects_dir()
-    if not projects_dir.exists():
-        return None
-
     project_label = str(PROJECT_ROOT).replace("/", "-").lstrip("-")
     project_dir = projects_dir / f"-{project_label}"
-    if not project_dir.exists():
+    needle = name.lower()
+
+    if project_dir.exists():
+        # Subagent transcripts live at
+        #   <project_dir>/<session-id>/subagents/agent-<id>.jsonl
+        # so the pattern needs the ``*`` for the session-id directory.
+        hit = _find_freshest_matching_jsonl(
+            project_dir,
+            needle,
+            "*/subagents/agent-*.jsonl",
+        )
+        if hit is not None:
+            return hit
+
+    # 4. Scan /private/tmp/claude-<uid>/... tasks output files.
+    tasks_root = _claude_code_tasks_root()
+    tasks_project_dir = tasks_root / f"-{project_label}"
+    if tasks_project_dir.exists():
+        hit = _find_freshest_matching_jsonl(
+            tasks_project_dir,
+            needle,
+            "*/tasks/*.output",
+        )
+        if hit is not None:
+            return hit
+
+    # 5. Last resort: the stub markdown, so at least something renders.
+    return stub_md
+
+
+def _find_freshest_matching_jsonl(
+    root: Path,
+    needle_lower: str,
+    pattern: str,
+) -> Optional[Path]:
+    """Return the freshest file under ``root`` matching ``pattern`` that
+    strict-matches ``needle_lower`` on its first line.
+
+    Strict match only. Agent transcripts frequently mention other
+    agent names as examples or inside tool results, so a loose
+    substring match returns a confident-but-wrong file. We scan all
+    candidate files (bounded by ``_MAX_GLOB_FILES`` to keep
+    pathological dirs safe) and return the freshest that actually
+    targets this agent name in its initial spawn prompt.
+    """
+    try:
+        candidates: list[tuple[float, Path]] = []
+        for p in root.glob(pattern):
+            try:
+                candidates.append((p.stat().st_mtime, p))
+            except OSError:
+                continue
+            if len(candidates) >= _MAX_GLOB_FILES:
+                break
+    except OSError:
         return None
 
-    needle = name.lower()
-    best: Optional[Path] = None
-    best_mtime = 0.0
-    for jsonl_path in project_dir.glob("*.jsonl"):
-        try:
-            mtime = jsonl_path.stat().st_mtime
-        except OSError:
-            continue
-        if mtime <= best_mtime:
-            continue
-        if _jsonl_mentions_agent(jsonl_path, needle):
-            best = jsonl_path
-            best_mtime = mtime
-    return best
+    # Sort by mtime desc so the freshest strict match wins.
+    candidates.sort(key=lambda t: t[0], reverse=True)
+
+    for _mtime, path in candidates:
+        if _jsonl_strict_match(path, needle_lower):
+            return path
+    return None
+
+
+# Hard cap on how many candidate files the glob scan considers. The real
+# projects dir has a few hundred subagent files so 2000 is comfortably
+# above "real" and still below "pathological".
+_MAX_GLOB_FILES = 2000
+
+
+def _jsonl_strict_match(path: Path, needle_lower: str) -> bool:
+    """True only if the subagent's *first* message targets this agent name.
+
+    We only inspect the **first** JSONL line. In a Claude Code
+    subagent transcript that line is always the initial user spawn
+    prompt. Anything later in the file is noise (tool results,
+    assistant text, diagnostic chatter) that can coincidentally
+    mention other agent names without actually being about them.
+
+    Strict match: the first-line content must contain the register
+    POST body in the standard shape or a ``You are "<name>"`` intro.
+
+    Note: Claude Code JSONL lines embed the prompt as a JSON-escaped
+    string inside the outer JSON, so a literal ``{"name": "X"}`` in
+    the prompt shows up as ``\\"name\\": \\"X\\"`` in the raw line.
+    We match both the escaped form (most common) and the plain form
+    (templates that bypass the JSON escaping).
+    """
+    needle = needle_lower.strip()
+    if not needle:
+        return False
+    # Register-POST body shapes. Plain and JSON-escaped variants.
+    register_patterns = (
+        f'"name": "{needle}"',
+        f'"name":"{needle}"',
+        f'\\"name\\": \\"{needle}\\"',
+        f'\\"name\\":\\"{needle}\\"',
+    )
+    # API endpoint shapes ``/api/agents/<name>/complete`` and
+    # ``/api/agents/<name>/register`` used by saa spawn templates
+    # that give the agent its name via URL rather than body.
+    endpoint_patterns = (
+        f"/agents/{needle}/complete",
+        f"/agents/{needle}/register",
+        f"/api/agents/{needle}/",
+    )
+    # Narrative intros.
+    intro_patterns = (
+        f'you are "{needle}"',
+        f'you are \\"{needle}\\"',
+        f"you are '{needle}'",
+        f"you are the {needle} agent",
+        f"agent: {needle}",
+    )
+    try:
+        with open(path, "r", errors="replace") as f:
+            first_line = f.readline()
+    except OSError:
+        return False
+    if not first_line:
+        return False
+    lowered = first_line.lower()
+    if any(p in lowered for p in register_patterns):
+        return True
+    if any(p in lowered for p in endpoint_patterns):
+        return True
+    if any(p in lowered for p in intro_patterns):
+        return True
+    return False
 
 
 def _jsonl_mentions_agent(path: Path, needle_lower: str) -> bool:
-    """True if any of the first 50 lines of ``path`` references the agent name.
+    """Loose fallback: True if any of the first 200 lines contains ``needle_lower``.
 
-    Cheap, bounded scan: a Claude Code subagent's first message is
-    always the spawn prompt, which contains the agent name (it is the
-    first thing the parent prints). We do not scan the whole file
-    because some sessions are megabytes long.
+    Used only when no strict match (register-POST shape or
+    ``You are "<name>"`` intro) is found in any candidate. Prefer
+    :func:`_jsonl_strict_match` whenever possible, since substring
+    matches can false-positive on narrative mentions of other agent
+    names.
     """
+    needle = needle_lower.strip()
+    if not needle:
+        return False
     try:
         with open(path, "r", errors="replace") as f:
             for i, line in enumerate(f):
-                if i >= 50:
+                if i >= 200:
                     return False
-                if needle_lower in line.lower():
+                if needle in line.lower():
                     return True
     except OSError:
         return False
     return False
+
+
+def _autodiscover_recent_transcript_path(max_age_seconds: int = 300) -> Optional[str]:
+    """Return the most recent Claude Code task output path modified in the
+    last ``max_age_seconds`` seconds.
+
+    Called from :func:`register_agent` when the caller did not pass a
+    ``transcript_path``. This lets Tori's Agents page show real transcripts
+    for agents that Claude Code spawned without knowing their own output
+    path.
+    """
+    import time
+    from config import PROJECT_ROOT
+
+    project_label = str(PROJECT_ROOT).replace("/", "-").lstrip("-")
+    tasks_root = _claude_code_tasks_root() / f"-{project_label}"
+    if not tasks_root.exists():
+        return None
+
+    cutoff = time.time() - max_age_seconds
+    best_path: Optional[Path] = None
+    best_mtime = 0.0
+    try:
+        # Scope: /private/tmp/claude-<uid>/<project>/<session>/tasks/*.output
+        for session_dir in tasks_root.iterdir():
+            tasks_dir = session_dir / "tasks"
+            if not tasks_dir.is_dir():
+                continue
+            for p in tasks_dir.glob("*.output"):
+                try:
+                    mtime = p.stat().st_mtime
+                except OSError:
+                    continue
+                if mtime < cutoff:
+                    continue
+                if mtime > best_mtime:
+                    best_mtime = mtime
+                    best_path = p
+    except OSError:
+        return None
+    return str(best_path) if best_path else None
 
 
 def _get_transcript_metrics(name: str) -> dict:
@@ -664,6 +866,16 @@ async def register_agent(body: AgentSpawn):
         record["prompt"] = body.prompt[:500]
     if body.transcript_path:
         record["transcript_path"] = body.transcript_path
+    else:
+        # Best-effort auto-discovery: Claude Code's Agent tool writes
+        # streaming output to /private/tmp/claude-<uid>/.../tasks/*.output
+        # but does not pass that path to ``POST /api/agents/register``.
+        # Find the freshest .output file touched in the last few minutes
+        # and record it so View Transcript can find a real transcript even
+        # if the caller forgot (or could not) pass transcript_path.
+        discovered = _autodiscover_recent_transcript_path()
+        if discovered:
+            record["transcript_path"] = discovered
     agent_metadata[body.name] = record
     _save_agent_state()
 
@@ -727,11 +939,21 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     except Exception:
         pass
 
-    # Write a transcript marker so the status check finds it even on legacy rows
+    # Write a transcript marker so the status check finds it even on
+    # legacy rows. IMPORTANT: only write the stub if no real transcript
+    # source exists. Otherwise the stub would mask the real JSONL that
+    # ``_resolve_transcript_source`` would otherwise return and View
+    # Transcript would show "completed (registered externally)" forever.
     from config import PROJECT_ROOT
     transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
     transcript.parent.mkdir(parents=True, exist_ok=True)
-    if not transcript.exists() or transcript.stat().st_size == 0:
+    should_write_stub = not transcript.exists() or transcript.stat().st_size == 0
+    if should_write_stub:
+        # Does the resolver already know where the real transcript lives?
+        real_source = _resolve_transcript_source(name)
+        if real_source is not None and real_source != transcript:
+            should_write_stub = False
+    if should_write_stub:
         transcript.write_text(f"Agent '{name}' completed (registered externally).\n")
 
     # Fire a persistent notification so the bell lights up when an agent finishes.
