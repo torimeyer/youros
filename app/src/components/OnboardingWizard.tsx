@@ -610,21 +610,19 @@ function ConnectStep({
       {/* Gemini: recommend Cloud Console first, AI Studio as fallback */}
       {selectedProvider === 'Google Gemini' && (
         <div
-          className={`mb-3 p-3 rounded-lg text-xs space-y-2 ${
-            darkMode
-              ? 'bg-slate-800/40 border border-slate-700 text-slate-400'
-              : 'bg-gray-50 border border-gray-200 text-slate-600'
+          className={`mb-3 p-3 rounded-lg text-xs space-y-2 border bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-blue-500/30 ${
+            darkMode ? 'text-slate-200' : 'text-slate-700'
           }`}
           data-testid="gemini-key-help"
         >
           <p>
-            <span className={darkMode ? 'text-slate-200 font-medium' : 'text-slate-900 font-medium'}>Recommended.</span>{' '}
+            <span className={darkMode ? 'text-white font-medium' : 'text-slate-900 font-medium'}>Recommended.</span>{' '}
             Use the same{' '}
             <a
               href="https://console.cloud.google.com"
               target="_blank"
               rel="noreferrer"
-              className="text-blue-500 hover:text-blue-400 underline"
+              className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
             >
               Google Cloud project
             </a>{' '}
@@ -637,7 +635,7 @@ function ConnectStep({
                 href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
                 target="_blank"
                 rel="noreferrer"
-                className="text-blue-500 hover:text-blue-400 underline"
+                className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
               >
                 "Generative Language API"
               </a>{' '}
@@ -649,13 +647,13 @@ function ConnectStep({
             </li>
           </ol>
           <p>
-            <span className={darkMode ? 'text-slate-200 font-medium' : 'text-slate-900 font-medium'}>Chat only.</span>{' '}
+            <span className={darkMode ? 'text-white font-medium' : 'text-slate-900 font-medium'}>Chat only.</span>{' '}
             Only using Gemini chat and nothing else from Google? Grab a free key at{' '}
             <a
               href="https://aistudio.google.com/apikey"
               target="_blank"
               rel="noreferrer"
-              className="text-blue-500 hover:text-blue-400 underline"
+              className={`underline ${darkMode ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}
             >
               Google AI Studio
             </a>{' '}
