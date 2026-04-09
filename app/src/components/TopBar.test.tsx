@@ -248,7 +248,7 @@ describe('TopBar notifications drawer', () => {
   })
 })
 
-describe('TopBar What\'s New drawer', () => {
+describe('TopBar What\'s New button', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useNotificationStore.setState({ notifications: [], toastIds: [] })
@@ -266,77 +266,14 @@ describe('TopBar What\'s New drawer', () => {
     mockedApiPost.mockResolvedValue({})
   })
 
-  it('clicking the sparkle button opens the What\'s New drawer', async () => {
+  it('the What\'s New sparkle button is no longer rendered inside the TopBar header', () => {
     renderTopBar()
 
-    // Drawer is not visible yet.
-    expect(screen.queryByTestId('whats-new-modal')).not.toBeInTheDocument()
-
-    // Click the sparkle button.
-    fireEvent.click(screen.getByTestId('whats-new-button'))
-
-    // Drawer is now visible.
-    await waitFor(() => {
-      expect(screen.getByTestId('whats-new-modal')).toBeInTheDocument()
-    })
-  })
-
-  it('clicking the sparkle button still opens the drawer when chat is open', async () => {
-    useAppStore.setState({ chatOpen: true, chatWidth: 400 })
-    renderTopBar()
-
-    expect(screen.queryByTestId('whats-new-modal')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByTestId('whats-new-button'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('whats-new-modal')).toBeInTheDocument()
-    })
-  })
-
-  it('What\'s New drawer does not get covered by the notifications backdrop', async () => {
-    seedUnreadNotifications(1)
-    renderTopBar()
-
-    // Open the What's New drawer first.
-    fireEvent.click(screen.getByTestId('whats-new-button'))
-    await waitFor(() => {
-      expect(screen.getByTestId('whats-new-modal')).toBeInTheDocument()
-    })
-
-    // The notifications drawer should not be open at the same time.
-    expect(screen.queryByText('Notifications')).not.toBeInTheDocument()
-  })
-
-  it('What\'s New drawer renders into document.body via portal so it escapes the header stacking context', async () => {
-    // This is a regression test for a bug where the drawer rendered inside
-    // the fixed z-40 TopBar header. Because the header creates its own
-    // stacking context, the drawer's z-50 was relative to the header and
-    // got painted under root-level z-50 siblings (Sidebar, ChatPanel),
-    // making the drawer invisible whenever chat was open. The fix uses
-    // a React portal so the drawer mounts directly under document.body.
-    useAppStore.setState({ chatOpen: true, chatWidth: 400 })
-    renderTopBar()
-
-    fireEvent.click(screen.getByTestId('whats-new-button'))
-
-    const modal = await screen.findByTestId('whats-new-modal')
-
-    // The drawer's nearest fixed-position ancestor must NOT be the TopBar
-    // header. If it is, the drawer is trapped in the header's stacking
-    // context and root-level z-50 elements (chat panel) will cover it.
-    let parent: HTMLElement | null = modal.parentElement
-    let foundHeader = false
-    while (parent && parent !== document.body) {
-      if (parent.tagName === 'HEADER') {
-        foundHeader = true
-        break
-      }
-      parent = parent.parentElement
-    }
-    expect(foundHeader).toBe(false)
-
-    // The drawer must be a descendant of document.body, not orphaned.
-    expect(document.body.contains(modal)).toBe(true)
+    // The What's New button lives in the Sidebar now, not the header.
+    // Confirm that no sparkle button is mounted inside the TopBar header.
+    const header = document.querySelector('header')
+    expect(header).toBeTruthy()
+    const whatsNewButton = header!.querySelector('[data-testid="whats-new-button"]')
+    expect(whatsNewButton).toBeNull()
   })
 })

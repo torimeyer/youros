@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
-import WhatsNew from './WhatsNew'
 import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
 import type { AppNotification } from '../stores/notifications'
@@ -257,7 +256,6 @@ export default function TopBar({ title }: TopBarProps) {
         >
           <Icon name="chat" />
         </button>
-        <WhatsNew />
         <div className="relative">
           <button
             onClick={handleOpenNotifications}

@@ -48,17 +48,18 @@ export default function WhatsNew() {
   }, [setWhatsNewLastSeen])
 
   return (
-    <div className="relative">
+    <>
       <button
         onClick={handleOpen}
-        className="relative p-2 text-slate-400 hover:text-yellow-400 transition-all"
+        className="group relative flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-slate-800/50"
         title="What's New"
         data-testid="whats-new-button"
       >
-        <Icon name="auto_awesome" />
+        <Icon name="auto_awesome" className="text-xl" />
+        <span className="text-sm font-medium">What&apos;s New</span>
         {unseenCount > 0 && (
           <span
-            className="absolute top-1 right-1 min-w-[16px] h-4 bg-yellow-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1"
+            className="ml-auto min-w-[16px] h-4 bg-yellow-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1"
             data-testid="whats-new-badge"
           >
             {unseenCount > 9 ? '9+' : unseenCount}
@@ -118,6 +119,6 @@ export default function WhatsNew() {
         </div>,
         document.body,
       )}
-    </div>
+    </>
   )
 }

@@ -185,6 +185,23 @@ describe('Sidebar', () => {
     vi.useRealTimers()
   })
 
+  it('renders the What\'s New button in the sidebar footer', () => {
+    renderSidebar()
+    expect(screen.getByTestId('whats-new-button')).toBeInTheDocument()
+  })
+
+  it('renders the What\'s New button before the Tour button in DOM order', () => {
+    renderSidebar()
+    const whatsNewButton = screen.getByTestId('whats-new-button')
+    const tourButton = screen.getByTestId('tour-button')
+
+    // compareDocumentPosition returns DOCUMENT_POSITION_FOLLOWING (4) when
+    // the argument node follows the context node. That is what we want here
+    // since WhatsNew should come first in the sidebar footer.
+    const position = whatsNewButton.compareDocumentPosition(tourButton)
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('updates badge count when API response changes between polls', async () => {
     // Start with no active agents, then after re-fetch return 3
     let agentCallCount = 0

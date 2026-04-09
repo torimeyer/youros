@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import Icon from './Icon'
+import WhatsNew from './WhatsNew'
 import { useAppStore, useTerms } from '../stores/app'
 import { api } from '../lib/api'
 
@@ -105,7 +106,9 @@ export function Sidebar() {
       </nav>
 
       <div className="px-3 flex flex-col gap-1">
+        <WhatsNew />
         <button
+          data-testid="tour-button"
           onClick={() => useAppStore.getState().setShowTour(true)}
           className="group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-slate-800/50"
         >
