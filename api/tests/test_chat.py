@@ -416,6 +416,157 @@ class TestGeminiCredentialErrors:
         assert "Connection reset" in errors[0]["data"]
 
 
+class TestGeminiModelSelection:
+    """Regression tests for the Gemini model name.
+
+    These guard against the class of bug where Google deprecates a model
+    name (e.g. ``gemini-2.0-flash``) and ``stream_gemini`` silently breaks
+    for every new user.
+    """
+
+    def test_default_model_is_not_deprecated_2_0_flash(self):
+        """The default Gemini model must NOT be the known-deprecated
+        ``gemini-2.0-flash`` name. Google removed it for new users.
+        """
+        from services.chat_providers import DEFAULT_GEMINI_MODEL
+
+        assert DEFAULT_GEMINI_MODEL != "gemini-2.0-flash"
+        assert DEFAULT_GEMINI_MODEL != "gemini-2.0-flash-001"
+        # Sanity: we want an actual model name, not empty or None.
+        assert isinstance(DEFAULT_GEMINI_MODEL, str)
+        assert len(DEFAULT_GEMINI_MODEL) > 0
+
+    def test_env_var_override_respected(self):
+        """``MYOS_GEMINI_MODEL`` overrides the default model name."""
+        from services.chat_providers import _gemini_model_name, DEFAULT_GEMINI_MODEL
+
+        # Unset: default.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MYOS_GEMINI_MODEL", None)
+            assert _gemini_model_name() == DEFAULT_GEMINI_MODEL
+
+        # Set: override.
+        with patch.dict(os.environ, {"MYOS_GEMINI_MODEL": "gemini-flash-latest"}):
+            assert _gemini_model_name() == "gemini-flash-latest"
+
+        # Blank/whitespace: falls back to default.
+        with patch.dict(os.environ, {"MYOS_GEMINI_MODEL": "   "}):
+            assert _gemini_model_name() == DEFAULT_GEMINI_MODEL
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_uses_default_model_by_default(self, websocket):
+        """Without an env override, ``stream_gemini`` instantiates the
+        default model name.
+        """
+        import sys
+        from unittest.mock import MagicMock
+        from services.chat_providers import ChatService, DEFAULT_GEMINI_MODEL
+
+        service = ChatService()
+
+        mock_genai = MagicMock()
+        mock_model = mock_genai.GenerativeModel.return_value
+        mock_chat = mock_model.start_chat.return_value
+        mock_chunk = type("Chunk", (), {"text": "ok"})()
+        mock_chat.send_message.return_value = [mock_chunk]
+
+        async def fake_resolve(key):
+            return "AIza-fake" if key == "gemini_api_key" else ""
+
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=fake_resolve,
+        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}), patch.dict(
+            os.environ, {}, clear=False
+        ):
+            os.environ.pop("MYOS_GEMINI_MODEL", None)
+            await service.stream_gemini(
+                [{"role": "user", "content": "hi"}],
+                websocket,
+            )
+
+        mock_genai.GenerativeModel.assert_called_once_with(DEFAULT_GEMINI_MODEL)
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_respects_env_override(self, websocket):
+        """When ``MYOS_GEMINI_MODEL`` is set, ``stream_gemini`` uses it."""
+        import sys
+        from unittest.mock import MagicMock
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+
+        mock_genai = MagicMock()
+        mock_model = mock_genai.GenerativeModel.return_value
+        mock_chat = mock_model.start_chat.return_value
+        mock_chunk = type("Chunk", (), {"text": "ok"})()
+        mock_chat.send_message.return_value = [mock_chunk]
+
+        async def fake_resolve(key):
+            return "AIza-fake" if key == "gemini_api_key" else ""
+
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=fake_resolve,
+        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}), patch.dict(
+            os.environ, {"MYOS_GEMINI_MODEL": "gemini-custom-test"}
+        ):
+            await service.stream_gemini(
+                [{"role": "user", "content": "hi"}],
+                websocket,
+            )
+
+        mock_genai.GenerativeModel.assert_called_once_with("gemini-custom-test")
+
+    @pytest.mark.asyncio
+    async def test_model_no_longer_available_translated(self, websocket):
+        """Regression: when Google returns the 404 ``is no longer
+        available`` error, the user must see a friendly message pointing
+        them at the MYOS_GEMINI_MODEL env var override, not the raw
+        Google error text.
+        """
+        import sys
+        from unittest.mock import MagicMock
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+
+        real_google_error = (
+            "404 This model models/gemini-2.0-flash is no longer available "
+            "to new users. Please update your code to use a newer model "
+            "for the latest features and improvements."
+        )
+
+        mock_genai = MagicMock()
+        mock_model = mock_genai.GenerativeModel.return_value
+        mock_chat = mock_model.start_chat.return_value
+        mock_chat.send_message.side_effect = RuntimeError(real_google_error)
+
+        async def fake_resolve(key):
+            return "AIza-fake" if key == "gemini_api_key" else ""
+
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=fake_resolve,
+        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}):
+            result = await service.stream_gemini(
+                [{"role": "user", "content": "hello"}],
+                websocket,
+            )
+
+        assert result == ""
+        errors = websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        msg = errors[0]["data"]
+        # Friendly framing: tells them the model is gone and what to do.
+        assert "no longer available" in msg.lower()
+        assert "MYOS_GEMINI_MODEL" in msg
+        # Must NOT fall through to the API-key friendly text.
+        assert "Gemini API key is missing or invalid" not in msg
+        # Raw Google jargon should not leak to the user.
+        assert "404 This model models/gemini-2.0-flash" not in msg
+
+
 class TestAutoTemplateMatching:
     """The chat flow should auto-match agent templates and notify the UI.
 

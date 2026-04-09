@@ -69,6 +69,59 @@ _GEMINI_AUTH_HINTS = (
 )
 
 
+# Signals that the requested Gemini model itself is gone or wrong.
+# Google returns a 404 NotFound with ``is no longer available`` when a
+# previously valid model (e.g. ``gemini-2.0-flash``) is deprecated for
+# new users. This is different from an auth failure and needs its own
+# friendly hint that points at the env var override.
+_GEMINI_MODEL_GONE_HINTS = (
+    "no longer available",
+    "is not found",
+    "was not found",
+    "not found for api version",
+)
+
+
+# Default Gemini model used by ``stream_gemini``. Verified live against
+# Google's list_models API and a real generate_content call. We keep this
+# as a module-level constant so tests can assert we never silently slide
+# back to a deprecated name.
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+
+
+def _gemini_model_name() -> str:
+    """Return the Gemini model name to use.
+
+    Honors the ``MYOS_GEMINI_MODEL`` environment variable so users can
+    override the default without editing code. When Google deprecates
+    the default the user can swap in a working model immediately.
+    """
+    override = os.environ.get("MYOS_GEMINI_MODEL", "").strip()
+    return override or DEFAULT_GEMINI_MODEL
+
+
+# One-time log marker so we print the active Gemini model on the first
+# chat and stay quiet after that. Useful when debugging "which model is
+# my instance actually talking to" without spamming the log every turn.
+_GEMINI_MODEL_LOGGED: set[str] = set()
+
+
+def _log_gemini_model_once(model_name: str) -> None:
+    """Log the active Gemini model the first time we use it per process."""
+    if model_name in _GEMINI_MODEL_LOGGED:
+        return
+    _GEMINI_MODEL_LOGGED.add(model_name)
+    try:
+        import logging
+        logging.getLogger("myos.chat.gemini").info(
+            "Gemini chat using model=%s (override MYOS_GEMINI_MODEL to change)",
+            model_name,
+        )
+    except Exception:
+        # Logging must never break a chat turn.
+        pass
+
+
 _GEMINI_KEY_HELP = (
     "Recommended: use the same Google Cloud project "
     "(https://console.cloud.google.com) you already set up for Drive, "
@@ -86,16 +139,37 @@ _GEMINI_KEY_HELP = (
 )
 
 
+_GEMINI_MODEL_GONE_HELP = (
+    "The Gemini model myOS was using is no longer available. Google "
+    "deprecates model names from time to time.\n\n"
+    "Fix: set the MYOS_GEMINI_MODEL environment variable to a current "
+    "model name (for example gemini-2.5-flash or gemini-flash-latest) "
+    "and restart myOS. You can list the models your key can reach at "
+    "https://ai.google.dev/gemini-api/docs/models.\n\n"
+    "If the default stopped working for everyone, please report it at "
+    "https://github.com/torimeyer/torios/issues so we can update the "
+    "built-in default."
+)
+
+
 def _friendly_gemini_error(error_text: str) -> str:
-    """Translate Google's cryptic auth errors into a friendly message.
+    """Translate Google's cryptic errors into a friendly message.
 
     The Generative Language API returns long, jargon-heavy errors when the
     credentials are wrong (for example ``ACCESS_TOKEN_TYPE_UNSUPPORTED``
-    when a user OAuth token is sent where an API key is expected). For
-    those cases we return a one-liner the user can act on. For all other
-    errors we pass the original message through unchanged.
+    when a user OAuth token is sent where an API key is expected) and
+    when a previously valid model name has been deprecated for new users
+    (a 404 with ``is no longer available``). For those cases we return a
+    one-liner the user can act on. For all other errors we pass the
+    original message through unchanged.
     """
     lowered = error_text.lower()
+    for hint in _GEMINI_MODEL_GONE_HINTS:
+        if hint in lowered:
+            return (
+                "The Gemini model used by myOS is no longer available. "
+                + _GEMINI_MODEL_GONE_HELP
+            )
     for hint in _GEMINI_AUTH_HINTS:
         if hint.lower() in lowered:
             return (
@@ -657,7 +731,9 @@ class ChatService:
             # user's Drive/Calendar OAuth token and fail with
             # ACCESS_TOKEN_TYPE_UNSUPPORTED.
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
+            model_name = _gemini_model_name()
+            _log_gemini_model_once(model_name)
+            model = genai.GenerativeModel(model_name)
 
             history = []
             for msg in messages[:-1]:
