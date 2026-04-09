@@ -130,3 +130,30 @@ describe('Calendar page api_not_enabled screen', () => {
     expect(eventsCalls).toBeGreaterThanOrEqual(2)
   })
 })
+
+describe('Calendar connect error', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows inline error instead of browser alert when connect fails', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) {
+        return Promise.resolve({ authenticated: false, needs_reauth: false, email: null })
+      }
+      if (path.includes('/drive/auth/url/calendar')) {
+        return Promise.reject(new Error('Failed to fetch'))
+      }
+      return Promise.resolve({})
+    })
+
+    renderCalendar()
+
+    const connectButton = await screen.findByRole('button', { name: /Connect Google account/i })
+    fireEvent.click(connectButton)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Could not get the sign-in link/i)).toBeInTheDocument()
+    })
+  })
+})

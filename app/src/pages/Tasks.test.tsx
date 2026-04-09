@@ -46,7 +46,6 @@ describe('Tasks page', () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
-      if (path === '/task-suggestions') return Promise.resolve({ suggestions: [] })
       return Promise.resolve({})
     })
     mockedApiPost.mockResolvedValue({})
@@ -1101,114 +1100,5 @@ describe('Tasks page', () => {
     })
   })
 
-  describe('smart task suggestions', () => {
-    const mockSuggestions = [
-      {
-        id: 'sug-1',
-        type: 'stale_p0',
-        severity: 'warning',
-        task_id: '1',
-        message: 'Demote to P1 or close this task. It has been P0 for 14 days with no progress.',
-        suggested_action: 'change_priority',
-        suggested_action_payload: { new_priority: 'P1' },
-      },
-      {
-        id: 'sug-2',
-        type: 'missing_description',
-        severity: 'tip',
-        task_id: '2',
-        message: 'Add a description so future-you remembers what this means.',
-        suggested_action: 'add_description',
-        suggested_action_payload: {},
-      },
-    ]
-
-    beforeEach(() => {
-      mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
-        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
-        if (path === '/task-suggestions') return Promise.resolve({ suggestions: mockSuggestions })
-        return Promise.resolve({})
-      })
-    })
-
-    it('renders the suggestions pill in the header when the API returns suggestions', async () => {
-      renderTasks()
-
-      await waitFor(() => {
-        expect(screen.getByTestId('suggestions-pill')).toBeInTheDocument()
-      })
-      expect(screen.getByTestId('suggestions-pill')).toHaveTextContent('2 suggestions')
-    })
-
-    it('does not render the pill when there are no suggestions', async () => {
-      mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
-        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
-        if (path === '/task-suggestions') return Promise.resolve({ suggestions: [] })
-        return Promise.resolve({})
-      })
-
-      renderTasks()
-
-      await waitFor(() => {
-        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-      })
-      expect(screen.queryByTestId('suggestions-pill')).not.toBeInTheDocument()
-    })
-
-    it('opens the side panel and renders one card per suggestion', async () => {
-      renderTasks()
-
-      const pill = await screen.findByTestId('suggestions-pill')
-      fireEvent.click(pill)
-
-      await waitFor(() => {
-        expect(screen.getByTestId('suggestions-panel')).toBeInTheDocument()
-      })
-      const cards = screen.getAllByTestId('suggestion-card')
-      expect(cards).toHaveLength(2)
-      expect(screen.getByText(/Demote to P1 or close/)).toBeInTheDocument()
-      expect(screen.getByText(/Add a description so future-you remembers/)).toBeInTheDocument()
-    })
-
-    it('clicking Apply on a suggestion calls the apply API', async () => {
-      renderTasks()
-
-      const pill = await screen.findByTestId('suggestions-pill')
-      fireEvent.click(pill)
-
-      await waitFor(() => {
-        expect(screen.getByTestId('suggestions-panel')).toBeInTheDocument()
-      })
-
-      const applyButtons = screen.getAllByTestId('suggestion-apply')
-      fireEvent.click(applyButtons[0])
-
-      await waitFor(() => {
-        expect(mockedApiPost).toHaveBeenCalledWith('/task-suggestions/sug-1/apply')
-      })
-    })
-
-    it('clicking Dismiss removes the suggestion from the panel', async () => {
-      renderTasks()
-
-      const pill = await screen.findByTestId('suggestions-pill')
-      fireEvent.click(pill)
-
-      await waitFor(() => {
-        expect(screen.getByTestId('suggestions-panel')).toBeInTheDocument()
-      })
-
-      const dismissButtons = screen.getAllByTestId('suggestion-dismiss')
-      fireEvent.click(dismissButtons[0])
-
-      await waitFor(() => {
-        expect(mockedApiPost).toHaveBeenCalledWith('/task-suggestions/sug-1/dismiss')
-      })
-      await waitFor(() => {
-        expect(screen.getAllByTestId('suggestion-card')).toHaveLength(1)
-      })
-    })
-  })
+  // Suggestions UI removed (→249). Tests will be restored when the feature is polished.
 })

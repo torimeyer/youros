@@ -715,6 +715,7 @@ export default function Drive() {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [apiNotEnabled, setApiNotEnabled] = useState(false);
 
   // Apply all three filters (file type, modified, search) client-side with AND logic.
   const filteredFiles = useMemo(() => {
@@ -771,8 +772,14 @@ export default function Drive() {
       const path = q ? `/drive/files?q=${encodeURIComponent(q)}` : '/drive/files';
       const res = await api.get<FilesResponse>(path);
       setFiles(res.files ?? []);
-    } catch {
-      setFilesError('Could not load your Drive files. Check your connection and try again.');
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: { api_not_enabled?: boolean } } } })
+        ?.response?.data?.detail;
+      if (detail && typeof detail === 'object' && detail.api_not_enabled) {
+        setApiNotEnabled(true);
+      } else {
+        setFilesError('Could not load your Drive files. Check your connection and try again.');
+      }
     } finally {
       setFilesLoading(false);
     }
@@ -873,8 +880,40 @@ export default function Drive() {
           </div>
         )}
 
+        {/* API not enabled */}
+        {apiNotEnabled && (
+          <div className="max-w-md">
+            <div className="bg-slate-900/40 border border-amber-800/40 p-8 rounded-2xl">
+              <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
+                <Icon name="warning" className="text-amber-400" size={24} />
+              </div>
+              <h2 className="text-xl font-semibold mb-2">Drive API not enabled</h2>
+              <p className="text-slate-400 mb-4">
+                Your Google Cloud project has the Google Drive API disabled. You need to turn it on once. Reconnecting will not fix this.
+              </p>
+              <a
+                href="https://console.cloud.google.com/apis/library/drive.googleapis.com"
+                target="_blank"
+                rel="noreferrer"
+                className="w-full block text-center py-3 mb-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
+              >
+                Enable Drive API in Google Cloud
+              </a>
+              <p className="text-xs text-slate-500 mb-4">
+                After clicking Enable on Google's page, wait 1-2 minutes for the change to propagate, then come back and click Retry.
+              </p>
+              <button
+                onClick={() => { setApiNotEnabled(false); fetchFiles() }}
+                className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Auth loading */}
-        {authStatus === null && (
+        {authStatus === null && !apiNotEnabled && (
           <div className="flex items-center gap-3 py-8 text-slate-500">
             <span
               className="w-4 h-4 border-2 border-slate-700 border-t-slate-400 rounded-full animate-spin"
@@ -885,14 +924,14 @@ export default function Drive() {
         )}
 
         {/* Connect screen */}
-        {authStatus !== null && !authStatus.authenticated && (
+        {authStatus !== null && !authStatus.authenticated && !apiNotEnabled && (
           <ConnectScreen
             hasCredentialsFile={authStatus.credentials_file_present}
           />
         )}
 
         {/* Authenticated view */}
-        {authStatus?.authenticated && (
+        {authStatus?.authenticated && !apiNotEnabled && (
           <>
             {/* Reconnect banner — shown when drive.file scope is missing */}
             {authStatus.needs_reauth && (

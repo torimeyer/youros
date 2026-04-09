@@ -131,6 +131,33 @@ describe('Gmail page api_not_enabled screen', () => {
   })
 })
 
+describe('Gmail connect error', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows inline error instead of browser alert when connect fails', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) {
+        return Promise.resolve({ authenticated: false, needs_reauth: false, email: null, unread_count: 0 })
+      }
+      if (path.includes('/drive/auth/url/gmail')) {
+        return Promise.reject(new Error('Failed to fetch'))
+      }
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    const connectButton = await screen.findByRole('button', { name: /Connect Google account/i })
+    fireEvent.click(connectButton)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Could not get the sign-in link/i)).toBeInTheDocument()
+    })
+  })
+})
+
 
 describe('Gmail page inbox rendering', () => {
   beforeEach(() => {

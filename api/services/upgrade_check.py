@@ -71,6 +71,21 @@ def _invalidate_cache() -> None:
         pass
 
 
+def _humanize_git_describe(raw: str) -> str:
+    """Turn 'v3.0-66-gff90e7e' into 'v3.0.66' for display.
+
+    If HEAD is exactly on a tag the --long format is 'v3.0-0-gabcdef';
+    in that case just return the tag itself ('v3.0').
+    """
+    m = re.match(r"^(v?\d+\.\d+(?:\.\d+)?)-(\d+)-g[0-9a-f]+$", raw)
+    if not m:
+        return raw
+    tag, commits_after = m.group(1), int(m.group(2))
+    if commits_after == 0:
+        return tag
+    return f"{tag}.{commits_after}"
+
+
 def check_myos() -> dict:
     """Return myOS version info: current commit, commits behind origin/main."""
     repo = str(PROJECT_ROOT)
@@ -96,6 +111,8 @@ def check_myos() -> dict:
             timeout=5,
         )
         current = desc_result.stdout.strip() if desc_result.returncode == 0 else "unknown"
+        # Clean up git describe output: "v3.0-66-gff90e7e" -> "v3.0.66"
+        current = _humanize_git_describe(current)
 
         # Latest remote tag
         remote_tag_result = subprocess.run(

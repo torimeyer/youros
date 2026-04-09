@@ -2,13 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Drive from './Drive'
+import { ApiError } from '../lib/api'
 
-vi.mock('../lib/api', () => ({
-  api: {
-    get: vi.fn(),
-    post: vi.fn(),
-  },
-}))
+vi.mock('../lib/api', async () => {
+  const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
+  return {
+    ...actual,
+    api: {
+      get: vi.fn(),
+      post: vi.fn(),
+    },
+  }
+})
 
 import { api } from '../lib/api'
 
@@ -220,6 +225,69 @@ describe('Drive page', () => {
     fireEvent.click(screen.getByText('Disconnect'))
     await waitFor(() => {
       expect(mockedApiPost).toHaveBeenCalledWith('/drive/auth/revoke')
+    })
+  })
+
+  it('shows the Enable Drive API screen when api_not_enabled is returned', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) {
+        return Promise.reject(
+          new ApiError(
+            403,
+            JSON.stringify({
+              detail: {
+                api_not_enabled: true,
+                message: 'Google Drive API is not enabled in your Google Cloud project.',
+              },
+            })
+          )
+        )
+      }
+      return Promise.resolve({})
+    })
+
+    renderDrive()
+
+    await waitFor(() => {
+      expect(screen.getByText('Drive API not enabled')).toBeInTheDocument()
+    })
+
+    const link = screen.getByRole('link', { name: /Enable Drive API in Google Cloud/i })
+    expect(link).toBeInTheDocument()
+    expect(link.getAttribute('href')).toBe(
+      'https://console.cloud.google.com/apis/library/drive.googleapis.com'
+    )
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noreferrer')
+  })
+
+  it('Retry clears the api_not_enabled screen on success', async () => {
+    let filesCalls = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) {
+        filesCalls += 1
+        if (filesCalls === 1) {
+          return Promise.reject(
+            new ApiError(
+              403,
+              JSON.stringify({ detail: { api_not_enabled: true, message: 'not enabled' } })
+            )
+          )
+        }
+        return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      }
+      return Promise.resolve({})
+    })
+
+    renderDrive()
+
+    const retryButton = await screen.findByRole('button', { name: /Retry/i })
+    fireEvent.click(retryButton)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Drive API not enabled')).not.toBeInTheDocument()
     })
   })
 

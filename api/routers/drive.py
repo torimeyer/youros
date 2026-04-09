@@ -155,7 +155,7 @@ async def drive_auth_url():
         )
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
-        "return_to": "http://localhost:5173/drive",
+        "return_to": f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/drive",
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
@@ -176,7 +176,7 @@ async def drive_auth_url_for_calendar():
         )
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
-        "return_to": "http://localhost:5173/calendar",
+        "return_to": f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/calendar",
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
@@ -197,7 +197,7 @@ async def drive_auth_url_for_gmail():
         )
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
-        "return_to": "http://localhost:5173/gmail",
+        "return_to": f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/gmail",
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
@@ -205,7 +205,7 @@ async def drive_auth_url_for_gmail():
     return {"url": url}
 
 
-FRONTEND_DRIVE_URL = "http://localhost:5173/drive"
+FRONTEND_DRIVE_URL = f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/drive"
 
 
 @router.get("/drive/auth/callback")
@@ -320,6 +320,19 @@ async def drive_files(
     except HTTPException:
         raise
     except Exception as exc:
+        msg = str(exc).lower()
+        if "accessnotconfigured" in msg or "has not been used" in msg:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "needs_reauth": False,
+                    "api_not_enabled": True,
+                    "message": (
+                        "Google Drive API is not enabled in your Google Cloud project. "
+                        "Enable it in Google Cloud Console, then wait a minute and reload."
+                    ),
+                },
+            ) from exc
         raise HTTPException(
             status_code=500,
             detail=f"Could not load files from Google Drive: {exc}",

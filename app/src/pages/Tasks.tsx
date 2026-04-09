@@ -108,20 +108,6 @@ interface LabelsResponse {
   labels: Label[];
 }
 
-interface TaskSuggestion {
-  id: string;
-  type: string;
-  severity: "info" | "tip" | "warning" | "action";
-  task_id: string;
-  message: string;
-  suggested_action: string | null;
-  suggested_action_payload: Record<string, unknown>;
-}
-
-interface SuggestionsResponse {
-  suggestions: TaskSuggestion[];
-}
-
 const priorityStyles: Record<string, string> = {
   P0: "bg-pink-500/20 text-pink-500",
   P1: "bg-orange-500/20 text-orange-500",
@@ -216,11 +202,7 @@ export default function Tasks() {
   const [labelAllResult, setLabelAllResult] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [showTaskSharePopover, setShowTaskSharePopover] = useState(false);
-  const [suggestions, setSuggestions] = useState<TaskSuggestion[]>([]);
-  const [showSuggestionsPanel, setShowSuggestionsPanel] = useState(false);
-  const [applyingSuggestionId, setApplyingSuggestionId] = useState<string | null>(null);
-  const [suggestionToast, setSuggestionToast] = useState<string | null>(null);
-
+  const [undoDelete, setUndoDelete] = useState<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
@@ -255,39 +237,6 @@ export default function Tasks() {
     }
   }, []);
 
-  const fetchSuggestions = useCallback(async () => {
-    try {
-      const res = await api.get<SuggestionsResponse>("/task-suggestions");
-      setSuggestions(res.suggestions ?? []);
-    } catch (e) {
-      console.error("Failed to fetch suggestions:", e);
-    }
-  }, []);
-
-  const applySuggestion = async (suggestion: TaskSuggestion) => {
-    setApplyingSuggestionId(suggestion.id);
-    try {
-      await api.post(`/task-suggestions/${suggestion.id}/apply`);
-      setSuggestionToast("Suggestion applied.");
-      setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
-      await fetchTasks();
-    } catch (e) {
-      console.error("Failed to apply suggestion:", e);
-      setSuggestionToast("Could not apply that suggestion.");
-    } finally {
-      setApplyingSuggestionId(null);
-      setTimeout(() => setSuggestionToast(null), 2500);
-    }
-  };
-
-  const dismissSuggestion = async (suggestion: TaskSuggestion) => {
-    try {
-      await api.post(`/task-suggestions/${suggestion.id}/dismiss`);
-      setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
-    } catch (e) {
-      console.error("Failed to dismiss suggestion:", e);
-    }
-  };
 
   const createThread = async (name: string) => {
     const trimmed = name.trim();
@@ -387,8 +336,7 @@ export default function Tasks() {
     fetchTasks();
     fetchLabels();
     fetchThreads();
-    fetchSuggestions();
-  }, [fetchTasks, fetchLabels, fetchThreads, fetchSuggestions]);
+  }, [fetchTasks, fetchLabels, fetchThreads]);
 
   // Deep-link handler: when ?focus=<id> is in the URL, auto-select that task,
   // switch to the correct tab if needed, scroll it into view, then clear the
@@ -498,18 +446,38 @@ export default function Tasks() {
     }
   };
 
-  const deleteTask = async (id: string) => {
-    try {
-      await api.delete(`/tasks/${id}`);
-      if (selectedTaskId === id) {
-        setSelectedTaskId(null);
-        setBriefing(null);
-        setTrace(null);
-      }
-      setTasks((prev) => prev.filter((t) => t.id !== id));
-    } catch (e) {
-      console.error("Failed to delete task:", e);
+  const deleteTask = (id: string) => {
+    // Cancel any previous pending delete
+    if (undoDelete) {
+      clearTimeout(undoDelete.timer);
+      api.delete(`/tasks/${undoDelete.task.id}`).catch(() => {});
     }
+
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+
+    // Optimistically remove from UI
+    if (selectedTaskId === id) {
+      setSelectedTaskId(null);
+      setBriefing(null);
+      setTrace(null);
+    }
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+
+    // Start a 5-second timer before actually deleting
+    const timer = setTimeout(() => {
+      api.delete(`/tasks/${id}`).catch((e) => console.error("Failed to delete task:", e));
+      setUndoDelete(null);
+    }, 5000);
+
+    setUndoDelete({ task, timer });
+  };
+
+  const handleUndo = () => {
+    if (!undoDelete) return;
+    clearTimeout(undoDelete.timer);
+    setTasks((prev) => [...prev, undoDelete.task]);
+    setUndoDelete(null);
   };
 
   const updatePriority = async (id: string, priority: string) => {
@@ -1094,17 +1062,6 @@ export default function Tasks() {
           </div>
 
           <div className="flex items-center gap-2">
-            {suggestions.length > 0 && (
-              <button
-                data-testid="suggestions-pill"
-                onClick={() => setShowSuggestionsPanel(true)}
-                className="flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-medium px-3 py-1.5 rounded-full"
-                title="Smart suggestions about your tasks"
-              >
-                <Icon name="lightbulb" className="text-amber-300 text-base" />
-                {suggestions.length} {suggestions.length === 1 ? "suggestion" : "suggestions"}
-              </button>
-            )}
             <button
               onClick={handleNext}
               className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700"
@@ -2013,125 +1970,18 @@ export default function Tasks() {
         )}
       </div>
 
-      {/* Smart suggestions side panel */}
-      {showSuggestionsPanel && (
-        <div
-          data-testid="suggestions-panel-overlay"
-          className="fixed inset-0 z-40 bg-black/40 flex justify-end"
-          onClick={() => setShowSuggestionsPanel(false)}
-        >
-          <aside
-            data-testid="suggestions-panel"
-            className="w-full max-w-md bg-slate-950 border-l border-slate-800 h-full overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
+      {/* Undo delete toast */}
+      {undoDelete && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg">
+          <span>Task deleted.</span>
+          <button
+            onClick={handleUndo}
+            className="font-medium text-blue-400 hover:text-blue-300"
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 sticky top-0 bg-slate-950">
-              <div>
-                <h2 className="text-lg font-semibold text-white">Suggestions</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Quick wins from looking at your task history.
-                </p>
-              </div>
-              <button
-                data-testid="suggestions-panel-close"
-                onClick={() => setShowSuggestionsPanel(false)}
-                className="text-slate-500 hover:text-white"
-                aria-label="Close suggestions"
-              >
-                <Icon name="close" className="text-xl" />
-              </button>
-            </div>
-
-            {suggestionToast && (
-              <div className="mx-5 mt-4 px-3 py-2 bg-emerald-500/15 border border-emerald-500/40 rounded-md text-xs text-emerald-300">
-                {suggestionToast}
-              </div>
-            )}
-
-            <div className="p-5 space-y-3">
-              {suggestions.length === 0 && (
-                <div className="text-center py-12 text-slate-500 text-sm">
-                  No suggestions right now. Your task list is in good shape.
-                </div>
-              )}
-              {suggestions.map((s) => {
-                const severityClass =
-                  s.severity === "warning"
-                    ? "border-amber-500/40 bg-amber-500/10"
-                    : s.severity === "action"
-                      ? "border-pink-500/40 bg-pink-500/10"
-                      : s.severity === "tip"
-                        ? "border-blue-500/40 bg-blue-500/10"
-                        : "border-slate-700 bg-slate-900/60";
-                const severityIcon =
-                  s.severity === "warning"
-                    ? "warning"
-                    : s.severity === "action"
-                      ? "priority_high"
-                      : s.severity === "tip"
-                        ? "tips_and_updates"
-                        : "info";
-                const iconColor =
-                  s.severity === "warning"
-                    ? "text-amber-300"
-                    : s.severity === "action"
-                      ? "text-pink-300"
-                      : s.severity === "tip"
-                        ? "text-blue-300"
-                        : "text-slate-400";
-                const isApplyable = s.suggested_action !== null;
-                return (
-                  <div
-                    key={s.id}
-                    data-testid="suggestion-card"
-                    className={`rounded-lg border p-4 ${severityClass}`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <Icon name={severityIcon} className={`text-lg ${iconColor} mt-0.5`} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-slate-200 leading-snug">{s.message}</p>
-                        <button
-                          onClick={() => {
-                            setShowSuggestionsPanel(false);
-                            setActiveTab("tasks");
-                            setSelectedTaskId(s.task_id);
-                            fetchBriefing(s.task_id);
-                            fetchTrace(s.task_id);
-                          }}
-                          className="text-xs text-slate-500 hover:text-blue-300 mt-1.5 inline-flex items-center gap-1"
-                        >
-                          <Icon name="task" className="text-sm" />
-                          {s.task_id}
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 mt-3 pl-8">
-                      {isApplyable && (
-                        <button
-                          data-testid="suggestion-apply"
-                          disabled={applyingSuggestionId === s.id}
-                          onClick={() => applySuggestion(s)}
-                          className="text-xs bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded-md"
-                        >
-                          {applyingSuggestionId === s.id ? "Applying..." : "Apply"}
-                        </button>
-                      )}
-                      <button
-                        data-testid="suggestion-dismiss"
-                        onClick={() => dismissSuggestion(s)}
-                        className="text-xs text-slate-400 hover:text-slate-200 px-3 py-1.5"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </aside>
+            Undo
+          </button>
         </div>
       )}
-
     </div>
   );
 }

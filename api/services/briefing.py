@@ -118,19 +118,33 @@ async def generate_briefing() -> str:
     except Exception:
         pass
 
-    # Open P0 and P1 tasks (best effort)
+    # Open P0 and P1 tasks, sorted by priority then age (best effort)
     try:
         all_tasks = await ostk.list_tasks(status="open")
-        priority_tasks = [
-            t for t in all_tasks
-            if t.get("priority") in ("P0", "P1")
-        ]
+        priority_order = {"P0": 0, "P1": 1}
+        priority_tasks = sorted(
+            [t for t in all_tasks if t.get("priority") in ("P0", "P1")],
+            key=lambda t: (
+                priority_order.get(t.get("priority", "P1"), 1),
+                t.get("created_at", "9999"),  # oldest first
+            ),
+        )
         if priority_tasks:
-            task_lines = [
-                f"  [{t.get('priority')}] {t.get('title', 'Untitled')}"
-                for t in priority_tasks[:5]
-            ]
-            context_parts.append("Top open tasks:\n" + "\n".join(task_lines))
+            today = datetime.now(timezone.utc)
+            task_lines = []
+            for t in priority_tasks[:10]:
+                age = ""
+                created = t.get("created_at", "")
+                if created:
+                    try:
+                        days = (today - datetime.fromisoformat(created)).days
+                        age = f" (open {days}d)" if days > 0 else " (new today)"
+                    except Exception:
+                        pass
+                task_lines.append(
+                    f"  [{t.get('priority')}] {t.get('title', 'Untitled')}{age}"
+                )
+            context_parts.append("Top open tasks (sorted by priority, then oldest first):\n" + "\n".join(task_lines))
         else:
             context_parts.append("No high-priority tasks open right now.")
     except OstkError:
@@ -163,8 +177,12 @@ async def generate_briefing() -> str:
         f"Today is {today_display}. Here is the user's workspace context:\n\n"
         f"{context_block}\n\n"
         "Write a short briefing (3-5 sentences, plain conversational language, "
-        "no jargon, no bullet points). Mention what is on the calendar if anything, "
-        "highlight the most important task to work on, and give one encouraging note. "
+        "no jargon, no bullet points). Mention what is on the calendar if anything. "
+        "Highlight the single most important task to work on using these rules: "
+        "P0 always beats P1. Among the same priority, the task that has been open "
+        "the longest is the most important (it is overdue). If a task is a bug that "
+        "users are hitting, it beats a feature request at the same priority and age. "
+        "Name the specific task you picked. Give one encouraging note. "
         "Keep it warm and brief. Do not use em-dashes. Do not assume a time of day, "
         "so avoid phrases like good morning, this morning, or your morning."
     )

@@ -7,6 +7,7 @@ import QuickSpawnAgentModal from '../components/QuickSpawnAgentModal';
 import QuickCaptureIdeaModal from '../components/QuickCaptureIdeaModal';
 import DashboardCustomizeModal from '../components/DashboardCustomizeModal';
 import { api } from '../lib/api';
+import { renderMarkdown } from '../lib/markdown';
 import { useAppStore } from '../stores/app';
 
 interface BriefingData {
@@ -237,7 +238,7 @@ export default function Dashboard() {
               </div>
               <div className="flex-1">
                 <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-1.5">{greetingLabel}</p>
-                <p className="text-sm text-slate-200 leading-relaxed">{briefing.briefing}</p>
+                <p className="text-sm text-slate-200 leading-relaxed">{renderMarkdown(briefing.briefing)}</p>
               </div>
             </div>
             <button

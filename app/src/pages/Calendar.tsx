@@ -92,6 +92,7 @@ export default function Calendar() {
   const [prepBriefings, setPrepBriefings] = useState<Record<string, string>>({})
   const [expandedPrep, setExpandedPrep] = useState<Record<string, boolean>>({})
   const [apiNotEnabled, setApiNotEnabled] = useState(false)
+  const [connectError, setConnectError] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -139,12 +140,14 @@ export default function Calendar() {
   }, [searchParams, fetchStatus, fetchEvents])
 
   const handleConnect = async () => {
+    setConnectError(null)
     try {
       const res = await api.get<ConnectAuthUrl>('/drive/auth/url/calendar')
       window.location.href = res.url
-    } catch (e: unknown) {
-      const err = e as { message?: string }
-      alert(err?.message || 'Could not get the sign-in link. Make sure your Google credentials file is set up.')
+    } catch {
+      setConnectError(
+        'Could not get the sign-in link. Make sure the myOS backend is running and your Google credentials file is saved at ~/.myos/google_credentials.json.'
+      )
     }
   }
 
@@ -256,6 +259,11 @@ export default function Calendar() {
                   Connect Google account
                 </button>
               </>
+            )}
+            {connectError && (
+              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
+                {connectError}
+              </div>
             )}
           </div>
         </div>

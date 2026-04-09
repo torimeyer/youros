@@ -25,6 +25,10 @@ export function Sidebar() {
   ]
   const [activeAgents, setActiveAgents] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
+  const [version, setVersion] = useState('')
+  const [backendUp, setBackendUp] = useState<boolean | null>(null)
+  const [ostkUp, setOstkUp] = useState<boolean | null>(null)
+  const [ostkKernel, setOstkKernel] = useState('')
 
   useEffect(() => {
     const fetchAgents = async () => {
@@ -56,6 +60,31 @@ export function Sidebar() {
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    api.get<{ myos: { current: string } }>('/upgrade/status')
+      .then((res) => setVersion(res.myos?.current ?? ''))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const res = await api.get<{ kernel: string }>('/status/clock')
+        setBackendUp(true)
+        const k = res.kernel || ''
+        setOstkUp(k !== 'unknown' && k !== '')
+        setOstkKernel(k)
+      } catch {
+        setBackendUp(false)
+        setOstkUp(false)
+        setOstkKernel('')
+      }
+    }
+    checkHealth()
+    const interval = setInterval(checkHealth, 15000)
+    return () => clearInterval(interval)
+  }, [])
+
   // Filter nav items based on feature toggles
   const navItems = allNavItems.filter((item) => {
     if (!item.featureLabel) return true
@@ -74,6 +103,9 @@ export function Sidebar() {
     <aside data-tour="sidebar" className="h-screen w-56 fixed left-0 top-0 border-r border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50">
       <div className="px-5 mb-8">
         <span className="text-xl font-black accent-text tracking-tight">{osName}</span>
+        {version && (
+          <span className="block text-[10px] text-slate-500 font-mono mt-0.5">{version}</span>
+        )}
       </div>
 
       <nav className="flex flex-col gap-1 px-3 flex-1">
@@ -126,6 +158,18 @@ export function Sidebar() {
             </>
           )}
         </NavLink>
+      </div>
+
+      {/* System status indicators */}
+      <div className="px-5 pt-3 pb-2 border-t border-slate-800/50 flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <span className={`w-1.5 h-1.5 rounded-full ${backendUp === null ? 'bg-slate-600' : backendUp ? 'bg-green-400' : 'bg-red-400'}`} />
+          <span className="text-[10px] text-slate-500">Backend</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`w-1.5 h-1.5 rounded-full ${ostkUp === null ? 'bg-slate-600' : ostkUp ? 'bg-green-400' : 'bg-red-400'}`} />
+          <span className="text-[10px] text-slate-500">ostk{ostkKernel ? ` ${ostkKernel}` : ''}</span>
+        </div>
       </div>
     </aside>
   )

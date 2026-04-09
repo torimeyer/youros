@@ -159,7 +159,7 @@ async def test_drive_auth_callback_error_param(client):
     )
     assert resp.status_code == 302
     assert "error=access_denied" in resp.headers["location"]
-    assert "localhost:5173/drive" in resp.headers["location"]
+    assert "localhost:3010/drive" in resp.headers["location"]
 
 
 @pytest.mark.asyncio
@@ -171,7 +171,7 @@ async def test_drive_auth_callback_invalid_state(client):
     )
     assert resp.status_code == 302
     assert "error=invalid_state" in resp.headers["location"]
-    assert "localhost:5173/drive" in resp.headers["location"]
+    assert "localhost:3010/drive" in resp.headers["location"]
 
 
 @pytest.mark.asyncio
@@ -179,7 +179,7 @@ async def test_drive_auth_callback_success(client, tmp_path):
     """A valid code+state should exchange tokens and redirect to Drive with ?connected=true."""
     from routers.drive import _drive_oauth_states
 
-    _drive_oauth_states["valid-state"] = {"return_to": "http://localhost:5173/drive", "expires": 9999999999}
+    _drive_oauth_states["valid-state"] = {"return_to": "http://localhost:3010/drive", "expires": 9999999999}
 
     token_path = tmp_path / "google_token.json"
     creds_path = tmp_path / "google_credentials.json"
@@ -211,7 +211,7 @@ async def test_drive_auth_callback_success(client, tmp_path):
 
     assert resp.status_code == 302
     assert "connected=true" in resp.headers["location"]
-    assert "localhost:5173/drive" in resp.headers["location"]
+    assert "localhost:3010/drive" in resp.headers["location"]
 
 
 @pytest.mark.asyncio
@@ -219,7 +219,7 @@ async def test_drive_auth_callback_token_exchange_failure(client, tmp_path):
     """When token exchange fails, redirect with ?error= instead of a 500."""
     from routers.drive import _drive_oauth_states
 
-    _drive_oauth_states["fail-state"] = {"return_to": "http://localhost:5173/drive", "expires": 9999999999}
+    _drive_oauth_states["fail-state"] = {"return_to": "http://localhost:3010/drive", "expires": 9999999999}
 
     creds_path = tmp_path / "google_credentials.json"
     creds_path.write_text(
@@ -240,7 +240,7 @@ async def test_drive_auth_callback_token_exchange_failure(client, tmp_path):
 
     assert resp.status_code == 302
     assert "error=token_exchange_failed" in resp.headers["location"]
-    assert "localhost:5173/drive" in resp.headers["location"]
+    assert "localhost:3010/drive" in resp.headers["location"]
 
 
 # ---------------------------------------------------------------------------
