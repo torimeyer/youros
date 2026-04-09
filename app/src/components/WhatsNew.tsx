@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import Icon from './Icon'
 import releaseNotes from '../data/releaseNotes'
 import { useAppStore } from '../stores/app'
@@ -65,11 +66,16 @@ export default function WhatsNew() {
         )}
       </button>
 
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40 bg-black/50" onClick={() => setOpen(false)} />
+      {open && typeof document !== 'undefined' && createPortal(
+        // Render the drawer into document.body via a portal so it escapes
+        // the TopBar header's z-40 stacking context. Without the portal,
+        // the drawer's z-50 only competes with siblings inside the header,
+        // and the chat panel (a root-level z-50 element) ends up painted
+        // on top, hiding the drawer entirely on its default open state.
+        <div data-testid="whats-new-portal">
+          <div className="fixed inset-0 z-[60] bg-black/50" onClick={() => setOpen(false)} />
           <div
-            className="fixed top-0 right-0 h-full w-80 bg-slate-900 border-l border-slate-800 shadow-2xl z-50 overflow-hidden flex flex-col"
+            className="fixed top-0 right-0 h-full w-80 bg-slate-900 border-l border-slate-800 shadow-2xl z-[70] overflow-hidden flex flex-col"
             data-testid="whats-new-modal"
           >
             <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
@@ -109,7 +115,8 @@ export default function WhatsNew() {
               ))}
             </div>
           </div>
-        </>
+        </div>,
+        document.body,
       )}
     </div>
   )
