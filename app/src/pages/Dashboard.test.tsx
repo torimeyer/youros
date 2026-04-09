@@ -17,6 +17,10 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../lib/api', () => ({
   api: {
     get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
   },
 }))
 
@@ -217,6 +221,65 @@ describe("Today's Focus deep-link", () => {
     fireEvent.keyDown(row, { key: 'Enter' })
 
     expect(mockNavigate).toHaveBeenCalledWith('/tasks?focus=%E2%86%92123')
+  })
+})
+
+describe('Quick Launch inline modals', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false })
+    localStorage.setItem('myos-tour-complete', 'true')
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  })
+
+  it('clicking the New Task tile opens the QuickAddTaskModal inline', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Quick Launch')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /New Task/i }))
+
+    // The modal heading should appear in place, no navigation happens.
+    expect(screen.getByRole('dialog', { name: /Add a new task/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'New task' })).toBeInTheDocument()
+    expect(mockNavigate).not.toHaveBeenCalledWith('/tasks')
+  })
+
+  it('clicking the Spawn Agent tile opens the QuickSpawnAgentModal inline', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Quick Launch')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Spawn Agent/i }))
+
+    expect(screen.getByRole('dialog', { name: /Spawn a new agent/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Spawn agent' })).toBeInTheDocument()
+    expect(mockNavigate).not.toHaveBeenCalledWith('/agents')
+  })
+
+  it('clicking the Capture Idea tile opens the QuickCaptureIdeaModal inline', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Quick Launch')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Capture Idea/i }))
+
+    expect(screen.getByRole('dialog', { name: /Capture a new idea/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Capture idea' })).toBeInTheDocument()
+    expect(mockNavigate).not.toHaveBeenCalledWith('/ideas')
   })
 })
 

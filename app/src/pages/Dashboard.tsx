@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
+import QuickAddTaskModal from '../components/QuickAddTaskModal';
+import QuickSpawnAgentModal from '../components/QuickSpawnAgentModal';
+import QuickCaptureIdeaModal from '../components/QuickCaptureIdeaModal';
 import { api } from '../lib/api';
 import { useAppStore } from '../stores/app';
 
@@ -80,6 +83,9 @@ export default function Dashboard() {
   const [, setSessionDiff] = useState<SessionDiff | null>(null);
   const [briefing, setBriefing] = useState<BriefingData | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(true);
+  const [quickAddTaskOpen, setQuickAddTaskOpen] = useState(false);
+  const [quickSpawnOpen, setQuickSpawnOpen] = useState(false);
+  const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -152,18 +158,9 @@ export default function Dashboard() {
   const closedCount = data?.counts.closed ?? 0;
 
   const quickLaunchActions: Record<string, () => void> = {
-    'New Task': () => {
-      navigate('/tasks');
-      setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-add-task')), 100);
-    },
-    'Spawn Agent': () => {
-      navigate('/agents');
-      setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-spawn-agent')), 100);
-    },
-    'Capture Idea': () => {
-      navigate('/ideas');
-      setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-capture-idea')), 100);
-    },
+    'New Task': () => setQuickAddTaskOpen(true),
+    'Spawn Agent': () => setQuickSpawnOpen(true),
+    'Capture Idea': () => setQuickCaptureOpen(true),
     'Open Chat': () => toggleChat(),
   };
 
@@ -436,6 +433,20 @@ export default function Dashboard() {
       >
         <Icon name="chat" className="text-white" size={28} />
       </button>
+
+      <QuickAddTaskModal
+        open={quickAddTaskOpen}
+        onClose={() => setQuickAddTaskOpen(false)}
+        onSuccess={fetchData}
+      />
+      <QuickSpawnAgentModal
+        open={quickSpawnOpen}
+        onClose={() => setQuickSpawnOpen(false)}
+      />
+      <QuickCaptureIdeaModal
+        open={quickCaptureOpen}
+        onClose={() => setQuickCaptureOpen(false)}
+      />
     </div>
   );
 }
