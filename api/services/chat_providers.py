@@ -70,14 +70,14 @@ _GEMINI_AUTH_HINTS = (
 
 
 _GEMINI_KEY_HELP = (
-    "Two ways to get one:\n"
-    "- Personal use: grab a free key from Google AI Studio in one click "
-    "(https://aistudio.google.com/apikey). Ties to your personal Google account.\n"
-    "- Work or team use: create the key inside your Google Cloud Console "
-    "project (https://console.cloud.google.com), the same project where "
-    "you enabled Drive, Calendar, or Gmail. Turn on \"Generative Language "
-    "API\" in the API library, then open Credentials and click Create "
-    "credentials, API key."
+    "Recommended: use the same Google Cloud project "
+    "(https://console.cloud.google.com) you already set up for Drive, "
+    "Calendar, or Gmail. In the API library, turn on \"Generative Language "
+    "API\", then open Credentials and click Create credentials, API key. "
+    "One project, one place to manage everything.\n\n"
+    "Only using Gemini chat and nothing else from Google? Grab a free key "
+    "at Google AI Studio (https://aistudio.google.com/apikey) instead. It "
+    "ties to your personal Google account and is one click."
 )
 
 

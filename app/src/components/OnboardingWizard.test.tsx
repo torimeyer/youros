@@ -201,18 +201,19 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
   })
 
-  it('shows both Gemini key paths (AI Studio and Google Cloud) when Gemini is selected', () => {
+  it('shows both Gemini key paths (Cloud Console recommended, AI Studio fallback) when Gemini is selected', () => {
     render(<OnboardingWizard />)
     clickNext(5)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
-    // Helper block mentions BOTH ways to get a key so work users know
-    // to create the key inside their Google Cloud project instead of AI Studio.
+    // Helper block is a decision tree: Cloud Console is recommended
+    // because users with Drive/Calendar/Gmail already have a project.
+    // AI Studio is the chat-only fallback.
     const helper = screen.getByTestId('gemini-key-help')
     expect(helper).toBeInTheDocument()
     expect(helper).toHaveTextContent(/Google AI Studio/i)
     expect(helper).toHaveTextContent(/Google Cloud project/i)
-    expect(helper).toHaveTextContent(/Personal use\./i)
-    expect(helper).toHaveTextContent(/Work or team use\./i)
+    expect(helper).toHaveTextContent(/Recommended\./i)
+    expect(helper).toHaveTextContent(/Chat only\./i)
   })
 
   it('advances to Adventure step', async () => {

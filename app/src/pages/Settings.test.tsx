@@ -202,12 +202,13 @@ describe('Settings', () => {
       expect(setupCard).toBeTruthy()
       fireEvent.click(setupCard!.closest('div[class*="cursor-pointer"]')!)
 
-      // Helper block should now mention BOTH places to get a key.
+      // Helper block is a decision tree: Cloud Console is recommended,
+      // AI Studio is the chat-only fallback. Both paths must still appear.
       expect(screen.getByText(/Where to get a Gemini API key/i)).toBeInTheDocument()
       expect(screen.getByText(/Google AI Studio/i)).toBeInTheDocument()
       expect(screen.getByText(/Google Cloud project/i)).toBeInTheDocument()
-      expect(screen.getByText(/Personal use\./i)).toBeInTheDocument()
-      expect(screen.getByText(/Work or team use\./i)).toBeInTheDocument()
+      expect(screen.getByText(/Recommended\./i)).toBeInTheDocument()
+      expect(screen.getByText(/Chat only\./i)).toBeInTheDocument()
     })
   })
 

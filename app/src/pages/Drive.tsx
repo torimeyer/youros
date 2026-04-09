@@ -462,10 +462,10 @@ function SetupGuideModal({ onClose }: { onClose: () => void }) {
         <div className="mt-4 p-3 bg-slate-800/30 border border-slate-700 rounded-lg">
           <p className="text-xs text-slate-300 font-medium mb-1">Want to use Gemini chat too?</p>
           <p className="text-xs text-slate-400">
-            You can reuse the same Google Cloud project. In the API library, turn on "Generative Language API". Then go to Credentials, click Create credentials, and pick API key. Paste that key into Settings under AI Provider.
+            Recommended: reuse this same Google Cloud project. In the API library, turn on "Generative Language API". Then go to Credentials, click Create credentials, and pick API key. Paste that key into Settings under AI Provider. One project, one place to manage everything.
           </p>
           <p className="text-xs text-slate-500 mt-2">
-            For solo or personal use, a free key from{' '}
+            Only using Gemini chat and nothing else from Google? Grab a free key at{' '}
             <a
               href="https://aistudio.google.com/apikey"
               target="_blank"
@@ -474,7 +474,7 @@ function SetupGuideModal({ onClose }: { onClose: () => void }) {
             >
               Google AI Studio
             </a>{' '}
-            works too, with no project setup needed.
+            instead. It ties to your personal Google account and is one click.
           </p>
         </div>
 

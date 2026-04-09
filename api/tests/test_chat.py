@@ -170,6 +170,10 @@ class TestGeminiCredentialErrors:
         assert "Google Cloud" in msg
         assert "aistudio.google.com" in msg
         assert "console.cloud.google.com" in msg
+        # Decision tree: Cloud Console is recommended and must appear first,
+        # AI Studio is the chat-only fallback and must appear second.
+        assert "Recommended" in msg
+        assert msg.find("Google Cloud") < msg.find("AI Studio")
         # No 'done' should be sent since the request never started.
         assert websocket.get_messages_of_type("done") == []
 
@@ -219,6 +223,9 @@ class TestGeminiCredentialErrors:
         assert "Gemini API key is missing" in msg
         assert "AI Studio" in msg
         assert "Google Cloud" in msg
+        # Decision tree: Cloud Console recommended, appears before AI Studio.
+        assert "Recommended" in msg
+        assert msg.find("Google Cloud") < msg.find("AI Studio")
 
     @pytest.mark.asyncio
     async def test_api_key_is_passed_to_configure(self, websocket):
@@ -308,6 +315,9 @@ class TestGeminiCredentialErrors:
         # Both paths must appear so work users see the Cloud option.
         assert "AI Studio" in msg
         assert "Google Cloud" in msg
+        # Decision tree: Cloud Console recommended, appears before AI Studio.
+        assert "Recommended" in msg
+        assert msg.find("Google Cloud") < msg.find("AI Studio")
         # The cryptic Google text must NOT be in the user-facing error.
         assert "ACCESS_TOKEN_TYPE_UNSUPPORTED" not in msg
 
@@ -348,6 +358,9 @@ class TestGeminiCredentialErrors:
         assert "Gemini API key is missing or invalid" in msg
         assert "AI Studio" in msg
         assert "Google Cloud" in msg
+        # Decision tree: Cloud Console recommended, appears before AI Studio.
+        assert "Recommended" in msg
+        assert msg.find("Google Cloud") < msg.find("AI Studio")
 
     @pytest.mark.asyncio
     async def test_non_auth_sdk_exception_passed_through(self, websocket):
