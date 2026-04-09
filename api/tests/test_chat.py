@@ -174,6 +174,12 @@ class TestGeminiCredentialErrors:
         # AI Studio is the chat-only fallback and must appear second.
         assert "Recommended" in msg
         assert msg.find("Google Cloud") < msg.find("AI Studio")
+        # Ordering: users must enable the Generative Language API BEFORE
+        # creating credentials, otherwise the restriction dropdown is empty.
+        assert "Generative Language API" in msg
+        lowered = msg.lower()
+        assert "enable" in lowered
+        assert lowered.find("enable") < lowered.find("create credentials")
         # No 'done' should be sent since the request never started.
         assert websocket.get_messages_of_type("done") == []
 
@@ -226,6 +232,11 @@ class TestGeminiCredentialErrors:
         # Decision tree: Cloud Console recommended, appears before AI Studio.
         assert "Recommended" in msg
         assert msg.find("Google Cloud") < msg.find("AI Studio")
+        # Ordering: enable the API before creating credentials.
+        assert "Generative Language API" in msg
+        lowered = msg.lower()
+        assert "enable" in lowered
+        assert lowered.find("enable") < lowered.find("create credentials")
 
     @pytest.mark.asyncio
     async def test_api_key_is_passed_to_configure(self, websocket):
@@ -318,6 +329,11 @@ class TestGeminiCredentialErrors:
         # Decision tree: Cloud Console recommended, appears before AI Studio.
         assert "Recommended" in msg
         assert msg.find("Google Cloud") < msg.find("AI Studio")
+        # Ordering: enable the API before creating credentials.
+        assert "Generative Language API" in msg
+        lowered = msg.lower()
+        assert "enable" in lowered
+        assert lowered.find("enable") < lowered.find("create credentials")
         # The cryptic Google text must NOT be in the user-facing error.
         assert "ACCESS_TOKEN_TYPE_UNSUPPORTED" not in msg
 
@@ -361,6 +377,11 @@ class TestGeminiCredentialErrors:
         # Decision tree: Cloud Console recommended, appears before AI Studio.
         assert "Recommended" in msg
         assert msg.find("Google Cloud") < msg.find("AI Studio")
+        # Ordering: enable the API before creating credentials.
+        assert "Generative Language API" in msg
+        lowered = msg.lower()
+        assert "enable" in lowered
+        assert lowered.find("enable") < lowered.find("create credentials")
 
     @pytest.mark.asyncio
     async def test_non_auth_sdk_exception_passed_through(self, websocket):

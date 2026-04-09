@@ -214,6 +214,10 @@ describe('OnboardingWizard', () => {
     expect(helper).toHaveTextContent(/Google Cloud project/i)
     expect(helper).toHaveTextContent(/Recommended\./i)
     expect(helper).toHaveTextContent(/Chat only\./i)
+    // Users must be told to enable the Generative Language API FIRST,
+    // otherwise the restriction dropdown in Google Cloud is empty.
+    expect(helper).toHaveTextContent(/Enable/)
+    expect(helper).toHaveTextContent(/Generative Language API/i)
   })
 
   it('advances to Adventure step', async () => {

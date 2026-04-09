@@ -628,8 +628,26 @@ function ConnectStep({
             >
               Google Cloud project
             </a>{' '}
-            you already set up for Drive, Calendar, or Gmail. Enable "Generative Language API" in the API library, then open Credentials and click Create credentials, API key. One project, one place to manage everything.
+            you already set up for Drive, Calendar, or Gmail. Three steps:
           </p>
+          <ol className="list-decimal ml-5 space-y-1">
+            <li>
+              Enable{' '}
+              <a
+                href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-500 hover:text-blue-400 underline"
+              >
+                "Generative Language API"
+              </a>{' '}
+              in the API library. It takes about 30 seconds.
+            </li>
+            <li>Open Credentials and click Create credentials, API key.</li>
+            <li>
+              Edit the new key and restrict it to "Generative Language API" under API restrictions. It only appears in the dropdown after step 1.
+            </li>
+          </ol>
           <p>
             <span className={darkMode ? 'text-slate-200 font-medium' : 'text-slate-900 font-medium'}>Chat only.</span>{' '}
             Only using Gemini chat and nothing else from Google? Grab a free key at{' '}

@@ -462,8 +462,26 @@ function SetupGuideModal({ onClose }: { onClose: () => void }) {
         <div className="mt-4 p-3 bg-slate-800/30 border border-slate-700 rounded-lg">
           <p className="text-xs text-slate-300 font-medium mb-1">Want to use Gemini chat too?</p>
           <p className="text-xs text-slate-400">
-            Recommended: reuse this same Google Cloud project. In the API library, turn on "Generative Language API". Then go to Credentials, click Create credentials, and pick API key. Paste that key into Settings under AI Provider. One project, one place to manage everything.
+            Recommended: reuse this same Google Cloud project. Three steps:
           </p>
+          <ol className="text-xs text-slate-400 list-decimal ml-5 mt-1 space-y-1">
+            <li>
+              Enable{' '}
+              <a
+                href="https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com"
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline"
+              >
+                "Generative Language API"
+              </a>{' '}
+              in the API library. It takes about 30 seconds.
+            </li>
+            <li>Open Credentials and click Create credentials, API key.</li>
+            <li>
+              Edit the new key and restrict it to "Generative Language API" under API restrictions. It only appears in the dropdown after step 1. Paste the key into Settings under AI Provider.
+            </li>
+          </ol>
           <p className="text-xs text-slate-500 mt-2">
             Only using Gemini chat and nothing else from Google? Grab a free key at{' '}
             <a

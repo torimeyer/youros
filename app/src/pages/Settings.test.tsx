@@ -209,6 +209,11 @@ describe('Settings', () => {
       expect(screen.getByText(/Google Cloud project/i)).toBeInTheDocument()
       expect(screen.getByText(/Recommended\./i)).toBeInTheDocument()
       expect(screen.getByText(/Chat only\./i)).toBeInTheDocument()
+      // Users must be told to enable the Generative Language API FIRST,
+      // otherwise the restriction dropdown is empty when they try to lock
+      // the key down.
+      expect(screen.getByText(/Enable/)).toBeInTheDocument()
+      expect(screen.getAllByText(/Generative Language API/i).length).toBeGreaterThan(0)
     })
   })
 
