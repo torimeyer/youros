@@ -574,3 +574,128 @@ describe('Agents page - Templates tab', () => {
     })
   })
 })
+
+describe('Agents page - Insights tab', () => {
+  const mockRecommendations = [
+    {
+      type: 'underbudgeted',
+      severity: 'warning' as const,
+      message: 'The "PRD Draft" template keeps hitting its budget cap. Bump the default budget to $4.50 so it stops running out of room.',
+      related_template_id: 'tmpl-prd',
+      suggested_value: 4.5,
+    },
+    {
+      type: 'wrong_model',
+      severity: 'tip' as const,
+      message: 'The "Code Review" template works far better on sonnet (95% success) than on haiku (40% success). Switch the default model to sonnet.',
+      related_template_id: 'tmpl-code',
+      suggested_value: 'sonnet',
+    },
+    {
+      type: 'high_success',
+      severity: 'info' as const,
+      message: '"Daily Planner" is one of your most reliable templates: 100% success across 4 runs.',
+      related_template_id: 'tmpl-plan',
+      suggested_value: null,
+    },
+  ]
+
+  const mockTemplateStats = [
+    {
+      template_id: 'tmpl-plan',
+      template_name: 'Daily Planner',
+      spawn_count: 4,
+      completed_count: 4,
+      success_rate: 1.0,
+      median_duration_sec: 90,
+      median_cost: 0.5,
+      best_model: 'sonnet',
+    },
+    {
+      template_id: 'tmpl-prd',
+      template_name: 'PRD Draft',
+      spawn_count: 3,
+      completed_count: 2,
+      success_rate: 0.667,
+      median_duration_sec: 240,
+      median_cost: 2.8,
+      best_model: 'sonnet',
+    },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/pm-templates') return { templates: [] }
+      if (path === '/agent-patterns/recommendations') return { recommendations: mockRecommendations }
+      if (path === '/agent-patterns/template-stats') return { stats: mockTemplateStats }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({ result: 'ok' })
+  })
+
+  it('shows Insights tab in navigation without power user mode', async () => {
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Insights' })).toBeInTheDocument()
+    })
+  })
+
+  it('renders recommendations from the API when Insights tab is active', async () => {
+    renderAgents()
+
+    const insightsTab = await screen.findByRole('button', { name: 'Insights' })
+    fireEvent.click(insightsTab)
+
+    await waitFor(() => {
+      expect(screen.getByText(/PRD Draft.*keeps hitting its budget cap/)).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Code Review.*works far better on sonnet/)).toBeInTheDocument()
+    expect(screen.getByText(/Daily Planner.*most reliable/)).toBeInTheDocument()
+  })
+
+  it('groups recommendations by severity with warnings before tips before info', async () => {
+    renderAgents()
+
+    const insightsTab = await screen.findByRole('button', { name: 'Insights' })
+    fireEvent.click(insightsTab)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('insight-warnings')).toBeInTheDocument()
+    })
+
+    const warnings = screen.getByTestId('insight-warnings')
+    const tips = screen.getByTestId('insight-tips')
+    const infos = screen.getByTestId('insight-infos')
+
+    // All three groups should be present with the matching entries
+    expect(warnings).toHaveTextContent('PRD Draft')
+    expect(tips).toHaveTextContent('Code Review')
+    expect(infos).toHaveTextContent('Daily Planner')
+
+    // Warnings should appear before tips, tips before infos in DOM order
+    const html = document.body.innerHTML
+    const warningIdx = html.indexOf('insight-warnings')
+    const tipsIdx = html.indexOf('insight-tips')
+    const infosIdx = html.indexOf('insight-infos')
+    expect(warningIdx).toBeLessThan(tipsIdx)
+    expect(tipsIdx).toBeLessThan(infosIdx)
+  })
+
+  it('renders high-success template cards at the top', async () => {
+    renderAgents()
+
+    const insightsTab = await screen.findByRole('button', { name: 'Insights' })
+    fireEvent.click(insightsTab)
+
+    await waitFor(() => {
+      const cards = screen.getAllByTestId('insight-high-success-card')
+      expect(cards.length).toBeGreaterThan(0)
+    })
+  })
+})

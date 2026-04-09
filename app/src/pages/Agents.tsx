@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 
-const BASE_TABS = ["Active", "Recent", "Metrics", "Templates"];
+const BASE_TABS = ["Active", "Recent", "Insights", "Metrics", "Templates"];
 const POWER_USER_TABS = ["Delegate", "Workspace"];
 
 type CustomTemplate = CustomAgentTemplate;
@@ -208,6 +208,26 @@ interface AgentInfo {
   spawned_at?: string;
   transcript_bytes?: number;
   transcript_lines?: number;
+}
+
+// Pattern recognition (Insights tab)
+interface PatternRecommendation {
+  type: string;
+  severity: "info" | "tip" | "warning";
+  message: string;
+  related_template_id?: string | null;
+  suggested_value?: number | string | null;
+}
+
+interface PatternTemplateStat {
+  template_id: string;
+  template_name: string;
+  spawn_count: number;
+  completed_count: number;
+  success_rate: number;
+  median_duration_sec: number | null;
+  median_cost: number | null;
+  best_model: string | null;
 }
 
 // Default estimates (used when no historical data exists)
@@ -686,6 +706,12 @@ export default function Agents() {
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceClearing, setWorkspaceClearing] = useState(false);
 
+  // Insights (pattern recognition) state
+  const [insightsRecs, setInsightsRecs] = useState<PatternRecommendation[]>([]);
+  const [insightsStats, setInsightsStats] = useState<PatternTemplateStat[]>([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState<string>("");
+
   // Nudge state: per-agent input text and message history
   const [nudgeInputs, setNudgeInputs] = useState<Record<string, string>>({});
   const [nudgeHistory, setNudgeHistory] = useState<Record<string, NudgeRecord[]>>({});
@@ -1043,6 +1069,32 @@ export default function Agents() {
       return () => clearInterval(interval);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Fetch insights (recommendations + per-template stats) when the Insights tab is selected
+  useEffect(() => {
+    if (activeTab !== "Insights") return;
+    let cancelled = false;
+    const fetchInsights = async () => {
+      setInsightsLoading(true);
+      setInsightsError("");
+      try {
+        const [recsResp, statsResp] = await Promise.all([
+          api.get<{ recommendations: PatternRecommendation[] }>("/agent-patterns/recommendations"),
+          api.get<{ stats: PatternTemplateStat[] }>("/agent-patterns/template-stats"),
+        ]);
+        if (cancelled) return;
+        setInsightsRecs(recsResp.recommendations || []);
+        setInsightsStats(statsResp.stats || []);
+      } catch {
+        if (cancelled) return;
+        setInsightsError("Could not load insights. Try again in a moment.");
+      } finally {
+        if (!cancelled) setInsightsLoading(false);
+      }
+    };
+    fetchInsights();
+    return () => { cancelled = true; };
   }, [activeTab]);
 
   // Listen for the dashboard "Spawn Agent" quick launch so the form
@@ -1697,6 +1749,268 @@ export default function Agents() {
                 </div>
               )}
             </>
+          );
+        })()}
+
+        {activeTab === "Insights" && (() => {
+          const warnings = insightsRecs.filter((r) => r.severity === "warning");
+          const tips = insightsRecs.filter((r) => r.severity === "tip");
+          const infos = insightsRecs.filter((r) => r.severity === "info");
+
+          const highSuccessTemplates = [...insightsStats]
+            .filter((s) => s.spawn_count >= 2)
+            .sort((a, b) => {
+              if (b.success_rate !== a.success_rate) return b.success_rate - a.success_rate;
+              return b.spawn_count - a.spawn_count;
+            })
+            .slice(0, 3);
+
+          const severityStyles = (sev: string) => {
+            if (sev === "warning") {
+              return {
+                wrapper: "bg-amber-500/10 border-amber-500/40",
+                icon: "warning",
+                iconColor: "text-amber-400",
+                label: "Needs attention",
+                labelColor: "text-amber-300",
+              };
+            }
+            if (sev === "tip") {
+              return {
+                wrapper: "bg-blue-500/10 border-blue-500/40",
+                icon: "lightbulb",
+                iconColor: "text-blue-400",
+                label: "Tip",
+                labelColor: "text-blue-300",
+              };
+            }
+            return {
+              wrapper: "bg-slate-800/40 border-slate-700",
+              icon: "info",
+              iconColor: "text-slate-400",
+              label: "Good to know",
+              labelColor: "text-slate-300",
+            };
+          };
+
+          const goToTemplate = (tid?: string | null) => {
+            if (!tid) return;
+            setActiveTab("Templates");
+          };
+
+          const applySuggestedBudget = async (tid: string | null | undefined, value: number | string | null | undefined) => {
+            if (!tid || typeof value !== "number") return;
+            const tmpl = pmTemplates.find((t) => t.id === tid);
+            if (!tmpl) {
+              setInsightsError("That template was not found. It may have been deleted.");
+              return;
+            }
+            try {
+              await api.put(`/agents/pm-templates/${tid}`, {
+                name: tmpl.name,
+                description: tmpl.description,
+                icon: tmpl.icon,
+                prompt_template: tmpl.prompt_template,
+                model: tmpl.model,
+                budget: value,
+              });
+              setInsightsError("");
+              // Refresh templates so the UI reflects the new budget
+              const data = await api.get<{ templates: PMAgentTemplate[] }>("/agents/pm-templates");
+              setPmTemplates(data.templates || []);
+            } catch {
+              setInsightsError("Could not update the template budget. Try again.");
+            }
+          };
+
+          const applySuggestedModel = async (tid: string | null | undefined, value: number | string | null | undefined) => {
+            if (!tid || typeof value !== "string") return;
+            const tmpl = pmTemplates.find((t) => t.id === tid);
+            if (!tmpl) {
+              setInsightsError("That template was not found. It may have been deleted.");
+              return;
+            }
+            try {
+              await api.put(`/agents/pm-templates/${tid}`, {
+                name: tmpl.name,
+                description: tmpl.description,
+                icon: tmpl.icon,
+                prompt_template: tmpl.prompt_template,
+                model: value,
+                budget: tmpl.budget,
+              });
+              setInsightsError("");
+              const data = await api.get<{ templates: PMAgentTemplate[] }>("/agents/pm-templates");
+              setPmTemplates(data.templates || []);
+            } catch {
+              setInsightsError("Could not update the template model. Try again.");
+            }
+          };
+
+          const renderRec = (rec: PatternRecommendation, idx: number) => {
+            const style = severityStyles(rec.severity);
+            const actionable =
+              (rec.type === "underbudgeted" || rec.type === "overbudgeted") && typeof rec.suggested_value === "number";
+            const modelAction = rec.type === "wrong_model" && typeof rec.suggested_value === "string";
+            return (
+              <div
+                key={`${rec.type}-${idx}`}
+                className={`rounded-xl border p-4 mb-3 ${style.wrapper}`}
+                data-testid={`insight-rec-${rec.severity}`}
+              >
+                <div className="flex items-start gap-3">
+                  <Icon name={style.icon} size={20} className={style.iconColor} />
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-xs uppercase tracking-wider font-semibold mb-1 ${style.labelColor}`}>
+                      {style.label}
+                    </p>
+                    <p className="text-sm text-slate-100">{rec.message}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {rec.related_template_id && (
+                        <button
+                          onClick={() => goToTemplate(rec.related_template_id)}
+                          className="text-xs text-slate-300 hover:text-white underline underline-offset-2"
+                        >
+                          View template
+                        </button>
+                      )}
+                      {actionable && (
+                        <button
+                          onClick={() => applySuggestedBudget(rec.related_template_id, rec.suggested_value)}
+                          className="text-xs bg-blue-500 hover:bg-blue-600 text-white rounded px-3 py-1"
+                        >
+                          Apply suggested budget
+                        </button>
+                      )}
+                      {modelAction && (
+                        <button
+                          onClick={() => applySuggestedModel(rec.related_template_id, rec.suggested_value)}
+                          className="text-xs bg-blue-500 hover:bg-blue-600 text-white rounded px-3 py-1"
+                        >
+                          Switch to {String(rec.suggested_value)}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          };
+
+          return (
+            <div>
+              <h2 className="text-lg font-semibold text-white mb-1">Insights</h2>
+              <p className="text-slate-400 text-sm mb-6">
+                What is working, what is not, and how to get more out of your agents.
+              </p>
+
+              {insightsLoading && (
+                <div className="text-slate-400 text-sm mb-4">Loading insights...</div>
+              )}
+              {insightsError && (
+                <div className="bg-red-500/10 border border-red-500/40 text-red-300 text-sm rounded-xl p-3 mb-4">
+                  {insightsError}
+                </div>
+              )}
+
+              {/* Top section: high-success template cards */}
+              {highSuccessTemplates.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-3">What is working</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {highSuccessTemplates.map((s) => (
+                      <div
+                        key={s.template_id}
+                        className="bg-slate-900/40 border border-slate-800 rounded-xl p-4"
+                        data-testid="insight-high-success-card"
+                      >
+                        <p className="text-white font-medium mb-1">{s.template_name}</p>
+                        <p className="text-emerald-400 text-2xl font-bold">
+                          {Math.round(s.success_rate * 100)}%
+                        </p>
+                        <p className="text-slate-500 text-xs mt-1">
+                          succeeds across {s.spawn_count} {s.spawn_count === 1 ? "run" : "runs"}
+                          {s.best_model ? ` - best on ${s.best_model}` : ""}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Middle section: recommendations grouped by severity */}
+              <div className="mb-8">
+                <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-3">Recommendations</h3>
+                {insightsRecs.length === 0 && !insightsLoading ? (
+                  <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-6 text-center text-slate-400 text-sm">
+                    No recommendations yet. Run a few agents and check back.
+                  </div>
+                ) : (
+                  <>
+                    {warnings.length > 0 && (
+                      <div className="mb-4" data-testid="insight-warnings">
+                        {warnings.map((rec, idx) => renderRec(rec, idx))}
+                      </div>
+                    )}
+                    {tips.length > 0 && (
+                      <div className="mb-4" data-testid="insight-tips">
+                        {tips.map((rec, idx) => renderRec(rec, idx + warnings.length))}
+                      </div>
+                    )}
+                    {infos.length > 0 && (
+                      <div className="mb-4" data-testid="insight-infos">
+                        {infos.map((rec, idx) => renderRec(rec, idx + warnings.length + tips.length))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Bottom section: per-template runtime and success rate */}
+              {insightsStats.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-3">Per template</h3>
+                  <div className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-800">
+                          <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Template</th>
+                          <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Runs</th>
+                          <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Success</th>
+                          <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Median time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {insightsStats.map((s) => {
+                          const pct = Math.round(s.success_rate * 100);
+                          const mins = s.median_duration_sec != null ? (s.median_duration_sec / 60).toFixed(1) : null;
+                          return (
+                            <tr key={s.template_id} className="border-b border-slate-800/50 last:border-b-0">
+                              <td className="px-5 py-3 text-white font-medium">{s.template_name}</td>
+                              <td className="px-5 py-3 text-slate-300">{s.spawn_count}</td>
+                              <td className="px-5 py-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="flex-1 bg-slate-800 rounded h-2 overflow-hidden max-w-[120px]">
+                                    <div
+                                      className="bg-emerald-500 h-full"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-slate-300 text-xs tabular-nums">{pct}%</span>
+                                </div>
+                              </td>
+                              <td className="px-5 py-3 text-slate-300">
+                                {mins ? `${mins} min` : "-"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
           );
         })()}
 

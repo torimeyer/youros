@@ -111,6 +111,63 @@ def test_task_suggestions_dismissed_path_is_outside_repo():
         )
 
 
+def test_agent_durations_path_is_gitignored():
+    """The agent duration history is a user-data file that the pattern
+    analyzer reads. It lives under ``.ostk/`` today, which is gitignored,
+    so a ``git pull`` cannot clobber it. If anyone moves it inside a
+    tracked directory this test fails loudly.
+    """
+    import subprocess
+
+    from services import agent_patterns
+
+    path: Path = agent_patterns.AGENT_DURATIONS_PATH
+    assert isinstance(path, Path)
+
+    # Either the path is completely outside the repo, or it lives in a
+    # gitignored location inside the repo. Both are safe from git pull.
+    if not _is_inside_repo(path):
+        return
+
+    try:
+        rel = path.resolve().relative_to(REPO_ROOT)
+    except ValueError:
+        pytest.fail(f"agent_patterns.AGENT_DURATIONS_PATH = {path} could not be compared to the repo root")
+    result = subprocess.run(
+        ["git", "check-ignore", str(rel)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    # git check-ignore exits 0 when the path IS ignored, 1 when not.
+    assert result.returncode == 0, (
+        f"agent_patterns.AGENT_DURATIONS_PATH = {path} lives inside the repo "
+        f"and is NOT gitignored. Git pull could clobber learned agent durations. "
+        f"Move it to ~/.myos/ or add its directory to .gitignore."
+    )
+
+
+def test_agent_patterns_service_does_not_write():
+    """The pattern analyzer is read-only. This test makes sure nobody
+    accidentally adds a write path that lands inside the repo.
+
+    It scans the module source for calls like ``write_text(``, ``open(``
+    with a write mode, or ``json.dump(``. If you add a legitimate write
+    path, it MUST target ``~/.myos/``. Update this test to whitelist the
+    new write path.
+    """
+    module_path = REPO_ROOT / "api" / "services" / "agent_patterns.py"
+    assert module_path.exists()
+    source = module_path.read_text()
+    write_markers = ["write_text(", ".write(", "json.dump(", '"w"', "'w'", '"a"', "'a'"]
+    offenders = [m for m in write_markers if m in source]
+    assert not offenders, (
+        f"services.agent_patterns seems to perform writes ({offenders}). "
+        "The analyzer must stay read-only. If you are adding persistent state, "
+        "route it to ~/.myos/ and update this test."
+    )
+
+
 def test_myos_home_dir_is_the_canonical_location():
     """Every tracked store should use ~/.myos/ as the home-directory prefix.
 
