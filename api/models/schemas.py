@@ -83,6 +83,7 @@ class AgentSpawn(BaseModel):
     budget: float = 2.0
     status: Optional[str] = None
     description: Optional[str] = None
+    transcript_path: Optional[str] = None
 
 
 class AgentNudge(BaseModel):

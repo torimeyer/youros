@@ -1130,6 +1130,186 @@ async def test_registered_agent_not_duplicated_by_audit(tmp_path):
         assert len(matches) == 1, f"Expected 1 entry for cc-dup-agent, got {len(matches)}"
 
 
+# ── get_agent_transcript: legacy md + JSONL fallback ───────────────
+
+
+@pytest.mark.asyncio
+async def test_get_agent_transcript_returns_markdown_when_present(tmp_path):
+    """When PROJECT_ROOT/transcripts/{name}.md exists, serve it as-is."""
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir(parents=True, exist_ok=True)
+    (transcripts_dir / "legacy-agent.md").write_text("hello from md\n")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("config.PROJECT_ROOT", tmp_path):
+            resp = await client.get("/api/agents/legacy-agent/transcript")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "legacy-agent"
+    assert data["content"] == "hello from md\n"
+    assert data["bytes"] == len("hello from md\n")
+
+
+@pytest.mark.asyncio
+async def test_get_agent_transcript_falls_back_to_jsonl(tmp_path):
+    """When the md file is missing but metadata has transcript_path pointing
+    at a JSONL file, parse it and return readable text."""
+    jsonl_path = tmp_path / "agent.output"
+    jsonl_path.write_text(
+        json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "do the thing"},
+        }) + "\n"
+        + json.dumps({
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Sure, on it."}],
+            },
+        }) + "\n"
+    )
+
+    from routers.agents import agent_metadata
+    agent_metadata["jsonl-agent"] = {
+        "spawned_at": "2026-04-08T22:00:00+00:00",
+        "source": "claude-code",
+        "transcript_path": str(jsonl_path),
+    }
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("config.PROJECT_ROOT", tmp_path):
+                # Make sure no md file shadows the JSONL fallback.
+                (tmp_path / "transcripts").mkdir(parents=True, exist_ok=True)
+                resp = await client.get("/api/agents/jsonl-agent/transcript")
+    finally:
+        agent_metadata.pop("jsonl-agent", None)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "User: do the thing" in data["content"]
+    assert "Assistant: Sure, on it." in data["content"]
+
+
+def test_format_jsonl_extracts_assistant_text_and_tool_calls(tmp_path):
+    """Assistant messages with text + tool_use blocks should produce text +
+    [tool: name] markers."""
+    from routers.agents import _format_jsonl_transcript
+    p = tmp_path / "x.output"
+    p.write_text(
+        json.dumps({
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Reading file."},
+                    {"type": "tool_use", "name": "Read", "id": "t1", "input": {}},
+                ],
+            },
+        }) + "\n"
+    )
+
+    out = _format_jsonl_transcript(p)
+    assert "Assistant: Reading file." in out
+    assert "[tool: Read]" in out
+
+
+def test_format_jsonl_extracts_tool_results(tmp_path):
+    """User messages whose content is a list with tool_result blocks should
+    surface as 'Tool result: ...'."""
+    from routers.agents import _format_jsonl_transcript
+    p = tmp_path / "x.output"
+    p.write_text(
+        json.dumps({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "tool_use_id": "t1",
+                        "type": "tool_result",
+                        "content": "file contents here",
+                        "is_error": False,
+                    },
+                ],
+            },
+        }) + "\n"
+    )
+
+    out = _format_jsonl_transcript(p)
+    assert "Tool result: file contents here" in out
+
+
+def test_format_jsonl_skips_malformed_lines(tmp_path):
+    """Bad JSON lines should be skipped, not crash, and good lines around
+    them should still appear."""
+    from routers.agents import _format_jsonl_transcript
+    p = tmp_path / "x.output"
+    p.write_text(
+        "not valid json at all\n"
+        + json.dumps({
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "still works"}],
+            },
+        }) + "\n"
+        + "{also broken\n"
+    )
+
+    out = _format_jsonl_transcript(p)
+    assert "still works" in out
+
+
+@pytest.mark.asyncio
+async def test_get_agent_transcript_404_when_no_source(tmp_path):
+    """If neither the markdown file nor a transcript_path-backed JSONL exists,
+    return 404 with a helpful detail."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("config.PROJECT_ROOT", tmp_path):
+            (tmp_path / "transcripts").mkdir(parents=True, exist_ok=True)
+            resp = await client.get("/api/agents/ghost-agent/transcript")
+
+    assert resp.status_code == 404
+    detail = resp.json()["detail"]
+    assert "ghost-agent" in detail
+    assert "older myOS" in detail
+
+
+@pytest.mark.asyncio
+async def test_register_endpoint_persists_transcript_path():
+    """POST /agents/register should accept and store the optional
+    transcript_path field on the agent metadata."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk, \
+             patch("routers.agents._save_agent_state"):
+            mock_ostk._run = AsyncMock(return_value="")
+
+            resp = await client.post(
+                "/api/agents/register",
+                json={
+                    "name": "tp-agent",
+                    "prompt": "x",
+                    "model": "opus",
+                    "budget": 2.0,
+                    "transcript_path": "/private/tmp/claude-501/proj/sess/tasks/abc.output",
+                },
+            )
+
+    assert resp.status_code == 200
+    from routers.agents import agent_metadata
+    try:
+        meta = agent_metadata["tp-agent"]
+        assert meta["transcript_path"] == "/private/tmp/claude-501/proj/sess/tasks/abc.output"
+    finally:
+        agent_metadata.pop("tp-agent", None)
+
+
 # ── Grant / Permission Request Tests ────────────────────────────────
 
 

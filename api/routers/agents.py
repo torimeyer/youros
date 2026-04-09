@@ -164,21 +164,146 @@ def _get_transcript_metrics(name: str) -> dict:
         return {"transcript_bytes": 0, "transcript_lines": 0}
 
 
+def _format_jsonl_transcript(jsonl_path: Path) -> str:
+    """Parse a Claude Code agent JSONL output file into a readable transcript.
+
+    Each line is a JSON object representing one message. We pull out:
+      - Initial user prompts (string content) -> "User:"
+      - Assistant text blocks -> "Assistant:"
+      - Assistant tool_use blocks -> "[tool: <name>]"
+      - User tool_result blocks -> "Tool result:"
+    Malformed lines are skipped silently.
+    """
+    parts: list[str] = []
+    try:
+        with open(jsonl_path, "r", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+
+                msg_type = entry.get("type")
+                message = entry.get("message") or {}
+                content = message.get("content") if isinstance(message, dict) else None
+
+                if msg_type == "assistant" and isinstance(content, list):
+                    text_chunks: list[str] = []
+                    tool_chunks: list[str] = []
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+                        btype = block.get("type")
+                        if btype == "text":
+                            text = block.get("text") or ""
+                            if text.strip():
+                                text_chunks.append(text)
+                        elif btype == "tool_use":
+                            tool_name = block.get("name") or "tool"
+                            tool_chunks.append(f"[tool: {tool_name}]")
+                    if text_chunks:
+                        parts.append("Assistant: " + "\n".join(text_chunks))
+                    if tool_chunks:
+                        parts.append("Assistant: " + " ".join(tool_chunks))
+                elif msg_type == "user":
+                    if isinstance(content, str) and content.strip():
+                        parts.append("User: " + content.strip())
+                    elif isinstance(content, list):
+                        for block in content:
+                            if not isinstance(block, dict):
+                                continue
+                            if block.get("type") == "tool_result":
+                                result = block.get("content")
+                                if isinstance(result, str) and result.strip():
+                                    parts.append("Tool result: " + result.strip())
+                                elif isinstance(result, list):
+                                    text_pieces: list[str] = []
+                                    for sub in result:
+                                        if isinstance(sub, dict) and sub.get("type") == "text":
+                                            t = sub.get("text") or ""
+                                            if t.strip():
+                                                text_pieces.append(t)
+                                    if text_pieces:
+                                        parts.append("Tool result: " + "\n".join(text_pieces))
+    except OSError:
+        return ""
+    return "\n\n".join(parts)
+
+
 @router.get("/agents/{name}/transcript")
 async def get_agent_transcript(name: str):
-    """Return the raw transcript content for a specific agent."""
+    """Return the readable transcript content for a specific agent.
+
+    Looks in three places, in order:
+      1. The legacy markdown file at PROJECT_ROOT/transcripts/{name}.md
+         (where daemon-spawned agents write their stdout).
+      2. A JSONL output file recorded in this agent's metadata under
+         ``transcript_path`` (where Claude Code subagents write their
+         per-message stream). JSONL is parsed into a readable transcript
+         with clear speaker labels.
+      3. (Future) Best-effort glob over /private/tmp/claude-501/**.
+    """
     from config import PROJECT_ROOT
     # Basic safety: reject path traversal.
     if "/" in name or ".." in name:
         raise HTTPException(status_code=400, detail="Invalid agent name")
+
+    # Source 1: legacy markdown file from daemon-spawned agents.
     transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
-    if not transcript.exists():
-        raise HTTPException(status_code=404, detail=f"No transcript found for agent '{name}'")
+    if transcript.exists() and transcript.stat().st_size > 0:
+        try:
+            content = transcript.read_text(errors="replace")
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Could not read transcript: {exc}") from exc
+        return {"name": name, "content": content, "bytes": len(content)}
+
+    # Source 2: per-agent JSONL output recorded at register time.
+    meta = agent_metadata.get(name) or {}
+    raw_path = meta.get("transcript_path")
+    if raw_path:
+        jsonl_path = Path(raw_path)
+        if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
+            suffix = jsonl_path.suffix.lower()
+            if suffix in (".output", ".jsonl") or _looks_like_jsonl(jsonl_path):
+                content = _format_jsonl_transcript(jsonl_path)
+            else:
+                try:
+                    content = jsonl_path.read_text(errors="replace")
+                except OSError as exc:
+                    raise HTTPException(status_code=500, detail=f"Could not read transcript: {exc}") from exc
+            if content:
+                return {"name": name, "content": content, "bytes": len(content)}
+
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            f"No transcript found for agent '{name}'. This can happen if the "
+            f"agent was spawned by an older myOS version without transcript tracking."
+        ),
+    )
+
+
+def _looks_like_jsonl(path: Path) -> bool:
+    """Cheap sniff: read the first non-empty line and check if it parses as JSON."""
     try:
-        content = transcript.read_text(errors="replace")
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Could not read transcript: {exc}") from exc
-    return {"name": name, "content": content, "bytes": len(content)}
+        with open(path, "r", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    json.loads(line)
+                    return True
+                except (json.JSONDecodeError, ValueError):
+                    return False
+    except OSError:
+        pass
+    return False
 
 
 @router.get("/agents")
@@ -453,6 +578,8 @@ async def register_agent(body: AgentSpawn):
         record["description"] = body.description
     if body.prompt:
         record["prompt"] = body.prompt[:500]
+    if body.transcript_path:
+        record["transcript_path"] = body.transcript_path
     agent_metadata[body.name] = record
     _save_agent_state()
 
