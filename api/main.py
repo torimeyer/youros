@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, meeting_prep, workspace, briefing, workflows, shares, export
+from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, meeting_prep, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns
 
 app = FastAPI(title="myOS API")
 
@@ -53,6 +53,9 @@ app.include_router(briefing.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
 app.include_router(shares.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
+app.include_router(task_suggestions_router.router, prefix="/api")
+app.include_router(recurring_tasks_router.router, prefix="/api")
+app.include_router(agent_patterns.router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -273,6 +276,33 @@ async def schedule_overdue_task_check():
             pass
 
     asyncio.create_task(_check())
+
+
+@app.on_event("startup")
+async def schedule_recurring_task_spawner():
+    """Spawn any due recurring tasks on boot, then repeat every 30 minutes.
+
+    A recurring task is a rule the user set up in Settings that should
+    regenerate a task on a schedule (e.g. "weekly status update every
+    Friday"). This loop checks those rules, creates fresh tasks for the
+    ones that are due, and records when each rule fired so it does not
+    double-fire in the same day.
+    """
+    import asyncio
+
+    async def _loop():
+        # Give the server a moment to settle before touching ostk.
+        await asyncio.sleep(8)
+        while True:
+            try:
+                from services.recurring_tasks import spawn_due_tasks
+                await spawn_due_tasks()
+            except Exception:
+                pass
+            # Check again in 30 minutes.
+            await asyncio.sleep(30 * 60)
+
+    asyncio.create_task(_loop())
 
 
 @app.get("/api/health")

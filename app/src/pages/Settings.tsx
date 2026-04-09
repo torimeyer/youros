@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
+import RecurringTasksSection from '../components/RecurringTasksSection';
 import { api } from '../lib/api';
 
 interface MCPServer {
@@ -706,6 +707,9 @@ export default function Settings() {
             <p className="text-xs text-slate-500 mt-2">Shows advanced agent tabs (Delegate and Shared Workspace) in the Agents page.</p>
           </div>
         </div>
+
+        {/* Recurring tasks */}
+        <RecurringTasksSection cardClass={cardClass} />
 
         {/* Row 3: AI Provider + Notifications */}
         <div className="grid grid-cols-2 gap-6">

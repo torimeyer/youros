@@ -39,6 +39,7 @@ STORE_PATH_CONSTANTS = {
     "services.templates_store": "TEMPLATES_PATH",
     "services.task_order_store": "TASK_ORDER_PATH",
     "services.agent_templates_store": "AGENT_TEMPLATES_PATH",
+    "services.recurring_tasks": "RECURRING_TASKS_PATH",
 }
 
 
