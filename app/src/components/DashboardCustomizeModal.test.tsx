@@ -150,4 +150,82 @@ describe('DashboardCustomizeModal', () => {
     expect(onClose).toHaveBeenCalled()
     expect(onSave).not.toHaveBeenCalled()
   })
+
+  // Regression: the toggle thumb used to render invisible because the
+  // <span> thumb was absolutely positioned with no left anchor, which
+  // made the pill look like a solid blue shape with no on/off marker.
+  // The thumb is now an inline flow element inside an inline-flex track.
+  it('renders thumb at the on position when the toggle is on', () => {
+    // Start with a single visible widget so we know which switch to find.
+    const id = DEFAULT_DASHBOARD_WIDGETS[0]
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={[id]}
+        onSave={onSave}
+      />,
+    )
+    const thumb = screen.getByTestId(`widget-toggle-thumb-${id}`)
+    expect(thumb.className).toContain('bg-white')
+    expect(thumb.className).toContain('translate-x-[22px]')
+    expect(thumb.className).not.toContain('translate-x-0.5')
+  })
+
+  it('renders thumb at the off position when the toggle is off', () => {
+    // Pick a widget that is NOT in the saved list so it renders off.
+    const hiddenId = DEFAULT_DASHBOARD_WIDGETS[2]
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={[DEFAULT_DASHBOARD_WIDGETS[0]]}
+        onSave={onSave}
+      />,
+    )
+    const thumb = screen.getByTestId(`widget-toggle-thumb-${hiddenId}`)
+    expect(thumb.className).toContain('bg-white')
+    expect(thumb.className).toContain('translate-x-0.5')
+    expect(thumb.className).not.toContain('translate-x-[22px]')
+  })
+
+  // Regression: clicking a hidden toggle must result in onSave being
+  // called with a list that INCLUDES the newly toggled id. Previously
+  // users reported the new card never showed up on the dashboard.
+  it('clicking a hidden toggle then Save emits the new id in the saved list', () => {
+    // Start with only quick_launch visible. next_meeting is hidden.
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={['quick_launch']}
+        onSave={onSave}
+      />,
+    )
+    const label = DASHBOARD_WIDGET_LABELS['next_meeting']
+    const sw = screen.getByRole('switch', { name: `Show ${label}` })
+    expect(sw).toHaveAttribute('aria-checked', 'false')
+    fireEvent.click(sw)
+    expect(sw).toHaveAttribute('aria-checked', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+    expect(onSave).toHaveBeenCalledTimes(1)
+    const emitted = onSave.mock.calls[0][0] as string[]
+    expect(emitted).toContain('quick_launch')
+    expect(emitted).toContain('next_meeting')
+  })
+
+  it('Reset to default then Save emits the full default widget list', () => {
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={['todays_focus']}
+        onSave={onSave}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Reset to default/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+    expect(onSave).toHaveBeenCalledWith([...DEFAULT_DASHBOARD_WIDGETS])
+  })
 })

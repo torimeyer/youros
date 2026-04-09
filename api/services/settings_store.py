@@ -26,6 +26,37 @@ def _normalize_features(features: dict[str, bool]) -> dict[str, bool]:
     return normalized
 
 
+def _migrate_briefing_keys(data: dict) -> tuple[dict, bool]:
+    """One-shot migration of the old morning_briefing keys to briefing.
+
+    Renames ``morning_briefing_enabled`` to ``briefing_enabled`` and
+    replaces ``"morning_briefing"`` with ``"briefing"`` inside the
+    ``dashboard_widgets`` list. Returns the updated data and a flag
+    indicating whether any change was made so callers can persist it.
+    """
+    changed = False
+    if "morning_briefing_enabled" in data:
+        # Only copy the old value if the new key is not already set.
+        if "briefing_enabled" not in data:
+            data["briefing_enabled"] = data["morning_briefing_enabled"]
+        data.pop("morning_briefing_enabled", None)
+        changed = True
+
+    widgets = data.get("dashboard_widgets")
+    if isinstance(widgets, list) and "morning_briefing" in widgets:
+        new_widgets: list = []
+        for w in widgets:
+            if w == "morning_briefing":
+                if "briefing" not in new_widgets:
+                    new_widgets.append("briefing")
+            elif w not in new_widgets:
+                new_widgets.append(w)
+        data["dashboard_widgets"] = new_widgets
+        changed = True
+
+    return data, changed
+
+
 class SettingsStore:
     def __init__(self):
         self._ensure_exists()
@@ -39,6 +70,14 @@ class SettingsStore:
         data = json.loads(SETTINGS_PATH.read_text())
         if "features" in data and isinstance(data["features"], dict):
             data["features"] = _normalize_features(data["features"])
+        # One-shot migration: the setting used to be called
+        # ``morning_briefing_enabled`` and the dashboard widget id used
+        # to be ``morning_briefing``. Carry the old user values over to
+        # the new keys, drop the old ones, and rewrite the file in place
+        # so future loads skip this branch.
+        data, migrated = _migrate_briefing_keys(data)
+        if migrated:
+            SETTINGS_PATH.write_text(json.dumps(data, indent=2))
         # Backfill any fields missing from an older settings.json with the
         # pydantic schema defaults. This is how new server-backed settings
         # like ``tour_complete`` show up for users who were onboarded before

@@ -100,13 +100,14 @@ function SortableRow({ row, onToggle }: SortableRowProps) {
         aria-checked={row.visible}
         aria-label={`Show ${label}`}
         onClick={() => onToggle(row.id)}
-        className={`relative w-10 h-6 rounded-full transition-colors ${
+        className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors shrink-0 ${
           row.visible ? 'bg-blue-500' : 'bg-slate-600'
         }`}
       >
         <span
-          className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-            row.visible ? 'translate-x-[18px]' : 'translate-x-0.5'
+          data-testid={`widget-toggle-thumb-${row.id}`}
+          className={`inline-block w-5 h-5 rounded-full bg-white shadow-sm transform transition-transform ${
+            row.visible ? 'translate-x-[22px]' : 'translate-x-0.5'
           }`}
         />
       </button>

@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from models.schemas import AgentSpawn, AgentNudge, GrantApprove, GrantDeny
+from models.schemas import AgentSpawn, AgentNudge, AgentNudgeReply, GrantApprove, GrantDeny
 from services.ostk import ostk, OstkError
 import services.agent_memory as agent_memory_svc
 
@@ -19,6 +19,14 @@ class AgentMemorySave(BaseModel):
 class AgentComplete(BaseModel):
     summary: Optional[str] = None
 
+
+class AgentCancel(BaseModel):
+    reason: Optional[str] = "user cancelled"
+
+
+class AgentHeartbeat(BaseModel):
+    step: Optional[str] = None
+
 router = APIRouter(tags=["agents"])
 
 # In-memory registry of active agent processes
@@ -30,10 +38,71 @@ agent_metadata: dict[str, dict] = {}
 # In-memory log of nudges sent during this session (visible in UI)
 nudge_history: dict[str, list[dict]] = {}
 
+# In-memory log of replies agents have posted back during this session.
+# Populated via ``POST /api/agents/{name}/reply`` and surfaced alongside
+# the user's own nudges by ``GET /api/agents/{name}/nudges``.
+nudge_replies: dict[str, list[dict]] = {}
+
 from config import AGENTS_DIR, OSTK_DIR
 
 # Persistent file tracking agent state across server restarts
 AGENT_STATE_PATH = OSTK_DIR / "agent_state.json"
+
+# How long a running agent can go without a heartbeat before the list
+# endpoint marks it ``terminated_stale``. Ten minutes is long enough to
+# cover normal long-running agents, short enough that orphans clear
+# within a coffee break. Exposed as a module constant so tests and
+# future tuning can override it.
+STALE_AGENT_TIMEOUT_SECONDS = 600
+
+# How often every spawned agent must poll its nudge mailbox so Tori's
+# inline messages reach it in a human amount of time. Sixty seconds is
+# a deliberate trade off: short enough that Tori is not left waiting
+# for minutes after typing a follow up, long enough that the agent is
+# not burning most of its turn on HTTP polls. The value is surfaced in
+# the user facing delivery status line and in the standard mailbox
+# instruction block so the UI copy and the agent contract never drift.
+# Tests assert this stays at or below two minutes.
+MAILBOX_CHECK_INTERVAL_SECONDS = 60
+
+
+def agent_mailbox_instruction(agent_name: str) -> str:
+    """Return the standard mailbox checking prompt block for a spawned agent.
+
+    Every Claude Code subagent spawned by the orchestrator must have
+    this block pasted into its prompt so it actually reads the nudges
+    Tori writes through the Agents page. Without it the mailbox fills
+    up with orphan messages and the inline UI silently swallows the
+    conversation. The block is a single source of truth shared by the
+    orchestrator, tests, and any future spawn helper.
+
+    The block intentionally keeps the wording plain. No jargon. No em
+    dashes. No placeholders the agent has to fill in, other than its
+    own name which is baked in here at format time. The agent name is
+    embedded literally so the curl commands can be copy pasted as is.
+    """
+    interval = MAILBOX_CHECK_INTERVAL_SECONDS
+    return (
+        f"## Mailbox checking (mandatory every {interval} seconds)\n\n"
+        "Tori may send you follow up instructions while you work via "
+        "the Agents page in myOS. To pick those up, you MUST do the "
+        "following on a regular schedule, alongside your heartbeat:\n\n"
+        f"1. Every ~{interval} seconds, call:\n"
+        f"   `curl -s http://localhost:8000/api/agents/{agent_name}/nudges`\n"
+        "2. Compare the timestamps to the last batch you handled. Any "
+        "nudge with a newer timestamp is a NEW message from Tori.\n"
+        "3. Treat each new nudge as an additional instruction added to "
+        "your task. Decide if it changes your plan.\n"
+        "4. After acting on a nudge, post a short reply so Tori sees "
+        "it inline:\n"
+        f"   `curl -s -X POST http://localhost:8000/api/agents/{agent_name}/reply"
+        " -H 'Content-Type: application/json' -d '{\"message\": \"<your reply>\"}'`\n"
+        "5. If a nudge cancels your work, finish the current safe "
+        f"step, post a final reply, then POST /api/agents/{agent_name}/complete"
+        " and exit.\n\n"
+        "This loop lives alongside your heartbeats. Do not skip it. "
+        "Tori is waiting on the other end."
+    )
 
 
 def _load_agent_state() -> dict:
@@ -62,6 +131,53 @@ def _is_pid_alive(pid: int) -> bool:
         return True
     except (ProcessLookupError, PermissionError):
         return False
+
+
+def _now_iso() -> str:
+    """Return an ISO-8601 UTC timestamp. Wrapped so tests can patch it."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_iso(value: str) -> Optional[datetime]:
+    """Parse an ISO-8601 timestamp tolerant of trailing ``Z``."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _sweep_stale_running_agents() -> bool:
+    """Mark any running agent with no recent heartbeat as ``terminated_stale``.
+
+    Called at the top of the list endpoint so every poll picks up agents
+    that died without calling ``/complete`` (external kill, OOM, crashed
+    parent process). Agents without ``last_heartbeat_at`` fall back to
+    ``spawned_at`` so legacy records from before the heartbeat field was
+    added still get swept. Returns ``True`` if any records changed, so
+    the caller can persist once instead of per-record.
+    """
+    now = datetime.now(timezone.utc)
+    changed = False
+    for name, meta in agent_metadata.items():
+        if meta.get("status") != "running":
+            continue
+        last_seen_raw = meta.get("last_heartbeat_at") or meta.get("spawned_at")
+        last_seen = _parse_iso(last_seen_raw) if isinstance(last_seen_raw, str) else None
+        if last_seen is None:
+            continue
+        age_seconds = (now - last_seen).total_seconds()
+        if age_seconds <= STALE_AGENT_TIMEOUT_SECONDS:
+            continue
+        meta["status"] = "terminated_stale"
+        meta["terminated_at"] = now.isoformat()
+        meta["terminated_reason"] = (
+            f"No heartbeat for {int(age_seconds)}s "
+            f"(limit {STALE_AGENT_TIMEOUT_SECONDS}s)"
+        )
+        changed = True
+    return changed
 
 
 def _recover_stale_agents():
@@ -671,19 +787,69 @@ async def list_agents():
         # Note: stale running agents from previous server sessions are cleaned
         # up by _recover_stale_agents() at startup, so any agent that still
         # has status="running" here was registered during this server session.
+        #
+        # Safety net for needle 240: a legacy record with no last_heartbeat_at
+        # (registered under older code, or an agent that never polled
+        # /heartbeat at all) would otherwise pass through forever. Age
+        # it out on spawned_at at the same 20 minute cutoff the else
+        # branch uses for is_stale below. The fast 10 minute sweep
+        # below still wins for any record that does have last_heartbeat_at,
+        # so nothing regresses on the good path.
         elif persisted_status == "running":
-            agents_map[name] = {
-                "name": name,
-                "source": meta.get("source", "api"),
-                **meta,
-                "status": "running",
-            }
+            spawned_at_str = meta.get("spawned_at", "")
+            has_heartbeat = isinstance(meta.get("last_heartbeat_at"), str)
+            is_stale_no_heartbeat = False
+            if not has_heartbeat and spawned_at_str:
+                try:
+                    spawned_at = datetime.fromisoformat(
+                        spawned_at_str.replace("Z", "+00:00")
+                    )
+                    age_seconds = (
+                        datetime.now(timezone.utc) - spawned_at
+                    ).total_seconds()
+                    is_stale_no_heartbeat = age_seconds > 1200
+                except (ValueError, TypeError):
+                    pass
+            if is_stale_no_heartbeat:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                meta["status"] = "terminated_stale"
+                meta["terminated_at"] = now_iso
+                meta["terminated_reason"] = (
+                    "Running with no heartbeat for over 20 minutes "
+                    "(legacy record, swept by list endpoint)"
+                )
+                agent_metadata[name] = meta
+                _save_agent_state()
+                agents_map[name] = {
+                    "name": name,
+                    "source": meta.get("source", "api"),
+                    **meta,
+                    "status": "terminated_stale",
+                }
+            else:
+                agents_map[name] = {
+                    "name": name,
+                    "source": meta.get("source", "api"),
+                    **meta,
+                    "status": "running",
+                }
         elif persisted_status == "abandoned":
             agents_map[name] = {
                 "name": name,
                 "source": meta.get("source", "api"),
                 **meta,
                 "status": "abandoned",
+            }
+        elif persisted_status in ("terminated_stale", "cancelled", "failed", "killed", "stopped"):
+            # Preserve any terminal status the register/complete/cancel/sweep
+            # paths stamped on the record. Without this branch the else below
+            # would try to re-derive the status and could flip terminal states
+            # back to running or abandoned.
+            agents_map[name] = {
+                "name": name,
+                "source": meta.get("source", "api"),
+                **meta,
+                "status": persisted_status,
             }
         elif pid and _is_pid_alive(pid):
             agents_map[name] = {
@@ -707,7 +873,6 @@ async def list_agents():
                 # If it has been "running" for more than 20 minutes without
                 # any transcript activity, mark it as abandoned so the UI
                 # does not show forever-stuck ghost agents.
-                from datetime import datetime, timezone
                 spawned_at_str = meta.get("spawned_at", "")
                 is_stale = False
                 if spawned_at_str:
@@ -739,6 +904,50 @@ async def list_agents():
     # 3. Daemon agents (highest priority, ground truth)
     for agent in ps_result.get("agents", []):
         agents_map[agent["name"]] = agent
+
+    # Sweep: mark running agents with no recent heartbeat as terminated_stale.
+    # Done after merging the three sources so we catch every record that still
+    # says running, regardless of which source set that status. We persist once
+    # per request via _save_agent_state so 50 stale rows are cleaned in a single
+    # write, not 50 writes.
+    # Important: we ONLY sweep records that have a last_heartbeat_at
+    # field set. Legacy records registered before the heartbeat field
+    # existed fall back to the older abandoned-at-20-min logic above,
+    # so an agent that never calls /heartbeat does not get swept
+    # purely on spawned_at. Once an agent hits /register or
+    # /heartbeat under the new code, last_heartbeat_at is set and it
+    # becomes eligible for the fast 10-minute sweep.
+    sweep_changed = False
+    now_for_sweep = datetime.now(timezone.utc)
+    for name, agent in agents_map.items():
+        if agent.get("status") != "running":
+            continue
+        last_heartbeat_raw = agent.get("last_heartbeat_at")
+        if not isinstance(last_heartbeat_raw, str):
+            continue
+        last_seen = _parse_iso(last_heartbeat_raw)
+        if last_seen is None:
+            continue
+        age_seconds = (now_for_sweep - last_seen).total_seconds()
+        if age_seconds <= STALE_AGENT_TIMEOUT_SECONDS:
+            continue
+        terminated_at = now_for_sweep.isoformat()
+        reason = (
+            f"No heartbeat for {int(age_seconds)}s "
+            f"(limit {STALE_AGENT_TIMEOUT_SECONDS}s)"
+        )
+        agent["status"] = "terminated_stale"
+        agent["terminated_at"] = terminated_at
+        agent["terminated_reason"] = reason
+        # Persist to agent_metadata so the next request does not re-sweep.
+        meta = agent_metadata.get(name)
+        if meta is not None:
+            meta["status"] = "terminated_stale"
+            meta["terminated_at"] = terminated_at
+            meta["terminated_reason"] = reason
+            sweep_changed = True
+    if sweep_changed:
+        _save_agent_state()
 
     all_agents = list(agents_map.values())
 
@@ -791,6 +1000,18 @@ async def spawn_agent(body: AgentSpawn):
             prompt_with_memory = _workspace_summary
     except Exception:
         pass
+
+    # Prepend the mandatory mailbox instruction block so every spawned
+    # agent knows it must poll /nudges and reply via /reply. Without
+    # this block the agent has no idea Tori may send follow ups inline
+    # and the Agents page mailbox silently fills up. Regression guard
+    # for needle 240. The block goes at the very top so it survives
+    # any truncation or model prompt reformatting downstream.
+    mailbox_block = agent_mailbox_instruction(body.name)
+    if prompt_with_memory:
+        prompt_with_memory = mailbox_block + "\n\n---\n\n" + prompt_with_memory
+    else:
+        prompt_with_memory = mailbox_block
 
     cmd = [
         CLAUDE_BIN, "--print",
@@ -853,12 +1074,22 @@ async def register_agent(body: AgentSpawn):
     # Default status to "running" so newly registered agents appear in the UI
     # immediately. Callers may pass an explicit status to override.
     status = body.status or "running"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    # Preserve spawned_at across re-registers so an agent that calls
+    # register again (for a heartbeat-like ping) does not lose its
+    # original start time and its duration stays accurate.
+    existing = agent_metadata.get(body.name) or {}
+    spawned_at = existing.get("spawned_at") or now_iso
     record: dict = {
-        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "spawned_at": spawned_at,
         "budget": str(body.budget),
         "model": model,
         "source": "claude-code",
         "status": status,
+        # Heartbeat field. Set on register and refreshed on every re-register
+        # or /heartbeat call. The list endpoint compares this to
+        # STALE_AGENT_TIMEOUT_SECONDS to auto-sweep orphans.
+        "last_heartbeat_at": now_iso,
     }
     if body.description:
         record["description"] = body.description
@@ -886,7 +1117,20 @@ async def register_agent(body: AgentSpawn):
     except Exception:
         pass
 
-    return {"result": f"Agent '{body.name}' registered", "source": "claude-code", "status": status}
+    # Return the mailbox contract so the caller (a Claude Code subagent
+    # calling /register at step 0) learns the polling rule from the API
+    # itself, not from the parent session's prompt. Without this block
+    # the subagent may never know it should poll /nudges and Tori's
+    # follow up messages pile up unseen. Regression guard for needle
+    # 240. Keyed under ``mailbox_instruction`` so old callers that only
+    # read ``result`` still work.
+    return {
+        "result": f"Agent '{body.name}' registered",
+        "source": "claude-code",
+        "status": status,
+        "mailbox_instruction": agent_mailbox_instruction(body.name),
+        "mailbox_check_interval_seconds": MAILBOX_CHECK_INTERVAL_SECONDS,
+    }
 
 
 @router.post("/agents/{name}/complete")
@@ -900,6 +1144,18 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     If ``body.summary`` is provided it is appended to the agent's persistent
     memory so future sessions can pick up where this one left off.
     """
+    # Defensive: if this agent was already marked terminal (cancelled,
+    # terminated_stale), do NOT flip it back to completed. A zombie
+    # /complete arriving after a kill or sweep must not revive the
+    # record. Return a 200 so callers treat it as a noop.
+    existing_meta = agent_metadata.get(name, {})
+    terminal_status = existing_meta.get("status")
+    if terminal_status in ("cancelled", "terminated_stale"):
+        return {
+            "result": f"Agent '{name}' already {terminal_status}, complete ignored",
+            "status": terminal_status,
+        }
+
     # Save session summary to memory if provided
     if body and body.summary:
         try:
@@ -975,6 +1231,69 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     return {"result": f"Agent '{name}' marked complete", "status": "completed"}
 
 
+@router.post("/agents/{name}/heartbeat")
+async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
+    """Refresh an agent's ``last_heartbeat_at`` so the stale sweep does
+    not mark it terminated.
+
+    Agents should POST here on a short interval (every minute or so)
+    while they are still doing work. The body is optional. If ``step``
+    is provided it is stored on the record so the UI can surface the
+    current phase the agent is working on.
+    """
+    if name not in agent_metadata:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{name}' not found. Register first with /api/agents/register.",
+        )
+    meta = agent_metadata[name]
+    now_iso = _now_iso()
+    meta["last_heartbeat_at"] = now_iso
+    if body and body.step:
+        meta["current_step"] = body.step
+    _save_agent_state()
+    return {"ok": True, "last_heartbeat_at": now_iso}
+
+
+@router.post("/agents/{name}/cancel")
+async def cancel_agent(name: str, body: Optional[AgentCancel] = None):
+    """Mark an agent as cancelled.
+
+    Unlike ``/kill`` which tries to actually terminate an in-process
+    subprocess, this endpoint just marks the agent record as
+    cancelled so it falls out of Active Sessions. It is the right
+    call for externally managed agents (Claude Code subagents) that
+    myOS cannot signal directly.
+    """
+    if name not in agent_metadata:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{name}' not found.",
+        )
+    reason = body.reason if body and body.reason else "user cancelled"
+    now_iso = _now_iso()
+    meta = agent_metadata[name]
+    meta["status"] = "cancelled"
+    meta["terminated_at"] = now_iso
+    meta["terminated_reason"] = reason
+    _save_agent_state()
+
+    # Audit so the audit log reflects the cancel.
+    try:
+        await ostk._run(
+            "os",
+            "audit",
+            "--event",
+            "agent.cancelled",
+            "--data",
+            json.dumps({"name": name, "reason": reason}),
+        )
+    except Exception:
+        pass
+
+    return {"ok": True, "status": "cancelled", "terminated_at": now_iso}
+
+
 @router.get("/agents/{name}/memory")
 async def get_agent_memory(name: str):
     """Return stored memory (facts and session summaries) for an agent."""
@@ -1025,33 +1344,74 @@ async def kill_agent(name: str):
     )
 
 
+def _nudge_delivery_message(delivery: str, name: str) -> str:
+    """Return the plain language status line the UI shows to the user.
+
+    The wording is deliberately non technical and tells the user what
+    will actually happen next. This is the surface for Tori's feedback
+    that silent success on a dead delivery pipe is not acceptable.
+    The file_only branch cites the real mailbox check interval so the
+    user sees a specific wait time, not a vague "next time" promise.
+    """
+    if delivery == "stdin":
+        return "Sent. The agent should respond shortly."
+    if delivery == "file_only":
+        return (
+            f"Saved. The agent will see this within about "
+            f"{MAILBOX_CHECK_INTERVAL_SECONDS} seconds on its next "
+            f"mailbox check."
+        )
+    return f"Could not deliver to '{name}'. No running agent was found."
+
+
 @router.post("/agents/{name}/nudge")
 async def nudge_agent(name: str, body: AgentNudge):
     """Send a message (nudge) to a running agent.
 
-    This does two things:
-    1. Writes a nudge file to .ostk/nudges/{name}/ so the agent (or any
-       watcher) can pick it up from the filesystem.
-    2. If the agent was spawned via the API and its process stdin is available,
-       writes the message directly to stdin so it arrives immediately.
+    Delivery is reported honestly. There are three cases:
+
+    * ``stdin``: the agent has a live process handle and its stdin
+      accepted the message.
+    * ``file_only``: the message was written to
+      ``.ostk/nudges/{name}/`` for the agent to pick up on its next
+      check, but there is no live pipe. This is the normal case for
+      Claude Code subagents that register over HTTP.
+    * ``unavailable``: the agent is not registered at all, so there is
+      no place for the message to land.
     """
     message = body.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    # Write the nudge to the filesystem
+    # Agents must be registered for a nudge to mean anything. If the
+    # name is unknown we refuse early with a 404 so the UI can show
+    # "agent not found" instead of writing orphan files forever.
+    meta = agent_metadata.get(name)
+    if meta is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{name}' is not registered.",
+        )
+
+    # Write the nudge to the filesystem so any watcher can pick it up.
     nudge_data = await ostk.write_nudge(name, message)
 
-    # Also try to write to the process stdin for immediate delivery
+    # Try to write to the process stdin for immediate delivery. This
+    # only works when the agent was spawned by this API (has a live
+    # process handle in ``active_agents``). Claude Code subagents that
+    # registered over HTTP will never have a proc here, and that is
+    # expected. We report ``file_only`` for them, not ``unavailable``.
     proc = active_agents.get(name)
-    stdin_sent = False
+    delivery = "file_only"
     if proc and hasattr(proc, "stdin") and proc.stdin:
         try:
             proc.stdin.write((message + "\n").encode())
             await proc.stdin.drain()
-            stdin_sent = True
+            delivery = "stdin"
         except (BrokenPipeError, ConnectionResetError, OSError):
-            stdin_sent = False
+            delivery = "file_only"
+
+    delivery_message = _nudge_delivery_message(delivery, name)
 
     # Track in session history
     if name not in nudge_history:
@@ -1060,7 +1420,11 @@ async def nudge_agent(name: str, body: AgentNudge):
         "message": message,
         "timestamp": nudge_data["timestamp"],
         "source": "ui",
-        "stdin_delivered": stdin_sent,
+        # Legacy field kept for any old clients that still read it.
+        "stdin_delivered": delivery == "stdin",
+        # New structured delivery fields.
+        "delivery": delivery,
+        "delivery_message": delivery_message,
     }
     nudge_history[name].append(record)
 
@@ -1070,15 +1434,66 @@ async def nudge_agent(name: str, body: AgentNudge):
     }
 
 
+@router.post("/agents/{name}/reply")
+async def post_agent_reply(name: str, body: AgentNudgeReply):
+    """Record a reply from the agent to a previous nudge.
+
+    Agents (or any worker watching the nudge directory) call this to
+    post their answer back into the inline conversation. The reply is
+    persisted to ``.ostk/nudges/{name}/replies/`` and mirrored in
+    session memory so ``GET /api/agents/{name}/nudges`` surfaces it on
+    the next poll. A 404 is returned if the agent is not registered so
+    stale wrappers cannot stuff orphan replies into the store.
+    """
+    message = body.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Reply cannot be empty")
+
+    if agent_metadata.get(name) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{name}' is not registered.",
+        )
+
+    reply_data = await ostk.append_nudge_reply(
+        name,
+        message,
+        in_reply_to=body.in_reply_to,
+    )
+
+    if name not in nudge_replies:
+        nudge_replies[name] = []
+    nudge_replies[name].append(reply_data)
+
+    return {
+        "result": f"Reply recorded for '{name}'",
+        "reply": reply_data,
+    }
+
+
 @router.get("/agents/{name}/nudges")
 async def list_agent_nudges(name: str):
-    """List all nudges for an agent: both file-based and in-memory session history."""
+    """List all nudges and replies for an agent.
+
+    Returns four lists:
+
+    * ``nudges``: file-based user messages written by /nudge.
+    * ``session_nudges``: in-memory user messages from the current
+      session. Same shape as ``nudges``, kept separate so the client
+      can deduplicate.
+    * ``replies``: file-based replies the agent has posted via /reply.
+    * ``session_replies``: in-memory replies from the current session.
+    """
     file_nudges = await ostk.list_nudges(name)
     session_nudges = nudge_history.get(name, [])
+    file_replies = await ostk.list_nudge_replies(name)
+    session_replies = nudge_replies.get(name, [])
     return {
         "agent": name,
         "nudges": file_nudges,
         "session_nudges": session_nudges,
+        "replies": file_replies,
+        "session_replies": session_replies,
     }
 
 
@@ -1254,14 +1669,16 @@ async def agent_stream(websocket: WebSocket, name: str):
                     nudge_data = await ostk.write_nudge(name, message)
 
                     # Try stdin delivery
-                    stdin_sent = False
+                    delivery = "file_only"
                     if proc and hasattr(proc, "stdin") and proc.stdin:
                         try:
                             proc.stdin.write((message + "\n").encode())
                             await proc.stdin.drain()
-                            stdin_sent = True
+                            delivery = "stdin"
                         except (BrokenPipeError, ConnectionResetError, OSError):
                             pass
+
+                    delivery_message = _nudge_delivery_message(delivery, name)
 
                     # Track in session history
                     if name not in nudge_history:
@@ -1270,7 +1687,9 @@ async def agent_stream(websocket: WebSocket, name: str):
                         "message": message,
                         "timestamp": nudge_data["timestamp"],
                         "source": "ui",
-                        "stdin_delivered": stdin_sent,
+                        "stdin_delivered": delivery == "stdin",
+                        "delivery": delivery,
+                        "delivery_message": delivery_message,
                     }
                     nudge_history[name].append(record)
 

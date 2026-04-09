@@ -1,8 +1,8 @@
-"""Morning briefing service.
+"""Briefing service.
 
-Generates a short daily briefing using Claude when the user opens myOS
-in the morning. State lives in ~/.myos/briefing_state.json so it never
-touches the repo and survives git pulls.
+Generates a short daily briefing using Claude whenever the user asks for
+it. State lives in ~/.myos/briefing_state.json so it never touches the
+repo and survives git pulls.
 """
 
 from __future__ import annotations
@@ -18,11 +18,9 @@ from services.settings_store import settings_store
 MYOS_DIR = Path.home() / ".myos"
 BRIEFING_STATE_PATH = MYOS_DIR / "briefing_state.json"
 
-_NOON_HOUR = 12
-
 
 def _load_state() -> dict:
-    import services.morning_briefing as _self
+    import services.briefing as _self
     state_path: Path = _self.BRIEFING_STATE_PATH
     state_path.parent.mkdir(parents=True, exist_ok=True)
     if not state_path.exists():
@@ -34,29 +32,26 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict) -> None:
-    import services.morning_briefing as _self
+    import services.briefing as _self
     state_path: Path = _self.BRIEFING_STATE_PATH
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(state, indent=2))
 
 
 def _today_str() -> str:
-    import services.morning_briefing as _self
+    import services.briefing as _self
     return _self.datetime.now().strftime("%Y-%m-%d")
 
 
 def should_show_briefing() -> bool:
-    """Return True when it is before noon and no briefing has been shown today.
+    """Return True when the briefing should be shown right now.
 
-    Also returns False when the morning briefing setting is disabled.
+    Returns False when the briefing setting is disabled or when the user
+    has already dismissed today's briefing. There is no time-of-day gate:
+    the briefing can be requested at any hour.
     """
     # Respect the setting (defaults to True for new installs via schema default)
-    if not settings_store.get("morning_briefing_enabled", True):
-        return False
-
-    # Only show before noon local time
-    import services.morning_briefing as _self
-    if _self.datetime.now().hour >= _NOON_HOUR:
+    if not settings_store.get("briefing_enabled", True):
         return False
 
     state = _load_state()
@@ -66,11 +61,11 @@ def should_show_briefing() -> bool:
     if state.get("dismissed_date") == today:
         return False
 
-    # Last shown was today and we have a cached briefing already
+    # Cached briefing for today exists, serve it
     if state.get("last_shown") == today and state.get("briefing"):
         return True
 
-    # Not shown yet today
+    # Not shown yet today, show it
     if state.get("last_shown") != today:
         return True
 
@@ -87,7 +82,7 @@ def get_cached_briefing() -> Optional[str]:
 
 
 async def generate_briefing() -> str:
-    """Generate a morning briefing using Claude and cache it.
+    """Generate a briefing using Claude and cache it.
 
     Pulls in today's calendar events, open P0/P1 tasks, and yesterday's
     activity summary. Returns a 3-5 sentence plain-language briefing.
@@ -167,10 +162,11 @@ async def generate_briefing() -> str:
     prompt = (
         f"Today is {today_display}. Here is the user's workspace context:\n\n"
         f"{context_block}\n\n"
-        "Write a short morning briefing (3-5 sentences, plain conversational language, "
+        "Write a short briefing (3-5 sentences, plain conversational language, "
         "no jargon, no bullet points). Mention what is on the calendar if anything, "
-        "highlight the most important task to work on, and give one encouraging note "
-        "to start the day. Keep it warm and brief. Do not use em-dashes."
+        "highlight the most important task to work on, and give one encouraging note. "
+        "Keep it warm and brief. Do not use em-dashes. Do not assume a time of day, "
+        "so avoid phrases like good morning, this morning, or your morning."
     )
 
     briefing = await _call_claude(prompt)
@@ -212,7 +208,7 @@ async def _call_claude(prompt: str) -> str:
 
     if not api_key:
         return (
-            "Good morning! Your workspace is ready. "
+            "Your workspace is ready. "
             "Check your top tasks and have a great day."
         )
 

@@ -17,15 +17,25 @@ async def calendar_auth_status():
     - authenticated: True if a Google token exists.
     - needs_reauth: True if the token exists but the calendar scope is missing.
     - email: the connected account email, if available.
+
+    Uses get_upcoming_events as the probe so a warm cache hit costs no Google
+    API call at all. A scope error on cold path means needs_reauth.
     """
     authed = is_authenticated()
     email = get_email() if authed else None
     reauth = False
     if authed:
         try:
-            reauth = await calendar_service.needs_reauth()
-        except Exception:
+            await calendar_service.get_upcoming_events(days=7)
             reauth = False
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "accessnotconfigured" in msg or "has not been used" in msg:
+                reauth = False
+            elif "insufficientpermissions" in msg or "insufficient authentication scopes" in msg:
+                reauth = True
+            else:
+                reauth = False
     return {
         "authenticated": authed,
         "needs_reauth": reauth,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Dashboard from './Dashboard'
 import { useAppStore, DEFAULT_DASHBOARD_WIDGETS } from '../stores/app'
@@ -17,10 +17,10 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../lib/api', () => ({
   api: {
     get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    patch: vi.fn(),
-    delete: vi.fn(),
+    post: vi.fn().mockResolvedValue({}),
+    put: vi.fn().mockResolvedValue({}),
+    patch: vi.fn().mockResolvedValue({}),
+    delete: vi.fn().mockResolvedValue({}),
   },
 }))
 
@@ -318,6 +318,59 @@ describe('Dashboard widget customization', () => {
     })
   })
 
+  it('renders every widget id from DEFAULT_DASHBOARD_WIDGETS even when API data is empty', async () => {
+    // Regression for the briefing card bug. The customize modal lists
+    // every widget in DEFAULT_DASHBOARD_WIDGETS as a toggle, but the
+    // dashboard render functions used to return null when their data
+    // source was empty. Toggling a card on did nothing visible. Every
+    // render function in Dashboard.tsx must now produce a DOM node with
+    // its widget testid even when the API returns empty data so the
+    // user always sees a placeholder instead of a missing card.
+    // Empty-but-shaped data for every endpoint. The dashboard should
+    // render every widget's empty state when its data source is empty.
+    const emptyDashboard = {
+      counts: { open: 0, closed: 0, p0: 0, p1: 0, p2: 0 },
+      focus: [],
+      recent_tasks: [],
+      hay_count: 0,
+      ostk_status: 'no daemon running',
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(emptyDashboard)
+      if (path === '/dashboard/summary') return Promise.resolve({ bullets: [] })
+      if (path === '/dashboard/compounds') return Promise.resolve({ top: null, items: [] })
+      if (path === '/dashboard/diff') return Promise.resolve({ added: [], removed: [] })
+      if (path.startsWith('/costs')) return Promise.resolve({ entries: [] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+
+    useAppStore.setState({
+      dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS],
+    })
+    renderDashboard()
+
+    // Every widget in the canonical list MUST render its testid, even
+    // when the API has nothing to show. If any of these fails, a render
+    // function is silently returning null and the toggle is broken.
+    const expectedTestIds = [
+      'widget-briefing',
+      'widget-focus-first',
+      'widget-todays-focus',
+      'widget-quick-launch',
+      'widget-next-meeting',
+      'widget-day-summary',
+    ]
+    for (const testId of expectedTestIds) {
+      // eslint-disable-next-line no-await-in-loop
+      await waitFor(() => {
+        expect(screen.getByTestId(testId)).toBeInTheDocument()
+      })
+    }
+  })
+
   it('hides widgets that are not in the dashboardWidgets preference', async () => {
     useAppStore.setState({
       dashboardWidgets: ['todays_focus'],
@@ -360,6 +413,65 @@ describe('Dashboard widget customization', () => {
     expect(
       screen.getByRole('dialog', { name: /Customize dashboard/i }),
     ).toBeInTheDocument()
+  })
+
+  // Regression for the Customize dashboard toggle bug: users toggled a
+  // hidden card on and saved, but the card never appeared on the
+  // dashboard. The root cause was that conditional render functions
+  // returned null when there was no data (no next meeting, no compound
+  // task), so the toggle looked broken even though the id was saved.
+  it('toggling a hidden card on via the modal adds it to the dashboard', async () => {
+    useAppStore.setState({ dashboardWidgets: ['todays_focus'] })
+    renderDashboard()
+    await waitFor(() => expect(screen.getByText("Today's Focus")).toBeInTheDocument())
+    expect(screen.queryByText('Quick Launch')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Customize dashboard/i }))
+    const dialog = screen.getByRole('dialog', { name: /Customize dashboard/i })
+    const sw = within(dialog).getByRole('switch', { name: /Show Quick Launch/i })
+    expect(sw).toHaveAttribute('aria-checked', 'false')
+    fireEvent.click(sw)
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Save$/ }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-quick-launch')).toBeInTheDocument()
+    })
+    expect(useAppStore.getState().dashboardWidgets).toContain('quick_launch')
+  })
+
+  it('toggling on Next Meeting shows an empty-state card when there are no meetings', async () => {
+    useAppStore.setState({ dashboardWidgets: ['todays_focus'] })
+    renderDashboard()
+    await waitFor(() => expect(screen.getByText("Today's Focus")).toBeInTheDocument())
+    expect(screen.queryByTestId('widget-next-meeting')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Customize dashboard/i }))
+    const dialog = screen.getByRole('dialog', { name: /Customize dashboard/i })
+    fireEvent.click(within(dialog).getByRole('switch', { name: /Show Next Meeting/i }))
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Save$/ }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument()
+    })
+    // Empty state copy should appear when there are no upcoming meetings.
+    expect(screen.getByText(/No upcoming meetings/i)).toBeInTheDocument()
+  })
+
+  it('toggling on Focus on this first shows an empty-state card when there are no blocking tasks', async () => {
+    useAppStore.setState({ dashboardWidgets: ['todays_focus'] })
+    renderDashboard()
+    await waitFor(() => expect(screen.getByText("Today's Focus")).toBeInTheDocument())
+    expect(screen.queryByTestId('widget-focus-first')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Customize dashboard/i }))
+    const dialog = screen.getByRole('dialog', { name: /Customize dashboard/i })
+    fireEvent.click(within(dialog).getByRole('switch', { name: /Show Focus on this first/i }))
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Save$/ }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-focus-first')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Nothing blocking others right now/i)).toBeInTheDocument()
   })
 })
 

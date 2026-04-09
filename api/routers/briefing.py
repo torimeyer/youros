@@ -1,14 +1,14 @@
-"""Morning briefing router.
+"""Briefing router.
 
-GET  /api/briefing         — return the briefing if it should be shown
-POST /api/briefing/dismiss — mark the briefing dismissed for today
+GET  /api/briefing         return the briefing if it should be shown
+POST /api/briefing/dismiss mark the briefing dismissed for today
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter
 
-from services.morning_briefing import (
+from services.briefing import (
     dismiss_briefing,
     generate_briefing,
     get_cached_briefing,
@@ -20,11 +20,11 @@ router = APIRouter(tags=["briefing"])
 
 @router.get("/briefing")
 async def get_briefing():
-    """Return today's morning briefing if it should be shown.
+    """Return today's briefing if it should be shown.
 
     If the briefing is already cached for today, returns it without
-    calling Claude again. If it has been dismissed or it is past noon,
-    returns show=false.
+    calling Claude again. If it has been dismissed, returns show=false.
+    The briefing can be requested at any hour of the day.
     """
     if not should_show_briefing():
         return {"show": False, "briefing": None}
@@ -38,7 +38,7 @@ async def get_briefing():
         text = await generate_briefing()
     except Exception:
         text = (
-            "Good morning! Your workspace is ready. "
+            "Your workspace is ready. "
             "Check your top tasks and have a great day."
         )
 

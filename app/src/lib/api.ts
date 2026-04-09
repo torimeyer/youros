@@ -1,5 +1,12 @@
 const BASE = '/api'
 
+// Hard upper bound on how long any API call can hang before the UI
+// treats it as a failure. A stuck fetch (proxy timeout, dropped socket,
+// buggy server) must never pin a button in its "sending" state forever.
+// Exported so tests can shorten it via Object.defineProperty on a mock
+// or override the module entirely.
+export const REQUEST_TIMEOUT_MS = 30000
+
 // Custom error that preserves the parsed JSON detail from FastAPI responses
 // so UI code can check things like err.response.data.detail.api_not_enabled.
 export class ApiError extends Error {
@@ -25,17 +32,44 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new ApiError(res.status, text)
+// Raised when a request exceeds REQUEST_TIMEOUT_MS. UI code can catch
+// this specifically to tell the user the server did not respond in
+// time, instead of showing a generic network error.
+export class ApiTimeoutError extends Error {
+  timeoutMs: number
+  constructor(timeoutMs: number) {
+    super(`Request timed out after ${timeoutMs} ms`)
+    this.name = 'ApiTimeoutError'
+    this.timeoutMs = timeoutMs
   }
-  return res.json()
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new ApiError(res.status, text)
+    }
+    return await res.json()
+  } catch (err) {
+    // AbortController.abort() causes fetch to reject with a DOMException
+    // whose name is "AbortError". Convert it to our own typed error so
+    // the UI can detect timeouts specifically and surface plain language.
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new ApiTimeoutError(REQUEST_TIMEOUT_MS)
+    }
+    throw err
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 export const api = {

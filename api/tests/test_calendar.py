@@ -64,7 +64,10 @@ async def test_calendar_auth_status_authenticated(client, tmp_path):
 
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
-        patch("services.calendar.needs_reauth", new=AsyncMock(return_value=False)),
+        patch(
+            "services.calendar.get_upcoming_events",
+            new=AsyncMock(return_value=_make_events(2)),
+        ),
     ):
         resp = await client.get("/api/calendar/auth/status")
 
@@ -76,13 +79,20 @@ async def test_calendar_auth_status_authenticated(client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_calendar_auth_status_needs_reauth(client, tmp_path):
-    """When the calendar scope is missing, needs_reauth should be True."""
+    """When the calendar scope is missing, needs_reauth should be True.
+
+    The auth/status endpoint probes the events list once. A scope error
+    on that probe is how we know the token is missing the calendar scope.
+    """
     token_path = tmp_path / "google_token.json"
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
-        patch("services.calendar.needs_reauth", new=AsyncMock(return_value=True)),
+        patch(
+            "services.calendar.get_upcoming_events",
+            new=AsyncMock(side_effect=Exception("403 insufficientPermissions")),
+        ),
     ):
         resp = await client.get("/api/calendar/auth/status")
 
@@ -90,6 +100,36 @@ async def test_calendar_auth_status_needs_reauth(client, tmp_path):
     data = resp.json()
     assert data["authenticated"] is True
     assert data["needs_reauth"] is True
+
+
+@pytest.mark.asyncio
+async def test_calendar_auth_status_warm_cache_zero_probes(client, tmp_path):
+    """auth/status should use the cached events list without any extra probe.
+
+    Regression: the old router called needs_reauth() which always fired a
+    real Calendar API round trip, even when events.json was warm. The fold
+    should make a cached auth/status cost zero Google calls.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "calendar_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "events.json"
+    cache_path.write_text(json.dumps(_make_events(3)))
+
+    fetch_mock = MagicMock()
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.calendar.EVENTS_CACHE_PATH", cache_path),
+        patch("services.calendar._fetch_events_sync", new=fetch_mock),
+    ):
+        resp = await client.get("/api/calendar/auth/status")
+
+    assert resp.status_code == 200
+    assert resp.json()["needs_reauth"] is False
+    # Warm cache means zero calls to the underlying Google API.
+    assert fetch_mock.call_count == 0
 
 
 # ---------------------------------------------------------------------------

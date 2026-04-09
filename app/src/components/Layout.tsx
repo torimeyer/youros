@@ -117,7 +117,8 @@ export function Layout() {
       {showTour && <GuidedTour onComplete={() => setShowTour(false)} />}
       <NotificationToasts />
       <main
-        className={`ml-56 min-h-screen ${isResizing ? '' : 'transition-[margin] duration-200'}`}
+        data-testid="main-content"
+        className={`ml-56 min-h-screen min-w-0 overflow-x-hidden ${isResizing ? '' : 'transition-[margin] duration-200'}`}
         style={chatOpen ? { marginRight: chatWidth } : undefined}
       >
         <Outlet />

@@ -102,15 +102,28 @@ describe('useAppStore', () => {
     expect(useAppStore.getState().chatWidth).toBe(500)
   })
 
-  it('setChatWidth clamps to min 300', () => {
+  it('setChatWidth clamps to min 280', () => {
     useAppStore.getState().setChatWidth(100)
-    expect(useAppStore.getState().chatWidth).toBe(300)
+    expect(useAppStore.getState().chatWidth).toBe(280)
   })
 
-  it('setChatWidth clamps to half viewport width', () => {
-    const halfViewport = Math.floor(window.innerWidth / 2)
+  it('setChatWidth clamps to viewport minus sidebar reserve', () => {
+    // Max width leaves room for the sidebar plus a sliver of main content
+    // so nothing ever gets hidden behind the chat.
+    const ceiling = window.innerWidth - 320
     useAppStore.getState().setChatWidth(99999)
-    expect(useAppStore.getState().chatWidth).toBe(halfViewport)
+    expect(useAppStore.getState().chatWidth).toBe(ceiling)
+  })
+
+  it('setChatWidth writes the new width to localStorage', () => {
+    useAppStore.getState().setChatWidth(612)
+    expect(localStorage.getItem('myos-chat-width')).toBe('612')
+  })
+
+  it('setChatWidth writes the clamped value to localStorage when over max', () => {
+    useAppStore.getState().setChatWidth(99999)
+    const ceiling = window.innerWidth - 320
+    expect(localStorage.getItem('myos-chat-width')).toBe(String(ceiling))
   })
 
   it('setIsResizing updates isResizing', () => {

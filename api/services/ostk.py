@@ -1536,6 +1536,55 @@ class OstkService:
                 continue
         return nudges
 
+    async def append_nudge_reply(
+        self,
+        agent_name: str,
+        message: str,
+        in_reply_to: Optional[str] = None,
+    ) -> dict:
+        """Write an agent's reply to a prior nudge under .ostk/nudges/{agent}/replies/.
+
+        Replies are stored as their own JSON files so any observer that
+        polls the nudge directory also picks up new replies without
+        schema changes. ``in_reply_to`` is an optional timestamp that
+        correlates the reply to a specific user message, so the UI can
+        thread them. When omitted, the reply is treated as a free form
+        status update from the agent.
+        """
+        replies_dir = NUDGES_DIR / agent_name / "replies"
+        replies_dir.mkdir(parents=True, exist_ok=True)
+
+        ts = datetime.now(timezone.utc)
+        filename = f"{ts.strftime('%Y%m%dT%H%M%S')}_{int(ts.timestamp() * 1000) % 1000:03d}.json"
+        reply_path = replies_dir / filename
+
+        reply_data = {
+            "agent": agent_name,
+            "message": message,
+            "timestamp": ts.isoformat(),
+            "source": "agent",
+            "in_reply_to": in_reply_to,
+        }
+
+        reply_path.write_text(json.dumps(reply_data, indent=2) + "\n")
+        return reply_data
+
+    async def list_nudge_replies(self, agent_name: str) -> list[dict]:
+        """Read all reply files for an agent, sorted oldest first."""
+        replies_dir = NUDGES_DIR / agent_name / "replies"
+        if not replies_dir.exists():
+            return []
+
+        replies = []
+        for f in sorted(replies_dir.glob("*.json")):
+            try:
+                data = json.loads(f.read_text())
+                data["file"] = f.name
+                replies.append(data)
+            except (json.JSONDecodeError, OSError):
+                continue
+        return replies
+
     # --- Grants / Permission Requests ---
 
     async def list_grants(self, status: str = "pending") -> list[dict]:

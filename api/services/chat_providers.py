@@ -1,6 +1,8 @@
 import asyncio
+import logging
 import os
-from typing import Optional
+import random
+from typing import Any, Awaitable, Callable, Optional
 
 import anthropic
 from fastapi import WebSocket
@@ -10,6 +12,7 @@ from services import claude_code_provider
 from services.ostk import ostk
 from services.settings_store import settings_store
 from services.template_matcher import match_template, merge_with_built_ins
+from services.token_metrics import safe_record_chat_turn
 from services.tool_executor import TOOL_DEFINITIONS, execute_tool
 
 
@@ -68,6 +71,19 @@ _GEMINI_AUTH_HINTS = (
     "PERMISSION_DENIED",
 )
 
+# Signals that a quota or rate limit was hit. Google returns 429 with
+# RESOURCE_EXHAUSTED when the per-minute or per-day quota is exceeded.
+# We catch these separately so the user gets actionable copy ("you hit
+# the free quota") rather than a raw "429 RESOURCE_EXHAUSTED" stack.
+_GEMINI_QUOTA_HINTS = (
+    "resource_exhausted",
+    "resource has been exhausted",
+    "429",
+    "quota exceeded",
+    "rate limit",
+    "too many requests",
+)
+
 
 # Signals that the requested Gemini model itself is gone or wrong.
 # Google returns a 404 NotFound with ``is no longer available`` when a
@@ -87,6 +103,23 @@ _GEMINI_MODEL_GONE_HINTS = (
 # as a module-level constant so tests can assert we never silently slide
 # back to a deprecated name.
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+
+
+# System instruction for Gemini. Kept as a module-level constant so tests
+# can assert the "no self label" rule is in place and future edits do not
+# accidentally drop it. The rule exists because Gemini likes to prefix
+# replies with a literal "@Gemini:" tag, which is noisy in the chat panel
+# since the bubble header already shows which model is speaking.
+GEMINI_SYSTEM_INSTRUCTION = (
+    "You are Gemini replying inside a chat panel. "
+    "Do not prefix your replies with your own name. The chat panel "
+    "already shows who you are. "
+    "When asked to chat with another AI, reply directly to what that "
+    "other AI just said. Do not write a fake script with labels for "
+    "both sides, do not narrate the exchange, do not add stage "
+    "directions. Keep replies conversational and concise. "
+    "Never use em-dashes."
+)
 
 
 def _gemini_model_name() -> str:
@@ -139,6 +172,14 @@ _GEMINI_KEY_HELP = (
 )
 
 
+_GEMINI_QUOTA_HELP = (
+    "You have hit the Gemini API usage limit. This usually resets within "
+    "a minute (per-minute quota) or at midnight Pacific time (daily quota).\n\n"
+    "If you hit this regularly, consider upgrading to a paid Google AI "
+    "Studio plan at https://aistudio.google.com/apikey, or using a "
+    "Google Cloud project with billing enabled."
+)
+
 _GEMINI_MODEL_GONE_HELP = (
     "The Gemini model myOS was using is no longer available. Google "
     "deprecates model names from time to time.\n\n"
@@ -170,13 +211,214 @@ def _friendly_gemini_error(error_text: str) -> str:
                 "The Gemini model used by myOS is no longer available. "
                 + _GEMINI_MODEL_GONE_HELP
             )
+    for hint in _GEMINI_QUOTA_HINTS:
+        if hint in lowered:
+            return (
+                "Gemini hit a usage limit and could not respond. "
+                + _GEMINI_QUOTA_HELP
+            )
     for hint in _GEMINI_AUTH_HINTS:
         if hint.lower() in lowered:
             return (
                 "Gemini API key is missing or invalid. Add one in Settings "
                 "under AI Provider.\n\n" + _GEMINI_KEY_HELP
             )
+    # The Gemini SDK raises a TypeError with a raw "Could not create Blob"
+    # traceback when it cannot coerce a message value into a Part. The
+    # class path inside the error mentions
+    # ``google.ai.generativelanguage_v1beta.types.content.Content`` which
+    # is not something the user can act on. Replace it with a plain
+    # language message so the chat panel never shows a Python stack.
+    if "could not create" in lowered and "blob" in lowered:
+        return (
+            "Gemini could not read part of this conversation. Try "
+            "starting a new chat tab, or remove the last image or GIF "
+            "and ask again."
+        )
     return error_text
+
+
+# --- Gemini finish-reason handling ---
+#
+# Gemini's streaming API can cut a response off mid-sentence when its safety
+# filter, recitation filter, or max-token cap trips. The SDK does NOT raise
+# in that case. It just stops yielding chunks and leaves the reason on
+# ``response.candidates[0].finish_reason``. If we ignore the reason and
+# send a normal ``done`` event the chat panel renders the partial text as
+# a finished turn, which is exactly the "As a" bubble bug. The helpers
+# below translate each finish reason into plain-language copy keyed to
+# what the user can do next. No em-dashes, no jargon, no raw enum names.
+
+_gemini_log = logging.getLogger("myos.chat.gemini")
+
+# Friendly messages for every non-STOP finish reason. Keys are the enum
+# name strings (``SAFETY``, ``RECITATION``, etc.) so the lookup is a plain
+# dict access. Any unknown reason (including future ones Google adds)
+# falls through to the OTHER copy.
+_GEMINI_FINISH_REASON_MESSAGES: dict[str, str] = {
+    "SAFETY": (
+        "Gemini stopped this reply because of its safety filters. "
+        "Try rephrasing."
+    ),
+    "RECITATION": (
+        "Gemini stopped this reply because it was about to repeat "
+        "copyrighted text. Try a different question."
+    ),
+    "MAX_TOKENS": (
+        "Gemini hit its response length limit. Ask a shorter "
+        "question or split it up."
+    ),
+    "PROHIBITED_CONTENT": (
+        "Gemini blocked this reply. Try rephrasing."
+    ),
+    "BLOCKLIST": (
+        "Gemini blocked this reply. Try rephrasing."
+    ),
+    "SPII": (
+        "Gemini blocked this reply. Try rephrasing."
+    ),
+    "LANGUAGE": (
+        "Gemini could not answer in that language. Try again in "
+        "English."
+    ),
+    "IMAGE_SAFETY": (
+        "Gemini blocked the image it was about to generate. Try "
+        "rephrasing."
+    ),
+    "MALFORMED_FUNCTION_CALL": (
+        "Gemini stopped this reply unexpectedly. Try again."
+    ),
+    "OTHER": (
+        "Gemini stopped this reply unexpectedly. Try again."
+    ),
+    "FINISH_REASON_UNSPECIFIED": (
+        "Gemini stopped this reply unexpectedly. Try again."
+    ),
+}
+
+# Friendly message for a prompt-level block (``prompt_feedback.block_reason``
+# set before any tokens are emitted). Separate from the response-side
+# finish reasons because the model never produced any output at all.
+_GEMINI_PROMPT_BLOCKED_MESSAGE = (
+    "Gemini blocked this question before answering because of its "
+    "safety filters. Try rephrasing."
+)
+
+
+def _gemini_content_to_text(content: Any) -> str:
+    """Flatten a chat message ``content`` field into a plain string for Gemini.
+
+    The chat router runs every message through ``transform_image_messages``
+    which rewrites any Claude vision payload (pasted screenshots, Giphy
+    GIFs) into a LIST of Anthropic shaped content blocks like
+    ``[{"type": "image", "source": {...}}, {"type": "text", "text": "..."}]``.
+    That shape is valid for the Anthropic API but trips the Gemini SDK's
+    ``parts`` coercion path with a confusing "Could not create Blob"
+    error whose value is a completely unrelated prior turn.
+
+    Gemini's ``send_message`` / ``start_chat`` accept a plain string, a
+    ``dict``, a ``Blob``, or an ``Image``. To keep the fix surgical we
+    collapse any list of blocks into a single string that preserves the
+    text and substitutes a short placeholder for each image. Strings are
+    returned untouched. Anything else is coerced via ``str()`` as a last
+    resort so one bad message can never crash the whole turn.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        pieces: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                block_type = block.get("type")
+                if block_type == "text":
+                    text = block.get("text", "")
+                    if isinstance(text, str) and text:
+                        pieces.append(text)
+                elif block_type == "image":
+                    pieces.append("[image attached]")
+                else:
+                    # Unknown block type: preserve any text field if one exists
+                    # so we at least do not silently drop the message body.
+                    text = block.get("text") if isinstance(block.get("text"), str) else ""
+                    pieces.append(text or "[attachment]")
+            elif isinstance(block, str):
+                pieces.append(block)
+        flattened = "\n".join(p for p in pieces if p).strip()
+        return flattened or "[attachment]"
+    if content is None:
+        return ""
+    return str(content)
+
+
+def _gemini_finish_reason_name(finish_reason: Any) -> str:
+    """Return the finish reason as an upper-case enum name string.
+
+    ``google.generativeai`` exposes finish_reason as a
+    ``protos.Candidate.FinishReason`` proto enum. In practice it also
+    shows up as a raw int on some code paths (for example when the SDK
+    is swapped for a test double). This helper accepts both and returns
+    the canonical enum name (``SAFETY``, ``STOP``, ``MAX_TOKENS``, etc.)
+    so downstream lookups can use plain dict access.
+    """
+    if finish_reason is None:
+        return "FINISH_REASON_UNSPECIFIED"
+    name = getattr(finish_reason, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    # Fallback: map the raw int via the SDK enum so we never hard-code
+    # the integer values. Anything unknown becomes OTHER so the friendly
+    # message is still a useful, plain-language sentence.
+    try:
+        import google.generativeai as genai  # local import: optional dep
+        fr_enum = genai.protos.Candidate.FinishReason(int(finish_reason))
+        return fr_enum.name
+    except Exception:
+        return "OTHER"
+
+
+def _gemini_friendly_finish_message(
+    finish_reason_name: str, partial_text: str
+) -> str:
+    """Return plain-language copy for a non-STOP Gemini finish reason.
+
+    When ``partial_text`` has real content (more than a handful of
+    characters) we prefix it so the user can still see what Gemini was
+    starting to say before it stopped. Anything shorter than five
+    characters (the "As a" bug case) is dropped because it is just noise.
+    """
+    base = _GEMINI_FINISH_REASON_MESSAGES.get(
+        finish_reason_name,
+        _GEMINI_FINISH_REASON_MESSAGES["OTHER"],
+    )
+    trimmed = (partial_text or "").strip()
+    if len(trimmed) > 5:
+        return f"[Gemini said: {trimmed}] before stopping. " + base
+    return base
+
+
+async def _send_friendly_gemini_error(
+    websocket: WebSocket, message: str, *, reason_name: str = ""
+) -> None:
+    """Send a plain-language error to the chat panel for a Gemini failure.
+
+    Mirrors ``_send_friendly_anthropic_error`` so the two providers share
+    the same surface contract: a ``type:error`` event with user-ready
+    copy, no raw enum values, no em-dashes, no jargon. The real reason
+    is logged server-side for debugging but never leaks to the chat.
+    """
+    try:
+        await websocket.send_json({"type": "error", "data": message})
+    except Exception:
+        # Never let a websocket hiccup mask the underlying failure.
+        pass
+    try:
+        if reason_name:
+            _gemini_log.warning(
+                "gemini stream ended without STOP: finish_reason=%s",
+                reason_name,
+            )
+    except Exception:
+        pass
 
 
 async def _resolve_api_key(settings_key: str) -> str:
@@ -206,6 +448,177 @@ async def _resolve_api_key(settings_key: str) -> str:
     return ""
 
 MAX_AGENT_TURNS = 10
+
+
+# --- Anthropic transient-error retry policy ---
+#
+# Anthropic's API occasionally returns a 5xx (Internal server error, bad
+# gateway, gateway timeout) or drops the TCP connection mid-request. These
+# are almost always transient and recover on a second attempt. Without a
+# retry in place, a single blip kills the whole chat turn and leaks a raw
+# JSON error string into the chat panel. The policy below is intentionally
+# small and boring:
+#
+# - At most ``_ANTHROPIC_MAX_ATTEMPTS`` attempts total.
+# - Backoff delays come from ``_ANTHROPIC_RETRY_DELAYS`` (seconds between
+#   attempts). If Anthropic sends a ``Retry-After`` header we honor that
+#   instead.
+# - ONLY retries on ``APIConnectionError``, ``APITimeoutError``, and
+#   ``APIStatusError`` with a 5xx status code. 4xx errors are client bugs
+#   (bad input, bad key, rate-limited by the model) and retrying them just
+#   masks the real problem.
+# - Adds a tiny random jitter to the delays so parallel callers do not
+#   thunder on Anthropic the exact same millisecond.
+_ANTHROPIC_MAX_ATTEMPTS = 3
+_ANTHROPIC_RETRY_DELAYS = (0.5, 1.5, 4.0)
+
+# Plain-language message shown to the user when every retry has failed.
+# No em-dashes, no raw JSON, no jargon. Matches the writing-style rules in
+# CLAUDE.md.
+_ANTHROPIC_UNAVAILABLE_MESSAGE = (
+    "Claude is having a moment and could not answer that. "
+    "Give it a few seconds and try again."
+)
+
+_anthropic_retry_log = logging.getLogger("myos.chat.anthropic.retry")
+
+
+def _is_retryable_anthropic_error(exc: BaseException) -> bool:
+    """Return True if ``exc`` is a transient Anthropic error worth retrying.
+
+    Retry-worthy cases:
+      - Any ``APIConnectionError`` (includes ``APITimeoutError``). These
+        mean the request never got a clean response, so repeating it is
+        safe.
+      - ``APIStatusError`` with a 5xx status code. These are Anthropic
+        telling us *their* side blew up, and the Anthropic docs explicitly
+        say to retry with backoff.
+      - ``InternalServerError`` is just a subclass of ``APIStatusError``
+        with status 500 so it falls out of the check above for free.
+
+    Not retry-worthy:
+      - ``APIStatusError`` with 4xx. Those are client bugs (bad key,
+        unknown model, context too long, bad message shape). Retrying them
+        just hides the real problem from the user and wastes latency.
+    """
+    if isinstance(exc, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
+        return True
+    if isinstance(exc, anthropic.APIStatusError):
+        status = getattr(exc, "status_code", None)
+        try:
+            return bool(status is not None and 500 <= int(status) < 600)
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
+def _retry_after_seconds(exc: BaseException) -> Optional[float]:
+    """Return the Retry-After delay from an Anthropic error, if any.
+
+    Anthropic sometimes sends a ``Retry-After`` header with a number of
+    seconds to wait before the next attempt. When present we honor it
+    instead of our own backoff schedule so we do not hammer the server
+    harder than it asked us to. Returns None if no header is set or the
+    value cannot be parsed.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    headers = getattr(response, "headers", None)
+    if not headers:
+        return None
+    raw = None
+    try:
+        raw = headers.get("retry-after") or headers.get("Retry-After")
+    except Exception:
+        return None
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    # Clamp to a reasonable ceiling so a buggy header cannot stall chat
+    # for a full minute.
+    if value < 0:
+        return None
+    return min(value, 30.0)
+
+
+async def _anthropic_retry_call(
+    func: Callable[[], Awaitable[Any]],
+    *,
+    op_name: str = "anthropic.messages.create",
+) -> Any:
+    """Call ``func`` with bounded retry on transient Anthropic failures.
+
+    ``func`` must be a zero-arg coroutine that performs the actual SDK
+    call (for example ``lambda: client.messages.create(**kwargs)``). Any
+    non-retryable error is re-raised immediately so upstream code can
+    still show clear 4xx messages.
+    """
+    last_exc: Optional[BaseException] = None
+    for attempt in range(_ANTHROPIC_MAX_ATTEMPTS):
+        try:
+            return await func()
+        except BaseException as exc:  # noqa: BLE001
+            if not _is_retryable_anthropic_error(exc):
+                raise
+            last_exc = exc
+            if attempt >= _ANTHROPIC_MAX_ATTEMPTS - 1:
+                break
+            # Honor Retry-After if Anthropic sent one, otherwise use the
+            # configured backoff schedule with a little jitter.
+            server_delay = _retry_after_seconds(exc)
+            if server_delay is not None:
+                delay = server_delay
+            else:
+                base = _ANTHROPIC_RETRY_DELAYS[attempt]
+                delay = base + random.uniform(0, base * 0.25)
+            try:
+                _anthropic_retry_log.warning(
+                    "%s transient failure (attempt %d/%d): %s. retrying in %.2fs",
+                    op_name,
+                    attempt + 1,
+                    _ANTHROPIC_MAX_ATTEMPTS,
+                    exc.__class__.__name__,
+                    delay,
+                )
+            except Exception:
+                pass
+            await asyncio.sleep(delay)
+    # All attempts exhausted on a retryable error. Re-raise the last one
+    # so the caller can convert it to a friendly message.
+    assert last_exc is not None
+    raise last_exc
+
+
+async def _send_friendly_anthropic_error(
+    websocket: WebSocket, exc: BaseException
+) -> None:
+    """Send a plain-language error to the chat panel after retries failed.
+
+    Never leaks raw JSON, never uses em-dashes, never uses jargon. The
+    exact text comes from ``_ANTHROPIC_UNAVAILABLE_MESSAGE`` so the fix
+    is a single place to edit if we want to tune the copy.
+    """
+    try:
+        await websocket.send_json(
+            {"type": "error", "data": _ANTHROPIC_UNAVAILABLE_MESSAGE}
+        )
+    except Exception:
+        # Never let a websocket hiccup mask the underlying failure.
+        pass
+    # Log the real error so it shows up in server logs without leaking it
+    # to the chat panel.
+    try:
+        _anthropic_retry_log.error(
+            "anthropic call failed after retries: %s: %s",
+            exc.__class__.__name__,
+            exc,
+        )
+    except Exception:
+        pass
 
 
 
@@ -445,13 +858,32 @@ class ChatService:
         if system_prompt:
             stream_kwargs["system"] = system_prompt
         full_text = ""
-        try:
+
+        async def _run_stream_once() -> Any:
+            """Open the stream, pump tokens to the websocket, and return usage.
+
+            Defined as a local coroutine so ``_anthropic_retry_call`` can
+            retry the whole attempt cleanly if Anthropic returns a 5xx
+            during stream setup and no tokens have been forwarded yet.
+            """
+            nonlocal full_text
             async with client.messages.stream(**stream_kwargs) as stream:
                 async for text in stream.text_stream:
                     full_text += text
                     await websocket.send_json({"type": "token", "data": text})
+                return await stream.get_final_message()
 
-            response = await stream.get_final_message()
+        try:
+            # Retry ONLY while no tokens have been emitted. Once the
+            # stream starts sending text, retrying would re-emit the
+            # beginning of the response and confuse the chat panel.
+            if full_text:
+                response = await _run_stream_once()
+            else:
+                response = await _anthropic_retry_call(
+                    _run_stream_once,
+                    op_name="anthropic.messages.stream",
+                )
             await websocket.send_json({
                 "type": "done",
                 "usage": {
@@ -459,6 +891,28 @@ class ChatService:
                     "output_tokens": response.usage.output_tokens,
                 }
             })
+            _boot_ctx = _get_boot_context()
+            safe_record_chat_turn(
+                model="claude-sonnet-4-20250514",
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                has_ostk_boot=bool(_boot_ctx),
+                boot_context_bytes=len(_boot_ctx.encode("utf-8")) if _boot_ctx else 0,
+                backend="anthropic_api",
+            )
+        except anthropic.APIStatusError as e:
+            status = getattr(e, "status_code", None)
+            if status is not None and 500 <= int(status) < 600:
+                # Retries were already attempted inside
+                # ``_anthropic_retry_call``. Surface a plain-language
+                # error instead of the raw JSON body.
+                await _send_friendly_anthropic_error(websocket, e)
+            else:
+                # 4xx: show the real error text so the user can fix it
+                # (bad key, unknown model, bad input, etc.).
+                await websocket.send_json({"type": "error", "data": str(e)})
+        except (anthropic.APIConnectionError, anthropic.APITimeoutError) as e:
+            await _send_friendly_anthropic_error(websocket, e)
         except anthropic.APIError as e:
             await websocket.send_json({"type": "error", "data": str(e)})
 
@@ -542,6 +996,15 @@ class ChatService:
                             "output_tokens": total_output_tokens,
                         },
                     })
+                    _boot_ctx = _get_boot_context()
+                    safe_record_chat_turn(
+                        model="claude-sonnet-4-20250514",
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        has_ostk_boot=bool(_boot_ctx),
+                        boot_context_bytes=len(_boot_ctx.encode("utf-8")) if _boot_ctx else 0,
+                        backend="anthropic_api",
+                    )
                     return msg
 
                 # Signal the frontend that we're working
@@ -557,22 +1020,35 @@ class ChatService:
                         }
                         for s in mcp_servers
                     ]
-                    response = await client.beta.messages.create(
-                        model="claude-sonnet-4-20250514",
-                        max_tokens=4096,
-                        system=active_system_prompt,
-                        messages=conversation,
-                        tools=TOOL_DEFINITIONS,  # type: ignore[arg-type]
-                        mcp_servers=mcp_server_params,  # type: ignore[arg-type]
-                        betas=["mcp-client-2025-04-04"],
+
+                    async def _mcp_create() -> Any:
+                        return await client.beta.messages.create(
+                            model="claude-sonnet-4-20250514",
+                            max_tokens=4096,
+                            system=active_system_prompt,
+                            messages=conversation,
+                            tools=TOOL_DEFINITIONS,  # type: ignore[arg-type]
+                            mcp_servers=mcp_server_params,  # type: ignore[arg-type]
+                            betas=["mcp-client-2025-04-04"],
+                        )
+
+                    response = await _anthropic_retry_call(
+                        _mcp_create,
+                        op_name="anthropic.beta.messages.create",
                     )
                 else:
-                    response = await client.messages.create(
-                        model="claude-sonnet-4-20250514",
-                        max_tokens=4096,
-                        system=active_system_prompt,
-                        messages=conversation,
-                        tools=TOOL_DEFINITIONS,
+                    async def _create() -> Any:
+                        return await client.messages.create(
+                            model="claude-sonnet-4-20250514",
+                            max_tokens=4096,
+                            system=active_system_prompt,
+                            messages=conversation,
+                            tools=TOOL_DEFINITIONS,
+                        )
+
+                    response = await _anthropic_retry_call(
+                        _create,
+                        op_name="anthropic.messages.create",
                     )
 
                 total_input_tokens += response.usage.input_tokens
@@ -649,6 +1125,15 @@ class ChatService:
                             "output_tokens": total_output_tokens,
                         },
                     })
+                    _boot_ctx = _get_boot_context()
+                    safe_record_chat_turn(
+                        model="claude-sonnet-4-20250514",
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        has_ostk_boot=bool(_boot_ctx),
+                        boot_context_bytes=len(_boot_ctx.encode("utf-8")) if _boot_ctx else 0,
+                        backend="anthropic_api",
+                    )
                     return "\n".join(text_parts)
 
                 conversation.append({"role": "assistant", "content": assistant_content})
@@ -701,6 +1186,21 @@ class ChatService:
 
             # Loop exits naturally when Claude responds with text only (no tool calls)
 
+        except anthropic.APIStatusError as e:
+            status = getattr(e, "status_code", None)
+            if status is not None and 500 <= int(status) < 600:
+                # Retries were already attempted inside
+                # ``_anthropic_retry_call``. Surface a plain-language
+                # error instead of the raw JSON body.
+                await _send_friendly_anthropic_error(websocket, e)
+            else:
+                # 4xx: real bug in the request. Show the actual error so
+                # the user can fix it (bad key, bad input, etc.).
+                await websocket.send_json({"type": "error", "data": str(e)})
+            return ""
+        except (anthropic.APIConnectionError, anthropic.APITimeoutError) as e:
+            await _send_friendly_anthropic_error(websocket, e)
+            return ""
         except anthropic.APIError as e:
             await websocket.send_json({"type": "error", "data": str(e)})
             return ""
@@ -733,19 +1233,134 @@ class ChatService:
             genai.configure(api_key=api_key)
             model_name = _gemini_model_name()
             _log_gemini_model_once(model_name)
-            model = genai.GenerativeModel(model_name)
+            # Pass the system instruction so Gemini stops prefixing its
+            # replies with "@Gemini:" and stops writing fake back and
+            # forth scripts when asked to chat with another AI.
+            try:
+                model = genai.GenerativeModel(
+                    model_name,
+                    system_instruction=GEMINI_SYSTEM_INSTRUCTION,
+                )
+            except TypeError:
+                # Older SDK builds do not accept system_instruction. Fall
+                # back to the no-arg constructor so we still return a
+                # usable model. The behavior rule is enforced elsewhere
+                # in the prompt body for the orchestration path.
+                model = genai.GenerativeModel(model_name)
 
             history = []
             for msg in messages[:-1]:
                 role = "user" if msg["role"] == "user" else "model"
-                history.append({"role": role, "parts": [msg["content"]]})
+                history.append(
+                    {"role": role, "parts": [_gemini_content_to_text(msg.get("content", ""))]}
+                )
 
+            # ``send_message`` accepts a string, dict, Blob, or Image, but
+            # NOT a list of Claude style image blocks. If the last message
+            # was rewritten by ``transform_image_messages`` into a list of
+            # Anthropic-shaped blocks, flatten it back to plain text here
+            # so Gemini sees a normal prompt instead of tripping the SDK's
+            # "Could not create Blob" error.
+            last_content = _gemini_content_to_text(messages[-1].get("content", ""))
             chat = model.start_chat(history=history)
-            response = chat.send_message(messages[-1]["content"], stream=True)
-            for chunk in response:
-                if chunk.text:
-                    full_text += chunk.text
-                    await websocket.send_json({"type": "token", "data": chunk.text})
+            response = chat.send_message(last_content, stream=True)
+
+            # Stream chunks. We guard ``chunk.text`` because the SDK's
+            # ``.text`` property raises ValueError when a chunk has no
+            # parts (which happens on the final SAFETY chunk). A bad
+            # chunk must NOT abort the whole turn, we just skip it and
+            # let the post-loop finish_reason check decide what to show.
+            try:
+                for chunk in response:
+                    try:
+                        text = chunk.text
+                    except (ValueError, AttributeError):
+                        # Empty-parts chunk. The reason lives on the
+                        # final response which we inspect below.
+                        continue
+                    if text:
+                        full_text += text
+                        await websocket.send_json({"type": "token", "data": text})
+            except genai.types.BlockedPromptException:
+                # The PROMPT itself was blocked before any tokens were
+                # emitted. The model never produced a response at all,
+                # so there is no partial text to salvage. Send a
+                # friendly error and do NOT send a done event, otherwise
+                # the chat panel would render a blank bubble.
+                await _send_friendly_gemini_error(
+                    websocket,
+                    _GEMINI_PROMPT_BLOCKED_MESSAGE,
+                    reason_name="PROMPT_BLOCKED",
+                )
+                return full_text
+
+            # After the stream has drained, inspect the accumulated
+            # finish_reason. Anything other than STOP means Gemini cut
+            # the response off (safety filter, recitation filter,
+            # max_tokens, etc.). In that case we must NOT send a normal
+            # done event, because the chat panel treats done as "this
+            # turn completed successfully" and would leave the orphan
+            # partial text on screen. Send a plain-language error
+            # instead, keyed to the reason, and log the real enum name.
+            finish_reason_name = "STOP"
+            prompt_block_reason = None
+            try:
+                prompt_feedback = getattr(response, "prompt_feedback", None)
+                if prompt_feedback is not None:
+                    prompt_block_reason = getattr(
+                        prompt_feedback, "block_reason", None
+                    )
+                candidates = getattr(response, "candidates", None) or []
+                if candidates:
+                    finish_reason_name = _gemini_finish_reason_name(
+                        getattr(candidates[0], "finish_reason", None)
+                    )
+            except Exception:
+                # If the SDK surface changes, fail open: treat as STOP
+                # so a clean response still sends done. Any real
+                # mid-stream failures are caught by the outer except.
+                finish_reason_name = "STOP"
+
+            # Prompt-side block caught after iteration (rare, but the
+            # SDK can populate prompt_feedback without raising).
+            if prompt_block_reason:
+                await _send_friendly_gemini_error(
+                    websocket,
+                    _GEMINI_PROMPT_BLOCKED_MESSAGE,
+                    reason_name=f"PROMPT_BLOCKED:{prompt_block_reason}",
+                )
+                return full_text
+
+            if finish_reason_name != "STOP":
+                friendly = _gemini_friendly_finish_message(
+                    finish_reason_name, full_text
+                )
+                await _send_friendly_gemini_error(
+                    websocket,
+                    friendly,
+                    reason_name=finish_reason_name,
+                )
+                return full_text
+
+            # Guard against empty responses. When Gemini returns 0 candidates
+            # (which can happen on quota soft-limits or brief API hiccups),
+            # finish_reason defaults to "STOP" and we would normally send
+            # "done" with no tokens, leaving a blank assistant bubble. Treat
+            # an empty response + STOP as an error so the user sees something
+            # actionable instead of a silent empty turn.
+            if not full_text:
+                _gemini_log.warning(
+                    "gemini returned empty response (0 tokens, finish_reason=STOP); "
+                    "sending error instead of silent done"
+                )
+                await _send_friendly_gemini_error(
+                    websocket,
+                    "Gemini returned an empty response. This can happen when the "
+                    "API is temporarily busy or a usage limit was hit. Please try "
+                    "again in a moment.",
+                    reason_name="EMPTY_RESPONSE",
+                )
+                return full_text
 
             await websocket.send_json({"type": "done"})
         except Exception as e:
@@ -754,6 +1369,310 @@ class ChatService:
             await websocket.send_json({"type": "error", "data": friendly})
 
         return full_text
+
+
+# --- Multi-AI chat orchestration ---
+#
+# When the user mentions two models with conversational intent ("chat
+# with", "debate", "talk to", etc.), we run a real round-robin: each
+# model reads the full transcript so far and replies in turn. Each turn
+# streams as its own bubble in the chat panel, bracketed by
+# ``multi_ai_turn_start`` and ``multi_ai_turn_end`` events so the panel
+# can open a fresh bubble with the right model header. A
+# ``multi_ai_status`` event is sent before and after each turn so the
+# user can watch the "thinking" state move between models.
+#
+# Event shapes (all wrapped in {"type": ..., "data": ...}):
+#
+#   multi_ai_status:
+#     {"phase": "starting", "models": [...], "rounds": int}
+#     {"phase": "thinking", "model": "gemini", "round": 1}
+#     {"phase": "speaking",  "model": "gemini", "round": 1}
+#     {"phase": "complete"}
+#
+#   multi_ai_turn_start:
+#     {"model": "gemini", "round": 1}
+#
+#   multi_ai_turn_end:
+#     {"model": "gemini", "round": 1}
+#
+# Between turn_start and turn_end the existing per-provider ``token``
+# events stream through untouched, so the frontend can render the text
+# into the fresh bubble without any new token plumbing.
+
+# Default number of rounds in a multi-AI conversation. Each round is one
+# reply per model, so the default of 3 yields 6 total turns for a two
+# model exchange (A B A B A B). Kept as a module-level constant so
+# callers and tests can reference it instead of hard coding.
+MULTI_AI_DEFAULT_ROUNDS = 3
+
+
+class _MultiAiTurnWebSocket:
+    """WebSocket proxy that records the full response text of one turn.
+
+    Wraps the real WebSocket so that a single per-provider stream call
+    (``stream_gemini`` or ``stream_anthropic``) can flow its ``token``
+    events to the panel unchanged, while we capture the concatenated
+    text for the next turn's prompt. The proxy also swallows the
+    per-turn ``done`` event so the panel does not see six "turn ended"
+    signals during a multi AI exchange. The outer orchestration function
+    sends exactly one ``done`` at the end.
+
+    Any event the proxy does not recognise is passed through verbatim so
+    error messages, finish-reason warnings, and backend badges still
+    reach the panel.
+    """
+
+    def __init__(self, inner: WebSocket):
+        self._inner = inner
+        self.collected_text: list[str] = []
+
+    async def send_json(self, data: dict) -> None:
+        msg_type = data.get("type") if isinstance(data, dict) else None
+        if msg_type == "token":
+            token_text = data.get("data", "")
+            if isinstance(token_text, str):
+                self.collected_text.append(token_text)
+        if msg_type == "done":
+            # Swallow interstitial done events. The outer orchestrator
+            # sends exactly one done after every turn finishes.
+            return
+        await self._inner.send_json(data)
+
+    @property
+    def text(self) -> str:
+        return "".join(self.collected_text)
+
+
+def _format_multi_ai_transcript(transcript: list[dict]) -> str:
+    """Render the running conversation transcript as plain text.
+
+    ``transcript`` is a list of ``{"model": str, "text": str}`` dicts in
+    chronological order. The output is a simple labeled block the next
+    speaker can read to understand what has been said so far. Labels use
+    the model's display name (capitalized) to match the chat panel
+    headers.
+    """
+    lines: list[str] = []
+    for turn in transcript:
+        model = str(turn.get("model", "")).capitalize() or "Unknown"
+        text = str(turn.get("text", "")).strip()
+        if not text:
+            continue
+        lines.append(f"{model}: {text}")
+    return "\n\n".join(lines)
+
+
+def _build_multi_ai_prompt(
+    *,
+    self_model: str,
+    other_models: list[str],
+    user_message: str,
+    transcript: list[dict],
+    round_index: int,
+) -> str:
+    """Build the prompt the next speaker sees.
+
+    The prompt includes the original user topic, the full transcript so
+    far, and a short instruction telling the model to reply directly to
+    the previous speaker without prefixing its own name. The instruction
+    also forbids writing a fake script with labels for both sides, which
+    was the exact failure in the "@Gemini: ... @Claude: ..." bubble the
+    user reported.
+    """
+    self_display = self_model.capitalize()
+    others_display = ", ".join(m.capitalize() for m in other_models if m != self_model)
+    transcript_block = _format_multi_ai_transcript(transcript)
+    if transcript_block:
+        transcript_section = (
+            "Conversation so far:\n\n" + transcript_block + "\n\n"
+        )
+    else:
+        transcript_section = (
+            "This is the first message in the conversation. Nothing has "
+            "been said yet.\n\n"
+        )
+    instruction = (
+        f"You are {self_display}. You are having a real back and forth "
+        f"with {others_display}. The user asked you both: \"{user_message}\".\n\n"
+        + transcript_section
+        + "Reply directly to the previous speaker. Do not prefix your "
+        "reply with your own name. Do not write a fake script with "
+        "labels for both sides. Do not narrate the exchange. Keep it "
+        "short and conversational, two or three sentences."
+    )
+    if round_index == 1 and not transcript:
+        instruction += (
+            " You are going first, so open the conversation by sharing "
+            "your own view on the topic."
+        )
+    return instruction
+
+
+async def _run_multi_ai_turn(
+    *,
+    websocket: WebSocket,
+    model: str,
+    prompt: str,
+    round_index: int,
+) -> str:
+    """Stream one model's turn and return the concatenated reply text.
+
+    Brackets the turn with ``multi_ai_turn_start`` and
+    ``multi_ai_turn_end`` so the panel can open a fresh bubble with the
+    correct model header. Reuses ``stream_gemini`` / ``stream_anthropic``
+    via a recording proxy so the existing retry, friendly-error, and
+    finish-reason logic all still apply.
+    """
+    await websocket.send_json({
+        "type": "multi_ai_turn_start",
+        "data": {"model": model, "round": round_index},
+    })
+    await websocket.send_json({
+        "type": "multi_ai_status",
+        "data": {"phase": "speaking", "model": model, "round": round_index},
+    })
+
+    proxy = _MultiAiTurnWebSocket(websocket)
+    messages = [{"role": "user", "content": prompt}]
+    try:
+        if model == "gemini":
+            await chat_service.stream_gemini(messages, proxy)  # type: ignore[arg-type]
+        elif model == "claude":
+            await chat_service.stream_anthropic(messages, proxy)  # type: ignore[arg-type]
+        else:
+            await websocket.send_json(
+                {"type": "error", "data": f"Unknown model: {model}"}
+            )
+    finally:
+        await websocket.send_json({
+            "type": "multi_ai_turn_end",
+            "data": {"model": model, "round": round_index},
+        })
+
+    return proxy.text
+
+
+async def stream_multi_ai_conversation(
+    *,
+    websocket: WebSocket,
+    models: list[str],
+    user_message: str,
+    rounds: int = MULTI_AI_DEFAULT_ROUNDS,
+) -> None:
+    """Run a real back and forth between two AI models.
+
+    Each round, every model in ``models`` takes one turn. Each turn is
+    its own bubble in the chat panel (bracketed by
+    ``multi_ai_turn_start`` and ``multi_ai_turn_end``), and the full
+    transcript so far is fed into the next speaker's prompt so the
+    models are actually replying to each other instead of writing
+    independent monologues.
+
+    The function sends exactly one ``done`` event at the end of the
+    whole exchange. Per-turn ``done`` events from the underlying
+    provider streams are swallowed by the recording proxy so the panel
+    sees a single "turn ended" signal.
+    """
+    if not models:
+        await websocket.send_json(
+            {"type": "error", "data": "No models supplied for multi AI chat."}
+        )
+        return
+    if rounds < 1:
+        rounds = 1
+
+    await websocket.send_json({
+        "type": "multi_ai_status",
+        "data": {
+            "phase": "starting",
+            "models": list(models),
+            "rounds": rounds,
+        },
+    })
+
+    transcript: list[dict] = []
+    try:
+        for round_index in range(1, rounds + 1):
+            for model in models:
+                await websocket.send_json({
+                    "type": "multi_ai_status",
+                    "data": {
+                        "phase": "thinking",
+                        "model": model,
+                        "round": round_index,
+                    },
+                })
+                other_models = [m for m in models if m != model]
+                prompt = _build_multi_ai_prompt(
+                    self_model=model,
+                    other_models=other_models,
+                    user_message=user_message,
+                    transcript=transcript,
+                    round_index=round_index,
+                )
+                reply_text = await _run_multi_ai_turn(
+                    websocket=websocket,
+                    model=model,
+                    prompt=prompt,
+                    round_index=round_index,
+                )
+                if reply_text.strip():
+                    transcript.append({"model": model, "text": reply_text})
+    finally:
+        await websocket.send_json({
+            "type": "multi_ai_status",
+            "data": {"phase": "complete"},
+        })
+        await websocket.send_json({"type": "done"})
+
+
+async def stream_group_broadcast(
+    *,
+    websocket: WebSocket,
+    models: list[str],
+    messages: list[dict],
+    use_tools: bool = False,
+) -> None:
+    """Each model in *models* responds independently to the same message.
+
+    Used when the user addresses multiple AIs collectively (e.g. "you guys",
+    "both of you", "everyone"). Every AI receives the full conversation history
+    and responds directly to the user. Models do not read each other's answers.
+
+    Sends exactly one ``done`` event at the end. Per-model ``done`` events from
+    the underlying provider streams are swallowed by the recording proxy so the
+    panel sees a single "turn ended" signal.
+    """
+    if not models:
+        return
+
+    try:
+        for model in models:
+            await websocket.send_json({
+                "type": "multi_ai_turn_start",
+                "data": {"model": model, "round": 1},
+            })
+            proxy = _MultiAiTurnWebSocket(websocket)
+            try:
+                if model == "gemini":
+                    await chat_service.stream_gemini(messages, proxy)  # type: ignore[arg-type]
+                elif model == "claude":
+                    if use_tools:
+                        await chat_service.agent_anthropic(messages, proxy)  # type: ignore[arg-type]
+                    else:
+                        await chat_service.stream_anthropic(messages, proxy)  # type: ignore[arg-type]
+                else:
+                    await websocket.send_json(
+                        {"type": "error", "data": f"Unknown model: {model}"}
+                    )
+            finally:
+                await websocket.send_json({
+                    "type": "multi_ai_turn_end",
+                    "data": {"model": model, "round": 1},
+                })
+    finally:
+        await websocket.send_json({"type": "done"})
 
 
 chat_service = ChatService()

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, render, act } from '@testing-library/react'
+import { useRef } from 'react'
 import { useWebSocket } from './useWebSocket'
 
 // A tiny in-memory WebSocket that lets tests drive the server side.
@@ -117,5 +118,118 @@ describe('useWebSocket stream close handling', () => {
     // The server already surfaced the error. A subsequent close should
     // not stomp on it with a second error.
     expect(result.current.lastMessage?.type).not.toBe('error')
+  })
+})
+
+describe('useWebSocket multi-event burst handling', () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+  })
+
+  // Regression for the wall-of-text bug. When the backend sends a burst
+  // of events in quick succession (multi_ai chat sends ~39 events for a
+  // 6-turn exchange), React used to batch the setLastMessage calls and
+  // drop every event except the last one in each batch. The consumer
+  // effect only saw the LAST event of every batch, so multi_ai_turn_start
+  // events were lost and every token landed in the same bubble.
+  //
+  // The fix is flushSync inside ws.onmessage so each setLastMessage commits
+  // synchronously and the consumer effect runs once per message in order.
+  // This test drives a real burst through the real hook and counts how
+  // many distinct lastMessage values the consumer observes.
+  it('delivers every event in a burst, not just the last one', () => {
+    const seenTypes: string[] = []
+    const seenData: unknown[] = []
+
+    function Consumer() {
+      const { lastMessage, connect } = useWebSocket('/ws/chat')
+      // Run connect on first render so the test does not have to.
+      const didConnectRef = useRef(false)
+      if (!didConnectRef.current) {
+        didConnectRef.current = true
+        connect()
+      }
+      // Record every distinct lastMessage we observe. Without flushSync
+      // this list would only contain the last message of each batch.
+      if (lastMessage) {
+        seenTypes.push(lastMessage.type)
+        seenData.push(lastMessage.data ?? null)
+      }
+      return null
+    }
+
+    render(<Consumer />)
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    act(() => ws.triggerOpen())
+
+    // Drive a burst that mirrors a real multi_ai chat round one frame.
+    // 12 frames in a single act() block. Without flushSync only the last
+    // one would survive. With flushSync all 12 must show up in seenTypes.
+    act(() => {
+      ws.emit({ type: 'multi_ai_status', data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 3 } })
+      ws.emit({ type: 'multi_ai_status', data: { phase: 'thinking', model: 'gemini', round: 1 } })
+      ws.emit({ type: 'multi_ai_turn_start', data: { model: 'gemini', round: 1 } })
+      ws.emit({ type: 'multi_ai_status', data: { phase: 'speaking', model: 'gemini', round: 1 } })
+      ws.emit({ type: 'token', data: 'hello ' })
+      ws.emit({ type: 'token', data: 'claude ' })
+      ws.emit({ type: 'multi_ai_turn_end', data: { model: 'gemini', round: 1 } })
+      ws.emit({ type: 'multi_ai_status', data: { phase: 'thinking', model: 'claude', round: 1 } })
+      ws.emit({ type: 'multi_ai_turn_start', data: { model: 'claude', round: 1 } })
+      ws.emit({ type: 'multi_ai_status', data: { phase: 'speaking', model: 'claude', round: 1 } })
+      ws.emit({ type: 'token', data: 'hi gemini' })
+      ws.emit({ type: 'multi_ai_turn_end', data: { model: 'claude', round: 1 } })
+    })
+
+    // Every single emitted message must have been observed by the consumer.
+    // Before the flushSync fix, this list would have ~1 entry instead of 12.
+    expect(seenTypes).toEqual([
+      'multi_ai_status',
+      'multi_ai_status',
+      'multi_ai_turn_start',
+      'multi_ai_status',
+      'token',
+      'token',
+      'multi_ai_turn_end',
+      'multi_ai_status',
+      'multi_ai_turn_start',
+      'multi_ai_status',
+      'token',
+      'multi_ai_turn_end',
+    ])
+    // Both token strings must be present in order, not just the last one.
+    expect(seenData.filter((d) => typeof d === 'string')).toEqual(['hello ', 'claude ', 'hi gemini'])
+  })
+
+  it('preserves order across two consecutive bursts', () => {
+    const seenTypes: string[] = []
+
+    function Consumer() {
+      const { lastMessage, connect } = useWebSocket('/ws/chat')
+      const didConnectRef = useRef(false)
+      if (!didConnectRef.current) {
+        didConnectRef.current = true
+        connect()
+      }
+      if (lastMessage) {
+        seenTypes.push(lastMessage.type)
+      }
+      return null
+    }
+
+    render(<Consumer />)
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    act(() => ws.triggerOpen())
+
+    act(() => {
+      ws.emit({ type: 'token', data: 'a' })
+      ws.emit({ type: 'token', data: 'b' })
+    })
+    act(() => {
+      ws.emit({ type: 'token', data: 'c' })
+      ws.emit({ type: 'done' })
+    })
+
+    expect(seenTypes).toEqual(['token', 'token', 'token', 'done'])
   })
 })

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { flushSync } from 'react-dom'
 
 interface WSMessage {
   type: string
@@ -61,19 +62,25 @@ export function useWebSocket(path: string, autoConnect = false) {
       // If the turn was still in progress, the socket dropped mid-stream,
       // so surface a real error instead of leaving an empty assistant bubble.
       if (streamEndedRef.current) {
-        setLastMessage({ type: 'done' })
+        flushSync(() => {
+          setLastMessage({ type: 'done' })
+        })
       } else {
         streamEndedRef.current = true
-        setLastMessage({
-          type: 'error',
-          data: 'Connection dropped before the response finished. Please try again.',
+        flushSync(() => {
+          setLastMessage({
+            type: 'error',
+            data: 'Connection dropped before the response finished. Please try again.',
+          })
         })
       }
     }
     ws.onerror = () => {
       hadErrorRef.current = true
       streamEndedRef.current = true
-      setLastMessage({ type: 'error', data: 'Connection error. Please try again.' })
+      flushSync(() => {
+        setLastMessage({ type: 'error', data: 'Connection error. Please try again.' })
+      })
     }
     ws.onmessage = (event) => {
       gotMessageRef.current = true
@@ -85,7 +92,17 @@ export function useWebSocket(path: string, autoConnect = false) {
       } else if (parsed.type === 'done' || parsed.type === 'error') {
         streamEndedRef.current = true
       }
-      setLastMessage(parsed)
+      // CRITICAL: flushSync forces React to commit this state update
+      // synchronously instead of batching it with other onmessage events
+      // that may arrive in quick succession. Without this, multi-AI chat
+      // bursts (turn_start, token, turn_end, repeat) get coalesced into
+      // a single re-render with only the LAST event surviving, so the
+      // consumer effect drops every intermediate event and crams 6 turns
+      // into one bubble. flushSync makes the consumer effect run once
+      // per message, in order, the way the streaming protocol requires.
+      flushSync(() => {
+        setLastMessage(parsed)
+      })
     }
     wsRef.current = ws
   }, [])

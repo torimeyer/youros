@@ -6,7 +6,7 @@ export type AccentColor = 'blue' | 'pink' | 'purple' | 'cyan' | 'orange'
 // Default order and visibility for home dashboard widgets. Users can
 // hide any of these and reorder them via the Customize modal.
 export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
-  'morning_briefing',
+  'briefing',
   'focus_first',
   'todays_focus',
   'quick_launch',
@@ -17,7 +17,7 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
 // Human readable labels for each dashboard widget id. Keep this in sync
 // with DEFAULT_DASHBOARD_WIDGETS. Used by the customize modal.
 export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
-  morning_briefing: 'Morning Briefing',
+  briefing: 'Briefing',
   focus_first: 'Focus on this first',
   todays_focus: "Today's Focus",
   quick_launch: 'Quick Launch',
@@ -119,7 +119,20 @@ const LS_KEYS = {
   whatsNewLastSeen: 'myos-whats-new-last-seen',
   customAgentTemplates: 'myos-custom-templates',
   dashboardWidgets: 'myos-dashboard-widgets',
+  chatWidth: 'myos-chat-width',
 } as const
+
+// Chat panel resize bounds.
+// MIN keeps the chat usable (message list still readable, input still wide
+// enough to type a sentence). MAX reserves room for the sidebar (224px)
+// plus a sliver of main content so nothing gets hidden behind the chat.
+export const CHAT_WIDTH_MIN = 280
+export const CHAT_WIDTH_RESERVED_FOR_REST = 320
+
+export function clampChatWidth(width: number, viewportWidth: number): number {
+  const ceiling = Math.max(CHAT_WIDTH_MIN, viewportWidth - CHAT_WIDTH_RESERVED_FOR_REST)
+  return Math.max(CHAT_WIDTH_MIN, Math.min(ceiling, Math.round(width)))
+}
 
 // Safe localStorage wrappers. Guard against non-browser environments (tests).
 function lsGet(key: string): string | null {
@@ -153,6 +166,22 @@ function serverModelToKey(server: string): string {
   return server.startsWith('@') ? server.slice(1) : server
 }
 
+// Read the persisted chat width. If nothing is stored, default to about
+// a third of the current viewport so the chat feels right on first open.
+// We still clamp to the live bounds so a stale localStorage value from an
+// older device cannot leave the chat larger than today's viewport.
+function readInitialChatWidth(): number {
+  const viewport = typeof window !== 'undefined' ? window.innerWidth : 1200
+  const raw = lsGet(LS_KEYS.chatWidth)
+  if (raw) {
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return clampChatWidth(parsed, viewport)
+    }
+  }
+  return clampChatWidth(Math.floor(viewport / 3), viewport)
+}
+
 const initialOnboarded = lsGet(LS_KEYS.onboarded) === 'true'
 const initialDarkMode = lsGet(LS_KEYS.darkMode) !== 'false'
 const initialAccentColor = (lsGet(LS_KEYS.accentColor) as AccentColor) || 'blue'
@@ -174,13 +203,26 @@ function readInitialCustomTemplates(): CustomAgentTemplate[] {
 }
 const initialCustomAgentTemplates = readInitialCustomTemplates()
 
+// One-shot migration: the old widget id "morning_briefing" became
+// "briefing" when the time-of-day restriction was removed. Rename it
+// wherever it appears in the stored widget list so users who already
+// customized their dashboard do not lose the briefing tile.
+function migrateBriefingWidgetId(ids: string[]): string[] {
+  const out: string[] = []
+  for (const id of ids) {
+    const mapped = id === 'morning_briefing' ? 'briefing' : id
+    if (!out.includes(mapped)) out.push(mapped)
+  }
+  return out
+}
+
 function readInitialDashboardWidgets(): string[] {
   const raw = lsGet(LS_KEYS.dashboardWidgets)
   if (!raw) return [...DEFAULT_DASHBOARD_WIDGETS]
   try {
     const parsed = JSON.parse(raw)
     if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
-      return parsed as string[]
+      return migrateBriefingWidgetId(parsed as string[])
     }
     return [...DEFAULT_DASHBOARD_WIDGETS]
   } catch {
@@ -198,13 +240,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   chatOpen: true,
   toggleChat: () => set((s) => ({ chatOpen: !s.chatOpen })),
-  chatWidth: Math.floor((typeof window !== 'undefined' ? window.innerWidth : 1200) / 3),
-  setChatWidth: (chatWidth) => set({
-    chatWidth: Math.max(
-      300,
-      Math.min(Math.floor((typeof window !== 'undefined' ? window.innerWidth : 1200) / 2), chatWidth),
-    ),
-  }),
+  chatWidth: readInitialChatWidth(),
+  setChatWidth: (chatWidth) => {
+    const viewport = typeof window !== 'undefined' ? window.innerWidth : 1200
+    const clamped = clampChatWidth(chatWidth, viewport)
+    lsSet(LS_KEYS.chatWidth, String(clamped))
+    set({ chatWidth: clamped })
+  },
   isResizing: false,
   setIsResizing: (isResizing) => set({ isResizing }),
   osName: initialOsName,
@@ -401,7 +443,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       Array.isArray(server.dashboard_widgets) &&
       (server.dashboard_widgets as unknown[]).every((x) => typeof x === 'string')
     ) {
-      const v = server.dashboard_widgets as string[]
+      const v = migrateBriefingWidgetId(server.dashboard_widgets as string[])
       updates.dashboardWidgets = v
       lsSet(LS_KEYS.dashboardWidgets, JSON.stringify(v))
     } else {

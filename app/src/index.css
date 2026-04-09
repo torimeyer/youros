@@ -31,6 +31,14 @@
   --theme-sidebar-bg: #f1f5f9;
 }
 
+html, body {
+  /* Never let the whole page scroll sideways. When Tori drags the chat
+     panel wider the main content re-flows, but if any single child
+     overflows (a long preformatted block, a wide table) it should scroll
+     inside its own container, not push the whole window right. */
+  overflow-x: hidden;
+}
+
 body {
   font-family: 'Inter', sans-serif;
   background-color: var(--theme-bg);

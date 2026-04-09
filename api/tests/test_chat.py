@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from routers.chat import (
     _extract_gif_frames,
+    infer_second_model,
     parse_mentions,
     should_inject_context,
     strip_mentions,
@@ -110,9 +111,18 @@ class FakeWebSocket:
 
     def __init__(self):
         self.messages: list[dict] = []
+        self._recv_queue: list[dict] = []
+
+    async def accept(self):
+        pass
 
     async def send_json(self, data: dict):
         self.messages.append(data)
+
+    async def receive_json(self) -> dict:
+        if self._recv_queue:
+            return self._recv_queue.pop(0)
+        raise RuntimeError("no more messages")
 
     def get_messages_of_type(self, msg_type: str) -> list[dict]:
         return [m for m in self.messages if m.get("type") == msg_type]
@@ -121,6 +131,61 @@ class FakeWebSocket:
 @pytest.fixture
 def websocket():
     return FakeWebSocket()
+
+
+class _PatchGenai:
+    """Context manager that fully redirects ``google.generativeai`` to a mock.
+
+    ``patch.dict(sys.modules, ...)`` alone is NOT enough once any other
+    test has done ``import google.generativeai`` in the same process.
+    Python caches the sub-module as an attribute on the ``google``
+    package, and a plain ``import google.generativeai as genai`` inside
+    production code resolves via that attribute rather than re-reading
+    ``sys.modules``. When an earlier test in the suite imported the real
+    SDK (for example ``_run_gemini_stream`` in test_chat_providers.py),
+    later tests that only patch sys.modules silently fall through to
+    the real module. The fix is to patch BOTH: ``sys.modules`` and the
+    ``generativeai`` attribute on the ``google`` package. This helper
+    keeps the plumbing in one place so every Gemini test uses the same
+    robust technique. Restores original state on exit.
+    """
+
+    def __init__(self, mock_module):
+        self._mock = mock_module
+        self._orig_sys_module = None
+        self._orig_attr = None
+        self._had_attr = False
+
+    def __enter__(self):
+        import sys
+        import google  # noqa: F401 - ensure the parent package is loaded
+
+        self._orig_sys_module = sys.modules.get("google.generativeai")
+        self._had_attr = hasattr(google, "generativeai")
+        if self._had_attr:
+            self._orig_attr = getattr(google, "generativeai")
+
+        sys.modules["google.generativeai"] = self._mock
+        google.generativeai = self._mock  # type: ignore[attr-defined]
+        return self._mock
+
+    def __exit__(self, exc_type, exc, tb):
+        import sys
+        import google
+
+        if self._orig_sys_module is not None:
+            sys.modules["google.generativeai"] = self._orig_sys_module
+        else:
+            sys.modules.pop("google.generativeai", None)
+
+        if self._had_attr:
+            google.generativeai = self._orig_attr  # type: ignore[attr-defined]
+        else:
+            try:
+                delattr(google, "generativeai")
+            except AttributeError:
+                pass
+        return False
 
 
 class TestGeminiCredentialErrors:
@@ -264,7 +329,7 @@ class TestGeminiCredentialErrors:
         with patch(
             "services.chat_providers._resolve_api_key",
             new=fake_resolve,
-        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}):
+        ), _PatchGenai(mock_genai):
             result = await service.stream_gemini(
                 [{"role": "user", "content": "hello"}],
                 websocket,
@@ -311,7 +376,7 @@ class TestGeminiCredentialErrors:
         with patch(
             "services.chat_providers._resolve_api_key",
             new=fake_resolve,
-        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}):
+        ), _PatchGenai(mock_genai):
             result = await service.stream_gemini(
                 [{"role": "user", "content": "hello"}],
                 websocket,
@@ -361,7 +426,7 @@ class TestGeminiCredentialErrors:
         with patch(
             "services.chat_providers._resolve_api_key",
             new=fake_resolve,
-        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}):
+        ), _PatchGenai(mock_genai):
             result = await service.stream_gemini(
                 [{"role": "user", "content": "hello"}],
                 websocket,
@@ -404,7 +469,7 @@ class TestGeminiCredentialErrors:
         with patch(
             "services.chat_providers._resolve_api_key",
             new=fake_resolve,
-        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}):
+        ), _PatchGenai(mock_genai):
             result = await service.stream_gemini(
                 [{"role": "user", "content": "hello"}],
                 websocket,
@@ -476,7 +541,7 @@ class TestGeminiModelSelection:
         with patch(
             "services.chat_providers._resolve_api_key",
             new=fake_resolve,
-        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}), patch.dict(
+        ), _PatchGenai(mock_genai), patch.dict(
             os.environ, {}, clear=False
         ):
             os.environ.pop("MYOS_GEMINI_MODEL", None)
@@ -485,7 +550,14 @@ class TestGeminiModelSelection:
                 websocket,
             )
 
-        mock_genai.GenerativeModel.assert_called_once_with(DEFAULT_GEMINI_MODEL)
+        # stream_gemini now passes a system_instruction kwarg so Gemini
+        # stops prefixing its replies with "@Gemini:". Assert the call
+        # was made with the right model and a non-empty instruction.
+        mock_genai.GenerativeModel.assert_called_once()
+        call = mock_genai.GenerativeModel.call_args
+        assert call.args == (DEFAULT_GEMINI_MODEL,)
+        assert isinstance(call.kwargs.get("system_instruction"), str)
+        assert len(call.kwargs["system_instruction"]) > 0
 
     @pytest.mark.asyncio
     async def test_stream_gemini_respects_env_override(self, websocket):
@@ -508,7 +580,7 @@ class TestGeminiModelSelection:
         with patch(
             "services.chat_providers._resolve_api_key",
             new=fake_resolve,
-        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}), patch.dict(
+        ), _PatchGenai(mock_genai), patch.dict(
             os.environ, {"MYOS_GEMINI_MODEL": "gemini-custom-test"}
         ):
             await service.stream_gemini(
@@ -516,7 +588,10 @@ class TestGeminiModelSelection:
                 websocket,
             )
 
-        mock_genai.GenerativeModel.assert_called_once_with("gemini-custom-test")
+        mock_genai.GenerativeModel.assert_called_once()
+        call = mock_genai.GenerativeModel.call_args
+        assert call.args == ("gemini-custom-test",)
+        assert isinstance(call.kwargs.get("system_instruction"), str)
 
     @pytest.mark.asyncio
     async def test_model_no_longer_available_translated(self, websocket):
@@ -548,7 +623,7 @@ class TestGeminiModelSelection:
         with patch(
             "services.chat_providers._resolve_api_key",
             new=fake_resolve,
-        ), patch.dict(sys.modules, {"google.generativeai": mock_genai}):
+        ), _PatchGenai(mock_genai):
             result = await service.stream_gemini(
                 [{"role": "user", "content": "hello"}],
                 websocket,
@@ -1260,3 +1335,510 @@ class TestTransformImageMessagesGif:
         assert out["content"][0]["source"]["data"] == "data-for-http://a.com/1.gif"
         assert out["content"][1]["source"]["data"] == "data-for-http://a.com/2.gif"
         assert out["content"][2]["type"] == "text"
+
+
+# --- Multi-AI conversational intent detection ---
+#
+# The chat router triggers the real multi AI orchestration loop when
+# the user mentions two models AND uses one of the conversational
+# intent keywords ("chat with", "debate", "talk to", etc.). These tests
+# lock in the keyword list so a future edit cannot silently drop a
+# phrasing, and lock in the "no overmatch" rule so a plain question
+# containing the word "chat" still goes to a single model.
+
+
+class TestIsConversationKeywordDetection:
+    """Every conversational phrasing Tori might type must trigger the
+    orchestration path. The list is matched as a case-insensitive
+    substring against the text after mentions are stripped.
+    """
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "chat with each other",
+            "Chat With each other",
+            "can you two talk to each other",
+            "gemini talks to claude",
+            "i want you talking to each other",
+            "have a conversation please",
+            "discuss with each other",
+            "it discusses with the other",
+            "keep discussing with one another",
+            "debate this",
+            "the two debates",
+            "start debating the topic",
+            "argue with each other",
+            "arguing with each other",
+            "go back and forth",
+            "do an exchange with each other",
+            "exchange messages about it",
+            "respond to each other a few times",
+        ],
+    )
+    def test_is_conversation_detects_each_keyword(self, message):
+        from routers.chat import is_conversation
+
+        assert is_conversation(message) is True, (
+            f"expected is_conversation to return True for: {message!r}"
+        )
+
+    def test_is_conversation_detects_chat_with(self):
+        """The exact phrasing Tori used in the failing case."""
+        from routers.chat import is_conversation
+
+        assert is_conversation("chat with claude a few times") is True
+
+    def test_is_conversation_does_not_overmatch(self):
+        """A plain question that merely contains the word 'chat' or
+        'talk' must NOT trigger orchestration. Otherwise "@gemini
+        what's a chat?" would get routed to a two-model exchange.
+        """
+        from routers.chat import is_conversation
+
+        assert is_conversation("what's a chat?") is False
+        assert is_conversation("let's talk about my taxes") is False
+        assert is_conversation("define conversation for me") is False
+        assert is_conversation("") is False
+        assert is_conversation("hello world") is False
+
+    def test_is_conversation_safe_for_non_strings(self):
+        """Defensive: callers sometimes pass through dict content for
+        vision blocks. The helper must not crash on non-strings."""
+        from routers.chat import is_conversation
+
+        assert is_conversation(None) is False  # type: ignore[arg-type]
+        assert is_conversation(123) is False  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "@claude discuss your favorite song with @gemini",
+            "@claude argue about politics with @gemini",
+            "@claude debate the merits of ostk with @gemini",
+            "@claude exchange thoughts on training data with @gemini",
+            "@claude talk to @gemini about books",
+            "@claude chat for a while with @gemini about hiking",
+            "@gemini discuss the rules of go with @claude",
+        ],
+    )
+    def test_is_conversation_allows_object_phrase_between_verb_and_preposition(self, message):
+        """Regression: when the user puts an object phrase between the
+        verb and the preposition, the orchestration must still fire.
+        The original substring matcher only caught tight phrasings like
+        'discuss with' and missed the natural phrasing 'discuss your
+        favorite song with', which is exactly the failing case the user
+        hit. The regex pass added in the matcher must catch up to 60
+        characters between the verb stem and the preposition."""
+        from routers.chat import is_conversation
+
+        assert is_conversation(message) is True, (
+            f"expected is_conversation to return True for: {message!r}"
+        )
+
+    def test_is_conversation_regex_does_not_overmatch_unrelated_text(self):
+        """The regex pass should not turn unrelated mentions of the same
+        verb into orchestration triggers when there is no preposition or
+        when the verb is used in an unrelated way."""
+        from routers.chat import is_conversation
+
+        assert is_conversation("discuss this with me") is True  # has 'with', valid
+        assert is_conversation("discuss") is False  # bare verb, no 'with' anywhere
+        assert is_conversation("the discussion was great") is False
+        assert is_conversation("talk it through") is False  # no 'to' or 'with'
+
+
+class TestTwoMentionRouting:
+    """End-to-end router behavior: two mentions plus conversational
+    intent must invoke ``stream_multi_ai_conversation``. Two mentions
+    without intent must fall back to the legacy single-model path so
+    the existing "@claude what does @gemini mean?" behavior is
+    preserved.
+    """
+
+    @pytest.mark.asyncio
+    async def test_two_mention_chat_with_intent_routes_to_orchestration(self):
+        import routers.chat as chat_router
+
+        calls = {"count": 0, "models": None, "message": None, "rounds": None}
+
+        async def fake_orchestration(
+            *, websocket, models, user_message, rounds
+        ):
+            calls["count"] += 1
+            calls["models"] = list(models)
+            calls["message"] = user_message
+            calls["rounds"] = rounds
+            await websocket.send_json({"type": "done"})
+
+        class FakeWS:
+            def __init__(self):
+                self.messages: list[dict] = []
+                self._queue = [
+                    {
+                        "model": "@claude",
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": "@gemini chat with @claude about shortcomings",
+                            }
+                        ],
+                    }
+                ]
+
+            async def accept(self):
+                return None
+
+            async def receive_json(self):
+                if not self._queue:
+                    from fastapi import WebSocketDisconnect
+                    raise WebSocketDisconnect()
+                return self._queue.pop(0)
+
+            async def send_json(self, data):
+                self.messages.append(data)
+
+        ws = FakeWS()
+        with patch.object(
+            chat_router, "stream_multi_ai_conversation", new=fake_orchestration
+        ):
+            await chat_router.chat_websocket(ws)
+
+        assert calls["count"] == 1
+        assert calls["models"] == ["gemini", "claude"]
+        # The message passed to orchestration must have the mentions stripped.
+        assert "@gemini" not in (calls["message"] or "")
+        assert "@claude" not in (calls["message"] or "")
+        assert "chat with" in (calls["message"] or "")
+        # Default rounds comes from the module constant.
+        from services.chat_providers import MULTI_AI_DEFAULT_ROUNDS
+        assert calls["rounds"] == MULTI_AI_DEFAULT_ROUNDS
+
+    @pytest.mark.asyncio
+    async def test_two_mention_no_intent_routes_to_first_model_only(self):
+        """Without conversational intent, the router must NOT invoke
+        the orchestration. It must call exactly one model via the
+        legacy ``call_model`` helper.
+        """
+        import routers.chat as chat_router
+
+        orchestration_calls = {"count": 0}
+        call_model_calls = {"count": 0, "model": None}
+
+        async def fake_orchestration(**kwargs):
+            orchestration_calls["count"] += 1
+
+        async def fake_call_model(provider, messages, websocket, label="", use_tools=False):
+            call_model_calls["count"] += 1
+            call_model_calls["model"] = provider
+            await websocket.send_json({"type": "done"})
+
+        class FakeWS:
+            def __init__(self):
+                self.messages: list[dict] = []
+                self._queue = [
+                    {
+                        "model": "@claude",
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": "@claude what does @gemini mean here?",
+                            }
+                        ],
+                    }
+                ]
+
+            async def accept(self):
+                return None
+
+            async def receive_json(self):
+                if not self._queue:
+                    from fastapi import WebSocketDisconnect
+                    raise WebSocketDisconnect()
+                return self._queue.pop(0)
+
+            async def send_json(self, data):
+                self.messages.append(data)
+
+        ws = FakeWS()
+        with patch.object(
+            chat_router, "stream_multi_ai_conversation", new=fake_orchestration
+        ), patch.object(
+            chat_router, "call_model", new=fake_call_model
+        ):
+            await chat_router.chat_websocket(ws)
+
+        assert orchestration_calls["count"] == 0
+        assert call_model_calls["count"] == 1
+        # The first mention wins in the legacy path.
+        assert call_model_calls["model"] == "claude"
+
+
+class TestInferSecondModel:
+    """When the user types one @mention and refers to the second model
+    by bare name right after a conversation verb, the router must infer
+    the second model so the orchestration fires. Without this, Tori's
+    exact failing message (``@gemini chat with claude ...``) routes to
+    the single-model path and only one bubble renders.
+    """
+
+    def test_infers_claude_after_chat_with(self):
+        assert (
+            infer_second_model(
+                "@gemini chat with claude a few times", ["gemini"]
+            )
+            == "claude"
+        )
+
+    def test_infers_gemini_after_talk_to(self):
+        assert (
+            infer_second_model("@claude talk to gemini about X", ["claude"])
+            == "gemini"
+        )
+
+    def test_infers_after_debate_keyword(self):
+        assert (
+            infer_second_model(
+                "@gemini debate claude about privacy", ["gemini"]
+            )
+            == "claude"
+        )
+
+    def test_returns_none_when_no_conversation_keyword(self):
+        assert (
+            infer_second_model("@gemini what is claude?", ["gemini"]) is None
+        )
+
+    def test_returns_none_when_bare_model_far_from_keyword(self):
+        # "chat with" is present but the bare model name is not within
+        # the short window that immediately follows the keyword, so it
+        # must NOT be inferred. Guards against false positives like
+        # "chat with me about why I love claude code".
+        assert (
+            infer_second_model(
+                "@gemini chat with me about how i love and trust claude",
+                ["gemini"],
+            )
+            is None
+        )
+
+    def test_does_not_duplicate_already_mentioned(self):
+        # If the model is already in the list, no inference.
+        assert (
+            infer_second_model(
+                "@gemini chat with gemini about itself", ["gemini"]
+            )
+            is None
+        )
+
+    def test_infer_is_case_insensitive(self):
+        assert (
+            infer_second_model("@gemini Chat With Claude please", ["gemini"])
+            == "claude"
+        )
+
+    def test_safe_for_non_strings(self):
+        assert infer_second_model(None, ["gemini"]) is None  # type: ignore[arg-type]
+        assert infer_second_model("", ["gemini"]) is None
+
+
+# --- is_collective_address ---
+
+class TestIsCollectiveAddress:
+    """Regression tests for group-address detection.
+
+    When any of these patterns match, the router sends the message to every
+    AI in ALL_MODELS so Gemini is not silently skipped.
+    """
+
+    def _fn(self, text: str) -> bool:
+        from routers.chat import is_collective_address
+        return is_collective_address(text)
+
+    def test_you_guys(self):
+        assert self._fn("what do you guys think?") is True
+
+    def test_you_both(self):
+        assert self._fn("thanks, you both!") is True
+
+    def test_you_two(self):
+        assert self._fn("you two are great") is True
+
+    def test_both_of_you(self):
+        assert self._fn("I'm asking both of you") is True
+
+    def test_all_of_you(self):
+        assert self._fn("all of you should weigh in") is True
+
+    def test_everyone(self):
+        assert self._fn("thanks everyone") is True
+
+    def test_everybody(self):
+        assert self._fn("what does everybody think?") is True
+
+    def test_you_all(self):
+        assert self._fn("you all are helpful") is True
+
+    def test_yall(self):
+        assert self._fn("y'all agree?") is True
+
+    def test_the_two_of_you(self):
+        assert self._fn("what do the two of you recommend?") is True
+
+    def test_both_ais(self):
+        assert self._fn("both AIs should respond") is True
+
+    def test_both_models(self):
+        assert self._fn("both models have a point") is True
+
+    def test_case_insensitive(self):
+        assert self._fn("YOU GUYS AGREE?") is True
+
+    def test_no_match_single_model_message(self):
+        assert self._fn("@claude what do you think?") is False
+
+    def test_no_match_plain_question(self):
+        assert self._fn("what is the weather today?") is False
+
+    def test_no_match_empty(self):
+        assert self._fn("") is False
+
+    def test_no_match_none(self):
+        from routers.chat import is_collective_address
+        assert is_collective_address(None) is False  # type: ignore[arg-type]
+
+
+# --- Broadcast routing via WebSocket ---
+
+class TestGroupBroadcastRouting:
+    """Regression tests ensuring collective-address messages reach all AIs.
+
+    Tori reported that "you guys" / "thanks everyone" / "you two" only
+    produced a Claude response. These tests verify the router fires
+    stream_group_broadcast instead of the single-model path.
+    """
+
+    def _make_ws(self):
+        return FakeWebSocket()
+
+    @pytest.mark.asyncio
+    async def test_you_guys_triggers_broadcast(self):
+        """'you guys' with no @mentions must call stream_group_broadcast."""
+        from unittest.mock import AsyncMock, patch
+
+        ws = self._make_ws()
+        with patch("routers.chat.stream_group_broadcast", new_callable=AsyncMock) as mock_broadcast, \
+             patch("routers.chat.stream_multi_ai_conversation", new_callable=AsyncMock), \
+             patch("routers.chat.call_model", new_callable=AsyncMock):
+            ws._recv_queue = [
+                {"messages": [{"role": "user", "content": "what do you guys think?"}], "model": "@claude"}
+            ]
+            # Simulate a single receive then disconnect
+            import asyncio
+
+            async def fake_receive_json():
+                if ws._recv_queue:
+                    return ws._recv_queue.pop(0)
+                raise Exception("disconnect")
+
+            ws.receive_json = fake_receive_json
+
+            from routers.chat import chat_websocket
+            try:
+                await chat_websocket(ws)
+            except Exception:
+                pass
+
+            mock_broadcast.assert_called_once()
+            call_kwargs = mock_broadcast.call_args
+            assert set(call_kwargs.kwargs["models"]) == {"claude", "gemini"}
+
+    @pytest.mark.asyncio
+    async def test_thanks_everyone_triggers_broadcast(self):
+        """'thanks everyone' must broadcast to all AIs, not just Claude."""
+        from unittest.mock import AsyncMock, patch
+
+        ws = self._make_ws()
+        with patch("routers.chat.stream_group_broadcast", new_callable=AsyncMock) as mock_broadcast, \
+             patch("routers.chat.stream_multi_ai_conversation", new_callable=AsyncMock), \
+             patch("routers.chat.call_model", new_callable=AsyncMock):
+            ws._recv_queue = [
+                {"messages": [{"role": "user", "content": "thanks everyone, that was helpful!"}], "model": "@claude"}
+            ]
+
+            async def fake_receive_json():
+                if ws._recv_queue:
+                    return ws._recv_queue.pop(0)
+                raise Exception("disconnect")
+
+            ws.receive_json = fake_receive_json
+
+            from routers.chat import chat_websocket
+            try:
+                await chat_websocket(ws)
+            except Exception:
+                pass
+
+            mock_broadcast.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_collective_address_with_debate_keyword_uses_multi_ai(self):
+        """'you guys debate X' has both collective AND debate intent.
+
+        is_conversation wins and the router should use stream_multi_ai_conversation,
+        not the broadcast path. Both AIs still participate.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        ws = self._make_ws()
+        with patch("routers.chat.stream_group_broadcast", new_callable=AsyncMock) as mock_broadcast, \
+             patch("routers.chat.stream_multi_ai_conversation", new_callable=AsyncMock) as mock_debate, \
+             patch("routers.chat.call_model", new_callable=AsyncMock):
+            ws._recv_queue = [
+                {"messages": [{"role": "user", "content": "you guys debate the best programming language"}], "model": "@claude"}
+            ]
+
+            async def fake_receive_json():
+                if ws._recv_queue:
+                    return ws._recv_queue.pop(0)
+                raise Exception("disconnect")
+
+            ws.receive_json = fake_receive_json
+
+            from routers.chat import chat_websocket
+            try:
+                await chat_websocket(ws)
+            except Exception:
+                pass
+
+            mock_debate.assert_called_once()
+            mock_broadcast.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_single_mention_no_collective_uses_single_model(self):
+        """@claude with no collective pattern must still route to a single model."""
+        from unittest.mock import AsyncMock, patch
+
+        ws = self._make_ws()
+        with patch("routers.chat.stream_group_broadcast", new_callable=AsyncMock) as mock_broadcast, \
+             patch("routers.chat.stream_multi_ai_conversation", new_callable=AsyncMock), \
+             patch("routers.chat.call_model", new_callable=AsyncMock) as mock_single:
+            ws._recv_queue = [
+                {"messages": [{"role": "user", "content": "@claude what is 2+2?"}], "model": "@claude"}
+            ]
+
+            async def fake_receive_json():
+                if ws._recv_queue:
+                    return ws._recv_queue.pop(0)
+                raise Exception("disconnect")
+
+            ws.receive_json = fake_receive_json
+
+            from routers.chat import chat_websocket
+            try:
+                await chat_websocket(ws)
+            except Exception:
+                pass
+
+            mock_single.assert_called_once()
+            mock_broadcast.assert_not_called()

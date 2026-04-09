@@ -15,6 +15,7 @@ These tests verify that:
 
 import json
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -218,44 +219,75 @@ async def test_list_agents_endpoint_merges_sources():
 @pytest.mark.asyncio
 async def test_nudge_writes_file_and_returns_record():
     """POST /api/agents/{name}/nudge should write a nudge file and return record."""
+    from routers.agents import agent_metadata
+    agent_metadata["test-agent"] = {"status": "running", "source": "claude-code"}
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        with patch("routers.agents.ostk") as mock_ostk:
-            mock_ostk.write_nudge = AsyncMock(return_value={
-                "agent": "test-agent",
-                "message": "Hello agent",
-                "timestamp": "2026-04-04T21:00:00+00:00",
-                "source": "ui",
-            })
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": "test-agent",
+                    "message": "Hello agent",
+                    "timestamp": "2026-04-04T21:00:00+00:00",
+                    "source": "ui",
+                })
 
-            resp = await client.post(
-                "/api/agents/test-agent/nudge",
-                json={"message": "Hello agent"},
-            )
+                resp = await client.post(
+                    "/api/agents/test-agent/nudge",
+                    json={"message": "Hello agent"},
+                )
 
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["result"] == "Nudge sent to 'test-agent'"
-        assert data["nudge"]["message"] == "Hello agent"
-        assert data["nudge"]["source"] == "ui"
-        mock_ostk.write_nudge.assert_called_once_with("test-agent", "Hello agent")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["result"] == "Nudge sent to 'test-agent'"
+            assert data["nudge"]["message"] == "Hello agent"
+            assert data["nudge"]["source"] == "ui"
+            mock_ostk.write_nudge.assert_called_once_with("test-agent", "Hello agent")
+    finally:
+        agent_metadata.pop("test-agent", None)
 
 
 @pytest.mark.asyncio
 async def test_nudge_empty_message_rejected():
     """POST /api/agents/{name}/nudge with empty message should return 400."""
+    from routers.agents import agent_metadata
+    agent_metadata["test-agent"] = {"status": "running", "source": "claude-code"}
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/test-agent/nudge",
+                json={"message": "   "},
+            )
+            assert resp.status_code == 400
+    finally:
+        agent_metadata.pop("test-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_nudge_unknown_agent_returns_404():
+    """POST /api/agents/{name}/nudge to an unregistered agent should 404.
+
+    Regression for needle 235: Tori nudged a running agent and the
+    message vanished. Orphan nudges to unknown names must fail loudly
+    so the UI can show a clear error instead of silent success.
+    """
+    from routers.agents import agent_metadata
+    agent_metadata.pop("no-such-agent", None)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
-            "/api/agents/test-agent/nudge",
-            json={"message": "   "},
+            "/api/agents/no-such-agent/nudge",
+            json={"message": "hello"},
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_nudge_tries_stdin_when_proc_available():
     """When the agent has a process with stdin, nudge should try to deliver there."""
+    from routers.agents import agent_metadata
+    agent_metadata["stdin-agent"] = {"status": "running", "source": "api"}
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Create a mock process with stdin
@@ -284,34 +316,143 @@ async def test_nudge_tries_stdin_when_proc_available():
                 )
         finally:
             active_agents.pop("stdin-agent", None)
+            agent_metadata.pop("stdin-agent", None)
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["nudge"]["stdin_delivered"] is True
+        assert data["nudge"]["delivery"] == "stdin"
+        assert "respond shortly" in data["nudge"]["delivery_message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_nudge_claude_code_agent_reports_file_only_delivery():
+    """Claude Code subagents have no proc, so delivery is file_only with a plain message.
+
+    Regression for needle 235: the old code returned
+    stdin_delivered: false with no explanation, so the inline UI
+    silently accepted messages that were never delivered. The new
+    contract is delivery=file_only plus a user-visible
+    delivery_message the UI can render.
+    """
+    from routers.agents import agent_metadata, active_agents
+    agent_metadata["claude-agent"] = {"status": "running", "source": "claude-code"}
+    active_agents.pop("claude-agent", None)  # belt and suspenders, no proc
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": "claude-agent",
+                    "message": "how much longer?",
+                    "timestamp": "2026-04-09T03:08:57+00:00",
+                    "source": "ui",
+                })
+
+                resp = await client.post(
+                    "/api/agents/claude-agent/nudge",
+                    json={"message": "how much longer?"},
+                )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["nudge"]["delivery"] == "file_only"
+        assert data["nudge"]["stdin_delivered"] is False
+        msg = data["nudge"]["delivery_message"]
+        # Plain language, no jargon, explains what will happen next.
+        assert "mailbox" in msg.lower() or "saved" in msg.lower()
+    finally:
+        agent_metadata.pop("claude-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_reply_endpoint_records_agent_reply():
+    """POST /api/agents/{name}/reply should persist an agent reply.
+
+    Regression for needle 235: there was no reply channel at all, so
+    even if an agent did want to respond to a user nudge, the data
+    model had nowhere to put it. The new /reply endpoint completes the
+    loop: agent POSTs here, GET /nudges surfaces it on the next poll.
+    """
+    from routers.agents import agent_metadata, nudge_replies
+    agent_metadata["reply-agent"] = {"status": "running", "source": "claude-code"}
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.append_nudge_reply = AsyncMock(return_value={
+                    "agent": "reply-agent",
+                    "message": "About ten more minutes.",
+                    "timestamp": "2026-04-09T03:10:00+00:00",
+                    "source": "agent",
+                    "in_reply_to": "2026-04-09T03:08:57+00:00",
+                })
+
+                resp = await client.post(
+                    "/api/agents/reply-agent/reply",
+                    json={
+                        "message": "About ten more minutes.",
+                        "in_reply_to": "2026-04-09T03:08:57+00:00",
+                    },
+                )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["reply"]["message"] == "About ten more minutes."
+        assert data["reply"]["source"] == "agent"
+        assert data["reply"]["in_reply_to"] == "2026-04-09T03:08:57+00:00"
+        # Session memory must also mirror the reply so list_nudges
+        # returns it on the very next poll.
+        assert nudge_replies.get("reply-agent", [])[-1]["message"] == "About ten more minutes."
+    finally:
+        agent_metadata.pop("reply-agent", None)
+        nudge_replies.pop("reply-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_reply_endpoint_rejects_unknown_agent():
+    """POST /api/agents/{name}/reply to an unregistered agent should 404."""
+    from routers.agents import agent_metadata
+    agent_metadata.pop("ghost-agent", None)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/agents/ghost-agent/reply",
+            json={"message": "hi"},
+        )
+        assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_list_nudges_endpoint():
-    """GET /api/agents/{name}/nudges should return file and session nudges."""
+    """GET /api/agents/{name}/nudges should return file and session nudges plus replies."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         file_nudges = [
             {"message": "File nudge", "timestamp": "2026-04-04T21:00:00+00:00", "source": "ui"},
         ]
+        file_replies = [
+            {"message": "File reply", "timestamp": "2026-04-04T21:02:00+00:00", "source": "agent", "in_reply_to": None},
+        ]
 
         with patch("routers.agents.ostk") as mock_ostk:
             mock_ostk.list_nudges = AsyncMock(return_value=file_nudges)
+            mock_ostk.list_nudge_replies = AsyncMock(return_value=file_replies)
 
             # Pre-populate session history
-            from routers.agents import nudge_history
+            from routers.agents import nudge_history, nudge_replies
             nudge_history["list-agent"] = [
                 {"message": "Session nudge", "timestamp": "2026-04-04T21:05:00+00:00", "source": "ui", "stdin_delivered": False},
+            ]
+            nudge_replies["list-agent"] = [
+                {"message": "Session reply", "timestamp": "2026-04-04T21:06:00+00:00", "source": "agent", "in_reply_to": None},
             ]
 
             try:
                 resp = await client.get("/api/agents/list-agent/nudges")
             finally:
                 nudge_history.pop("list-agent", None)
+                nudge_replies.pop("list-agent", None)
 
         assert resp.status_code == 200
         data = resp.json()
@@ -320,6 +461,72 @@ async def test_list_nudges_endpoint():
         assert data["nudges"][0]["message"] == "File nudge"
         assert len(data["session_nudges"]) == 1
         assert data["session_nudges"][0]["message"] == "Session nudge"
+        # Regression for needle 235: replies must surface on the same poll.
+        assert len(data["replies"]) == 1
+        assert data["replies"][0]["message"] == "File reply"
+        assert len(data["session_replies"]) == 1
+        assert data["session_replies"][0]["message"] == "Session reply"
+
+
+@pytest.mark.asyncio
+async def test_append_nudge_reply_creates_file(tmp_path):
+    """OstkService.append_nudge_reply should create a JSON file in the replies subdir."""
+    svc = OstkService()
+    nudges_dir = tmp_path / "nudges"
+
+    with patch("services.ostk.NUDGES_DIR", nudges_dir):
+        result = await svc.append_nudge_reply(
+            "reply-agent",
+            "all done",
+            in_reply_to="2026-04-09T03:08:57+00:00",
+        )
+
+    assert result["agent"] == "reply-agent"
+    assert result["message"] == "all done"
+    assert result["source"] == "agent"
+    assert result["in_reply_to"] == "2026-04-09T03:08:57+00:00"
+
+    replies_dir = nudges_dir / "reply-agent" / "replies"
+    assert replies_dir.exists()
+    files = list(replies_dir.glob("*.json"))
+    assert len(files) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_nudge_replies_returns_empty_when_no_dir(tmp_path):
+    """OstkService.list_nudge_replies should return [] when no replies exist."""
+    svc = OstkService()
+    nudges_dir = tmp_path / "nudges"
+
+    with patch("services.ostk.NUDGES_DIR", nudges_dir):
+        replies = await svc.list_nudge_replies("nobody")
+
+    assert replies == []
+
+
+@pytest.mark.asyncio
+async def test_list_nudges_does_not_include_replies_subdir(tmp_path):
+    """list_nudges globs *.json in the agent dir but must skip the replies subdir."""
+    svc = OstkService()
+    nudges_dir = tmp_path / "nudges"
+    agent_dir = nudges_dir / "a"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "20260409T030000_000.json").write_text(json.dumps({
+        "agent": "a",
+        "message": "user msg",
+        "timestamp": "2026-04-09T03:00:00+00:00",
+        "source": "ui",
+    }))
+    # Writing a reply should not pollute list_nudges.
+    with patch("services.ostk.NUDGES_DIR", nudges_dir):
+        await svc.append_nudge_reply("a", "agent answer")
+        nudges = await svc.list_nudges("a")
+        replies = await svc.list_nudge_replies("a")
+
+    assert len(nudges) == 1
+    assert nudges[0]["source"] == "ui"
+    assert len(replies) == 1
+    assert replies[0]["source"] == "agent"
 
 
 @pytest.mark.asyncio
@@ -2376,3 +2583,653 @@ def test_register_autodiscover_ignores_stale_files(tmp_path):
          patch("config.PROJECT_ROOT", fake_repo):
         discovered = _autodiscover_recent_transcript_path(max_age_seconds=60)
     assert discovered is None
+
+
+# ---------------------------------------------------------------------------
+# Stale agent sweep, heartbeat, and cancel.
+#
+# Root cause: agents killed externally (SIGKILL, OOM, parent exit) never
+# call /complete so their records stay status=running forever. The fix adds
+# a last_heartbeat_at field refreshed on register and /heartbeat, a stale
+# sweep on every GET /api/agents that marks running records with stale
+# heartbeats as terminated_stale, and a /cancel endpoint for manual stop.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_register_sets_last_heartbeat(tmp_path):
+    """POST /agents/register must stamp last_heartbeat_at so the sweep has
+    a baseline to measure against."""
+    from routers.agents import agent_metadata
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk._run = AsyncMock(return_value="")
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={"name": "heartbeat-agent", "model": "sonnet", "budget": 2.0},
+                )
+                assert resp.status_code == 200
+                assert "heartbeat-agent" in agent_metadata
+                assert "last_heartbeat_at" in agent_metadata["heartbeat-agent"]
+                assert isinstance(agent_metadata["heartbeat-agent"]["last_heartbeat_at"], str)
+        finally:
+            agent_metadata.pop("heartbeat-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_endpoint_updates_last_seen(tmp_path):
+    """POST /agents/{name}/heartbeat must refresh last_heartbeat_at."""
+    from routers.agents import agent_metadata
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            # Seed the record with an old heartbeat.
+            old_ts = "2026-04-08T00:00:00+00:00"
+            agent_metadata["beat-agent"] = {
+                "spawned_at": old_ts,
+                "last_heartbeat_at": old_ts,
+                "source": "claude-code",
+                "status": "running",
+            }
+            with patch("routers.agents._save_agent_state"):
+                resp = await client.post(
+                    "/api/agents/beat-agent/heartbeat",
+                    json={"step": "phase 2"},
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["ok"] is True
+                assert data["last_heartbeat_at"] != old_ts
+                assert agent_metadata["beat-agent"]["last_heartbeat_at"] != old_ts
+                assert agent_metadata["beat-agent"]["current_step"] == "phase 2"
+        finally:
+            agent_metadata.pop("beat-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_endpoint_returns_404_for_unknown_agent():
+    """Heartbeats for unregistered agents must return 404, not silently
+    create a phantom record."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents._save_agent_state"):
+            resp = await client.post(
+                "/api/agents/does-not-exist/heartbeat",
+                json={},
+            )
+            assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_endpoint_marks_stale_running_agents(tmp_path):
+    """GET /api/agents must mark any running agent whose last_heartbeat_at
+    is older than STALE_AGENT_TIMEOUT_SECONDS as terminated_stale and persist
+    the change."""
+    from routers.agents import agent_metadata, STALE_AGENT_TIMEOUT_SECONDS
+    from datetime import datetime, timezone, timedelta
+
+    stale_ts = (datetime.now(timezone.utc) - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 60)).isoformat()
+    agent_metadata["stale-running-agent"] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    save_calls = []
+
+    def fake_save():
+        save_calls.append(True)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state", side_effect=fake_save), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert names["stale-running-agent"]["status"] == "terminated_stale"
+                assert "terminated_at" in names["stale-running-agent"]
+                assert agent_metadata["stale-running-agent"]["status"] == "terminated_stale"
+                assert len(save_calls) >= 1
+        finally:
+            agent_metadata.pop("stale-running-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_list_endpoint_does_not_mark_fresh_running_agents(tmp_path):
+    """A running agent with a recent last_heartbeat_at must not be swept."""
+    from routers.agents import agent_metadata
+    from datetime import datetime, timezone, timedelta
+
+    fresh_ts = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+    agent_metadata["fresh-agent"] = {
+        "spawned_at": fresh_ts,
+        "last_heartbeat_at": fresh_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert names["fresh-agent"]["status"] == "running"
+                assert agent_metadata["fresh-agent"]["status"] == "running"
+        finally:
+            agent_metadata.pop("fresh-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_list_endpoint_does_not_revive_already_completed_agents(tmp_path):
+    """A completed agent must stay completed across list calls, even if
+    last_heartbeat_at is ancient."""
+    from routers.agents import agent_metadata
+
+    agent_metadata["done-agent"] = {
+        "spawned_at": "2026-04-01T00:00:00+00:00",
+        "last_heartbeat_at": "2026-04-01T00:00:00+00:00",
+        "source": "claude-code",
+        "status": "completed",
+        "completed_at": "2026-04-01T00:01:00+00:00",
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert names["done-agent"]["status"] == "completed"
+        finally:
+            agent_metadata.pop("done-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_cancel_endpoint_marks_status_cancelled(tmp_path):
+    """POST /agents/{name}/cancel must set status=cancelled and
+    persist terminated_at."""
+    from routers.agents import agent_metadata
+
+    agent_metadata["cancel-me"] = {
+        "spawned_at": "2026-04-08T00:00:00+00:00",
+        "last_heartbeat_at": "2026-04-08T00:00:00+00:00",
+        "source": "claude-code",
+        "status": "running",
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk._run = AsyncMock(return_value="")
+                resp = await client.post(
+                    "/api/agents/cancel-me/cancel",
+                    json={"reason": "test cancel"},
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["ok"] is True
+                assert data["status"] == "cancelled"
+                assert agent_metadata["cancel-me"]["status"] == "cancelled"
+                assert "terminated_at" in agent_metadata["cancel-me"]
+                assert agent_metadata["cancel-me"]["terminated_reason"] == "test cancel"
+        finally:
+            agent_metadata.pop("cancel-me", None)
+
+
+@pytest.mark.asyncio
+async def test_complete_after_cancel_is_a_noop(tmp_path):
+    """If a zombie agent calls /complete after its record has been marked
+    cancelled or terminated_stale, the status must NOT flip back to
+    completed. This protects against an agent that was cancelled by the
+    user or swept by the server and then posted a late completion."""
+    from routers.agents import agent_metadata
+
+    for terminal in ("cancelled", "terminated_stale"):
+        agent_metadata["zombie-agent"] = {
+            "spawned_at": "2026-04-08T00:00:00+00:00",
+            "source": "claude-code",
+            "status": terminal,
+            "terminated_at": "2026-04-08T00:01:00+00:00",
+        }
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            try:
+                with patch("routers.agents.ostk") as mock_ostk, \
+                     patch("routers.agents._save_agent_state"):
+                    mock_ostk._run = AsyncMock(return_value="")
+                    resp = await client.post(
+                        "/api/agents/zombie-agent/complete",
+                        json={"summary": "i somehow finished"},
+                    )
+                    assert resp.status_code == 200
+                    data = resp.json()
+                    assert data["status"] == terminal
+                    assert agent_metadata["zombie-agent"]["status"] == terminal
+            finally:
+                agent_metadata.pop("zombie-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_stale_sweep_runs_at_most_once_per_request(tmp_path):
+    """Fifty stale records must be swept in a single list call, and the
+    persistence layer must be hit only once per request, not once per row.
+    This guards against an O(N) write storm when a backlog of orphans
+    piles up after a server outage.
+    """
+    from routers.agents import agent_metadata, STALE_AGENT_TIMEOUT_SECONDS
+    from datetime import datetime, timezone, timedelta
+
+    stale_ts = (datetime.now(timezone.utc) - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)).isoformat()
+    names = [f"sweep-agent-{i}" for i in range(50)]
+    for name in names:
+        agent_metadata[name] = {
+            "spawned_at": stale_ts,
+            "last_heartbeat_at": stale_ts,
+            "source": "claude-code",
+            "status": "running",
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+        }
+
+    save_calls = []
+
+    def fake_save():
+        save_calls.append(True)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state", side_effect=fake_save), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                result = {a["name"]: a for a in resp.json()["agents"]}
+                for name in names:
+                    assert result[name]["status"] == "terminated_stale"
+                    assert agent_metadata[name]["status"] == "terminated_stale"
+                # Single consolidated save, not one per row.
+                assert len(save_calls) == 1
+        finally:
+            for name in names:
+                agent_metadata.pop(name, None)
+
+
+# ---------------------------------------------------------------------------
+# Mailbox check contract (needle 238)
+#
+# Background. Before needle 238 the nudge endpoint returned a vague status
+# line "It will see your message the next time it checks its mailbox" and no
+# spawned agent ever actually checked its mailbox. The three tests below lock
+# in the fix: the status line must cite a specific interval, the standard
+# prompt block must contain every step the agent is expected to take, and
+# the interval constant must stay under two minutes so Tori is never kept
+# waiting for minutes after typing a follow up.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_nudge_delivery_message_includes_check_interval():
+    """The file_only delivery_message must cite the real check interval.
+
+    Regression for needle 238. Before the fix the message said "next time
+    it checks its mailbox" which was misleading because agents never checked
+    at all. After the fix the message must cite the actual interval (60
+    seconds at the time of writing) and must not fall back to the vague
+    "next time" wording.
+    """
+    from routers.agents import (
+        agent_metadata,
+        active_agents,
+        MAILBOX_CHECK_INTERVAL_SECONDS,
+    )
+    agent_metadata["mailbox-interval-agent"] = {
+        "status": "running",
+        "source": "claude-code",
+    }
+    active_agents.pop("mailbox-interval-agent", None)
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": "mailbox-interval-agent",
+                    "message": "still working?",
+                    "timestamp": "2026-04-08T04:10:00+00:00",
+                    "source": "ui",
+                })
+
+                resp = await client.post(
+                    "/api/agents/mailbox-interval-agent/nudge",
+                    json={"message": "still working?"},
+                )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        msg = data["nudge"]["delivery_message"]
+        # Specific and honest: cites the real wait time in seconds.
+        assert f"{MAILBOX_CHECK_INTERVAL_SECONDS} seconds" in msg
+        # And does not use the old vague wording.
+        assert "next time it checks" not in msg.lower()
+        assert "mailbox check" in msg.lower()
+    finally:
+        agent_metadata.pop("mailbox-interval-agent", None)
+
+
+def test_agent_mailbox_instruction_contains_required_steps():
+    """The standard mailbox prompt block must contain every required step.
+
+    Regression for needle 238. If a future edit accidentally drops a step
+    (the reply curl, the seconds interval, the agent name) the orchestrator
+    can spawn agents that silently ignore Tori's follow ups. This test
+    locks in the contract so a regression fails loud.
+    """
+    from routers.agents import (
+        agent_mailbox_instruction,
+        MAILBOX_CHECK_INTERVAL_SECONDS,
+    )
+    block = agent_mailbox_instruction("test-agent")
+    # The agent name must be embedded literally so the curl commands can
+    # be copy pasted.
+    assert "test-agent" in block
+    # The interval must be present in seconds, not vague words.
+    assert f"{MAILBOX_CHECK_INTERVAL_SECONDS} seconds" in block
+    # Both halves of the mailbox contract must be there.
+    assert "nudges" in block
+    assert "reply" in block
+    # A curl example for both read and write so the agent has no excuse.
+    assert "curl" in block
+    assert "/nudges" in block
+    assert "/reply" in block
+    # And a plain language reminder that Tori is the human on the other end.
+    assert "Tori" in block
+    # No em dashes anywhere per the project style rule.
+    assert "\u2014" not in block
+
+
+def test_mailbox_interval_constant_is_under_two_minutes():
+    """MAILBOX_CHECK_INTERVAL_SECONDS must stay short enough to feel live.
+
+    Regression for needle 238. If someone bumps this to 600 the user wait
+    time after typing a follow up becomes unacceptable. Two minutes is
+    the absolute ceiling, sixty seconds is the current target.
+    """
+    from routers.agents import MAILBOX_CHECK_INTERVAL_SECONDS
+    assert MAILBOX_CHECK_INTERVAL_SECONDS <= 120
+    # And also guard the lower bound so nobody drops it to one second and
+    # burns the agent turn on HTTP polls.
+    assert MAILBOX_CHECK_INTERVAL_SECONDS >= 10
+
+
+# ── Mailbox contract must reach the agent (needle 240) ──────────────────────
+#
+# Regression for the second instance of "spawned agent is deaf to nudges".
+# The mailbox instruction block exists and is tested, but nothing wired
+# it into the spawn or register pathway. A subagent spawned through
+# POST /agents/spawn received no mailbox contract and a Claude Code
+# subagent calling POST /agents/register at step 0 got back no contract
+# either. Three nudges to the stuck agent got zero replies over 80
+# minutes because the agent literally did not know the rule.
+#
+# These tests lock in the fix so the contract travels with the agent
+# from spawn time, and a stale record without a heartbeat gets swept
+# instead of living forever.
+
+
+@pytest.mark.asyncio
+async def test_spawn_agent_prompt_contains_mailbox_instruction(tmp_path, monkeypatch):
+    """POST /agents/spawn must prepend the mailbox instruction block to the prompt.
+
+    Regression for needle 240. Before the fix, ``spawn_agent`` assembled
+    ``prompt_with_memory`` from memory context and workspace summary but
+    never included ``agent_mailbox_instruction(name)``. So the spawned
+    Claude Code child had no idea it should poll ``/nudges``. This test
+    intercepts the process creation and captures the bytes written to
+    stdin, then asserts the mailbox block is present with the agent
+    name, interval, and both halves of the contract (nudges + reply).
+    """
+    from routers import agents as agents_module
+    from routers.agents import (
+        MAILBOX_CHECK_INTERVAL_SECONDS,
+        active_agents,
+        agent_metadata,
+    )
+
+    captured: dict = {"stdin": b""}
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            captured["stdin"] += data
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+    class _FakeProc:
+        pid = 424242
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    # Keep audit noise out of the test.
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "mailbox-contract-spawn-test"
+    # Make sure there is no leftover state from a previous run.
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Go do the thing.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        stdin_text = captured["stdin"].decode("utf-8")
+        # The original user prompt must still be there.
+        assert "Go do the thing." in stdin_text
+        # And the mailbox block must have been prepended.
+        assert agent_name in stdin_text
+        assert f"{MAILBOX_CHECK_INTERVAL_SECONDS} seconds" in stdin_text
+        assert "/nudges" in stdin_text
+        assert "/reply" in stdin_text
+        assert "Mailbox" in stdin_text or "mailbox" in stdin_text
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_register_endpoint_returns_mailbox_instruction():
+    """POST /agents/register must return the mailbox contract in the response.
+
+    Regression for needle 240. Claude Code subagents that are spawned
+    by the native Agent tool do not run through ``/agents/spawn``. They
+    POST ``/agents/register`` themselves at step 0 as their first
+    action. The API must hand them the mailbox contract at that moment
+    so the subagent learns the polling rule from the API itself, not
+    from the parent session's prompt. Without this, any subagent whose
+    parent forgot to paste the block becomes deaf to nudges.
+    """
+    from routers.agents import (
+        MAILBOX_CHECK_INTERVAL_SECONDS,
+        agent_metadata,
+    )
+
+    agent_name = "mailbox-contract-register-test"
+    agent_metadata.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk._run = AsyncMock(return_value="")
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={
+                        "name": agent_name,
+                        "prompt": "",
+                        "model": "sonnet",
+                        "budget": 2.0,
+                    },
+                )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "mailbox_instruction" in data, (
+            "register response must include the mailbox_instruction "
+            "block so spawned subagents learn the polling contract"
+        )
+        block = data["mailbox_instruction"]
+        assert agent_name in block
+        assert f"{MAILBOX_CHECK_INTERVAL_SECONDS} seconds" in block
+        assert "/nudges" in block
+        assert "/reply" in block
+        assert data["mailbox_check_interval_seconds"] == MAILBOX_CHECK_INTERVAL_SECONDS
+    finally:
+        agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_list_agents_sweeps_running_record_with_no_heartbeat():
+    """A running agent with no last_heartbeat_at must be swept at 20 minutes.
+
+    Regression for needle 240. The stuck ``diagnose-stale-running-agents``
+    record was spawned under older code, never wrote a
+    ``last_heartbeat_at`` field, and never called ``/heartbeat`` so the
+    fast 10 minute sweep skipped it entirely. The ``elif
+    persisted_status == "running":`` branch in ``list_agents`` was a
+    pass-through with no staleness check, so the agent appeared in the
+    UI as ``running`` for hours. The fix adds a ``spawned_at``-based
+    fallback that matches the same 20 minute cutoff the else branch
+    already uses. This test seeds a running record with no heartbeat
+    and ``spawned_at`` 30 minutes in the past, then calls the list
+    endpoint and asserts the record is swept to ``terminated_stale``.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata, active_agents
+
+    agent_name = "legacy-no-heartbeat-zombie"
+    # Put it 30 minutes in the past, well over the 20 minute cutoff.
+    spawned_at = (
+        datetime.now(timezone.utc) - timedelta(minutes=30)
+    ).isoformat()
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+    agent_metadata[agent_name] = {
+        "spawned_at": spawned_at,
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+        "source": "claude-code",
+        "status": "running",
+        # Deliberately no last_heartbeat_at. This mirrors the real
+        # stuck record we found on disk.
+    }
+
+    try:
+        async def _noop_run(*args, **kwargs):
+            return ""
+
+        # Keep kernel_ps and audit_agents and kernel_kill from talking
+        # to the real ostk binary in the test environment.
+        with patch.object(
+            agents_module.ostk,
+            "kernel_ps",
+            AsyncMock(return_value={"daemon_running": False, "agents": []}),
+        ), patch.object(
+            agents_module.ostk,
+            "audit_agents",
+            AsyncMock(return_value=[]),
+        ), patch.object(agents_module.ostk, "_run", _noop_run):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get("/api/agents")
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        match = next(
+            (a for a in data["agents"] if a["name"] == agent_name),
+            None,
+        )
+        assert match is not None, (
+            f"Expected {agent_name} in list response, got "
+            f"{[a['name'] for a in data['agents']]}"
+        )
+        assert match["status"] == "terminated_stale", (
+            f"Expected terminated_stale for zombie with no heartbeat, got "
+            f"{match['status']}"
+        )
+        # And the persisted record should reflect the sweep so subsequent
+        # requests do not have to recompute.
+        assert agent_metadata[agent_name]["status"] == "terminated_stale"
+    finally:
+        agent_metadata.pop(agent_name, None)

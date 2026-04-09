@@ -603,4 +603,508 @@ describe('ChatPanel', () => {
       )
     })
   })
+
+  // Multi-AI conversation rendering. The backend emits multi_ai_status,
+  // multi_ai_turn_start, and multi_ai_turn_end events when two models
+  // are talking to each other. The chat panel must open one bubble per
+  // turn, route streaming tokens into the right bubble, and show a
+  // live thinking pill above the latest assistant row.
+  describe('Multi-AI conversation rendering', () => {
+    it('renders the thinking pill while a model is thinking', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      // Send a starting event so the panel learns the round count.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 3 },
+      }
+      rerender(<ChatPanel />)
+
+      // Now drive a thinking event for gemini round 1.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'thinking', model: 'gemini', round: 1 },
+      }
+      rerender(<ChatPanel />)
+
+      const pill = screen.getByTestId('multi-ai-status-pill')
+      expect(pill).toBeTruthy()
+      expect(pill.textContent).toContain('Gemini is thinking')
+      expect(pill.textContent).toContain('round 1 of 3')
+    })
+
+    it('opens a new assistant bubble for each multi_ai_turn_start', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      // Starting event sets up the round count.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 3 },
+      }
+      rerender(<ChatPanel />)
+
+      // Turn start for gemini round 1 should push a new assistant bubble.
+      mockLastMessage = {
+        type: 'multi_ai_turn_start',
+        data: { model: 'gemini', round: 1 },
+      }
+      rerender(<ChatPanel />)
+
+      // The new assistant bubble has the gemini model header (uppercased
+      // by CSS in the component, so the DOM text is "GEMINI").
+      const headers = screen.getAllByText(/gemini/i)
+      expect(headers.length).toBeGreaterThan(0)
+    })
+
+    it('routes tokens between turn_start and turn_end into the correct bubble', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      // Starting event.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 3 },
+      }
+      rerender(<ChatPanel />)
+
+      // Gemini turn 1 opens.
+      mockLastMessage = {
+        type: 'multi_ai_turn_start',
+        data: { model: 'gemini', round: 1 },
+      }
+      rerender(<ChatPanel />)
+
+      // Three tokens stream into the gemini bubble.
+      mockLastMessage = { type: 'token', data: 'a' }
+      rerender(<ChatPanel />)
+      mockLastMessage = { type: 'token', data: 'b' }
+      rerender(<ChatPanel />)
+      mockLastMessage = { type: 'token', data: 'c' }
+      rerender(<ChatPanel />)
+
+      // Gemini turn 1 closes.
+      mockLastMessage = {
+        type: 'multi_ai_turn_end',
+        data: { model: 'gemini', round: 1 },
+      }
+      rerender(<ChatPanel />)
+
+      // Claude turn 1 opens.
+      mockLastMessage = {
+        type: 'multi_ai_turn_start',
+        data: { model: 'claude', round: 1 },
+      }
+      rerender(<ChatPanel />)
+
+      // Two tokens stream into the claude bubble.
+      mockLastMessage = { type: 'token', data: 'x' }
+      rerender(<ChatPanel />)
+      mockLastMessage = { type: 'token', data: 'y' }
+      rerender(<ChatPanel />)
+
+      // The gemini bubble should contain exactly "abc" and the claude
+      // bubble should contain exactly "xy". This is the regression
+      // guard for tokens leaking into the wrong bubble.
+      expect(screen.getByText('abc')).toBeTruthy()
+      expect(screen.getByText('xy')).toBeTruthy()
+    })
+
+    it('clears the pill when the complete phase arrives', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      // Set up a thinking pill.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 3 },
+      }
+      rerender(<ChatPanel />)
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'thinking', model: 'gemini', round: 1 },
+      }
+      rerender(<ChatPanel />)
+      expect(screen.getByTestId('multi-ai-status-pill')).toBeTruthy()
+
+      // Now drive complete and assert the pill is gone.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'complete' },
+      }
+      rerender(<ChatPanel />)
+      expect(screen.queryByTestId('multi-ai-status-pill')).toBeNull()
+    })
+
+    it('clears the pill on a done event even without a complete phase first', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      // Set up a thinking pill.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 3 },
+      }
+      rerender(<ChatPanel />)
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'thinking', model: 'claude', round: 2 },
+      }
+      rerender(<ChatPanel />)
+      expect(screen.getByTestId('multi-ai-status-pill')).toBeTruthy()
+
+      // Drive done directly. The pill must still go away.
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+      expect(screen.queryByTestId('multi-ai-status-pill')).toBeNull()
+    })
+
+    it('does not show duplicate thinking dots while the multi-AI pill is visible', () => {
+      // Regression for the double thinking bubble bug. When a multi_ai_turn_start
+      // creates a fresh empty assistant bubble and the pill is also showing
+      // (e.g. phase=thinking or phase=speaking), the empty bubble must NOT
+      // render its own ThinkingDots because the pill already shows the dots.
+      // Otherwise the user sees two thinking indicators stacked.
+      const { rerender } = render(<ChatPanel />)
+
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 3 },
+      }
+      rerender(<ChatPanel />)
+
+      // Open a fresh empty bubble for gemini round 1.
+      mockLastMessage = {
+        type: 'multi_ai_turn_start',
+        data: { model: 'gemini', round: 1 },
+      }
+      rerender(<ChatPanel />)
+
+      // Show the speaking pill alongside the empty bubble.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'speaking', model: 'gemini', round: 1 },
+      }
+      rerender(<ChatPanel />)
+
+      // The pill itself contains exactly 3 animate-bounce dots. Before
+      // the fix, the empty bubble's ThinkingDots added 3 more for a
+      // total of 6. After the fix, only the pill's 3 dots remain.
+      const dots = document.querySelectorAll('.animate-bounce')
+      expect(dots.length).toBe(3)
+    })
+
+    it('still renders single model token streaming when no multi_ai events arrive', () => {
+      // Regression guard. The existing single-model flow must not be
+      // affected by the new multi-AI plumbing. Send a message, stream
+      // a single token, and assert the bubble shows that token.
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'hello there' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = { type: 'token', data: 'single bubble reply' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText('single bubble reply')).toBeTruthy()
+
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+      // After done the pill must not be present (since we never sent
+      // a multi_ai_status event in this test).
+      expect(screen.queryByTestId('multi-ai-status-pill')).toBeNull()
+    })
+
+    // Real end-to-end regression for Tori's failing session. Replays
+    // the EXACT event sequence the live backend emits for the message
+    // "@gemini chat with claude a few times about each of your
+    // shortcomings" so the rendering layer is proven to handle a
+    // full six-turn exchange, not just a single turn. Captured from
+    // /tmp/multi-ai-trace-after.log.
+    it('replays the full live backend event sequence and renders six distinct bubbles', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      // Kick off a user message so the placeholder bubble exists, the
+      // same way a real user would. The first multi_ai_turn_start will
+      // reuse this placeholder for the first gemini bubble.
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, {
+        target: {
+          value: '@gemini chat with claude a few times about each of your shortcomings',
+        },
+      })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // The live event sequence from the backend, in the exact order
+      // the trace captured. Each entry is one WebSocket frame.
+      type WireEvent = { type: string; data?: unknown }
+      const wire: WireEvent[] = [
+        { type: 'multi_ai_status', data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 3 } },
+        // Round 1 - gemini
+        { type: 'multi_ai_status', data: { phase: 'thinking', model: 'gemini', round: 1 } },
+        { type: 'multi_ai_turn_start', data: { model: 'gemini', round: 1 } },
+        { type: 'multi_ai_status', data: { phase: 'speaking', model: 'gemini', round: 1 } },
+        { type: 'token', data: 'Gemini turn 1 chunk A. ' },
+        { type: 'token', data: 'Gemini turn 1 chunk B.' },
+        { type: 'multi_ai_turn_end', data: { model: 'gemini', round: 1 } },
+        // Round 1 - claude
+        { type: 'multi_ai_status', data: { phase: 'thinking', model: 'claude', round: 1 } },
+        { type: 'multi_ai_turn_start', data: { model: 'claude', round: 1 } },
+        { type: 'multi_ai_status', data: { phase: 'speaking', model: 'claude', round: 1 } },
+        { type: 'token', data: 'Claude turn 1 full reply.' },
+        { type: 'multi_ai_turn_end', data: { model: 'claude', round: 1 } },
+        // Round 2 - gemini
+        { type: 'multi_ai_status', data: { phase: 'thinking', model: 'gemini', round: 2 } },
+        { type: 'multi_ai_turn_start', data: { model: 'gemini', round: 2 } },
+        { type: 'multi_ai_status', data: { phase: 'speaking', model: 'gemini', round: 2 } },
+        { type: 'token', data: 'Gemini turn 2 chunk A. ' },
+        { type: 'token', data: 'Gemini turn 2 chunk B.' },
+        { type: 'multi_ai_turn_end', data: { model: 'gemini', round: 2 } },
+        // Round 2 - claude
+        { type: 'multi_ai_status', data: { phase: 'thinking', model: 'claude', round: 2 } },
+        { type: 'multi_ai_turn_start', data: { model: 'claude', round: 2 } },
+        { type: 'multi_ai_status', data: { phase: 'speaking', model: 'claude', round: 2 } },
+        { type: 'token', data: 'Claude turn 2 full reply.' },
+        { type: 'multi_ai_turn_end', data: { model: 'claude', round: 2 } },
+        // Round 3 - gemini
+        { type: 'multi_ai_status', data: { phase: 'thinking', model: 'gemini', round: 3 } },
+        { type: 'multi_ai_turn_start', data: { model: 'gemini', round: 3 } },
+        { type: 'multi_ai_status', data: { phase: 'speaking', model: 'gemini', round: 3 } },
+        { type: 'token', data: 'Gemini turn 3 chunk A. ' },
+        { type: 'token', data: 'Gemini turn 3 chunk B.' },
+        { type: 'multi_ai_turn_end', data: { model: 'gemini', round: 3 } },
+        // Round 3 - claude
+        { type: 'multi_ai_status', data: { phase: 'thinking', model: 'claude', round: 3 } },
+        { type: 'multi_ai_turn_start', data: { model: 'claude', round: 3 } },
+        { type: 'multi_ai_status', data: { phase: 'speaking', model: 'claude', round: 3 } },
+        { type: 'token', data: 'Claude turn 3 full reply.' },
+        { type: 'multi_ai_turn_end', data: { model: 'claude', round: 3 } },
+        // Wrap up
+        { type: 'multi_ai_status', data: { phase: 'complete' } },
+        { type: 'done' },
+      ]
+
+      for (const evt of wire) {
+        mockLastMessage = evt
+        rerender(<ChatPanel />)
+      }
+
+      // Six distinct bubbles, one per turn. They each carry their
+      // full content string exactly, which proves tokens were routed
+      // to the right bubble and not leaked across turns.
+      expect(screen.getByText('Gemini turn 1 chunk A. Gemini turn 1 chunk B.')).toBeTruthy()
+      expect(screen.getByText('Claude turn 1 full reply.')).toBeTruthy()
+      expect(screen.getByText('Gemini turn 2 chunk A. Gemini turn 2 chunk B.')).toBeTruthy()
+      expect(screen.getByText('Claude turn 2 full reply.')).toBeTruthy()
+      expect(screen.getByText('Gemini turn 3 chunk A. Gemini turn 3 chunk B.')).toBeTruthy()
+      expect(screen.getByText('Claude turn 3 full reply.')).toBeTruthy()
+
+      // Cross-turn token leak guard. The round 1 gemini bubble must
+      // NOT contain the round 3 text, otherwise tokens were routed
+      // into the wrong bubble.
+      const round1Gemini = screen.getByText('Gemini turn 1 chunk A. Gemini turn 1 chunk B.')
+      expect(round1Gemini.textContent).not.toContain('Gemini turn 3')
+      expect(round1Gemini.textContent).not.toContain('Claude turn')
+
+      // The final multi_ai_status complete event plus the done event
+      // must clear the thinking pill entirely.
+      expect(screen.queryByTestId('multi-ai-status-pill')).toBeNull()
+    })
+
+    it('updates the thinking pill text as each model takes its turn', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      // Starting event carries the model list and total rounds.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 3 },
+      }
+      rerender(<ChatPanel />)
+      expect(screen.getByTestId('multi-ai-status-pill').textContent).toContain(
+        'Starting conversation between Gemini and Claude',
+      )
+
+      // Gemini round 1 thinking.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'thinking', model: 'gemini', round: 1 },
+      }
+      rerender(<ChatPanel />)
+      expect(screen.getByTestId('multi-ai-status-pill').textContent).toContain(
+        'Gemini is thinking (round 1 of 3)',
+      )
+
+      // Claude round 2 speaking.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'speaking', model: 'claude', round: 2 },
+      }
+      rerender(<ChatPanel />)
+      expect(screen.getByTestId('multi-ai-status-pill').textContent).toContain(
+        'Claude is speaking (round 2 of 3)',
+      )
+
+      // Gemini round 3 thinking still carries the total of 3.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'thinking', model: 'gemini', round: 3 },
+      }
+      rerender(<ChatPanel />)
+      expect(screen.getByTestId('multi-ai-status-pill').textContent).toContain(
+        'Gemini is thinking (round 3 of 3)',
+      )
+    })
+  })
+
+  // Needle 239: Tori wants the chat panel freely resizable with the rest
+  // of the website reacting appropriately. These tests drive the resize
+  // handle via real mouse events and assert the store ends up with the
+  // correct clamped width.
+  describe('resize handle (needle 239)', () => {
+    // rAF is used inside the ChatPanel resize effect to throttle updates.
+    // Under jsdom requestAnimationFrame is available but the test runner
+    // will not tick it on its own, so we flush it manually.
+    function flushRaf() {
+      // Run any pending rAF callbacks synchronously.
+      if (typeof window.requestAnimationFrame === 'function') {
+        // Call the callback directly via a fake frame.
+        const id = window.requestAnimationFrame(() => {})
+        window.cancelAnimationFrame(id)
+      }
+    }
+
+    function drag(toClientX: number) {
+      const handle = document.querySelector('[class*="cursor-col-resize"]') as HTMLElement
+      expect(handle).toBeTruthy()
+      fireEvent.mouseDown(handle)
+      // mousemove fires on document.
+      fireEvent.mouseMove(document, { clientX: toClientX })
+      flushRaf()
+      fireEvent.mouseUp(document)
+    }
+
+    beforeEach(() => {
+      // Force a known viewport so the clamp math is deterministic.
+      // jsdom default is 1024 but we set it explicitly for safety.
+      Object.defineProperty(window, 'innerWidth', { value: 1440, configurable: true })
+    })
+
+    it('clamps to the minimum width when dragged too far right', () => {
+      render(<ChatPanel />)
+      // innerWidth - clientX = new chat width. A clientX near the right
+      // edge makes the chat only 20px wide, which must clamp to 280.
+      drag(window.innerWidth - 20)
+      expect(useAppStore.getState().chatWidth).toBe(280)
+    })
+
+    it('clamps to the maximum width when dragged so far left it would crowd the sidebar', () => {
+      render(<ChatPanel />)
+      // clientX = 10 means chat wants to be innerWidth - 10 = 1430px on a
+      // 1440 viewport. Max is viewport - 320 = 1120. Store must clamp.
+      drag(10)
+      const ceiling = window.innerWidth - 320
+      expect(useAppStore.getState().chatWidth).toBe(ceiling)
+    })
+
+    it('writes the exact width when dragged within the allowed range', () => {
+      render(<ChatPanel />)
+      // clientX = innerWidth - 600 means chat wants to be exactly 600px.
+      drag(window.innerWidth - 600)
+      expect(useAppStore.getState().chatWidth).toBe(600)
+    })
+
+    it('persists the chat width to localStorage so it survives a reload', () => {
+      useAppStore.getState().setChatWidth(512)
+      expect(useAppStore.getState().chatWidth).toBe(512)
+      expect(localStorage.getItem('myos-chat-width')).toBe('512')
+    })
+
+    it('re-clamps the current chat width when the viewport shrinks', () => {
+      // Start on a wide viewport with a wide chat.
+      Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true })
+      useAppStore.setState({ chatOpen: true, chatWidth: 1200, isResizing: false })
+      render(<ChatPanel />)
+      // Now shrink the viewport and fire the resize event.
+      Object.defineProperty(window, 'innerWidth', { value: 900, configurable: true })
+      fireEvent(window, new Event('resize'))
+      // New ceiling is 900 - 320 = 580.
+      expect(useAppStore.getState().chatWidth).toBe(580)
+    })
+  })
+
+  // Regression: reply button DOM order
+  describe('Reply button DOM order', () => {
+    it('reply/reaction buttons appear AFTER the message bubble in the DOM, not before', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello there' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi!', model: 'claude' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+      render(<ChatPanel />)
+
+      const reactionBar = screen.getByTestId('reaction-bar-msg-1')
+      // Walk up to the hover container (parent of the inner flex div)
+      const hoverContainer = reactionBar.parentElement?.parentElement
+      expect(hoverContainer).not.toBeNull()
+      // The hover container must come AFTER the message bubble in its parent.
+      // Its previousElementSibling should be the message bubble (an inline-block div),
+      // not null (which would mean it was the first child).
+      expect(hoverContainer?.previousElementSibling).not.toBeNull()
+    })
+
+    it('clicking Reply sets the reply preview bar in the input area', () => {
+      const messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello there' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi!', model: 'claude' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+      render(<ChatPanel />)
+
+      const replyButtons = screen.getAllByTitle('Reply')
+      fireEvent.click(replyButtons[0])
+
+      // The input placeholder changes to indicate reply mode
+      expect(screen.getByPlaceholderText('Type your reply...')).toBeTruthy()
+    })
+
+    it('replying to a message attaches replyTo on the sent message', () => {
+      const messages = [
+        { id: 'msg-1', role: 'assistant', content: 'What would you like to do?', model: 'claude' },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+      render(<ChatPanel />)
+
+      // Click the first reply button (for msg-1)
+      const replyButtons = screen.getAllByTitle('Reply')
+      fireEvent.click(replyButtons[0])
+
+      // Type a reply and send it
+      const input = screen.getByPlaceholderText('Type your reply...')
+      fireEvent.change(input, { target: { value: 'I want to fix the bug' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // The WS send payload must include the user message content
+      expect(mockSend).toHaveBeenCalled()
+      const sentPayload = mockSend.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> }
+      const lastSent = sentPayload.messages[sentPayload.messages.length - 1]
+      // The content should include the reply context prefix
+      expect(lastSent.content).toContain('[Replying to')
+      expect(lastSent.content).toContain('I want to fix the bug')
+    })
+
+    it('reply preview shows the snippet of the replied-to message', () => {
+      const messages = [
+        { id: 'msg-1', role: 'assistant', content: 'Here is my answer to your question', model: 'claude' },
+        {
+          id: 'msg-2',
+          role: 'user',
+          content: 'Thanks',
+          replyTo: 'msg-1',
+        },
+      ]
+      localStorage.setItem('myos-chat-messages', JSON.stringify(messages))
+      render(<ChatPanel />)
+
+      // The preview truncates to 50 chars; the full content is 36 chars so it shows in full
+      // There should be exactly one element showing this snippet (from the ReplyPreview)
+      const snippets = screen.getAllByText(/Here is my answer/)
+      expect(snippets.length).toBeGreaterThan(0)
+    })
+  })
 })

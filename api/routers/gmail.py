@@ -18,6 +18,10 @@ async def gmail_auth_status():
     - needs_reauth: True if the token exists but the Gmail scope is missing.
     - email: the connected account email, if available.
     - unread_count: number of unread messages, or 0 if not authenticated.
+
+    Uses get_unread_summary as the single probe. A successful call means the
+    scope is fine and gives us the unread count for free. A scope error means
+    needs_reauth. One Gmail round trip on cold, zero on warm cache.
     """
     authed = is_authenticated()
     email = get_email() if authed else None
@@ -26,16 +30,17 @@ async def gmail_auth_status():
 
     if authed:
         try:
-            reauth = await gmail_service.needs_reauth()
-        except Exception:
-            reauth = False
-
-        if not reauth:
-            try:
-                messages = await gmail_service.get_unread_summary()
-                unread_count = len(messages)
-            except Exception:
-                unread_count = 0
+            messages = await gmail_service.get_unread_summary()
+            unread_count = len(messages)
+        except Exception as exc:
+            msg = str(exc).lower()
+            # API-not-enabled is a GCP setup issue, not a scope problem.
+            if "accessnotconfigured" in msg or "has not been used" in msg:
+                reauth = False
+            elif "insufficientpermissions" in msg or "insufficient authentication scopes" in msg:
+                reauth = True
+            else:
+                reauth = False
 
     return {
         "authenticated": authed,
@@ -47,16 +52,22 @@ async def gmail_auth_status():
 
 @router.get("/gmail/messages")
 async def gmail_messages():
-    """Return unread inbox message summaries.
+    """Return recent inbox message summaries (read AND unread).
 
-    Returns 401 if not authenticated. Returns 403 with needs_reauth=true if
-    the Gmail scope is missing on the current token.
+    Pulls the full inbox up to ``FULL_INBOX_CAP`` messages and returns
+    them newest first. The response shape is ``{"messages": [...]}`` and
+    each message includes ``is_unread`` so the client can render a badge
+    or dot for unread items.
+
+    Returns 401 if not authenticated. Returns 403 with needs_reauth=true
+    if the Gmail scope is missing on the current token. Never silently
+    swallows errors into an empty list.
     """
     if not is_authenticated():
         raise HTTPException(status_code=401, detail="Not connected to Gmail.")
 
     try:
-        messages = await gmail_service.get_unread_summary()
+        messages = await gmail_service.get_inbox_messages()
     except Exception as exc:
         msg = str(exc).lower()
         if "accessnotconfigured" in msg or "has not been used" in msg:
@@ -79,14 +90,19 @@ async def gmail_messages():
 
 @router.post("/gmail/sync")
 async def gmail_sync():
-    """Clear the inbox cache and re-fetch from Gmail."""
+    """Clear the inbox caches and re-fetch from Gmail.
+
+    Invalidates both the unread-summary cache and the full inbox cache so
+    the next fetch round trip is guaranteed to hit the Gmail API.
+    """
     if not is_authenticated():
         raise HTTPException(status_code=401, detail="Not connected to Gmail.")
 
     gmail_service._clear_cache()
+    gmail_service.invalidate_full_inbox_cache()
 
     try:
-        messages = await gmail_service.get_unread_summary()
+        messages = await gmail_service.get_inbox_messages()
     except Exception as exc:
         raise HTTPException(
             status_code=500,

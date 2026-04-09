@@ -117,19 +117,19 @@ export default function Calendar() {
 
   useEffect(() => {
     setLoading(true)
-    fetchStatus().then(async () => {
-      // Wait for status then fetch events if authenticated
+    ;(async () => {
       try {
         const status = await api.get<AuthStatus>('/calendar/auth/status')
+        setAuthStatus(status)
         if (status.authenticated && !status.needs_reauth) {
           await fetchEvents()
         }
       } catch {
-        // ignore
+        setAuthStatus({ authenticated: false, needs_reauth: false, email: null })
       }
       setLoading(false)
-    })
-  }, [fetchStatus, fetchEvents])
+    })()
+  }, [fetchEvents])
 
   // Handle ?connected=true redirect back from OAuth
   useEffect(() => {

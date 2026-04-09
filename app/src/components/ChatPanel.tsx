@@ -324,6 +324,27 @@ export function ChatPanel() {
   // Which pathway is powering this response: the local Claude subscription
   // program or the Anthropic API. Updated from the backend_active event.
   const [activeBackend, setActiveBackend] = useState<{ name: string; label: string } | null>(null)
+  // Multi-AI conversation status. When two models are talking to each
+  // other, the backend emits multi_ai_status events bracketed by
+  // multi_ai_turn_start and multi_ai_turn_end so we can render one bubble
+  // per turn with a live thinking pill above the latest assistant row.
+  // Null whenever no multi-AI exchange is in flight.
+  const [multiAiStatus, setMultiAiStatus] = useState<{
+    phase: 'starting' | 'thinking' | 'speaking' | 'complete'
+    model?: string
+    round?: number
+    models?: string[]
+    rounds?: number
+  } | null>(null)
+  // Id of the assistant bubble currently receiving streaming tokens.
+  // During a single-model reply this stays null so the token handler
+  // falls back to the append-to-last-assistant path. During a multi-AI
+  // exchange this points at the freshly created bubble for the model
+  // that is currently speaking, and is updated on every
+  // multi_ai_turn_start so tokens never leak into the wrong bubble.
+  // Held in a ref so updating it does not re-run the lastMessage
+  // effect, which would otherwise loop on the same event.
+  const currentBubbleIdRef = useRef<string | null>(null)
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
   const [showGiphy, setShowGiphy] = useState(false)
   const [giphyInitialSearch, setGiphyInitialSearch] = useState('')
@@ -365,6 +386,18 @@ export function ChatPanel() {
       setIsStreaming(true)
     } else if (lastMessage.type === 'token') {
       setMessages(prev => {
+        // When a multi-AI turn is active, route the token into the
+        // bubble for the speaker so the tokens never bleed into a
+        // previous bubble. Otherwise fall back to the legacy
+        // append-to-last-assistant path the single-model flow uses.
+        const bubbleId = currentBubbleIdRef.current
+        if (bubbleId) {
+          return prev.map(m =>
+            m.id === bubbleId && m.role === 'assistant'
+              ? { ...m, content: m.content + (lastMessage.data as string) }
+              : m,
+          )
+        }
         const updated = [...prev]
         const last = updated[updated.length - 1]
         if (last && last.role === 'assistant') {
@@ -372,6 +405,62 @@ export function ChatPanel() {
         }
         return updated
       })
+    } else if (lastMessage.type === 'multi_ai_status') {
+      // Drives the live thinking pill above the latest assistant row.
+      // The phase field tells us which copy to render. We also clear
+      // the pill on the complete phase so it never sticks after the
+      // exchange wraps up.
+      const data = lastMessage.data as unknown as {
+        phase: 'starting' | 'thinking' | 'speaking' | 'complete'
+        model?: string
+        round?: number
+        models?: string[]
+        rounds?: number
+      }
+      if (!data) return
+      if (data.phase === 'complete') {
+        setMultiAiStatus(null)
+      } else {
+        // Preserve the models and rounds from the starting event so
+        // later thinking phases can still render the total round count.
+        setMultiAiStatus(prev => {
+          const carriedModels = data.models ?? prev?.models
+          const carriedRounds = data.rounds ?? prev?.rounds
+          return { ...data, models: carriedModels, rounds: carriedRounds }
+        })
+      }
+    } else if (lastMessage.type === 'multi_ai_turn_start') {
+      // Open a brand new assistant bubble for this turn and switch the
+      // current bubble pointer so subsequent tokens land in it. If the
+      // last bubble is the empty placeholder pushed by sendMessage,
+      // reuse it for the first turn so the panel does not show a
+      // dangling empty bubble above the conversation.
+      const data = lastMessage.data as unknown as { model: string; round: number }
+      if (!data?.model) return
+      const newBubbleId = genId()
+      setMessages(prev => {
+        const last = prev[prev.length - 1]
+        if (
+          last &&
+          last.role === 'assistant' &&
+          !last.content &&
+          !last.toolCalls?.length
+        ) {
+          const reused = { ...last, id: newBubbleId, model: data.model }
+          return [...prev.slice(0, -1), reused]
+        }
+        return [
+          ...prev,
+          { id: newBubbleId, role: 'assistant', content: '', model: data.model },
+        ]
+      })
+      currentBubbleIdRef.current = newBubbleId
+      setIsStreaming(true)
+    } else if (lastMessage.type === 'multi_ai_turn_end') {
+      // Close the current bubble. The bubble stays in the list, just
+      // no longer accepts streaming tokens. A late stray token after
+      // turn_end is dropped, which is the safe behavior.
+      currentBubbleIdRef.current = null
     } else if (lastMessage.type === 'tool_use') {
       const data = lastMessage.data as unknown as { tool: string; input: Record<string, unknown>; id: string }
       setMessages(prev => {
@@ -445,9 +534,16 @@ export function ChatPanel() {
       }
       setIsStreaming(false)
       setCurrentModel(null)
+      // Defensive cleanup. The complete phase usually arrives just
+      // before done, but if the backend ever drops it the pill must
+      // still go away when the stream ends.
+      setMultiAiStatus(null)
+      currentBubbleIdRef.current = null
     } else if (lastMessage.type === 'error') {
       setIsStreaming(false)
       setCurrentModel(null)
+      setMultiAiStatus(null)
+      currentBubbleIdRef.current = null
       setMessages(prev => {
         const updated = [...prev]
         const last = updated[updated.length - 1]
@@ -553,20 +649,43 @@ export function ChatPanel() {
     if (replyingTo) inputRef.current?.focus()
   }, [replyingTo])
 
-  // Resize handling
+  // Resize handling. We throttle mouse move writes to the store with
+  // requestAnimationFrame so a fast drag does not flood Zustand with
+  // dozens of updates per frame. The store still clamps to the current
+  // [min, viewport - reserved] range so the chat never crosses over the
+  // sidebar or shrinks below a usable width.
   const handleMouseDown = useCallback(() => {
     setIsResizing(true)
-  }, [])
+  }, [setIsResizing])
 
   useEffect(() => {
     if (!isResizing) return
 
+    let pendingWidth: number | null = null
+    let rafId: number | null = null
+
+    const flush = () => {
+      rafId = null
+      if (pendingWidth !== null) {
+        setChatWidth(pendingWidth)
+        pendingWidth = null
+      }
+    }
+
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = window.innerWidth - e.clientX
-      setChatWidth(newWidth)
+      pendingWidth = window.innerWidth - e.clientX
+      if (rafId === null) {
+        rafId = typeof requestAnimationFrame !== 'undefined'
+          ? requestAnimationFrame(flush)
+          : (setTimeout(flush, 16) as unknown as number)
+      }
     }
 
     const handleMouseUp = () => {
+      if (pendingWidth !== null) {
+        setChatWidth(pendingWidth)
+        pendingWidth = null
+      }
       setIsResizing(false)
     }
 
@@ -580,8 +699,27 @@ export function ChatPanel() {
       document.removeEventListener('mouseup', handleMouseUp)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      if (rafId !== null) {
+        if (typeof cancelAnimationFrame !== 'undefined') {
+          cancelAnimationFrame(rafId)
+        } else {
+          clearTimeout(rafId)
+        }
+      }
     }
-  }, [isResizing, setChatWidth])
+  }, [isResizing, setChatWidth, setIsResizing])
+
+  // Re-clamp the chat width when the viewport shrinks. Without this a
+  // user could resize the chat to 1200px on a wide monitor, unplug the
+  // monitor, and end up on a 1024px laptop where the chat now hides the
+  // whole main content area.
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setChatWidth(chatWidth)
+    }
+    window.addEventListener('resize', handleWindowResize)
+    return () => window.removeEventListener('resize', handleWindowResize)
+  }, [chatWidth, setChatWidth])
 
   if (!chatOpen) return null
 
@@ -831,6 +969,39 @@ export function ChatPanel() {
 
   const renderText = (text: string) => renderTextWithMarkdown(text, MODEL_COLORS)
 
+  // Build the live multi-AI status pill copy. Capitalizes the model
+  // name and reads round counts from the latest status payload (with
+  // the round and total carried forward from the starting event so
+  // every thinking pill can show "round X of Y"). Returns null when
+  // there is nothing to show, which hides the pill entirely.
+  const formatMultiAiPill = (): string | null => {
+    if (!multiAiStatus) return null
+    const cap = (s?: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '')
+    if (multiAiStatus.phase === 'starting') {
+      const names = (multiAiStatus.models ?? []).map(cap)
+      const joined = names.length === 2
+        ? `${names[0]} and ${names[1]}`
+        : names.join(', ')
+      const rounds = multiAiStatus.rounds ?? 0
+      const roundWord = rounds === 1 ? 'round' : 'rounds'
+      return `Starting conversation between ${joined} (${rounds} ${roundWord})`
+    }
+    if (multiAiStatus.phase === 'thinking') {
+      const name = cap(multiAiStatus.model)
+      const round = multiAiStatus.round ?? 1
+      const total = multiAiStatus.rounds ?? round
+      return `${name} is thinking (round ${round} of ${total})`
+    }
+    if (multiAiStatus.phase === 'speaking') {
+      const name = cap(multiAiStatus.model)
+      const round = multiAiStatus.round ?? 1
+      const total = multiAiStatus.rounds ?? round
+      return `${name} is speaking (round ${round} of ${total})`
+    }
+    return null
+  }
+  const multiAiPillText = formatMultiAiPill()
+
   return (
     <div
       data-tour="chat"
@@ -969,32 +1140,6 @@ export function ChatPanel() {
             )}
 
             <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%] w-fit' : 'max-w-[85%] w-fit'}`}>
-              {/* Reply and reaction buttons on hover - below the message */}
-              <div className={`${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'} opacity-0 group-hover:opacity-100 mt-1 transition-all`}>
-                <div className="flex items-center gap-0.5 z-10">
-                  <button
-                    onClick={() => handleReply(msg.id)}
-                    className="p-1 text-slate-600 hover:text-blue-400 transition-colors"
-                    title="Reply"
-                  >
-                    <Icon name="reply" className="text-sm" />
-                  </button>
-                  {/* Reaction picker */}
-                  <div className="flex items-center gap-0.5 bg-slate-800 border border-slate-700 rounded-lg p-0.5" data-testid={`reaction-bar-${msg.id}`}>
-                    {REACTION_EMOJIS.map(emoji => (
-                      <button
-                        key={emoji}
-                        onClick={() => toggleReaction(msg.id, emoji)}
-                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-700 transition-colors text-sm"
-                        title={`React with ${emoji}`}
-                      >
-                        {emoji}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
               <div
                 className={
                   msg.role === 'user'
@@ -1041,8 +1186,13 @@ export function ChatPanel() {
                     {/* Show thinking dots any time an assistant bubble is
                         empty and it is the most recent message. This
                         covers the brief window between the empty bubble
-                        being created and isStreaming flipping true. */}
-                    {!msg.content && i === messages.length - 1 && !msg.toolCalls?.length && (
+                        being created and isStreaming flipping true.
+                        Suppressed during multi-AI exchanges because the
+                        multi_ai_status pill above already shows thinking
+                        and speaking state. Otherwise the user sees two
+                        thinking indicators stacked on top of each other,
+                        one in the bubble and one in the pill. */}
+                    {!msg.content && i === messages.length - 1 && !msg.toolCalls?.length && !multiAiStatus && (
                       <ThinkingDots />
                     )}
                     {isStreaming && i === messages.length - 1 && (msg.toolCalls?.some(tc => tc.result === undefined)) && (
@@ -1050,6 +1200,32 @@ export function ChatPanel() {
                     )}
                   </>
                 )}
+              </div>
+
+              {/* Reply and reaction buttons on hover - below the message */}
+              <div className={`${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'} opacity-0 group-hover:opacity-100 mt-1 transition-all`}>
+                <div className="flex items-center gap-0.5 z-10">
+                  <button
+                    onClick={() => handleReply(msg.id)}
+                    className="p-1 text-slate-600 hover:text-blue-400 transition-colors"
+                    title="Reply"
+                  >
+                    <Icon name="reply" className="text-sm" />
+                  </button>
+                  {/* Reaction picker */}
+                  <div className="flex items-center gap-0.5 bg-slate-800 border border-slate-700 rounded-lg p-0.5" data-testid={`reaction-bar-${msg.id}`}>
+                    {REACTION_EMOJIS.map(emoji => (
+                      <button
+                        key={emoji}
+                        onClick={() => toggleReaction(msg.id, emoji)}
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-700 transition-colors text-sm"
+                        title={`React with ${emoji}`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Reaction pills */}
@@ -1071,6 +1247,23 @@ export function ChatPanel() {
             </div>
           </div>
         ))}
+        {/* Multi-AI live status pill. Renders just below the latest
+            assistant bubble so the user can watch the conversation
+            move from one model to the other. Hidden whenever no
+            multi-AI exchange is in flight. */}
+        {multiAiPillText && (
+          <div
+            data-testid="multi-ai-status-pill"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-xs text-blue-300"
+          >
+            <span className="inline-flex items-center gap-1">
+              <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+            </span>
+            <span>{multiAiPillText}</span>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 

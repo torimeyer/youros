@@ -65,7 +65,6 @@ async def test_gmail_auth_status_authenticated(client, tmp_path):
 
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
-        patch("services.gmail.needs_reauth", new=AsyncMock(return_value=False)),
         patch("services.gmail.get_unread_summary", new=AsyncMock(return_value=fake_messages)),
     ):
         resp = await client.get("/api/gmail/auth/status")
@@ -79,13 +78,20 @@ async def test_gmail_auth_status_authenticated(client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_gmail_auth_status_needs_reauth(client, tmp_path):
-    """When the Gmail scope is missing, needs_reauth should be True."""
+    """When the Gmail scope is missing, needs_reauth should be True.
+
+    The auth/status endpoint probes the inbox once. A scope error on that
+    probe is how we know the token is missing the Gmail scope.
+    """
     token_path = tmp_path / "google_token.json"
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
-        patch("services.gmail.needs_reauth", new=AsyncMock(return_value=True)),
+        patch(
+            "services.gmail.get_unread_summary",
+            new=AsyncMock(side_effect=Exception("403 insufficientPermissions")),
+        ),
     ):
         resp = await client.get("/api/gmail/auth/status")
 
@@ -94,6 +100,30 @@ async def test_gmail_auth_status_needs_reauth(client, tmp_path):
     assert data["authenticated"] is True
     assert data["needs_reauth"] is True
     assert data["unread_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_gmail_auth_status_single_probe(client, tmp_path):
+    """auth/status must call Gmail at most once, not twice.
+
+    Regression: the old router called needs_reauth() and then
+    get_unread_summary() serially, doing two Gmail round trips for a
+    single status call. The fold should leave exactly one probe.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    probe = AsyncMock(return_value=_make_messages(2))
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.gmail.get_unread_summary", new=probe),
+    ):
+        resp = await client.get("/api/gmail/auth/status")
+
+    assert resp.status_code == 200
+    assert probe.call_count == 1
+    assert resp.json()["unread_count"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -114,19 +144,19 @@ async def test_gmail_messages_not_authenticated(client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_gmail_messages_cache_hit(client, tmp_path):
-    """When a fresh cache exists, return messages without hitting the Gmail API."""
+    """When a fresh full-inbox cache exists, return messages without hitting the Gmail API."""
     token_path = tmp_path / "google_token.json"
     token_path.write_text(json.dumps({"access_token": "ya29.test"}))
 
     cache_dir = tmp_path / "gmail_cache"
     cache_dir.mkdir()
-    cache_path = cache_dir / "inbox.json"
+    full_cache_path = cache_dir / "inbox_full.json"
     fake_messages = _make_messages(2)
-    cache_path.write_text(json.dumps(fake_messages))
+    full_cache_path.write_text(json.dumps(fake_messages))
 
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
-        patch("services.gmail.INBOX_CACHE_PATH", cache_path),
+        patch("services.gmail.FULL_INBOX_CACHE_PATH", full_cache_path),
     ):
         resp = await client.get("/api/gmail/messages")
 
@@ -143,20 +173,20 @@ async def test_gmail_messages_cache_miss_fetches_api(client, tmp_path):
 
     cache_dir = tmp_path / "gmail_cache"
     cache_dir.mkdir()
-    cache_path = cache_dir / "inbox.json"
-    # Write a stale cache
+    full_cache_path = cache_dir / "inbox_full.json"
+    # Write a stale cache (mtime older than full inbox TTL of 60 s)
     old_messages = _make_messages(1)
-    cache_path.write_text(json.dumps(old_messages))
-    old_time = time.time() - 400  # > 5 min TTL
+    full_cache_path.write_text(json.dumps(old_messages))
+    old_time = time.time() - 120  # > 60 s full-inbox TTL
     import os
-    os.utime(cache_path, (old_time, old_time))
+    os.utime(full_cache_path, (old_time, old_time))
 
     fresh_messages = _make_messages(4)
 
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
-        patch("services.gmail.INBOX_CACHE_PATH", cache_path),
-        patch("services.gmail._fetch_unread_sync", return_value=fresh_messages),
+        patch("services.gmail.FULL_INBOX_CACHE_PATH", full_cache_path),
+        patch("services.gmail._fetch_inbox_sync", return_value=fresh_messages),
     ):
         resp = await client.get("/api/gmail/messages")
 
@@ -173,14 +203,14 @@ async def test_gmail_messages_insufficient_scope_returns_403(client, tmp_path):
 
     cache_dir = tmp_path / "gmail_cache"
     cache_dir.mkdir()
-    cache_path = cache_dir / "inbox.json"
+    full_cache_path = cache_dir / "inbox_full.json"
     # No cache file
 
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
-        patch("services.gmail.INBOX_CACHE_PATH", cache_path),
+        patch("services.gmail.FULL_INBOX_CACHE_PATH", full_cache_path),
         patch(
-            "services.gmail._fetch_unread_sync",
+            "services.gmail._fetch_inbox_sync",
             side_effect=Exception("403 insufficientPermissions"),
         ),
     ):
@@ -239,6 +269,63 @@ async def test_gmail_sync_not_authenticated(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_fetch_unread_sync_parallelizes_per_message_gets(tmp_path):
+    """_fetch_unread_sync must fan out the per-message gets in parallel.
+
+    Regression: the old loop did 20 serial Gmail round trips, one per
+    message. We mock each get to sleep 0.3s. With 6 messages, serial would
+    take ~1.8s. Parallel (pool of 10) should finish in well under 1.0s.
+    """
+    import time as time_mod
+    from unittest.mock import MagicMock, patch
+
+    from services import gmail as gmail_service
+
+    call_count = {"list": 0, "get": 0}
+
+    def fake_build_service():
+        service = MagicMock()
+
+        def list_exec():
+            call_count["list"] += 1
+            return {
+                "messages": [
+                    {"id": f"m{i}", "threadId": f"t{i}"} for i in range(6)
+                ]
+            }
+
+        service.users.return_value.messages.return_value.list.return_value.execute = list_exec
+
+        def get_exec():
+            call_count["get"] += 1
+            time_mod.sleep(0.3)
+            return {
+                "id": "m",
+                "threadId": "t",
+                "snippet": "hi",
+                "labelIds": ["UNREAD"],
+                "payload": {"headers": [
+                    {"name": "Subject", "value": "s"},
+                    {"name": "From", "value": "Sender <a@b.com>"},
+                    {"name": "Date", "value": "Wed, 08 Apr 2026 10:00:00 +0000"},
+                ]},
+            }
+
+        service.users.return_value.messages.return_value.get.return_value.execute = get_exec
+        return service
+
+    with patch("services.gmail._build_gmail_service", new=fake_build_service):
+        start = time_mod.monotonic()
+        result = gmail_service._fetch_unread_sync(max_results=6)
+        elapsed = time_mod.monotonic() - start
+
+    assert len(result) == 6
+    assert call_count["get"] == 6
+    # Serial would be ~1.8s. Parallel should be ~0.3-0.5s. Allow 1.0s slack.
+    assert elapsed < 1.0, f"expected parallel fan-out, got {elapsed:.2f}s"
+
+
+@pytest.mark.asyncio
 async def test_gmail_sync_success(client, tmp_path):
     """Sync should clear the cache and return count of new messages."""
     token_path = tmp_path / "google_token.json"
@@ -247,6 +334,7 @@ async def test_gmail_sync_success(client, tmp_path):
     cache_dir = tmp_path / "gmail_cache"
     cache_dir.mkdir()
     cache_path = cache_dir / "inbox.json"
+    full_cache_path = cache_dir / "inbox_full.json"
     cache_path.write_text(json.dumps(_make_messages(1)))
 
     fresh_messages = _make_messages(3)
@@ -255,7 +343,8 @@ async def test_gmail_sync_success(client, tmp_path):
         patch("services.google_auth.TOKEN_PATH", token_path),
         patch("services.gmail.GMAIL_CACHE_DIR", cache_dir),
         patch("services.gmail.INBOX_CACHE_PATH", cache_path),
-        patch("services.gmail._fetch_unread_sync", return_value=fresh_messages),
+        patch("services.gmail.FULL_INBOX_CACHE_PATH", full_cache_path),
+        patch("services.gmail._fetch_inbox_sync", return_value=fresh_messages),
     ):
         resp = await client.post("/api/gmail/sync")
 
@@ -263,3 +352,342 @@ async def test_gmail_sync_success(client, tmp_path):
     data = resp.json()
     assert data["ok"] is True
     assert data["count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Empty-cache regression: a previously cached [] must not pin the UI to
+# a blank inbox. An empty cache file is a miss and triggers a real fetch.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_messages_empty_cache_retries_api(client, tmp_path):
+    """A cached empty list must NOT be returned. Retry the Gmail API.
+
+    Root cause of the original bug: a transient error wrote [] to
+    ~/.myos/gmail_cache/inbox_full.json and every subsequent fetch
+    within the TTL window returned that stale empty list, so the page
+    rendered as if the inbox had zero messages even though unread mail
+    existed.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "gmail_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "inbox.json"
+    full_cache_path = cache_dir / "inbox_full.json"
+    # Write an empty cache that is FRESH (mtime = now) so the TTL would
+    # otherwise honor it.
+    full_cache_path.write_text(json.dumps([]))
+
+    fresh_messages = _make_messages(2)
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.gmail.INBOX_CACHE_PATH", cache_path),
+        patch("services.gmail.FULL_INBOX_CACHE_PATH", full_cache_path),
+        patch("services.gmail._fetch_inbox_sync", return_value=fresh_messages),
+    ):
+        resp = await client.get("/api/gmail/messages")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["messages"]) == 2, (
+        "Empty cache should be treated as a miss and the fetcher called."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Full inbox fetch: pulls all messages, pages, caps, parallelizes, and does
+# NOT filter by unread.
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_full_inbox_service(total_ids: int, page_size: int = 100):
+    """Build a factory that returns a MagicMock Gmail service with
+    ``total_ids`` inbox messages paged in chunks of ``page_size``.
+
+    Returns (service_factory, call_counts). ``call_counts`` tracks list
+    calls, get calls, page boundaries, and the kwargs passed to every
+    list call so tests can assert on the query.
+    """
+    from unittest.mock import MagicMock
+
+    call_counts: dict = {
+        "list": 0,
+        "get": 0,
+        "pages_served": [],
+        "list_calls": [],
+    }
+    all_ids = [f"m{i}" for i in range(total_ids)]
+
+    def list_side_effect(**kwargs):
+        call_counts["list"] += 1
+        call_counts["list_calls"].append(dict(kwargs))
+        requested = kwargs.get("maxResults", page_size)
+        token = kwargs.get("pageToken")
+        start = 0 if token is None else int(token)
+        end = min(start + requested, total_ids)
+        page_ids = all_ids[start:end]
+        call_counts["pages_served"].append((start, end))
+
+        resp: dict = {
+            "messages": [{"id": mid, "threadId": f"t{mid}"} for mid in page_ids],
+        }
+        if end < total_ids:
+            resp["nextPageToken"] = str(end)
+        return resp
+
+    def build_service():
+        service = MagicMock()
+
+        def list_factory(**kwargs):
+            result = list_side_effect(**kwargs)
+            m = MagicMock()
+            m.execute = MagicMock(return_value=result)
+            return m
+
+        service.users.return_value.messages.return_value.list.side_effect = list_factory
+
+        def get_factory(**kwargs):
+            call_counts["get"] += 1
+            msg_id = kwargs.get("id", "m?")
+            m = MagicMock()
+            m.execute = MagicMock(return_value={
+                "id": msg_id,
+                "threadId": f"t{msg_id}",
+                "snippet": "hi",
+                "labelIds": ["INBOX"],
+                "internalDate": "1712577600000",
+                "payload": {"headers": [
+                    {"name": "Subject", "value": "s"},
+                    {"name": "From", "value": "Sender <a@b.com>"},
+                    {"name": "Date", "value": "Wed, 08 Apr 2026 10:00:00 +0000"},
+                ]},
+            })
+            return m
+
+        service.users.return_value.messages.return_value.get.side_effect = get_factory
+        return service
+
+    return build_service, call_counts
+
+
+def test_fetch_inbox_pulls_up_to_cap():
+    """_fetch_inbox_sync must page through until the cap is reached."""
+    from services import gmail as gmail_service
+
+    build, counts = _make_fake_full_inbox_service(total_ids=250)
+
+    with patch("services.gmail._build_gmail_service", new=build):
+        result = gmail_service._fetch_inbox_sync(cap=200)
+
+    assert len(result) == 200, f"cap should limit to 200, got {len(result)}"
+    assert counts["get"] == 200, "per-message gets should equal the cap"
+    assert counts["list"] == 2, f"expected 2 list pages, got {counts['list']}"
+    assert counts["pages_served"] == [(0, 100), (100, 200)]
+
+
+def test_fetch_inbox_returns_all_when_below_cap():
+    """If Gmail has fewer messages than the cap, return them all."""
+    from services import gmail as gmail_service
+
+    build, counts = _make_fake_full_inbox_service(total_ids=5)
+
+    with patch("services.gmail._build_gmail_service", new=build):
+        result = gmail_service._fetch_inbox_sync(cap=200)
+
+    assert len(result) == 5
+    assert counts["get"] == 5
+
+
+def test_fetch_inbox_handles_empty_inbox():
+    """Zero messages must return [] without raising."""
+    from services import gmail as gmail_service
+
+    build, counts = _make_fake_full_inbox_service(total_ids=0)
+
+    with patch("services.gmail._build_gmail_service", new=build):
+        result = gmail_service._fetch_inbox_sync(cap=200)
+
+    assert result == []
+    assert counts["get"] == 0
+
+
+def test_fetch_inbox_does_not_filter_by_unread():
+    """The inbox fetch must NOT apply an unread-only filter.
+
+    Regression lock for the feature shift: Tori explicitly asked for all
+    emails, not just unread. Check the query kwargs passed to Gmail.
+    """
+    from services import gmail as gmail_service
+
+    build, counts = _make_fake_full_inbox_service(total_ids=3)
+
+    with patch("services.gmail._build_gmail_service", new=build):
+        gmail_service._fetch_inbox_sync(cap=200)
+
+    list_calls = counts.get("list_calls", [])
+    assert len(list_calls) >= 1
+    for call in list_calls:
+        label_ids = call.get("labelIds", [])
+        assert "UNREAD" not in label_ids, (
+            f"inbox fetch must not filter by UNREAD, got labelIds={label_ids}"
+        )
+        q = call.get("q", "")
+        assert "is:unread" not in q.lower(), (
+            f"inbox fetch must not use is:unread query, got q={q!r}"
+        )
+        assert "INBOX" in label_ids
+
+
+def test_fetch_inbox_parallelizes_per_message_gets():
+    """_fetch_inbox_sync must fan out per-message gets across a thread pool.
+
+    Mirrors the existing regression test for _fetch_unread_sync. With 8
+    messages sleeping 0.3 s each, serial would take ~2.4 s. The parallel
+    pool of 10 should finish well under 1.0 s.
+    """
+    import time as time_mod
+    from unittest.mock import MagicMock
+
+    from services import gmail as gmail_service
+
+    call_count = {"list": 0, "get": 0}
+
+    def fake_build_service():
+        service = MagicMock()
+
+        def list_factory(**kwargs):
+            call_count["list"] += 1
+            m = MagicMock()
+            m.execute = MagicMock(return_value={
+                "messages": [
+                    {"id": f"m{i}", "threadId": f"t{i}"} for i in range(8)
+                ]
+            })
+            return m
+
+        service.users.return_value.messages.return_value.list.side_effect = list_factory
+
+        def get_factory(**kwargs):
+            call_count["get"] += 1
+            m = MagicMock()
+
+            def slow_execute():
+                time_mod.sleep(0.3)
+                return {
+                    "id": "m",
+                    "threadId": "t",
+                    "snippet": "hi",
+                    "labelIds": ["INBOX"],
+                    "internalDate": "1712577600000",
+                    "payload": {"headers": [
+                        {"name": "Subject", "value": "s"},
+                        {"name": "From", "value": "Sender <a@b.com>"},
+                        {"name": "Date", "value": "Wed, 08 Apr 2026 10:00:00 +0000"},
+                    ]},
+                }
+
+            m.execute = MagicMock(side_effect=slow_execute)
+            return m
+
+        service.users.return_value.messages.return_value.get.side_effect = get_factory
+        return service
+
+    with patch("services.gmail._build_gmail_service", new=fake_build_service):
+        start = time_mod.monotonic()
+        result = gmail_service._fetch_inbox_sync(cap=200)
+        elapsed = time_mod.monotonic() - start
+
+    assert len(result) == 8
+    assert call_count["get"] == 8
+    assert elapsed < 1.0, f"expected parallel fan-out, got {elapsed:.2f}s"
+
+
+# ---------------------------------------------------------------------------
+# Inbox endpoint response shape
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_inbox_endpoint_response_shape(client, tmp_path):
+    """GET /api/gmail/messages returns {'messages': [...]} via the full
+    inbox fetcher, not the unread-only one."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "gmail_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "inbox.json"
+    full_cache_path = cache_dir / "inbox_full.json"
+
+    fresh = _make_messages(4)
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.gmail.INBOX_CACHE_PATH", cache_path),
+        patch("services.gmail.FULL_INBOX_CACHE_PATH", full_cache_path),
+        patch("services.gmail._fetch_inbox_sync", return_value=fresh),
+    ):
+        resp = await client.get("/api/gmail/messages")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "messages" in data
+    assert isinstance(data["messages"], list)
+    assert len(data["messages"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_inbox_endpoint_does_not_silently_swallow_errors(client, tmp_path):
+    """A Gmail API failure must surface as a non-200 error, NOT an empty
+    200 response. Silent swallowing was half of the empty-inbox bug."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "gmail_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "inbox.json"
+    full_cache_path = cache_dir / "inbox_full.json"
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.gmail.INBOX_CACHE_PATH", cache_path),
+        patch("services.gmail.FULL_INBOX_CACHE_PATH", full_cache_path),
+        patch(
+            "services.gmail._fetch_inbox_sync",
+            side_effect=RuntimeError("boom, Gmail exploded"),
+        ),
+    ):
+        resp = await client.get("/api/gmail/messages")
+
+    assert resp.status_code == 500, f"expected 500, got {resp.status_code}"
+    assert (
+        "boom" in resp.text.lower()
+        or "could not load" in resp.text.lower()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cache invalidation on send
+# ---------------------------------------------------------------------------
+
+
+def test_inbox_cache_invalidates_on_send(tmp_path):
+    """invalidate_full_inbox_cache removes the cached file so the next
+    fetch hits Gmail. The reply send path calls this hook."""
+    from services import gmail as gmail_service
+
+    cache_dir = tmp_path / "gmail_cache"
+    cache_dir.mkdir()
+    full_cache_path = cache_dir / "inbox_full.json"
+    full_cache_path.write_text(json.dumps(_make_messages(3)))
+
+    assert full_cache_path.exists()
+
+    with patch("services.gmail.FULL_INBOX_CACHE_PATH", full_cache_path):
+        gmail_service.invalidate_full_inbox_cache()
+
+    assert not full_cache_path.exists()

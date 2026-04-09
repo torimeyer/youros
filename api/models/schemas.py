@@ -66,13 +66,13 @@ class Settings(BaseModel):
     mcp_servers: List[Dict] = []
     auto_label_tasks: bool = True
     chat_backend_preference: str = "auto"
-    morning_briefing_enabled: bool = True
+    briefing_enabled: bool = True
     # Order and visibility of home dashboard widgets. Any widget id present
     # in this list renders, in the given order. Any widget id missing from
     # the list is hidden. This lets users build a simple custom dashboard
     # without a full layout engine.
     dashboard_widgets: List[str] = [
-        "morning_briefing",
+        "briefing",
         "focus_first",
         "todays_focus",
         "quick_launch",
@@ -100,6 +100,11 @@ class AgentSpawn(BaseModel):
 
 class AgentNudge(BaseModel):
     message: str
+
+
+class AgentNudgeReply(BaseModel):
+    message: str
+    in_reply_to: Optional[str] = None
 
 
 class GrantApprove(BaseModel):

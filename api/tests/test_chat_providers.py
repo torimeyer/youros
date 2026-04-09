@@ -8,10 +8,19 @@ These tests cover two things:
    inline image blocks.
 """
 
+from typing import Optional
+
+import httpx
 import pytest
+import anthropic
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from services.chat_providers import ChatService, _messages_contain_images
+from services.chat_providers import (
+    ChatService,
+    _ANTHROPIC_MAX_ATTEMPTS,
+    _ANTHROPIC_UNAVAILABLE_MESSAGE,
+    _messages_contain_images,
+)
 
 
 class FakeWebSocket:
@@ -270,3 +279,1486 @@ class TestAgentAnthropicImageRouting:
         events = websocket.get_messages_of_type("backend_active")
         assert len(events) == 1
         assert events[0]["data"]["name"] == "claude_code"
+
+
+# --- Anthropic transient 5xx retry/backoff ---
+
+
+def _make_api_status_error(status_code: int) -> anthropic.APIStatusError:
+    """Build a real APIStatusError instance with the given HTTP status.
+
+    The SDK's error classes require an ``httpx.Response`` so we construct
+    a minimal one. No network call happens.
+    """
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(
+        status_code,
+        request=request,
+        json={
+            "type": "error",
+            "error": {"type": "api_error", "message": "Internal server error"},
+        },
+    )
+    body = {"type": "error", "error": {"type": "api_error", "message": "boom"}}
+    if status_code == 500:
+        return anthropic.InternalServerError(
+            "Internal server error", response=response, body=body
+        )
+    if status_code == 400:
+        return anthropic.BadRequestError(
+            "Bad request", response=response, body=body
+        )
+    return anthropic.APIStatusError(
+        f"HTTP {status_code}", response=response, body=body
+    )
+
+
+def _fake_ok_response(text: str = "recovered", tokens_in: int = 3, tokens_out: int = 5):
+    """Return a MagicMock shaped like a successful Anthropic response."""
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = text
+    response = MagicMock()
+    response.content = [text_block]
+    response.usage.input_tokens = tokens_in
+    response.usage.output_tokens = tokens_out
+    return response
+
+
+class TestAnthropicRetryOn5xx:
+    """Regression tests for the Anthropic 500 that killed a chat turn.
+
+    The bug: ``agent_anthropic`` had no retry on transient 5xx errors.
+    Any ``InternalServerError`` from Anthropic (including the one in
+    ``req_011CZsLTP6ThCDmjmLD3asB1``) was caught once and rendered as
+    raw JSON in the chat panel, ending the turn. These tests lock in
+    the fix: retry up to 3 times with backoff on 5xx + connection
+    errors, show a plain-language message on total failure, and NEVER
+    retry 4xx errors.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_backoff_sleep(self):
+        """Skip the real backoff sleeps so tests run fast."""
+        with patch(
+            "services.chat_providers.asyncio.sleep",
+            new=AsyncMock(return_value=None),
+        ):
+            yield
+
+    @pytest.fixture
+    def websocket(self):
+        return FakeWebSocket()
+
+    async def _run_agent(self, websocket, create_side_effects):
+        """Helper: run ``agent_anthropic`` with a mocked messages.create.
+
+        ``create_side_effects`` is the iterable passed to
+        ``AsyncMock(side_effect=...)``. Returns the mock so tests can
+        assert call counts.
+        """
+        service = ChatService()
+
+        fake_messages_create = AsyncMock(side_effect=create_side_effects)
+        fake_client = MagicMock()
+        fake_client.messages.create = fake_messages_create
+        fake_client_factory = MagicMock(return_value=fake_client)
+
+        async def fake_match(messages, ws, api_key):
+            return None
+
+        messages = [{"role": "user", "content": "hello"}]
+
+        with patch(
+            "services.chat_providers._resolve_chat_backend",
+            new=AsyncMock(return_value="anthropic_api"),
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="test-key"),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers.anthropic.AsyncAnthropic",
+            new=fake_client_factory,
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                [] if key == "mcp_servers" else default
+            )
+            await service.agent_anthropic(messages, websocket)
+
+        return fake_messages_create
+
+    @pytest.mark.asyncio
+    async def test_500_then_success_recovers_transparently(self, websocket):
+        """First call 500s, second call succeeds. Turn must finish clean."""
+        ok = _fake_ok_response(text="all good now")
+        calls = [_make_api_status_error(500), ok]
+
+        mock_create = await self._run_agent(websocket, calls)
+
+        # Retry actually happened.
+        assert mock_create.await_count == 2
+
+        # User sees the successful text, NOT the raw 500 body.
+        tokens = websocket.get_messages_of_type("token")
+        assert any("all good now" in t["data"] for t in tokens)
+        errors = websocket.get_messages_of_type("error")
+        assert errors == []
+
+        # And the turn reached its done event.
+        done = websocket.get_messages_of_type("done")
+        assert len(done) == 1
+
+    @pytest.mark.asyncio
+    async def test_503_then_502_then_success_recovers(self, websocket):
+        """Three attempts, last one wins. Verifies all 5xx codes retry."""
+        ok = _fake_ok_response(text="third time's the charm")
+        calls = [
+            _make_api_status_error(503),
+            _make_api_status_error(502),
+            ok,
+        ]
+
+        mock_create = await self._run_agent(websocket, calls)
+
+        assert mock_create.await_count == 3
+        assert _ANTHROPIC_MAX_ATTEMPTS == 3
+
+        errors = websocket.get_messages_of_type("error")
+        assert errors == []
+        tokens = websocket.get_messages_of_type("token")
+        assert any("third time" in t["data"] for t in tokens)
+
+    @pytest.mark.asyncio
+    async def test_all_retries_fail_surface_plain_language_error(self, websocket):
+        """After 3 failed attempts, user must see a friendly message.
+
+        The raw ``API Error: 500 {...}`` string must NOT appear in the
+        chat panel, and the message must not contain an em-dash (per
+        CLAUDE.md writing rules).
+        """
+        calls = [_make_api_status_error(500)] * _ANTHROPIC_MAX_ATTEMPTS
+
+        mock_create = await self._run_agent(websocket, calls)
+
+        assert mock_create.await_count == _ANTHROPIC_MAX_ATTEMPTS
+
+        errors = websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        assert text == _ANTHROPIC_UNAVAILABLE_MESSAGE
+
+        # Hard guarantees for the friendly copy:
+        assert "API Error" not in text
+        assert "Internal server error" not in text
+        assert "500" not in text
+        assert "{" not in text  # no JSON leaking through
+        assert "\u2014" not in text  # em-dash (U+2014)
+        assert "\u2013" not in text  # en-dash (U+2013)
+
+    @pytest.mark.asyncio
+    async def test_400_error_does_not_retry(self, websocket):
+        """4xx errors are client bugs. Retrying them masks the real problem."""
+        calls = [_make_api_status_error(400)]
+
+        mock_create = await self._run_agent(websocket, calls)
+
+        # Exactly one attempt. No retry.
+        assert mock_create.await_count == 1
+
+        # The 4xx message is shown to the user so they can fix the
+        # actual problem (bad key, bad input, etc.).
+        errors = websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        # And the friendly 5xx message is NOT used for 4xx.
+        assert errors[0]["data"] != _ANTHROPIC_UNAVAILABLE_MESSAGE
+
+    @pytest.mark.asyncio
+    async def test_connection_error_retries_then_recovers(self, websocket):
+        """Dropped TCP connections are retry-worthy (transient network)."""
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        conn_err = anthropic.APIConnectionError(request=request)
+        ok = _fake_ok_response(text="network came back")
+        calls = [conn_err, ok]
+
+        mock_create = await self._run_agent(websocket, calls)
+
+        assert mock_create.await_count == 2
+        errors = websocket.get_messages_of_type("error")
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_500_in_tool_use_loop_recovers_mid_turn(self, websocket):
+        """The exact bug scenario: 500 hits AFTER a tool_use round-trip.
+
+        Turn 1: model returns a tool_use block.
+        Turn 2: messages.create raises 500 (this is the bug).
+        Turn 3: messages.create succeeds with final text.
+        Expected: the chat turn recovers and the user sees the final text.
+        """
+        service = ChatService()
+
+        # First response: one tool_use block.
+        tool_use = MagicMock()
+        tool_use.type = "tool_use"
+        tool_use.id = "toolu_test_1"
+        tool_use.name = "read_file"
+        tool_use.input = {"path": "/tmp/foo"}
+
+        first = MagicMock()
+        first.content = [tool_use]
+        first.usage.input_tokens = 10
+        first.usage.output_tokens = 20
+
+        # Second attempt: the 500 that killed the original turn.
+        boom = _make_api_status_error(500)
+
+        # Third attempt (retry): clean text response.
+        final = _fake_ok_response(text="here is the answer")
+
+        fake_messages_create = AsyncMock(side_effect=[first, boom, final])
+        fake_client = MagicMock()
+        fake_client.messages.create = fake_messages_create
+        fake_client_factory = MagicMock(return_value=fake_client)
+
+        async def fake_match(messages, ws, api_key):
+            return None
+
+        async def fake_execute_tool(name, inp):
+            return "file contents here"
+
+        messages = [{"role": "user", "content": "read /tmp/foo"}]
+
+        with patch(
+            "services.chat_providers._resolve_chat_backend",
+            new=AsyncMock(return_value="anthropic_api"),
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="test-key"),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers.anthropic.AsyncAnthropic",
+            new=fake_client_factory,
+        ), patch(
+            "services.chat_providers.execute_tool",
+            new=fake_execute_tool,
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                [] if key == "mcp_servers" else default
+            )
+            await service.agent_anthropic(messages, websocket)
+
+        # All three calls happened: initial + failed retry + successful retry.
+        assert fake_messages_create.await_count == 3
+
+        # User sees the final answer, not the raw 500.
+        tokens = websocket.get_messages_of_type("token")
+        assert any("here is the answer" in t["data"] for t in tokens)
+        errors = websocket.get_messages_of_type("error")
+        assert errors == []
+        done = websocket.get_messages_of_type("done")
+        assert len(done) == 1
+
+
+# --- Gemini finish_reason handling ---
+#
+# Regression tests for the "As a" orphan bubble bug. The old
+# ``stream_gemini`` treated every non-exception exit as success and
+# sent a normal ``done`` event, so a SAFETY-blocked response would
+# render its partial text as a finished turn. The fix inspects
+# ``response.candidates[0].finish_reason`` (and
+# ``response.prompt_feedback.block_reason``) after the stream drains
+# and swaps the done event for a plain-language error when Gemini
+# ended for any reason other than STOP.
+
+
+class _FakeGeminiChunk:
+    """Minimal stand-in for a google.generativeai stream chunk.
+
+    The real SDK yields ``GenerateContentResponse`` instances that
+    expose a ``.text`` property. When a chunk has no text parts the
+    property raises ``ValueError``, so we mirror that by raising from
+    ``.text`` whenever ``text=None`` was passed in.
+    """
+
+    def __init__(self, text: Optional[str]):
+        self._text = text
+
+    @property
+    def text(self):
+        if self._text is None:
+            raise ValueError(
+                "Invalid operation: The `response.text` quick accessor "
+                "requires the response to contain a valid Part"
+            )
+        return self._text
+
+
+class _FakeGeminiCandidate:
+    def __init__(self, finish_reason_name: str):
+        # Match the shape of ``protos.Candidate.FinishReason`` enum
+        # members: they have a ``.name`` attribute that is the
+        # upper-case string we key on in production code.
+        self.finish_reason = type(
+            "_FR", (), {"name": finish_reason_name}
+        )()
+
+
+class _FakePromptFeedback:
+    def __init__(self, block_reason=None):
+        self.block_reason = block_reason
+
+
+class _FakeGeminiResponse:
+    """Iterable stand-in for the SDK's streaming response object.
+
+    Exposes the same three surfaces the production code reads:
+    ``__iter__`` yields chunks, ``candidates`` returns a one-element
+    list with the final finish reason, and ``prompt_feedback`` returns
+    a shape with ``block_reason``. After iteration the SDK's real
+    response also has these fields populated, so the fake can be
+    constructed once with the final state and reused.
+    """
+
+    def __init__(
+        self,
+        chunks: list[_FakeGeminiChunk],
+        finish_reason_name: str = "STOP",
+        prompt_block_reason=None,
+        raise_blocked_prompt: bool = False,
+    ):
+        self._chunks = chunks
+        self._finish_reason_name = finish_reason_name
+        self._prompt_block_reason = prompt_block_reason
+        self._raise_blocked_prompt = raise_blocked_prompt
+        self.prompt_feedback = _FakePromptFeedback(prompt_block_reason)
+        self.candidates = [_FakeGeminiCandidate(finish_reason_name)]
+
+    def __iter__(self):
+        if self._raise_blocked_prompt:
+            import google.generativeai as genai
+            raise genai.types.BlockedPromptException(
+                "prompt blocked for test"
+            )
+        for chunk in self._chunks:
+            yield chunk
+
+
+class _FakeGeminiChat:
+    def __init__(self, response: _FakeGeminiResponse):
+        self._response = response
+        self.history = []
+
+    def send_message(self, content, stream=False):
+        return self._response
+
+
+class _FakeGeminiModel:
+    def __init__(self, response: _FakeGeminiResponse):
+        self._response = response
+
+    def start_chat(self, history=None):
+        return _FakeGeminiChat(self._response)
+
+
+@pytest.fixture
+def gemini_websocket():
+    return FakeWebSocket()
+
+
+async def _run_gemini_stream(websocket, fake_response: _FakeGeminiResponse):
+    """Run ``stream_gemini`` against a mocked google.generativeai surface.
+
+    ``stream_gemini`` does a local ``import google.generativeai as genai``
+    inside the function body. Python's import machinery first checks
+    ``sys.modules`` BUT also prefers the attribute lookup on the parent
+    ``google`` package once that package has been loaded. To make the
+    fake stick we patch both: ``sys.modules['google.generativeai']`` AND
+    the ``generativeai`` attribute on the ``google`` package. The real
+    module is restored at the end via try/finally so later tests still
+    see the genuine SDK.
+    """
+    service = ChatService()
+
+    fake_configure = MagicMock()
+    fake_model_factory = MagicMock(return_value=_FakeGeminiModel(fake_response))
+
+    import google
+    import google.generativeai as real_genai
+
+    fake_genai_module = MagicMock()
+    fake_genai_module.configure = fake_configure
+    fake_genai_module.GenerativeModel = fake_model_factory
+    # The production code references ``genai.types.BlockedPromptException``
+    # when catching prompt-level blocks. Pass the real class through so
+    # ``isinstance``/``raise`` both behave exactly like live code.
+    fake_genai_module.types = real_genai.types
+    fake_genai_module.protos = real_genai.protos
+
+    import sys
+
+    original_sys_module = sys.modules.get("google.generativeai")
+    original_attr = getattr(google, "generativeai", None)
+    sys.modules["google.generativeai"] = fake_genai_module
+    google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+    try:
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="test-key"),
+        ):
+            messages = [
+                {"role": "user", "content": "what's your favorite thing about claude?"}
+            ]
+            return await service.stream_gemini(messages, websocket)
+    finally:
+        if original_sys_module is not None:
+            sys.modules["google.generativeai"] = original_sys_module
+        else:
+            sys.modules.pop("google.generativeai", None)
+        if original_attr is not None:
+            google.generativeai = original_attr  # type: ignore[attr-defined]
+        elif hasattr(google, "generativeai"):
+            delattr(google, "generativeai")
+
+
+class TestGeminiFinishReasonHandling:
+    """Regression tests for the 'As a' orphan bubble bug.
+
+    Covers every non-STOP finish reason, the prompt-level block
+    path, and the happy path so the fix cannot regress without a
+    red test.
+    """
+
+    @pytest.mark.asyncio
+    async def test_gemini_safety_block_surfaces_friendly_error(
+        self, gemini_websocket
+    ):
+        """The exact repro: 'As a' partial text followed by a SAFETY
+        finish reason. The chat panel must see a friendly error and
+        NOT a normal done event."""
+        response = _FakeGeminiResponse(
+            chunks=[_FakeGeminiChunk("As a"), _FakeGeminiChunk(None)],
+            finish_reason_name="SAFETY",
+        )
+
+        await _run_gemini_stream(gemini_websocket, response)
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        assert "safety filters" in text
+        assert "rephrasing" in text
+
+        # No raw enum name leaks.
+        assert "SAFETY" not in text
+        assert "finish_reason" not in text
+
+        # No em-dashes or en-dashes per the writing rules.
+        assert "\u2014" not in text  # em-dash
+        assert "\u2013" not in text  # en-dash
+
+        # The short partial ("As a") is below the 5-char threshold and
+        # must be DROPPED so the friendly message stands on its own.
+        assert "As a" not in text
+
+        # And no done event, which is what made the old bug stick.
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
+
+    @pytest.mark.asyncio
+    async def test_gemini_recitation_block_surfaces_friendly_error(
+        self, gemini_websocket
+    ):
+        response = _FakeGeminiResponse(
+            chunks=[_FakeGeminiChunk("Once upon a time there was"), _FakeGeminiChunk(None)],
+            finish_reason_name="RECITATION",
+        )
+
+        await _run_gemini_stream(gemini_websocket, response)
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        assert "copyrighted" in text
+        assert "RECITATION" not in text
+        assert "\u2014" not in text
+        assert "\u2013" not in text
+
+        # Meaningful partial (>5 chars) is preserved so the user can
+        # see what Gemini was about to say.
+        assert "Once upon a time there was" in text
+
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
+
+    @pytest.mark.asyncio
+    async def test_gemini_max_tokens_surfaces_friendly_error(
+        self, gemini_websocket
+    ):
+        response = _FakeGeminiResponse(
+            chunks=[_FakeGeminiChunk("A long response that runs out of room")],
+            finish_reason_name="MAX_TOKENS",
+        )
+
+        await _run_gemini_stream(gemini_websocket, response)
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        assert "length limit" in text
+        assert "MAX_TOKENS" not in text
+        assert "\u2014" not in text
+        assert "\u2013" not in text
+
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
+
+    @pytest.mark.asyncio
+    async def test_gemini_prohibited_content_surfaces_friendly_error(
+        self, gemini_websocket
+    ):
+        response = _FakeGeminiResponse(
+            chunks=[_FakeGeminiChunk(None)],
+            finish_reason_name="PROHIBITED_CONTENT",
+        )
+
+        await _run_gemini_stream(gemini_websocket, response)
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        assert "blocked this reply" in text
+        assert "PROHIBITED_CONTENT" not in text
+        assert "\u2014" not in text
+        assert "\u2013" not in text
+
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
+
+    @pytest.mark.asyncio
+    async def test_gemini_prompt_feedback_blocked_surfaces_friendly_error(
+        self, gemini_websocket
+    ):
+        """When the SDK raises BlockedPromptException the prompt itself
+        was blocked and zero tokens were emitted. The panel must see a
+        friendly error and no empty done event."""
+        response = _FakeGeminiResponse(
+            chunks=[],
+            finish_reason_name="FINISH_REASON_UNSPECIFIED",
+            prompt_block_reason="SAFETY",
+            raise_blocked_prompt=True,
+        )
+
+        await _run_gemini_stream(gemini_websocket, response)
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        assert "blocked this question" in text
+        assert "\u2014" not in text
+        assert "\u2013" not in text
+
+        # Zero tokens were emitted (empty bubble would appear otherwise).
+        tokens = gemini_websocket.get_messages_of_type("token")
+        assert tokens == []
+
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
+
+    @pytest.mark.asyncio
+    async def test_gemini_prompt_feedback_block_reason_without_exception(
+        self, gemini_websocket
+    ):
+        """Some SDK paths populate ``prompt_feedback.block_reason``
+        without raising. The post-iteration check must still catch it.
+        """
+        response = _FakeGeminiResponse(
+            chunks=[],
+            finish_reason_name="FINISH_REASON_UNSPECIFIED",
+            prompt_block_reason="SAFETY",
+            raise_blocked_prompt=False,
+        )
+
+        await _run_gemini_stream(gemini_websocket, response)
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        assert "blocked this question" in text
+
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
+
+    @pytest.mark.asyncio
+    async def test_gemini_normal_stop_emits_done(self, gemini_websocket):
+        """Regression-against-overcorrection: a clean response must
+        still send a normal done event and all the tokens. This is the
+        happy path the original bug did NOT break, and we lock it in
+        so the fix cannot accidentally turn every chat into an error.
+        """
+        response = _FakeGeminiResponse(
+            chunks=[
+                _FakeGeminiChunk("Hello "),
+                _FakeGeminiChunk("from Gemini!"),
+            ],
+            finish_reason_name="STOP",
+        )
+
+        result = await _run_gemini_stream(gemini_websocket, response)
+
+        # Tokens reached the chat panel in order.
+        tokens = gemini_websocket.get_messages_of_type("token")
+        assert [t["data"] for t in tokens] == ["Hello ", "from Gemini!"]
+
+        # Normal done event as before.
+        done = gemini_websocket.get_messages_of_type("done")
+        assert len(done) == 1
+
+        # No error.
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert errors == []
+
+        # Full text is returned to the caller.
+        assert result == "Hello from Gemini!"
+
+    @pytest.mark.asyncio
+    async def test_gemini_empty_response_surfaces_friendly_error(
+        self, gemini_websocket
+    ):
+        """When Gemini returns 0 tokens with finish_reason STOP (empty
+        candidates or quota soft-limit), the panel must see an error
+        instead of a silent done with a blank assistant bubble.
+
+        Regression for: @gemini silent failure when quota is hit.
+        """
+        # No chunks, STOP reason, no prompt block. This simulates the
+        # empty-candidates case where the SDK returns finish_reason STOP
+        # but produces no visible tokens (quota soft-limit, API hiccup).
+        response = _FakeGeminiResponse(
+            chunks=[],
+            finish_reason_name="STOP",
+        )
+
+        await _run_gemini_stream(gemini_websocket, response)
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        assert "empty response" in text.lower()
+        assert "try again" in text.lower()
+        assert "\u2014" not in text
+        assert "\u2013" not in text
+
+        # No silent done event.
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
+
+    @pytest.mark.asyncio
+    async def test_gemini_quota_exception_surfaces_friendly_error(
+        self, gemini_websocket
+    ):
+        """When the Gemini SDK raises ResourceExhausted (429 quota
+        exceeded), the panel must see a friendly message, not raw API
+        error text like '429 RESOURCE_EXHAUSTED'.
+        """
+        import google.generativeai as genai
+        import google
+        import sys
+
+        service = ChatService()
+        fake_configure = MagicMock()
+
+        # Model that raises ResourceExhausted when send_message is called.
+        quota_exc = Exception(
+            "429 RESOURCE_EXHAUSTED: Resource has been exhausted "
+            "(e.g. check quota)."
+        )
+
+        class _QuotaErrorChat:
+            def send_message(self, content, stream=False):
+                raise quota_exc
+
+        class _QuotaErrorModel:
+            def start_chat(self, history=None):
+                return _QuotaErrorChat()
+
+        fake_genai_module = MagicMock()
+        fake_genai_module.configure = fake_configure
+        fake_genai_module.GenerativeModel = MagicMock(return_value=_QuotaErrorModel())
+        fake_genai_module.types = genai.types
+        fake_genai_module.protos = genai.protos
+
+        original_sys_module = sys.modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        sys.modules["google.generativeai"] = fake_genai_module
+        google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        try:
+            with patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value="test-key"),
+            ):
+                messages = [{"role": "user", "content": "hi gemini"}]
+                await service.stream_gemini(messages, gemini_websocket)
+        finally:
+            if original_sys_module is not None:
+                sys.modules["google.generativeai"] = original_sys_module
+            else:
+                sys.modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        # Must show friendly quota message, not raw API error text.
+        assert "usage limit" in text.lower()
+        assert "429" not in text
+        assert "RESOURCE_EXHAUSTED" not in text
+        assert "\u2014" not in text
+        assert "\u2013" not in text
+
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
+
+    @pytest.mark.asyncio
+    async def test_gemini_thinking_chunk_skipped_does_not_silence_response(
+        self, gemini_websocket
+    ):
+        """gemini-2.5-flash emits thinking chunks whose .text raises
+        ValueError. Those chunks must be skipped without losing the
+        visible response tokens that follow them.
+
+        Regression: a ValueError-raising thinking chunk must not prevent
+        the real response tokens from reaching the chat panel.
+        """
+        response = _FakeGeminiResponse(
+            chunks=[
+                _FakeGeminiChunk(None),       # thinking chunk (raises ValueError)
+                _FakeGeminiChunk("Hello!"),    # visible response
+            ],
+            finish_reason_name="STOP",
+        )
+
+        result = await _run_gemini_stream(gemini_websocket, response)
+
+        tokens = gemini_websocket.get_messages_of_type("token")
+        assert [t["data"] for t in tokens] == ["Hello!"]
+
+        done = gemini_websocket.get_messages_of_type("done")
+        assert len(done) == 1
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert errors == []
+
+        assert result == "Hello!"
+
+
+# --- Multi-AI chat orchestration ---
+#
+# The chat panel asks two models to actually talk to each other when the
+# user mentions both and uses a conversational intent keyword ("chat
+# with", "debate", "talk to", etc.). The orchestration runs a real
+# round-robin: each model reads the running transcript and replies in
+# turn, one bubble per turn, with live "thinking" and "speaking" status
+# events so the user can watch the exchange unfold.
+
+
+class TestGeminiSystemInstruction:
+    """Lock in the 'no self label' rule for the Gemini system prompt.
+
+    Gemini likes to prefix replies with a literal "@Gemini:" tag, which
+    is noisy in the chat panel because the bubble header already shows
+    which model is speaking. The system instruction must tell the model
+    not to do that. It must also forbid writing a fake script with
+    labels for both sides, which was the exact failure Tori saw when
+    she typed "@gemini chat with @claude".
+    """
+
+    def test_gemini_system_prompt_says_no_self_label(self):
+        from services.chat_providers import GEMINI_SYSTEM_INSTRUCTION
+
+        assert isinstance(GEMINI_SYSTEM_INSTRUCTION, str)
+        assert len(GEMINI_SYSTEM_INSTRUCTION) > 0
+        lowered = GEMINI_SYSTEM_INSTRUCTION.lower()
+        # The instruction must tell Gemini not to prefix replies with
+        # its own name.
+        assert "do not prefix" in lowered
+        assert "your own name" in lowered
+        # It must also forbid the fake-script failure mode.
+        assert "fake script" in lowered
+        # No em-dashes per the writing rules.
+        assert "\u2014" not in GEMINI_SYSTEM_INSTRUCTION
+        assert "\u2013" not in GEMINI_SYSTEM_INSTRUCTION
+
+
+async def _fake_gemini_stream(messages, websocket):
+    """Stand-in for ``chat_service.stream_gemini`` that records its prompt.
+
+    Stores the last prompt it was called with on a module-level list so
+    tests can assert the transcript was threaded through correctly, and
+    sends a single ``token`` event and a ``done`` event so the recording
+    proxy can capture the text and swallow the done.
+    """
+    _GEMINI_CALL_LOG.append(messages[-1]["content"])
+    reply = f"gemini-reply-{len(_GEMINI_CALL_LOG)}"
+    await websocket.send_json({"type": "token", "data": reply})
+    await websocket.send_json({"type": "done"})
+    return reply
+
+
+async def _fake_anthropic_stream(messages, websocket):
+    """Stand-in for ``chat_service.stream_anthropic`` that records its prompt.
+
+    Same contract as ``_fake_gemini_stream`` so the multi AI orchestration
+    can call it without touching the real Anthropic client.
+    """
+    _ANTHROPIC_CALL_LOG.append(messages[-1]["content"])
+    reply = f"claude-reply-{len(_ANTHROPIC_CALL_LOG)}"
+    await websocket.send_json({"type": "token", "data": reply})
+    await websocket.send_json({"type": "done"})
+    return reply
+
+
+_GEMINI_CALL_LOG: list[str] = []
+_ANTHROPIC_CALL_LOG: list[str] = []
+
+
+class TestMultiAiConversation:
+    """Covers ``stream_multi_ai_conversation`` end to end.
+
+    Every test mocks out the per-provider stream helpers so there is no
+    network call. The tests assert on the sequence and shape of events
+    sent over the (fake) WebSocket and on the prompts handed to each
+    model so the transcript threading is verified, not assumed.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_logs(self):
+        """Clear the module-level call logs before every test."""
+        _GEMINI_CALL_LOG.clear()
+        _ANTHROPIC_CALL_LOG.clear()
+        yield
+        _GEMINI_CALL_LOG.clear()
+        _ANTHROPIC_CALL_LOG.clear()
+
+    @pytest.mark.asyncio
+    async def test_multi_ai_conversation_runs_alternating_turns(self):
+        from services import chat_providers
+        from services.chat_providers import stream_multi_ai_conversation
+
+        websocket = FakeWebSocket()
+
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            new=_fake_gemini_stream,
+        ), patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            new=_fake_anthropic_stream,
+        ):
+            await stream_multi_ai_conversation(
+                websocket=websocket,
+                models=["gemini", "claude"],
+                user_message="each share one shortcoming",
+                rounds=2,
+            )
+
+        # Each model was called exactly twice (rounds=2, 2 models).
+        assert len(_GEMINI_CALL_LOG) == 2
+        assert len(_ANTHROPIC_CALL_LOG) == 2
+
+        # The second Gemini call's prompt must include the first Claude
+        # reply in the transcript. That proves each turn actually reads
+        # what the other model just said instead of writing an
+        # independent monologue.
+        second_gemini_prompt = _GEMINI_CALL_LOG[1]
+        assert "claude-reply-1" in second_gemini_prompt
+        assert "gemini-reply-1" in second_gemini_prompt
+
+        # The second Claude call's prompt must include both earlier
+        # turns, including the second Gemini reply.
+        second_claude_prompt = _ANTHROPIC_CALL_LOG[1]
+        assert "gemini-reply-2" in second_claude_prompt
+        assert "claude-reply-1" in second_claude_prompt
+
+    @pytest.mark.asyncio
+    async def test_multi_ai_conversation_emits_status_events_in_order(self):
+        from services import chat_providers
+        from services.chat_providers import stream_multi_ai_conversation
+
+        websocket = FakeWebSocket()
+
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            new=_fake_gemini_stream,
+        ), patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            new=_fake_anthropic_stream,
+        ):
+            await stream_multi_ai_conversation(
+                websocket=websocket,
+                models=["gemini", "claude"],
+                user_message="debate your weaknesses",
+                rounds=1,
+            )
+
+        # Collect just the status + turn_start/end events in the order
+        # they were sent and assert the shape.
+        tracked = [
+            m for m in websocket.messages
+            if m.get("type") in (
+                "multi_ai_status",
+                "multi_ai_turn_start",
+                "multi_ai_turn_end",
+            )
+        ]
+        # Expected ordering for rounds=1, models=[gemini, claude]:
+        #   starting
+        #   thinking gemini r1
+        #   turn_start gemini r1
+        #   speaking gemini r1
+        #   turn_end gemini r1
+        #   thinking claude r1
+        #   turn_start claude r1
+        #   speaking claude r1
+        #   turn_end claude r1
+        #   complete
+        expected = [
+            ("multi_ai_status", "starting", None, None),
+            ("multi_ai_status", "thinking", "gemini", 1),
+            ("multi_ai_turn_start", None, "gemini", 1),
+            ("multi_ai_status", "speaking", "gemini", 1),
+            ("multi_ai_turn_end", None, "gemini", 1),
+            ("multi_ai_status", "thinking", "claude", 1),
+            ("multi_ai_turn_start", None, "claude", 1),
+            ("multi_ai_status", "speaking", "claude", 1),
+            ("multi_ai_turn_end", None, "claude", 1),
+            ("multi_ai_status", "complete", None, None),
+        ]
+        actual = []
+        for m in tracked:
+            data = m.get("data", {}) if isinstance(m.get("data"), dict) else {}
+            actual.append((
+                m.get("type"),
+                data.get("phase"),
+                data.get("model"),
+                data.get("round"),
+            ))
+        assert actual == expected
+
+    @pytest.mark.asyncio
+    async def test_multi_ai_conversation_emits_one_bubble_per_turn(self):
+        """There must be one turn_start + turn_end pair for every model
+        turn, so the panel can open a fresh bubble for each one. With
+        rounds=2 and 2 models, that's 4 bubbles.
+        """
+        from services import chat_providers
+        from services.chat_providers import stream_multi_ai_conversation
+
+        websocket = FakeWebSocket()
+
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            new=_fake_gemini_stream,
+        ), patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            new=_fake_anthropic_stream,
+        ):
+            await stream_multi_ai_conversation(
+                websocket=websocket,
+                models=["gemini", "claude"],
+                user_message="chat about each others shortcomings",
+                rounds=2,
+            )
+
+        turn_starts = websocket.get_messages_of_type("multi_ai_turn_start")
+        turn_ends = websocket.get_messages_of_type("multi_ai_turn_end")
+        assert len(turn_starts) == 4
+        assert len(turn_ends) == 4
+        # And the bubble headers alternate between the two models.
+        models_in_order = [m["data"]["model"] for m in turn_starts]
+        assert models_in_order == ["gemini", "claude", "gemini", "claude"]
+        rounds_in_order = [m["data"]["round"] for m in turn_starts]
+        assert rounds_in_order == [1, 1, 2, 2]
+
+    @pytest.mark.asyncio
+    async def test_multi_ai_conversation_tokens_flow_through(self):
+        """Per-turn ``token`` events from the underlying streams must
+        still reach the panel, so the chat renders the text as it comes
+        in. The recording proxy swallows ``done`` events but tokens pass
+        through untouched.
+        """
+        from services import chat_providers
+        from services.chat_providers import stream_multi_ai_conversation
+
+        websocket = FakeWebSocket()
+
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            new=_fake_gemini_stream,
+        ), patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            new=_fake_anthropic_stream,
+        ):
+            await stream_multi_ai_conversation(
+                websocket=websocket,
+                models=["gemini", "claude"],
+                user_message="debate",
+                rounds=1,
+            )
+
+        tokens = websocket.get_messages_of_type("token")
+        assert [t["data"] for t in tokens] == [
+            "gemini-reply-1",
+            "claude-reply-1",
+        ]
+        # Exactly one done event at the very end, not one per turn.
+        done = websocket.get_messages_of_type("done")
+        assert len(done) == 1
+
+    @pytest.mark.asyncio
+    async def test_multi_ai_conversation_prompt_forbids_self_labels(self):
+        """Every per-turn prompt must tell the model not to prefix its
+        reply with its own name and not to write a fake script. This is
+        the copy guard that prevents the "@Gemini: ... @Claude: ..."
+        single-bubble failure Tori saw.
+        """
+        from services import chat_providers
+        from services.chat_providers import stream_multi_ai_conversation
+
+        websocket = FakeWebSocket()
+
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            new=_fake_gemini_stream,
+        ), patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            new=_fake_anthropic_stream,
+        ):
+            await stream_multi_ai_conversation(
+                websocket=websocket,
+                models=["gemini", "claude"],
+                user_message="chat about shortcomings",
+                rounds=2,
+            )
+
+        for prompt in _GEMINI_CALL_LOG + _ANTHROPIC_CALL_LOG:
+            lowered = prompt.lower()
+            assert "do not prefix your reply with your own name" in lowered
+            assert "do not write a fake script" in lowered
+            # And the original user topic is threaded into every prompt.
+            assert "chat about shortcomings" in lowered
+            # No em-dashes in the prompt copy per writing rules.
+            assert "\u2014" not in prompt
+            assert "\u2013" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_multi_ai_conversation_default_rounds_is_three(self):
+        """The module-level default rounds constant must stay at 3 so
+        ``A B A B A B`` (six turns) is the baseline exchange. Tori
+        specifically asked for three rounds.
+        """
+        from services.chat_providers import MULTI_AI_DEFAULT_ROUNDS
+
+        assert MULTI_AI_DEFAULT_ROUNDS == 3
+
+    @pytest.mark.asyncio
+    async def test_multi_ai_conversation_without_keywords_still_runs(self):
+        """Defensive: the router decides whether to trigger the
+        orchestration, but the orchestration itself should not care
+        about keyword intent, only about the models list and the
+        message. This guards against regressions where someone adds an
+        intent check inside the orchestrator.
+        """
+        from services import chat_providers
+        from services.chat_providers import stream_multi_ai_conversation
+
+        websocket = FakeWebSocket()
+
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            new=_fake_gemini_stream,
+        ), patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            new=_fake_anthropic_stream,
+        ):
+            await stream_multi_ai_conversation(
+                websocket=websocket,
+                models=["gemini", "claude"],
+                user_message="anything",
+                rounds=1,
+            )
+
+        assert len(_GEMINI_CALL_LOG) == 1
+        assert len(_ANTHROPIC_CALL_LOG) == 1
+
+
+# --- Regression: Gemini Content proto Blob error ---
+#
+# Tori hit this exact error after a long multi turn chat that contained a
+# Giphy reply. The router's ``transform_image_messages`` had rewritten the
+# GIF message into a LIST of Anthropic shaped image blocks, and that list
+# flowed through to ``stream_gemini`` which jammed it into a ``parts=``
+# field. The Gemini SDK then reported "Could not create Blob" with an
+# unrelated prior turn as the value. These tests lock in the fix:
+# ``stream_gemini`` must coerce non string content into plain text via
+# ``_gemini_content_to_text`` before calling the SDK.
+
+
+class _RecordingFakeGeminiChat:
+    """Fake chat that records every ``send_message`` arg for assertions."""
+
+    def __init__(self, response: "_FakeGeminiResponse", log: list):
+        self._response = response
+        self._log = log
+        self.history: list = []
+
+    def send_message(self, content, stream=False):
+        self._log.append(content)
+        return self._response
+
+
+class _RecordingFakeGeminiModel:
+    def __init__(self, response: "_FakeGeminiResponse", send_log: list, history_log: list):
+        self._response = response
+        self._send_log = send_log
+        self._history_log = history_log
+
+    def start_chat(self, history=None):
+        self._history_log.append(history)
+        return _RecordingFakeGeminiChat(self._response, self._send_log)
+
+
+async def _run_gemini_with_recorder(
+    websocket, messages: list[dict]
+) -> tuple[list, list]:
+    """Run ``stream_gemini`` and return (send_message_args, history_arg).
+
+    Mirrors ``_run_gemini_stream`` but uses the recording fakes above so
+    the test can assert the exact shape of every value that would have
+    reached the real SDK.
+    """
+    send_log: list = []
+    history_log: list = []
+
+    service = ChatService()
+    response = _FakeGeminiResponse(
+        chunks=[_FakeGeminiChunk("ok")],
+        finish_reason_name="STOP",
+    )
+
+    fake_configure = MagicMock()
+    fake_model_factory = MagicMock(
+        return_value=_RecordingFakeGeminiModel(response, send_log, history_log)
+    )
+
+    import google
+    import google.generativeai as real_genai
+
+    fake_genai_module = MagicMock()
+    fake_genai_module.configure = fake_configure
+    fake_genai_module.GenerativeModel = fake_model_factory
+    fake_genai_module.types = real_genai.types
+    fake_genai_module.protos = real_genai.protos
+
+    import sys
+
+    original_sys_module = sys.modules.get("google.generativeai")
+    original_attr = getattr(google, "generativeai", None)
+    sys.modules["google.generativeai"] = fake_genai_module
+    google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+    try:
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="test-key"),
+        ):
+            await service.stream_gemini(messages, websocket)
+    finally:
+        if original_sys_module is not None:
+            sys.modules["google.generativeai"] = original_sys_module
+        else:
+            sys.modules.pop("google.generativeai", None)
+        if original_attr is not None:
+            google.generativeai = original_attr  # type: ignore[attr-defined]
+        elif hasattr(google, "generativeai"):
+            delattr(google, "generativeai")
+
+    return send_log, history_log
+
+
+class TestGeminiContentBlobRegression:
+    """Locks in the fix for the ``Could not create Blob`` bug.
+
+    Every value that leaves our code and heads into the Gemini SDK must
+    be a plain string (or a SDK accepted dict / Blob / Image). A message
+    whose ``content`` is a LIST of Anthropic shaped content blocks must
+    be flattened before it hits ``send_message`` or ``start_chat``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_with_history_passes_strings_not_content_objects(self):
+        """Two prior turns plus a new user message. Every recorded arg
+        must be a plain string, never a Content proto, dict, or list.
+        """
+        websocket = FakeWebSocket()
+        messages = [
+            {"role": "user", "content": "@gemini what's your favorite thing about @claude?"},
+            {"role": "assistant", "content": "Claude is thoughtful and careful."},
+            {"role": "user", "content": "thanks gemini, appreciated"},
+        ]
+
+        send_log, history_log = await _run_gemini_with_recorder(websocket, messages)
+
+        # send_message was called exactly once with the last user message
+        # as a plain string.
+        assert len(send_log) == 1
+        assert isinstance(send_log[0], str)
+        assert send_log[0] == "thanks gemini, appreciated"
+
+        # start_chat got a history list of dicts with string parts only.
+        assert len(history_log) == 1
+        history = history_log[0]
+        assert isinstance(history, list)
+        assert len(history) == 2
+        for entry in history:
+            assert isinstance(entry, dict)
+            parts = entry.get("parts")
+            assert isinstance(parts, list)
+            for part in parts:
+                assert isinstance(part, str), (
+                    f"history part must be str, got {type(part).__name__}: {part!r}"
+                )
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_flattens_image_block_list_into_text(self):
+        """A message whose content is a LIST of Anthropic image blocks
+        must be flattened into a plain string before it hits the SDK.
+        This is the exact shape ``transform_image_messages`` produces
+        when a Giphy reply is in the history.
+        """
+        websocket = FakeWebSocket()
+        messages = [
+            {"role": "user", "content": "@gemini what's your favorite thing about @claude?"},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "iVBORw0KGgo=",
+                        },
+                    },
+                    {"type": "text", "text": "look at this gif"},
+                ],
+            },
+            {"role": "assistant", "content": "cute!"},
+            {"role": "user", "content": "thanks"},
+        ]
+
+        send_log, history_log = await _run_gemini_with_recorder(websocket, messages)
+
+        # Find the flattened GIF message in history parts. It should be a
+        # plain string with the text from the text block and a placeholder
+        # for the image, never a list or dict.
+        history = history_log[0]
+        gif_entry = history[1]
+        parts = gif_entry["parts"]
+        assert len(parts) == 1
+        flattened = parts[0]
+        assert isinstance(flattened, str), (
+            f"image block list must be flattened to str, got {type(flattened).__name__}"
+        )
+        assert "look at this gif" in flattened
+        assert "[image attached]" in flattened
+
+        # send_message still gets a plain string for the final turn.
+        assert isinstance(send_log[0], str)
+        assert send_log[0] == "thanks"
+
+    @pytest.mark.asyncio
+    async def test_stream_multi_ai_conversation_does_not_leak_content_objects_to_gemini(self):
+        """A full multi AI exchange must never send anything other than
+        a plain string into the underlying Gemini call. The orchestrator
+        builds plain text prompts, but this test pins that contract so
+        future refactors cannot regress it.
+        """
+        from services import chat_providers
+        from services.chat_providers import stream_multi_ai_conversation
+
+        websocket = FakeWebSocket()
+
+        gemini_args: list = []
+
+        async def _recording_gemini(messages, ws):
+            gemini_args.append(messages)
+            await ws.send_json({"type": "token", "data": "hi"})
+            await ws.send_json({"type": "done"})
+            return "hi"
+
+        async def _recording_claude(messages, ws):
+            await ws.send_json({"type": "token", "data": "hello"})
+            await ws.send_json({"type": "done"})
+            return "hello"
+
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            new=_recording_gemini,
+        ), patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            new=_recording_claude,
+        ):
+            await stream_multi_ai_conversation(
+                websocket=websocket,
+                models=["gemini", "claude"],
+                user_message="chat with claude please",
+                rounds=1,
+            )
+
+        assert len(gemini_args) == 1
+        for call in gemini_args:
+            assert isinstance(call, list)
+            for msg in call:
+                content = msg.get("content")
+                assert isinstance(content, str), (
+                    f"multi AI must pass string content, got {type(content).__name__}"
+                )
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_blob_error_surfaces_friendly_message(self):
+        """If the SDK ever raises the Blob error anyway (wrong shape
+        slipping through), we must surface a friendly plain language
+        message instead of the raw Python exception. This is the
+        regression contract for feedback_chat_response_silent.md: never
+        silent failure, always a real user facing error.
+        """
+        websocket = FakeWebSocket()
+        service = ChatService()
+
+        import google
+        import google.generativeai as real_genai
+
+        class _BlobRaisingChat:
+            history: list = []
+
+            def send_message(self, content, stream=False):
+                raise TypeError(
+                    "Could not create `Blob`, expected `Blob`, `dict` or an `Image`"
+                    " type.\nGot a: <class 'google.ai.generativelanguage_v1beta"
+                    ".types.content.Content'>"
+                )
+
+        class _BlobRaisingModel:
+            def start_chat(self, history=None):
+                return _BlobRaisingChat()
+
+        fake_genai_module = MagicMock()
+        fake_genai_module.configure = MagicMock()
+        fake_genai_module.GenerativeModel = MagicMock(return_value=_BlobRaisingModel())
+        fake_genai_module.types = real_genai.types
+        fake_genai_module.protos = real_genai.protos
+
+        import sys
+
+        original_sys_module = sys.modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        sys.modules["google.generativeai"] = fake_genai_module
+        google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        try:
+            with patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value="test-key"),
+            ):
+                messages = [{"role": "user", "content": "hi"}]
+                await service.stream_gemini(messages, websocket)
+        finally:
+            if original_sys_module is not None:
+                sys.modules["google.generativeai"] = original_sys_module
+            else:
+                sys.modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+
+        errors = websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        error_text = errors[0]["data"]
+        # The raw python class path must not leak into the user facing error.
+        assert "generativelanguage_v1beta" not in error_text
+        assert "<class" not in error_text
+        # No em dashes per the writing rules.
+        assert "\u2014" not in error_text
+        # No done event: the turn failed, the chat panel must not render
+        # a blank assistant bubble.
+        dones = websocket.get_messages_of_type("done")
+        assert len(dones) == 0
+
+
+class TestGeminiContentToTextHelper:
+    """Direct unit tests on ``_gemini_content_to_text`` for coverage."""
+
+    def test_string_is_returned_unchanged(self):
+        from services.chat_providers import _gemini_content_to_text
+
+        assert _gemini_content_to_text("hello world") == "hello world"
+
+    def test_empty_string_stays_empty(self):
+        from services.chat_providers import _gemini_content_to_text
+
+        assert _gemini_content_to_text("") == ""
+
+    def test_none_becomes_empty_string(self):
+        from services.chat_providers import _gemini_content_to_text
+
+        assert _gemini_content_to_text(None) == ""
+
+    def test_list_of_text_and_image_blocks_flattens(self):
+        from services.chat_providers import _gemini_content_to_text
+
+        content = [
+            {
+                "type": "image",
+                "source": {"type": "url", "url": "http://x/y.png"},
+            },
+            {"type": "text", "text": "look at this"},
+        ]
+        result = _gemini_content_to_text(content)
+        assert isinstance(result, str)
+        assert "[image attached]" in result
+        assert "look at this" in result
+
+    def test_list_of_only_images_returns_placeholder(self):
+        from services.chat_providers import _gemini_content_to_text
+
+        content = [
+            {"type": "image", "source": {"type": "url", "url": "http://x/a.png"}},
+            {"type": "image", "source": {"type": "url", "url": "http://x/b.png"}},
+        ]
+        result = _gemini_content_to_text(content)
+        assert "[image attached]" in result
+        # Two images, two placeholders on separate lines.
+        assert result.count("[image attached]") == 2

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { api } from './api'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { api, ApiTimeoutError } from './api'
 
 describe('api client', () => {
   beforeEach(() => {
@@ -22,11 +22,14 @@ describe('api client', () => {
       const fetchMock = mockFetch({ data: 'hello' })
       await api.get('/tasks')
 
-      expect(fetchMock).toHaveBeenCalledWith('/api/tasks', {
-        method: 'GET',
-        headers: undefined,
-        body: undefined,
-      })
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks',
+        expect.objectContaining({
+          method: 'GET',
+          headers: undefined,
+          body: undefined,
+        }),
+      )
     })
 
     it('returns parsed JSON response', async () => {
@@ -51,22 +54,28 @@ describe('api client', () => {
       const payload = { title: 'New task', priority: 'P1' }
       await api.post('/tasks', payload)
 
-      expect(fetchMock).toHaveBeenCalledWith('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+      )
     })
 
     it('sends POST without body when no body provided', async () => {
       const fetchMock = mockFetch({ ok: true })
       await api.post('/tasks/1/close')
 
-      expect(fetchMock).toHaveBeenCalledWith('/api/tasks/1/close', {
-        method: 'POST',
-        headers: undefined,
-        body: undefined,
-      })
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks/1/close',
+        expect.objectContaining({
+          method: 'POST',
+          headers: undefined,
+          body: undefined,
+        }),
+      )
     })
 
     it('returns parsed JSON response', async () => {
@@ -83,11 +92,14 @@ describe('api client', () => {
       const payload = { title: 'Updated task' }
       await api.put('/tasks/1', payload)
 
-      expect(fetchMock).toHaveBeenCalledWith('/api/tasks/1', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks/1',
+        expect.objectContaining({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+      )
     })
   })
 
@@ -97,11 +109,14 @@ describe('api client', () => {
       const payload = { status: 'closed' }
       await api.patch('/tasks/1', payload)
 
-      expect(fetchMock).toHaveBeenCalledWith('/api/tasks/1', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/tasks/1',
+        expect.objectContaining({
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+      )
     })
   })
 
@@ -122,6 +137,37 @@ describe('api client', () => {
       mockFetch('Unauthorized', false, 401)
 
       await expect(api.get('/secret')).rejects.toThrow('Unauthorized')
+    })
+  })
+
+  describe('abort and timeout behavior', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('passes an AbortSignal to fetch so hung requests can be cancelled', async () => {
+      const fetchMock = mockFetch({ ok: true })
+      await api.get('/tasks')
+
+      const callArgs = fetchMock.mock.calls[0][1]
+      expect(callArgs.signal).toBeDefined()
+      expect(typeof callArgs.signal.aborted).toBe('boolean')
+    })
+
+    it('converts an AbortError from a timeout into ApiTimeoutError', async () => {
+      // Simulate a fetch that rejects with an AbortError the way
+      // fetch() does when AbortController.abort() fires.
+      const abortError = new DOMException('The operation was aborted.', 'AbortError')
+      global.fetch = vi.fn().mockRejectedValue(abortError) as unknown as typeof fetch
+
+      await expect(api.get('/slow')).rejects.toBeInstanceOf(ApiTimeoutError)
+    })
+
+    it('still surfaces non-abort fetch errors unchanged', async () => {
+      const networkError = new TypeError('Failed to fetch')
+      global.fetch = vi.fn().mockRejectedValue(networkError) as unknown as typeof fetch
+
+      await expect(api.get('/broken')).rejects.toBe(networkError)
     })
   })
 })

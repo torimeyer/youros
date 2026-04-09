@@ -406,4 +406,25 @@ async def stream_chat(
             "usage": final_usage or {"input_tokens": 0, "output_tokens": 0},
         },
     )
+
+    # Record the turn so `ostk metrics` can show real numbers. The boot
+    # context is included in the system prompt that ostk built upstream,
+    # so import it lazily and reuse the same cached value to tag the
+    # event consistently with the anthropic_api path.
+    try:
+        from services.token_metrics import safe_record_chat_turn
+        from services.chat_providers import _get_boot_context
+        usage = final_usage or {}
+        boot_ctx = _get_boot_context()
+        safe_record_chat_turn(
+            model="claude-code-subscription",
+            input_tokens=int(usage.get("input_tokens", 0) or 0),
+            output_tokens=int(usage.get("output_tokens", 0) or 0),
+            has_ostk_boot=bool(boot_ctx),
+            boot_context_bytes=len(boot_ctx.encode("utf-8")) if boot_ctx else 0,
+            backend="claude_code",
+        )
+    except Exception:
+        pass
+
     return full_text

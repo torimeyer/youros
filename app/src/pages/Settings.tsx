@@ -92,7 +92,7 @@ export default function Settings() {
   ]);
   const [quietHours, setQuietHours] = useState(true);
   const [autoTemplateMatching, setAutoTemplateMatching] = useState(true);
-  const [morningBriefingEnabled, setMorningBriefingEnabled] = useState(true);
+  const [briefingEnabled, setBriefingEnabled] = useState(true);
   const [showAllKeys, setShowAllKeys] = useState(false);
   const [keySaveStatus, setKeySaveStatus] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
@@ -185,8 +185,8 @@ export default function Settings() {
         if ((data as any).auto_template_matching !== undefined) {
           setAutoTemplateMatching((data as any).auto_template_matching);
         }
-        if ((data as any).morning_briefing_enabled !== undefined) {
-          setMorningBriefingEnabled((data as any).morning_briefing_enabled);
+        if ((data as any).briefing_enabled !== undefined) {
+          setBriefingEnabled((data as any).briefing_enabled);
         }
         if ((data as any).use_ostk_terms !== undefined) setUseOstkTerms((data as any).use_ostk_terms);
         if (data.mcp_servers) setMcpServers(data.mcp_servers);
@@ -421,10 +421,10 @@ export default function Settings() {
     api.patch('/settings', { auto_template_matching: next }).catch(() => {});
   };
 
-  const handleMorningBriefingToggle = () => {
-    const next = !morningBriefingEnabled;
-    setMorningBriefingEnabled(next);
-    api.patch('/settings', { morning_briefing_enabled: next }).catch(() => {});
+  const handleBriefingToggle = () => {
+    const next = !briefingEnabled;
+    setBriefingEnabled(next);
+    api.patch('/settings', { briefing_enabled: next }).catch(() => {});
   };
 
   const handleImport = () => {
@@ -1058,21 +1058,21 @@ export default function Settings() {
               <h3 className="text-sm font-semibold text-slate-200 mb-3">Daily habits</h3>
               <div className="flex items-center justify-between">
                 <div className="pr-3">
-                  <p className="text-sm text-slate-300">Morning briefing</p>
+                  <p className="text-sm text-slate-300">Briefing</p>
                   <p className="text-xs text-slate-500">
-                    Show a short summary of your day when you open the dashboard before noon.
+                    Show a short summary of your day on the dashboard. Available at any hour.
                   </p>
                 </div>
                 <button
-                  data-testid="morning-briefing-toggle"
-                  onClick={handleMorningBriefingToggle}
+                  data-testid="briefing-toggle"
+                  onClick={handleBriefingToggle}
                   className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
-                    morningBriefingEnabled ? 'accent-bg' : 'bg-slate-700'
+                    briefingEnabled ? 'accent-bg' : 'bg-slate-700'
                   }`}
                 >
                   <span
                     className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                      morningBriefingEnabled ? 'left-5' : 'left-1'
+                      briefingEnabled ? 'left-5' : 'left-1'
                     }`}
                   />
                 </button>

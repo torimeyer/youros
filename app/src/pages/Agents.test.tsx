@@ -4,14 +4,26 @@ import { MemoryRouter } from 'react-router-dom'
 import Agents from './Agents'
 import { useAppStore } from '../stores/app'
 
-vi.mock('../lib/api', () => ({
-  api: {
-    get: vi.fn(),
-    post: vi.fn(),
-  },
-}))
+// Use importOriginal so the real ApiError and ApiTimeoutError classes
+// are still exported by the mocked module. handleNudge does an
+// `instanceof ApiTimeoutError` check and it must match the class that
+// the tests throw, otherwise the timeout branch silently degrades to
+// the generic error copy.
+vi.mock('../lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/api')>()
+  return {
+    ...actual,
+    api: {
+      get: vi.fn(),
+      post: vi.fn(),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    },
+  }
+})
 
-import { api } from '../lib/api'
+import { api, ApiTimeoutError } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)
@@ -75,8 +87,9 @@ describe('Agents page - Nudge feature', () => {
       expect(screen.getByText('test-agent')).toBeInTheDocument()
     })
 
-    // The nudge input should be visible for active agents
-    const input = screen.getByPlaceholderText('Send a message to this agent...')
+    // The chat thread input should be visible for active agents. The
+    // placeholder now mirrors the main ChatPanel: "Message <agent>...".
+    const input = screen.getByPlaceholderText('Message test-agent...')
     expect(input).toBeInTheDocument()
   })
 
@@ -87,7 +100,7 @@ describe('Agents page - Nudge feature', () => {
       expect(screen.getByText('test-agent')).toBeInTheDocument()
     })
 
-    const sendButton = screen.getByRole('button', { name: /Send/i })
+    const sendButton = screen.getByTestId('agent-chat-send-test-agent')
     expect(sendButton).toBeInTheDocument()
   })
 
@@ -98,10 +111,10 @@ describe('Agents page - Nudge feature', () => {
       expect(screen.getByText('test-agent')).toBeInTheDocument()
     })
 
-    const input = screen.getByPlaceholderText('Send a message to this agent...')
+    const input = screen.getByPlaceholderText('Message test-agent...')
     fireEvent.change(input, { target: { value: 'Hello agent' } })
 
-    const sendButton = screen.getByRole('button', { name: /Send/i })
+    const sendButton = screen.getByTestId('agent-chat-send-test-agent')
     fireEvent.click(sendButton)
 
     await waitFor(() => {
@@ -118,9 +131,9 @@ describe('Agents page - Nudge feature', () => {
       expect(screen.getByText('test-agent')).toBeInTheDocument()
     })
 
-    const input = screen.getByPlaceholderText('Send a message to this agent...')
+    const input = screen.getByPlaceholderText('Message test-agent...')
     fireEvent.change(input, { target: { value: 'Enter nudge' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
 
     await waitFor(() => {
       expect(mockedApiPost).toHaveBeenCalledWith('/agents/test-agent/nudge', {
@@ -136,10 +149,10 @@ describe('Agents page - Nudge feature', () => {
       expect(screen.getByText('test-agent')).toBeInTheDocument()
     })
 
-    const input = screen.getByPlaceholderText('Send a message to this agent...') as HTMLInputElement
+    const input = screen.getByPlaceholderText('Message test-agent...') as HTMLTextAreaElement
     fireEvent.change(input, { target: { value: 'Clear me' } })
 
-    const sendButton = screen.getByRole('button', { name: /Send/i })
+    const sendButton = screen.getByTestId('agent-chat-send-test-agent')
     fireEvent.click(sendButton)
 
     await waitFor(() => {
@@ -155,7 +168,7 @@ describe('Agents page - Nudge feature', () => {
     })
 
     // Input is empty, click send
-    const sendButton = screen.getByRole('button', { name: /Send/i })
+    const sendButton = screen.getByTestId('agent-chat-send-test-agent')
     fireEvent.click(sendButton)
 
     // api.post should not have been called for nudge (only for spawn if any)
@@ -172,18 +185,18 @@ describe('Agents page - Nudge feature', () => {
       expect(screen.getByText('test-agent')).toBeInTheDocument()
     })
 
-    const input = screen.getByPlaceholderText('Send a message to this agent...')
+    const input = screen.getByPlaceholderText('Message test-agent...')
     fireEvent.change(input, { target: { value: 'Hello agent' } })
 
-    const sendButton = screen.getByRole('button', { name: /Send/i })
+    const sendButton = screen.getByTestId('agent-chat-send-test-agent')
     fireEvent.click(sendButton)
 
+    // The sent message now renders inside a right aligned user bubble
+    // instead of as a "You: ..." plain text line.
     await waitFor(() => {
-      expect(screen.getByText('Hello agent')).toBeInTheDocument()
+      const userBubbles = screen.getAllByTestId('agent-chat-user-bubble')
+      expect(userBubbles.some((b) => b.textContent === 'Hello agent')).toBe(true)
     })
-
-    // The "You:" label should appear
-    expect(screen.getByText('You:')).toBeInTheDocument()
   })
 
   it('shows Expand/Collapse button on active agent cards', async () => {
@@ -229,8 +242,352 @@ describe('Agents page - Nudge feature', () => {
     })
 
     expect(
-      screen.queryByPlaceholderText('Send a message to this agent...')
+      screen.queryByPlaceholderText('Message test-agent...')
     ).not.toBeInTheDocument()
+  })
+
+  // Regression for needle 235: Tori sent "how much longer?" to a
+  // running Claude Code subagent and saw no reply. Three bugs together
+  // caused the silent failure:
+  //   1. The nudge response had no delivery status so the UI had
+  //      nothing plain-language to show when delivery was file-only.
+  //   2. The backend had no reply channel so agents literally could
+  //      not answer back.
+  //   3. Polling only ran while the card was expanded.
+  // These tests pin the fix.
+
+  it('shows plain language file-only delivery status after sending a nudge', async () => {
+    mockedApiPost.mockResolvedValue({
+      result: "Nudge sent to 'test-agent'",
+      nudge: {
+        message: 'how much longer?',
+        timestamp: '2026-04-09T03:08:57+00:00',
+        source: 'ui',
+        stdin_delivered: false,
+        delivery: 'file_only',
+        delivery_message:
+          'Saved for the agent. It will see your message the next time it checks its mailbox.',
+      },
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('Message test-agent...')
+    fireEvent.change(input, { target: { value: 'how much longer?' } })
+
+    const sendButton = screen.getByTestId('agent-chat-send-test-agent')
+    fireEvent.click(sendButton)
+
+    await waitFor(() => {
+      const status = screen.getByTestId('nudge-delivery-status')
+      expect(status.textContent).toMatch(/mailbox/i)
+    })
+  })
+
+  it('renders an agent reply inline after it arrives via the nudges poll', async () => {
+    // The nudges endpoint returns a reply from the very first call to
+    // simulate an agent that already posted its answer. The real world
+    // flow is: user sends nudge, agent eventually POSTs /reply, the
+    // next poll cycle picks it up. This test pins the "picks it up and
+    // renders it" step of that flow.
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return {
+          agent: 'test-agent',
+          nudges: [],
+          session_nudges: [],
+          replies: [
+            {
+              message: 'About ten more minutes.',
+              timestamp: '2026-04-09T03:10:00+00:00',
+              source: 'agent',
+              in_reply_to: '2026-04-09T03:08:57+00:00',
+            },
+          ],
+          session_replies: [],
+        }
+      }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('Message test-agent...')
+    fireEvent.change(input, { target: { value: 'how much longer?' } })
+    const sendButton = screen.getByTestId('agent-chat-send-test-agent')
+    fireEvent.click(sendButton)
+
+    // After handleNudge triggers an immediate re-fetch, the reply
+    // returned by the mock should render inline in the same card. The
+    // reply text now lives inside an assistant bubble rather than a
+    // plain text "Agent: ..." line.
+    await waitFor(() => {
+      const assistantBubbles = screen.getAllByTestId('agent-chat-assistant-bubble')
+      expect(
+        assistantBubbles.some((b) => (b.textContent || '').includes('About ten more minutes.')),
+      ).toBe(true)
+    })
+  })
+
+  it('polls nudges for any agent with messages even when the card is not expanded', async () => {
+    const seen: string[] = []
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        seen.push(path)
+        return { agent: 'test-agent', nudges: [], session_nudges: [], replies: [], session_replies: [] }
+      }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({
+      result: "Nudge sent to 'test-agent'",
+      nudge: {
+        message: 'ping',
+        timestamp: '2026-04-09T03:08:57+00:00',
+        source: 'ui',
+        stdin_delivered: false,
+        delivery: 'file_only',
+        delivery_message: 'Saved for the agent.',
+      },
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    // Do NOT click Expand. Send a nudge. Polling should fire anyway.
+    const input = screen.getByPlaceholderText('Message test-agent...')
+    fireEvent.change(input, { target: { value: 'ping' } })
+    fireEvent.click(screen.getByTestId('agent-chat-send-test-agent'))
+
+    await waitFor(() => {
+      // At least one fetch to /nudges must happen after the send.
+      // The immediate fetch in handleNudge guarantees this without
+      // having to advance fake timers.
+      expect(seen.some((p) => p.includes('/agents/test-agent/nudges'))).toBe(true)
+    })
+  })
+})
+
+// Regression for needle 237: Tori saw the inline Send button get stuck
+// on "Sending..." forever even though the backend stored the message.
+// These tests pin every exit path that must clear the button.
+describe('Agents page - Send button stuck state (needle 237)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return {
+          agent: 'test-agent',
+          nudges: [],
+          session_nudges: [],
+          replies: [],
+          session_replies: [],
+        }
+      }
+      return {}
+    })
+  })
+
+  it('clears the Send button back to "Send" after a successful nudge post', async () => {
+    mockedApiPost.mockResolvedValue({
+      result: "Nudge sent to 'test-agent'",
+      nudge: {
+        message: 'hello',
+        timestamp: '2026-04-09T04:00:00+00:00',
+        source: 'ui',
+        stdin_delivered: false,
+        delivery: 'file_only',
+        delivery_message: 'Saved for the agent.',
+      },
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('Message test-agent...')
+    fireEvent.change(input, { target: { value: 'hello' } })
+
+    const sendButton = screen.getByTestId('agent-chat-send-test-agent')
+    fireEvent.click(sendButton)
+
+    // After the mocked post resolves, the button text must return to
+    // "Send" and must not stay stuck on "Sending...".
+    await waitFor(() => {
+      expect(sendButton.textContent).toContain('Send')
+      expect(sendButton.textContent).not.toContain('Sending...')
+    })
+
+    // If the user types something new, the button must be enabled
+    // again. If sending state was stuck, re-typing would not help.
+    fireEvent.change(input, { target: { value: 'followup' } })
+    await waitFor(() => {
+      expect((sendButton as HTMLButtonElement).disabled).toBe(false)
+    })
+  })
+
+  it('clears the Send button and shows an inline error when the post fails', async () => {
+    mockedApiPost.mockRejectedValue(new Error('network explosion'))
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('Message test-agent...')
+    fireEvent.change(input, { target: { value: 'will fail' } })
+
+    const sendButton = screen.getByTestId('agent-chat-send-test-agent')
+    fireEvent.click(sendButton)
+
+    // Button clears even on failure. This is the core regression.
+    await waitFor(() => {
+      expect(sendButton.textContent).not.toContain('Sending...')
+    })
+
+    // The error must be visible inline. Silent failure is banned per
+    // feedback_chat_response_silent.md.
+    await waitFor(() => {
+      const err = screen.getByTestId('nudge-error')
+      expect(err).toBeInTheDocument()
+      expect(err.textContent || '').toMatch(/could not send/i)
+    })
+  })
+
+  it('shows a timeout-specific error when the server does not respond in time', async () => {
+    // Simulate the ApiTimeoutError that the real api module throws
+    // when a fetch aborts. The vi.mock above preserves the real
+    // class via importOriginal so the instanceof check in
+    // handleNudge matches what the tests throw.
+    mockedApiPost.mockRejectedValue(new ApiTimeoutError(30000))
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('Message test-agent...')
+    fireEvent.change(input, { target: { value: 'will time out' } })
+
+    const sendButton = screen.getByTestId('agent-chat-send-test-agent')
+    fireEvent.click(sendButton)
+
+    await waitFor(() => {
+      expect(sendButton.textContent).not.toContain('Sending...')
+    })
+
+    await waitFor(() => {
+      const err = screen.getByTestId('nudge-error')
+      expect(err.textContent || '').toMatch(/did not respond in time/i)
+    })
+  })
+
+  it('only clears the Send button for the agent whose post resolved, not others', async () => {
+    // Two active agents. Clicking Send on one must not flip the
+    // sending state for the other. This catches the cross-agent
+    // state leak case from the prompt.
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return {
+          daemon_running: true,
+          status: 'ok',
+          active: ['agent-a', 'agent-b'],
+          agents: [
+            {
+              name: 'agent-a',
+              status: 'running',
+              source: 'daemon',
+              model: 'sonnet',
+              spawned_at: new Date(Date.now() - 1000).toISOString(),
+            },
+            {
+              name: 'agent-b',
+              status: 'running',
+              source: 'daemon',
+              model: 'sonnet',
+              spawned_at: new Date(Date.now() - 1000).toISOString(),
+            },
+          ],
+        }
+      }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return { agent: 'x', nudges: [], session_nudges: [], replies: [], session_replies: [] }
+      }
+      return {}
+    })
+
+    // Post to agent-b resolves, post to agent-a never resolves. The
+    // agent-b button must still clear even while agent-a is pending.
+    mockedApiPost.mockImplementation((path: string) => {
+      if (path === '/agents/agent-a/nudge') {
+        return new Promise(() => {
+          // never resolves on purpose
+        }) as Promise<unknown>
+      }
+      return Promise.resolve({
+        result: "Nudge sent to 'agent-b'",
+        nudge: {
+          message: 'ping b',
+          timestamp: '2026-04-09T04:00:00+00:00',
+          source: 'ui',
+          stdin_delivered: false,
+          delivery: 'file_only',
+          delivery_message: 'Saved.',
+        },
+      })
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('agent-a')).toBeInTheDocument()
+      expect(screen.getByText('agent-b')).toBeInTheDocument()
+    })
+
+    // Two chat thread inputs exist now, one per agent.
+    const inputA = screen.getByPlaceholderText('Message agent-a...')
+    const inputB = screen.getByPlaceholderText('Message agent-b...')
+
+    // Type and click Send on agent-a first (this will hang forever).
+    fireEvent.change(inputA, { target: { value: 'ping a' } })
+    const sendA = screen.getByTestId('agent-chat-send-agent-a')
+    fireEvent.click(sendA)
+
+    // Now type and click Send on agent-b. That request resolves.
+    fireEvent.change(inputB, { target: { value: 'ping b' } })
+    const sendB = screen.getByTestId('agent-chat-send-agent-b')
+    fireEvent.click(sendB)
+
+    // Agent-b button must clear back to "Send" even though agent-a
+    // is still pending. Agent-a must still show "Sending...".
+    await waitFor(() => {
+      expect(sendA.textContent || '').toContain('Sending...')
+      expect(sendB.textContent || '').not.toContain('Sending...')
+      expect(sendB.textContent || '').toContain('Send')
+    })
   })
 })
 
@@ -697,5 +1054,730 @@ describe('Agents page - Insights tab', () => {
       const cards = screen.getAllByTestId('insight-high-success-card')
       expect(cards.length).toBeGreaterThan(0)
     })
+  })
+})
+
+// Regression tests for the empty-state flash bug. On first paint the Agents
+// page used to render "No active agents" before the fetch resolved, because
+// the initial agents list was an empty array. We now track a separate
+// agentsLoaded flag and show a Loading state until the first fetch settles.
+describe('Agents page - first-load state', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+  })
+
+  it('test_agents_page_shows_loading_state_on_first_render', async () => {
+    // Make /agents hang forever so the component stays in its first-load
+    // state. We assert the loading marker is visible and the empty state is
+    // not shown.
+    let resolveAgents: ((value: unknown) => void) | null = null
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return new Promise((resolve) => {
+          resolveAgents = resolve
+        })
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/pm-templates') return { templates: [] }
+      return {}
+    })
+
+    renderAgents()
+
+    expect(await screen.findByTestId('active-agents-loading')).toBeInTheDocument()
+    expect(
+      screen.queryByText('No active agents. Spawn one to get started.')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'No active agents. Click a template below or use the New Agent button to get started.'
+      )
+    ).not.toBeInTheDocument()
+
+    // Resolve the pending promise so the test exits cleanly.
+    if (resolveAgents) {
+      ;(resolveAgents as (value: unknown) => void)({
+        daemon_running: true,
+        status: 'ok',
+        active: [],
+        agents: [],
+      })
+    }
+  })
+
+  it('test_agents_page_shows_empty_state_only_after_fetch_resolves_empty', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return {
+          daemon_running: true,
+          status: 'ok',
+          active: [],
+          agents: [],
+        }
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/pm-templates') return { templates: [] }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('No active agents. Spawn one to get started.')
+      ).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
+  })
+
+  it('test_agents_page_shows_agents_after_fetch_resolves_with_data', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/pm-templates') return { templates: [] }
+      if (path.includes('/nudges')) {
+        return { agent: 'test-agent', nudges: [], session_nudges: [] }
+      }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('No active agents. Spawn one to get started.')
+    ).not.toBeInTheDocument()
+  })
+
+  it('test_agents_page_polling_does_not_flash_loading', async () => {
+    vi.useFakeTimers()
+    try {
+      mockedApiGet.mockImplementation(async (path: string) => {
+        if (path === '/agents') return mockAgentsResponse
+        if (path === '/agents/templates') return { templates: [] }
+        if (path === '/agents/pm-templates') return { templates: [] }
+        if (path.includes('/nudges')) {
+          return { agent: 'test-agent', nudges: [], session_nudges: [] }
+        }
+        return {}
+      })
+
+      renderAgents()
+
+      // First fetch settles, real-timer waitFor is unavailable with fake
+      // timers, so we drive ticks manually until the agent appears.
+      await vi.waitFor(() => {
+        expect(screen.getByText('test-agent')).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
+
+      // Advance the polling interval (5s) and flush microtasks. Loading must
+      // NOT reappear during the refresh. The agent must still be visible.
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Stale sweep and cancel button regression tests. These lock in the fixes
+  // for the two problems that shipped together: orphan agents lingering as
+  // running because nothing swept them, and empty-state strings flashing on
+  // the Recent and Metrics tabs because they were not gated behind
+  // agentsLoaded.
+
+  it('test_agents_page_does_not_show_terminated_stale_in_active_sessions', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return {
+          daemon_running: true,
+          status: 'ok',
+          active: ['live-agent'],
+          agents: [
+            {
+              name: 'live-agent',
+              status: 'running',
+              source: 'claude-code',
+              model: 'sonnet',
+              budget: '2.00',
+              spawned_at: new Date(Date.now() - 60000).toISOString(),
+              transcript_bytes: 4096,
+              transcript_lines: 10,
+            },
+            {
+              name: 'dead-orphan',
+              status: 'terminated_stale',
+              source: 'claude-code',
+              model: 'sonnet',
+              budget: '2.00',
+              spawned_at: new Date(Date.now() - 3600000).toISOString(),
+              terminated_at: new Date(Date.now() - 1000).toISOString(),
+              terminated_reason: 'No heartbeat for 700s (limit 600s)',
+              transcript_bytes: 0,
+              transcript_lines: 0,
+            },
+          ],
+        }
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/pm-templates') return { templates: [] }
+      if (path.includes('/nudges')) {
+        return { agent: 'live-agent', nudges: [], session_nudges: [] }
+      }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('live-agent')).toBeInTheDocument()
+    })
+    // The terminated_stale agent must not be in the Active Sessions list.
+    expect(screen.queryByText('dead-orphan')).not.toBeInTheDocument()
+  })
+
+  it('test_cancel_button_calls_cancel_endpoint', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/pm-templates') return { templates: [] }
+      if (path.includes('/nudges')) {
+        return { agent: 'test-agent', nudges: [], session_nudges: [] }
+      }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({ ok: true, status: 'cancelled' })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    const cancelButton = screen.getByRole('button', { name: /Cancel/i })
+    fireEvent.click(cancelButton)
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/agents/test-agent/cancel', {
+        reason: 'user cancelled',
+      })
+    })
+  })
+
+  it('test_every_empty_state_branch_is_gated_by_agentsLoaded', async () => {
+    // Mock /agents with a never-resolving promise so agentsLoaded stays
+    // false. Assert every "no X" empty-state string on the Agents page is
+    // hidden on first paint. This is the regression test that locks in
+    // "no flash anywhere".
+    let resolveAgents: ((value: unknown) => void) | null = null
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return new Promise((resolve) => {
+          resolveAgents = resolve
+        })
+      }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/pm-templates') return { templates: [] }
+      return {}
+    })
+
+    renderAgents()
+
+    // Active tab loading card is visible.
+    expect(await screen.findByTestId('active-agents-loading')).toBeInTheDocument()
+
+    // None of the empty-state strings on any tab may be visible while the
+    // first fetch is still pending. They are all driven by allAgents, which
+    // starts as []. Without the agentsLoaded gate they would flash.
+    expect(
+      screen.queryByText('No active agents. Spawn one to get started.')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'No active agents. Click a template below or use the New Agent button to get started.'
+      )
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'No completed agents yet. Agents you spawn will appear here once they finish.'
+      )
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'No completed agents yet. Metrics will appear here as agents finish.'
+      )
+    ).not.toBeInTheDocument()
+
+    // Resolve the pending promise so the test exits cleanly.
+    if (resolveAgents) {
+      ;(resolveAgents as (value: unknown) => void)({
+        daemon_running: true,
+        status: 'ok',
+        active: [],
+        agents: [],
+      })
+    }
+  })
+})
+
+// Needle 244: the Agents page inline messaging now uses AgentChatThread,
+// the same visual language as the main ChatPanel. These tests pin the
+// bubble shape, markdown rendering, input clearing, error surface, and
+// the honest mailbox warning heuristic. Per
+// feedback_chat_response_silent.md, the error path must always be
+// visible.
+describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+  })
+
+  it('test_agent_thread_renders_nudges_as_user_bubbles_and_replies_as_assistant_bubbles', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return {
+          agent: 'test-agent',
+          nudges: [
+            {
+              message: 'hello there',
+              timestamp: '2026-04-09T04:00:00+00:00',
+              source: 'ui',
+              stdin_delivered: false,
+              delivery: 'file_only',
+              delivery_message: 'Saved.',
+            },
+          ],
+          session_nudges: [],
+          replies: [
+            {
+              message: 'hi back',
+              timestamp: '2026-04-09T04:01:00+00:00',
+              source: 'agent',
+              in_reply_to: null,
+            },
+          ],
+          session_replies: [],
+        }
+      }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    // Expand the card so the nudges poll fetches the mocked history.
+    fireEvent.click(screen.getByTitle('Expand session'))
+
+    // The user message renders in a right aligned blue bubble.
+    await waitFor(() => {
+      const userBubbles = screen.getAllByTestId('agent-chat-user-bubble')
+      expect(userBubbles.some((b) => (b.textContent || '').includes('hello there'))).toBe(true)
+    })
+
+    // The agent reply renders in a left aligned bordered bubble.
+    const assistantBubbles = screen.getAllByTestId('agent-chat-assistant-bubble')
+    expect(assistantBubbles.some((b) => (b.textContent || '').includes('hi back'))).toBe(true)
+  })
+
+  it('test_agent_thread_renders_assistant_markdown', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return {
+          agent: 'test-agent',
+          nudges: [],
+          session_nudges: [],
+          replies: [
+            {
+              message: 'Here is **bold** text and `inline code`.',
+              timestamp: '2026-04-09T04:00:00+00:00',
+              source: 'agent',
+              in_reply_to: null,
+            },
+          ],
+          session_replies: [],
+        }
+      }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    // Expand the card so the nudges poll fetches the mocked reply.
+    fireEvent.click(screen.getByTitle('Expand session'))
+
+    // Wait for the assistant bubble to render, then assert it produced a
+    // <strong> for the **bold** span and a <code> for the backtick span.
+    // Both prove the shared markdown renderer is in play.
+    await waitFor(() => {
+      const bubbles = screen.getAllByTestId('agent-chat-assistant-bubble')
+      expect(bubbles.length).toBeGreaterThan(0)
+      const bubble = bubbles[0]
+      expect(bubble.querySelector('strong')?.textContent).toBe('bold')
+      expect(bubble.querySelector('code')?.textContent).toBe('inline code')
+    })
+  })
+
+  it('test_agent_thread_send_calls_onSend_and_clears_input', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return { agent: 'test-agent', nudges: [], session_nudges: [], replies: [], session_replies: [] }
+      }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({
+      result: "Nudge sent to 'test-agent'",
+      nudge: {
+        message: 'clear me please',
+        timestamp: '2026-04-09T04:00:00+00:00',
+        source: 'ui',
+        stdin_delivered: false,
+        delivery: 'file_only',
+        delivery_message: 'Saved.',
+      },
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('Message test-agent...') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'clear me please' } })
+    expect(input.value).toBe('clear me please')
+
+    fireEvent.click(screen.getByTestId('agent-chat-send-test-agent'))
+
+    // onSend went through to the nudge endpoint with the typed message.
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/agents/test-agent/nudge', {
+        message: 'clear me please',
+      })
+    })
+
+    // The textarea cleared.
+    await waitFor(() => {
+      expect(input.value).toBe('')
+    })
+  })
+
+  it('test_agent_thread_shows_inline_error_on_send_failure', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return { agent: 'test-agent', nudges: [], session_nudges: [], replies: [], session_replies: [] }
+      }
+      return {}
+    })
+    mockedApiPost.mockRejectedValue(new Error('boom'))
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    const input = screen.getByPlaceholderText('Message test-agent...')
+    fireEvent.change(input, { target: { value: 'will fail' } })
+    fireEvent.click(screen.getByTestId('agent-chat-send-test-agent'))
+
+    // The red inline error must surface. Silent failure is banned by
+    // feedback_chat_response_silent.md.
+    await waitFor(() => {
+      const err = screen.getByTestId('nudge-error')
+      expect(err).toBeInTheDocument()
+      expect(err.className).toMatch(/text-red/)
+      expect((err.textContent || '').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('test_agent_thread_shows_no_mailbox_warning_when_agent_is_fresh', async () => {
+    // Fresh agent: registered seconds ago, no nudges sent. The warning
+    // must NOT be visible.
+    const freshAgent = {
+      daemon_running: true,
+      status: 'ok',
+      active: ['fresh-agent'],
+      agents: [
+        {
+          name: 'fresh-agent',
+          status: 'running',
+          source: 'daemon',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date(Date.now() - 5000).toISOString(),
+          transcript_bytes: 0,
+          transcript_lines: 0,
+        },
+      ],
+    }
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return freshAgent
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return { agent: 'fresh-agent', nudges: [], session_nudges: [], replies: [], session_replies: [] }
+      }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('fresh-agent')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('agent-chat-mailbox-warning')).not.toBeInTheDocument()
+  })
+
+  it('test_agent_thread_shows_mailbox_warning_when_agent_will_never_reply', async () => {
+    // Old agent registered 30 minutes ago with 3 unanswered nudges and
+    // zero replies. The honest warning must be visible so the user
+    // knows to cancel and spawn a fresh one.
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    const oldAgent = {
+      daemon_running: true,
+      status: 'ok',
+      active: ['old-agent'],
+      agents: [
+        {
+          name: 'old-agent',
+          status: 'running',
+          source: 'daemon',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: thirtyMinAgo,
+          transcript_bytes: 100,
+          transcript_lines: 5,
+        },
+      ],
+    }
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return oldAgent
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return {
+          agent: 'old-agent',
+          nudges: [
+            {
+              message: 'first',
+              timestamp: '2026-04-09T03:00:00+00:00',
+              source: 'ui',
+              stdin_delivered: false,
+            },
+            {
+              message: 'second',
+              timestamp: '2026-04-09T03:05:00+00:00',
+              source: 'ui',
+              stdin_delivered: false,
+            },
+            {
+              message: 'third',
+              timestamp: '2026-04-09T03:10:00+00:00',
+              source: 'ui',
+              stdin_delivered: false,
+            },
+          ],
+          session_nudges: [],
+          replies: [],
+          session_replies: [],
+        }
+      }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('old-agent')).toBeInTheDocument()
+    })
+
+    // Expand the card so the nudges poll fires and the warning has
+    // data to work with. In real usage the card would already have
+    // been polled if the user had sent messages, but the test can
+    // trigger it deterministically this way.
+    const expandButton = screen.getByTitle('Expand session')
+    fireEvent.click(expandButton)
+
+    await waitFor(() => {
+      const warning = screen.getByTestId('agent-chat-mailbox-warning')
+      expect(warning).toBeInTheDocument()
+      expect((warning.textContent || '').toLowerCase()).toMatch(/mailbox/)
+    })
+  })
+
+  it('test_agent_thread_shows_thinking_dots_when_last_entry_is_user_nudge', async () => {
+    // Regression for the "i thought i was being ignored" bug. When the
+    // user has sent a message and the agent has not replied yet, the
+    // thread MUST show a visible thinking indicator so the user knows
+    // the agent is still processing. Without it the panel looks dead
+    // and the user assumes the agent ignored them.
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return {
+          agent: 'test-agent',
+          nudges: [
+            {
+              message: 'hi!',
+              timestamp: '2026-04-09T04:00:00+00:00',
+              source: 'ui',
+              stdin_delivered: false,
+              delivery: 'file_only',
+              delivery_message: 'Saved.',
+            },
+          ],
+          session_nudges: [],
+          replies: [],
+          session_replies: [],
+        }
+      }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTitle('Expand session'))
+
+    await waitFor(() => {
+      const dots = screen.getByTestId('agent-chat-thinking')
+      expect(dots).toBeInTheDocument()
+      // Three animate-bounce dots inside the indicator.
+      expect(dots.querySelectorAll('.animate-bounce').length).toBe(3)
+    })
+  })
+
+  it('test_agent_thread_hides_thinking_dots_after_reply_arrives', async () => {
+    // The thinking indicator must disappear once a reply newer than
+    // the latest nudge lands. If it stays visible after a reply, the
+    // user gets a permanent fake "thinking" state.
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return {
+          agent: 'test-agent',
+          nudges: [
+            {
+              message: 'hi!',
+              timestamp: '2026-04-09T04:00:00+00:00',
+              source: 'ui',
+              stdin_delivered: false,
+              delivery: 'file_only',
+              delivery_message: 'Saved.',
+            },
+          ],
+          session_nudges: [],
+          replies: [
+            {
+              message: 'hello back',
+              timestamp: '2026-04-09T04:01:00+00:00',
+              source: 'agent',
+              in_reply_to: null,
+            },
+          ],
+          session_replies: [],
+        }
+      }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('test-agent')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTitle('Expand session'))
+
+    // Wait for the assistant bubble to render. Once the reply is the
+    // last entry, the thinking indicator must NOT be present.
+    await waitFor(() => {
+      const bubbles = screen.getAllByTestId('agent-chat-assistant-bubble')
+      expect(bubbles.length).toBeGreaterThan(0)
+    })
+    expect(screen.queryByTestId('agent-chat-thinking')).not.toBeInTheDocument()
+  })
+
+  it('test_agent_thread_hides_thinking_dots_when_mailbox_warning_visible', async () => {
+    // Defensive: when the honest "this agent will not reply" warning is
+    // showing, the thinking dots must be suppressed. Otherwise the UI
+    // would lie by saying both "the agent is thinking" and "the agent
+    // will never reply" at the same time.
+    const oldAgent = {
+      daemon_running: true,
+      status: 'ok',
+      active: ['old-agent'],
+      agents: [
+        {
+          name: 'old-agent',
+          status: 'running',
+          source: 'daemon',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+          transcript_bytes: 0,
+          transcript_lines: 0,
+        },
+      ],
+    }
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return oldAgent
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/nudges')) {
+        return {
+          agent: 'old-agent',
+          nudges: [
+            { message: 'one', timestamp: '2026-04-09T04:00:00+00:00', source: 'ui', stdin_delivered: false },
+            { message: 'two', timestamp: '2026-04-09T04:01:00+00:00', source: 'ui', stdin_delivered: false },
+            { message: 'three', timestamp: '2026-04-09T04:02:00+00:00', source: 'ui', stdin_delivered: false },
+          ],
+          session_nudges: [],
+          replies: [],
+          session_replies: [],
+        }
+      }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('old-agent')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTitle('Expand session'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-chat-mailbox-warning')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('agent-chat-thinking')).not.toBeInTheDocument()
   })
 })

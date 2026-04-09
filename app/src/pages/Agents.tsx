@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
-import { api } from "../lib/api";
+import { AgentChatThread } from "../components/AgentChatThread";
+import { api, ApiError, ApiTimeoutError } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 
@@ -410,6 +411,18 @@ interface NudgeRecord {
   timestamp: string;
   source: string;
   stdin_delivered: boolean;
+  // Delivery status field added for needle 235. Older records written
+  // before the fix will not have these, so the UI treats them as
+  // optional and falls back to a neutral status line.
+  delivery?: "stdin" | "file_only" | "unavailable";
+  delivery_message?: string;
+}
+
+interface NudgeReplyRecord {
+  message: string;
+  timestamp: string;
+  source: string;
+  in_reply_to?: string | null;
 }
 
 interface NudgeResponse {
@@ -421,6 +434,10 @@ interface NudgesListResponse {
   agent: string;
   nudges: NudgeRecord[];
   session_nudges: NudgeRecord[];
+  // Replies were added by needle 235. Older backends may not return
+  // them, so the UI treats them as optional and defaults to [].
+  replies?: NudgeReplyRecord[];
+  session_replies?: NudgeReplyRecord[];
 }
 
 interface DelegationTarget {
@@ -652,6 +669,11 @@ function PMTemplateEditorForm({
 export default function Agents() {
   const [activeTab, setActiveTab] = useState("Active");
   const [allAgents, setAllAgents] = useState<AgentInfo[]>([]);
+  // Tracks whether the first /agents fetch has resolved. We use this to show
+  // a loading state on first paint instead of flashing the empty state.
+  // Subsequent polling refreshes do not reset this flag, so the spinner never
+  // reappears during background updates.
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [, setActiveAgents] = useState<string[]>([]);
   const [, setConnectionStatus] = useState("Connecting...");
   const [daemonRunning, setDaemonRunning] = useState(false);
@@ -715,9 +737,13 @@ export default function Agents() {
   // Nudge state: per-agent input text and message history
   const [nudgeInputs, setNudgeInputs] = useState<Record<string, string>>({});
   const [nudgeHistory, setNudgeHistory] = useState<Record<string, NudgeRecord[]>>({});
+  const [nudgeReplies, setNudgeReplies] = useState<Record<string, NudgeReplyRecord[]>>({});
   const [nudgeSending, setNudgeSending] = useState<Record<string, boolean>>({});
+  // Per-agent inline error message for the nudge Send flow. Empty
+  // string means no error. Shown under the input so a failed send is
+  // never silent (feedback_chat_response_silent.md).
+  const [nudgeErrors, setNudgeErrors] = useState<Record<string, string>>({});
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
-  const nudgeEndRef = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Fetch nudge history and memory when expanding an agent
   useEffect(() => {
@@ -729,6 +755,27 @@ export default function Agents() {
       return () => clearInterval(interval);
     }
   }, [expandedAgent]);
+
+  // Regression for needle 235: Tori sent an inline nudge to a running
+  // agent and saw no reply because polling only fired while the card
+  // was expanded. We now poll nudges for every active agent the user
+  // has messaged in this session, whether or not its card is expanded,
+  // so agent replies surface in the same place the user sent them.
+  const agentsWithMessages = Object.keys(nudgeHistory);
+  const agentsWithMessagesKey = agentsWithMessages.sort().join("|");
+  useEffect(() => {
+    if (agentsWithMessages.length === 0) return;
+    const tick = () => {
+      for (const name of agentsWithMessages) {
+        fetchNudges(name);
+      }
+    };
+    const interval = setInterval(tick, 3000);
+    return () => clearInterval(interval);
+    // Using the joined key string so the effect only re-subscribes
+    // when the set of agents actually changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentsWithMessagesKey]);
 
   // Template editor modal state
   const [editorOpen, setEditorOpen] = useState(false);
@@ -811,6 +858,11 @@ export default function Agents() {
       setLastUpdate(new Date());
     } catch {
       setConnectionStatus("Disconnected");
+    } finally {
+      // Mark the inbox as loaded once the first fetch settles (success or
+      // failure). This flips the Active tab from the loading state to either
+      // the real agent list or the empty state, with no flash in between.
+      setAgentsLoaded(true);
     }
   };
 
@@ -996,39 +1048,123 @@ export default function Agents() {
   const fetchNudges = async (agentName: string) => {
     try {
       const data = await api.get<NudgesListResponse>(`/agents/${agentName}/nudges`);
-      // Merge file-based and session nudges, deduplicate by timestamp
-      const all = [...(data.nudges || []), ...(data.session_nudges || [])];
-      const seen = new Set<string>();
-      const unique = all.filter((n) => {
-        const key = `${n.timestamp}-${n.message}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
+      // Merge file-based and session nudges from the server, then
+      // merge again with any optimistic entries we already have in
+      // local state. A server poll must never erase a message the
+      // user just sent, so local entries always win the dedupe and
+      // stay visible until the server catches up. Needle 235 added
+      // this invariant after the inline status line depended on the
+      // optimistic delivery_message that the poll would otherwise
+      // overwrite before the user had a chance to read it.
+      const serverAll = [...(data.nudges || []), ...(data.session_nudges || [])];
+      setNudgeHistory((prev) => {
+        const existing = prev[agentName] || [];
+        const all = [...serverAll, ...existing];
+        const seen = new Set<string>();
+        const unique = all.filter((n) => {
+          const key = `${n.timestamp}-${n.message}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        unique.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        return { ...prev, [agentName]: unique };
       });
-      unique.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-      setNudgeHistory((prev) => ({ ...prev, [agentName]: unique }));
+
+      // Merge file-based and session replies the same way. Needle 235
+      // added this second channel so agent responses surface inline
+      // without the user having to click View Transcript.
+      const serverReplies = [...(data.replies || []), ...(data.session_replies || [])];
+      setNudgeReplies((prev) => {
+        const existing = prev[agentName] || [];
+        const all = [...serverReplies, ...existing];
+        const seen = new Set<string>();
+        const unique = all.filter((r) => {
+          const key = `${r.timestamp}-${r.message}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        unique.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        return { ...prev, [agentName]: unique };
+      });
     } catch {
       // keep existing
     }
   };
 
-  const handleNudge = async (agentName: string) => {
-    const message = (nudgeInputs[agentName] || "").trim();
+  const handleNudge = async (agentName: string, explicitMessage?: string) => {
+    // AgentChatThread manages its own input state and passes the typed
+    // message directly, so when explicitMessage is provided we use it and
+    // skip reading from nudgeInputs. The older call sites that still rely
+    // on nudgeInputs continue to work unchanged.
+    const rawMessage = explicitMessage ?? nudgeInputs[agentName] ?? "";
+    const message = rawMessage.trim();
     if (!message) return;
 
+    // Clear any previous error line for this agent so the user gets a
+    // fresh slate on every send attempt.
+    setNudgeErrors((prev) => {
+      if (!prev[agentName]) return prev;
+      const next = { ...prev };
+      delete next[agentName];
+      return next;
+    });
     setNudgeSending((prev) => ({ ...prev, [agentName]: true }));
+
+    // Belt and suspenders: even if one of the state updates below
+    // throws (e.g. a setter closed over a stale scope, or an exception
+    // inside a functional updater), the finally block guarantees the
+    // sending flag is cleared. This is the regression guard for needle
+    // 237 where the Send button got stuck on "Sending..." because the
+    // previous implementation relied solely on a silent catch to unwind
+    // and swallowed every clue about why. Do not remove this block.
     try {
       const resp = await api.post<NudgeResponse>(`/agents/${agentName}/nudge`, { message });
-      // Add to local history immediately
+      // Clear the sending flag FIRST, before any other state update
+      // that could theoretically throw. This makes the button
+      // responsive again the instant the server replies, even if the
+      // optimistic history merge below hits a bug.
+      setNudgeSending((prev) => {
+        if (!prev[agentName]) return prev;
+        const next = { ...prev };
+        delete next[agentName];
+        return next;
+      });
+      // Add to local history immediately.
       setNudgeHistory((prev) => ({
         ...prev,
         [agentName]: [...(prev[agentName] || []), resp.nudge],
       }));
       setNudgeInputs((prev) => ({ ...prev, [agentName]: "" }));
-    } catch {
-      // handle error silently
+      // Pull the latest nudges and replies right away so any
+      // reply already on disk surfaces without waiting a poll cycle.
+      // The merge logic in fetchNudges protects the optimistic
+      // record we just added. We do not await it so a slow follow-up
+      // fetch cannot wedge the Send button.
+      void fetchNudges(agentName);
+    } catch (err) {
+      // Never silent. Tori must always see what went wrong. Per
+      // feedback_chat_response_silent.md: chat and chat-adjacent flows
+      // must surface an error, never render blank.
+      const errorMessage =
+        err instanceof ApiTimeoutError
+          ? "The server did not respond in time. Your message was not sent. Please try again."
+          : err instanceof ApiError
+            ? `Could not send message. ${err.message}`
+            : "Could not send message. Check your connection and try again.";
+      setNudgeErrors((prev) => ({ ...prev, [agentName]: errorMessage }));
     } finally {
-      setNudgeSending((prev) => ({ ...prev, [agentName]: false }));
+      // Final clear. If the try block already cleared the flag this
+      // is a no-op for the agent's key. If anything threw before the
+      // early clear, this is the safety net that guarantees the
+      // button returns to "Send".
+      setNudgeSending((prev) => {
+        if (!prev[agentName]) return prev;
+        const next = { ...prev };
+        delete next[agentName];
+        return next;
+      });
     }
   };
 
@@ -1131,11 +1267,22 @@ export default function Agents() {
   const handleKill = async (name: string) => {
     setKillingAgents((prev) => ({ ...prev, [name]: true }));
     try {
-      await api.post(`/agents/${name}/kill`);
+      // Try the new cancel endpoint first. This just marks the record as
+      // cancelled so it falls out of Active Sessions, which is the right
+      // call for externally managed Claude Code agents that myOS cannot
+      // signal directly. If that fails (legacy 404), fall back to kill
+      // which only works for in-process subprocesses.
+      try {
+        await api.post(`/agents/${name}/cancel`, { reason: "user cancelled" });
+      } catch {
+        await api.post(`/agents/${name}/kill`);
+      }
     } catch {
       // Agent may already be gone, that is fine
     } finally {
       setKillingAgents((prev) => ({ ...prev, [name]: false }));
+      // Refresh immediately so the user sees the change without waiting
+      // for the 5-second polling tick.
       await fetchAgents();
     }
   };
@@ -1260,7 +1407,14 @@ export default function Agents() {
             <h2 className="text-lg font-semibold text-white mb-4">
               Active Sessions
             </h2>
-            {allAgents.filter((a) => a.status === "running" || a.status === "spawned").length === 0 ? (
+            {!agentsLoaded ? (
+              <div
+                data-testid="active-agents-loading"
+                className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8"
+              >
+                Loading...
+              </div>
+            ) : allAgents.filter((a) => a.status === "running" || a.status === "spawned").length === 0 ? (
               <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
                 {!daemonRunning
                   ? "No active agents. Click a template below or use the New Agent button to get started."
@@ -1270,11 +1424,16 @@ export default function Agents() {
               <div className="grid grid-cols-1 gap-6 mb-8">
                 {allAgents
                   .filter((a) => a.status === "running" || a.status === "spawned")
+                  // Extra belt: keep terminated_stale and cancelled out of
+                  // Active Sessions even if an upstream join ever puts them
+                  // in with a stale "running" label.
+                  .filter((a) => a.status !== "terminated_stale" && a.status !== "cancelled")
                   .map((agent) => {
                     const isExpanded = expandedAgent === agent.name;
                     const agentNudges = nudgeHistory[agent.name] || [];
-                    const nudgeInput = nudgeInputs[agent.name] || "";
+                    const agentReplies = nudgeReplies[agent.name] || [];
                     const isSending = nudgeSending[agent.name] || false;
+                    const nudgeError = nudgeErrors[agent.name] || "";
                     const pendingGrants = grants.filter(
                       (g) => g.status === "pending" && g.agent === agent.name
                     );
@@ -1356,60 +1515,29 @@ export default function Agents() {
                       </div>
                     )}
 
-                    {/* Session output area with nudge history */}
-                    <div className="bg-slate-950 rounded-lg p-3 font-mono text-xs mt-3 max-h-64 overflow-y-auto">
-                      <div className="text-green-400">Agent is active...</div>
-                      {agentNudges.map((nudge, i) => (
-                        <div key={`${nudge.timestamp}-${i}`} className="mt-2">
-                          <div className="text-blue-400">
-                            <span className="text-slate-500 text-[10px]">
-                              [{new Date(nudge.timestamp).toLocaleTimeString()}]
-                            </span>{" "}
-                            <span className="text-pink-400 font-bold">You:</span>{" "}
-                            {nudge.message}
-                          </div>
-                          {nudge.stdin_delivered && (
-                            <div className="text-slate-600 text-[10px] ml-4">
-                              Delivered to agent stdin
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      <div
-                        ref={(el) => { nudgeEndRef.current[agent.name] = el; }}
-                      />
-                    </div>
-
-                    {/* Nudge input. Always visible for active agents. */}
-                    <p className="text-[10px] text-slate-600 mt-3 mb-1">
-                      Send a message to this agent. Check Transcripts to see its full output.
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="Send a message to this agent..."
-                        value={nudgeInput}
-                        onChange={(e) =>
-                          setNudgeInputs((prev) => ({
-                            ...prev,
-                            [agent.name]: e.target.value,
-                          }))
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !isSending) handleNudge(agent.name);
-                        }}
-                        disabled={isSending}
-                        className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                      />
-                      <button
-                        onClick={() => handleNudge(agent.name)}
-                        disabled={isSending || !nudgeInput.trim()}
-                        className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-3 py-2 transition-colors flex items-center gap-1 text-sm"
-                      >
-                        <Icon name="send" size={16} />
-                        {isSending ? "Sending..." : "Send"}
-                      </button>
-                    </div>
+                    {/* Real chat thread for this agent. Renders nudges as
+                        right aligned user bubbles and replies as left
+                        aligned assistant bubbles with markdown, using the
+                        same look as the main ChatPanel. Replaces the old
+                        custom monospace "You:" text lines. See needle 244. */}
+                    <AgentChatThread
+                      agentName={agent.name}
+                      nudges={agentNudges.map((n) => ({
+                        message: n.message,
+                        timestamp: n.timestamp,
+                        delivery_message:
+                          n.delivery_message ||
+                          (n.stdin_delivered ? "Delivered to agent stdin" : undefined),
+                      }))}
+                      replies={agentReplies.map((r) => ({
+                        message: r.message,
+                        timestamp: r.timestamp,
+                      }))}
+                      onSend={(message) => handleNudge(agent.name, message)}
+                      isSending={isSending}
+                      errorMessage={nudgeError || null}
+                      agentRegisteredAt={agent.spawned_at || agent.timestamp}
+                    />
 
                     {/* Expanded view with additional details and memory */}
                     {isExpanded && (
@@ -1692,7 +1820,14 @@ export default function Agents() {
               <h2 className="text-lg font-semibold text-white mb-4">
                 Completed Agents
               </h2>
-              {recentAgents.length === 0 ? (
+              {!agentsLoaded ? (
+                <div
+                  data-testid="recent-agents-loading"
+                  className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8"
+                >
+                  Loading...
+                </div>
+              ) : recentAgents.length === 0 ? (
                 <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
                   No completed agents yet. Agents you spawn will appear here once they finish.
                 </div>
@@ -2014,7 +2149,16 @@ export default function Agents() {
           );
         })()}
 
-        {activeTab === "Metrics" && (() => {
+        {activeTab === "Metrics" && !agentsLoaded && (
+          <div
+            data-testid="metrics-loading"
+            className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8"
+          >
+            Loading...
+          </div>
+        )}
+
+        {activeTab === "Metrics" && agentsLoaded && (() => {
           const totalSpawned = allAgents.length;
           const completedAgents = allAgents.filter((a) => a.status === "completed");
           const failedAgents = allAgents.filter((a) => a.status === "failed");

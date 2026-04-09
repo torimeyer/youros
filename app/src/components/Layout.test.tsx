@@ -88,6 +88,55 @@ describe('Layout', () => {
     expect(main?.style.marginRight).toBe('')
   })
 
+  describe('chat resize layout reactivity', () => {
+    // These tests lock in the contract: no matter how wide Tori drags the
+    // chat panel, the main content area reacts and the page itself never
+    // needs a horizontal scrollbar.
+    it('main content shrinks when chat grows so sidebar, main, chat all fit the viewport', () => {
+      // Set a wide chat width that still leaves room for the sidebar plus
+      // some main content. 224 (sidebar) + 256 (main floor) + 800 (chat)
+      // = 1280, which matches jsdom's default 1024 after clamping. We use
+      // the current window.innerWidth from jsdom.
+      const viewport = window.innerWidth
+      const chatWidth = Math.max(300, viewport - 320 - 100)
+      useAppStore.setState({ chatOpen: true, chatWidth })
+      renderLayout()
+      const main = document.querySelector('main') as HTMLElement
+      // ml-56 = 14rem = 224px sidebar reservation on the left.
+      // marginRight = chatWidth reservation on the right.
+      // Left + right reservations must never exceed the viewport.
+      const sidebarWidth = 224
+      expect(sidebarWidth + chatWidth).toBeLessThanOrEqual(viewport)
+      expect(main.style.marginRight).toBe(`${chatWidth}px`)
+      expect(main.className).toContain('ml-56')
+    })
+
+    it('main content has min-w-0 and overflow-x-hidden so narrow grids do not overflow the page', () => {
+      useAppStore.setState({ chatOpen: true, chatWidth: 500 })
+      renderLayout()
+      const main = document.querySelector('main') as HTMLElement
+      expect(main.className).toContain('min-w-0')
+      expect(main.className).toContain('overflow-x-hidden')
+    })
+
+    it('renders without horizontal page scrollbar at multiple chat widths', () => {
+      for (const chatWidth of [380, 600, 800]) {
+        useAppStore.setState({ chatOpen: true, chatWidth })
+        const { unmount } = renderLayout()
+        // In jsdom the body width equals the viewport width. The "never
+        // scroll horizontally" contract is enforced at the CSS level by
+        // html, body { overflow-x: hidden } and by min-w-0 on main. Here
+        // we at least assert the main element sets the correct margin
+        // and the chat width reservation never exceeds the viewport.
+        const main = document.querySelector('main') as HTMLElement
+        expect(main.style.marginRight).toBe(`${chatWidth}px`)
+        const sidebarReserve = 224
+        expect(sidebarReserve + chatWidth).toBeLessThanOrEqual(window.innerWidth)
+        unmount()
+      }
+    })
+  })
+
   it('renders data-theme="dark" when darkMode is true', () => {
     renderLayout()
     const wrapper = document.querySelector('[data-theme]')

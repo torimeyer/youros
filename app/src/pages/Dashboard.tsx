@@ -158,8 +158,8 @@ export default function Dashboard() {
     }
   };
 
-  const openCount = data?.counts.open ?? 0;
-  const closedCount = data?.counts.closed ?? 0;
+  const openCount = data?.counts?.open ?? 0;
+  const closedCount = data?.counts?.closed ?? 0;
 
   const quickLaunchActions: Record<string, () => void> = {
     'New Task': () => setQuickAddTaskOpen(true),
@@ -207,14 +207,14 @@ export default function Dashboard() {
     greetingSubtitle = 'Wrapping up for today?';
   }
 
-  // Render the Morning Briefing banner (or its skeleton while loading).
+  // Render the Briefing banner (or its skeleton while loading).
   // Returns null when the briefing is dismissed or unavailable.
-  const renderMorningBriefing = () => {
+  const renderBriefing = () => {
     if (briefingLoading) {
       return (
         <div
-          key="morning_briefing"
-          data-testid="widget-morning-briefing"
+          key="briefing"
+          data-testid="widget-briefing"
           className="mb-6 bg-slate-900/40 border border-slate-800 rounded-xl p-5 animate-pulse"
         >
           <div className="h-3 bg-slate-700 rounded w-1/4 mb-3" />
@@ -226,8 +226,8 @@ export default function Dashboard() {
     if (briefing?.show && briefing.briefing) {
       return (
         <div
-          key="morning_briefing"
-          data-testid="widget-morning-briefing"
+          key="briefing"
+          data-testid="widget-briefing"
           className="mb-6 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/30 rounded-xl p-5"
         >
           <div className="flex items-start justify-between gap-4">
@@ -251,11 +251,56 @@ export default function Dashboard() {
         </div>
       );
     }
-    return null;
+    // Empty state. Without this branch, toggling the Briefing card on
+    // in the customize modal does nothing visible whenever there is no
+    // briefing yet, which is the exact bug Tori reported on April 8.
+    // The card must always render when its toggle is on, even if there
+    // is nothing to put in it. Same pattern as renderFocusFirst,
+    // renderNextMeeting, renderDaySummary.
+    return (
+      <div
+        key="briefing"
+        data-testid="widget-briefing"
+        className="mb-6 bg-slate-900/40 border border-slate-800 rounded-xl p-5"
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center shrink-0 mt-0.5">
+            <Icon name="wb_sunny" className="text-slate-500" size={18} />
+          </div>
+          <div className="flex-1">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">{greetingLabel}</p>
+            <p className="text-sm text-slate-400 leading-relaxed">
+              No briefing yet. One will appear here the next time myOS generates one for you.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const renderFocusFirst = () => {
-    if (!compounds?.top) return null;
+    if (!compounds?.top) {
+      return (
+        <div
+          key="focus_first"
+          data-testid="widget-focus-first"
+          className="mb-6 bg-slate-900/40 border border-slate-800 p-6 rounded-xl"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-full bg-pink-500/20 flex items-center justify-center">
+              <Icon name="priority_high" className="text-pink-400" size={22} />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-pink-400 uppercase tracking-wide">Focus on this first</p>
+              <h3 className="text-lg font-semibold text-white">Nothing blocking others right now</h3>
+            </div>
+          </div>
+          <p className="text-sm text-slate-400 ml-[52px]">
+            When a task blocks several others, it will show up here so you know to finish it first.
+          </p>
+        </div>
+      );
+    }
     return (
       <div
         key="focus_first"
@@ -347,7 +392,27 @@ export default function Dashboard() {
   );
 
   const renderNextMeeting = () => {
-    if (!nextMeeting) return null;
+    if (!nextMeeting) {
+      return (
+        <div
+          key="next_meeting"
+          data-testid="widget-next-meeting"
+          className={`${cardClass} lg:col-span-2`}
+          onClick={() => navigate('/calendar')}
+          style={{ cursor: 'pointer' }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
+              <Icon name="calendar_month" className="text-blue-400" size={20} />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-0.5">Next meeting</p>
+              <p className="text-sm text-slate-400">No upcoming meetings on your calendar.</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div
         key="next_meeting"
@@ -404,9 +469,9 @@ export default function Dashboard() {
   };
 
   const renderDaySummary = () => {
-    // Day Summary hides automatically when the briefing is showing to
-    // avoid duplicate daily summary content.
-    if (briefing?.show) return null;
+    // When a widget is in the user's dashboard list it should always
+    // render. The briefing banner and Day Summary are now independent
+    // cards the user controls via Customize.
     return (
       <div key="day_summary" data-testid="widget-day-summary" className={cardClass}>
         <div className="flex items-center justify-between mb-4">
@@ -445,10 +510,10 @@ export default function Dashboard() {
 
   // Map of widget id to render function. Only widgets present in
   // dashboardWidgets render, and they render in that order. Widgets above
-  // the grid (morning briefing and focus first) are full width banners,
+  // the grid (briefing and focus first) are full width banners,
   // the rest go inside the two column grid.
   const widgetRenderers: Record<string, () => ReactNode> = {
-    morning_briefing: renderMorningBriefing,
+    briefing: renderBriefing,
     focus_first: renderFocusFirst,
     todays_focus: renderTodaysFocus,
     quick_launch: renderQuickLaunch,
@@ -456,7 +521,7 @@ export default function Dashboard() {
     day_summary: renderDaySummary,
   };
 
-  const bannerIds = new Set(['morning_briefing', 'focus_first']);
+  const bannerIds = new Set(['briefing', 'focus_first']);
   const visibleBanners = dashboardWidgets.filter((id) => bannerIds.has(id));
   const visibleGridCards = dashboardWidgets.filter(
     (id) => !bannerIds.has(id) && widgetRenderers[id],

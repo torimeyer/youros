@@ -40,7 +40,7 @@ myOS now covers roughly 70% of ostk's surface area, including: work management (
 1. **Chat history persistence.** Save conversations across browser refreshes.
 2. **Mobile-friendly layout.** Dashboard and task list usable on phone or tablet.
 3. **Email summaries.** Connect to Gmail and surface unread email summaries.
-4. **Morning briefing.** Auto-generated daily summary when you open myOS. Built on top of calendar, tasks, and activity — most of the pieces are already there.
+4. **Briefing.** Auto-generated daily summary when you open myOS, available at any hour. Built on top of calendar, tasks, and activity. Most of the pieces are already there.
 5. **Integration health dashboard.** One place to see which integrations (Drive, Calendar, Gmail) are connected and working. Surface errors before they become surprises.
 6. **Meeting prep agent.** Before a calendar event, automatically gather relevant tasks, Drive docs, and recent chat context into a briefing.
 
