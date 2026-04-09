@@ -164,7 +164,7 @@ upgrade_ostk() {
             if [ "$n1" -gt "$n2" ]; then echo "gt"; return; fi
         done
         echo "eq"
-    fi
+    }
 
     RESULT=$(compare_versions "$CURRENT_VERSION" "$LATEST_VERSION")
     if [ "$RESULT" != "lt" ]; then
