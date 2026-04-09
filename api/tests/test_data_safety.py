@@ -86,6 +86,31 @@ def test_every_services_store_module_is_covered():
     )
 
 
+def test_task_suggestions_dismissed_path_is_outside_repo():
+    """The smart-suggestions service writes a small "dismissed" file.
+
+    It is not a *_store.py module so the parametrized test above does not
+    cover it, but the data-safety guarantee still has to hold: a git pull
+    must never wipe the user's dismissed list.
+    """
+    from services import task_suggestions
+
+    path = task_suggestions.DISMISSED_PATH
+    assert isinstance(path, Path)
+    assert not _is_inside_repo(path), (
+        f"task_suggestions.DISMISSED_PATH = {path} lives inside the repo. "
+        "Move it under ~/.myos/ so user data is safe from git pull."
+    )
+    home = Path.home().resolve()
+    expected_prefix = home / ".myos"
+    try:
+        path.resolve().relative_to(expected_prefix)
+    except ValueError:
+        pytest.fail(
+            f"task_suggestions.DISMISSED_PATH = {path} is not under {expected_prefix}."
+        )
+
+
 def test_myos_home_dir_is_the_canonical_location():
     """Every tracked store should use ~/.myos/ as the home-directory prefix.
 
