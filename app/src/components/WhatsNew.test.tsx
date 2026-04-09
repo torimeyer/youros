@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, fireEvent } from '@testing-library/react'
+import { render, fireEvent, act } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import WhatsNew, { getUnseenCount } from './WhatsNew'
 import releaseNotes from '../data/releaseNotes'
 import { useAppStore } from '../stores/app'
@@ -17,6 +18,17 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+// Mock react-router-dom's useNavigate so we can assert the button
+// navigates to the /releases page.
+const navigateMock = vi.fn()
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  }
+})
+
 // Stub localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {}
@@ -30,6 +42,14 @@ const localStorageMock = (() => {
 
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
+function renderWhatsNew() {
+  return render(
+    <MemoryRouter>
+      <WhatsNew />
+    </MemoryRouter>
+  )
+}
+
 describe('WhatsNew', () => {
   beforeEach(() => {
     localStorageMock.clear()
@@ -40,78 +60,45 @@ describe('WhatsNew', () => {
   })
 
   it('renders the sparkle button', () => {
-    const { getByTestId } = render(<WhatsNew />)
+    const { getByTestId } = renderWhatsNew()
     expect(getByTestId('whats-new-button')).toBeTruthy()
   })
 
   it('shows a badge when there are unseen updates', () => {
     // No last-seen date set, so all groups are unseen
-    const { getByTestId } = render(<WhatsNew />)
+    const { getByTestId } = renderWhatsNew()
     expect(getByTestId('whats-new-badge')).toBeTruthy()
   })
 
-  it('hides the badge after the user opens the modal', () => {
-    const { getByTestId, queryByTestId } = render(<WhatsNew />)
-    expect(getByTestId('whats-new-badge')).toBeTruthy()
+  it('navigates to /releases when the button is clicked', () => {
+    const { getByTestId } = renderWhatsNew()
     fireEvent.click(getByTestId('whats-new-button'))
+    expect(navigateMock).toHaveBeenCalledWith('/releases')
+  })
+
+  it('does not render a drawer or modal anymore', () => {
+    const { queryByTestId } = renderWhatsNew()
+    expect(queryByTestId('whats-new-modal')).toBeNull()
+    expect(queryByTestId('whats-new-portal')).toBeNull()
+  })
+
+  it('hides the badge after the store marks the latest release as seen', () => {
+    const { getByTestId, queryByTestId } = renderWhatsNew()
+    expect(getByTestId('whats-new-badge')).toBeTruthy()
+    // Simulate the Releases page mounting and updating the store. Wrap
+    // in act because this triggers a React state update via the store
+    // subscription inside the component.
+    act(() => {
+      useAppStore.setState({ whatsNewLastSeen: releaseNotes[0].date })
+    })
     expect(queryByTestId('whats-new-badge')).toBeNull()
-  })
-
-  it('opens the modal when the button is clicked', () => {
-    const { getByTestId, queryByTestId } = render(<WhatsNew />)
-    expect(queryByTestId('whats-new-modal')).toBeNull()
-    fireEvent.click(getByTestId('whats-new-button'))
-    expect(getByTestId('whats-new-modal')).toBeTruthy()
-  })
-
-  it('closes the modal when the close button is clicked', () => {
-    const { getByTestId, queryByTestId } = render(<WhatsNew />)
-    fireEvent.click(getByTestId('whats-new-button'))
-    expect(getByTestId('whats-new-modal')).toBeTruthy()
-    fireEvent.click(getByTestId('whats-new-close'))
-    expect(queryByTestId('whats-new-modal')).toBeNull()
-  })
-
-  it('displays release notes grouped by date', () => {
-    const { getByTestId, getByText } = render(<WhatsNew />)
-    fireEvent.click(getByTestId('whats-new-button'))
-    for (const group of releaseNotes) {
-      expect(getByText(group.label)).toBeTruthy()
-    }
-  })
-
-  it('displays entry titles and descriptions', () => {
-    const { getByTestId, getByText } = render(<WhatsNew />)
-    fireEvent.click(getByTestId('whats-new-button'))
-    const first = releaseNotes[0].entries[0]
-    expect(getByText(first.title)).toBeTruthy()
-    expect(getByText(first.description)).toBeTruthy()
-  })
-
-  it('stores last-seen date in localStorage when opened', () => {
-    const { getByTestId } = render(<WhatsNew />)
-    fireEvent.click(getByTestId('whats-new-button'))
-    expect(localStorageMock.setItem).toHaveBeenCalledWith(
-      'myos-whats-new-last-seen',
-      releaseNotes[0].date,
-    )
   })
 
   it('does not show a badge when the user has already seen all updates', () => {
     // Server backed: prime the store value so the component reads it.
     useAppStore.setState({ whatsNewLastSeen: releaseNotes[0].date })
-    const { queryByTestId } = render(<WhatsNew />)
+    const { queryByTestId } = renderWhatsNew()
     expect(queryByTestId('whats-new-badge')).toBeNull()
-  })
-
-  it('closes the modal when clicking the backdrop', () => {
-    const { getByTestId, queryByTestId } = render(<WhatsNew />)
-    fireEvent.click(getByTestId('whats-new-button'))
-    expect(getByTestId('whats-new-modal')).toBeTruthy()
-    // Click the backdrop (the fixed overlay behind the modal)
-    const backdrop = getByTestId('whats-new-modal').previousElementSibling
-    fireEvent.click(backdrop!)
-    expect(queryByTestId('whats-new-modal')).toBeNull()
   })
 })
 

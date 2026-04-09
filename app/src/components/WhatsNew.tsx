@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
 import releaseNotes from '../data/releaseNotes'
 import { useAppStore } from '../stores/app'
@@ -30,95 +30,37 @@ export function getUnseenCount(): number {
 
 export default function WhatsNew() {
   const whatsNewLastSeen = useAppStore((s) => s.whatsNewLastSeen)
-  const setWhatsNewLastSeen = useAppStore((s) => s.setWhatsNewLastSeen)
-  const [open, setOpen] = useState(false)
+  const navigate = useNavigate()
   const [unseenCount, setUnseenCount] = useState(() => computeUnseenCount(whatsNewLastSeen))
 
   // Recompute the badge whenever the persisted last-seen date changes.
+  // The Releases page is what actually marks everything as seen, so this
+  // effect just reflects that change back into the badge.
   useEffect(() => {
     setUnseenCount(computeUnseenCount(whatsNewLastSeen))
   }, [whatsNewLastSeen])
 
-  const handleOpen = useCallback(() => {
-    setOpen(true)
-    if (releaseNotes.length > 0) {
-      setWhatsNewLastSeen(releaseNotes[0].date)
-      setUnseenCount(0)
-    }
-  }, [setWhatsNewLastSeen])
+  const handleClick = useCallback(() => {
+    navigate('/releases')
+  }, [navigate])
 
   return (
-    <>
-      <button
-        onClick={handleOpen}
-        className="group relative flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-slate-800/50"
-        title="What's New"
-        data-testid="whats-new-button"
-      >
-        <Icon name="auto_awesome" className="text-xl" />
-        <span className="text-sm font-medium">What&apos;s New</span>
-        {unseenCount > 0 && (
-          <span
-            className="ml-auto min-w-[16px] h-4 bg-yellow-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1"
-            data-testid="whats-new-badge"
-          >
-            {unseenCount > 9 ? '9+' : unseenCount}
-          </span>
-        )}
-      </button>
-
-      {open && typeof document !== 'undefined' && createPortal(
-        // Render the drawer into document.body via a portal so it escapes
-        // the TopBar header's z-40 stacking context. Without the portal,
-        // the drawer's z-50 only competes with siblings inside the header,
-        // and the chat panel (a root-level z-50 element) ends up painted
-        // on top, hiding the drawer entirely on its default open state.
-        <div data-testid="whats-new-portal">
-          <div className="fixed inset-0 z-[60] bg-black/50" onClick={() => setOpen(false)} />
-          <div
-            className="fixed top-0 right-0 h-full w-80 bg-slate-900 border-l border-slate-800 shadow-2xl z-[70] overflow-hidden flex flex-col"
-            data-testid="whats-new-modal"
-          >
-            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <Icon name="auto_awesome" className="text-yellow-400" size={20} />
-                <span className="text-lg font-semibold text-white">What's New</span>
-              </div>
-              <button
-                onClick={() => setOpen(false)}
-                className="text-slate-500 hover:text-white transition-colors"
-                data-testid="whats-new-close"
-              >
-                <Icon name="close" size={20} />
-              </button>
-            </div>
-
-            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-6">
-              {releaseNotes.map((group) => (
-                <div key={group.date}>
-                  <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
-                    {group.label}
-                  </h3>
-                  <div className="space-y-3">
-                    {group.entries.map((entry) => (
-                      <div
-                        key={entry.title}
-                        className="bg-slate-800/50 rounded-lg px-4 py-3"
-                      >
-                        <p className="text-sm font-medium text-white">{entry.title}</p>
-                        <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                          {entry.description}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>,
-        document.body,
+    <button
+      onClick={handleClick}
+      className="group relative flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-slate-800/50"
+      title="What's New"
+      data-testid="whats-new-button"
+    >
+      <Icon name="auto_awesome" className="text-xl" />
+      <span className="text-sm font-medium">What&apos;s New</span>
+      {unseenCount > 0 && (
+        <span
+          className="ml-auto min-w-[16px] h-4 bg-yellow-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1"
+          data-testid="whats-new-badge"
+        >
+          {unseenCount > 9 ? '9+' : unseenCount}
+        </span>
       )}
-    </>
+    </button>
   )
 }

@@ -17,6 +17,7 @@ import Drive from './pages/Drive'
 import Calendar from './pages/Calendar'
 import Gmail from './pages/Gmail'
 import Upgrade from './pages/Upgrade'
+import Releases from './pages/Releases'
 import Workflows from './pages/Workflows'
 import WorkflowBuilder from './pages/WorkflowBuilder'
 import { useAppStore } from './stores/app'
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="calendar" element={<Calendar />} />
           <Route path="gmail" element={<Gmail />} />
           <Route path="costs" element={<CostTracking />} />
+          <Route path="releases" element={<Releases />} />
           <Route path="workflows" element={<Workflows />} />
           <Route path="workflows/builder" element={<WorkflowBuilder />} />
           <Route path="workflows/builder/:id" element={<WorkflowBuilder />} />
