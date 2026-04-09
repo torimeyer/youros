@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, meeting_prep, workspace, briefing, workflows, shares
+from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, meeting_prep, workspace, briefing, workflows, shares, export
 
 app = FastAPI(title="myOS API")
 
@@ -52,6 +52,7 @@ app.include_router(workspace.router, prefix="/api")
 app.include_router(briefing.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
 app.include_router(shares.router, prefix="/api")
+app.include_router(export.router, prefix="/api")
 
 
 @app.on_event("startup")

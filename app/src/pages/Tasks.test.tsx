@@ -84,6 +84,16 @@ describe('Tasks page', () => {
     expect(screen.getByText('Loading tasks...')).toBeInTheDocument()
   })
 
+  it('renders the export button in the toolbar', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    expect(screen.getByTestId('export-button')).toBeInTheDocument()
+  })
+
   it('filter buttons show correct counts', async () => {
     renderTasks()
 

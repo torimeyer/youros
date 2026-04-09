@@ -99,6 +99,20 @@ describe('Timeline page', () => {
     })
   })
 
+  it('renders the export button in the toolbar', async () => {
+    mockedApiGet.mockResolvedValue({
+      tasks: [
+        { id: '1', title: 'Task A', priority: 'P0', status: 'open', created_at: '2026-04-10T00:00:00Z', tags: ['chat'], goal: 'Chat' },
+      ],
+    })
+
+    renderTimeline()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('export-button')).toBeInTheDocument()
+    })
+  })
+
   it('uses human-friendly goal names from the API', async () => {
     mockedApiGet.mockResolvedValue({
       tasks: [

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Icon from "../components/Icon";
 import TopBar from "../components/TopBar";
+import ExportButton from "../components/ExportButton";
 import { api } from "../lib/api";
 
 interface Task {
@@ -139,6 +140,11 @@ export default function Timeline() {
                 </button>
               ))}
             </div>
+            <ExportButton
+              contentLabel="timeline"
+              formats={["markdown"]}
+              buildUrl={(format) => `/api/export/timeline?format=${format}&days=30`}
+            />
           </div>
         </div>
 

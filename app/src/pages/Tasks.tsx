@@ -24,6 +24,7 @@ import HealthCheckView from "../components/HealthCheckView";
 import type { Label } from "../components/LabelsView";
 import { api } from "../lib/api";
 import SharePopover from "../components/SharePopover";
+import ExportButton from "../components/ExportButton";
 
 interface Task {
   id: string;
@@ -1090,6 +1091,13 @@ export default function Tasks() {
                 />
               )}
             </div>
+            <ExportButton
+              contentLabel="tasks"
+              buildUrl={(format) => {
+                const exportStatus = statusFilter === "closed" ? "closed" : "open";
+                return `/api/export/tasks?format=${format}&status=${exportStatus}`;
+              }}
+            />
           </div>
         </div>
 
