@@ -317,10 +317,20 @@ class OstkService:
             elif section == "blocked_by":
                 if "all blockers resolved" in stripped.lower():
                     result["all_blockers_resolved"] = True
-                elif stripped.startswith("\u2713") or stripped.startswith("\u2192"):
+                    continue
+                # ostk emits a trailing footer like "→ ⚠ unresolved blockers — may not be ready"
+                # when at least one blocker is still open. It is a status note, not an item.
+                if stripped.startswith("\u2192") and "\u26a0" in stripped:
+                    continue
+                # Blocker items start with ✓ (done), ✗ (still open), or → (legacy/unknown).
+                if (
+                    stripped.startswith("\u2713")
+                    or stripped.startswith("\u2717")
+                    or stripped.startswith("\u2192")
+                ):
                     resolved = stripped.startswith("\u2713")
-                    # Remove one leading ✓ or → plus whitespace
-                    text = re.sub(r"^[\u2713\u2192]\s*", "", stripped).strip()
+                    # Remove one leading ✓, ✗, or → plus whitespace
+                    text = re.sub(r"^[\u2713\u2717\u2192]\s*", "", stripped).strip()
                     result["blocked_by"].append({
                         "text": text,
                         "resolved": resolved,

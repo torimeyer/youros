@@ -131,3 +131,68 @@ async def test_generate_explanation_skips_without_api_key(temp_cache: Path):
             blocker_description="",
         )
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_empty_explanation_not_cached(temp_cache: Path):
+    """If Claude returns an empty string (or None), do NOT write that to
+    the cache. Otherwise the empty poisoned entry would live for 7 days."""
+    with patch.object(
+        blocker_explanation,
+        "generate_explanation",
+        new=AsyncMock(return_value=""),
+    ):
+        result = await blocker_explanation.explain_blocker(
+            task_id="t1",
+            task_title="A",
+            task_description="",
+            blocker_id="t2",
+            blocker_title="B",
+            blocker_description="",
+        )
+    assert result in (None, "")
+    # Cache file should not contain an entry for t1::t2.
+    if temp_cache.exists():
+        data = json.loads(temp_cache.read_text())
+        assert "t1::t2" not in data
+
+
+def test_poisoned_empty_cache_entry_is_ignored(temp_cache: Path):
+    """If a prior run wrote an empty explanation, get_cached must return
+    None so the next call tries again."""
+    # Manually write a poisoned entry with a fresh timestamp.
+    temp_cache.parent.mkdir(parents=True, exist_ok=True)
+    temp_cache.write_text(json.dumps({
+        "t1::t2": {
+            "explanation": "",
+            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+    }))
+    assert blocker_explanation.get_cached("t1", "t2") is None
+
+
+@pytest.mark.asyncio
+async def test_second_call_skips_anthropic_when_cached(temp_cache: Path):
+    """Once an explanation is cached, a second explain_blocker call must
+    not re-invoke generate_explanation (that is the whole point of the cache)."""
+    mock_gen = AsyncMock(return_value="Phones first.")
+    with patch.object(blocker_explanation, "generate_explanation", new=mock_gen):
+        first = await blocker_explanation.explain_blocker(
+            task_id="t1",
+            task_title="A",
+            task_description="",
+            blocker_id="t2",
+            blocker_title="B",
+            blocker_description="",
+        )
+        second = await blocker_explanation.explain_blocker(
+            task_id="t1",
+            task_title="A",
+            task_description="",
+            blocker_id="t2",
+            blocker_title="B",
+            blocker_description="",
+        )
+    assert first == "Phones first."
+    assert second == "Phones first."
+    assert mock_gen.call_count == 1

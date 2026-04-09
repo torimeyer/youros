@@ -32,7 +32,7 @@ MYOS_DIR = Path.home() / ".myos"
 CACHE_PATH = MYOS_DIR / "blocker_explanations.json"
 TTL_DAYS = 7
 
-_MODEL = "claude-haiku-4-20250514"
+_MODEL = "claude-haiku-4-5"
 
 
 def _now_iso() -> str:

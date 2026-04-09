@@ -593,6 +593,49 @@ def test_parse_activate_with_blockers():
     assert result["all_blockers_resolved"] is True
 
 
+def test_parse_activate_with_unresolved_blockers():
+    """ostk uses a ballot X (\u2717) for still-open blockers. The parser must
+    recognize that marker or the blocker is silently dropped and the UI
+    shows only the warning footer."""
+    from services.ostk import OstkService
+    svc = OstkService.__new__(OstkService)
+    output = (
+        "\u2550\u2550\u2550 ACTIVATE \u2192163 [P1|open] \u2550\u2550\u2550\n"
+        "  Integration health dashboard\n"
+        "\n"
+        "  BLOCKED BY:\n"
+        "    \u2717 \u2192160 [open] Mobile-friendly layout\n"
+        "    \u2192 \u26a0 unresolved blockers \u2014 may not be ready\n"
+        "\n"
+        "\u2550\u2550\u2550 ready \u2550\u2550\u2550"
+    )
+    result = svc._parse_activate(output)
+    assert result["task_id"] == "\u2192163"
+    # Only the real blocker row should come through, not the warning footer.
+    assert len(result["blocked_by"]) == 1
+    assert result["blocked_by"][0]["resolved"] is False
+    assert "\u2192160" in result["blocked_by"][0]["text"]
+    assert "Mobile-friendly layout" in result["blocked_by"][0]["text"]
+    assert result["all_blockers_resolved"] is False
+
+
+def test_parse_activate_ignores_warning_footer_line():
+    """The \u2192 \u26a0 unresolved blockers footer is a status note, not an item."""
+    from services.ostk import OstkService
+    svc = OstkService.__new__(OstkService)
+    output = (
+        "\u2550\u2550\u2550 ACTIVATE \u2192999 [P1|open] \u2550\u2550\u2550\n"
+        "  some task\n"
+        "\n"
+        "  BLOCKED BY:\n"
+        "    \u2192 \u26a0 unresolved blockers \u2014 may not be ready\n"
+        "\n"
+        "\u2550\u2550\u2550 ready \u2550\u2550\u2550"
+    )
+    result = svc._parse_activate(output)
+    assert result["blocked_by"] == []
+
+
 def test_parse_activate_with_unblocks():
     from services.ostk import OstkService
     svc = OstkService.__new__(OstkService)

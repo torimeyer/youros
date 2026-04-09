@@ -219,7 +219,7 @@ async def _call_claude(prompt: str) -> str:
     import anthropic
     client = anthropic.AsyncAnthropic(api_key=api_key)
     response = await client.messages.create(
-        model="claude-haiku-4-20250514",
+        model="claude-haiku-4-5",
         max_tokens=300,
         messages=messages,
     )
