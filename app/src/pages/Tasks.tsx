@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   DndContext,
   DragOverlay,
@@ -161,6 +162,10 @@ function SortableTaskWrapper({ taskId, children }: SortableTaskWrapperProps) {
 
 export default function Tasks() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const taskRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusParam = searchParams.get("focus");
+  const focusAppliedRef = useRef(false);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [labels, setLabels] = useState<Label[]>([]);
@@ -330,6 +335,61 @@ export default function Tasks() {
     fetchLabels();
     fetchThreads();
   }, [fetchTasks, fetchLabels, fetchThreads]);
+
+  // Deep-link handler: when ?focus=<id> is in the URL, auto-select that task,
+  // switch to the correct tab if needed, scroll it into view, then clear the
+  // query param so a page refresh will not keep re-scrolling.
+  useEffect(() => {
+    if (!focusParam) return;
+    if (focusAppliedRef.current) return;
+    if (tasks.length === 0) return;
+
+    const match = tasks.find((t) => t.id === focusParam);
+    if (!match) return;
+
+    focusAppliedRef.current = true;
+
+    // Make sure we are on the Tasks tab (not Labels / Health / Groups)
+    setActiveTab("tasks");
+
+    // Make sure the task is visible under the current status filter. If the
+    // focused task is closed but the current filter only shows open, switch.
+    if (match.status === "closed" && statusFilter === "open") {
+      setStatusFilter("closed");
+    } else if (match.status === "open" && statusFilter === "closed") {
+      setStatusFilter("open");
+    }
+
+    // Clear any priority / label / thread filter that would hide the task.
+    if (priorityFilter && match.priority !== priorityFilter) {
+      setPriorityFilter(null);
+    }
+    if (labelFilter && !(match.label_ids || []).includes(labelFilter)) {
+      setLabelFilter(null);
+    }
+    if (threadFilter && match.thread_id !== threadFilter) {
+      setThreadFilter(null);
+    }
+
+    // Expand the briefing for this task.
+    setSelectedTaskId(match.id);
+    setDetailTab("context");
+    fetchBriefing(match.id);
+    fetchTrace(match.id);
+
+    // Scroll the row into view once the DOM has rendered it.
+    setTimeout(() => {
+      const node = taskRowRefs.current[match.id];
+      if (node && typeof node.scrollIntoView === "function") {
+        node.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 60);
+
+    // Clear the query param so a refresh will not re-apply this.
+    const next = new URLSearchParams(searchParams);
+    next.delete("focus");
+    setSearchParams(next, { replace: true });
+  }, [focusParam, tasks, statusFilter, priorityFilter, labelFilter, threadFilter, fetchBriefing, fetchTrace, searchParams, setSearchParams]);
 
   // Listen for quick-add-task event from TopBar
   useEffect(() => {
@@ -1327,6 +1387,8 @@ export default function Tasks() {
                 {(dragHandleProps) => (
                 <div>
                   <div
+                    ref={(el) => { taskRowRefs.current[task.id] = el; }}
+                    data-testid={`task-row-${task.id}`}
                     onClick={() => handleTaskClick(task.id)}
                     className={`bg-slate-900/60 border rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors ${
                       selectedTaskId === task.id

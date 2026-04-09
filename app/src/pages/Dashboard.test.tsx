@@ -4,6 +4,16 @@ import { MemoryRouter } from 'react-router-dom'
 import Dashboard from './Dashboard'
 import { useAppStore } from '../stores/app'
 
+const mockNavigate = vi.fn()
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  }
+})
+
 vi.mock('../lib/api', () => ({
   api: {
     get: vi.fn(),
@@ -17,10 +27,10 @@ const mockedApiGet = vi.mocked(api.get)
 const mockDashboardData = {
   counts: { open: 5, closed: 12, p0: 1, p1: 3, p2: 1 },
   focus: [
-    { title: 'Fix login flow', id: '001', priority: 'P0' },
+    { title: 'Fix login flow', id: '\u2192123', priority: 'P0' },
   ],
   recent_tasks: [
-    { id: '001', title: 'Fix login flow', priority: 'P0' },
+    { id: '\u2192123', title: 'Fix login flow', priority: 'P0' },
   ],
   hay_count: 3,
   ostk_status: 'no daemon running',
@@ -73,6 +83,7 @@ function renderDashboard() {
 describe('Dashboard Day Summary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockNavigate.mockClear()
     useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false })
     localStorage.setItem('myos-tour-complete', 'true')
 
@@ -161,6 +172,51 @@ describe('Dashboard Day Summary', () => {
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalledWith('/dashboard/summary')
     })
+  })
+})
+
+describe("Today's Focus deep-link", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false })
+    localStorage.setItem('myos-tour-complete', 'true')
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  })
+
+  it('clicking a focus task row navigates to that specific task via ?focus=id', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Fix login flow')).toBeInTheDocument()
+    })
+
+    const row = screen.getByRole('button', { name: /Open task Fix login flow/i })
+    fireEvent.click(row)
+
+    // encodeURIComponent('→123') yields '%E2%86%92123'
+    expect(mockNavigate).toHaveBeenCalledWith('/tasks?focus=%E2%86%92123')
+    expect(mockNavigate).not.toHaveBeenCalledWith('/tasks')
+  })
+
+  it('pressing Enter on a focused row navigates to that task', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Fix login flow')).toBeInTheDocument()
+    })
+
+    const row = screen.getByRole('button', { name: /Open task Fix login flow/i })
+    fireEvent.keyDown(row, { key: 'Enter' })
+
+    expect(mockNavigate).toHaveBeenCalledWith('/tasks?focus=%E2%86%92123')
   })
 })
 

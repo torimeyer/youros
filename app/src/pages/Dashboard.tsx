@@ -133,11 +133,20 @@ export default function Dashboard() {
   };
 
   const focusTasks = (data?.focus ?? []).map((t, i) => ({
+    id: t.id,
     icon: focusIcons[i % focusIcons.length],
     title: t.title,
     subtitle: `Priority: ${t.priority}`,
     color: focusColors[i % focusColors.length],
   }));
+
+  const openFocusTask = (taskId: string) => {
+    if (taskId) {
+      navigate(`/tasks?focus=${encodeURIComponent(taskId)}`);
+    } else {
+      navigate('/tasks');
+    }
+  };
 
   const openCount = data?.counts.open ?? 0;
   const closedCount = data?.counts.closed ?? 0;
@@ -284,9 +293,18 @@ export default function Dashboard() {
               ) : (
                 focusTasks.map((task) => (
                   <div
-                    key={task.title}
-                    onClick={() => navigate('/tasks')}
-                    className="flex items-center gap-4 p-3 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer"
+                    key={task.id || task.title}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openFocusTask(task.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openFocusTask(task.id);
+                      }
+                    }}
+                    aria-label={`Open task ${task.title}`}
+                    className="flex items-center gap-4 p-3 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                   >
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center ${task.color}`}>
                       <Icon name={task.icon} size={20} />
@@ -295,7 +313,7 @@ export default function Dashboard() {
                       <p className="font-medium">{task.title}</p>
                       <p className="text-sm text-slate-400">{task.subtitle}</p>
                     </div>
-                    <Icon name="chevron_right" className="text-slate-500" size={20} />
+                    <Icon name="open_in_new" className="text-slate-500" size={18} />
                   </div>
                 ))
               )}

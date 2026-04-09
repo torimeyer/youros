@@ -1013,4 +1013,80 @@ describe('Tasks page', () => {
       })
     })
   })
+
+  // --- Deep-link from Dashboard via ?focus=<id> ---
+
+  describe('focus query param deep-link', () => {
+    const focusTasks = [
+      { id: '\u2192123', title: 'Deep linked task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+      { id: '\u2192124', title: 'Another task', priority: 'P2', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+      { id: '\u2192125', title: 'A closed task', priority: 'P1', status: 'closed', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+    ]
+
+    beforeEach(() => {
+      // Make scrollIntoView a no-op so jsdom does not throw.
+      Element.prototype.scrollIntoView = vi.fn()
+
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: focusTasks })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        if (path.endsWith('/briefing')) return Promise.resolve({ briefing: null })
+        if (path.endsWith('/trace')) return Promise.resolve({ trace: null })
+        return Promise.resolve({})
+      })
+    })
+
+    function renderWithFocus(focusId: string) {
+      // Encode the id the same way Dashboard encodes it.
+      const url = `/tasks?focus=${encodeURIComponent(focusId)}`
+      return render(
+        <MemoryRouter initialEntries={[url]}>
+          <Tasks />
+        </MemoryRouter>
+      )
+    }
+
+    it('auto-expands the briefing panel for the task in ?focus=', async () => {
+      renderWithFocus('\u2192123')
+
+      await waitFor(() => {
+        expect(screen.getByText('Deep linked task')).toBeInTheDocument()
+      })
+
+      // The briefing panel should appear for the focused task.
+      await waitFor(() => {
+        expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
+      })
+
+      // The briefing endpoint for the focused task should be called.
+      expect(mockedApiGet).toHaveBeenCalledWith('/tasks/\u2192123/briefing')
+    })
+
+    it('switches to the Closed filter when the focused task is closed', async () => {
+      renderWithFocus('\u2192125')
+
+      await waitFor(() => {
+        expect(screen.getByText('A closed task')).toBeInTheDocument()
+      })
+
+      // Briefing panel should be open for the closed task.
+      await waitFor(() => {
+        expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
+      })
+
+      // The open tasks should no longer be visible because we swapped to Closed.
+      expect(screen.queryByText('Deep linked task')).not.toBeInTheDocument()
+    })
+
+    it('does nothing when ?focus=<unknown-id> is given', async () => {
+      renderWithFocus('\u2192999')
+
+      await waitFor(() => {
+        expect(screen.getByText('Deep linked task')).toBeInTheDocument()
+      })
+
+      // No briefing panel should appear because there was no match.
+      expect(screen.queryByTestId('briefing-panel')).not.toBeInTheDocument()
+    })
+  })
 })
