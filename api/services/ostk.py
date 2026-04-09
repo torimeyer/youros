@@ -24,17 +24,24 @@ class OstkService:
     def __init__(self, cwd: str = PROJECT_DIR):
         self.cwd = cwd
 
-    async def _run(self, *args: str) -> str:
-        proc = await asyncio.create_subprocess_exec(
-            "ostk", *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=self.cwd,
-        )
-        stdout, stderr = await proc.communicate()
-        output = stdout.decode().strip()
-        if proc.returncode != 0:
-            err = stderr.decode().strip() or output
+    async def _run(self, *args: str, timeout: int = 5) -> str:
+        import subprocess
+        cmd = ["ostk", *args]
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=self.cwd,
+                timeout=timeout,
+                stdin=subprocess.DEVNULL,
+            )
+        except subprocess.TimeoutExpired:
+            raise OstkError(f"ostk command timed out: {' '.join(cmd)}")
+        output = result.stdout.strip()
+        if result.returncode != 0:
+            err = result.stderr.strip() or output
             raise OstkError(err)
         return output
 

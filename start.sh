@@ -45,9 +45,45 @@ else
     echo -e "${GREEN}Already up to date.${NC}"
 fi
 
-# Boot ostk kernel (best-effort, continues if ostk is not installed)
+# Update ostk if a newer version is available (best-effort, 5s timeout)
 if command -v ostk &> /dev/null; then
+    echo "Checking ostk..."
+    OSTK_CURRENT=$(ostk --version 2>/dev/null | head -1 || echo "unknown")
+    OSTK_REPO="os-tack/ostk.ai"
+    OSTK_LATEST=$(timeout 5 curl -fsSL "https://api.github.com/repos/${OSTK_REPO}/releases/latest" 2>/dev/null \
+        | grep '"tag_name"' | head -1 | cut -d'"' -f4 || echo "")
+    if [ -n "$OSTK_LATEST" ] && [ "$OSTK_LATEST" != "$OSTK_CURRENT" ]; then
+        echo -e "${YELLOW}Updating ostk to ${OSTK_LATEST}...${NC}"
+        ARCH=$(uname -m); case "$ARCH" in arm64) ARCH="aarch64" ;; esac
+        OS_TAG=$(uname -s); case "$OS_TAG" in Linux) OS_TAG="unknown-linux-musl" ;; Darwin) OS_TAG="apple-darwin" ;; esac
+        OSTK_TMP=$(mktemp -d)
+        TARBALL="ostk-${OSTK_LATEST}-${ARCH}-${OS_TAG}.tar.gz"
+        if timeout 15 curl -fsSL "https://github.com/${OSTK_REPO}/releases/download/${OSTK_LATEST}/${TARBALL}" \
+            -o "$OSTK_TMP/$TARBALL" 2>/dev/null; then
+            tar -xzf "$OSTK_TMP/$TARBALL" -C "$OSTK_TMP"
+            [ -f "$OSTK_TMP/ostk" ] && install -m 755 "$OSTK_TMP/ostk" "$(which ostk)" 2>/dev/null \
+                && echo -e "${GREEN}ostk updated to ${OSTK_LATEST}.${NC}" \
+                || echo -e "${YELLOW}Could not update ostk binary. Continuing.${NC}"
+        else
+            echo -e "${YELLOW}Could not download ostk update. Continuing.${NC}"
+        fi
+        rm -rf "$OSTK_TMP"
+    else
+        echo -e "${GREEN}ostk is up to date.${NC}"
+    fi
     ostk boot 2>/dev/null || true
+else
+    echo "ostk not installed. Skipping."
+fi
+
+# Update Claude Code if a newer version is available (best-effort, 15s timeout)
+if command -v claude &> /dev/null; then
+    echo "Checking Claude Code..."
+    timeout 15 npm update -g @anthropic-ai/claude-code --silent 2>/dev/null \
+        && echo -e "${GREEN}Claude Code is up to date.${NC}" \
+        || echo -e "${YELLOW}Could not check Claude Code updates. Continuing.${NC}"
+else
+    echo "Claude Code not installed. Skipping."
 fi
 
 # Check if frontend is built
@@ -97,4 +133,5 @@ exec uvicorn main:app \
     --reload-exclude '**/.pytest_cache/*' \
     --reload-exclude '**/__pycache__/*' \
     --reload-exclude '**/*.pyc' \
-    --reload-delay 1.0
+    --reload-delay 1.0 \
+    --no-access-log
