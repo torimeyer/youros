@@ -580,8 +580,10 @@ export default function Tasks() {
         )
       );
       fetchLabels();
-    } catch (e) {
-      console.error("Auto-label failed:", e);
+    } catch (e: unknown) {
+      const msg = (e as { message?: string })?.message || '';
+      setBanner(msg.includes('API key') ? msg : 'Auto-labeling failed.');
+      setTimeout(() => setBanner(null), 5000);
     } finally {
       setAutoLabelingTaskId(null);
     }
@@ -596,9 +598,9 @@ export default function Tasks() {
       setLabelAllResult(count === 0 ? "All tasks already labeled." : `Labeled ${count} task${count === 1 ? "" : "s"}.`);
       await fetchTasks();
       fetchLabels();
-    } catch (e) {
-      setLabelAllResult("Something went wrong. Please try again.");
-      console.error("Label all failed:", e);
+    } catch (e: unknown) {
+      const msg = (e as { message?: string })?.message || '';
+      setLabelAllResult(msg.includes('API key') ? msg : 'Something went wrong. Please try again.');
     } finally {
       setLabelAllLoading(false);
       setTimeout(() => setLabelAllResult(null), 5000);

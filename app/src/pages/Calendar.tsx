@@ -226,7 +226,7 @@ export default function Calendar() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-20 p-8 max-w-md">
+        <div className="pt-20 p-8 max-w-md mx-auto">
           <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-2xl">
             <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center mb-4">
               <Icon name="calendar_month" className="text-blue-400" size={24} />
@@ -275,7 +275,7 @@ export default function Calendar() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-20 p-8 max-w-md">
+        <div className="pt-20 p-8 max-w-md mx-auto">
           <div className="bg-slate-900/40 border border-amber-800/40 p-8 rounded-2xl">
             <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
               <Icon name="warning" className="text-amber-400" size={24} />

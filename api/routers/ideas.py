@@ -227,6 +227,14 @@ async def convert_idea_to_task(body: HayConvert):
     If the idea is too vague, returns a clarifying question for the user
     to answer via POST /api/ideas/answer.
     """
+    from services.chat_providers import _resolve_api_key
+    api_key = await _resolve_api_key("anthropic_api_key")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No API key configured. Add an Anthropic API key in Settings to break ideas into tasks.",
+        )
+
     breakdown = await break_down_idea(title=body.straw, description="")
 
     if breakdown.needs_clarification:

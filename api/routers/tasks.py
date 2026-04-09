@@ -187,6 +187,15 @@ async def backfill_labels():
     all_assignments = task_labels_store.get_all_assignments()
     unlabeled = [t for t in tasks if not all_assignments.get(t.get("id", ""))]
 
+    if unlabeled:
+        from services.chat_providers import _resolve_api_key
+        api_key = await _resolve_api_key("anthropic_api_key")
+        if not api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="No API key configured. Add an Anthropic API key in Settings to use smart labeling.",
+            )
+
     processed = 0
     labeled = 0
     for task in unlabeled:
@@ -239,6 +248,15 @@ async def auto_label_task(task_id: str):
         raise HTTPException(status_code=500, detail=str(exc))
 
     label_ids = task_labels_store.get_labels_for_task(task_id)
+    if not label_ids:
+        # Check if the reason is a missing API key
+        from services.chat_providers import _resolve_api_key
+        api_key = await _resolve_api_key("anthropic_api_key")
+        if not api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="No API key configured. Add an Anthropic API key in Settings to use smart labeling.",
+            )
     return {"label_ids": label_ids}
 
 
