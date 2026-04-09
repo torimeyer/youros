@@ -820,6 +820,39 @@ export default function Settings() {
                 </button>
               )}
 
+              {/* Gemini: explain the two places to get a key */}
+              {selectedProvider === 'Google Gemini' && (
+                <div className="mb-3 p-3 bg-slate-800/40 border border-slate-700 rounded-lg text-xs text-slate-400 space-y-2">
+                  <p className="font-medium text-slate-300">Where to get a Gemini API key</p>
+                  <p>
+                    <span className="text-slate-300">Personal use.</span>{' '}
+                    Grab a free key in one click from{' '}
+                    <a
+                      href="https://aistudio.google.com/apikey"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      Google AI Studio
+                    </a>
+                    . Ties to your personal Google account. Best for solo use and trying things out.
+                  </p>
+                  <p>
+                    <span className="text-slate-300">Work or team use.</span>{' '}
+                    Create the key inside the same{' '}
+                    <a
+                      href="https://console.cloud.google.com"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      Google Cloud project
+                    </a>{' '}
+                    where you enabled Drive, Calendar, or Gmail. In the API library, turn on "Generative Language API", then go to Credentials, Create credentials, API key. Use this path if you need the key tracked against a corporate project.
+                  </p>
+                </div>
+              )}
+
               {/* Option 2: Paste API key (saved to system keychain) */}
               <div className="flex gap-2">
                 <div className="relative flex-1">

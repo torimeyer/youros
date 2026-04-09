@@ -607,6 +607,45 @@ function ConnectStep({
         </button>
       )}
 
+      {/* Gemini: short note on where to get a key */}
+      {selectedProvider === 'Google Gemini' && (
+        <div
+          className={`mb-3 p-3 rounded-lg text-xs space-y-2 ${
+            darkMode
+              ? 'bg-slate-800/40 border border-slate-700 text-slate-400'
+              : 'bg-gray-50 border border-gray-200 text-slate-600'
+          }`}
+          data-testid="gemini-key-help"
+        >
+          <p>
+            <span className={darkMode ? 'text-slate-200 font-medium' : 'text-slate-900 font-medium'}>Personal use.</span>{' '}
+            Grab a free key from{' '}
+            <a
+              href="https://aistudio.google.com/apikey"
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-500 hover:text-blue-400 underline"
+            >
+              Google AI Studio
+            </a>
+            . Tied to your personal Google account.
+          </p>
+          <p>
+            <span className={darkMode ? 'text-slate-200 font-medium' : 'text-slate-900 font-medium'}>Work or team use.</span>{' '}
+            Create the key in your{' '}
+            <a
+              href="https://console.cloud.google.com"
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-500 hover:text-blue-400 underline"
+            >
+              Google Cloud project
+            </a>
+            . Enable "Generative Language API", then go to Credentials, Create credentials, API key.
+          </p>
+        </div>
+      )}
+
       {/* API key paste */}
       <div className="flex gap-2">
         <input

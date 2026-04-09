@@ -201,6 +201,20 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
   })
 
+  it('shows both Gemini key paths (AI Studio and Google Cloud) when Gemini is selected', () => {
+    render(<OnboardingWizard />)
+    clickNext(5)
+    fireEvent.click(screen.getByTestId('provider-Google Gemini'))
+    // Helper block mentions BOTH ways to get a key so work users know
+    // to create the key inside their Google Cloud project instead of AI Studio.
+    const helper = screen.getByTestId('gemini-key-help')
+    expect(helper).toBeInTheDocument()
+    expect(helper).toHaveTextContent(/Google AI Studio/i)
+    expect(helper).toHaveTextContent(/Google Cloud project/i)
+    expect(helper).toHaveTextContent(/Personal use\./i)
+    expect(helper).toHaveTextContent(/Work or team use\./i)
+  })
+
   it('advances to Adventure step', async () => {
     render(<OnboardingWizard />)
     clickNext(6) // Welcome -> You -> Name -> Persona -> Theme -> Connect -> Adventure

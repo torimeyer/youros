@@ -165,6 +165,11 @@ class TestGeminiCredentialErrors:
         msg = errors[0]["data"]
         assert "Gemini API key is missing" in msg
         assert "Settings" in msg
+        # Users must see BOTH paths so work accounts can pick the right one.
+        assert "AI Studio" in msg
+        assert "Google Cloud" in msg
+        assert "aistudio.google.com" in msg
+        assert "console.cloud.google.com" in msg
         # No 'done' should be sent since the request never started.
         assert websocket.get_messages_of_type("done") == []
 
@@ -210,7 +215,10 @@ class TestGeminiCredentialErrors:
         assert result == ""
         errors = websocket.get_messages_of_type("error")
         assert len(errors) == 1
-        assert "Gemini API key is missing" in errors[0]["data"]
+        msg = errors[0]["data"]
+        assert "Gemini API key is missing" in msg
+        assert "AI Studio" in msg
+        assert "Google Cloud" in msg
 
     @pytest.mark.asyncio
     async def test_api_key_is_passed_to_configure(self, websocket):
@@ -297,6 +305,9 @@ class TestGeminiCredentialErrors:
         msg = errors[0]["data"]
         assert "Gemini API key is missing or invalid" in msg
         assert "Settings" in msg
+        # Both paths must appear so work users see the Cloud option.
+        assert "AI Studio" in msg
+        assert "Google Cloud" in msg
         # The cryptic Google text must NOT be in the user-facing error.
         assert "ACCESS_TOKEN_TYPE_UNSUPPORTED" not in msg
 
@@ -333,7 +344,10 @@ class TestGeminiCredentialErrors:
         assert result == ""
         errors = websocket.get_messages_of_type("error")
         assert len(errors) == 1
-        assert "Gemini API key is missing or invalid" in errors[0]["data"]
+        msg = errors[0]["data"]
+        assert "Gemini API key is missing or invalid" in msg
+        assert "AI Studio" in msg
+        assert "Google Cloud" in msg
 
     @pytest.mark.asyncio
     async def test_non_auth_sdk_exception_passed_through(self, websocket):

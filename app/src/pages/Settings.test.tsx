@@ -188,6 +188,27 @@ describe('Settings', () => {
       fireEvent.click(visToggle!)
       expect(input).toHaveAttribute('type', 'text')
     })
+
+    it('shows both Gemini key paths (AI Studio and Google Cloud) when Gemini is selected', () => {
+      renderSettings()
+      // Click the Google Gemini provider card in the "Set Up Provider" section.
+      // There are two cards (Default Chat AI and Set Up Provider), click the
+      // second (Set Up Provider) one.
+      const geminiCards = screen.getAllByText('Google Gemini')
+      // The Set Up Provider card is the one NOT inside default-llm testid.
+      const setupCard = geminiCards.find(
+        (el) => !el.closest('[data-testid^="default-llm-"]')
+      )
+      expect(setupCard).toBeTruthy()
+      fireEvent.click(setupCard!.closest('div[class*="cursor-pointer"]')!)
+
+      // Helper block should now mention BOTH places to get a key.
+      expect(screen.getByText(/Where to get a Gemini API key/i)).toBeInTheDocument()
+      expect(screen.getByText(/Google AI Studio/i)).toBeInTheDocument()
+      expect(screen.getByText(/Google Cloud project/i)).toBeInTheDocument()
+      expect(screen.getByText(/Personal use\./i)).toBeInTheDocument()
+      expect(screen.getByText(/Work or team use\./i)).toBeInTheDocument()
+    })
   })
 
   describe('Notification toggles', () => {

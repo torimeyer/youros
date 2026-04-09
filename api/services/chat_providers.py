@@ -69,6 +69,18 @@ _GEMINI_AUTH_HINTS = (
 )
 
 
+_GEMINI_KEY_HELP = (
+    "Two ways to get one:\n"
+    "- Personal use: grab a free key from Google AI Studio in one click "
+    "(https://aistudio.google.com/apikey). Ties to your personal Google account.\n"
+    "- Work or team use: create the key inside your Google Cloud Console "
+    "project (https://console.cloud.google.com), the same project where "
+    "you enabled Drive, Calendar, or Gmail. Turn on \"Generative Language "
+    "API\" in the API library, then open Credentials and click Create "
+    "credentials, API key."
+)
+
+
 def _friendly_gemini_error(error_text: str) -> str:
     """Translate Google's cryptic auth errors into a friendly message.
 
@@ -83,8 +95,7 @@ def _friendly_gemini_error(error_text: str) -> str:
         if hint.lower() in lowered:
             return (
                 "Gemini API key is missing or invalid. Add one in Settings "
-                "under AI Provider, or get a free key at "
-                "https://aistudio.google.com/apikey."
+                "under AI Provider.\n\n" + _GEMINI_KEY_HELP
             )
     return error_text
 
@@ -627,8 +638,8 @@ class ChatService:
             await websocket.send_json({
                 "type": "error",
                 "data": (
-                    "Gemini API key is missing. Add one in Settings under AI Provider, "
-                    "or get a free key at https://aistudio.google.com/apikey."
+                    "Gemini API key is missing. Add one in Settings under AI Provider.\n\n"
+                    + _GEMINI_KEY_HELP
                 ),
             })
             return ""
