@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Dashboard from './Dashboard'
-import { useAppStore } from '../stores/app'
+import { useAppStore, DEFAULT_DASHBOARD_WIDGETS } from '../stores/app'
 
 const mockNavigate = vi.fn()
 
@@ -280,6 +280,86 @@ describe('Quick Launch inline modals', () => {
     expect(screen.getByRole('dialog', { name: /Capture a new idea/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Capture idea' })).toBeInTheDocument()
     expect(mockNavigate).not.toHaveBeenCalledWith('/ideas')
+  })
+})
+
+describe('Dashboard widget customization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    useAppStore.setState({
+      chatOpen: false,
+      osName: 'ToriOS',
+      darkMode: true,
+      showTour: false,
+      dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS],
+    })
+    localStorage.setItem('myos-tour-complete', 'true')
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  })
+
+  it('renders every default widget when the preference is the full list', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText("Today's Focus")).toBeInTheDocument()
+      expect(screen.getByText('Quick Launch')).toBeInTheDocument()
+      expect(screen.getByText('Day Summary')).toBeInTheDocument()
+    })
+  })
+
+  it('hides widgets that are not in the dashboardWidgets preference', async () => {
+    useAppStore.setState({
+      dashboardWidgets: ['todays_focus'],
+    })
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText("Today's Focus")).toBeInTheDocument()
+    })
+    // Quick Launch and Day Summary should be gone.
+    expect(screen.queryByText('Quick Launch')).toBeNull()
+    expect(screen.queryByText('Day Summary')).toBeNull()
+  })
+
+  it('renders visible grid widgets in the saved order', async () => {
+    useAppStore.setState({
+      dashboardWidgets: ['quick_launch', 'todays_focus', 'day_summary'],
+    })
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-quick-launch')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-todays-focus')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-day-summary')).toBeInTheDocument()
+    })
+
+    // DOM order must match the saved preference order.
+    const cards = screen.getAllByTestId(/^widget-(quick-launch|todays-focus|day-summary)$/)
+    expect(cards.map((el) => el.dataset.testid)).toEqual([
+      'widget-quick-launch',
+      'widget-todays-focus',
+      'widget-day-summary',
+    ])
+  })
+
+  it('has a Customize button that opens the customize modal', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Quick Launch')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Customize dashboard/i }))
+    expect(
+      screen.getByRole('dialog', { name: /Customize dashboard/i }),
+    ).toBeInTheDocument()
   })
 })
 

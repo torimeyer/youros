@@ -3,6 +3,28 @@ import { api } from '../lib/api'
 
 export type AccentColor = 'blue' | 'pink' | 'purple' | 'cyan' | 'orange'
 
+// Default order and visibility for home dashboard widgets. Users can
+// hide any of these and reorder them via the Customize modal.
+export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
+  'morning_briefing',
+  'focus_first',
+  'todays_focus',
+  'quick_launch',
+  'next_meeting',
+  'day_summary',
+]
+
+// Human readable labels for each dashboard widget id. Keep this in sync
+// with DEFAULT_DASHBOARD_WIDGETS. Used by the customize modal.
+export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
+  morning_briefing: 'Morning Briefing',
+  focus_first: 'Focus on this first',
+  todays_focus: "Today's Focus",
+  quick_launch: 'Quick Launch',
+  next_meeting: 'Next Meeting',
+  day_summary: 'Day Summary',
+}
+
 export interface FeatureToggle {
   label: string
   enabled: boolean
@@ -78,6 +100,8 @@ interface AppState {
   setWhatsNewLastSeen: (v: string) => void
   customAgentTemplates: CustomAgentTemplate[]
   setCustomAgentTemplates: (templates: CustomAgentTemplate[]) => void
+  dashboardWidgets: string[]
+  setDashboardWidgets: (widgets: string[]) => void
   hydrateFromServer: () => Promise<void>
 }
 
@@ -94,6 +118,7 @@ const LS_KEYS = {
   powerUserMode: 'myos-power-user-mode',
   whatsNewLastSeen: 'myos-whats-new-last-seen',
   customAgentTemplates: 'myos-custom-templates',
+  dashboardWidgets: 'myos-dashboard-widgets',
 } as const
 
 // Safe localStorage wrappers. Guard against non-browser environments (tests).
@@ -148,6 +173,21 @@ function readInitialCustomTemplates(): CustomAgentTemplate[] {
   }
 }
 const initialCustomAgentTemplates = readInitialCustomTemplates()
+
+function readInitialDashboardWidgets(): string[] {
+  const raw = lsGet(LS_KEYS.dashboardWidgets)
+  if (!raw) return [...DEFAULT_DASHBOARD_WIDGETS]
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
+      return parsed as string[]
+    }
+    return [...DEFAULT_DASHBOARD_WIDGETS]
+  } catch {
+    return [...DEFAULT_DASHBOARD_WIDGETS]
+  }
+}
+const initialDashboardWidgets = readInitialDashboardWidgets()
 
 export const useAppStore = create<AppState>((set, get) => ({
   onboarded: initialOnboarded,
@@ -240,6 +280,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     lsSet(LS_KEYS.customAgentTemplates, JSON.stringify(customAgentTemplates))
     set({ customAgentTemplates })
     patchServer({ custom_agent_templates: customAgentTemplates })
+  },
+  dashboardWidgets: initialDashboardWidgets,
+  setDashboardWidgets: (dashboardWidgets) => {
+    lsSet(LS_KEYS.dashboardWidgets, JSON.stringify(dashboardWidgets))
+    set({ dashboardWidgets })
+    patchServer({ dashboard_widgets: dashboardWidgets })
   },
   hydrateFromServer: async () => {
     let server: Record<string, unknown> = {}
@@ -347,6 +393,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       lsSet(LS_KEYS.customAgentTemplates, JSON.stringify(v))
     } else if (state.customAgentTemplates && state.customAgentTemplates.length > 0) {
       backfill.custom_agent_templates = state.customAgentTemplates
+    }
+
+    // dashboard_widgets
+    if (
+      hasValue(server.dashboard_widgets) &&
+      Array.isArray(server.dashboard_widgets) &&
+      (server.dashboard_widgets as unknown[]).every((x) => typeof x === 'string')
+    ) {
+      const v = server.dashboard_widgets as string[]
+      updates.dashboardWidgets = v
+      lsSet(LS_KEYS.dashboardWidgets, JSON.stringify(v))
+    } else {
+      backfill.dashboard_widgets = state.dashboardWidgets
     }
 
     if (Object.keys(updates).length > 0) {
