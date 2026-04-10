@@ -1207,8 +1207,25 @@ export function ChatPanel() {
                 )}
               </div>
 
-              {/* Reply and reaction buttons on hover - below the message */}
-              <div className={`${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'} opacity-0 group-hover:opacity-100 mt-1 transition-all`}>
+              {/* Reaction pills - tight to the bubble */}
+              {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                <div className={`flex flex-wrap gap-1 mt-0.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {Object.entries(msg.reactions).map(([emoji, count]) => (
+                    <button
+                      key={emoji}
+                      onClick={() => toggleReaction(msg.id, emoji)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-xs transition-colors"
+                      title={`${emoji} ${count}`}
+                    >
+                      <span>{emoji}</span>
+                      <span className="text-slate-400">{count}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Reply and reaction buttons on hover */}
+              <div className={`${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'} opacity-0 group-hover:opacity-100 mt-0.5 transition-all`}>
                 <div className="flex items-center gap-0.5 z-10">
                   <button
                     onClick={() => handleReply(msg.id)}
@@ -1232,23 +1249,6 @@ export function ChatPanel() {
                   </div>
                 </div>
               </div>
-
-              {/* Reaction pills */}
-              {msg.reactions && Object.keys(msg.reactions).length > 0 && (
-                <div className={`flex flex-wrap gap-1 mt-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {Object.entries(msg.reactions).map(([emoji, count]) => (
-                    <button
-                      key={emoji}
-                      onClick={() => toggleReaction(msg.id, emoji)}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-xs transition-colors"
-                      title={`${emoji} ${count}`}
-                    >
-                      <span>{emoji}</span>
-                      <span className="text-slate-400">{count}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
           )
