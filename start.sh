@@ -72,6 +72,28 @@ if command -v ostk &> /dev/null; then
         echo -e "${GREEN}ostk is up to date.${NC}"
     fi
     ostk boot 2>/dev/null || true
+
+    # Migrate needles to ~/.myos/needles so tasks survive git pull.
+    # If needles is a real directory (not already a symlink), move it
+    # outside the repo and replace with a symlink.
+    NEEDLES_DIR="$DIR/.ostk/needles"
+    SAFE_NEEDLES="$HOME/.myos/needles"
+    if [ -d "$NEEDLES_DIR" ] && [ ! -L "$NEEDLES_DIR" ]; then
+        mkdir -p "$HOME/.myos"
+        if [ -d "$SAFE_NEEDLES" ]; then
+            # Merge: copy any files not already in the safe location
+            cp -n "$NEEDLES_DIR"/* "$SAFE_NEEDLES/" 2>/dev/null || true
+        else
+            cp -a "$NEEDLES_DIR" "$SAFE_NEEDLES"
+        fi
+        rm -rf "$NEEDLES_DIR"
+        ln -s "$SAFE_NEEDLES" "$NEEDLES_DIR"
+        echo -e "${GREEN}Migrated tasks to ~/.myos/needles (safe from git pull).${NC}"
+    elif [ ! -e "$NEEDLES_DIR" ] && [ ! -L "$NEEDLES_DIR" ]; then
+        # Fresh install: create the safe dir and symlink
+        mkdir -p "$SAFE_NEEDLES"
+        ln -s "$SAFE_NEEDLES" "$NEEDLES_DIR"
+    fi
 else
     echo "ostk not installed. Skipping."
 fi
