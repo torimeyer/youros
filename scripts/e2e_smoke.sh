@@ -364,6 +364,11 @@ print('yes' if 'e2e-lifecycle-test' in d.get('active',[]) else 'no')
             phase_fail "briefing dismiss did not hide briefing"
         fi
 
+        # --- Enterprise endpoints ---
+        check_http_json "GET /api/enterprise returns state"              "/api/enterprise"            '"enabled"'
+        check_http_json "GET /api/enterprise/policies returns policies"  "/api/enterprise/policies"   '"policies"'
+        check_http_json "GET /api/enterprise/audit returns events"       "/api/enterprise/audit"      '"events"'
+
         # --- No hardcoded ports in routers ---
         hardcoded=$(grep -r 'localhost:5173' "$REPO_DIR/api/routers/" 2>/dev/null | grep -v '.pyc' | grep -v '#.*localhost:5173' | wc -l | tr -d ' ')
         if [ "$hardcoded" = "0" ]; then

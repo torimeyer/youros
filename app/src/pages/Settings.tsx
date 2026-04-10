@@ -144,6 +144,26 @@ export default function Settings() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Enterprise state
+  interface EnterpriseMember { id: string; email: string; role: string; added_at: string }
+  interface EnterpriseState { enabled: boolean; org: { id: string; name: string; admin_email: string } | null; members: EnterpriseMember[]; policies: Record<string, unknown> }
+  const [enterprise, setEnterprise] = useState<EnterpriseState>({ enabled: false, org: null, members: [], policies: {} });
+  const [entOrgName, setEntOrgName] = useState('');
+  const [entAdminEmail, setEntAdminEmail] = useState('');
+  const [entNewMemberEmail, setEntNewMemberEmail] = useState('');
+  const [entNewMemberRole, setEntNewMemberRole] = useState('member');
+
+  const fetchEnterprise = async () => {
+    try {
+      const data = await api.get<EnterpriseState>('/enterprise');
+      setEnterprise(data);
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    fetchEnterprise();
+  }, []);
+
   useEffect(() => {
     const fetchSettings = async () => {
       try {
@@ -1408,7 +1428,169 @@ export default function Settings() {
           )}
         </div>
 
-        {/* Row 6: Data Management */}
+        {/* Row 6: Enterprise */}
+        <div className={cardClass}>
+          <div className="flex items-center gap-2 mb-5">
+            <Icon name="business" size={22} className="text-purple-400" />
+            <h2 className="text-lg font-semibold">Enterprise</h2>
+            {enterprise.enabled && (
+              <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-[10px] font-bold rounded-full">Active</span>
+            )}
+          </div>
+
+          {!enterprise.enabled ? (
+            <div>
+              <p className="text-sm text-slate-400 mb-4">
+                Enterprise mode lets you set up an org, add team members, and enforce policies across all agents. Your personal profile stays the same. This adds org-level controls on top.
+              </p>
+              <div className="space-y-3 mb-4">
+                <input
+                  type="text"
+                  value={entOrgName}
+                  onChange={(e) => setEntOrgName(e.target.value)}
+                  placeholder="Organization name"
+                  className={`w-full border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-purple-500 transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
+                />
+                <input
+                  type="email"
+                  value={entAdminEmail}
+                  onChange={(e) => setEntAdminEmail(e.target.value)}
+                  placeholder="Admin email"
+                  className={`w-full border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-purple-500 transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
+                />
+              </div>
+              <button
+                onClick={async () => {
+                  if (!entOrgName.trim() || !entAdminEmail.trim()) return;
+                  await api.post('/enterprise/org', { name: entOrgName, admin_email: entAdminEmail });
+                  fetchEnterprise();
+                }}
+                disabled={!entOrgName.trim() || !entAdminEmail.trim()}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+              >
+                Activate Enterprise Mode
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Org info */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-200">{enterprise.org?.name}</p>
+                  <p className="text-xs text-slate-500">Admin: {enterprise.org?.admin_email}</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    await api.delete('/enterprise/org');
+                    setEnterprise({ enabled: false, org: null, members: [], policies: {} });
+                  }}
+                  className="text-xs text-red-400 hover:text-red-300"
+                >
+                  Deactivate
+                </button>
+              </div>
+
+              {/* Team members */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-300 mb-3">Team Members</h3>
+                <div className="space-y-2 mb-3">
+                  {enterprise.members.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between px-3 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                      <div>
+                        <span className="text-sm text-slate-300">{m.email}</span>
+                        <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                          m.role === 'admin' ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-700 text-slate-400'
+                        }`}>{m.role}</span>
+                      </div>
+                      {m.role !== 'admin' && (
+                        <button
+                          onClick={async () => {
+                            await api.delete(`/enterprise/members/${m.id}`);
+                            fetchEnterprise();
+                          }}
+                          className="text-xs text-red-400 hover:text-red-300"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={entNewMemberEmail}
+                    onChange={(e) => setEntNewMemberEmail(e.target.value)}
+                    placeholder="Email address"
+                    className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
+                  />
+                  <select
+                    value={entNewMemberRole}
+                    onChange={(e) => setEntNewMemberRole(e.target.value)}
+                    className={`border rounded-lg px-2 py-2 text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
+                  >
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <button
+                    onClick={async () => {
+                      if (!entNewMemberEmail.trim()) return;
+                      try {
+                        await api.post('/enterprise/members', { email: entNewMemberEmail, role: entNewMemberRole });
+                        setEntNewMemberEmail('');
+                        fetchEnterprise();
+                      } catch { /* ignore */ }
+                    }}
+                    className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Policies */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-300 mb-3">Policies</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-slate-300">Max agent budget</p>
+                      <p className="text-xs text-slate-500">Maximum spend per agent spawn</p>
+                    </div>
+                    <span className="text-sm text-slate-400">${String(enterprise.policies.max_agent_budget ?? 10)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-slate-300">Require approval above</p>
+                      <p className="text-xs text-slate-500">Agents above this budget need approval</p>
+                    </div>
+                    <span className="text-sm text-slate-400">${String(enterprise.policies.require_approval_above ?? 5)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-slate-300">Audit retention</p>
+                      <p className="text-xs text-slate-500">How long to keep audit logs</p>
+                    </div>
+                    <span className="text-sm text-slate-400">{String(enterprise.policies.audit_retention_days ?? 90)} days</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Audit export */}
+              <div>
+                <button
+                  onClick={() => window.open('/api/enterprise/audit', '_blank')}
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm text-slate-300"
+                >
+                  <Icon name="download" size={16} />
+                  Export audit trail
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Row 7: Data Management */}
         <div className={cardClass}>
           <div className="flex items-center gap-2 mb-2">
             <h2 className="text-lg font-semibold">Data Management</h2>
