@@ -4,7 +4,7 @@ import Icon from './Icon'
 import { api } from '../lib/api'
 import { AGENT_MARKETPLACE, PERSONA_ICONS, type MarketplaceCategory } from '../data/agentMarketplace'
 
-const STEPS = ['Welcome', 'You', 'Name', 'Persona', 'Theme', 'Connect', 'Adventure', 'Ready'] as const
+const STEPS = ['Welcome', 'You', 'Name', 'Profile', 'Persona', 'Theme', 'Connect', 'Adventure', 'Ready'] as const
 
 interface AdventureTemplate {
   id: string
@@ -45,6 +45,11 @@ export default function OnboardingWizard() {
   const [keySaved, setKeySaved] = useState(false)
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
 
+  // Profile (HUMANFILE) step state
+  const [profileRole, setProfileRole] = useState('')
+  const [profileGoals, setProfileGoals] = useState('')
+  const [profileStyle, setProfileStyle] = useState<'brief' | 'detailed' | ''>('')
+
   // Adventure step state
   const [adventures, setAdventures] = useState<AdventureTemplate[]>([])
   const [selectedAdventure, setSelectedAdventure] = useState<AdventureTemplate | null>(null)
@@ -79,6 +84,9 @@ export default function OnboardingWizard() {
       provider: selectedProvider,
     }
     if (selectedPersonaId) settings.persona = selectedPersonaId
+    if (profileRole) settings.user_role = profileRole
+    if (profileGoals) settings.user_goals = profileGoals
+    if (profileStyle) settings.communication_style = profileStyle
     api.patch('/settings', settings).catch(() => {})
     setOnboarded(true)
   }
@@ -199,6 +207,61 @@ export default function OnboardingWizard() {
               inputCls={inputCls}
               subtextCls={subtextCls}
             />
+          )}
+          {step === 'Profile' && (
+            <div>
+              <h2 className="text-2xl font-bold mb-2">Tell {osName} about you</h2>
+              <p className={`mb-2 ${subtextCls}`}>
+                This creates your profile so {osName} knows how to help you. Think of it as a quick intro so your AI knows who it's working for.
+              </p>
+              <p className={`mb-6 text-xs ${subtextCls}`}>
+                Your profile stays on your machine. It's never shared or uploaded.
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className={`block text-sm font-medium mb-1 ${subtextCls}`}>What do you do?</label>
+                  <input
+                    type="text"
+                    value={profileRole}
+                    onChange={(e) => setProfileRole(e.target.value)}
+                    placeholder="e.g. Product manager, Engineer, Student, Founder"
+                    className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-sm font-medium mb-1 ${subtextCls}`}>What do you want to get done with {osName}?</label>
+                  <input
+                    type="text"
+                    value={profileGoals}
+                    onChange={(e) => setProfileGoals(e.target.value)}
+                    placeholder="e.g. Manage my tasks, prep for meetings, stay on top of email"
+                    className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-sm font-medium mb-1 ${subtextCls}`}>How should {osName} communicate with you?</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {([
+                      { id: 'brief', label: 'Keep it short', desc: 'Quick answers, no fluff' },
+                      { id: 'detailed', label: 'Give me detail', desc: 'Thorough explanations' },
+                    ] as const).map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setProfileStyle(opt.id)}
+                        className={`text-left p-3 rounded-lg border transition-colors ${
+                          profileStyle === opt.id
+                            ? 'border-blue-500 bg-blue-500/10'
+                            : `border-slate-300 dark:border-slate-700 ${inputCls}`
+                        }`}
+                      >
+                        <p className="text-sm font-medium">{opt.label}</p>
+                        <p className={`text-xs mt-0.5 ${subtextCls}`}>{opt.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
           {step === 'Persona' && (
             <div>
