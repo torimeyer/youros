@@ -60,10 +60,16 @@ if command -v ostk &> /dev/null; then
         TARBALL="ostk-${OSTK_LATEST}-${ARCH}-${OS_TAG}.tar.gz"
         if timeout 15 curl -fsSL "https://github.com/${OSTK_REPO}/releases/download/${OSTK_LATEST}/${TARBALL}" \
             -o "$OSTK_TMP/$TARBALL" 2>/dev/null; then
+            # Validate the download is actually a gzip file (not an HTML error page)
+            if ! file "$OSTK_TMP/$TARBALL" | grep -q "gzip"; then
+                echo -e "${YELLOW}Downloaded file is not a valid tarball. Skipping update.${NC}"
+                rm -rf "$OSTK_TMP"
+            else
             tar -xzf "$OSTK_TMP/$TARBALL" -C "$OSTK_TMP"
             [ -f "$OSTK_TMP/ostk" ] && install -m 755 "$OSTK_TMP/ostk" "$(which ostk)" 2>/dev/null \
                 && echo -e "${GREEN}ostk updated to ${OSTK_LATEST}.${NC}" \
                 || echo -e "${YELLOW}Could not update ostk binary. Continuing.${NC}"
+            fi
         else
             echo -e "${YELLOW}Could not download ostk update. Continuing.${NC}"
         fi
