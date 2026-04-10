@@ -792,6 +792,39 @@ export default function Agents() {
   // Marketplace
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
 
+  // Fleets
+  interface FleetMember { role: string; icon: string; prompt: string }
+  interface FleetTemplate { id: string; name: string; description: string; icon: string; members: FleetMember[] }
+  const [fleets, setFleets] = useState<FleetTemplate[]>([]);
+  const [fleetSpawning, setFleetSpawning] = useState<string | null>(null);
+  const [fleetContext, setFleetContext] = useState('');
+  const [fleetExpandedId, setFleetExpandedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ fleets: FleetTemplate[] }>('/agents/fleets')
+      .then((res) => setFleets(res.fleets ?? []))
+      .catch(() => {});
+  }, []);
+
+  const spawnFleet = async (fleetId: string) => {
+    setFleetSpawning(fleetId);
+    try {
+      await api.post('/agents/fleets/spawn', {
+        fleet_id: fleetId,
+        context: fleetContext,
+        model: 'sonnet',
+        budget: 2.0,
+      });
+      setFleetContext('');
+      setFleetExpandedId(null);
+      fetchAgents();
+    } catch (e) {
+      console.error('Failed to spawn fleet:', e);
+    } finally {
+      setFleetSpawning(null);
+    }
+  };
+
   const addCustomTemplate = useCallback(
     (t: CustomTemplate) => {
       setCustomTemplates([...customTemplates, t]);
@@ -2566,6 +2599,67 @@ export default function Agents() {
             <p className="text-slate-400 font-medium">New Template</p>
           </div>
         </div>
+
+        {/* Fleet templates */}
+        {fleets.length > 0 && (
+          <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="groups" className="text-blue-400" size={20} />
+              <h3 className="text-white font-semibold">Fleets</h3>
+              <span className="text-xs text-slate-500">Spawn a team of agents with different roles</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {fleets.map((fleet) => {
+                const isExpanded = fleetExpandedId === fleet.id;
+                const isSpawning = fleetSpawning === fleet.id;
+                return (
+                  <div
+                    key={fleet.id}
+                    className="bg-slate-800/60 border border-slate-700 rounded-lg p-4"
+                  >
+                    <div
+                      className="flex items-start gap-3 cursor-pointer"
+                      onClick={() => setFleetExpandedId(isExpanded ? null : fleet.id)}
+                    >
+                      <Icon name={fleet.icon} className="text-2xl text-blue-400 mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium">{fleet.name}</p>
+                        <p className="text-slate-400 text-xs mt-0.5">{fleet.description}</p>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {fleet.members.map((m) => (
+                            <span key={m.role} className="inline-flex items-center gap-1 text-[10px] text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
+                              <Icon name={m.icon} className="text-[10px]" />
+                              {m.role}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <Icon name={isExpanded ? 'expand_less' : 'expand_more'} className="text-slate-500 shrink-0" size={20} />
+                    </div>
+                    {isExpanded && (
+                      <div className="mt-3 pt-3 border-t border-slate-700/50">
+                        <input
+                          type="text"
+                          value={fleetContext}
+                          onChange={(e) => setFleetContext(e.target.value)}
+                          placeholder="What should this team work on?"
+                          className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 placeholder-slate-600 focus:outline-none focus:border-blue-500 mb-3"
+                        />
+                        <button
+                          onClick={() => spawnFleet(fleet.id)}
+                          disabled={isSpawning || !fleetContext.trim()}
+                          className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          {isSpawning ? 'Launching team...' : `Launch ${fleet.members.length} agents`}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Marketplace section (collapsible) */}
         {marketplaceOpen && (
