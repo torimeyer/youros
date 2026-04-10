@@ -120,6 +120,7 @@ const LS_KEYS = {
   customAgentTemplates: 'myos-custom-templates',
   dashboardWidgets: 'myos-dashboard-widgets',
   chatWidth: 'myos-chat-width',
+  featureOrder: 'myos-feature-order',
 } as const
 
 // Chat panel resize bounds.
@@ -231,6 +232,29 @@ function readInitialDashboardWidgets(): string[] {
 }
 const initialDashboardWidgets = readInitialDashboardWidgets()
 
+function applyFeatureOrder(features: FeatureToggle[]): FeatureToggle[] {
+  const raw = lsGet(LS_KEYS.featureOrder)
+  if (!raw) return features
+  try {
+    const order: string[] = JSON.parse(raw)
+    if (!Array.isArray(order)) return features
+    const byLabel = new Map(features.map((f) => [f.label, f]))
+    const result: FeatureToggle[] = []
+    for (const label of order) {
+      const f = byLabel.get(label)
+      if (f) {
+        result.push(f)
+        byLabel.delete(label)
+      }
+    }
+    // Append any new features not in the saved order
+    for (const f of byLabel.values()) result.push(f)
+    return result
+  } catch {
+    return features
+  }
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   onboarded: initialOnboarded,
   setOnboarded: (onboarded) => {
@@ -268,7 +292,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ accentColor })
     patchServer({ accent_color: accentColor })
   },
-  features: [
+  features: applyFeatureOrder([
     { label: 'Chat', enabled: true },
     { label: 'Tasks', enabled: true },
     { label: 'Activity', enabled: false },
@@ -281,8 +305,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     { label: 'Docs', enabled: true },
     { label: 'Transcripts', enabled: true },
     { label: 'Automations', enabled: false },
-  ],
-  setFeatures: (features) => set({ features }),
+  ]),
+  setFeatures: (features) => {
+    lsSet(LS_KEYS.featureOrder, JSON.stringify(features.map((f) => f.label)))
+    set({ features })
+  },
   isFeatureEnabled: (label: string) => {
     const feature = get().features.find((f) => f.label === label)
     return feature ? feature.enabled : true
