@@ -588,16 +588,16 @@ export default function Dashboard() {
               <div className="absolute top-3 right-3 opacity-0 group-hover/widget:opacity-100 transition-opacity">
                 <button
                   onClick={() => setWidgetMenuOpen(widgetMenuOpen === id ? null : id)}
-                  className="p-1 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
                   aria-label={`Widget options for ${id}`}
                 >
                   <Icon name="more_vert" size={16} />
                 </button>
                 {widgetMenuOpen === id && (
-                  <div className="absolute right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-1 z-10 min-w-[140px]">
+                  <div className="absolute right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-10 min-w-[140px]">
                     <button
                       onClick={() => removeWidget(id)}
-                      className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-slate-700 transition-colors flex items-center gap-2"
+                      className="w-full text-left px-3 py-1.5 text-sm text-red-500 dark:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
                     >
                       <Icon name="visibility_off" size={14} />
                       Hide widget
