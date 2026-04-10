@@ -123,11 +123,16 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
+        { label: 'Activity', enabled: true },
         { label: 'Hay/Ideas', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Projects', enabled: true },
+        { label: 'Drive', enabled: true },
+        { label: 'Calendar', enabled: true },
+        { label: 'Gmail', enabled: true },
         { label: 'Docs', enabled: true },
         { label: 'Transcripts', enabled: true },
+        { label: 'Automations', enabled: true },
       ],
     })
   })
@@ -172,23 +177,22 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.queryByText('Files')).not.toBeInTheDocument()
   })
 
-  it('hides Transcripts nav item when Transcripts feature is disabled', () => {
+  it('hides History nav item when Transcripts feature is disabled', () => {
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
         f.label === 'Transcripts' ? { ...f, enabled: false } : f
       ),
     })
     renderSidebar()
-    expect(screen.queryByText('Transcripts')).not.toBeInTheDocument()
+    expect(screen.queryByText('History')).not.toBeInTheDocument()
   })
 
-  it('always shows Home and Activity regardless of feature toggles', () => {
+  it('always shows Home and Settings regardless of feature toggles', () => {
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) => ({ ...f, enabled: false })),
     })
     renderSidebar()
     expect(screen.getByText('Home')).toBeInTheDocument()
-    expect(screen.getByText('Activity')).toBeInTheDocument()
     expect(screen.getByText('Settings')).toBeInTheDocument()
   })
 
@@ -198,7 +202,7 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.getByText('Ideas')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
     expect(screen.getByText('Files')).toBeInTheDocument()
-    expect(screen.getByText('Transcripts')).toBeInTheDocument()
+    expect(screen.getByText('History')).toBeInTheDocument()
   })
 
   it('re-enabling a feature shows the nav item again', () => {
@@ -230,11 +234,16 @@ describe('Settings integration: OS name in Sidebar', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
+        { label: 'Activity', enabled: true },
         { label: 'Hay/Ideas', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Projects', enabled: true },
+        { label: 'Drive', enabled: true },
+        { label: 'Calendar', enabled: true },
+        { label: 'Gmail', enabled: true },
         { label: 'Docs', enabled: true },
         { label: 'Transcripts', enabled: true },
+        { label: 'Automations', enabled: true },
       ],
     })
   })

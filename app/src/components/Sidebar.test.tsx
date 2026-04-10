@@ -33,11 +33,16 @@ describe('Sidebar', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
+        { label: 'Activity', enabled: true },
         { label: 'Hay/Ideas', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Projects', enabled: true },
+        { label: 'Drive', enabled: true },
+        { label: 'Calendar', enabled: true },
+        { label: 'Gmail', enabled: true },
         { label: 'Docs', enabled: true },
         { label: 'Transcripts', enabled: true },
+        { label: 'Automations', enabled: true },
       ],
     })
     mockedApiGet.mockResolvedValue({ active: [] })
@@ -46,7 +51,7 @@ describe('Sidebar', () => {
   it('renders all navigation items when all features enabled', async () => {
     renderSidebar()
 
-    const navLabels = ['Home', 'Tasks', 'Activity', 'Ideas', 'Agents', 'Files', 'Transcripts', 'Settings']
+    const navLabels = ['Home', 'Tasks', 'Activity', 'Ideas', 'Agents', 'Files', 'Drive', 'Calendar', 'Gmail', 'History', 'Automations', 'Settings']
     for (const label of navLabels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
@@ -78,7 +83,11 @@ describe('Sidebar', () => {
       Ideas: '/ideas',
       Agents: '/agents',
       Files: '/files',
-      Transcripts: '/transcripts',
+      Drive: '/drive',
+      Calendar: '/calendar',
+      Gmail: '/gmail',
+      History: '/transcripts',
+      Automations: '/workflows',
       Settings: '/settings',
     }
 

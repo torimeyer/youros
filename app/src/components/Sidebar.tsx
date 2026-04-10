@@ -20,7 +20,7 @@ export function Sidebar() {
     { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
     { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: 'Calendar' },
     { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true },
-    { to: '/transcripts', icon: 'record_voice_over', label: 'Transcripts', featureLabel: 'Transcripts' },
+    { to: '/transcripts', icon: 'history', label: 'History', featureLabel: 'Transcripts' },
     { to: '/workflows', icon: 'account_tree', label: 'Automations', featureLabel: 'Automations' },
   ]
   const [activeAgents, setActiveAgents] = useState(0)

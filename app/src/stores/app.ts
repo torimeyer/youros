@@ -271,8 +271,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   features: [
     { label: 'Chat', enabled: true },
     { label: 'Tasks', enabled: true },
-    { label: 'Activity', enabled: true },
-    { label: 'Hay/Ideas', enabled: true },
+    { label: 'Activity', enabled: false },
+    { label: 'Hay/Ideas', enabled: false },
     { label: 'Agents', enabled: true },
     { label: 'Projects', enabled: true },
     { label: 'Drive', enabled: true },
@@ -280,7 +280,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     { label: 'Gmail', enabled: true },
     { label: 'Docs', enabled: true },
     { label: 'Transcripts', enabled: true },
-    { label: 'Automations', enabled: true },
+    { label: 'Automations', enabled: false },
   ],
   setFeatures: (features) => set({ features }),
   isFeatureEnabled: (label: string) => {

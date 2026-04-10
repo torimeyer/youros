@@ -6,7 +6,82 @@ import { api, ApiError, ApiTimeoutError } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 
-const BASE_TABS = ["Active", "Recent", "Insights", "Metrics", "Templates"];
+const BASE_TABS = ["Active", "Recent", "Insights", "Metrics", "Templates", "Automations"];
+
+interface AutoTemplate { id: string; name: string; description: string; icon: string; steps: { name: string; prompt: string }[] }
+
+function AutomationTemplatesList() {
+  const [templates, setTemplates] = useState<AutoTemplate[]>([]);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [running, setRunning] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ templates: AutoTemplate[] }>('/workflows/templates')
+      .then((res) => setTemplates(res.templates ?? []))
+      .catch(() => {});
+  }, []);
+
+  const runTemplate = async (t: AutoTemplate) => {
+    setRunning(t.id);
+    try {
+      await api.post('/workflows', {
+        name: t.name,
+        steps: t.steps.map((s, i) => ({
+          id: `step-${i}`,
+          agent_name: s.name.toLowerCase().replace(/\s+/g, '-'),
+          prompt: s.prompt,
+          model: 'sonnet',
+          budget: 2.0,
+          depends_on: i > 0 ? [`step-${i - 1}`] : [],
+        })),
+      });
+    } catch (e) {
+      console.error('Failed to run workflow:', e);
+    } finally {
+      setRunning(null);
+    }
+  };
+
+  if (templates.length === 0) return <p className="text-sm text-slate-500">Loading templates...</p>;
+
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {templates.map((t) => {
+        const isExpanded = expanded === t.id;
+        return (
+          <div key={t.id} className="bg-slate-900/40 border border-slate-800 rounded-xl p-4">
+            <div className="flex items-start gap-3 cursor-pointer" onClick={() => setExpanded(isExpanded ? null : t.id)}>
+              <Icon name={t.icon} className="text-2xl text-blue-400 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-medium">{t.name}</p>
+                <p className="text-slate-400 text-xs mt-0.5">{t.description}</p>
+                <p className="text-slate-500 text-[10px] mt-1">{t.steps.length} steps</p>
+              </div>
+              <Icon name={isExpanded ? 'expand_less' : 'expand_more'} className="text-slate-500 shrink-0" size={20} />
+            </div>
+            {isExpanded && (
+              <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-2">
+                {t.steps.map((s, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs text-slate-400">
+                    <span className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-[10px] text-slate-300 shrink-0">{i + 1}</span>
+                    {s.name}
+                  </div>
+                ))}
+                <button
+                  onClick={() => runTemplate(t)}
+                  disabled={running === t.id}
+                  className="w-full mt-2 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                >
+                  {running === t.id ? 'Running...' : 'Run this workflow'}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 const POWER_USER_TABS = ["Delegate", "Workspace"];
 
 type CustomTemplate = CustomAgentTemplate;
@@ -2704,6 +2779,26 @@ export default function Agents() {
         )}
 
         </div>}
+
+        {/* Automations tab */}
+        {activeTab === "Automations" && (
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h3 className="text-white font-semibold">Automation Templates</h3>
+                <p className="text-xs text-slate-500 mt-1">Pre-built multi-step workflows you can run with one click</p>
+              </div>
+              <a
+                href="/workflows/builder"
+                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
+              >
+                <Icon name="add" className="text-base" />
+                Build custom workflow
+              </a>
+            </div>
+            <AutomationTemplatesList />
+          </div>
+        )}
 
         {/* Template Editor Modal */}
         {editorOpen && (
