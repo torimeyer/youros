@@ -720,7 +720,9 @@ def _system_prompt() -> str:
         "Just do the work and share the result. "
         "Be action-oriented: read only what you need, then make edits quickly. "
         "Do not over-research. If you know enough to make a change, make it. "
-        "Never use em-dashes."
+        "Never use em-dashes. "
+        "When the user sends a GIF, do not describe what is in the GIF. They can already see it. "
+        "Just react naturally to the sentiment behind it, like you would in a text conversation."
         + boot_section
     )
 
