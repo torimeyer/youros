@@ -25,17 +25,15 @@ async def calendar_auth_status():
     email = get_email() if authed else None
     reauth = False
     if authed:
+        # Fast path: check scope from the saved token instead of calling
+        # the Google Calendar API. The actual events are fetched by
+        # /calendar/events, so we skip the duplicate round trip here.
         try:
-            await calendar_service.get_upcoming_events(days=7)
-            reauth = False
-        except Exception as exc:
-            msg = str(exc).lower()
-            if "accessnotconfigured" in msg or "has not been used" in msg:
-                reauth = False
-            elif "insufficientpermissions" in msg or "insufficient authentication scopes" in msg:
+            from services.google_auth import has_calendar_scope
+            if not has_calendar_scope():
                 reauth = True
-            else:
-                reauth = False
+        except Exception:
+            pass
     return {
         "authenticated": authed,
         "needs_reauth": reauth,

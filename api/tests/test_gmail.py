@@ -57,61 +57,48 @@ async def test_gmail_auth_status_not_authenticated(client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_gmail_auth_status_authenticated(client, tmp_path):
-    """With a valid token and unread messages, status should reflect them."""
+    """With a valid token that has gmail scope, authenticated and no reauth needed."""
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+    }))
 
-    fake_messages = _make_messages(5)
-
-    with (
-        patch("services.google_auth.TOKEN_PATH", token_path),
-        patch("services.gmail.get_unread_summary", new=AsyncMock(return_value=fake_messages)),
-    ):
+    with patch("services.google_auth.TOKEN_PATH", token_path):
         resp = await client.get("/api/gmail/auth/status")
 
     assert resp.status_code == 200
     data = resp.json()
     assert data["authenticated"] is True
     assert data["needs_reauth"] is False
-    assert data["unread_count"] == 5
 
 
 @pytest.mark.asyncio
 async def test_gmail_auth_status_needs_reauth(client, tmp_path):
-    """When the Gmail scope is missing, needs_reauth should be True.
-
-    The auth/status endpoint probes the inbox once. A scope error on that
-    probe is how we know the token is missing the Gmail scope.
-    """
+    """When the Gmail scope is missing from the token, needs_reauth should be True."""
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/drive",
+    }))
 
-    with (
-        patch("services.google_auth.TOKEN_PATH", token_path),
-        patch(
-            "services.gmail.get_unread_summary",
-            new=AsyncMock(side_effect=Exception("403 insufficientPermissions")),
-        ),
-    ):
+    with patch("services.google_auth.TOKEN_PATH", token_path):
         resp = await client.get("/api/gmail/auth/status")
 
     assert resp.status_code == 200
     data = resp.json()
     assert data["authenticated"] is True
     assert data["needs_reauth"] is True
-    assert data["unread_count"] == 0
 
 
 @pytest.mark.asyncio
-async def test_gmail_auth_status_single_probe(client, tmp_path):
-    """auth/status must call Gmail at most once, not twice.
-
-    Regression: the old router called needs_reauth() and then
-    get_unread_summary() serially, doing two Gmail round trips for a
-    single status call. The fold should leave exactly one probe.
-    """
+async def test_gmail_auth_status_zero_probes(client, tmp_path):
+    """auth/status should not call Gmail API at all. Scope is checked from the token file."""
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+    }))
 
     probe = AsyncMock(return_value=_make_messages(2))
 
@@ -122,8 +109,7 @@ async def test_gmail_auth_status_single_probe(client, tmp_path):
         resp = await client.get("/api/gmail/auth/status")
 
     assert resp.status_code == 200
-    assert probe.call_count == 1
-    assert resp.json()["unread_count"] == 2
+    assert probe.call_count == 0
 
 
 # ---------------------------------------------------------------------------

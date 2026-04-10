@@ -275,72 +275,50 @@ async def test_briefing_endpoint_returns_cached_briefing(client):
 
 @pytest.mark.asyncio
 async def test_briefing_endpoint_generates_when_no_cache(client):
-    """When no cache exists, generate_briefing() should be called."""
-    generated = "Today you have two meetings and three open tasks. Good luck!"
-
+    """When no cache exists, return show=True with briefing=None (background generation)."""
     with (
         patch("routers.briefing.should_show_briefing", return_value=True),
         patch("routers.briefing.get_cached_briefing", return_value=None),
-        patch("routers.briefing.generate_briefing", new=AsyncMock(return_value=generated)),
+        patch("routers.briefing._generate_in_background", new=AsyncMock()),
     ):
         resp = await client.get("/api/briefing")
 
     assert resp.status_code == 200
     data = resp.json()
     assert data["show"] is True
-    assert data["briefing"] == generated
+    assert data["briefing"] is None
 
 
 @pytest.mark.asyncio
 async def test_briefing_second_call_uses_cache(client):
     """A second call within the same day returns cached text without re-generating."""
-    generated = "Briefing text."
-    call_count = 0
+    cached = "Briefing text."
 
-    async def _fake_generate():
-        nonlocal call_count
-        call_count += 1
-        return generated
-
-    # First call: no cache, generates
+    # When cache exists and task count unchanged, return cached immediately
     with (
         patch("routers.briefing.should_show_briefing", return_value=True),
-        patch("routers.briefing.get_cached_briefing", return_value=None),
-        patch("routers.briefing.generate_briefing", new=AsyncMock(side_effect=_fake_generate)),
+        patch("routers.briefing.get_cached_briefing", return_value=cached),
+        patch("routers.briefing._task_count_changed", new=AsyncMock(return_value=False)),
     ):
         resp1 = await client.get("/api/briefing")
 
     assert resp1.json()["show"] is True
-    assert call_count == 1
-
-    # Second call: cache is now populated
-    with (
-        patch("routers.briefing.should_show_briefing", return_value=True),
-        patch("routers.briefing.get_cached_briefing", return_value=generated),
-    ):
-        resp2 = await client.get("/api/briefing")
-
-    # generate_briefing was NOT called a second time
-    assert call_count == 1
-    assert resp2.json()["briefing"] == generated
-
+    assert resp1.json()["briefing"] == cached
 
 @pytest.mark.asyncio
-async def test_briefing_endpoint_handles_generate_failure(client):
-    """If generate_briefing raises, the endpoint returns a fallback message."""
+async def test_briefing_endpoint_returns_null_when_generating(client):
+    """When no cache exists, return null briefing while generating in background."""
     with (
         patch("routers.briefing.should_show_briefing", return_value=True),
         patch("routers.briefing.get_cached_briefing", return_value=None),
-        patch("routers.briefing.generate_briefing", new=AsyncMock(side_effect=Exception("API offline"))),
+        patch("routers.briefing._generate_in_background", new=AsyncMock()),
     ):
         resp = await client.get("/api/briefing")
 
     assert resp.status_code == 200
     data = resp.json()
     assert data["show"] is True
-    assert data["briefing"] is not None
-    assert len(data["briefing"]) > 0
-    assert "morning" not in data["briefing"].lower()
+    assert data["briefing"] is None
 
 
 # ---------------------------------------------------------------------------

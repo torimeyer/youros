@@ -132,10 +132,27 @@ export default function Dashboard() {
 
   useEffect(() => {
     setBriefingLoading(true);
-    api.get<BriefingData>('/briefing')
-      .then((res) => setBriefing(res))
-      .catch(() => setBriefing({ show: false, briefing: null }))
-      .finally(() => setBriefingLoading(false));
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchBriefing = () => {
+      api.get<BriefingData>('/briefing')
+        .then((res) => {
+          if (res.show && !res.briefing) {
+            // Generating in background, poll again in 2s
+            pollTimer = setTimeout(fetchBriefing, 2000);
+          } else {
+            setBriefing(res);
+            setBriefingLoading(false);
+          }
+        })
+        .catch(() => {
+          setBriefing({ show: false, briefing: null });
+          setBriefingLoading(false);
+        });
+    };
+
+    fetchBriefing();
+    return () => { if (pollTimer) clearTimeout(pollTimer); };
   }, []);
 
   const handleDismissBriefing = () => {

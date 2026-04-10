@@ -111,8 +111,7 @@ export default function Gmail() {
         const status = await api.get<AuthStatus>('/gmail/auth/status')
         setAuthStatus(status)
         if (status.authenticated && !status.needs_reauth) {
-          await fetchMessages()
-          await fetchSendCapability()
+          await Promise.all([fetchMessages(), fetchSendCapability()])
         }
       } catch {
         setAuthStatus({ authenticated: false, needs_reauth: false, email: null, unread_count: 0 })

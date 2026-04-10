@@ -29,18 +29,15 @@ async def gmail_auth_status():
     unread_count = 0
 
     if authed:
+        # Fast path: check scope by validating the token, not by calling
+        # the Gmail API. The unread count is fetched by /gmail/messages
+        # anyway, so we skip the duplicate round trip here.
         try:
-            messages = await gmail_service.get_unread_summary()
-            unread_count = len(messages)
-        except Exception as exc:
-            msg = str(exc).lower()
-            # API-not-enabled is a GCP setup issue, not a scope problem.
-            if "accessnotconfigured" in msg or "has not been used" in msg:
-                reauth = False
-            elif "insufficientpermissions" in msg or "insufficient authentication scopes" in msg:
+            from services.google_auth import has_gmail_scope
+            if not has_gmail_scope():
                 reauth = True
-            else:
-                reauth = False
+        except Exception:
+            pass
 
     return {
         "authenticated": authed,

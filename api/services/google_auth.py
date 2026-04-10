@@ -192,6 +192,30 @@ def get_email() -> str | None:
         return None
 
 
+def has_calendar_scope() -> bool:
+    """Return True if the stored token includes a Calendar scope."""
+    if not TOKEN_PATH.exists():
+        return False
+    try:
+        tokens = json.loads(TOKEN_PATH.read_text())
+        scope_str = tokens.get("scope", "")
+        return "calendar" in scope_str
+    except Exception:
+        return False
+
+
+def has_gmail_scope() -> bool:
+    """Return True if the stored token includes a Gmail scope."""
+    if not TOKEN_PATH.exists():
+        return False
+    try:
+        tokens = json.loads(TOKEN_PATH.read_text())
+        scope_str = tokens.get("scope", "")
+        return "gmail" in scope_str
+    except Exception:
+        return False
+
+
 def has_write_scope() -> bool:
     """Return True if the stored token includes the drive.file write scope.
 

@@ -60,15 +60,12 @@ async def test_calendar_auth_status_not_authenticated(client, tmp_path):
 async def test_calendar_auth_status_authenticated(client, tmp_path):
     """With a valid token, authenticated should be True and needs_reauth should be False."""
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
 
-    with (
-        patch("services.google_auth.TOKEN_PATH", token_path),
-        patch(
-            "services.calendar.get_upcoming_events",
-            new=AsyncMock(return_value=_make_events(2)),
-        ),
-    ):
+    with patch("services.google_auth.TOKEN_PATH", token_path):
         resp = await client.get("/api/calendar/auth/status")
 
     assert resp.status_code == 200
@@ -81,19 +78,13 @@ async def test_calendar_auth_status_authenticated(client, tmp_path):
 async def test_calendar_auth_status_needs_reauth(client, tmp_path):
     """When the calendar scope is missing, needs_reauth should be True.
 
-    The auth/status endpoint probes the events list once. A scope error
-    on that probe is how we know the token is missing the calendar scope.
+    The scope check reads the stored token. A token without the calendar
+    scope means needs_reauth.
     """
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/drive"}))
 
-    with (
-        patch("services.google_auth.TOKEN_PATH", token_path),
-        patch(
-            "services.calendar.get_upcoming_events",
-            new=AsyncMock(side_effect=Exception("403 insufficientPermissions")),
-        ),
-    ):
+    with patch("services.google_auth.TOKEN_PATH", token_path):
         resp = await client.get("/api/calendar/auth/status")
 
     assert resp.status_code == 200
@@ -111,7 +102,7 @@ async def test_calendar_auth_status_warm_cache_zero_probes(client, tmp_path):
     should make a cached auth/status cost zero Google calls.
     """
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     cache_dir = tmp_path / "calendar_cache"
     cache_dir.mkdir()
@@ -152,7 +143,7 @@ async def test_calendar_events_not_authenticated(client, tmp_path):
 async def test_calendar_events_cache_hit(client, tmp_path):
     """When a fresh cache exists, return events without hitting the Calendar API."""
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     cache_dir = tmp_path / "calendar_cache"
     cache_dir.mkdir()
@@ -175,7 +166,7 @@ async def test_calendar_events_cache_hit(client, tmp_path):
 async def test_calendar_events_cache_miss_fetches_api(client, tmp_path):
     """On cache miss, the Calendar API should be called and the result returned."""
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     cache_dir = tmp_path / "calendar_cache"
     cache_dir.mkdir()
@@ -208,7 +199,7 @@ async def test_calendar_events_cache_miss_fetches_api(client, tmp_path):
 async def test_calendar_events_insufficient_scope_returns_403(client, tmp_path):
     """When the Calendar scope is missing, the endpoint should return 403."""
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     cache_dir = tmp_path / "calendar_cache"
     cache_dir.mkdir()
@@ -248,7 +239,7 @@ async def test_calendar_sync_not_authenticated(client, tmp_path):
 async def test_calendar_sync_success(client, tmp_path):
     """Sync should clear the cache and return count of new events."""
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     cache_dir = tmp_path / "calendar_cache"
     cache_dir.mkdir()
@@ -309,7 +300,7 @@ async def test_build_calendar_context_returns_formatted_events(tmp_path):
     from routers.chat import build_calendar_context
 
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     fake_today = [
         {
@@ -354,7 +345,7 @@ async def test_tool_executor_get_calendar_events_returns_events(tmp_path):
     from services.tool_executor import execute_tool
 
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     fake_today = [
         {
@@ -380,7 +371,7 @@ async def test_tool_executor_get_calendar_events_no_events(tmp_path):
     from services.tool_executor import execute_tool
 
     token_path = tmp_path / "google_token.json"
-    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+    token_path.write_text(json.dumps({"access_token": "ya29.test", "scope": "https://www.googleapis.com/auth/calendar.readonly"}))
 
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
