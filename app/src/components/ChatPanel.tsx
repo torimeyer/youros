@@ -1188,16 +1188,16 @@ export function ChatPanel() {
                     {msg.content && (
                       <CollapsibleText text={msg.content} isLast={i === messages.length - 1} streaming={isStreaming} />
                     )}
-                    {/* Show thinking dots any time an assistant bubble is
-                        empty and it is the most recent message. This
-                        covers the brief window between the empty bubble
-                        being created and isStreaming flipping true.
+                    {/* Show thinking dots on the latest assistant bubble
+                        while streaming is active. Covers both the empty
+                        state (waiting for first token) and the mid-stream
+                        state (LLM is still working after sending some text).
                         Suppressed during multi-AI exchanges because the
-                        multi_ai_status pill above already shows thinking
-                        and speaking state. Otherwise the user sees two
-                        thinking indicators stacked on top of each other,
-                        one in the bubble and one in the pill. */}
-                    {!msg.content && i === messages.length - 1 && !msg.toolCalls?.length && !multiAiStatus && (
+                        status pill already shows thinking state. */}
+                    {i === messages.length - 1 && !multiAiStatus && isStreaming && !msg.toolCalls?.length && (
+                      <ThinkingDots />
+                    )}
+                    {!msg.content && i === messages.length - 1 && !msg.toolCalls?.length && !multiAiStatus && !isStreaming && (
                       <ThinkingDots />
                     )}
                     {isStreaming && i === messages.length - 1 && (msg.toolCalls?.some(tc => tc.result === undefined)) && (

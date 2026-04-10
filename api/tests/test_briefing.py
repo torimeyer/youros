@@ -264,6 +264,7 @@ async def test_briefing_endpoint_returns_cached_briefing(client):
     with (
         patch("routers.briefing.should_show_briefing", return_value=True),
         patch("routers.briefing.get_cached_briefing", return_value="Have a great day."),
+        patch("routers.briefing._task_count_changed", new=AsyncMock(return_value=False)),
     ):
         resp = await client.get("/api/briefing")
 

@@ -61,7 +61,7 @@ _DETECTION_CACHE_TTL_SECONDS: float = 60.0
 _AUTH_STATUS_TIMEOUT_SECONDS: float = 3.0
 
 # Cap on how long a single chat turn may run before we kill the subprocess.
-_STREAM_TIMEOUT_SECONDS: float = 120.0
+_STREAM_TIMEOUT_SECONDS: float = 300.0
 
 
 # Module-level cache for detection results. Not perfect across processes
