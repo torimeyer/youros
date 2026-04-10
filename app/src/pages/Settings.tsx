@@ -1,4 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
@@ -74,6 +89,76 @@ const featureDisplayNames: Record<string, string> = {
   'Hay/Ideas': 'Ideas',
   'Projects': 'Files',
 };
+
+function SortableFeatureRow({ feature, index, onToggle, icon, displayName }: {
+  feature: { label: string; enabled: boolean };
+  index: number;
+  onToggle: (i: number) => void;
+  icon: string;
+  displayName: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: feature.label });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-3 bg-slate-800/50 border border-slate-700/50 rounded-lg px-3 py-2.5">
+      <button type="button" {...attributes} {...listeners} className="text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing touch-none">
+        <Icon name="drag_indicator" size={18} />
+      </button>
+      <Icon name={icon} className="text-slate-400" size={18} />
+      <span className="flex-1 text-sm text-slate-300">{displayName}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={feature.enabled}
+        aria-label={displayName}
+        onClick={() => onToggle(index)}
+        className={`relative inline-flex items-center w-10 h-5 rounded-full transition-colors shrink-0 ${feature.enabled ? 'bg-blue-500' : 'bg-slate-600'}`}
+      >
+        <span className={`inline-block w-4 h-4 rounded-full bg-white shadow-sm transform transition-transform ${feature.enabled ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
+      </button>
+    </div>
+  );
+}
+
+function FeatureDragList({ features, onReorder, onToggle, icons, displayNames }: {
+  features: { label: string; enabled: boolean }[];
+  onReorder: (f: { label: string; enabled: boolean }[]) => void;
+  onToggle: (i: number) => void;
+  icons: Record<string, string>;
+  displayNames: Record<string, string>;
+}) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = features.findIndex((f) => f.label === active.id);
+    const newIndex = features.findIndex((f) => f.label === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    onReorder(arrayMove([...features], oldIndex, newIndex));
+  };
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={features.map((f) => f.label)} strategy={verticalListSortingStrategy}>
+        <div className="space-y-1.5">
+          {features.map((f, i) => (
+            <SortableFeatureRow
+              key={f.label}
+              feature={f}
+              index={i}
+              onToggle={onToggle}
+              icon={icons[f.label] || 'extension'}
+              displayName={displayNames[f.label] || f.label}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+}
 
 export default function Settings() {
   const {
@@ -674,23 +759,19 @@ export default function Settings() {
         {/* Row 2: System Features */}
         <div className={cardClass}>
           <h2 className="text-lg font-semibold mb-5">System Features</h2>
-          <div className="flex gap-4 flex-wrap">
-            {features.map((f: { label: string; enabled: boolean }, index: number) => (
-              <div
-                key={f.label}
-                onClick={() => handleFeatureToggle(index)}
-                className="flex items-center gap-2.5 px-4 py-3 bg-slate-800/50 rounded-lg border border-slate-700/50 cursor-pointer hover:border-slate-600 transition-colors"
-              >
-                <Icon name={featureIcons[f.label] || 'extension'} className="text-slate-300" size={20} />
-                <span className="text-sm text-slate-300">{featureDisplayNames[f.label] || f.label}</span>
-                <span
-                  className={`w-2.5 h-2.5 rounded-full ${
-                    f.enabled ? 'bg-green-400' : 'bg-slate-600'
-                  }`}
-                />
-              </div>
-            ))}
-          </div>
+          <p className="text-xs text-slate-500 mb-3">Drag to reorder. Toggle to show or hide in the sidebar.</p>
+          <FeatureDragList
+            features={features}
+            onReorder={(newFeatures) => {
+              setFeatures(newFeatures);
+              const featuresObj: Record<string, boolean> = {};
+              newFeatures.forEach((f: { label: string; enabled: boolean }) => { featuresObj[f.label] = f.enabled; });
+              api.patch('/settings', { features: featuresObj }).catch(() => {});
+            }}
+            onToggle={(index) => handleFeatureToggle(index)}
+            icons={featureIcons}
+            displayNames={featureDisplayNames}
+          />
 
           {/* Power user mode toggle */}
           <div className="mt-6 pt-6 border-t border-slate-800">

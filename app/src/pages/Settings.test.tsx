@@ -136,10 +136,9 @@ describe('Settings', () => {
   describe('Feature toggles', () => {
     it('updates features in the global store when toggled', () => {
       renderSettings()
-      // Click on the Transcripts feature (which starts as disabled)
-      const transcriptsFeature = screen.getByText('Transcripts').closest('div[class*="cursor-pointer"]')
-      expect(transcriptsFeature).toBeTruthy()
-      fireEvent.click(transcriptsFeature!)
+      // Click the toggle switch for Transcripts
+      const toggle = screen.getByRole('switch', { name: /Transcripts/i })
+      fireEvent.click(toggle)
 
       const updated = useAppStore.getState().features
       const transcripts = updated.find((f) => f.label === 'Transcripts')
@@ -148,8 +147,8 @@ describe('Settings', () => {
 
     it('persists feature toggles to API', () => {
       renderSettings()
-      const transcriptsFeature = screen.getByText('Transcripts').closest('div[class*="cursor-pointer"]')
-      fireEvent.click(transcriptsFeature!)
+      const toggle = screen.getByRole('switch', { name: /Transcripts/i })
+      fireEvent.click(toggle)
 
       expect(mockedApiPatch).toHaveBeenCalledWith('/settings', expect.objectContaining({
         features: expect.objectContaining({ Transcripts: true }),
@@ -158,8 +157,8 @@ describe('Settings', () => {
 
     it('disabling a feature updates the store', () => {
       renderSettings()
-      const tasksFeature = screen.getByText('Tasks').closest('div[class*="cursor-pointer"]')
-      fireEvent.click(tasksFeature!)
+      const toggle = screen.getByRole('switch', { name: /Tasks/i })
+      fireEvent.click(toggle)
 
       const updated = useAppStore.getState().features
       const tasks = updated.find((f) => f.label === 'Tasks')

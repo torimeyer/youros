@@ -95,12 +95,22 @@ export function Sidebar() {
     return () => clearInterval(interval)
   }, [])
 
-  // Filter nav items based on feature toggles
-  const navItems = allNavItems.filter((item) => {
-    if (!item.featureLabel) return true
-    const feature = features.find((f) => f.label === item.featureLabel)
-    return feature ? feature.enabled : true
-  })
+  // Filter and sort nav items based on feature toggles.
+  // Home is always first, then items follow the order in the features array.
+  const featureOrder = new Map(features.map((f, i) => [f.label, i]))
+  const navItems = allNavItems
+    .filter((item) => {
+      if (!item.featureLabel) return true
+      const feature = features.find((f) => f.label === item.featureLabel)
+      return feature ? feature.enabled : true
+    })
+    .sort((a, b) => {
+      if (!a.featureLabel) return -1
+      if (!b.featureLabel) return 1
+      const orderA = featureOrder.get(a.featureLabel) ?? 999
+      const orderB = featureOrder.get(b.featureLabel) ?? 999
+      return orderA - orderB
+    })
 
   const linkClass = (isActive: boolean) =>
     `group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer active:scale-[0.98] ${
