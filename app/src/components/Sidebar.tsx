@@ -1,13 +1,88 @@
 import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import Icon from './Icon'
 import WhatsNew from './WhatsNew'
 import { useAppStore, useTerms } from '../stores/app'
 import { api } from '../lib/api'
 
+interface NavItem {
+  to: string
+  icon: string
+  label: string
+  featureLabel: string | null
+  badge?: boolean
+  gmailBadge?: boolean
+}
+
+function SortableNavItem({ item, linkClass, activeAgents, gmailUnread }: {
+  item: NavItem
+  linkClass: (isActive: boolean) => string
+  activeAgents: number
+  gmailUnread: number
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.to })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  }
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center">
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className="text-slate-700 hover:text-slate-500 cursor-grab active:cursor-grabbing touch-none px-0.5 shrink-0"
+        tabIndex={-1}
+      >
+        <Icon name="drag_indicator" className="text-xs" />
+      </button>
+      <NavLink
+        to={item.to}
+        end={item.to === '/'}
+        className={({ isActive }) => linkClass(isActive)}
+      >
+        {({ isActive }) => (
+          <>
+            <Icon name={item.icon} filled={isActive} className="text-xl" />
+            <span className="text-sm font-medium">{item.label}</span>
+            {item.badge && activeAgents > 0 && (
+              <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                {activeAgents}
+              </span>
+            )}
+            {item.gmailBadge && gmailUnread > 0 && (
+              <span className="ml-auto bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                {gmailUnread}
+              </span>
+            )}
+          </>
+        )}
+      </NavLink>
+    </div>
+  )
+}
+
 export function Sidebar() {
   const osName = useAppStore((s) => s.osName)
   const features = useAppStore((s) => s.features)
+  const setFeatures = useAppStore((s) => s.setFeatures)
   const t = useTerms()
 
   const allNavItems = [
@@ -129,7 +204,8 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-col gap-1 px-3 flex-1">
-        {navItems.map((item) => (
+        {/* Home is always first and not draggable */}
+        {navItems.filter((item) => !item.featureLabel).map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -140,21 +216,49 @@ export function Sidebar() {
               <>
                 <Icon name={item.icon} filled={isActive} className="text-xl" />
                 <span className="text-sm font-medium">{item.label}</span>
-                {'badge' in item && item.badge && activeAgents > 0 && (
-                  <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    {activeAgents}
-                  </span>
-                )}
-                {'gmailBadge' in item && item.gmailBadge && gmailUnread > 0 && (
-                  <span className="ml-auto bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {gmailUnread}
-                  </span>
-                )}
               </>
             )}
           </NavLink>
         ))}
+        {/* Draggable nav items */}
+        <DndContext
+          sensors={useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))}
+          collisionDetection={closestCenter}
+          onDragEnd={(event: DragEndEvent) => {
+            const { active, over } = event
+            if (!over || active.id === over.id) return
+            const draggableItems = navItems.filter((item) => item.featureLabel)
+            const oldIndex = draggableItems.findIndex((item) => item.to === active.id)
+            const newIndex = draggableItems.findIndex((item) => item.to === over.id)
+            if (oldIndex === -1 || newIndex === -1) return
+            const reordered = arrayMove(draggableItems, oldIndex, newIndex)
+            // Update features array to match new order
+            const newFeatures = reordered
+              .map((item) => features.find((f) => f.label === item.featureLabel))
+              .filter((f): f is { label: string; enabled: boolean } => f != null)
+            // Add any features not in the nav (like Chat, Docs)
+            const seen = new Set(newFeatures.map((f) => f.label))
+            for (const f of features) {
+              if (!seen.has(f.label)) newFeatures.push(f)
+            }
+            setFeatures(newFeatures)
+          }}
+        >
+          <SortableContext
+            items={navItems.filter((item) => item.featureLabel).map((item) => item.to)}
+            strategy={verticalListSortingStrategy}
+          >
+            {navItems.filter((item) => item.featureLabel).map((item) => (
+              <SortableNavItem
+                key={item.to}
+                item={item}
+                linkClass={linkClass}
+                activeAgents={activeAgents}
+                gmailUnread={gmailUnread}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
       </nav>
 
       <div className="px-3 flex flex-col gap-1">
