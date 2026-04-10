@@ -6,7 +6,7 @@ import { api, ApiError, ApiTimeoutError } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 
-const BASE_TABS = ["Active", "Recent", "Insights", "Metrics", "Templates", "Agentfiles", "Automations"];
+const BASE_TABS = ["Active", "Recent", "Insights", "Metrics", "Templates", "Automations"];
 
 interface AutoTemplate { id: string; name: string; description: string; icon: string; steps: { name: string; prompt: string }[] }
 
@@ -275,7 +275,7 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                         {af.source === "builtin" ? "built-in" : "custom"}
                       </span>
                     </div>
-                    <p className="text-slate-400 text-xs mt-0.5 line-clamp-2">{af.description || "No description"}</p>
+                    <p className="text-slate-400 text-xs mt-0.5 line-clamp-3">{af.description || "No description"}</p>
                     <div className="flex gap-3 mt-1.5">
                       <span className="text-[10px] text-slate-500">model: {af.model}</span>
                       <span className="text-[10px] text-slate-500">tools: {af.tools.length}</span>
@@ -3131,7 +3131,7 @@ export default function Agents() {
                         <Icon name={mt.icon} className="text-2xl text-slate-400 mt-0.5 shrink-0" />
                         <div className="flex-1 min-w-0">
                           <p className="text-white text-sm font-medium">{mt.name}</p>
-                          <p className="text-slate-400 text-xs mt-0.5 line-clamp-2">{mt.description}</p>
+                          <p className="text-slate-400 text-xs mt-0.5 line-clamp-3">{mt.description}</p>
                         </div>
                         {alreadyAdded ? (
                           <span className="text-green-400 shrink-0 mt-0.5" title="Already added">
