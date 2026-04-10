@@ -297,7 +297,7 @@ def _build_drive_service():
         client_id=None,
         client_secret=None,
     )
-    return build("drive", "v3", credentials=creds, cache_discovery=False)
+    return build("drive", "v3", credentials=creds)
 
 
 @router.get("/drive/files")
@@ -369,7 +369,7 @@ async def _fetch_drive_files(
                 orderBy="modifiedTime desc",
                 fields=(
                     "files(id,name,mimeType,modifiedTime,"
-                    "iconLink,webViewLink,size,parents)"
+                    "iconLink,webViewLink,size,parents,thumbnailLink)"
                 ),
             )
             .execute()
@@ -647,6 +647,36 @@ async def drive_delete_file(file_id: str):
 # ---------------------------------------------------------------------------
 
 
+@router.get("/drive/files/{file_id}/thumbnail")
+async def drive_file_thumbnail(file_id: str):
+    """Return the Google Drive thumbnail URL for a file.
+
+    This is much faster than the full preview endpoint because it only
+    fetches metadata (one lightweight API call) instead of downloading or
+    exporting the entire file. The frontend uses this for the initial
+    preview and offers a "View full document" button for the heavy export.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Google Drive.")
+
+    try:
+        meta = await _get_file_meta(file_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not get file info from Drive: {exc}",
+        ) from exc
+
+    thumbnail_link = meta.get("thumbnailLink")
+    if thumbnail_link:
+        # Google returns small thumbnails by default. Request a larger one.
+        if "=s" in thumbnail_link:
+            thumbnail_link = thumbnail_link.rsplit("=s", 1)[0] + "=s800"
+        return {"thumbnailLink": thumbnail_link, "name": meta.get("name", "")}
+
+    return {"thumbnailLink": None, "name": meta.get("name", "")}
+
+
 @router.get("/drive/files/{file_id}/preview")
 async def drive_file_preview(file_id: str):
     """Export a Drive file as PDF and return it.
@@ -761,7 +791,7 @@ async def _get_file_meta(file_id: str) -> dict:
             service.files()
             .get(
                 fileId=file_id,
-                fields="id,name,mimeType,webViewLink,size",
+                fields="id,name,mimeType,webViewLink,size,thumbnailLink",
             )
             .execute()
         )

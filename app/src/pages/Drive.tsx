@@ -41,6 +41,11 @@ interface PreviewNotAvailable {
   mimeType: string;
 }
 
+interface ThumbnailResponse {
+  thumbnailLink: string | null;
+  name: string;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -520,9 +525,11 @@ function PreviewPanel({
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(true);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [notPreviewable, setNotPreviewable] = useState<PreviewNotAvailable | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadingFull, setLoadingFull] = useState(false);
   const objectUrlRef = useRef<string | null>(null);
 
   // Close on Escape.
@@ -544,15 +551,30 @@ function PreviewPanel({
     };
   }, [file.id]);
 
+  // Load thumbnail first (fast), fall back to full preview if no thumbnail.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setThumbnailUrl(null);
     setPdfUrl(null);
     setNotPreviewable(null);
     setError(null);
+    setLoadingFull(false);
 
     async function load() {
       try {
+        // Try the fast thumbnail endpoint first.
+        const thumbResp = await fetch(`/api/drive/files/${encodeURIComponent(file.id)}/thumbnail`);
+        if (thumbResp.ok) {
+          const thumbData = (await thumbResp.json()) as ThumbnailResponse;
+          if (!cancelled && thumbData.thumbnailLink) {
+            setThumbnailUrl(thumbData.thumbnailLink);
+            setLoading(false);
+            return;
+          }
+        }
+
+        // No thumbnail available, fall back to full preview.
         const resp = await fetch(`/api/drive/files/${encodeURIComponent(file.id)}/preview`);
         if (!resp.ok) {
           throw new Error(`Could not load this file (${resp.status}).`);
@@ -581,6 +603,32 @@ function PreviewPanel({
       cancelled = true;
     };
   }, [file.id]);
+
+  const loadFullPreview = async () => {
+    setLoadingFull(true);
+    try {
+      const resp = await fetch(`/api/drive/files/${encodeURIComponent(file.id)}/preview`);
+      if (!resp.ok) {
+        throw new Error(`Could not load full preview (${resp.status}).`);
+      }
+      const contentType = resp.headers.get('content-type') ?? '';
+      if (contentType.includes('application/json')) {
+        const data = (await resp.json()) as PreviewNotAvailable;
+        setNotPreviewable(data);
+      } else {
+        const blob = await resp.blob();
+        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+        const url = URL.createObjectURL(blob);
+        objectUrlRef.current = url;
+        setPdfUrl(url);
+        setThumbnailUrl(null);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not load full preview.');
+    } finally {
+      setLoadingFull(false);
+    }
+  };
 
   const { icon, color } = mimeIcon(file.mimeType);
 
@@ -677,6 +725,36 @@ function PreviewPanel({
                   Open in Google Drive
                 </a>
               )}
+            </div>
+          )}
+
+          {!loading && thumbnailUrl && !pdfUrl && (
+            <div className="flex flex-col items-center justify-center h-full gap-4 px-8">
+              <img
+                src={thumbnailUrl}
+                alt={`Thumbnail of ${file.name}`}
+                className="max-w-full max-h-[60vh] rounded-lg shadow-lg object-contain"
+              />
+              <button
+                onClick={loadFullPreview}
+                disabled={loadingFull}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm text-white transition-colors"
+              >
+                {loadingFull ? (
+                  <>
+                    <span
+                      className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"
+                      role="status"
+                    />
+                    Loading full document...
+                  </>
+                ) : (
+                  <>
+                    <Icon name="description" size={16} />
+                    View full document
+                  </>
+                )}
+              </button>
             </div>
           )}
 

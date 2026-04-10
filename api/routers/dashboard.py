@@ -6,6 +6,8 @@ from fastapi import APIRouter
 
 from config import OSTK_DIR
 from services.ostk import ostk, OstkError
+from services.labels_store import labels_store
+from services.task_labels_store import task_labels_store
 
 router = APIRouter(tags=["dashboard"])
 
@@ -170,6 +172,117 @@ async def get_dashboard_summary():
         bullets.append(f"{open_needle_count} idea{'s' if open_needle_count != 1 else ''} saved and waiting for review.")
 
     return {"bullets": bullets[:5]}
+
+
+@router.get("/dashboard/insights")
+async def get_dashboard_insights():
+    """Analyze open tasks across labels and find patterns.
+
+    Returns a list of plain-language insight strings about task
+    distribution, staleness, and label performance.
+    """
+    try:
+        all_tasks = await ostk.list_tasks()
+    except OstkError:
+        all_tasks = []
+
+    open_tasks = [t for t in all_tasks if t.get("status") == "open"]
+    closed_tasks = [t for t in all_tasks if t.get("status") == "closed"]
+
+    if not all_tasks:
+        return {"insights": ["No tasks found yet. Create some tasks to see insights here."]}
+
+    insights: list[str] = []
+
+    # Build label name lookup
+    all_labels = labels_store.list_labels()
+    label_names: dict[str, str] = {
+        l.get("id", ""): l.get("name", "Unnamed") for l in all_labels
+    }
+    all_assignments = task_labels_store.get_all_assignments()
+
+    # Count open tasks per label
+    label_open_counts: dict[str, int] = {}
+    for t in open_tasks:
+        tid = t.get("id", "")
+        for lid in all_assignments.get(tid, []):
+            label_open_counts[lid] = label_open_counts.get(lid, 0) + 1
+
+    if label_open_counts:
+        top_label_id = max(label_open_counts, key=lambda k: label_open_counts[k])
+        top_name = label_names.get(top_label_id, top_label_id)
+        top_count = label_open_counts[top_label_id]
+        insights.append(
+            f"Most open tasks are in \"{top_name}\" ({top_count} task{'s' if top_count != 1 else ''})."
+        )
+
+    # Find which label closes tasks fastest (by average open duration)
+    label_durations: dict[str, list[float]] = {}
+    now_ts = datetime.now(timezone.utc).timestamp()
+    for t in closed_tasks:
+        tid = t.get("id", "")
+        created = t.get("created_at", "")
+        closed = t.get("closed_at", "")
+        if not created or not closed:
+            continue
+        try:
+            c_ts = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
+            d_ts = datetime.fromisoformat(closed.replace("Z", "+00:00")).timestamp()
+            duration_days = (d_ts - c_ts) / 86400
+        except (ValueError, TypeError):
+            continue
+        for lid in all_assignments.get(tid, []):
+            label_durations.setdefault(lid, []).append(duration_days)
+
+    if label_durations:
+        fastest_label = min(
+            label_durations,
+            key=lambda k: sum(label_durations[k]) / len(label_durations[k]),
+        )
+        avg_days = sum(label_durations[fastest_label]) / len(label_durations[fastest_label])
+        fast_name = label_names.get(fastest_label, fastest_label)
+        insights.append(
+            f"\"{fast_name}\" tasks close fastest (average {avg_days:.1f} day{'s' if avg_days != 1 else ''})."
+        )
+
+    # Find stale open tasks (open > 7 days)
+    stale_count = 0
+    for t in open_tasks:
+        created = t.get("created_at", "")
+        if not created:
+            continue
+        try:
+            c_ts = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
+            if (now_ts - c_ts) > 7 * 86400:
+                stale_count += 1
+        except (ValueError, TypeError):
+            continue
+
+    if stale_count > 0:
+        insights.append(
+            f"{stale_count} task{'s have' if stale_count != 1 else ' has'} been open for over 7 days."
+        )
+
+    # Priority distribution insight
+    p0 = sum(1 for t in open_tasks if t.get("priority") == "P0")
+    p1 = sum(1 for t in open_tasks if t.get("priority") == "P1")
+    p2 = sum(1 for t in open_tasks if t.get("priority") == "P2")
+    if p0 > 0 and p0 >= p1:
+        insights.append(
+            f"You have {p0} urgent (P0) task{'s' if p0 != 1 else ''} right now. Consider focusing there first."
+        )
+
+    # Unlabeled tasks
+    unlabeled = sum(1 for t in open_tasks if not all_assignments.get(t.get("id", "")))
+    if unlabeled > 0 and all_labels:
+        insights.append(
+            f"{unlabeled} open task{'s' if unlabeled != 1 else ''} {'have' if unlabeled != 1 else 'has'} no labels. Labeling helps spot patterns."
+        )
+
+    if not insights:
+        insights.append("Everything looks balanced. No standout patterns right now.")
+
+    return {"insights": insights}
 
 
 @router.get("/dashboard/diff")

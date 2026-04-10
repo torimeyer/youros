@@ -317,6 +317,12 @@ export function ChatPanel() {
   }, [activeTabId])
 
   const [input, setInput] = useState('')
+  const [isListening, setIsListening] = useState(false)
+  const speechRecRef = useRef<SpeechRecognition | null>(null)
+  const [speechSupported] = useState(() =>
+    typeof window !== 'undefined' &&
+    ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
+  )
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [toolsEnabled, setToolsEnabled] = useState(true)
@@ -825,6 +831,37 @@ export function ChatPanel() {
       tools: toolsEnabled,
     })
   }
+
+  const toggleSpeech = useCallback(() => {
+    if (isListening && speechRecRef.current) {
+      speechRecRef.current.stop()
+      setIsListening(false)
+      return
+    }
+    const SpeechRec = (window as unknown as Record<string, unknown>).SpeechRecognition || (window as unknown as Record<string, unknown>).webkitSpeechRecognition
+    if (!SpeechRec) return
+    const recognition = new (SpeechRec as new () => SpeechRecognition)()
+    recognition.lang = 'en-US'
+    recognition.interimResults = false
+    recognition.maxAlternatives = 1
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const transcript = event.results[0]?.[0]?.transcript ?? ''
+      if (transcript) {
+        setInput((prev) => (prev ? prev + ' ' + transcript : transcript))
+      }
+    }
+    recognition.onend = () => {
+      setIsListening(false)
+      speechRecRef.current = null
+    }
+    recognition.onerror = () => {
+      setIsListening(false)
+      speechRecRef.current = null
+    }
+    speechRecRef.current = recognition
+    recognition.start()
+    setIsListening(true)
+  }, [isListening])
 
   const handleSend = () => {
     if (!input.trim() && !pendingImage) return
@@ -1341,6 +1378,15 @@ export function ChatPanel() {
           >
             <Icon name="gif_box" className="text-lg" />
           </button>
+          {speechSupported && (
+            <button
+              onClick={toggleSpeech}
+              className={`p-2 transition-colors rounded-lg ${isListening ? 'text-red-400 bg-red-500/10 animate-pulse' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
+              title={isListening ? 'Stop listening' : 'Voice input'}
+            >
+              <Icon name="mic" className="text-lg" />
+            </button>
+          )}
           <button
             onClick={handleSend}
             disabled={!input.trim() && !pendingImage}

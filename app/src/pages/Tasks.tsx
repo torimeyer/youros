@@ -204,6 +204,9 @@ export default function Tasks() {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [showTaskSharePopover, setShowTaskSharePopover] = useState(false);
   const [undoDelete, setUndoDelete] = useState<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const [openActionMenu, setOpenActionMenu] = useState<string | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
@@ -406,16 +409,17 @@ export default function Tasks() {
 
   // Close dropdowns when clicking outside
   useEffect(() => {
-    if (!openPriorityDropdown && !openLabelDropdown && !openLinkDropdown && !openThreadDropdown) return;
+    if (!openPriorityDropdown && !openLabelDropdown && !openLinkDropdown && !openThreadDropdown && !openActionMenu) return;
     const handleClick = () => {
       setOpenPriorityDropdown(null);
       setOpenLabelDropdown(null);
       setOpenLinkDropdown(null);
       setOpenThreadDropdown(null);
+      setOpenActionMenu(null);
     };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
-  }, [openPriorityDropdown, openLabelDropdown, openLinkDropdown, openThreadDropdown]);
+  }, [openPriorityDropdown, openLabelDropdown, openLinkDropdown, openThreadDropdown, openActionMenu]);
 
   const addTask = async () => {
     const title = newTaskTitle.trim();
@@ -605,6 +609,82 @@ export default function Tasks() {
     } finally {
       setLabelAllLoading(false);
       setTimeout(() => setLabelAllResult(null), 5000);
+    }
+  };
+
+  const spawnAgentForTask = async (taskId: string, mode: "plan" | "implement") => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    setActionLoading(taskId);
+    try {
+      const prompt =
+        mode === "plan"
+          ? `Create a detailed plan for this task: "${task.title}". Break it down into steps, identify risks, and estimate effort.`
+          : `Implement this task: "${task.title}". Write the code, tests, and documentation needed.`;
+      await api.post("/agents/spawn", {
+        name: `${mode}-${taskId.replace(/[^a-zA-Z0-9]/g, "")}`,
+        prompt,
+        model: "sonnet",
+        budget: 2.0,
+      });
+      setBanner(`${mode === "plan" ? "Plan" : "Implement"} agent started for "${task.title}".`);
+      setTimeout(() => setBanner(null), 4000);
+    } catch (e) {
+      console.error(`Failed to spawn ${mode} agent:`, e);
+      setBanner(`Could not start ${mode} agent. Please try again.`);
+      setTimeout(() => setBanner(null), 4000);
+    } finally {
+      setActionLoading(null);
+      setOpenActionMenu(null);
+    }
+  };
+
+  const breakIntoTasks = async (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    setActionLoading(taskId);
+    try {
+      await api.post("/ideas/convert", { straw: task.title });
+      setBanner(`"${task.title}" broken into tasks.`);
+      setTimeout(() => setBanner(null), 4000);
+      await fetchTasks();
+    } catch (e) {
+      console.error("Failed to break into tasks:", e);
+      setBanner("Could not break this task down. Please try again.");
+      setTimeout(() => setBanner(null), 4000);
+    } finally {
+      setActionLoading(null);
+      setOpenActionMenu(null);
+    }
+  };
+
+  const toggleTaskSelection = (taskId: string) => {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
+
+  const bulkAction = async (mode: "plan" | "implement" | "break") => {
+    const ids = Array.from(selectedTaskIds);
+    if (ids.length === 0) return;
+    setActionLoading("bulk");
+    try {
+      for (const id of ids) {
+        if (mode === "plan" || mode === "implement") {
+          await spawnAgentForTask(id, mode);
+        } else {
+          await breakIntoTasks(id);
+        }
+      }
+      setSelectedTaskIds(new Set());
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -1391,6 +1471,48 @@ export default function Tasks() {
               </div>
             </div>
 
+            {/* Bulk action bar */}
+            {selectedTaskIds.size > 0 && (
+              <div className="flex items-center gap-3 mb-4 px-4 py-2.5 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <span className="text-sm text-blue-300 font-medium">
+                  {selectedTaskIds.size} selected
+                </span>
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    onClick={() => bulkAction("plan")}
+                    disabled={actionLoading === "bulk"}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs rounded-lg border border-purple-500/30 disabled:opacity-50"
+                  >
+                    <Icon name="description" className="text-sm" />
+                    Plan all
+                  </button>
+                  <button
+                    onClick={() => bulkAction("implement")}
+                    disabled={actionLoading === "bulk"}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-green-500/20 hover:bg-green-500/30 text-green-300 text-xs rounded-lg border border-green-500/30 disabled:opacity-50"
+                  >
+                    <Icon name="code" className="text-sm" />
+                    Implement all
+                  </button>
+                  <button
+                    onClick={() => bulkAction("break")}
+                    disabled={actionLoading === "bulk"}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs rounded-lg border border-amber-500/30 disabled:opacity-50"
+                  >
+                    <Icon name="call_split" className="text-sm" />
+                    Break all into tasks
+                  </button>
+                  <button
+                    onClick={() => setSelectedTaskIds(new Set())}
+                    className="p-1 text-slate-400 hover:text-slate-200"
+                    title="Clear selection"
+                  >
+                    <Icon name="close" className="text-sm" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Task list */}
             <DndContext
               sensors={sensors}
@@ -1435,6 +1557,13 @@ export default function Tasks() {
                         : "border-slate-800 hover:border-slate-700"
                     }`}
                   >
+                    <input
+                      type="checkbox"
+                      checked={selectedTaskIds.has(task.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleTaskSelection(task.id)}
+                      className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-0 flex-shrink-0 cursor-pointer"
+                    />
                     <span
                       {...dragHandleProps}
                       onClick={(e) => e.stopPropagation()}
@@ -1527,6 +1656,56 @@ export default function Tasks() {
                     >
                       <Icon name="delete" className="text-sm" />
                     </button>
+                    {/* Action menu (plan / implement / break down) */}
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenActionMenu(openActionMenu === task.id ? null : task.id);
+                        }}
+                        className="p-1 text-slate-600 hover:text-slate-400 transition-colors"
+                        title="Actions"
+                      >
+                        <Icon name="more_vert" className="text-sm" />
+                      </button>
+                      {openActionMenu === task.id && (
+                        <div
+                          className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={() => spawnAgentForTask(task.id, "plan")}
+                            disabled={actionLoading === task.id}
+                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                          >
+                            <Icon name="description" className="text-sm text-purple-400" />
+                            Plan
+                          </button>
+                          <button
+                            onClick={() => spawnAgentForTask(task.id, "implement")}
+                            disabled={actionLoading === task.id}
+                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                          >
+                            <Icon name="code" className="text-sm text-green-400" />
+                            Implement
+                          </button>
+                          <button
+                            onClick={() => breakIntoTasks(task.id)}
+                            disabled={actionLoading === task.id}
+                            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                          >
+                            <Icon name="call_split" className="text-sm text-amber-400" />
+                            Break into tasks
+                          </button>
+                          {actionLoading === task.id && (
+                            <div className="px-3 py-1 flex items-center gap-2 text-xs text-slate-500">
+                              <Icon name="hourglass_empty" className="text-sm animate-spin" />
+                              Working...
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     {/* Thread assignment dropdown */}
                     <div className="relative">
                       <button

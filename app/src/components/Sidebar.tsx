@@ -29,11 +29,12 @@ interface NavItem {
   gmailBadge?: boolean
 }
 
-function SortableNavItem({ item, linkClass, activeAgents, gmailUnread }: {
+function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, onNavigate }: {
   item: NavItem
   linkClass: (isActive: boolean) => string
   activeAgents: number
   gmailUnread: number
+  onNavigate?: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.to })
   const style: React.CSSProperties = {
@@ -55,6 +56,7 @@ function SortableNavItem({ item, linkClass, activeAgents, gmailUnread }: {
       <NavLink
         to={item.to}
         end={item.to === '/'}
+        onClick={onNavigate}
         className={({ isActive }) => linkClass(isActive)}
       >
         {({ isActive }) => (
@@ -84,6 +86,7 @@ export function Sidebar() {
   const features = useAppStore((s) => s.features)
   const setFeatures = useAppStore((s) => s.setFeatures)
   const t = useTerms()
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   const allNavItems = [
     { to: '/', icon: 'home', label: 'Home', featureLabel: null },
@@ -186,7 +189,25 @@ export function Sidebar() {
     }`
 
   return (
-    <aside data-tour="sidebar" className="h-screen w-56 fixed left-0 top-0 border-r border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50">
+    <>
+      {/* Mobile hamburger button */}
+      <button
+        onClick={() => setMobileOpen(true)}
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-300 hover:text-white"
+        aria-label="Open menu"
+      >
+        <Icon name="menu" className="text-xl" />
+      </button>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/50 z-40"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+    <aside data-tour="sidebar" className={`h-screen w-56 fixed left-0 top-0 border-r border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
       <div className="px-5 mb-8">
         <span className="text-xl font-black accent-text tracking-tight">{osName}</span>
         {version && (
@@ -201,6 +222,7 @@ export function Sidebar() {
             key={item.to}
             to={item.to}
             end={item.to === '/'}
+            onClick={() => setMobileOpen(false)}
             className={({ isActive }) => linkClass(isActive)}
           >
             {({ isActive }) => (
@@ -246,6 +268,7 @@ export function Sidebar() {
                 linkClass={linkClass}
                 activeAgents={activeAgents}
                 gmailUnread={gmailUnread}
+                onNavigate={() => setMobileOpen(false)}
               />
             ))}
           </SortableContext>
@@ -256,7 +279,7 @@ export function Sidebar() {
         <WhatsNew />
         <button
           data-testid="tour-button"
-          onClick={() => useAppStore.getState().setShowTour(true)}
+          onClick={() => { useAppStore.getState().setShowTour(true); setMobileOpen(false); }}
           className="group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-slate-800/50"
         >
           <Icon name="explore" className="text-xl" />
@@ -264,6 +287,7 @@ export function Sidebar() {
         </button>
         <NavLink
           to="/settings"
+          onClick={() => setMobileOpen(false)}
           className={({ isActive }) => linkClass(isActive)}
         >
           {({ isActive }) => (
@@ -287,5 +311,6 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   )
 }

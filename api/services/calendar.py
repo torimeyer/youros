@@ -44,7 +44,7 @@ def _build_calendar_service():
         client_id=None,
         client_secret=None,
     )
-    return build("calendar", "v3", credentials=creds, cache_discovery=False)
+    return build("calendar", "v3", credentials=creds)
 
 
 def _load_cache() -> list[dict] | None:

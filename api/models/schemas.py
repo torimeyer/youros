@@ -96,6 +96,7 @@ class AgentSpawn(BaseModel):
     status: Optional[str] = None
     description: Optional[str] = None
     transcript_path: Optional[str] = None
+    token_limit: Optional[int] = None  # max tokens before auto-stop
 
 
 class AgentNudge(BaseModel):

@@ -62,7 +62,7 @@ def _build_gmail_service():
         client_id=None,
         client_secret=None,
     )
-    return build("gmail", "v1", credentials=creds, cache_discovery=False)
+    return build("gmail", "v1", credentials=creds)
 
 
 def _load_cache() -> list[dict] | None:

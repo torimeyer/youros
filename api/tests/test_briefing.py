@@ -416,3 +416,30 @@ def test_settings_migrates_morning_briefing_time(tmp_path):
     assert on_disk.get("briefing_enabled") is False
     assert "morning_briefing" not in on_disk["dashboard_widgets"]
     assert "briefing" in on_disk["dashboard_widgets"]
+
+
+# ---------------------------------------------------------------------------
+# Compounds integration in briefing
+# ---------------------------------------------------------------------------
+
+
+def test_briefing_prompt_mentions_compounds():
+    """The generate_briefing function should fetch compounds for context."""
+    import services.briefing as bf
+    import inspect
+
+    src = inspect.getsource(bf.generate_briefing)
+    # Should call get_compounds to get high-leverage tasks
+    assert "get_compounds" in src
+    # Should include compounds context in the prompt
+    assert "highest-leverage" in src.lower() or "Highest-leverage" in src
+
+
+def test_briefing_prompt_prioritizes_blocking_tasks():
+    """The briefing prompt should instruct Claude to prioritize blocking tasks."""
+    import services.briefing as bf
+    import inspect
+
+    src = inspect.getsource(bf.generate_briefing)
+    # The prompt should mention unblocking as a priority signal
+    assert "unblock" in src.lower()

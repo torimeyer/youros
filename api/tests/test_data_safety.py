@@ -41,6 +41,9 @@ STORE_PATH_CONSTANTS = {
     "services.agent_templates_store": "AGENT_TEMPLATES_PATH",
     "services.recurring_tasks": "RECURRING_TASKS_PATH",
     "services.enterprise_store": "ENTERPRISE_PATH",
+    "routers.indexing": "INDEX_PATH",
+    "routers.knowledge": "KNOWLEDGE_PATH",
+    "routers.growth": "GROWTH_PATH",
 }
 
 

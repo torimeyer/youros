@@ -408,7 +408,7 @@ export default function Gmail() {
 
                     {isExpanded && (
                       <div className="px-3 pb-3">
-                        <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-4">
+                        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
                           <div className="flex items-center justify-between gap-2 mb-3">
                             <div className="text-xs text-slate-500">
                               From {msg.from_name || msg.from_email}

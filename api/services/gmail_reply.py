@@ -85,7 +85,7 @@ def _build_gmail_service():
         client_secret=None,
         scopes=(tokens.get("scope") or "").split() or None,
     )
-    return build("gmail", "v1", credentials=creds, cache_discovery=False)
+    return build("gmail", "v1", credentials=creds)
 
 
 # ---------------------------------------------------------------------------

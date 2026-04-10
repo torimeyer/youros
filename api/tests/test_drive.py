@@ -871,3 +871,109 @@ async def test_drive_delete_success(client, tmp_path):
 
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# Thumbnail endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drive_thumbnail_not_authenticated(client, tmp_path):
+    """Thumbnail should return 401 when not authenticated."""
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.get("/api/drive/files/some-id/thumbnail")
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_drive_thumbnail_returns_link_when_available(client, tmp_path):
+    """When a file has a thumbnail, return its URL."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "doc-id",
+        "name": "My Doc",
+        "mimeType": "application/vnd.google-apps.document",
+        "webViewLink": "https://docs.google.com/...",
+        "size": None,
+        "thumbnailLink": "https://lh3.googleusercontent.com/thumb=s220",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+    ):
+        resp = await client.get("/api/drive/files/doc-id/thumbnail")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["thumbnailLink"] is not None
+    assert "s800" in data["thumbnailLink"]
+    assert data["name"] == "My Doc"
+
+
+@pytest.mark.asyncio
+async def test_drive_thumbnail_returns_null_when_no_thumbnail(client, tmp_path):
+    """When a file has no thumbnail, return thumbnailLink=null."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "zip-id",
+        "name": "archive.zip",
+        "mimeType": "application/zip",
+        "webViewLink": "https://drive.google.com/...",
+        "size": "1024",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+    ):
+        resp = await client.get("/api/drive/files/zip-id/thumbnail")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["thumbnailLink"] is None
+
+
+@pytest.mark.asyncio
+async def test_drive_thumbnail_enlarges_size_parameter(client, tmp_path):
+    """The thumbnail endpoint should request a larger thumbnail (s800)."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "doc-id",
+        "name": "My Doc",
+        "mimeType": "application/vnd.google-apps.document",
+        "webViewLink": "https://docs.google.com/...",
+        "size": None,
+        "thumbnailLink": "https://lh3.googleusercontent.com/thumb=s220",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+    ):
+        resp = await client.get("/api/drive/files/doc-id/thumbnail")
+
+    data = resp.json()
+    # Original had =s220, should be changed to =s800
+    assert "=s800" in data["thumbnailLink"]
+    assert "=s220" not in data["thumbnailLink"]
+
+
+@pytest.mark.asyncio
+async def test_drive_get_file_meta_includes_thumbnail_field(client, tmp_path):
+    """The _get_file_meta function should request the thumbnailLink field."""
+    import inspect
+    from routers.drive import _get_file_meta
+
+    source = inspect.getsource(_get_file_meta)
+    assert "thumbnailLink" in source
