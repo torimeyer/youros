@@ -81,6 +81,21 @@ def get_cached_briefing() -> Optional[str]:
     return None
 
 
+async def _task_count_changed() -> bool:
+    """Return True if the number of open P0/P1 tasks differs from when the briefing was cached."""
+    from services.ostk import ostk, OstkError
+    state = _load_state()
+    cached_count = state.get("task_count")
+    if cached_count is None:
+        return False  # no baseline, treat as fresh
+    try:
+        all_tasks = await ostk.list_tasks(status="open")
+        current = len([t for t in all_tasks if t.get("priority") in ("P0", "P1")])
+        return current != cached_count
+    except OstkError:
+        return False
+
+
 async def generate_briefing() -> str:
     """Generate a briefing using Claude and cache it.
 
@@ -119,6 +134,7 @@ async def generate_briefing() -> str:
         pass
 
     # Open P0 and P1 tasks, sorted by priority then age (best effort)
+    p0p1_count = 0
     try:
         all_tasks = await ostk.list_tasks(status="open")
         priority_order = {"P0": 0, "P1": 1}
@@ -129,6 +145,7 @@ async def generate_briefing() -> str:
                 t.get("created_at", "9999"),  # oldest first
             ),
         )
+        p0p1_count = len(priority_tasks)
         if priority_tasks:
             today = datetime.now(timezone.utc)
             task_lines = []
@@ -193,6 +210,7 @@ async def generate_briefing() -> str:
     state = _load_state()
     state["last_shown"] = _today_str()
     state["briefing"] = briefing
+    state["task_count"] = p0p1_count
     state.pop("dismissed_date", None)
     _save_state(state)
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from services.briefing import (
+    _task_count_changed,
     dismiss_briefing,
     generate_briefing,
     get_cached_briefing,
@@ -30,7 +31,7 @@ async def get_briefing():
         return {"show": False, "briefing": None}
 
     cached = get_cached_briefing()
-    if cached:
+    if cached and not await _task_count_changed():
         return {"show": True, "briefing": cached}
 
     # Generate fresh
