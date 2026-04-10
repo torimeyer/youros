@@ -373,7 +373,7 @@ function YouStep({
         type="text"
         value={userName}
         onChange={(e) => setUserName(e.target.value)}
-        placeholder="e.g. Madison"
+        placeholder="Your name"
         className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
         data-testid="user-name-input"
         autoFocus

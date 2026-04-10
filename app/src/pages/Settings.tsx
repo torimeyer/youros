@@ -63,6 +63,12 @@ const featureIcons: Record<string, string> = {
   'Transcripts': 'mic',
 };
 
+// Display names for features. Internal keys like "Hay/Ideas" use ostk
+// terminology that users should not see.
+const featureDisplayNames: Record<string, string> = {
+  'Hay/Ideas': 'Ideas',
+};
+
 export default function Settings() {
   const {
     osName, setOsName,
@@ -670,7 +676,7 @@ export default function Settings() {
                 className="flex items-center gap-2.5 px-4 py-3 bg-slate-800/50 rounded-lg border border-slate-700/50 cursor-pointer hover:border-slate-600 transition-colors"
               >
                 <Icon name={featureIcons[f.label] || 'extension'} className="text-slate-300" size={20} />
-                <span className="text-sm text-slate-300">{f.label}</span>
+                <span className="text-sm text-slate-300">{featureDisplayNames[f.label] || f.label}</span>
                 <span
                   className={`w-2.5 h-2.5 rounded-full ${
                     f.enabled ? 'bg-green-400' : 'bg-slate-600'
@@ -1034,9 +1040,9 @@ export default function Settings() {
               <h3 className="text-sm font-semibold text-slate-200 mb-3">Smart suggestions</h3>
               <div className="flex items-center justify-between">
                 <div className="pr-3">
-                  <p className="text-sm text-slate-300">Pick the right helper automatically</p>
+                  <p className="text-sm text-slate-300">Pick the right agent automatically</p>
                   <p className="text-xs text-slate-500">
-                    When you ask a question, myOS chooses the best built-in or saved helper for the job.
+                    When you ask a question, myOS chooses the best built-in or saved agent for the job.
                   </p>
                 </div>
                 <button
@@ -1261,13 +1267,13 @@ export default function Settings() {
                             {/* npm package */}
                             <div>
                               <p className="text-xs text-slate-400 mb-1">Package</p>
-                              <code className="text-xs text-blue-400 bg-slate-900/80 px-2 py-1 rounded font-mono block break-all">{entry.npmPackage}</code>
+                              <code className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-slate-900/80 px-2 py-1 rounded font-mono block break-all">{entry.npmPackage}</code>
                             </div>
                             {/* Setup command */}
                             <div>
                               <p className="text-xs text-slate-400 mb-1">Setup command</p>
                               <div className="flex items-center gap-2">
-                                <code className="text-xs text-emerald-400 bg-slate-900/80 px-2 py-1 rounded font-mono flex-1 break-all">{entry.setupCommand}</code>
+                                <code className="text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-slate-900/80 px-2 py-1 rounded font-mono flex-1 break-all">{entry.setupCommand}</code>
                                 <button
                                   onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(entry.setupCommand); }}
                                   className="p-1 text-slate-500 hover:text-white transition-colors flex-shrink-0"
@@ -1279,7 +1285,7 @@ export default function Settings() {
                             </div>
                             {/* Auth hint */}
                             {entry.requiresAuth && entry.authHint && (
-                              <div className="flex items-start gap-2 text-xs text-amber-400/80 bg-amber-900/20 px-2 py-1.5 rounded">
+                              <div className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400/80 bg-amber-50 dark:bg-amber-900/20 px-2 py-1.5 rounded">
                                 <Icon name="key" size={14} className="flex-shrink-0 mt-0.5" />
                                 <span>{entry.authHint}</span>
                               </div>
@@ -1315,7 +1321,7 @@ export default function Settings() {
             <h2 className="text-lg font-semibold">Sync</h2>
             <div className="group relative ml-1">
               <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-[60]">
                 Keep your settings the same across all your devices using a private git repo you own.
               </div>
             </div>

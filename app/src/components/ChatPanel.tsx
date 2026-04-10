@@ -285,7 +285,7 @@ function GiphyPicker({ initialSearch, onSelect, onClose }: {
 }
 
 export function ChatPanel() {
-  const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel } = useAppStore()
+  const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel, osName } = useAppStore()
 
   // --- Tab state ---
   // First paint reads cached messages from localStorage so the panel is
@@ -1017,7 +1017,7 @@ export function ChatPanel() {
       <div className="flex items-center justify-between p-4 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <Icon name="chat" className="text-blue-400" />
-          <span className="font-bold text-white">ToriChat</span>
+          <span className="font-bold text-white">{osName}Chat</span>
           {isConnected && (
             <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
           )}
