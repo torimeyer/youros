@@ -103,6 +103,121 @@ BUILTIN_AUTOMATION_TEMPLATES: list[dict[str, Any]] = [
             },
         ],
     },
+    {
+        "id": "builtin-eod-recap",
+        "name": "End of day recap",
+        "description": "Summarize what you got done today and what's carrying over to tomorrow.",
+        "icon": "nightlight",
+        "steps": [
+            {
+                "name": "Today's closed tasks",
+                "prompt": "List all tasks closed today from ostk.",
+            },
+            {
+                "name": "Still in progress",
+                "prompt": "List open P0 and P1 tasks that were touched today.",
+            },
+            {
+                "name": "Write the recap",
+                "prompt": (
+                    "Write a short end-of-day recap: what got done, what carries over, "
+                    "and one thing to start with tomorrow. Plain language, 3-5 sentences."
+                ),
+            },
+        ],
+    },
+    {
+        "id": "builtin-stale-tasks",
+        "name": "Stale task cleanup",
+        "description": "Find tasks that have been open too long and suggest what to do with them.",
+        "icon": "hourglass_empty",
+        "steps": [
+            {
+                "name": "Find stale tasks",
+                "prompt": "List all open tasks that have been open for more than 7 days.",
+            },
+            {
+                "name": "Classify each one",
+                "prompt": (
+                    "For each stale task, decide: still relevant (keep), outdated (close), "
+                    "or blocked (flag what's blocking it)."
+                ),
+            },
+            {
+                "name": "Suggest actions",
+                "prompt": (
+                    "Write a short list of recommended actions: which to close, which to "
+                    "reprioritize, and which need help getting unblocked."
+                ),
+            },
+        ],
+    },
+    {
+        "id": "builtin-project-status",
+        "name": "Project status update",
+        "description": "Generate a status update for a project based on recent task activity.",
+        "icon": "assessment",
+        "steps": [
+            {
+                "name": "Gather recent activity",
+                "prompt": "Pull all tasks opened and closed in the last 7 days.",
+            },
+            {
+                "name": "Group by label",
+                "prompt": "Group the tasks by their labels to show progress by area.",
+            },
+            {
+                "name": "Write the update",
+                "prompt": (
+                    "Write a project status update suitable for sharing with a team. "
+                    "Include progress, risks, and next steps. Plain language, no jargon."
+                ),
+            },
+        ],
+    },
+    {
+        "id": "builtin-email-followup",
+        "name": "Email follow-up",
+        "description": "Check for emails that need a reply and draft responses.",
+        "icon": "reply",
+        "steps": [
+            {
+                "name": "Find emails needing replies",
+                "prompt": "Fetch recent Gmail messages where someone asked a question or requested something.",
+            },
+            {
+                "name": "Draft replies",
+                "prompt": (
+                    "For each email that needs a response, draft a short, friendly reply. "
+                    "Keep it professional and concise."
+                ),
+            },
+        ],
+    },
+    {
+        "id": "builtin-sprint-planning",
+        "name": "Sprint planning",
+        "description": "Review open tasks and plan the next sprint based on priority and capacity.",
+        "icon": "rocket_launch",
+        "steps": [
+            {
+                "name": "Review open backlog",
+                "prompt": "List all open tasks grouped by priority (P0, P1, P2).",
+            },
+            {
+                "name": "Check recent velocity",
+                "prompt": "Count how many tasks were closed in each of the last 3 weeks.",
+            },
+            {
+                "name": "Build the sprint plan",
+                "prompt": (
+                    "Based on the backlog and recent velocity, recommend which tasks to "
+                    "commit to this sprint. Start with P0, then P1. Be realistic about "
+                    "capacity."
+                ),
+            },
+        ],
+    },
 ]
 
 
