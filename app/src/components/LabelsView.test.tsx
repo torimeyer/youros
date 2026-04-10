@@ -58,12 +58,13 @@ describe('LabelsView', () => {
     })
   })
 
-  it('shows task count for each label', async () => {
+  it('does not show task count badges on labels', async () => {
     render(<LabelsView />)
     await waitFor(() => {
-      expect(screen.getByText('2/3')).toBeTruthy()
-      expect(screen.getByText('1/1')).toBeTruthy()
+      expect(screen.getByText('Bug')).toBeTruthy()
     })
+    expect(screen.queryByText('2/3')).toBeNull()
+    expect(screen.queryByText('1/1')).toBeNull()
   })
 
   it('shows empty state when no labels exist', async () => {

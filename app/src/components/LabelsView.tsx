@@ -239,11 +239,6 @@ export default function LabelsView({ onFilterByLabel, activeLabelId, onLabelsCha
               />
               <span className="text-sm text-slate-300 font-medium">{label.name}</span>
 
-              {/* Progress: closed / total */}
-              <span className="text-[11px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded-full">
-                {label.closed_count ?? 0}/{label.task_count}
-              </span>
-
               {/* Delete button (shows on hover) */}
               <button
                 onClick={(e) => {
