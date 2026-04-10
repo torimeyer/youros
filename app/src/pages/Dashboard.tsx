@@ -543,6 +543,14 @@ export default function Dashboard() {
     day_summary: renderDaySummary,
   };
 
+  const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);
+
+  const removeWidget = (id: string) => {
+    const next = dashboardWidgets.filter((w) => w !== id);
+    setDashboardWidgets(next);
+    setWidgetMenuOpen(null);
+  };
+
   const bannerIds = new Set(['briefing', 'focus_first']);
   const visibleBanners = dashboardWidgets.filter((id) => bannerIds.has(id));
   const visibleGridCards = dashboardWidgets.filter(
@@ -574,7 +582,31 @@ export default function Dashboard() {
 
         {/* Widget Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 auto-rows-min">
-          {visibleGridCards.map((id) => widgetRenderers[id]?.())}
+          {visibleGridCards.map((id) => (
+            <div key={`wrap-${id}`} className="relative group/widget">
+              {widgetRenderers[id]?.()}
+              <div className="absolute top-3 right-3 opacity-0 group-hover/widget:opacity-100 transition-opacity">
+                <button
+                  onClick={() => setWidgetMenuOpen(widgetMenuOpen === id ? null : id)}
+                  className="p-1 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                  aria-label={`Widget options for ${id}`}
+                >
+                  <Icon name="more_vert" size={16} />
+                </button>
+                {widgetMenuOpen === id && (
+                  <div className="absolute right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-1 z-10 min-w-[140px]">
+                    <button
+                      onClick={() => removeWidget(id)}
+                      className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-slate-700 transition-colors flex items-center gap-2"
+                    >
+                      <Icon name="visibility_off" size={14} />
+                      Hide widget
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
