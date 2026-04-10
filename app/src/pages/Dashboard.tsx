@@ -107,14 +107,26 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, compoundsRes, diffRes] = await Promise.all([
+      const [dashRes, compoundsRes, diffRes, calRes] = await Promise.all([
         api.get<DashboardData>('/dashboard'),
         api.get<CompoundsData>('/dashboard/compounds').catch(() => null),
         api.get<SessionDiff>('/dashboard/diff').catch(() => null),
+        api.get<{ events: CalendarEvent[] }>('/calendar/events').catch(() => null),
       ]);
       setData(dashRes);
       if (compoundsRes) setCompounds(compoundsRes);
       if (diffRes) setSessionDiff(diffRes);
+      if (calRes) {
+        const now = Date.now();
+        const future = (calRes.events || []).filter((ev) => {
+          const startStr = ev.start?.dateTime || ev.start?.date;
+          if (!startStr) return false;
+          return new Date(startStr).getTime() > now;
+        });
+        setNextMeeting(future[0] ?? null);
+      } else {
+        setNextMeeting(null);
+      }
     } catch (e) {
       console.error('Failed to fetch dashboard:', e);
     } finally {
@@ -160,6 +172,24 @@ export default function Dashboard() {
     setBriefing({ show: false, briefing: null });
   };
 
+  const handleShowBriefing = () => {
+    api.post('/briefing/undismiss', {}).catch(() => {});
+    setBriefingLoading(true);
+    const poll = () => {
+      api.get<BriefingData>('/briefing')
+        .then((res) => {
+          if (res.show && !res.briefing) {
+            setTimeout(poll, 2000);
+          } else {
+            setBriefing(res);
+            setBriefingLoading(false);
+          }
+        })
+        .catch(() => setBriefingLoading(false));
+    };
+    poll();
+  };
+
   const focusTasks = (data?.focus ?? []).map((t, i) => ({
     id: t.id,
     icon: focusIcons[i % focusIcons.length],
@@ -195,19 +225,6 @@ export default function Dashboard() {
 
   const [nextMeeting, setNextMeeting] = useState<CalendarEvent | null | undefined>(undefined);
 
-  useEffect(() => {
-    api.get<{ events: CalendarEvent[] }>('/calendar/events')
-      .then((res) => {
-        const now = Date.now();
-        const future = (res.events || []).filter((ev) => {
-          const startStr = ev.start?.dateTime || ev.start?.date;
-          if (!startStr) return false;
-          return new Date(startStr).getTime() > now;
-        });
-        setNextMeeting(future[0] ?? null);
-      })
-      .catch(() => setNextMeeting(null));
-  }, []);
 
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-6 rounded-xl hover:border-slate-700 transition-colors';
 
@@ -291,9 +308,15 @@ export default function Dashboard() {
           </div>
           <div className="flex-1">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">{greetingLabel}</p>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              No briefing yet. One will appear here the next time myOS generates one for you.
+            <p className="text-sm text-slate-400 leading-relaxed mb-2">
+              Your briefing was dismissed for today.
             </p>
+            <button
+              onClick={handleShowBriefing}
+              className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              Show briefing
+            </button>
           </div>
         </div>
       </div>
@@ -327,22 +350,48 @@ export default function Dashboard() {
       <div
         key="focus_first"
         data-testid="widget-focus-first"
-        onClick={() => navigate('/tasks')}
+        onClick={() => navigate(`/tasks?focus=${encodeURIComponent(compounds.top!.id)}`)}
         className="mb-6 bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/30 p-6 rounded-xl hover:border-pink-500/50 transition-colors cursor-pointer"
       >
         <div className="flex items-center gap-3 mb-2">
           <div className="w-10 h-10 rounded-full bg-pink-500/20 flex items-center justify-center">
             <Icon name="priority_high" className="text-pink-400" size={22} />
           </div>
-          <div>
-            <p className="text-xs font-medium text-pink-400 uppercase tracking-wide">Focus on this first</p>
-            <h3 className="text-lg font-semibold text-white">{compounds.top.title}</h3>
+          <div className="flex items-center gap-3">
+            <div>
+              <p className="text-xs font-medium text-pink-400 uppercase tracking-wide">Focus on this first</p>
+              <h3 className="text-lg font-semibold text-white">{compounds.top.title}</h3>
+            </div>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-pink-500/20 text-pink-300 text-xs font-medium rounded-full whitespace-nowrap">
+              <Icon name="lock_open" size={12} />
+              Unblocks {compounds.top.blocks_count}
+            </span>
           </div>
         </div>
         <p className="text-sm text-slate-400 ml-[52px]">
           Finishing this unblocks {compounds.top.blocks_count} other {compounds.top.blocks_count === 1 ? 'task' : 'tasks'}.
           Getting it done first lets everything else move forward.
         </p>
+        {compounds.all.length > 1 && (
+          <div className="mt-3 ml-[52px] space-y-1.5">
+            {compounds.all.slice(1, 4).map((task) => (
+              <div
+                key={task.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/tasks?focus=${encodeURIComponent(task.id)}`);
+                }}
+                className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
+              >
+                <span className="truncate">{task.title}</span>
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-800 text-slate-400 text-[10px] font-medium rounded-full whitespace-nowrap shrink-0">
+                  <Icon name="lock_open" size={10} />
+                  {task.blocks_count}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   };

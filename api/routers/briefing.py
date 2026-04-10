@@ -61,3 +61,13 @@ async def dismiss():
     """Dismiss today's briefing so it does not appear again until tomorrow."""
     dismiss_briefing()
     return {"ok": True}
+
+
+@router.post("/briefing/undismiss")
+async def undismiss():
+    """Bring back a dismissed briefing."""
+    from services.briefing import _load_state, _save_state
+    state = _load_state()
+    state.pop("dismissed_date", None)
+    _save_state(state)
+    return {"ok": True}
