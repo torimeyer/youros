@@ -83,7 +83,14 @@ def agent_mailbox_instruction(agent_name: str) -> str:
     """
     interval = MAILBOX_CHECK_INTERVAL_SECONDS
     return (
-        f"## Mailbox checking (mandatory every {interval} seconds)\n\n"
+        f"## Agent registration and mailbox (mandatory)\n\n"
+        "### Step 0: Register immediately\n"
+        "Before doing ANY work, register yourself so Tori can see you "
+        "in the Agents page:\n"
+        f"   `curl -s -X POST http://localhost:8000/api/agents/register "
+        "-H 'Content-Type: application/json' "
+        f"-d '{{\"name\": \"{agent_name}\", \"model\": \"sonnet\", \"budget\": 5}}'`\n\n"
+        f"### Mailbox checking (every {interval} seconds)\n\n"
         "Tori may send you follow up instructions while you work via "
         "the Agents page in myOS. To pick those up, you MUST do the "
         "following on a regular schedule, alongside your heartbeat:\n\n"
@@ -1038,7 +1045,9 @@ async def spawn_agent(body: AgentSpawn):
 
         active_agents[body.name] = proc
         agent_metadata[body.name] = {
+            "status": "running",
             "spawned_at": datetime.now(timezone.utc).isoformat(),
+            "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
             "budget": str(body.budget),
             "model": model,
             "pid": proc.pid,

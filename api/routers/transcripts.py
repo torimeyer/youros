@@ -1,6 +1,8 @@
 """Transcripts router: reads Claude Code session files from disk."""
 
+import asyncio
 import json
+import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -8,6 +10,21 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter(tags=["transcripts"])
+
+MYOS_DIR = Path.home() / ".myos"
+TITLE_CACHE_PATH = MYOS_DIR / "transcript_titles.json"
+
+
+def _load_title_cache() -> dict[str, str]:
+    try:
+        return json.loads(TITLE_CACHE_PATH.read_text()) if TITLE_CACHE_PATH.exists() else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_title_cache(cache: dict[str, str]) -> None:
+    MYOS_DIR.mkdir(parents=True, exist_ok=True)
+    TITLE_CACHE_PATH.write_text(json.dumps(cache, indent=2))
 
 # Claude Code stores session index files and transcript JSONL files in these locations.
 SESSIONS_DIR = Path.home() / ".claude" / "sessions"
@@ -19,6 +36,91 @@ from config import PROJECT_ROOT
 
 # Compute the Claude Code project folder name from the actual project root.
 TORIOS_PROJECT_DIR = PROJECTS_DIR / str(PROJECT_ROOT).replace("/", "-").lstrip("-")
+
+
+def _extract_context(jsonl_path: Path, max_messages: int = 5) -> str:
+    """Extract the first few user messages for context."""
+    parts: list[str] = []
+    try:
+        with open(jsonl_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("type") != "user" or "message" not in entry:
+                    continue
+                msg = entry["message"]
+                content = msg.get("content", "")
+                text = ""
+                if isinstance(content, str):
+                    text = content.strip()
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text = part.get("text", "").strip()
+                            break
+                        elif isinstance(part, str) and part.strip():
+                            text = part.strip()
+                            break
+                if text:
+                    parts.append(text[:300])
+                    if len(parts) >= max_messages:
+                        break
+    except OSError:
+        pass
+    return "\n---\n".join(parts)
+
+
+async def _generate_title(context: str) -> str:
+    """Call Claude to generate a short summary title from transcript context."""
+    from services.chat_providers import _resolve_api_key
+    api_key = await _resolve_api_key("anthropic_api_key")
+    if not api_key:
+        return ""
+    import anthropic
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    try:
+        response = await asyncio.wait_for(
+            client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=30,
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        "Below are the first few messages from a coding session. "
+                        "Write a short title (5-8 words max) that summarizes what was worked on. "
+                        "No quotes, no punctuation at the end, just the title.\n\n"
+                        f"{context}"
+                    ),
+                }],
+            ),
+            timeout=10.0,
+        )
+        for block in response.content:
+            if getattr(block, "type", "") == "text":
+                return (getattr(block, "text", "") or "").strip().strip('"\'.')
+    except Exception:
+        pass
+    return ""
+
+
+async def _generate_titles_background(items: list[tuple[str, Path]]) -> None:
+    """Generate titles for transcripts that don't have one cached yet."""
+    cache = _load_title_cache()
+    for session_id, jsonl_path in items:
+        if session_id in cache:
+            continue
+        context = _extract_context(jsonl_path)
+        if not context:
+            continue
+        title = await _generate_title(context)
+        if title:
+            cache[session_id] = title
+    _save_title_cache(cache)
 
 
 def _find_all_project_dirs() -> list[Path]:
@@ -234,7 +336,9 @@ async def list_transcripts(
 ):
     """List all available session transcripts, with optional search and filters."""
     session_index = _session_index()
+    title_cache = _load_title_cache()
     transcripts = []
+    needs_title: list[tuple[str, Path]] = []
 
     # Scan all project directories for JSONL session files
     project_dirs = _find_all_project_dirs()
@@ -270,12 +374,17 @@ async def list_transcripts(
             file_size = jsonl_file.stat().st_size
             counts = _count_messages(jsonl_file)
 
-            # Use the session name if available, otherwise use a snippet of the first message
-            name = meta.get("name", "")
+            # Use cached AI title > session name > first message snippet
+            name = title_cache.get(session_id, "")
+            if not name:
+                name = meta.get("name", "")
             if not name and first_message:
                 name = first_message[:80]
             if not name:
                 name = f"Session {session_id[:8]}"
+
+            if session_id not in title_cache:
+                needs_title.append((session_id, jsonl_file))
 
             transcripts.append({
                 "session_id": session_id,
@@ -289,6 +398,10 @@ async def list_transcripts(
                 "message_counts": counts,
                 "file_size_bytes": file_size,
             })
+
+    # Generate titles in the background for transcripts that don't have one
+    if needs_title:
+        asyncio.create_task(_generate_titles_background(needs_title[:10]))
 
     return {"transcripts": transcripts, "total": len(transcripts)}
 
