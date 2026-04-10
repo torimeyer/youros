@@ -110,16 +110,7 @@ export function Sidebar() {
       try {
         interface AgentInfo { name: string; status: string; spawned_at?: string; completed_at?: string }
         const res = await api.get<{ active: string[]; agents: AgentInfo[] }>('/agents')
-        const running = res.active?.length ?? 0
-        // Count agents that completed in the last 60 seconds
-        const now = Date.now()
-        const recentlyCompleted = (res.agents ?? []).filter((a) => {
-          if (a.status !== 'completed') return false
-          const ts = a.completed_at || a.spawned_at
-          if (!ts) return false
-          return now - new Date(ts).getTime() < 60000
-        }).length
-        setActiveAgents(running + recentlyCompleted)
+        setActiveAgents(res.active?.length ?? 0)
       } catch {
         // ignore
       }
