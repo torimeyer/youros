@@ -280,6 +280,28 @@ async def schedule_overdue_task_check():
 
 
 @app.on_event("startup")
+async def pregenerate_briefing():
+    """Pre-generate today's briefing in the background on startup.
+
+    This way the briefing is cached and ready before anyone opens the
+    dashboard, avoiding the 5-10 second wait on first load.
+    """
+    import asyncio
+    from services.briefing import get_cached_briefing, generate_briefing
+
+    async def _gen():
+        await asyncio.sleep(3)  # let other startup tasks finish first
+        if get_cached_briefing():
+            return  # already cached for today
+        try:
+            await generate_briefing()
+        except Exception:
+            pass
+
+    asyncio.create_task(_gen())
+
+
+@app.on_event("startup")
 async def schedule_recurring_task_spawner():
     """Spawn any due recurring tasks on boot, then repeat every 30 minutes.
 
