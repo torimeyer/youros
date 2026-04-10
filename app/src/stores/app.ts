@@ -271,11 +271,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   features: [
     { label: 'Chat', enabled: true },
     { label: 'Tasks', enabled: true },
+    { label: 'Activity', enabled: true },
     { label: 'Hay/Ideas', enabled: true },
     { label: 'Agents', enabled: true },
     { label: 'Projects', enabled: true },
+    { label: 'Drive', enabled: true },
+    { label: 'Calendar', enabled: true },
+    { label: 'Gmail', enabled: true },
     { label: 'Docs', enabled: true },
     { label: 'Transcripts', enabled: true },
+    { label: 'Automations', enabled: true },
   ],
   setFeatures: (features) => set({ features }),
   isFeatureEnabled: (label: string) => {

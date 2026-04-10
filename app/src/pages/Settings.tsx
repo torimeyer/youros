@@ -56,17 +56,23 @@ interface SettingsData {
 const featureIcons: Record<string, string> = {
   'Chat': 'chat',
   'Tasks': 'task_alt',
+  'Activity': 'history',
   'Hay/Ideas': 'lightbulb',
   'Agents': 'smart_toy',
   'Projects': 'folder',
+  'Drive': 'cloud',
+  'Calendar': 'calendar_month',
+  'Gmail': 'mail',
   'Docs': 'description',
   'Transcripts': 'mic',
+  'Automations': 'account_tree',
 };
 
 // Display names for features. Internal keys like "Hay/Ideas" use ostk
 // terminology that users should not see.
 const featureDisplayNames: Record<string, string> = {
   'Hay/Ideas': 'Ideas',
+  'Projects': 'Files',
 };
 
 export default function Settings() {

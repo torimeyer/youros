@@ -352,6 +352,78 @@ async def find_duplicate_tasks(threshold: float = 0.8):
     return {"duplicates": duplicates}
 
 
+@router.get("/tasks/audit")
+async def audit_tasks():
+    """Comprehensive task audit: duplicates, stale tasks, and potential redundancies.
+
+    Returns categorized findings the user can act on.
+    """
+    from datetime import datetime, timezone, timedelta
+    from difflib import SequenceMatcher
+
+    try:
+        tasks = await ostk.list_tasks(status="open")
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    now = datetime.now(timezone.utc)
+    findings: list[dict] = []
+
+    # 1. Duplicates (similarity > 0.7)
+    for i, a in enumerate(tasks):
+        for b in tasks[i + 1:]:
+            title_a = _normalize_title(a.get("title", ""))
+            title_b = _normalize_title(b.get("title", ""))
+            if not title_a or not title_b:
+                continue
+            sim = SequenceMatcher(None, title_a, title_b).ratio()
+            if sim > 0.7:
+                findings.append({
+                    "type": "duplicate",
+                    "severity": "warning",
+                    "message": f'"{a.get("title")}" and "{b.get("title")}" look similar ({sim:.0%} match). Consider merging or closing one.',
+                    "task_ids": [a.get("id"), b.get("id")],
+                })
+
+    # 2. Stale tasks (open > 7 days, P2 only since P0/P1 are intentional)
+    for t in tasks:
+        created = t.get("created_at", "")
+        if not created:
+            continue
+        try:
+            age = (now - datetime.fromisoformat(created)).days
+        except (ValueError, TypeError):
+            continue
+        if age > 7 and t.get("priority") == "P2":
+            findings.append({
+                "type": "stale",
+                "severity": "info",
+                "message": f'"{t.get("title")}" has been open for {age} days at P2. Still relevant?',
+                "task_ids": [t.get("id")],
+            })
+
+    # 3. Vague titles (too short to be actionable)
+    for t in tasks:
+        title = (t.get("title") or "").strip()
+        if len(title) < 15:
+            findings.append({
+                "type": "vague",
+                "severity": "info",
+                "message": f'"{title}" is very short. Consider adding more detail so it is clear what needs to happen.',
+                "task_ids": [t.get("id")],
+            })
+
+    return {
+        "findings": findings,
+        "total_open": len(tasks),
+        "summary": {
+            "duplicates": len([f for f in findings if f["type"] == "duplicate"]),
+            "stale": len([f for f in findings if f["type"] == "stale"]),
+            "vague": len([f for f in findings if f["type"] == "vague"]),
+        },
+    }
+
+
 # Matches a task id reference like "→160" inside a blocker text line.
 _BLOCKER_ID_RE = re.compile(r"\u2192\d+")
 

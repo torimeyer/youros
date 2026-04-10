@@ -13,15 +13,15 @@ export function Sidebar() {
   const allNavItems = [
     { to: '/', icon: 'home', label: 'Home', featureLabel: null },
     { to: '/tasks', icon: 'checklist', label: t('tasks'), featureLabel: 'Tasks' },
-    { to: '/activity', icon: 'history', label: 'Activity', featureLabel: null },
+    { to: '/activity', icon: 'history', label: 'Activity', featureLabel: 'Activity' },
     { to: '/ideas', icon: 'lightbulb', label: t('ideas'), featureLabel: 'Hay/Ideas' },
     { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
     { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
-    { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: null },
-    { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: null },
-    { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: null, gmailBadge: true },
+    { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
+    { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: 'Calendar' },
+    { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true },
     { to: '/transcripts', icon: 'record_voice_over', label: 'Transcripts', featureLabel: 'Transcripts' },
-    { to: '/workflows', icon: 'account_tree', label: 'Automations', featureLabel: null },
+    { to: '/workflows', icon: 'account_tree', label: 'Automations', featureLabel: 'Automations' },
   ]
   const [activeAgents, setActiveAgents] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
