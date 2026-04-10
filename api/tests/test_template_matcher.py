@@ -322,7 +322,7 @@ class TestEdgeCases:
         # Sanity check the built-in list so the matcher always knows the
         # three classic commands.
         names = {t["name"] for t in BUILT_IN_TEMPLATES}
-        assert names == {"saa", "diagnose", "elit"}
+        assert names == {"saa", "diagnose", "elit", "idea"}
 
 
 # --- chat flow integration -----------------------------------------------

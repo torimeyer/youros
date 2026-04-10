@@ -548,7 +548,8 @@ export default function Calendar() {
         {events.length === 0 && todayEvents.length === 0 && (
           <div className="text-center py-12 text-slate-500">
             <Icon name="event_busy" size={40} className="mb-3 mx-auto opacity-40" />
-            <p>No events in the next 7 days.</p>
+            <p className="text-sm text-slate-400 mb-1">No events in the next 7 days.</p>
+            <p className="text-xs text-slate-600">Your calendar is clear. A good time to focus on your top tasks.</p>
           </div>
         )}
       </div>

@@ -1401,7 +1401,14 @@ export default function Tasks() {
               {loading && tasks.length === 0 && (
                 <p className="text-sm text-slate-500 py-4">Loading tasks...</p>
               )}
-              {!loading && filteredTasks.length === 0 && (
+              {!loading && filteredTasks.length === 0 && tasks.length === 0 && (
+                <div className="text-center py-8">
+                  <Icon name="checklist" className="text-4xl text-slate-700 mb-2" />
+                  <p className="text-sm text-slate-400 mb-1">No tasks yet.</p>
+                  <p className="text-xs text-slate-600">Type a task above, or tell myOS an idea in chat and it will create tasks for you.</p>
+                </div>
+              )}
+              {!loading && filteredTasks.length === 0 && tasks.length > 0 && (
                 <p className="text-sm text-slate-500 py-4">No tasks match this filter.</p>
               )}
               {(["P0", "P1", "P2"] as const).map((priority) => {

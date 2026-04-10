@@ -764,7 +764,7 @@ describe('Agents page - Recent tab filtering', () => {
     fireEvent.click(recentTab)
 
     await waitFor(() => {
-      expect(screen.getByText('No completed agents yet. Agents you spawn will appear here once they finish.')).toBeInTheDocument()
+      expect(screen.getByText('No agents have run yet.')).toBeInTheDocument()
     })
   })
 })

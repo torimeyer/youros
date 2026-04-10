@@ -1828,8 +1828,10 @@ export default function Agents() {
                   Loading...
                 </div>
               ) : recentAgents.length === 0 ? (
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
-                  No completed agents yet. Agents you spawn will appear here once they finish.
+                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center mb-8">
+                  <Icon name="smart_toy" className="text-4xl text-slate-700 mb-2" />
+                  <p className="text-sm text-slate-400 mb-1">No agents have run yet.</p>
+                  <p className="text-xs text-slate-600">Try asking myOS in chat to do something, like "help me plan my week" or "write a status update."</p>
                 </div>
               ) : (
                 <div className="flex flex-col gap-2 mb-8">

@@ -1084,18 +1084,29 @@ export function ChatPanel() {
 
       <div className="flex-1 overflow-y-auto px-10 py-4 space-y-4">
         {messages.length === 0 && (
-          <div className="text-center py-8">
-            <Icon name="chat" className="text-4xl text-slate-700 mb-2" />
-            <p className="text-slate-500 text-sm">
+          <div className="flex flex-col items-center justify-center py-12 px-6">
+            <Icon name="chat" className="text-5xl text-slate-700 mb-3" />
+            <p className="text-slate-400 text-sm mb-1">
               Messages go to <span className={MODEL_COLORS[defaultChatModel] ?? 'text-blue-400'}>{defaultChatModel}</span> by default.
             </p>
-            <p className="text-slate-600 text-xs mt-1">Use @gemini to talk to a different model. Change your default in Settings.</p>
-            <p className="text-slate-600 text-xs mt-1">Type <span className="text-blue-400 font-mono">/giphy</span> to search for GIFs.</p>
-            {toolsEnabled && (
-              <p className="text-amber-500/60 text-xs mt-2">
-                <Icon name="build" className="text-xs align-middle" /> Agent mode is on. Claude can read files, run commands, and more.
-              </p>
-            )}
+            <p className="text-slate-600 text-xs mb-6">Use @gemini to talk to a different model.</p>
+            <div className="flex flex-wrap justify-center gap-2 max-w-sm">
+              {[
+                { icon: 'calendar_month', text: "What's on my calendar today?" },
+                { icon: 'checklist', text: 'Help me plan my week' },
+                { icon: 'lightbulb', text: 'Break an idea into tasks' },
+                { icon: 'summarize', text: 'Write a status update from my recent work' },
+              ].map((s) => (
+                <button
+                  key={s.text}
+                  onClick={() => sendMessage(s.text)}
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700 rounded-lg text-xs text-slate-300 hover:text-white transition-colors"
+                >
+                  <Icon name={s.icon} className="text-sm text-blue-400" />
+                  {s.text}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {messages.map((msg, i) => {

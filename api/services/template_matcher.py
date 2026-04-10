@@ -82,6 +82,22 @@ BUILT_IN_TEMPLATES: list[dict[str, Any]] = [
             "product manager who is not an engineer."
         ),
     },
+    {
+        "name": "idea",
+        "description": (
+            "The user shared an idea, project concept, or initiative they want to "
+            "pursue. Use when the user describes something they want to build, launch, "
+            "plan, create, or ship. NOT for specific bug reports or questions."
+        ),
+        "triggers": ["break this into tasks", "break into tasks", "plan this out"],
+        "keywords": [],
+        "prompt": (
+            "IDEA MODE: The user just shared an idea. First, briefly acknowledge it "
+            "(one sentence). Then ask: 'Want me to break this into tasks?' If they "
+            "say yes, use the idea breakdown service to create a full task list. "
+            "If the idea is too vague, ask one clarifying question first."
+        ),
+    },
 ]
 
 # In-memory cache of classifier results. Keyed by (message_hash,
