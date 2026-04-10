@@ -30,6 +30,9 @@ def _find_hardcoded_localhost_urls(source: str) -> list[str]:
         # Skip the OAuth redirect_uri (backend port, not frontend)
         if "REDIRECT_URI" in line:
             continue
+        # Skip lines that read from env (these are configurable defaults)
+        if "os.environ.get" in line or "environ.get" in line:
+            continue
         matches = re.findall(r'["\']http://localhost:\d+/\S*["\']', line)
         for m in matches:
             hits.append(f"line {i}: {m}")

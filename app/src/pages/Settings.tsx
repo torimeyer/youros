@@ -76,6 +76,141 @@ const featureDisplayNames: Record<string, string> = {
 };
 
 
+function SSOSection({ darkMode }: { darkMode: boolean }) {
+  const [ssoConfig, setSsoConfig] = useState<{ configured: boolean; provider?: string; issuer_url?: string } | null>(null);
+  const [provider, setProvider] = useState('okta');
+  const [issuerUrl, setIssuerUrl] = useState('');
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const inputCls = darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900';
+
+  useEffect(() => {
+    api.get<{ configured: boolean; provider?: string; issuer_url?: string }>('/enterprise/sso')
+      .then(setSsoConfig).catch(() => {});
+  }, []);
+
+  if (!ssoConfig) return <p className="text-xs text-slate-500">Loading...</p>;
+
+  if (ssoConfig.configured) {
+    return (
+      <div className="flex items-center justify-between px-3 py-2 bg-emerald-900/20 border border-emerald-800/30 rounded-lg">
+        <div>
+          <p className="text-sm text-emerald-300 font-medium">SSO active</p>
+          <p className="text-xs text-slate-400">{ssoConfig.provider} ({ssoConfig.issuer_url})</p>
+        </div>
+        <button onClick={async () => { await api.delete('/enterprise/sso'); setSsoConfig({ configured: false }); }}
+          className="text-xs text-red-400 hover:text-red-300">Remove</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <select value={provider} onChange={(e) => setProvider(e.target.value)}
+        className={`w-full border rounded-lg px-3 py-2 text-sm ${inputCls}`}>
+        <option value="okta">Okta</option>
+        <option value="azure">Azure AD</option>
+        <option value="google">Google Workspace</option>
+        <option value="auth0">Auth0</option>
+      </select>
+      <input type="text" value={issuerUrl} onChange={(e) => setIssuerUrl(e.target.value)}
+        placeholder="Issuer URL (e.g. https://yourorg.okta.com)"
+        className={`w-full border rounded-lg px-3 py-2 text-sm ${inputCls}`} />
+      <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)}
+        placeholder="Client ID"
+        className={`w-full border rounded-lg px-3 py-2 text-sm ${inputCls}`} />
+      <input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)}
+        placeholder="Client Secret"
+        className={`w-full border rounded-lg px-3 py-2 text-sm ${inputCls}`} />
+      <button
+        onClick={async () => {
+          await api.post('/enterprise/sso', { provider, issuer_url: issuerUrl, client_id: clientId, client_secret: clientSecret });
+          setSsoConfig({ configured: true, provider, issuer_url: issuerUrl });
+        }}
+        disabled={!issuerUrl || !clientId || !clientSecret}
+        className="px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm rounded-lg">
+        Configure SSO
+      </button>
+    </div>
+  );
+}
+
+function IsolationSection() {
+  const [current, setCurrent] = useState('open');
+  const [levels, setLevels] = useState<Record<string, { label: string; description: string }>>({});
+
+  useEffect(() => {
+    api.get<{ current: string; levels: Record<string, { label: string; description: string }> }>('/enterprise/isolation')
+      .then((res) => { setCurrent(res.current); setLevels(res.levels); }).catch(() => {});
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      {Object.entries(levels).map(([id, level]) => (
+        <button
+          key={id}
+          onClick={async () => { await api.patch('/enterprise/isolation', { level: id }); setCurrent(id); }}
+          className={`w-full text-left p-3 rounded-lg border transition-colors ${
+            current === id ? 'border-purple-500 bg-purple-500/10' : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-slate-200">{level.label}</span>
+            {current === id && <Icon name="check_circle" size={16} className="text-purple-400" />}
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">{level.description}</p>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AgentfileSection() {
+  const [agentfile, setAgentfile] = useState<{ content: string; exists: boolean; isolation_level: string; permissions: string[] } | null>(null);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    api.get<{ content: string; exists: boolean; isolation_level: string; permissions: string[] }>('/enterprise/agentfile')
+      .then(setAgentfile).catch(() => {});
+  }, []);
+
+  if (!agentfile) return <p className="text-xs text-slate-500">Loading...</p>;
+
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-2">
+        The Agentfile defines what your default agent can do. It is generated from your isolation level and profile.
+      </p>
+      {agentfile.exists ? (
+        <pre className="text-xs text-slate-400 bg-slate-800/50 border border-slate-700/50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap mb-3">
+          {agentfile.content}
+        </pre>
+      ) : (
+        <p className="text-xs text-slate-500 mb-3">No Agentfile generated yet.</p>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={async () => {
+            setGenerating(true);
+            try {
+              const res = await api.post<{ content: string }>('/enterprise/agentfile/generate', {});
+              setAgentfile({ ...agentfile, content: res.content, exists: true });
+            } catch { /* ignore */ }
+            setGenerating(false);
+          }}
+          disabled={generating}
+          className="px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm rounded-lg"
+        >
+          {generating ? 'Generating...' : agentfile.exists ? 'Regenerate' : 'Generate Agentfile'}
+        </button>
+        <span className="text-xs text-slate-500">
+          Isolation: {agentfile.isolation_level} | Permissions: {agentfile.permissions.length}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const {
     osName, setOsName,
@@ -1574,6 +1709,24 @@ export default function Settings() {
                     <span className="text-sm text-slate-400">{String(enterprise.policies.audit_retention_days ?? 90)} days</span>
                   </div>
                 </div>
+              </div>
+
+              {/* SSO */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-300 mb-3">Single Sign-On (SSO)</h3>
+                <SSOSection darkMode={darkMode} />
+              </div>
+
+              {/* Isolation Level */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-300 mb-3">Isolation Level</h3>
+                <IsolationSection />
+              </div>
+
+              {/* Agentfile */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-300 mb-3">Agentfile</h3>
+                <AgentfileSection />
               </div>
 
               {/* Audit export */}
