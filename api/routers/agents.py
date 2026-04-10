@@ -1070,6 +1070,79 @@ async def spawn_agent(body: AgentSpawn):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+class FleetSpawn(BaseModel):
+    fleet_id: str
+    context: str = ""
+    model: str = "sonnet"
+    budget: float = 2.0
+
+
+@router.get("/agents/fleets")
+async def list_fleets():
+    """Return the built-in fleet templates."""
+    from services.fleet_templates import list_fleet_templates
+    return {"fleets": list_fleet_templates()}
+
+
+@router.post("/agents/fleets/spawn")
+async def spawn_fleet(body: FleetSpawn):
+    """Spawn all members of a fleet template as parallel agents.
+
+    Each member gets a role-specific prompt with the user's context
+    prepended. All agents share the workspace for coordination.
+    """
+    from services.fleet_templates import list_fleet_templates
+
+    templates = list_fleet_templates()
+    fleet = next((f for f in templates if f["id"] == body.fleet_id), None)
+    if not fleet:
+        raise HTTPException(status_code=404, detail=f"Fleet template '{body.fleet_id}' not found")
+
+    model = MODEL_MAP.get(body.model, body.model)
+    spawned = []
+
+    for member in fleet["members"]:
+        role_slug = member["role"].lower().replace(" ", "-")
+        agent_name = f"{fleet['id']}-{role_slug}"
+
+        full_prompt = (
+            f"ROLE: {member['role']}\n\n"
+            f"CONTEXT FROM USER: {body.context}\n\n"
+            f"{member['prompt']}\n\n"
+            "COORDINATION: You are part of a fleet. Other agents with different "
+            "roles are working on the same task. Use the shared agent workspace "
+            "to read their output and save yours. Check the workspace before "
+            "starting so you build on what others have done."
+        )
+
+        agent_body = AgentSpawn(
+            name=agent_name,
+            prompt=full_prompt,
+            model=body.model,
+            budget=body.budget,
+        )
+
+        try:
+            result = await spawn_agent(agent_body)
+            spawned.append({
+                "name": agent_name,
+                "role": member["role"],
+                "pid": result.get("pid"),
+            })
+        except Exception as e:
+            spawned.append({
+                "name": agent_name,
+                "role": member["role"],
+                "error": str(e),
+            })
+
+    return {
+        "fleet": fleet["name"],
+        "spawned": spawned,
+        "total": len(spawned),
+    }
+
+
 @router.post("/agents/register")
 async def register_agent(body: AgentSpawn):
     """Register an external agent (e.g., Claude Code subagent) without spawning a process.
