@@ -238,7 +238,11 @@ export default function Dashboard() {
               </div>
               <div className="flex-1">
                 <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-1.5">{greetingLabel}</p>
-                <p className="text-sm text-slate-200 leading-relaxed">{renderMarkdown(briefing.briefing)}</p>
+                <div className="text-sm text-slate-200 leading-relaxed space-y-3">
+                  {briefing.briefing.split(/\n\n+/).map((para, i) => (
+                    <p key={i}>{renderMarkdown(para)}</p>
+                  ))}
+                </div>
               </div>
             </div>
             <button
