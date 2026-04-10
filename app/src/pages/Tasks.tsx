@@ -40,6 +40,7 @@ interface Task {
   blocks?: string[];
   depends_on?: string[];
   thread_id?: string | null;
+  unblocks?: number;
 }
 
 interface Thread {
@@ -1585,6 +1586,14 @@ export default function Tasks() {
                       >
                         {task.priority}
                       </button>
+                      {task.unblocks && task.unblocks > 0 && (
+                        <span
+                          className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                          title={`Completing this task unblocks ${task.unblocks} other tasks`}
+                        >
+                          unblocks {task.unblocks}
+                        </span>
+                      )}
                       {openPriorityDropdown === task.id && (
                         <div className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 min-w-[80px]">
                           {PRIORITIES.map((p) => (

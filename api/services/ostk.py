@@ -23,8 +23,115 @@ class OstkError(Exception):
 class OstkService:
     def __init__(self, cwd: str = PROJECT_DIR):
         self.cwd = cwd
+        # Tri-state: None = unknown, True = working, False = unavailable
+        self._socket_available: Optional[bool] = None
+
+    def _resolve_socket_tool(self, args: tuple) -> Optional[tuple]:
+        """Map CLI argument tuples to MCP tool names and arguments.
+
+        Returns (tool_name, arguments_dict) or None if the command
+        should go through subprocess instead.
+        """
+        if not args:
+            return None
+
+        head = args[0]
+
+        if head == "os" and len(args) >= 2:
+            sub = args[1]
+            if sub == "status":
+                return ("status", {})
+            if sub == "diff":
+                return ("diff", {})
+            if sub == "clock":
+                return ("clock", {})
+            if sub == "history":
+                params: dict = {}
+                rest = args[2:]
+                i = 0
+                while i < len(rest):
+                    if rest[i] == "--last" and i + 1 < len(rest):
+                        params["last"] = rest[i + 1]
+                        i += 2
+                    else:
+                        params["target"] = rest[i]
+                        i += 1
+                return ("session_history", params)
+            return None
+
+        if head == "kernel" and len(args) >= 2:
+            sub = args[1]
+            if sub == "ps":
+                return ("ps", {})
+            if sub == "reap":
+                return ("reap", {})
+            return None
+
+        if head == "work" and len(args) >= 2:
+            sub = args[1]
+            # Only map read-only commands; mutations use subprocess
+            if sub == "list":
+                params = {}
+                rest = args[2:]
+                i = 0
+                while i < len(rest):
+                    if rest[i] == "--json":
+                        params["format"] = "json"
+                        i += 1
+                    elif rest[i] == "--status" and i + 1 < len(rest):
+                        params["status"] = rest[i + 1]
+                        i += 2
+                    elif rest[i] == "--priority" and i + 1 < len(rest):
+                        params["priority"] = rest[i + 1]
+                        i += 2
+                    else:
+                        i += 1
+                return ("needle", params)
+            if sub == "near" and len(args) >= 3:
+                return ("near", {"query": args[2]})
+            if sub == "hay":
+                if len(args) >= 3:
+                    return ("hay", {"thought": args[2]})
+                return ("hay", {})
+            if sub == "activate" and len(args) >= 3:
+                return ("activate", {"needle": args[2]})
+            if sub == "radiate":
+                if len(args) >= 3:
+                    return ("related", {"needle": args[2]})
+                return ("related", {})
+            return None
+
+        if head == "compounds":
+            return ("related", {"type": "compounds"})
+        if head == "trace" and len(args) >= 2:
+            return ("trace", {"needle": args[1]})
+        if head == "boot":
+            return ("boot", {})
+
+        return None
+
+    async def _run_socket(self, *args: str, timeout: int = 5) -> str:
+        """Try to run an ostk command via the MCP socket transport."""
+        from services.ostk_socket import call_tool, OstkSocketError
+
+        mapping = self._resolve_socket_tool(args)
+        if mapping is None:
+            raise OstkSocketError(f"No socket mapping for: {args}")
+
+        tool_name, tool_args = mapping
+        return await call_tool(tool_name, tool_args, timeout=float(timeout))
 
     async def _run(self, *args: str, timeout: int = 5) -> str:
+        # Try socket transport first (fast path)
+        if self._socket_available is not False:
+            try:
+                result = await self._run_socket(*args, timeout=timeout)
+                self._socket_available = True
+                return result
+            except Exception:
+                self._socket_available = False
+
+        # Fallback to subprocess
         import subprocess
         cmd = ["ostk", *args]
         try:
@@ -241,6 +348,19 @@ class OstkService:
 
     async def next_task(self) -> str:
         return await self._run("work", "next")
+
+    async def claim_next_task(self) -> str:
+        """Pull and claim the next task from the queue.
+
+        Uses ostk's pull model: the agent declares readiness, ostk selects
+        the highest-priority task (sphere-radius-aware), and atomically
+        marks it as in_progress. Returns the task info or empty if no
+        tasks available.
+        """
+        try:
+            return await self._run("work", "next", "--claim")
+        except OstkError:
+            return ""
 
     async def activate_task(self, task_id: str) -> dict:
         """Run ``ostk work activate <id>`` and parse the briefing output.

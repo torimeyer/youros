@@ -108,7 +108,13 @@ def agent_mailbox_instruction(agent_name: str) -> str:
         f"step, post a final reply, then POST /api/agents/{agent_name}/complete"
         " and exit.\n\n"
         "This loop lives alongside your heartbeats. Do not skip it. "
-        "Tori is waiting on the other end."
+        "Tori is waiting on the other end.\n\n"
+        "### Pull model (when you finish a task)\n"
+        "When you complete your assigned work, you can pull the next "
+        "available task instead of stopping:\n"
+        "   `curl -s -X POST http://localhost:8000/api/tasks/pull`\n"
+        "If the response has `claimed: true`, work on that task next. "
+        "If `claimed: false`, no tasks are available. Complete and exit."
     )
 
 
@@ -155,8 +161,49 @@ def _parse_iso(value: str) -> Optional[datetime]:
         return None
 
 
+# Maximum number of automatic recovery attempts before giving up. Prevents
+# infinite loops where a consistently crashing agent gets re-spawned forever.
+MAX_RECOVERY_ATTEMPTS = 3
+
+# Approximate cost per 1M tokens by model family. Used to estimate cost from
+# token counts. These are rough averages of input+output pricing.
+_COST_PER_MILLION_TOKENS = {
+    "claude-opus-4-6": 30.0,
+    "claude-sonnet-4-6": 6.0,
+    "claude-haiku-4-5": 2.0,
+}
+
+
+def _read_handoff_note(name: str) -> Optional[str]:
+    """Read the handoff note for an agent, if one exists.
+
+    Handoff notes are written by ``ostk handoff`` when an agent saves its
+    progress before stopping. They live at ``.ostk/handoffs/{name}.md``.
+    Returns the note text or None if no handoff exists.
+    """
+    handoff_path = OSTK_DIR / "handoffs" / f"{name}.md"
+    if not handoff_path.exists():
+        return None
+    try:
+        text = handoff_path.read_text().strip()
+        return text if text else None
+    except OSError:
+        return None
+
+
+def _estimate_cost(model: str, tokens_used: int) -> float:
+    """Estimate dollar cost from token count and model.
+
+    Returns a rough estimate. The real cost depends on the input/output
+    split, but this gives a useful ballpark for the UI.
+    """
+    rate = _COST_PER_MILLION_TOKENS.get(model, 6.0)
+    return round(tokens_used * rate / 1_000_000, 4)
+
+
 def _sweep_stale_running_agents() -> bool:
-    """Mark any running agent with no recent heartbeat as ``terminated_stale``.
+    """Mark any running agent with no recent heartbeat as ``terminated_stale``,
+    or flag it for recovery if a handoff note exists.
 
     Called at the top of the list endpoint so every poll picks up agents
     that died without calling ``/complete`` (external kill, OOM, crashed
@@ -177,13 +224,28 @@ def _sweep_stale_running_agents() -> bool:
         age_seconds = (now - last_seen).total_seconds()
         if age_seconds <= STALE_AGENT_TIMEOUT_SECONDS:
             continue
-        meta["status"] = "terminated_stale"
-        meta["terminated_at"] = now.isoformat()
-        meta["terminated_reason"] = (
-            f"No heartbeat for {int(age_seconds)}s "
-            f"(limit {STALE_AGENT_TIMEOUT_SECONDS}s)"
-        )
-        changed = True
+
+        # Check if we should attempt recovery instead of terminating
+        recovery_count = meta.get("recovery_count", 0)
+        handoff_note = _read_handoff_note(name)
+        if handoff_note and recovery_count < MAX_RECOVERY_ATTEMPTS:
+            meta["status"] = "recovering"
+            meta["recovery_count"] = recovery_count + 1
+            meta["last_recovery_at"] = now.isoformat()
+            changed = True
+        else:
+            meta["status"] = "terminated_stale"
+            meta["terminated_at"] = now.isoformat()
+            reason = (
+                f"No heartbeat for {int(age_seconds)}s "
+                f"(limit {STALE_AGENT_TIMEOUT_SECONDS}s)"
+            )
+            if recovery_count >= MAX_RECOVERY_ATTEMPTS:
+                reason += (
+                    f". Recovery exhausted ({recovery_count}/{MAX_RECOVERY_ATTEMPTS})"
+                )
+            meta["terminated_reason"] = reason
+            changed = True
     return changed
 
 
@@ -958,10 +1020,26 @@ async def list_agents():
 
     all_agents = list(agents_map.values())
 
-    # Enrich agents with transcript metrics
+    # Enrich agents with transcript metrics and budget info
     for agent in all_agents:
         metrics = _get_transcript_metrics(agent["name"])
         agent.update(metrics)
+        # Add budget/token info from metadata
+        meta = agent_metadata.get(agent["name"], {})
+        tokens_used = meta.get("tokens_used", 0)
+        token_limit = meta.get("token_limit")
+        agent["tokens_used"] = tokens_used
+        agent["token_limit"] = token_limit
+        if token_limit and token_limit > 0:
+            agent["token_usage_pct"] = round(tokens_used / token_limit * 100, 1)
+        else:
+            agent["token_usage_pct"] = None
+        agent["cost_estimate"] = _estimate_cost(
+            meta.get("model", ""), tokens_used
+        )
+        # Add recovery info
+        agent["recovery_count"] = meta.get("recovery_count", 0)
+        agent["max_recoveries"] = MAX_RECOVERY_ATTEMPTS
 
     return {
         "daemon_running": daemon_running,
@@ -1044,14 +1122,23 @@ async def spawn_agent(body: AgentSpawn):
         proc.stdin.close()
 
         active_agents[body.name] = proc
-        agent_metadata[body.name] = {
+        now_spawn = datetime.now(timezone.utc).isoformat()
+        spawn_meta: dict = {
             "status": "running",
-            "spawned_at": datetime.now(timezone.utc).isoformat(),
-            "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+            "spawned_at": now_spawn,
+            "last_heartbeat_at": now_spawn,
             "budget": str(body.budget),
             "model": model,
             "pid": proc.pid,
+            "tokens_used": 0,
         }
+        if body.token_limit is not None:
+            spawn_meta["token_limit"] = body.token_limit
+        # Preserve recovery_count across re-spawns so the cap is tracked
+        existing_meta = agent_metadata.get(body.name) or {}
+        if existing_meta.get("recovery_count"):
+            spawn_meta["recovery_count"] = existing_meta["recovery_count"]
+        agent_metadata[body.name] = spawn_meta
         _save_agent_state()
 
         # Log to audit
@@ -1172,7 +1259,15 @@ async def register_agent(body: AgentSpawn):
         # or /heartbeat call. The list endpoint compares this to
         # STALE_AGENT_TIMEOUT_SECONDS to auto-sweep orphans.
         "last_heartbeat_at": now_iso,
+        "tokens_used": existing.get("tokens_used", 0),
     }
+    if body.token_limit is not None:
+        record["token_limit"] = body.token_limit
+    elif existing.get("token_limit") is not None:
+        record["token_limit"] = existing["token_limit"]
+    # Preserve recovery_count across re-registers
+    if existing.get("recovery_count"):
+        record["recovery_count"] = existing["recovery_count"]
     if body.description:
         record["description"] = body.description
     if body.prompt:
@@ -1335,6 +1430,174 @@ async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
         meta["current_step"] = body.step
     _save_agent_state()
     return {"ok": True, "last_heartbeat_at": now_iso}
+
+
+class TokenUsageUpdate(BaseModel):
+    tokens_used: int
+
+
+@router.get("/agents/{name}/budget")
+async def get_agent_budget(name: str):
+    """Return the token budget status for an agent.
+
+    Returns tokens_used, token_limit (if set), and an estimated cost
+    based on the agent's model. The UI uses this to render a progress
+    bar showing how much of the budget has been consumed.
+    """
+    if name not in agent_metadata:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{name}' not found.",
+        )
+    meta = agent_metadata[name]
+    tokens_used = meta.get("tokens_used", 0)
+    token_limit = meta.get("token_limit")
+    model = meta.get("model", "")
+    cost_estimate = _estimate_cost(model, tokens_used)
+
+    result: dict = {
+        "agent": name,
+        "tokens_used": tokens_used,
+        "token_limit": token_limit,
+        "cost_estimate": cost_estimate,
+        "model": model,
+    }
+    if token_limit and token_limit > 0:
+        result["usage_pct"] = round(tokens_used / token_limit * 100, 1)
+    return result
+
+
+@router.post("/agents/{name}/budget")
+async def update_agent_budget(name: str, body: TokenUsageUpdate):
+    """Update the token usage counter for an agent.
+
+    Called by agents or orchestrators to report how many tokens have been
+    consumed so far. The UI polls GET /agents/{name}/budget to show a
+    live progress bar.
+    """
+    if name not in agent_metadata:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{name}' not found.",
+        )
+    meta = agent_metadata[name]
+    meta["tokens_used"] = body.tokens_used
+    _save_agent_state()
+    return {"ok": True, "tokens_used": body.tokens_used}
+
+
+@router.post("/agents/{name}/recover")
+async def recover_agent(name: str):
+    """Manually recover a failed or stale agent.
+
+    Reads the agent's last handoff note (or last transcript snippet) and
+    re-spawns it with that context as a prompt prefix. This lets Tori
+    manually revive agents that crashed without waiting for the automatic
+    sweep.
+
+    Recovery is capped at MAX_RECOVERY_ATTEMPTS to prevent infinite loops.
+    """
+    if name not in agent_metadata:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{name}' not found.",
+        )
+    meta = agent_metadata[name]
+    recovery_count = meta.get("recovery_count", 0)
+
+    if recovery_count >= MAX_RECOVERY_ATTEMPTS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Agent '{name}' has already been recovered "
+                f"{recovery_count} times (limit {MAX_RECOVERY_ATTEMPTS}). "
+                f"Check the transcript for the root cause."
+            ),
+        )
+
+    # Only allow recovery of dead agents, not running ones
+    status = meta.get("status", "")
+    if status == "running":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Agent '{name}' is still running. Cancel it first if you want to restart.",
+        )
+
+    # Build recovery context from handoff note or transcript
+    handoff_note = _read_handoff_note(name)
+    recovery_context = ""
+    if handoff_note:
+        recovery_context = (
+            f"You are being recovered after a crash. Here is where you left off:\n\n"
+            f"{handoff_note}\n\n"
+            f"Continue from where you stopped. Do not repeat work already done."
+        )
+    else:
+        # Try to get last lines from transcript as context
+        source = _resolve_transcript_source(name)
+        if source and source.exists():
+            try:
+                lines = source.read_text(errors="replace").strip().split("\n")
+                last_lines = lines[-20:] if len(lines) > 20 else lines
+                transcript_tail = "\n".join(last_lines)
+                recovery_context = (
+                    f"You are being recovered after a crash. Here is the tail of your "
+                    f"last session transcript:\n\n{transcript_tail}\n\n"
+                    f"Continue from where you stopped. Do not repeat work already done."
+                )
+            except OSError:
+                pass
+
+    if not recovery_context:
+        recovery_context = (
+            f"You are being recovered after a crash. No handoff note or transcript "
+            f"was found. Check the codebase for your previous work and continue."
+        )
+
+    # Get the original prompt if available
+    original_prompt = meta.get("prompt", "")
+    model_short = meta.get("model", "sonnet")
+    # Map full model names back to short names for AgentSpawn
+    for short, full in MODEL_MAP.items():
+        if full == model_short:
+            model_short = short
+            break
+    budget = float(meta.get("budget", "2.0"))
+
+    # Build the recovery spawn body
+    full_prompt = recovery_context
+    if original_prompt:
+        full_prompt = f"{recovery_context}\n\nOriginal task:\n{original_prompt}"
+
+    # Update recovery metadata
+    meta["recovery_count"] = recovery_count + 1
+    meta["last_recovery_at"] = _now_iso()
+    meta["status"] = "recovering"
+    _save_agent_state()
+
+    # Spawn the recovered agent
+    spawn_body = AgentSpawn(
+        name=name,
+        prompt=full_prompt,
+        model=model_short,
+        budget=budget,
+        token_limit=meta.get("token_limit"),
+    )
+    try:
+        result = await spawn_agent(spawn_body)
+        return {
+            "result": f"Agent '{name}' recovered (attempt {recovery_count + 1}/{MAX_RECOVERY_ATTEMPTS})",
+            "recovery_count": recovery_count + 1,
+            "max_recoveries": MAX_RECOVERY_ATTEMPTS,
+            "spawn_result": result,
+        }
+    except Exception as e:
+        # Roll back to the terminal state if spawn fails
+        meta["status"] = "failed"
+        meta["terminated_at"] = _now_iso()
+        meta["terminated_reason"] = f"Recovery spawn failed: {e}"
+        _save_agent_state()
+        raise HTTPException(status_code=500, detail=f"Recovery spawn failed: {e}")
 
 
 @router.post("/agents/{name}/cancel")
@@ -1796,3 +2059,84 @@ async def agent_stream(websocket: WebSocket, name: str):
     except Exception:
         stdout_task.cancel()
         client_task.cancel()
+
+
+@router.websocket("/ws/agents/{name}/stream")
+async def agent_attach_stream(websocket: WebSocket, name: str):
+    """Stream a running agent's live output via ``ostk attach``.
+
+    This endpoint spawns ``ostk attach <name>`` as a subprocess and
+    forwards every line of stdout to the WebSocket client as a JSON
+    message with ``{"type": "output", "data": "<line>"}``. When the
+    subprocess exits (agent completes or is killed) the endpoint sends
+    ``{"type": "done", "return_code": N}`` and closes the socket.
+
+    If the client disconnects first, the subprocess is killed so we
+    do not leak orphan processes.
+    """
+    import shutil
+
+    await websocket.accept()
+
+    # Reject path traversal in the agent name.
+    if "/" in name or ".." in name:
+        await websocket.send_json({"type": "error", "data": "Invalid agent name"})
+        await websocket.close()
+        return
+
+    # Locate the ostk binary. Prefer the PATH lookup so tests can
+    # substitute a mock, but fall back to the well-known install path.
+    ostk_bin = shutil.which("ostk") or "/Users/torimeyer/.local/bin/ostk"
+
+    proc: Optional[asyncio.subprocess.Process] = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            ostk_bin, "attach", name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        async def _stream_output():
+            """Forward subprocess stdout to the WebSocket client."""
+            assert proc is not None and proc.stdout is not None
+            try:
+                async for raw_line in proc.stdout:
+                    line = raw_line.decode(errors="replace").rstrip("\n\r")
+                    await websocket.send_json({"type": "output", "data": line})
+                # Subprocess ended. Wait for the exit code.
+                return_code = await proc.wait()
+                await websocket.send_json({
+                    "type": "done",
+                    "return_code": return_code,
+                })
+            except (WebSocketDisconnect, Exception):
+                pass
+
+        async def _read_client():
+            """Keep reading from the client so we detect disconnects."""
+            try:
+                while True:
+                    await websocket.receive_text()
+            except (WebSocketDisconnect, Exception):
+                pass
+
+        output_task = asyncio.create_task(_stream_output())
+        client_read_task = asyncio.create_task(_read_client())
+        try:
+            _done, _pending = await asyncio.wait(
+                [output_task, client_read_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in _pending:
+                task.cancel()
+        except Exception:
+            output_task.cancel()
+            client_read_task.cancel()
+    finally:
+        # Always kill the subprocess to avoid orphans.
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except (ProcessLookupError, OSError):
+                pass

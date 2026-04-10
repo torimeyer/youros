@@ -146,6 +146,31 @@ async def generate_briefing() -> str:
             ),
         )
         p0p1_count = len(priority_tasks)
+
+        # Compute compound scores (which tasks unblock the most)
+        open_ids = {t.get("id", "") for t in all_tasks if t.get("status") == "open"}
+        blocks_graph: dict[str, set] = {}
+        for t in all_tasks:
+            tid = t.get("id", "")
+            for bid in (t.get("blocks") or []):
+                blocks_graph.setdefault(tid, set()).add(bid)
+            for did in (t.get("depends_on") or []):
+                blocks_graph.setdefault(did, set()).add(tid)
+        compound_scores: dict[str, int] = {}
+        for tid in open_ids:
+            visited: set = set()
+            queue = list(blocks_graph.get(tid, set()))
+            while queue:
+                nid = queue.pop(0)
+                if nid in visited or nid == tid:
+                    continue
+                visited.add(nid)
+                if nid in open_ids:
+                    queue.extend(blocks_graph.get(nid, set()))
+            count = len(visited & open_ids)
+            if count > 0:
+                compound_scores[tid] = count
+
         if priority_tasks:
             today = datetime.now(timezone.utc)
             task_lines = []
@@ -158,12 +183,27 @@ async def generate_briefing() -> str:
                         age = f" (open {days}d)" if days > 0 else " (new today)"
                     except Exception:
                         pass
+                unblocks = compound_scores.get(t.get("id", ""), 0)
+                unblocks_str = f" [unblocks {unblocks} tasks]" if unblocks > 0 else ""
                 task_lines.append(
-                    f"  [{t.get('priority')}] {t.get('title', 'Untitled')}{age}"
+                    f"  [{t.get('priority')}] {t.get('title', 'Untitled')}{age}{unblocks_str}"
                 )
             context_parts.append("Top open tasks (sorted by priority, then oldest first):\n" + "\n".join(task_lines))
         else:
             context_parts.append("No high-priority tasks open right now.")
+    except OstkError:
+        pass
+
+    # High-leverage tasks (compounds) that unblock the most other work
+    try:
+        compounds = await ostk.get_compounds()
+        if compounds:
+            top = compounds[0]
+            context_parts.append(
+                f"Highest-leverage task: \"{top.get('title', 'Untitled')}\" "
+                f"(finishing it unblocks {top.get('blocks_count', 0)} other "
+                f"{'task' if top.get('blocks_count', 0) == 1 else 'tasks'})"
+            )
     except OstkError:
         pass
 
@@ -193,18 +233,20 @@ async def generate_briefing() -> str:
     prompt = (
         f"Today is {today_display}. Here is the user's workspace context:\n\n"
         f"{context_block}\n\n"
-        "Write a short briefing in 2-3 short paragraphs, separated by blank lines. "
-        "Plain conversational language, no jargon, no bullet points.\n\n"
+        "Write a short briefing in 2 short paragraphs, separated by blank lines. "
+        "Plain factual language, no jargon, no bullet points, no motivational phrases.\n\n"
         "Paragraph 1: What is on the calendar today (if anything) and a quick "
-        "recap of recent momentum (yesterday's accomplishments).\n\n"
+        "recap of what was completed yesterday.\n\n"
         "Paragraph 2: The single most important task to work on and why. "
-        "Use these rules to pick it: P0 always beats P1. Among the same priority, "
+        "Use these rules to pick it: if the context includes a highest-leverage task "
+        "that unblocks multiple other tasks, that is the top recommendation regardless "
+        "of priority. Otherwise, P0 always beats P1. Among the same priority, "
         "the task that has been open the longest is the most important. If a task is "
         "a bug that users are hitting, it beats a feature request at the same priority "
         "and age. Name the specific task.\n\n"
-        "Paragraph 3: One short encouraging note.\n\n"
-        "Keep it warm and brief. Do not use em-dashes. Do not assume a time of day, "
-        "so avoid phrases like good morning, this morning, or your morning."
+        "Keep it concise and factual. Do not use em-dashes. Do not use encouraging or "
+        "motivational language. Do not assume a time of day, so avoid phrases like "
+        "good morning, this morning, or your morning."
     )
 
     briefing = await _call_claude(prompt)

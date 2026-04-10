@@ -76,6 +76,40 @@ def _enrich_task(
     return task
 
 
+def _compute_compound_scores(tasks: list[dict]) -> dict[str, int]:
+    """Compute how many open tasks each task transitively unblocks.
+
+    Uses blocks/depends_on fields to build a graph, then counts
+    downstream open tasks via BFS for each open task.
+    """
+    open_ids = {t.get("id", "") for t in tasks if t.get("status") == "open"}
+    # Build adjacency: blocker -> set of tasks it blocks
+    blocks_graph: dict[str, set[str]] = {}
+    for t in tasks:
+        tid = t.get("id", "")
+        for blocked_id in (t.get("blocks") or []):
+            blocks_graph.setdefault(tid, set()).add(blocked_id)
+        for dep_id in (t.get("depends_on") or []):
+            blocks_graph.setdefault(dep_id, set()).add(tid)
+
+    scores: dict[str, int] = {}
+    for tid in open_ids:
+        # BFS: count all transitively blocked OPEN tasks
+        visited: set[str] = set()
+        queue = list(blocks_graph.get(tid, set()))
+        while queue:
+            nid = queue.pop(0)
+            if nid in visited or nid == tid:
+                continue
+            visited.add(nid)
+            if nid in open_ids:
+                queue.extend(blocks_graph.get(nid, set()))
+        count = len(visited & open_ids)
+        if count > 0:
+            scores[tid] = count
+    return scores
+
+
 @router.get("/tasks")
 async def list_tasks(status: Optional[str] = None, priority: Optional[str] = None):
     try:
@@ -86,6 +120,12 @@ async def list_tasks(status: Optional[str] = None, priority: Optional[str] = Non
         all_assignments = task_labels_store.get_all_assignments()
         task_thread_map = threads_store.get_all_task_thread_map()
         tasks = [_enrich_task(t, all_assignments, task_thread_map) for t in tasks]
+        # Add compound scores (how many tasks each one unblocks)
+        compound_scores = _compute_compound_scores(tasks)
+        for t in tasks:
+            tid = t.get("id", "")
+            if tid in compound_scores:
+                t["unblocks"] = compound_scores[tid]
         return {"tasks": tasks}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -283,6 +323,28 @@ async def next_task():
     try:
         result = await ostk.next_task()
         return {"suggestion": result}
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tasks/pull")
+async def pull_next_task():
+    """Pull model: claim the next available task atomically.
+
+    Uses ostk's pull primitive (work next --claim). The agent declares
+    readiness, ostk selects the highest-priority task using sphere-radius
+    ordering, and atomically marks it as in_progress. Returns the claimed
+    task or null if nothing is available.
+
+    This is the pull-model counterpart to push-based task assignment.
+    Agents call this when they are ready for more work instead of being
+    pushed tasks by an orchestrator.
+    """
+    try:
+        result = await ostk.claim_next_task()
+        if not result:
+            return {"claimed": False, "task": None}
+        return {"claimed": True, "task": result}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
