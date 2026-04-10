@@ -190,6 +190,210 @@ if [ "$SKIP_LIVE" != "1" ]; then
         else
             phase_fail "POST /api/tasks (body: $create_resp)"
         fi
+        # --- Fleet endpoints ---
+        check_http_json "GET /api/agents/fleets returns fleet list"      "/api/agents/fleets"         '"fleets"'
+
+        # Verify fleet count (should be 9)
+        fleet_count=$(curl -sS "${API_BASE}/api/agents/fleets" 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('fleets',[])))" 2>/dev/null)
+        if [ "$fleet_count" -ge 9 ]; then
+            phase_pass "fleet templates count >= 9 ($fleet_count)"
+        else
+            phase_fail "fleet templates count is $fleet_count, expected >= 9"
+        fi
+
+        # --- Task audit endpoint ---
+        check_http_json "GET /api/tasks/audit returns findings"          "/api/tasks/audit"           '"findings"'
+        check_http_json "GET /api/tasks/audit has summary"               "/api/tasks/audit"           '"summary"'
+
+        # --- Task duplicates endpoint ---
+        check_http_json "GET /api/tasks/duplicates returns list"         "/api/tasks/duplicates"      '"duplicates"'
+
+        # --- Task health endpoint ---
+        check_http_json "GET /api/tasks/health runs"                     "/api/tasks/health"          ""
+
+        # --- Briefing endpoint ---
+        check_http_json "GET /api/briefing returns show field"           "/api/briefing"              '"show"'
+
+        # --- Upgrade status ---
+        check_http_json "GET /api/upgrade/status returns myos info"      "/api/upgrade/status"        '"myos"'
+        check_http_json "GET /api/upgrade/status returns ostk info"      "/api/upgrade/status"        '"ostk"'
+
+        # --- Status/clock endpoint ---
+        check_http_json "GET /api/status/clock returns kernel"           "/api/status/clock"          '"kernel"'
+
+        # --- Workflow templates ---
+        check_http_json "GET /api/workflows/templates returns list"      "/api/workflows/templates"   '"templates"'
+
+        # Verify workflow template count (should be 9)
+        wf_count=$(curl -sS "${API_BASE}/api/workflows/templates" 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('templates',[])))" 2>/dev/null)
+        if [ "$wf_count" -ge 9 ]; then
+            phase_pass "workflow templates count >= 9 ($wf_count)"
+        else
+            phase_fail "workflow templates count is $wf_count, expected >= 9"
+        fi
+
+        # --- Calendar auth status ---
+        check_http_json "GET /api/calendar/auth/status responds"         "/api/calendar/auth/status"  '"authenticated"'
+
+        # --- Gmail auth status ---
+        check_http_json "GET /api/gmail/auth/status responds"            "/api/gmail/auth/status"     '"authenticated"'
+
+        # --- Drive auth status ---
+        check_http_json "GET /api/drive/auth/status responds"            "/api/drive/auth/status"     '"authenticated"'
+
+        # --- Transcripts endpoint ---
+        check_http_json "GET /api/transcripts returns list"              "/api/transcripts"           '"transcripts"'
+
+        # --- Export endpoints ---
+        check_http_json "GET /api/export/tasks returns markdown"         "/api/export/tasks"          ""
+        check_http_json "GET /api/export/timeline returns markdown"      "/api/export/timeline"       ""
+
+        # --- Notifications endpoint ---
+        check_http_json "GET /api/notifications returns list"            "/api/notifications"         ""
+
+        # --- Agent register + complete lifecycle ---
+        reg_resp=$(curl -sS -X POST "${API_BASE}/api/agents/register" \
+            -H 'content-type: application/json' \
+            -d '{"name":"e2e-lifecycle-test","model":"sonnet","budget":0,"status":"running"}' 2>/dev/null)
+        if echo "$reg_resp" | grep -q '"result"'; then
+            phase_pass "POST /api/agents/register creates running agent"
+        else
+            phase_fail "POST /api/agents/register (body: $reg_resp)"
+        fi
+
+        # Verify it shows as active
+        active_check=$(curl -sS "${API_BASE}/api/agents" 2>/dev/null | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+print('yes' if 'e2e-lifecycle-test' in d.get('active',[]) else 'no')
+" 2>/dev/null)
+        if [ "$active_check" = "yes" ]; then
+            phase_pass "registered agent appears in active list"
+        else
+            phase_fail "registered agent not in active list"
+        fi
+
+        # Complete the agent
+        comp_resp=$(curl -sS -X POST "${API_BASE}/api/agents/e2e-lifecycle-test/complete" \
+            -H 'content-type: application/json' 2>/dev/null)
+        if echo "$comp_resp" | grep -q '"completed"'; then
+            phase_pass "POST /api/agents/{name}/complete marks agent done"
+        else
+            phase_fail "POST /api/agents/complete (body: $comp_resp)"
+        fi
+
+        # Verify it is no longer active
+        active_after=$(curl -sS "${API_BASE}/api/agents" 2>/dev/null | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+print('yes' if 'e2e-lifecycle-test' in d.get('active',[]) else 'no')
+" 2>/dev/null)
+        if [ "$active_after" = "no" ]; then
+            phase_pass "completed agent removed from active list"
+        else
+            phase_fail "completed agent still in active list"
+        fi
+
+        # --- Task CRUD lifecycle ---
+        crud_title="e2e-crud-$(date +%s)"
+        crud_resp=$(curl -sS -X POST "${API_BASE}/api/tasks" \
+            -H 'content-type: application/json' \
+            -d "{\"title\":\"$crud_title\",\"priority\":\"P1\"}" 2>/dev/null)
+        crud_id=$(echo "$crud_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null || true)
+        if [ -n "$crud_id" ]; then
+            phase_pass "task CRUD: create works"
+        else
+            phase_fail "task CRUD: create failed"
+        fi
+
+        # Verify task appears in list
+        if curl -sS "${API_BASE}/api/tasks" 2>/dev/null | grep -q "$crud_title"; then
+            phase_pass "task CRUD: appears in task list"
+        else
+            phase_fail "task CRUD: not found in task list"
+        fi
+
+        # Close the task
+        close_resp=$(curl -sS -X POST "${API_BASE}/api/tasks/${crud_id}/close" \
+            -H 'content-type: application/json' 2>/dev/null)
+        if echo "$close_resp" | grep -q '"result"'; then
+            phase_pass "task CRUD: close works"
+        else
+            phase_fail "task CRUD: close failed"
+        fi
+
+        # --- Label CRUD lifecycle ---
+        label_resp=$(curl -sS -X POST "${API_BASE}/api/labels" \
+            -H 'content-type: application/json' \
+            -d '{"name":"e2e-test-label","color":"#ef4444"}' 2>/dev/null)
+        if echo "$label_resp" | grep -q "e2e-test-label"; then
+            phase_pass "label CRUD: create works"
+        else
+            phase_fail "label CRUD: create failed"
+        fi
+
+        label_id=$(echo "$label_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || true)
+        if [ -n "$label_id" ]; then
+            curl -sS -X DELETE "${API_BASE}/api/labels/${label_id}" > /dev/null 2>&1
+            phase_pass "label CRUD: delete works"
+        fi
+
+        # --- Settings PATCH round trip ---
+        settings_before=$(curl -sS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
+        curl -sS -X PATCH "${API_BASE}/api/settings" \
+            -H 'content-type: application/json' \
+            -d '{"os_name":"e2e-test-os"}' > /dev/null 2>&1
+        settings_after=$(curl -sS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
+        if [ "$settings_after" = "e2e-test-os" ]; then
+            phase_pass "settings PATCH round trip works"
+            # Restore original
+            curl -sS -X PATCH "${API_BASE}/api/settings" \
+                -H 'content-type: application/json' \
+                -d "{\"os_name\":\"$settings_before\"}" > /dev/null 2>&1
+        else
+            phase_fail "settings PATCH did not persist"
+        fi
+
+        # --- Briefing dismiss round trip ---
+        curl -sS -X POST "${API_BASE}/api/briefing/dismiss" \
+            -H 'content-type: application/json' > /dev/null 2>&1
+        dismiss_check=$(curl -sS "${API_BASE}/api/briefing" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('show',True))" 2>/dev/null)
+        if [ "$dismiss_check" = "False" ]; then
+            phase_pass "briefing dismiss hides briefing"
+        else
+            phase_fail "briefing dismiss did not hide briefing"
+        fi
+
+        # --- No hardcoded ports in routers ---
+        hardcoded=$(grep -r 'localhost:5173' "$REPO_DIR/api/routers/" 2>/dev/null | grep -v '.pyc' | grep -v '#.*localhost:5173' | wc -l | tr -d ' ')
+        if [ "$hardcoded" = "0" ]; then
+            phase_pass "no hardcoded localhost:5173 in routers"
+        else
+            phase_fail "found $hardcoded hardcoded localhost:5173 references in routers"
+        fi
+
+        # --- User data safety: needles symlink ---
+        if [ -L "$REPO_DIR/.ostk/needles" ]; then
+            phase_pass "needles is a symlink (safe from git pull)"
+        elif [ ! -d "$REPO_DIR/.ostk/needles" ]; then
+            phase_pass "needles directory not present (fresh install)"
+        else
+            phase_fail "needles is a real directory inside repo (unsafe)"
+        fi
+
+        # --- Start script syntax ---
+        if bash -n "$REPO_DIR/start.sh" 2>/dev/null; then
+            phase_pass "start.sh has valid bash syntax"
+        else
+            phase_fail "start.sh has syntax errors"
+        fi
+
+        # --- Needles migration in start.sh ---
+        if grep -q 'myos/needles' "$REPO_DIR/start.sh"; then
+            phase_pass "start.sh has needles migration logic"
+        else
+            phase_fail "start.sh missing needles migration"
+        fi
     fi
 fi
 
