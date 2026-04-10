@@ -6,7 +6,7 @@ import { api, ApiError, ApiTimeoutError } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 
-const BASE_TABS = ["Active", "Recent", "Insights", "Metrics", "Templates", "Automations"];
+const BASE_TABS = ["Active", "Recent", "Insights", "Metrics", "Templates", "Agentfiles", "Automations"];
 
 interface AutoTemplate { id: string; name: string; description: string; icon: string; steps: { name: string; prompt: string }[] }
 
@@ -82,6 +82,247 @@ function AutomationTemplatesList() {
     </div>
   );
 }
+/* ---------- Agentfiles Tab ---------- */
+
+interface AgentfileInfo {
+  name: string;
+  path: string;
+  model: string;
+  prompt: string;
+  tools: string[];
+  token_limit: number;
+  boot: string;
+  pin: string;
+  description: string;
+  source: "builtin" | "user";
+  raw?: string;
+}
+
+const AGENTFILE_ICONS: Record<string, string> = {
+  saa: "engineering",
+  diagnose: "bug_report",
+  review: "rate_review",
+  test: "science",
+  research: "search",
+};
+
+function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
+  const [agentfiles, setAgentfiles] = useState<AgentfileInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [launching, setLaunching] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    name: "",
+    prompt: "",
+    model: "auto",
+    description: "",
+  });
+  const [creating, setCreating] = useState(false);
+
+  const fetchAgentfiles = useCallback(async () => {
+    try {
+      const data = await api.get<{ agentfiles: AgentfileInfo[] }>("/agentfiles");
+      setAgentfiles(data.agentfiles ?? []);
+    } catch {
+      // keep empty
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAgentfiles();
+  }, [fetchAgentfiles]);
+
+  const handleLaunch = async (name: string) => {
+    setLaunching(name);
+    try {
+      await api.post(`/agentfiles/${encodeURIComponent(name)}/run`, {});
+      onLaunch();
+    } catch (e) {
+      console.error("Failed to launch Agentfile:", e);
+    } finally {
+      setLaunching(null);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!createForm.name.trim() || !createForm.prompt.trim()) return;
+    setCreating(true);
+    try {
+      await api.post("/agentfiles", {
+        name: createForm.name,
+        prompt: createForm.prompt,
+        model: createForm.model,
+        tools: ["shell", "file:read", "file:write"],
+        token_limit: 200000,
+        description: createForm.description,
+      });
+      setShowCreate(false);
+      setCreateForm({ name: "", prompt: "", model: "auto", description: "" });
+      await fetchAgentfiles();
+    } catch (e) {
+      console.error("Failed to create Agentfile:", e);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (loading) return <p className="text-sm text-slate-500">Loading Agentfiles...</p>;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h3 className="text-white font-semibold">Agentfiles</h3>
+          <p className="text-xs text-slate-500 mt-1">Standardized agent configs that launch via ostk run</p>
+        </div>
+        <button
+          onClick={() => setShowCreate(!showCreate)}
+          className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
+        >
+          <Icon name={showCreate ? "close" : "add"} className="text-base" />
+          {showCreate ? "Cancel" : "New Agentfile"}
+        </button>
+      </div>
+
+      {/* Create form */}
+      {showCreate && (
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 mb-6">
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Name</label>
+              <input
+                type="text"
+                value={createForm.name}
+                onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                placeholder="e.g. deploy-checker"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Model</label>
+              <select
+                value={createForm.model}
+                onChange={(e) => setCreateForm({ ...createForm, model: e.target.value })}
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+              >
+                <option value="auto">Auto</option>
+                <option value="opus">Opus</option>
+                <option value="sonnet">Sonnet</option>
+                <option value="haiku">Haiku</option>
+              </select>
+            </div>
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm text-slate-400 mb-1">Description</label>
+            <input
+              type="text"
+              value={createForm.description}
+              onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+              placeholder="What does this agent do?"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm text-slate-400 mb-1">Prompt</label>
+            <textarea
+              value={createForm.prompt}
+              onChange={(e) => setCreateForm({ ...createForm, prompt: e.target.value })}
+              rows={3}
+              placeholder="The instructions this agent follows when it runs..."
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+            />
+          </div>
+          <button
+            onClick={handleCreate}
+            disabled={creating || !createForm.name.trim() || !createForm.prompt.trim()}
+            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {creating ? "Creating..." : "Create Agentfile"}
+          </button>
+        </div>
+      )}
+
+      {/* Agentfile cards */}
+      {agentfiles.length === 0 ? (
+        <div className="text-center py-12">
+          <Icon name="description" className="text-4xl text-slate-600 mb-3" />
+          <p className="text-slate-400 text-sm">No Agentfiles found</p>
+          <p className="text-slate-500 text-xs mt-1">Create one above or add .agent files to the agents/ directory</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+          {agentfiles.map((af) => {
+            const isExpanded = expanded === af.name;
+            const icon = AGENTFILE_ICONS[af.name] || "smart_toy";
+            return (
+              <div key={af.name} className="bg-slate-900/40 border border-slate-800 rounded-xl p-4">
+                <div
+                  className="flex items-start gap-3 cursor-pointer"
+                  onClick={() => setExpanded(isExpanded ? null : af.name)}
+                >
+                  <Icon name={icon} className="text-2xl text-blue-400 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-white text-sm font-medium">{af.name}</p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        af.source === "builtin"
+                          ? "bg-blue-500/20 text-blue-400"
+                          : "bg-green-500/20 text-green-400"
+                      }`}>
+                        {af.source === "builtin" ? "built-in" : "custom"}
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-xs mt-0.5 line-clamp-2">{af.description || "No description"}</p>
+                    <div className="flex gap-3 mt-1.5">
+                      <span className="text-[10px] text-slate-500">model: {af.model}</span>
+                      <span className="text-[10px] text-slate-500">tools: {af.tools.length}</span>
+                      {af.token_limit > 0 && (
+                        <span className="text-[10px] text-slate-500">{(af.token_limit / 1000).toFixed(0)}k tokens</span>
+                      )}
+                    </div>
+                  </div>
+                  <Icon name={isExpanded ? "expand_less" : "expand_more"} className="text-slate-500 shrink-0" size={20} />
+                </div>
+
+                {isExpanded && (
+                  <div className="mt-3 pt-3 border-t border-slate-700/50">
+                    <div className="mb-3">
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Prompt</p>
+                      <p className="text-xs text-slate-300 leading-relaxed">{af.prompt || "No prompt defined"}</p>
+                    </div>
+                    {af.tools.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Tools</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {af.tools.map((tool) => (
+                            <span key={tool} className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded">
+                              {tool}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => handleLaunch(af.name)}
+                      disabled={launching === af.name}
+                      className="w-full mt-2 py-2 bg-pink-500 hover:bg-pink-600 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      {launching === af.name ? "Launching..." : "Launch Agent"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const POWER_USER_TABS = ["Delegate", "Workspace"];
 
 type CustomTemplate = CustomAgentTemplate;
@@ -284,6 +525,12 @@ interface AgentInfo {
   spawned_at?: string;
   transcript_bytes?: number;
   transcript_lines?: number;
+  tokens_used?: number;
+  token_limit?: number | null;
+  token_usage_pct?: number | null;
+  cost_estimate?: number;
+  recovery_count?: number;
+  max_recoveries?: number;
 }
 
 // Pattern recognition (Insights tab)
@@ -384,6 +631,63 @@ function AgentStatusBar({ spawnedAt, budget, model, learnedRates, transcriptByte
         </>
       )}
     </div>
+  );
+}
+
+function BudgetProgressBar({ tokensUsed, tokenLimit, costEstimate }: {
+  tokensUsed: number;
+  tokenLimit: number | null | undefined;
+  costEstimate?: number;
+}) {
+  if (!tokenLimit || tokenLimit <= 0) {
+    // No limit set, show usage only
+    if (tokensUsed <= 0) return null;
+    return (
+      <div className="flex items-center gap-2 text-xs" data-testid="budget-bar">
+        <span className="text-slate-400">{(tokensUsed / 1000).toFixed(1)}k tokens used</span>
+        {costEstimate !== undefined && costEstimate > 0 && (
+          <span className="text-slate-500">(~${costEstimate.toFixed(4)})</span>
+        )}
+      </div>
+    );
+  }
+
+  const pct = Math.min(100, Math.round((tokensUsed / tokenLimit) * 100));
+  const barColor = pct < 50 ? "bg-green-500" : pct < 80 ? "bg-yellow-500" : "bg-red-500";
+  const textColor = pct < 50 ? "text-green-400" : pct < 80 ? "text-yellow-400" : "text-red-400";
+
+  return (
+    <div className="mt-2" data-testid="budget-bar">
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className={textColor}>
+          {(tokensUsed / 1000).toFixed(1)}k / {(tokenLimit / 1000).toFixed(0)}k tokens ({pct}%)
+        </span>
+        {costEstimate !== undefined && costEstimate > 0 && (
+          <span className="text-slate-500">~${costEstimate.toFixed(4)}</span>
+        )}
+      </div>
+      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RecoveryBadge({ recoveryCount, maxRecoveries }: {
+  recoveryCount: number;
+  maxRecoveries: number;
+}) {
+  if (recoveryCount <= 0) return null;
+  return (
+    <span
+      className="text-xs font-bold px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400"
+      data-testid="recovery-badge"
+    >
+      Recovered ({recoveryCount}/{maxRecoveries})
+    </span>
   );
 }
 
@@ -594,6 +898,12 @@ const statusLabel = (status: string) => {
       return "FAILED";
     case "killed":
       return "KILLED";
+    case "recovering":
+      return "RECOVERING";
+    case "terminated_stale":
+      return "STALE";
+    case "abandoned":
+      return "ABANDONED";
     default:
       return status.toUpperCase();
   }
@@ -610,6 +920,11 @@ const statusColor = (status: string) => {
       return "bg-red-500/20 text-red-400";
     case "killed":
       return "bg-orange-500/20 text-orange-400";
+    case "recovering":
+      return "bg-yellow-500/20 text-yellow-400";
+    case "terminated_stale":
+    case "abandoned":
+      return "bg-red-500/20 text-red-400";
     default:
       return "bg-slate-500/20 text-slate-400";
   }
@@ -751,7 +1066,7 @@ export default function Agents() {
   const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [, setActiveAgents] = useState<string[]>([]);
   const [, setConnectionStatus] = useState("Connecting...");
-  const [daemonRunning, setDaemonRunning] = useState(false);
+  const [, setDaemonRunning] = useState(false);
   const [learnedRates, setLearnedRates] = useState<Record<string, number>>({});
   const [templates, setTemplates] = useState<TemplatesResponse["templates"]>([]);
   const [pmTemplates, setPmTemplates] = useState<PMAgentTemplate[]>([]);
@@ -765,6 +1080,8 @@ export default function Agents() {
   const [showNewForm, setShowNewForm] = useState(false);
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
+  const [newAgentTokenLimit, setNewAgentTokenLimit] = useState<string>("");
+  const [recoveringAgents, setRecoveringAgents] = useState<Record<string, boolean>>({});
   const [, setLastUpdate] = useState<Date | null>(null);
   const [transcriptModal, setTranscriptModal] = useState<{name: string; content: string; loading: boolean} | null>(null);
 
@@ -1352,15 +1669,19 @@ export default function Agents() {
     return () => window.removeEventListener('myos-quick-spawn-agent', handler);
   }, []);
 
-  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number) => {
+  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number, tokenLimit?: number | null) => {
     if (!name.trim()) return;
     try {
-      await api.post("/agents/spawn", {
+      const spawnPayload: Record<string, unknown> = {
         name: name.trim(),
         prompt: prompt || `You are a ${name.trim()} agent. Do your job well.`,
         model: model || "sonnet",
         budget: budget ?? 2.0,
-      });
+      };
+      if (tokenLimit && tokenLimit > 0) {
+        spawnPayload.token_limit = tokenLimit;
+      }
+      await api.post("/agents/spawn", spawnPayload);
       setShowNewForm(false);
       setNewAgentName("");
       setEditorOpen(false);
@@ -1395,6 +1716,18 @@ export default function Agents() {
     }
   };
 
+
+  const handleRecover = async (name: string) => {
+    setRecoveringAgents((prev) => ({ ...prev, [name]: true }));
+    try {
+      await api.post(`/agents/${name}/recover`);
+      await fetchAgents();
+    } catch {
+      // Recovery may fail if cap is reached
+    } finally {
+      setRecoveringAgents((prev) => ({ ...prev, [name]: false }));
+    }
+  };
 
   // Default template icons for API templates that don't match known names
   const getTemplateIcon = (name: string) => {
@@ -1468,12 +1801,12 @@ export default function Agents() {
                 value={newAgentName}
                 onChange={(e) => setNewAgentName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !newAgentPrompt) handleSpawn(newAgentName, newAgentPrompt || undefined);
+                  if (e.key === "Enter" && !newAgentPrompt) handleSpawn(newAgentName, newAgentPrompt || undefined, undefined, undefined, newAgentTokenLimit ? parseInt(newAgentTokenLimit, 10) : null);
                 }}
                 className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
               <button
-                onClick={() => handleSpawn(newAgentName, newAgentPrompt || undefined)}
+                onClick={() => handleSpawn(newAgentName, newAgentPrompt || undefined, undefined, undefined, newAgentTokenLimit ? parseInt(newAgentTokenLimit, 10) : null)}
                 className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg px-4 py-2 transition-colors"
               >
                 Spawn
@@ -1483,6 +1816,7 @@ export default function Agents() {
                   setShowNewForm(false);
                   setNewAgentName("");
                   setNewAgentPrompt("");
+                  setNewAgentTokenLimit("");
                 }}
                 className="text-slate-400 hover:text-white transition-colors"
               >
@@ -1504,6 +1838,20 @@ export default function Agents() {
                 </p>
               )}
             </div>
+            {/* Token budget limit */}
+            <div className="flex items-center gap-3 mt-3">
+              <label className="text-sm text-slate-400 whitespace-nowrap">Token limit</label>
+              <input
+                type="number"
+                min={0}
+                step={10000}
+                value={newAgentTokenLimit}
+                onChange={(e) => setNewAgentTokenLimit(e.target.value)}
+                placeholder="No limit"
+                className="w-40 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              />
+              <span className="text-xs text-slate-500">Leave empty for no cap</span>
+            </div>
           </div>
         )}
 
@@ -1523,10 +1871,10 @@ export default function Agents() {
                 Loading...
               </div>
             ) : allAgents.filter((a) => a.status === "running" || a.status === "spawned").length === 0 ? (
-              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
-                {!daemonRunning
-                  ? "No active agents. Click a template below or use the New Agent button to get started."
-                  : "No active agents. Spawn one to get started."}
+              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center mb-8">
+                <Icon name="smart_toy" className="text-4xl text-slate-700 mb-2" />
+                <p className="text-sm text-slate-400 mb-1">No active agents.</p>
+                <p className="text-xs text-slate-600">Click a template below, launch a fleet, or use the New Agent button to get started.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-6 mb-8">
@@ -1562,6 +1910,10 @@ export default function Agents() {
                             {pendingGrants.length} pending
                           </span>
                         )}
+                        <RecoveryBadge
+                          recoveryCount={agent.recovery_count ?? 0}
+                          maxRecoveries={agent.max_recoveries ?? 3}
+                        />
                       </div>
                       <button
                         onClick={() => setExpandedAgent(isExpanded ? null : agent.name)}
@@ -1582,6 +1934,11 @@ export default function Agents() {
                         transcriptLines={agent.transcript_lines}
                       />
                     )}
+                    <BudgetProgressBar
+                      tokensUsed={agent.tokens_used ?? 0}
+                      tokenLimit={agent.token_limit}
+                      costEstimate={agent.cost_estimate}
+                    />
 
                     {/* Inline pending permission requests for this agent */}
                     {pendingGrants.length > 0 && (
@@ -1915,18 +2272,22 @@ export default function Agents() {
         )}
 
         {activeTab === "Recent" && (() => {
+          const terminalStatuses = ["completed", "failed", "terminated_stale", "abandoned", "cancelled", "killed", "stopped"];
           const recentAgents = allAgents
-            .filter((a) => a.status === "completed")
+            .filter((a) => terminalStatuses.includes(a.status))
             .sort((a, b) => {
               const ta = a.spawned_at || a.timestamp || "";
               const tb = b.spawned_at || b.timestamp || "";
               return tb.localeCompare(ta);
             })
             .slice(0, 20);
+          const canRecover = (a: AgentInfo) =>
+            ["failed", "terminated_stale", "abandoned", "cancelled", "stopped"].includes(a.status)
+            && (a.recovery_count ?? 0) < (a.max_recoveries ?? 3);
           return (
             <>
               <h2 className="text-lg font-semibold text-white mb-4">
-                Completed Agents
+                Recent Agents
               </h2>
               {!agentsLoaded ? (
                 <div
@@ -1951,13 +2312,19 @@ export default function Agents() {
                         className="bg-slate-900/40 border border-slate-800 rounded-xl px-5 py-3"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-white font-medium">{agent.name}</span>
-                          <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-3">
+                            <span className="text-white font-medium">{agent.name}</span>
                             <span
                               className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}
                             >
                               {statusLabel(agent.status)}
                             </span>
+                            <RecoveryBadge
+                              recoveryCount={agent.recovery_count ?? 0}
+                              maxRecoveries={agent.max_recoveries ?? 3}
+                            />
+                          </div>
+                          <div className="flex items-center gap-4">
                             {agent.model && (
                               <span className="text-slate-500 text-xs">{agent.model}</span>
                             )}
@@ -1965,6 +2332,16 @@ export default function Agents() {
                               <span className="text-slate-500 text-sm">
                                 {new Date(agent.spawned_at || agent.timestamp!).toLocaleString()}
                               </span>
+                            )}
+                            {canRecover(agent) && (
+                              <button
+                                onClick={() => handleRecover(agent.name)}
+                                disabled={recoveringAgents[agent.name]}
+                                className="text-xs text-yellow-400 hover:text-yellow-300 disabled:opacity-50 transition-colors flex items-center gap-1"
+                              >
+                                <Icon name="replay" size={14} />
+                                {recoveringAgents[agent.name] ? "Recovering..." : "Recover"}
+                              </button>
                             )}
                             <button
                               onClick={() => {
@@ -2779,6 +3156,11 @@ export default function Agents() {
         )}
 
         </div>}
+
+        {/* Agentfiles tab */}
+        {activeTab === "Agentfiles" && (
+          <AgentfilesTab onLaunch={fetchAgents} />
+        )}
 
         {/* Automations tab */}
         {activeTab === "Automations" && (

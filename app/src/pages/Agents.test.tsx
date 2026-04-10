@@ -237,7 +237,7 @@ describe('Agents page - Nudge feature', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText('No active agents. Spawn one to get started.')
+        screen.getByText('No active agents.')
       ).toBeInTheDocument()
     })
 
@@ -711,7 +711,7 @@ describe('Agents page - Recent tab filtering', () => {
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
   })
 
-  it('shows only completed agents in the Recent tab', async () => {
+  it('shows all terminal agents in the Recent tab', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return {
         daemon_running: true,
@@ -737,21 +737,21 @@ describe('Agents page - Recent tab filtering', () => {
       expect(screen.getByText('completed-agent')).toBeInTheDocument()
     })
 
-    expect(screen.queryByText('stopped-agent')).not.toBeInTheDocument()
-    expect(screen.queryByText('abandoned-agent')).not.toBeInTheDocument()
+    // All terminal statuses now show on the Recent tab
+    expect(screen.getByText('stopped-agent')).toBeInTheDocument()
+    expect(screen.getByText('abandoned-agent')).toBeInTheDocument()
     // running-agent is on Active tab, not Recent
     expect(screen.queryByText('running-agent')).not.toBeInTheDocument()
   })
 
-  it('shows empty state in Recent tab when no completed agents exist', async () => {
+  it('shows empty state in Recent tab when no terminal agents exist', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return {
         daemon_running: true,
         status: 'ok',
-        active: [],
+        active: ['only-running'],
         agents: [
-          { name: 'stopped-agent', status: 'stopped', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
-          { name: 'abandoned-agent', status: 'abandoned', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
+          { name: 'only-running', status: 'running', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
         ],
       }
       if (path === '/agents/templates') return mockTemplatesResponse
@@ -1087,11 +1087,11 @@ describe('Agents page - first-load state', () => {
 
     expect(await screen.findByTestId('active-agents-loading')).toBeInTheDocument()
     expect(
-      screen.queryByText('No active agents. Spawn one to get started.')
+      screen.queryByText('No active agents.')
     ).not.toBeInTheDocument()
     expect(
       screen.queryByText(
-        'No active agents. Click a template below or use the New Agent button to get started.'
+        'No active agents.'
       )
     ).not.toBeInTheDocument()
 
@@ -1125,7 +1125,7 @@ describe('Agents page - first-load state', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText('No active agents. Spawn one to get started.')
+        screen.getByText('No active agents.')
       ).toBeInTheDocument()
     })
     expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
@@ -1149,7 +1149,7 @@ describe('Agents page - first-load state', () => {
     })
     expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
     expect(
-      screen.queryByText('No active agents. Spawn one to get started.')
+      screen.queryByText('No active agents.')
     ).not.toBeInTheDocument()
   })
 
@@ -1299,11 +1299,11 @@ describe('Agents page - first-load state', () => {
     // first fetch is still pending. They are all driven by allAgents, which
     // starts as []. Without the agentsLoaded gate they would flash.
     expect(
-      screen.queryByText('No active agents. Spawn one to get started.')
+      screen.queryByText('No active agents.')
     ).not.toBeInTheDocument()
     expect(
       screen.queryByText(
-        'No active agents. Click a template below or use the New Agent button to get started.'
+        'No active agents.'
       )
     ).not.toBeInTheDocument()
     expect(
