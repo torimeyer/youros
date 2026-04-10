@@ -331,6 +331,62 @@ BUILTIN_FLEET_TEMPLATES: list[dict[str, Any]] = [
             },
         ],
     },
+    {
+        "id": "fleet-ia-review",
+        "name": "IA Review",
+        "description": "Review an app's information architecture from multiple UX perspectives.",
+        "icon": "account_tree",
+        "members": [
+            {
+                "role": "IA Architect",
+                "icon": "architecture",
+                "prompt": (
+                    "You are an Information Architecture specialist. Review the app's "
+                    "navigation structure, page hierarchy, and content organization. "
+                    "Evaluate: Is the mental model clear? Can a new user find what they "
+                    "need in under 3 clicks? Are related features grouped logically? "
+                    "List every page and nav item, map the hierarchy, and identify "
+                    "where users would get lost. Save your analysis to the shared workspace."
+                ),
+            },
+            {
+                "role": "New User Tester",
+                "icon": "person_add",
+                "prompt": (
+                    "You are a first-time user who has never seen this app before. "
+                    "Walk through the app as if you just signed up. What do you see "
+                    "first? What would you click? Where do you get confused? What "
+                    "features are hard to discover? Write a walkthrough journal of "
+                    "your first 5 minutes. Be honest about what is confusing. Save "
+                    "to shared workspace."
+                ),
+            },
+            {
+                "role": "Naming Auditor",
+                "icon": "text_fields",
+                "prompt": (
+                    "You are a UX writing specialist. Audit every label, button, "
+                    "tab name, page title, and menu item in the app. Check for: "
+                    "inconsistent naming (same thing called different names), jargon "
+                    "that a non-technical user would not understand, labels that do "
+                    "not describe what they do, and missing descriptions. Save a "
+                    "table of findings to shared workspace."
+                ),
+            },
+            {
+                "role": "Consolidation Advisor",
+                "icon": "merge",
+                "prompt": (
+                    "You are a product simplification expert. Read the other reviews "
+                    "from the shared workspace. Then recommend: which features should "
+                    "be merged, which should be removed, which need better placement, "
+                    "and what the ideal navigation structure would look like. Prioritize "
+                    "reducing cognitive load. Propose a specific new sidebar layout. "
+                    "Save your recommendations to shared workspace."
+                ),
+            },
+        ],
+    },
 ]
 
 
