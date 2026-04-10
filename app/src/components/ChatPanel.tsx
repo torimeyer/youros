@@ -1098,7 +1098,12 @@ export function ChatPanel() {
             )}
           </div>
         )}
-        {messages.map((msg, i) => (
+        {messages.map((msg, i) => {
+          // Hide empty assistant bubbles during multi-AI conversations.
+          // The status pill already shows who is thinking/speaking.
+          const isEmpty = !msg.content && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl
+          if (isEmpty && msg.role === 'assistant' && multiAiStatus && i === messages.length - 1) return null
+          return (
           <div key={msg.id} id={`msg-${msg.id}`} className={`group transition-all rounded-xl ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
             {/* Reply context */}
             {msg.replyTo && (
@@ -1246,7 +1251,8 @@ export function ChatPanel() {
               )}
             </div>
           </div>
-        ))}
+          )
+        })}
         {/* Multi-AI live status pill. Renders just below the latest
             assistant bubble so the user can watch the conversation
             move from one model to the other. Hidden whenever no
