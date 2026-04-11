@@ -28,6 +28,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+from services.atomic_io import atomic_write_json
+
 MYOS_DIR = Path.home() / ".myos"
 CACHE_PATH = MYOS_DIR / "blocker_explanations.json"
 TTL_DAYS = 7
@@ -66,9 +68,8 @@ def _load_cache() -> dict:
 def _save_cache(cache: dict) -> None:
     import services.blocker_explanation as _self
     path: Path = _self.CACHE_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        path.write_text(json.dumps(cache, indent=2))
+        atomic_write_json(path, cache)
     except OSError:
         pass
 

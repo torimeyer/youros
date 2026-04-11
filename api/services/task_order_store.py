@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from services.atomic_io import atomic_write_json
+
 TASK_ORDER_PATH = Path.home() / ".myos" / "task_order.json"
 
 
@@ -21,7 +23,7 @@ class TaskOrderStore:
     def _ensure_exists(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         if not self._path.exists():
-            self._path.write_text(json.dumps({}))
+            atomic_write_json(self._path, {})
 
     def _load(self) -> dict[str, int]:
         try:
@@ -33,7 +35,7 @@ class TaskOrderStore:
         return {k: v for k, v in data.items() if isinstance(v, int)}
 
     def _save(self, order: dict[str, int]) -> None:
-        self._path.write_text(json.dumps(order, indent=2))
+        atomic_write_json(self._path, order)
 
     def get_order(self) -> dict[str, int]:
         """Return a mapping of task_id -> sort_index."""

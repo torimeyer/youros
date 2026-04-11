@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from services.atomic_io import atomic_write_json, atomic_write_text
+
 THREADS_PATH = Path.home() / ".myos" / "threads.json"
 
 
@@ -24,7 +26,7 @@ class ThreadsStore:
     def _ensure_exists(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         if not self._path.exists():
-            self._path.write_text("[]")
+            atomic_write_text(self._path, "[]")
 
     def _load(self) -> list[dict]:
         try:
@@ -36,7 +38,7 @@ class ThreadsStore:
             return []
 
     def _save(self, threads: list[dict]):
-        self._path.write_text(json.dumps(threads, indent=2))
+        atomic_write_json(self._path, threads)
 
     def list_threads(self) -> list[dict]:
         return self._load()

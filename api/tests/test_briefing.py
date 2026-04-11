@@ -443,3 +443,120 @@ def test_briefing_prompt_prioritizes_blocking_tasks():
     src = inspect.getsource(bf.generate_briefing)
     # The prompt should mention unblocking as a priority signal
     assert "unblock" in src.lower()
+
+
+# ---------------------------------------------------------------------------
+# Active task filter (needle 280)
+# ---------------------------------------------------------------------------
+
+
+def test_is_active_task_includes_in_progress():
+    """Regression guard for needle 280. The briefing generator used to
+    call ``ostk.list_tasks(status='open')`` which only returned rows
+    with status exactly 'open' and silently dropped every in_progress
+    row. Tori's P0 tasks were mostly in_progress (agents had picked
+    them up), so the briefing said 'no high-priority tasks' even
+    though she had multiple.
+    """
+    import services.briefing as bf
+
+    assert bf._is_active_task({"status": "open"}) is True
+    assert bf._is_active_task({"status": "in_progress"}) is True
+    assert bf._is_active_task({"status": "closed"}) is False
+    # Defensive: any other status is treated as active.
+    assert bf._is_active_task({"status": "new"}) is True
+    assert bf._is_active_task({}) is True
+
+
+@pytest.mark.asyncio
+async def test_generate_briefing_counts_in_progress_p0_tasks(tmp_path):
+    """Full integration-style test: when list_tasks returns a mix of
+    open, in_progress, and closed P0 tasks, the briefing context must
+    include the P0 in_progress one instead of saying 'no high priority'.
+    """
+    import services.briefing as bf
+    import services.ostk as ostk_module
+
+    mixed_tasks = [
+        {"id": "→100", "title": "P0 in progress", "priority": "P0", "status": "in_progress", "created_at": "2026-04-01T00:00:00Z"},
+        {"id": "→101", "title": "P1 open",       "priority": "P1", "status": "open",        "created_at": "2026-04-02T00:00:00Z"},
+        {"id": "→102", "title": "P2 low",        "priority": "P2", "status": "open",        "created_at": "2026-04-03T00:00:00Z"},
+        {"id": "→103", "title": "Done thing",    "priority": "P0", "status": "closed",      "created_at": "2026-03-01T00:00:00Z"},
+    ]
+
+    captured_prompt = {"text": ""}
+
+    async def fake_list_tasks(status=None, priority=None):
+        # The fix requires this function be called without a status
+        # filter so in_progress rows flow through. If someone reverts
+        # the fix, they'll pass status="open" here and the test fails
+        # because the in_progress P0 will be missing from the prompt.
+        assert status is None, (
+            "generate_briefing must call list_tasks() unfiltered so "
+            "in_progress rows stay in the result set"
+        )
+        return list(mixed_tasks)
+
+    async def fake_get_compounds():
+        return []
+
+    async def fake_call_claude(prompt: str) -> str:
+        captured_prompt["text"] = prompt
+        return "briefing text"
+
+    # Point briefing state at a tmp path so the test run does not
+    # clobber ~/.myos/briefing_state.json.
+    with patch.object(bf, "BRIEFING_STATE_PATH", tmp_path / "state.json"), \
+         patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks), \
+         patch.object(ostk_module.ostk, "get_compounds", new=fake_get_compounds), \
+         patch("services.briefing._call_claude", new=fake_call_claude):
+        await bf.generate_briefing()
+
+    prompt = captured_prompt["text"]
+    # The P0 in_progress task MUST appear in the top-tasks context.
+    assert "P0 in progress" in prompt, (
+        "briefing prompt must include the P0 in_progress task. "
+        "Full prompt was:\n" + prompt
+    )
+    # The P1 open task too.
+    assert "P1 open" in prompt
+    # The closed P0 must NOT appear.
+    assert "Done thing" not in prompt
+    # And the briefing must not claim there are no high-priority tasks.
+    assert "No high-priority tasks open right now" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_task_count_changed_counts_in_progress(tmp_path):
+    """``_task_count_changed`` should see the same active-task count as
+    ``generate_briefing``. Before the fix it compared the filtered
+    (open-only) count to a stored total that included in_progress and
+    flapped on every call.
+    """
+    import services.briefing as bf
+    import services.ostk as ostk_module
+
+    mixed_tasks = [
+        {"id": "a", "title": "", "priority": "P0", "status": "open",        "created_at": ""},
+        {"id": "b", "title": "", "priority": "P0", "status": "in_progress", "created_at": ""},
+        {"id": "c", "title": "", "priority": "P1", "status": "in_progress", "created_at": ""},
+        {"id": "d", "title": "", "priority": "P2", "status": "open",        "created_at": ""},
+        {"id": "e", "title": "", "priority": "P0", "status": "closed",      "created_at": ""},
+    ]
+
+    async def fake_list_tasks(status=None, priority=None):
+        assert status is None
+        return list(mixed_tasks)
+
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"task_count": 3}))  # matches the true count: 1 open P0 + 1 in_progress P0 + 1 in_progress P1
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", state_path), \
+         patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks):
+        changed = await bf._task_count_changed()
+
+    # Stored count matches the real active P0+P1 count, so _task_count_changed
+    # must return False (no regeneration needed). Before the fix this would
+    # return True on every call because the filtered count was 1 and the stored
+    # count was 3.
+    assert changed is False

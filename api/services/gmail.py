@@ -13,6 +13,7 @@ import time
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 
+from services.atomic_io import atomic_write_text
 from services.google_auth import get_credentials, is_authenticated
 
 MYOS_DIR = Path.home() / ".myos"
@@ -33,7 +34,11 @@ _FULL_INBOX_CACHE_TTL_SECONDS = 60
 # request. 200 keeps the response small enough to render quickly, keeps
 # parallel fan-out reasonable, and still shows several pages of history on
 # the average account.
-FULL_INBOX_CAP = 200
+# 50 messages is plenty for the inbox view. 200 turned the cold page
+# load into a 5-10 second wait because the service fans out per-message
+# metadata fetches across a thread pool of 10, and 200 / 10 = 20 rounds
+# of parallel API calls. Regression guard for needle 285.
+FULL_INBOX_CAP = 50
 
 # How many message ids Gmail returns per list page. 100 is the default max
 # the API allows; using it means FULL_INBOX_CAP=200 resolves in 2 list calls.
@@ -92,8 +97,7 @@ def _load_cache() -> list[dict] | None:
 
 def _save_cache(messages: list[dict]) -> None:
     """Persist messages to the cache file."""
-    _ensure_dirs()
-    INBOX_CACHE_PATH.write_text(json.dumps(messages))
+    atomic_write_text(INBOX_CACHE_PATH, json.dumps(messages))
 
 
 def _clear_cache() -> None:
@@ -102,17 +106,21 @@ def _clear_cache() -> None:
         INBOX_CACHE_PATH.unlink(missing_ok=True)
 
 
-def _load_full_inbox_cache() -> list[dict] | None:
+def _load_full_inbox_cache(allow_stale: bool = False) -> list[dict] | None:
     """Return cached full inbox if fresh AND non-empty.
 
     Same non-empty guard as the unread cache so a transient fetch error
-    never pins the UI to an empty state.
+    never pins the UI to an empty state. When ``allow_stale`` is True
+    the TTL check is skipped, which the fetch-failure fallback uses to
+    keep the UI populated on a Gmail hiccup. Regression guard for
+    needle 285.
     """
     if not FULL_INBOX_CACHE_PATH.exists():
         return None
-    age = time.time() - FULL_INBOX_CACHE_PATH.stat().st_mtime
-    if age > _FULL_INBOX_CACHE_TTL_SECONDS:
-        return None
+    if not allow_stale:
+        age = time.time() - FULL_INBOX_CACHE_PATH.stat().st_mtime
+        if age > _FULL_INBOX_CACHE_TTL_SECONDS:
+            return None
     try:
         data = json.loads(FULL_INBOX_CACHE_PATH.read_text())
     except Exception:
@@ -124,8 +132,7 @@ def _load_full_inbox_cache() -> list[dict] | None:
 
 def _save_full_inbox_cache(messages: list[dict]) -> None:
     """Persist full inbox messages to the cache file."""
-    _ensure_dirs()
-    FULL_INBOX_CACHE_PATH.write_text(json.dumps(messages))
+    atomic_write_text(FULL_INBOX_CACHE_PATH, json.dumps(messages))
 
 
 def invalidate_full_inbox_cache() -> None:
@@ -336,17 +343,39 @@ async def get_inbox_messages(cap: int = FULL_INBOX_CAP) -> list[dict]:
     """Return recent inbox messages (read AND unread).
 
     Checks the on-disk cache first (60 s TTL, empty results treated as a
-    miss). On cache miss, calls the Gmail API in a thread so the async
-    event loop is not blocked. The default cap pulls up to
-    ``FULL_INBOX_CAP`` messages across two list pages.
+    miss). On cache miss, calls the Gmail API in a thread behind a
+    25 second timeout. The Gmail API is run from a thread pool of 10
+    workers fanning out per-message metadata fetches, which realistically
+    takes 5-10 seconds on a cold fetch of 50 messages. 25s is the
+    ceiling: below the frontend's 30 second fetch timeout so the UI
+    still shows a real error instead of the browser's generic
+    network failure, but generous enough that we never time out a
+    healthy Gmail round trip on the cold path. On timeout or failure,
+    falls back to the stale cache (if any) so the UI keeps showing the
+    previous inbox snapshot instead of spinning forever or rendering
+    empty. Regression guard for needles 285 and 288.
     """
     cached = _load_full_inbox_cache()
     if cached is not None:
         return cached
 
-    messages = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: _fetch_inbox_sync(cap)
-    )
+    try:
+        messages = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None, lambda: _fetch_inbox_sync(cap)
+            ),
+            timeout=25.0,
+        )
+    except asyncio.TimeoutError:
+        stale = _load_full_inbox_cache(allow_stale=True)
+        if stale is not None:
+            return stale
+        raise
+    except Exception:
+        stale = _load_full_inbox_cache(allow_stale=True)
+        if stale is not None:
+            return stale
+        raise
     _save_full_inbox_cache(messages)
     return messages
 

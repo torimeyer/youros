@@ -9,6 +9,8 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from services.atomic_io import atomic_write_json
+
 router = APIRouter(tags=["transcripts"])
 
 MYOS_DIR = Path.home() / ".myos"
@@ -23,8 +25,17 @@ def _load_title_cache() -> dict[str, str]:
 
 
 def _save_title_cache(cache: dict[str, str]) -> None:
-    MYOS_DIR.mkdir(parents=True, exist_ok=True)
-    TITLE_CACHE_PATH.write_text(json.dumps(cache, indent=2))
+    # Atomic to avoid a crash mid-save wiping the title cache.
+    atomic_write_json(TITLE_CACHE_PATH, cache)
+
+
+async def _save_title_cache_async(cache: dict[str, str]) -> None:
+    """Thread-offloaded title cache write so the async title generator
+    does not block the event loop on the fsync. Used from
+    :func:`_generate_titles_background` which runs from the
+    /api/transcripts handler.
+    """
+    await asyncio.to_thread(_save_title_cache, cache)
 
 # Claude Code stores session index files and transcript JSONL files in these locations.
 SESSIONS_DIR = Path.home() / ".claude" / "sessions"
@@ -120,7 +131,7 @@ async def _generate_titles_background(items: list[tuple[str, Path]]) -> None:
         title = await _generate_title(context)
         if title:
             cache[session_id] = title
-    _save_title_cache(cache)
+    await _save_title_cache_async(cache)
 
 
 def _find_all_project_dirs() -> list[Path]:

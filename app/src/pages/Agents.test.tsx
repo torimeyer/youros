@@ -61,6 +61,9 @@ function renderAgents() {
 describe('Agents page - Nudge feature', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear the first-paint agents cache between tests so localStorage
+    // state never leaks from one test run to the next. Needle 299.
+    window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -388,6 +391,9 @@ describe('Agents page - Nudge feature', () => {
 describe('Agents page - Send button stuck state (needle 237)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear the first-paint agents cache between tests so localStorage
+    // state never leaks from one test run to the next. Needle 299.
+    window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -594,6 +600,9 @@ describe('Agents page - Send button stuck state (needle 237)', () => {
 describe('Agents page - Status bar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear the first-paint agents cache between tests so localStorage
+    // state never leaks from one test run to the next. Needle 299.
+    window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -684,6 +693,9 @@ describe('Agents page - Status bar', () => {
 describe('Agents page - tabs', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear the first-paint agents cache between tests so localStorage
+    // state never leaks from one test run to the next. Needle 299.
+    window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
   })
 
@@ -708,6 +720,9 @@ describe('Agents page - tabs', () => {
 describe('Agents page - Recent tab filtering', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear the first-paint agents cache between tests so localStorage
+    // state never leaks from one test run to the next. Needle 299.
+    window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
   })
 
@@ -797,6 +812,9 @@ const mockPmTemplatesResponse = {
 describe('Agents page - Templates tab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear the first-paint agents cache between tests so localStorage
+    // state never leaks from one test run to the next. Needle 299.
+    window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -982,6 +1000,9 @@ describe('Agents page - Insights tab', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear the first-paint agents cache between tests so localStorage
+    // state never leaks from one test run to the next. Needle 299.
+    window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
 
     mockedApiGet.mockImplementation(async (path: string) => {
@@ -1064,6 +1085,9 @@ describe('Agents page - Insights tab', () => {
 describe('Agents page - first-load state', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear the first-paint agents cache between tests so localStorage
+    // state never leaks from one test run to the next. Needle 299.
+    window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
   })
 
@@ -1338,6 +1362,9 @@ describe('Agents page - first-load state', () => {
 describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear the first-paint agents cache between tests so localStorage
+    // state never leaks from one test run to the next. Needle 299.
+    window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
   })
 
@@ -1779,5 +1806,266 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
       expect(screen.getByTestId('agent-chat-mailbox-warning')).toBeInTheDocument()
     })
     expect(screen.queryByTestId('agent-chat-thinking')).not.toBeInTheDocument()
+  })
+})
+
+// ─── Capabilities panel on template cards ─────────────────────────────────
+//
+// Tori wants to see what a template can touch before hitting Spawn. These
+// tests pin the rendering: a clean template shows the parsed values, a
+// broken template shows the friendly error line and a disabled Spawn.
+
+describe('Agents page - Template capabilities panel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Clear the first-paint agents cache between tests so localStorage
+    // state never leaks from one test run to the next. Needle 299.
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+  })
+
+  it('renders parsed capabilities for a clean template', async () => {
+    const templatesWithCaps = {
+      templates: [
+        {
+          name: 'demo',
+          file: 'demo.agent',
+          content: '',
+          description: 'Demo template',
+          capabilities: {
+            writes_to: 'src/, tests/',
+            cannot_touch: '.env',
+            budget: '$5',
+            time_limit: '30 minutes',
+            sandbox: 'docker container',
+          },
+          parse_error: null,
+        },
+      ],
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents')
+        return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return templatesWithCaps
+      if (path === '/agents/pm-templates') return { templates: [] }
+      return {}
+    })
+
+    renderAgents()
+
+    // Switch to the Templates tab so the cards render.
+    await waitFor(() => {
+      expect(screen.getByText('Templates')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Templates'))
+
+    const panel = await screen.findByTestId('template-capabilities-demo')
+    expect(panel).toBeInTheDocument()
+    expect(panel.textContent).toContain('Writes to:')
+    expect(panel.textContent).toContain('src/, tests/')
+    expect(panel.textContent).toContain('Cannot touch:')
+    expect(panel.textContent).toContain('.env')
+    expect(panel.textContent).toContain('Budget:')
+    expect(panel.textContent).toContain('$5')
+    expect(panel.textContent).toContain('Time limit:')
+    expect(panel.textContent).toContain('30 minutes')
+    expect(panel.textContent).toContain('Sandbox:')
+    expect(panel.textContent).toContain('docker container')
+  })
+
+  it('disables Spawn and shows an error for a broken template', async () => {
+    const templatesWithError = {
+      templates: [
+        {
+          name: 'broken',
+          file: 'broken.agent',
+          content: '',
+          description: '',
+          capabilities: null,
+          parse_error: 'Agentfile parse error at broken.agent, line 3: ISOLATION must be one of docker, firecracker, none, nono, got spaceship',
+        },
+      ],
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents')
+        return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return templatesWithError
+      if (path === '/agents/pm-templates') return { templates: [] }
+      return {}
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByText('Templates')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Templates'))
+
+    const errorPanel = await screen.findByTestId('template-capabilities-error-broken')
+    expect(errorPanel).toBeInTheDocument()
+    expect(errorPanel.textContent).toContain('Could not read capabilities')
+
+    const spawnButton = screen.getByTestId('template-spawn-broken') as HTMLButtonElement
+    expect(spawnButton).toBeDisabled()
+  })
+})
+
+// Regression for needle 299: the Agents page showed a blank Active
+// Sessions panel for several seconds every time Tori opened /agents
+// cold. The /agents endpoint itself was fast. The fix caches the last
+// successful response to localStorage and seeds the first render with
+// it, so the cold-visit flash disappears. These tests pin the invariant
+// so a future refactor cannot silently regress it.
+describe('Agents page - first-paint budget (needle 299)', () => {
+  const manyAgents = Array.from({ length: 50 }, (_, i) => ({
+    name: `agent-${i + 1}`,
+    status: i < 3 ? 'running' : 'completed',
+    source: 'daemon',
+    model: 'sonnet',
+    budget: '2.00',
+    spawned_at: new Date(Date.now() - i * 60000).toISOString(),
+    transcript_bytes: 1024,
+    transcript_lines: 10,
+  }))
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  const FIRST_ROW_BUDGET_MS = 300
+
+  it('first visible agent row arrives within 300ms on a warm backend', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents')
+        return {
+          daemon_running: true,
+          status: 'ok',
+          active: [],
+          agents: manyAgents,
+        }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/pm-templates') return { templates: [] }
+      return {}
+    })
+
+    const t0 = performance.now()
+    renderAgents()
+    await waitFor(() => {
+      expect(screen.getByText('agent-1')).toBeInTheDocument()
+    })
+    const elapsed = performance.now() - t0
+    expect(elapsed).toBeLessThan(FIRST_ROW_BUDGET_MS)
+  })
+
+  it('renders agent rows immediately even while /agents/templates hangs for 2 seconds', async () => {
+    // Pins the render-primary-first invariant. Secondary endpoints
+    // can be slow and the user still sees the agent list right away.
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/agents')
+        return Promise.resolve({
+          daemon_running: true,
+          status: 'ok',
+          active: [],
+          agents: manyAgents,
+        })
+      if (path === '/agents/templates')
+        return new Promise((resolve) =>
+          setTimeout(() => resolve({ templates: [] }), 2000),
+        )
+      if (path === '/agents/pm-templates')
+        return new Promise((resolve) =>
+          setTimeout(() => resolve({ templates: [] }), 2000),
+        )
+      return Promise.resolve({})
+    })
+
+    const t0 = performance.now()
+    renderAgents()
+    await waitFor(() => {
+      expect(screen.getByText('agent-1')).toBeInTheDocument()
+    })
+    const elapsed = performance.now() - t0
+    expect(elapsed).toBeLessThan(FIRST_ROW_BUDGET_MS)
+  })
+
+  it('paints agent rows from the localStorage cache before any fetch resolves', async () => {
+    window.localStorage.setItem(
+      'myos.agentsCache.v1',
+      JSON.stringify([
+        {
+          name: 'cached-agent',
+          status: 'running',
+          source: 'daemon',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date().toISOString(),
+          transcript_bytes: 0,
+          transcript_lines: 0,
+        },
+      ]),
+    )
+
+    // Hang every endpoint so the only way this test passes is by
+    // painting from the cache on first render.
+    mockedApiGet.mockImplementation(() => new Promise(() => {}))
+
+    renderAgents()
+
+    expect(screen.getByText('cached-agent')).toBeInTheDocument()
+    // The Active tab loading placeholder must NOT appear over the
+    // cached row.
+    expect(
+      screen.queryByTestId('active-agents-loading'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('overwrites the agents cache with the next successful /agents response', async () => {
+    window.localStorage.setItem(
+      'myos.agentsCache.v1',
+      JSON.stringify([
+        {
+          name: 'stale-agent',
+          status: 'running',
+          source: 'daemon',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date().toISOString(),
+          transcript_bytes: 0,
+          transcript_lines: 0,
+        },
+      ]),
+    )
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents')
+        return {
+          daemon_running: true,
+          status: 'ok',
+          active: [],
+          agents: manyAgents,
+        }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/pm-templates') return { templates: [] }
+      return {}
+    })
+
+    renderAgents()
+    // Stale cache row paints first.
+    expect(screen.getByText('stale-agent')).toBeInTheDocument()
+    // Fresh data replaces it.
+    await waitFor(() => {
+      expect(screen.getByText('agent-1')).toBeInTheDocument()
+    })
+    const persisted = JSON.parse(
+      window.localStorage.getItem('myos.agentsCache.v1') || '[]',
+    )
+    expect(Array.isArray(persisted)).toBe(true)
+    expect(persisted.length).toBe(manyAgents.length)
+    expect(persisted[0].name).toBe('agent-1')
   })
 })

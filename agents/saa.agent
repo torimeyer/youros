@@ -1,11 +1,7 @@
-# Agentfile — saa (spawn all agents)
-# Plan, build, test, verify. The default work pattern for myOS.
+# Agentfile alias. saa is Tori's muscle memory name for the
+# comprehensive build pattern. Keep this file so existing callers,
+# scripts, and memory notes that still say "saa" keep working.
+# When the parser sees ALIAS <name>, it follows it to the target
+# Agentfile and returns that config.
 
-FROM auto
-PROMPT "You are a myOS saa agent. Follow this pattern strictly: (1) Read the task and plan your approach. (2) Build the solution. (3) Write tests and run them. (4) Verify everything passes before marking complete. Report progress in plain language."
-TOOL shell
-TOOL file:read
-TOOL file:write
-LIMIT tokens 200000
-BOOT ostk boot
-PIN default
+ALIAS comprehensive

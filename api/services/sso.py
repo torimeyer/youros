@@ -23,6 +23,8 @@ from urllib.parse import urlencode
 
 import httpx
 
+from services.atomic_io import atomic_write_text
+
 from services.enterprise_store import _load, _save, MYOS_DIR
 
 SSO_STATES_PATH = MYOS_DIR / "sso_states.json"
@@ -173,7 +175,7 @@ def _save_state(state: str, redirect_uri: str) -> None:
         except Exception:
             pass
     states[state] = {"redirect_uri": redirect_uri, "created_at": datetime.now(timezone.utc).isoformat()}
-    SSO_STATES_PATH.write_text(json.dumps(states))
+    atomic_write_text(SSO_STATES_PATH, json.dumps(states))
 
 
 def validate_state(state: str) -> Optional[str]:
@@ -185,5 +187,5 @@ def validate_state(state: str) -> Optional[str]:
     except Exception:
         return None
     entry = states.pop(state, None)
-    SSO_STATES_PATH.write_text(json.dumps(states))
+    atomic_write_text(SSO_STATES_PATH, json.dumps(states))
     return entry.get("redirect_uri") if entry else None

@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from services.atomic_io import atomic_write_text
 from services.google_auth import get_credentials, is_authenticated
 
 MYOS_DIR = Path.home() / ".myos"
@@ -62,8 +63,7 @@ def _load_cache() -> list[dict] | None:
 
 def _save_cache(events: list[dict]) -> None:
     """Persist events to the cache file."""
-    _ensure_dirs()
-    EVENTS_CACHE_PATH.write_text(json.dumps(events))
+    atomic_write_text(EVENTS_CACHE_PATH, json.dumps(events))
 
 
 def _clear_cache() -> None:
@@ -73,10 +73,24 @@ def _clear_cache() -> None:
 
 
 def _fetch_events_sync(days: int = 7) -> list[dict]:
-    """Synchronous call to the Calendar API."""
-    now = datetime.now(tz=timezone.utc)
-    time_min = now.isoformat()
-    time_max = (now + timedelta(days=days)).isoformat()
+    """Synchronous call to the Calendar API.
+
+    ``time_min`` is the START of TODAY in local time, not ``now``. The
+    old code used ``datetime.now(tz=utc).isoformat()`` which, at 9:51
+    PM Central, meant timeMin was 2:51 AM UTC **tomorrow**. Google's
+    Calendar API then filtered out every event that started earlier
+    today (the Fox soccer game at 11:30 AM Central would stay in the
+    result only because it was tomorrow; anything on today's Central
+    day before 7 PM was silently dropped). Regression guard for
+    needle 285.
+    """
+    # Local midnight today as the lower bound so events from earlier
+    # today are still returned. Upper bound: end of day ``days - 1``
+    # from now in local time (so days=1 means "today only").
+    now_local = datetime.now()
+    today_local_midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    time_min = today_local_midnight.astimezone().isoformat()
+    time_max = (today_local_midnight + timedelta(days=days)).astimezone().isoformat()
 
     service = _build_calendar_service()
     result = (
@@ -113,15 +127,37 @@ async def get_upcoming_events(days: int = 7) -> list[dict]:
 
 
 async def get_today_events() -> list[dict]:
-    """Return events starting today (local calendar day)."""
+    """Return events starting today (local calendar day).
+
+    Filters on the LOCAL calendar day the caller is currently living
+    in. The old code compared raw ISO prefixes from the event start,
+    which silently mismatches when the event string uses UTC (``Z``
+    suffix) or when the caller's local tz differs from the event tz.
+    Now both sides go through the same local-day conversion.
+    Regression guard for needle 285.
+    """
     all_events = await get_upcoming_events(days=1)
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_local = datetime.now()
+    today_key = today_local.strftime("%Y-%m-%d")
     result = []
     for ev in all_events:
         start = ev.get("start", {})
-        # All-day events use "date"; timed events use "dateTime".
-        start_val = start.get("dateTime") or start.get("date") or ""
-        if start_val.startswith(today_str):
+        if start.get("date"):
+            # All-day event: the date is already a calendar day.
+            if start["date"] == today_key:
+                result.append(ev)
+            continue
+        start_val = start.get("dateTime") or ""
+        if not start_val:
+            continue
+        try:
+            parsed = datetime.fromisoformat(start_val.replace("Z", "+00:00"))
+        except ValueError:
+            if start_val.startswith(today_key):
+                result.append(ev)
+            continue
+        local_start = parsed.astimezone()
+        if local_start.strftime("%Y-%m-%d") == today_key:
             result.append(ev)
     return result
 

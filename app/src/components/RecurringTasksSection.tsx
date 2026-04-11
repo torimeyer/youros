@@ -301,6 +301,7 @@ export default function RecurringTasksSection({ cardClass }: Props) {
                     <option value="P0">P0 (top priority)</option>
                     <option value="P1">P1 (normal)</option>
                     <option value="P2">P2 (later)</option>
+                    <option value="P3">P3 (low)</option>
                   </select>
                 </div>
                 <div>

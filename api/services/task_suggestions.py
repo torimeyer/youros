@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Optional
 
 from config import OSTK_DIR
+from services.atomic_io import atomic_write_json
 from services.ostk import ostk, OstkError
 
 # --- Paths and constants -------------------------------------------------
@@ -446,9 +447,8 @@ def _load_dismissed() -> set[str]:
 def _save_dismissed(ids: set[str]) -> None:
     import services.task_suggestions as _self
     path: Path = _self.DISMISSED_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        path.write_text(json.dumps(sorted(ids), indent=2))
+        atomic_write_json(path, sorted(ids))
     except OSError:
         pass
 

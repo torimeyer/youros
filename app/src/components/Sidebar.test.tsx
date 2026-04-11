@@ -237,3 +237,217 @@ describe('Sidebar', () => {
     }, { timeout: 10000 })
   }, 15000)
 })
+
+// Regression guard for needle 293. After a fast "restart torios" (kill
+// and respawn scripts/dev-backend.sh plus scripts/dev-frontend.sh in
+// under three seconds), the sidebar Backend and ostk dots must stay
+// green the entire time. A single red frame is a bug, because it has
+// now regressed three times (needles 286, 287, 293). The underlying
+// fix is that the polling effect in Sidebar.tsx requires two
+// consecutive failures before flipping the dot red, so a single
+// transient failure during a restart window is invisible to the user
+// while a genuinely down backend still turns red within five seconds.
+describe('Sidebar health dot debouncing (needle 293)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({
+      osName: 'myOS',
+      features: [
+        { label: 'Chat', enabled: true },
+        { label: 'Tasks', enabled: true },
+        { label: 'Activity', enabled: true },
+        { label: 'Hay/Ideas', enabled: true },
+        { label: 'Agents', enabled: true },
+        { label: 'Projects', enabled: true },
+        { label: 'Drive', enabled: true },
+        { label: 'Calendar', enabled: true },
+        { label: 'Gmail', enabled: true },
+        { label: 'Docs', enabled: true },
+        { label: 'Transcripts', enabled: true },
+        { label: 'Automations', enabled: true },
+      ],
+    })
+  })
+
+  // Locate the Backend label's sibling dot. The dot is the first child
+  // of the flex row that contains the "Backend" text node. The label
+  // lives in a <span>, the dot is its previous sibling <span>.
+  const backendDot = () => {
+    const label = screen.getByText('Backend')
+    const row = label.parentElement
+    if (!row) throw new Error('Backend row not found')
+    const dot = row.querySelector('span.rounded-full')
+    if (!dot) throw new Error('Backend dot not found')
+    return dot as HTMLElement
+  }
+
+  const ostkDot = () => {
+    const label = screen.getByText((_content, node) => {
+      return !!node && node.tagName === 'SPAN' && (node.textContent ?? '').startsWith('ostk')
+    })
+    const row = label.parentElement
+    if (!row) throw new Error('ostk row not found')
+    const dot = row.querySelector('span.rounded-full')
+    if (!dot) throw new Error('ostk dot not found')
+    return dot as HTMLElement
+  }
+
+  const isRed = (el: HTMLElement) => el.className.includes('bg-red-400')
+  const isGreen = (el: HTMLElement) => el.className.includes('bg-green-400')
+
+  // Track the backend dot class across every timer tick so a flash
+  // between frames cannot be missed. React state updates are
+  // synchronous inside advanceTimersByTimeAsync, so after every step
+  // we snapshot the className and store it.
+  const collectDotStates = async (steps: Array<() => Promise<void>>): Promise<string[]> => {
+    const states: string[] = []
+    states.push(backendDot().className)
+    for (const step of steps) {
+      await step()
+      states.push(backendDot().className)
+    }
+    return states
+  }
+
+  it('stays green through a single failed poll then success (fast restart case)', async () => {
+    vi.useFakeTimers()
+    let clockCalls = 0
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/status/clock') {
+        clockCalls++
+        // First call succeeds (initial mount, backend up).
+        if (clockCalls === 1) return { kernel: 'v2.5.0' }
+        // Second call fails (Tori killed uvicorn, proxy returns 502).
+        if (clockCalls === 2) throw new Error('Upstream unavailable')
+        // Third call succeeds (backend is back up within three seconds).
+        return { kernel: 'v2.5.0' }
+      }
+      if (url === '/agents') return { active: [] }
+      if (url === '/gmail/auth/status') return { authenticated: false, unread_count: 0 }
+      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      return {}
+    })
+
+    renderSidebar()
+
+    // Flush microtasks so the initial mount fetch resolves and the
+    // first success paints the dot green. advanceTimersByTimeAsync
+    // with a small positive value drains both the setTimeout queue
+    // and the pending microtasks, so two ticks is enough.
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(isGreen(backendDot())).toBe(true)
+
+    // Advance to the next success-interval poll. The success interval
+    // is 15 seconds, and this time the mock throws to simulate the
+    // killed backend. With the needle 293 debounce, a single failure
+    // must NOT flip the dot red.
+    const states = await collectDotStates([
+      // Fire the second poll at t = 15s. It fails.
+      async () => { await vi.advanceTimersByTimeAsync(15_000) },
+      // Fire the third poll at t = 17s (failure interval is 2s). It
+      // succeeds because the backend is back.
+      async () => { await vi.advanceTimersByTimeAsync(2_000) },
+    ])
+
+    // The dot must never have been red at any snapshot point.
+    for (const className of states) {
+      expect(className).not.toContain('bg-red-400')
+    }
+    // And at the end it must still be green.
+    expect(isGreen(backendDot())).toBe(true)
+    // The ostk dot must also stay green.
+    expect(isGreen(ostkDot())).toBe(true)
+    // All three polls actually ran.
+    expect(clockCalls).toBe(3)
+
+    vi.useRealTimers()
+  })
+
+  it('flips red within five seconds when the backend is genuinely down', async () => {
+    vi.useFakeTimers()
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/status/clock') {
+        // Every call fails. Backend is truly gone.
+        throw new Error('ECONNREFUSED')
+      }
+      if (url === '/agents') return { active: [] }
+      if (url === '/gmail/auth/status') return { authenticated: false, unread_count: 0 }
+      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      return {}
+    })
+
+    renderSidebar()
+
+    // Flush microtasks so the initial mount fetch rejects. The first
+    // failure is tolerated by the debounce, so the dot must NOT be
+    // red yet. Note: initial state is null (grey), not green, because
+    // nothing has ever succeeded.
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(isRed(backendDot())).toBe(false)
+
+    // Advance five full seconds of wall time. The second failure fires
+    // at t = 2s (failure interval), which crosses the threshold and
+    // flips the dot red. The test asserts red is set no later than
+    // five seconds after mount, which is the agreed ceiling.
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(isRed(backendDot())).toBe(true)
+    expect(isRed(ostkDot())).toBe(true)
+
+    vi.useRealTimers()
+  })
+
+  it('stays green across fail then success then fail (flap case)', async () => {
+    vi.useFakeTimers()
+    let clockCalls = 0
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/status/clock') {
+        clockCalls++
+        // Call 1: success on mount.
+        if (clockCalls === 1) return { kernel: 'v2.5.0' }
+        // Call 2: transient failure.
+        if (clockCalls === 2) throw new Error('Upstream unavailable')
+        // Call 3: success again, consecutive counter resets.
+        if (clockCalls === 3) return { kernel: 'v2.5.0' }
+        // Call 4: another transient failure. Still only one in a row,
+        // so the dot must stay green.
+        if (clockCalls === 4) throw new Error('Upstream unavailable')
+        // Call 5 onwards: success forever.
+        return { kernel: 'v2.5.0' }
+      }
+      if (url === '/agents') return { active: [] }
+      if (url === '/gmail/auth/status') return { authenticated: false, unread_count: 0 }
+      if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
+      return {}
+    })
+
+    renderSidebar()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(isGreen(backendDot())).toBe(true)
+
+    const states = await collectDotStates([
+      // Call 2 fires after the success interval. It fails.
+      async () => { await vi.advanceTimersByTimeAsync(15_000) },
+      // Call 3 fires after the failure interval. It succeeds.
+      async () => { await vi.advanceTimersByTimeAsync(2_000) },
+      // Call 4 fires after the next success interval. It fails again,
+      // but the consecutive counter was reset by call 3, so this is
+      // still only a single failure in a row.
+      async () => { await vi.advanceTimersByTimeAsync(15_000) },
+      // Call 5 fires after the failure interval. It succeeds.
+      async () => { await vi.advanceTimersByTimeAsync(2_000) },
+    ])
+
+    for (const className of states) {
+      expect(className).not.toContain('bg-red-400')
+    }
+    expect(isGreen(backendDot())).toBe(true)
+    expect(clockCalls).toBe(5)
+
+    vi.useRealTimers()
+  })
+})

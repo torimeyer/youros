@@ -17,6 +17,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from services.atomic_io import atomic_write_json, atomic_write_text
+
 TEMPLATES_PATH = Path.home() / ".myos" / "templates.json"
 
 BUILTIN_TEMPLATES: list[dict] = [
@@ -83,7 +85,7 @@ class TemplatesStore:
     def _ensure_exists(self) -> None:
         TEMPLATES_PATH.parent.mkdir(parents=True, exist_ok=True)
         if not TEMPLATES_PATH.exists():
-            TEMPLATES_PATH.write_text("[]")
+            atomic_write_text(TEMPLATES_PATH, "[]")
 
     def list_custom(self) -> list[dict]:
         self._ensure_exists()
@@ -94,7 +96,7 @@ class TemplatesStore:
 
     def _save(self, templates: list[dict]) -> None:
         self._ensure_exists()
-        TEMPLATES_PATH.write_text(json.dumps(templates, indent=2))
+        atomic_write_json(TEMPLATES_PATH, templates)
 
     def create(self, data: dict) -> dict:
         templates = self.list_custom()

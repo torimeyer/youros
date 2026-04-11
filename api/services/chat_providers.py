@@ -1265,15 +1265,42 @@ class ChatService:
             # "Could not create Blob" error.
             last_content = _gemini_content_to_text(messages[-1].get("content", ""))
             chat = model.start_chat(history=history)
-            response = chat.send_message(last_content, stream=True)
+            # The google.generativeai SDK's streaming ``send_message(stream=True)``
+            # returns a SYNCHRONOUS generator. Calling ``next()`` on it blocks
+            # the current thread on each network read, and because this runs
+            # inside an async websocket handler on the uvicorn event loop,
+            # every other HTTP request served by the same worker (tasks,
+            # briefings, agents, health) FREEZES until the stream finishes.
+            # We saw /openapi.json, /api/health, /api/tasks all time out at
+            # 5s while a Gemini turn was streaming. Fix: run both the initial
+            # send_message call and every ``next(iterator)`` on a worker
+            # thread via asyncio.to_thread so the event loop stays free
+            # between chunks. Async-native SDK would be nicer but the
+            # existing test suite mocks the sync API so we preserve it.
+            import asyncio as _asyncio
+            response = await _asyncio.to_thread(
+                chat.send_message, last_content, stream=True
+            )
 
             # Stream chunks. We guard ``chunk.text`` because the SDK's
             # ``.text`` property raises ValueError when a chunk has no
             # parts (which happens on the final SAFETY chunk). A bad
             # chunk must NOT abort the whole turn, we just skip it and
             # let the post-loop finish_reason check decide what to show.
+            _CHUNK_STOP = object()
+            _chunk_iter = iter(response)
+
+            def _pull_next_chunk():
+                try:
+                    return next(_chunk_iter)
+                except StopIteration:
+                    return _CHUNK_STOP
+
             try:
-                for chunk in response:
+                while True:
+                    chunk = await _asyncio.to_thread(_pull_next_chunk)
+                    if chunk is _CHUNK_STOP:
+                        break
                     try:
                         text = chunk.text
                     except (ValueError, AttributeError):

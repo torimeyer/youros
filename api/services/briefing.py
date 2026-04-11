@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from services.atomic_io import atomic_write_json
 from services.settings_store import settings_store
 
 MYOS_DIR = Path.home() / ".myos"
@@ -34,8 +35,7 @@ def _load_state() -> dict:
 def _save_state(state: dict) -> None:
     import services.briefing as _self
     state_path: Path = _self.BRIEFING_STATE_PATH
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(state, indent=2))
+    atomic_write_json(state_path, state)
 
 
 def _today_str() -> str:
@@ -81,16 +81,33 @@ def get_cached_briefing() -> Optional[str]:
     return None
 
 
+def _is_active_task(t: dict) -> bool:
+    """A task is 'active' for briefing purposes if it is anything other
+    than closed. ostk emits 'open' and 'in_progress' as distinct
+    statuses. The briefing used to filter strictly for status == 'open'
+    and silently skipped every in_progress P0, so Tori's highest
+    priority work was invisible the moment an agent picked it up.
+    Regression guard for needle 280. Same rule as Tasks.tsx isActiveTask.
+    """
+    return t.get("status") != "closed"
+
+
 async def _task_count_changed() -> bool:
-    """Return True if the number of open P0/P1 tasks differs from when the briefing was cached."""
+    """Return True if the number of active P0/P1 tasks differs from when the briefing was cached."""
     from services.ostk import ostk, OstkError
     state = _load_state()
     cached_count = state.get("task_count")
     if cached_count is None:
         return False  # no baseline, treat as fresh
     try:
-        all_tasks = await ostk.list_tasks(status="open")
-        current = len([t for t in all_tasks if t.get("priority") in ("P0", "P1")])
+        # Pull every task (no status filter) so in_progress rows still
+        # count toward the priority tally. Filtering in Python lets us
+        # treat open and in_progress as the same bucket.
+        all_tasks = await ostk.list_tasks()
+        current = len([
+            t for t in all_tasks
+            if _is_active_task(t) and t.get("priority") in ("P0", "P1")
+        ])
         return current != cached_count
     except OstkError:
         return False
@@ -133,13 +150,17 @@ async def generate_briefing() -> str:
     except Exception:
         pass
 
-    # Open P0 and P1 tasks, sorted by priority then age (best effort)
+    # Open P0 and P1 tasks, sorted by priority then age (best effort).
+    # IMPORTANT: pull every task (no status filter) so in_progress rows
+    # still show up. ostk returns both 'open' and 'in_progress' as
+    # distinct statuses and the briefing must treat both as active.
     p0p1_count = 0
     try:
-        all_tasks = await ostk.list_tasks(status="open")
+        all_tasks = await ostk.list_tasks()
+        active_tasks = [t for t in all_tasks if _is_active_task(t)]
         priority_order = {"P0": 0, "P1": 1}
         priority_tasks = sorted(
-            [t for t in all_tasks if t.get("priority") in ("P0", "P1")],
+            [t for t in active_tasks if t.get("priority") in ("P0", "P1")],
             key=lambda t: (
                 priority_order.get(t.get("priority", "P1"), 1),
                 t.get("created_at", "9999"),  # oldest first
@@ -147,8 +168,10 @@ async def generate_briefing() -> str:
         )
         p0p1_count = len(priority_tasks)
 
-        # Compute compound scores (which tasks unblock the most)
-        open_ids = {t.get("id", "") for t in all_tasks if t.get("status") == "open"}
+        # Compute compound scores (which tasks unblock the most).
+        # Use the same active-task filter so an in_progress task can
+        # still show up as high-leverage.
+        open_ids = {t.get("id", "") for t in active_tasks}
         blocks_graph: dict[str, set] = {}
         for t in all_tasks:
             tid = t.get("id", "")

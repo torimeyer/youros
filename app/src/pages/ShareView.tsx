@@ -30,6 +30,7 @@ const priorityColors: Record<string, string> = {
   P0: 'bg-pink-500/20 text-pink-400',
   P1: 'bg-orange-500/20 text-orange-400',
   P2: 'bg-blue-500/20 text-blue-400',
+  P3: 'bg-slate-500/20 text-slate-400',
 };
 
 function TaskRow({ task }: { task: SharedTask }) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
 import { useAppStore } from '../stores/app'
@@ -135,29 +135,29 @@ export default function TopBar({ title }: TopBarProps) {
   const [showNotifications, setShowNotifications] = useState(false)
   const [, setTick] = useState(0)
   const [persistentNotifs, setPersistentNotifs] = useState<PersistentNotification[]>([])
-  const [persistentUnread, setPersistentUnread] = useState(0)
 
   const notifications = useNotificationStore((s) => s.notifications)
   const markAllRead = useNotificationStore((s) => s.markAllRead)
   const clearAll = useNotificationStore((s) => s.clearAll)
 
-  const agentUnreadCount = notifications.filter((n) => !n.read).length
+  // Single source of truth. The badge count and the dropdown body must read
+  // from the exact same arrays, otherwise the bell can show "9+" while the
+  // dropdown shows "You're all caught up". The unread counts below are
+  // memoized derivations of the same lists the dropdown renders.
+  const agentUnreadCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications]
+  )
+  const persistentUnread = useMemo(
+    () => persistentNotifs.filter((n) => !n.read).length,
+    [persistentNotifs]
+  )
   const unreadCount = agentUnreadCount + persistentUnread
-
-  const fetchPersistentUnread = useCallback(async () => {
-    try {
-      const data = await api.get<{ count: number }>('/notifications/unread/count')
-      setPersistentUnread(data.count)
-    } catch {
-      // ignore
-    }
-  }, [])
 
   const fetchPersistentNotifs = useCallback(async () => {
     try {
       const data = await api.get<PersistentNotification[]>('/notifications')
-      setPersistentNotifs(data)
-      setPersistentUnread(data.filter((n) => !n.read).length)
+      setPersistentNotifs(Array.isArray(data) ? data : [])
     } catch {
       // ignore
     }
@@ -169,18 +169,19 @@ export default function TopBar({ title }: TopBarProps) {
     return () => clearInterval(interval)
   }, [])
 
-  // Poll persistent unread count every 60 seconds
+  // Proactively fetch the persistent notifications list on mount and poll
+  // every 60 seconds. The badge count is derived from this list, so the
+  // badge and the dropdown can never disagree.
   useEffect(() => {
-    fetchPersistentUnread()
-    const interval = setInterval(fetchPersistentUnread, 60_000)
+    fetchPersistentNotifs()
+    const interval = setInterval(fetchPersistentNotifs, 60_000)
     return () => clearInterval(interval)
-  }, [fetchPersistentUnread])
+  }, [fetchPersistentNotifs])
 
   const handleMarkPersistentRead = useCallback(async (id: string) => {
     try {
       await api.post(`/notifications/${id}/read`)
       setPersistentNotifs((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n))
-      setPersistentUnread((c) => Math.max(0, c - 1))
     } catch {
       // ignore
     }
@@ -190,7 +191,6 @@ export default function TopBar({ title }: TopBarProps) {
     try {
       await api.post('/notifications/read-all')
       setPersistentNotifs((prev) => prev.map((n) => ({ ...n, read: true })))
-      setPersistentUnread(0)
     } catch {
       // ignore
     }
@@ -200,7 +200,8 @@ export default function TopBar({ title }: TopBarProps) {
     // Just open the drawer. We intentionally do NOT mark everything as read
     // on open. Users need to see which notifications are new. Individual
     // items get marked read when clicked, and anything still unread gets
-    // marked read when the drawer closes.
+    // marked read when the drawer closes. Refresh the list so the dropdown
+    // and badge are both up to date with the server.
     setShowNotifications(true)
     await fetchPersistentNotifs()
   }

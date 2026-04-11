@@ -55,11 +55,11 @@ async def get_ambient():
     last activity timestamp, unread Gmail count, and next calendar
     event into a single response.
     """
-    # Tasks by priority
-    task_counts = {"P0": 0, "P1": 0, "P2": 0, "total_open": 0}
+    # Tasks by priority. Treat in_progress as active (needle 277+280+283).
+    task_counts = {"P0": 0, "P1": 0, "P2": 0, "P3": 0, "total_open": 0}
     try:
         all_tasks = await ostk.list_tasks()
-        open_tasks = [t for t in all_tasks if t.get("status") == "open"]
+        open_tasks = [t for t in all_tasks if t.get("status") != "closed"]
         task_counts["total_open"] = len(open_tasks)
         for t in open_tasks:
             p = t.get("priority", "")

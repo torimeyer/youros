@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, meeting_prep, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth
+from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, meeting_prep, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit
 
 app = FastAPI(title="myOS API")
 
@@ -22,6 +22,7 @@ app.add_middleware(
 )
 
 app.include_router(tasks.router, prefix="/api")
+app.include_router(task_audit.router, prefix="/api")
 app.include_router(ideas.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")

@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from services.atomic_io import atomic_write_json
+
 MYOS_DIR = Path.home() / ".myos"
 WORKFLOWS_FILE = MYOS_DIR / "workflows.json"
 
@@ -48,8 +50,7 @@ def _load() -> dict[str, Any]:
 
 
 def _save(data: dict[str, Any]) -> None:
-    MYOS_DIR.mkdir(parents=True, exist_ok=True)
-    WORKFLOWS_FILE.write_text(json.dumps(data, indent=2))
+    atomic_write_json(WORKFLOWS_FILE, data)
 
 
 # ---------------------------------------------------------------------------

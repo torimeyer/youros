@@ -157,7 +157,7 @@ async def test_close_task(client):
 
     assert resp.status_code == 200
     assert resp.json()["result"] == "closed t-1"
-    mock_ostk.close_task.assert_called_once_with("t-1")
+    mock_ostk.close_task.assert_called_once_with("t-1", closed_reason=None)
 
 
 # --- POST /api/tasks/{id}/reopen ---
@@ -302,7 +302,7 @@ async def test_update_task_invalid_priority(client):
     from services.ostk import OstkError
     with patch("routers.tasks.ostk") as mock_ostk:
         mock_ostk.update_task_priority = AsyncMock(
-            side_effect=OstkError("invalid priority 'P9', must be one of {'P0', 'P1', 'P2'}")
+            side_effect=OstkError("invalid priority 'P9', must be one of {'P0', 'P1', 'P2', 'P3'}")
         )
         resp = await client.patch("/api/tasks/t-1", json={"priority": "P9"})
 

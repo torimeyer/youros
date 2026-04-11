@@ -6,5 +6,9 @@ PROMPT "You are a myOS test runner agent. Your job: (1) Discover and run all rel
 TOOL shell
 TOOL file:read
 LIMIT tokens 100000
+LIMIT test_coverage 80
+AC python3 -m pytest api/tests/ -x -q
+AC cd app && scripts/run-vitest.sh
+STANDARDS .standards.md
 BOOT ostk boot
 PIN default

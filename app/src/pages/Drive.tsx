@@ -1013,7 +1013,7 @@ export default function Drive() {
           <>
             {/* Reconnect banner — shown when drive.file scope is missing */}
             {authStatus.needs_reauth && (
-              <div className="flex items-center justify-between gap-3 p-4 rounded-lg mb-5 text-sm bg-amber-500/10 border border-amber-500/30 text-amber-300">
+              <div className="flex items-center justify-between gap-3 p-4 rounded-lg mb-5 text-sm bg-amber-500/15 border border-amber-400/60 text-amber-100">
                 <div className="flex items-center gap-2">
                   <Icon name="warning" size={18} />
                   <span>
@@ -1029,7 +1029,7 @@ export default function Drive() {
                       // ignore
                     }
                   }}
-                  className="flex-shrink-0 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 rounded-lg text-amber-200 font-medium text-xs transition-colors"
+                  className="flex-shrink-0 px-3 py-1.5 bg-amber-500/30 hover:bg-amber-500/50 border border-amber-400/60 rounded-lg text-amber-50 font-medium text-xs transition-colors"
                 >
                   Reconnect
                 </button>

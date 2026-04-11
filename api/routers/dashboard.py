@@ -19,12 +19,14 @@ async def get_dashboard():
     except OstkError:
         all_tasks = []
 
-    open_tasks = [t for t in all_tasks if t.get("status") == "open"]
+    # Active tasks include both open and in_progress (needle 277+280+283).
+    open_tasks = [t for t in all_tasks if t.get("status") != "closed"]
     closed_tasks = [t for t in all_tasks if t.get("status") == "closed"]
 
     p0 = [t for t in open_tasks if t.get("priority") == "P0"]
     p1 = [t for t in open_tasks if t.get("priority") == "P1"]
     p2 = [t for t in open_tasks if t.get("priority") == "P2"]
+    p3 = [t for t in open_tasks if t.get("priority") == "P3"]
 
     # Get status and hay in parallel
     try:
@@ -58,6 +60,7 @@ async def get_dashboard():
             "p0": len(p0),
             "p1": len(p1),
             "p2": len(p2),
+            "p3": len(p3),
         },
         "focus": focus,
         "recent_tasks": [
@@ -112,29 +115,21 @@ async def get_dashboard_summary():
         and (t.get("closed_at", "") or "").startswith(today_str)
     ]
 
-    # 2. Read agent activity from audit.jsonl
+    # 2. Read agent activity from audit.jsonl through the shared
+    #    parse cache so we do not re-read + re-parse the 400 KB file
+    #    on every /api/dashboard request.
+    from services.ostk import read_audit_entries
     agents_spawned_today = 0
     agents_completed_today = 0
-    audit_path = OSTK_DIR / "audit.jsonl"
-    if audit_path.exists():
-        try:
-            for line in audit_path.read_text().strip().splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                ts = entry.get("timestamp", "")
-                if not ts.startswith(today_str):
-                    continue
-                ev = entry.get("event", "")
-                if ev == "agent.spawned":
-                    agents_spawned_today += 1
-                elif ev in ("agent.completed", "agent.failed"):
-                    agents_completed_today += 1
-        except OSError:
-            pass
+    for entry in read_audit_entries(OSTK_DIR / "audit.jsonl"):
+        ts = entry.get("timestamp", "")
+        if not ts.startswith(today_str):
+            continue
+        ev = entry.get("event", "")
+        if ev == "agent.spawned":
+            agents_spawned_today += 1
+        elif ev in ("agent.completed", "agent.failed"):
+            agents_completed_today += 1
 
     # 3. Count open needles (ideas not yet converted)
     open_needle_count = 0

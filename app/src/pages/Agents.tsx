@@ -533,6 +533,36 @@ interface AgentInfo {
   max_recoveries?: number;
 }
 
+// First-paint cache (needle 299).
+//
+// See the matching block in Tasks.tsx for the full rationale. Short
+// version: Tori sees a blank Active Sessions panel for several seconds
+// every time she opens /agents cold, so we seed the list from the last
+// good /agents response stashed in localStorage. The live poll still
+// runs and overwrites the cache as soon as fresh data arrives.
+const AGENTS_CACHE_KEY = "myos.agentsCache.v1";
+
+function readAgentsCache(): AgentInfo[] {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return [];
+    const raw = window.localStorage.getItem(AGENTS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as AgentInfo[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeAgentsCache(agents: AgentInfo[]) {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    window.localStorage.setItem(AGENTS_CACHE_KEY, JSON.stringify(agents));
+  } catch {
+    // Quota or serialization errors are not fatal. Skip the cache.
+  }
+}
+
 // Pattern recognition (Insights tab)
 interface PatternRecommendation {
   type: string;
@@ -766,8 +796,25 @@ interface AgentsResponse {
   avg_min_per_dollar?: Record<string, number>;
 }
 
+interface TemplateCapabilities {
+  writes_to: string;
+  cannot_touch: string;
+  budget: string;
+  time_limit: string;
+  sandbox: string;
+}
+
+interface AgentfileTemplate {
+  name: string;
+  file: string;
+  content: string;
+  description?: string;
+  capabilities: TemplateCapabilities | null;
+  parse_error: string | null;
+}
+
 interface TemplatesResponse {
-  templates: { name: string; file: string; content: string }[];
+  templates: AgentfileTemplate[];
 }
 
 interface PMAgentTemplate {
@@ -1058,12 +1105,22 @@ function PMTemplateEditorForm({
 
 export default function Agents() {
   const [activeTab, setActiveTab] = useState("Active");
-  const [allAgents, setAllAgents] = useState<AgentInfo[]>([]);
+  // Seed from the localStorage cache so the first paint shows the last
+  // known list of agents instead of the empty "Loading..." state.
+  // Needle 299. The daemon-filter matches the runtime filter in
+  // fetchAgents so a stale cached daemon row never sneaks back in.
+  const [allAgents, setAllAgents] = useState<AgentInfo[]>(() =>
+    readAgentsCache().filter((a) => a.name !== 'daemon'),
+  );
   // Tracks whether the first /agents fetch has resolved. We use this to show
   // a loading state on first paint instead of flashing the empty state.
   // Subsequent polling refreshes do not reset this flag, so the spinner never
   // reappears during background updates.
-  const [agentsLoaded, setAgentsLoaded] = useState(false);
+  // When we have cached rows to show, start in the loaded state so the
+  // "Loading..." placeholder never appears over real data.
+  const [agentsLoaded, setAgentsLoaded] = useState<boolean>(
+    () => readAgentsCache().length > 0,
+  );
   const [, setActiveAgents] = useState<string[]>([]);
   const [, setConnectionStatus] = useState("Connecting...");
   const [, setDaemonRunning] = useState(false);
@@ -1275,7 +1332,11 @@ export default function Agents() {
       }
       prevStatusRef.current = Object.fromEntries(newAgents.map((a) => [a.name, a.status]));
 
-      setAllAgents(newAgents);
+      const filtered = newAgents.filter((a) => a.name !== 'daemon');
+      setAllAgents(filtered);
+      // Persist the last good response so the next cold visit paints
+      // real rows from the first render. Needle 299.
+      writeAgentsCache(filtered);
       setActiveAgents(data.active || []);
       setDaemonRunning(data.daemon_running ?? false);
       setConnectionStatus(data.daemon_running ? "Connected" : "Standby");
@@ -1735,27 +1796,45 @@ export default function Agents() {
   };
 
   // Built-in templates (from API or defaults)
-  const builtInTemplates: { icon: string; name: string; description: string; model: string; budget: number; isBuiltIn: boolean }[] =
+  type DisplayTemplate = {
+    icon: string;
+    name: string;
+    description: string;
+    model: string;
+    budget: number;
+    isBuiltIn: boolean;
+    capabilities: TemplateCapabilities | null;
+    parseError: string | null;
+  };
+
+  const builtInTemplates: DisplayTemplate[] =
     templates.length > 0
       ? templates.map((t) => ({
           icon: getTemplateIcon(t.name),
           name: t.name,
-          description: t.content ? t.content.slice(0, 50) : "Agent template",
+          description: t.description || (t.content ? t.content.slice(0, 50) : "Agent template"),
           model: "sonnet",
           budget: 2.0,
           isBuiltIn: true,
+          capabilities: t.capabilities ?? null,
+          parseError: t.parse_error ?? null,
         }))
       : [
-          { icon: "search", name: "Research", description: "Search and summarize information", model: "sonnet", budget: 2.0, isBuiltIn: true },
-          { icon: "code", name: "Code Review", description: "Review code for issues and improvements", model: "sonnet", budget: 2.0, isBuiltIn: true },
-          { icon: "bug_report", name: "Write Tests", description: "Generate test cases for your code", model: "sonnet", budget: 2.0, isBuiltIn: true },
-          { icon: "rocket_launch", name: "Deploy", description: "Automate deployment pipelines", model: "sonnet", budget: 2.0, isBuiltIn: true },
+          { icon: "search", name: "Research", description: "Search and summarize information", model: "sonnet", budget: 2.0, isBuiltIn: true, capabilities: null, parseError: null },
+          { icon: "code", name: "Code Review", description: "Review code for issues and improvements", model: "sonnet", budget: 2.0, isBuiltIn: true, capabilities: null, parseError: null },
+          { icon: "bug_report", name: "Write Tests", description: "Generate test cases for your code", model: "sonnet", budget: 2.0, isBuiltIn: true, capabilities: null, parseError: null },
+          { icon: "rocket_launch", name: "Deploy", description: "Automate deployment pipelines", model: "sonnet", budget: 2.0, isBuiltIn: true, capabilities: null, parseError: null },
         ];
 
   // Merge built-in + custom templates
-  const displayTemplates = [
+  const displayTemplates: DisplayTemplate[] = [
     ...builtInTemplates,
-    ...customTemplates.map((ct) => ({ ...ct, isBuiltIn: false })),
+    ...customTemplates.map((ct) => ({
+      ...ct,
+      isBuiltIn: false,
+      capabilities: null,
+      parseError: null,
+    })),
   ];
 
   return (
@@ -3006,37 +3085,96 @@ export default function Agents() {
           </button>
         </div>
         <div className="grid grid-cols-4 gap-4">
-          {displayTemplates.map((tpl) => (
-            <div
-              key={tpl.name}
-              onClick={() => {
-                setEditorInitial({ name: tpl.name, description: tpl.description, icon: tpl.icon, model: tpl.model, budget: tpl.budget });
-                setEditorIsNew(false);
-                setEditorOpen(true);
-              }}
-              className="group relative bg-slate-900/40 border border-slate-800 rounded-xl p-4 text-center hover:border-blue-500 transition-colors cursor-pointer"
-            >
-              {/* Delete button for custom templates */}
-              {!tpl.isBuiltIn && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteCustomTemplate(tpl.name);
-                  }}
-                  className="absolute top-2 right-2 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Remove template"
-                >
-                  <Icon name="delete" size={16} />
-                </button>
-              )}
-              <Icon
-                name={tpl.icon}
-                className="text-3xl text-slate-400 mb-2 mx-auto"
-              />
-              <p className="text-white font-medium mb-1">{tpl.name}</p>
-              <p className="text-slate-400 text-xs">{tpl.description}</p>
-            </div>
-          ))}
+          {displayTemplates.map((tpl) => {
+            const hasParseError = tpl.parseError != null;
+            const caps = tpl.capabilities;
+            return (
+              <div
+                key={tpl.name}
+                data-testid={`template-card-${tpl.name}`}
+                onClick={() => {
+                  if (hasParseError) return;
+                  setEditorInitial({ name: tpl.name, description: tpl.description, icon: tpl.icon, model: tpl.model, budget: tpl.budget });
+                  setEditorIsNew(false);
+                  setEditorOpen(true);
+                }}
+                className={`group relative bg-slate-900/40 border rounded-xl p-4 text-left transition-colors ${
+                  hasParseError
+                    ? "border-amber-500/40 cursor-not-allowed"
+                    : "border-slate-800 hover:border-blue-500 cursor-pointer"
+                }`}
+              >
+                {/* Delete button for custom templates */}
+                {!tpl.isBuiltIn && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteCustomTemplate(tpl.name);
+                    }}
+                    className="absolute top-2 right-2 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Remove template"
+                  >
+                    <Icon name="delete" size={16} />
+                  </button>
+                )}
+                <div className="text-center">
+                  <Icon
+                    name={tpl.icon}
+                    className="text-3xl text-slate-400 mb-2 mx-auto"
+                  />
+                  <p className="text-white font-medium mb-1">{tpl.name}</p>
+                  <p className="text-slate-400 text-xs line-clamp-2">{tpl.description}</p>
+                </div>
+
+                {/* Capabilities panel */}
+                {hasParseError ? (
+                  <div
+                    data-testid={`template-capabilities-error-${tpl.name}`}
+                    className="mt-3 pt-3 border-t border-slate-700/50"
+                  >
+                    <p className="text-xs text-amber-400">
+                      Could not read capabilities for this template. Fix the .agent file.
+                    </p>
+                    <button
+                      type="button"
+                      disabled
+                      data-testid={`template-spawn-${tpl.name}`}
+                      className="w-full mt-2 py-1.5 bg-slate-800 text-slate-500 rounded-lg text-xs cursor-not-allowed"
+                    >
+                      Spawn
+                    </button>
+                  </div>
+                ) : caps ? (
+                  <div
+                    data-testid={`template-capabilities-${tpl.name}`}
+                    className="mt-3 pt-3 border-t border-slate-700/50 space-y-1 text-left"
+                  >
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Capabilities</p>
+                    <div className="text-[11px] text-slate-300">
+                      <span className="text-slate-500">Writes to: </span>
+                      <span>{caps.writes_to}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-300">
+                      <span className="text-slate-500">Cannot touch: </span>
+                      <span>{caps.cannot_touch}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-300">
+                      <span className="text-slate-500">Budget: </span>
+                      <span>{caps.budget}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-300">
+                      <span className="text-slate-500">Time limit: </span>
+                      <span>{caps.time_limit}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-300">
+                      <span className="text-slate-500">Sandbox: </span>
+                      <span>{caps.sandbox}</span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
 
           {/* + New Template card */}
           <div

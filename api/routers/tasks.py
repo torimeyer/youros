@@ -73,6 +73,19 @@ def _enrich_task(
         thread = threads_store.get_thread_for_task(task_id)
         task["thread_id"] = thread["id"] if thread else None
 
+    # Default ``closed_reason`` so the frontend can render a badge even on
+    # legacy closed tasks that predate the Tasks audit feature. Closed
+    # tasks without a structured reason are treated as "completed" so the
+    # badge falls back to a sensible label. Open tasks always have no
+    # closed_reason.
+    allowed_reasons = {"completed", "duplicate", "archived"}
+    raw_reason = task.get("closed_reason")
+    if task.get("status") == "closed":
+        if raw_reason not in allowed_reasons:
+            task["closed_reason"] = "completed"
+    else:
+        task["closed_reason"] = None
+
     return task
 
 
@@ -170,7 +183,7 @@ async def reorder_task(body: TaskReorder):
     The sort index is global across all tasks but only compared within the same
     priority group, so each group maintains its own relative order.
     """
-    valid_priorities = {"P0", "P1", "P2"}
+    valid_priorities = {"P0", "P1", "P2", "P3"}
     if body.new_priority not in valid_priorities:
         raise HTTPException(status_code=400, detail=f"Invalid priority '{body.new_priority}'")
 
@@ -212,20 +225,38 @@ async def delete_task(task_id: str):
 
 @router.post("/tasks/backfill-labels")
 async def backfill_labels():
-    """Run auto-labeling on every open task that has no labels yet.
+    """Run auto-labeling on every active task that has no labels yet.
 
-    Safe to call at any time. Skips tasks that already have labels.
-    Returns counts of tasks processed and labeled.
+    Active = anything not closed. ostk emits both ``open`` and
+    ``in_progress`` as live statuses and Tori's tasks are mostly
+    in_progress once an agent picks them up. Strict ``status="open"``
+    filtering was silently skipping every in_progress row and the
+    Label All button labeled 0 or 1 tasks instead of everything the
+    UI showed. Regression guard for needle 283.
+
+    IMPORTANT: the per-task Claude calls run in PARALLEL, capped by a
+    small semaphore so we do not hammer the Anthropic API. Before this
+    change the loop was sequential and 14 tasks × ~2-8s per Claude
+    call = up to 112 seconds of "Labeling..." spinner with nothing
+    visible until the whole batch finished. The UI looked hung. Now
+    the total wall time is roughly ``ceil(n / concurrency) * per_call``
+    so 14 tasks at concurrency 6 finish in about 2 Claude calls of
+    wall time. Regression guard for needle 284.
     """
     import asyncio
 
     try:
-        tasks = await ostk.list_tasks(status="open")
+        tasks_raw = await ostk.list_tasks()
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    tasks = [t for t in tasks_raw if t.get("status") != "closed"]
+
     all_assignments = task_labels_store.get_all_assignments()
-    unlabeled = [t for t in tasks if not all_assignments.get(t.get("id", ""))]
+    unlabeled = [
+        t for t in tasks
+        if not all_assignments.get(t.get("id", "")) and t.get("id") and t.get("title")
+    ]
 
     if unlabeled:
         from services.chat_providers import _resolve_api_key
@@ -236,23 +267,30 @@ async def backfill_labels():
                 detail="No API key configured. Add an Anthropic API key in Settings to use smart labeling.",
             )
 
-    processed = 0
-    labeled = 0
-    for task in unlabeled:
+    # Concurrency cap. 6 parallel Claude calls is well under Anthropic
+    # rate limits and keeps the total backfill time under ~10 seconds
+    # even for a backlog of 50+ tasks.
+    semaphore = asyncio.Semaphore(6)
+
+    async def _label_one(task: dict) -> bool:
         task_id = task.get("id", "")
         title = task.get("title", "")
-        if not task_id or not title:
-            continue
-        processed += 1
-        try:
-            await asyncio.wait_for(
-                apply_auto_labels(task_id, title, ""),
-                timeout=10.0,
-            )
-            if task_labels_store.get_labels_for_task(task_id):
-                labeled += 1
-        except Exception:
-            pass
+        async with semaphore:
+            try:
+                await asyncio.wait_for(
+                    apply_auto_labels(task_id, title, ""),
+                    timeout=10.0,
+                )
+                return bool(task_labels_store.get_labels_for_task(task_id))
+            except Exception:
+                return False
+
+    results = await asyncio.gather(
+        *[_label_one(t) for t in unlabeled],
+        return_exceptions=False,
+    )
+    processed = len(unlabeled)
+    labeled = sum(1 for r in results if r)
 
     return {"processed": processed, "labeled": labeled, "total_open": len(tasks)}
 
@@ -302,8 +340,17 @@ async def auto_label_task(task_id: str):
 
 @router.post("/tasks/{task_id}/close")
 async def close_task(task_id: str, body: TaskClose = TaskClose()):
+    """Close a task. ``reason`` is the structured audit tag.
+
+    Only accepts the controlled vocabulary ``completed``, ``duplicate`` or
+    ``archived`` when present. Anything else is dropped so pre-audit
+    callers that still send free-form text continue to work.
+    """
+    allowed_reasons = {"completed", "duplicate", "archived"}
+    raw_reason = (body.reason or "").strip()
+    structured_reason = raw_reason if raw_reason in allowed_reasons else None
     try:
-        result = await ostk.close_task(task_id)
+        result = await ostk.close_task(task_id, closed_reason=structured_reason)
         return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))

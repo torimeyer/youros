@@ -6,5 +6,7 @@ PROMPT "You are a myOS code review agent. Review the code changes for: (1) Bugs 
 TOOL shell
 TOOL file:read
 LIMIT tokens 100000
+REVIEW owasp,performance,accessibility
+STANDARDS .standards.md
 BOOT ostk boot
 PIN default

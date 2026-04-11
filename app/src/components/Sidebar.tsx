@@ -146,22 +146,68 @@ export function Sidebar() {
   }, [])
 
   useEffect(() => {
+    // Adaptive poll interval with failure debouncing.
+    //
+    // History:
+    //   Needle 286: a single failed poll during a restart window used
+    //     to pin both dots red for a full 15 second interval. Fixed by
+    //     shortening the retry interval to 2 seconds on failure.
+    //   Needle 287: a backend restart stranded keep alive sockets in
+    //     the vite proxy pool, so every /api/* request hung for 30s.
+    //     Fixed by forcing Connection: close in vite.config.ts.
+    //   Needle 293: even with the 2s retry, a single failed poll still
+    //     flipped the dot red for up to 2 seconds during a fast
+    //     restart. Tori asks for zero red frames when the servers come
+    //     back in under 3 seconds. Fix: require two consecutive
+    //     failures before flipping the dot red. A single transient
+    //     failure just schedules a faster retry and keeps the previous
+    //     state. With FAILURE_INTERVAL at 2s and FAILURE_THRESHOLD at
+    //     2, a genuinely down backend is reported red within 2 seconds
+    //     (first fail at t=0 is tolerated, second fail at t=2 flips
+    //     red), which is comfortably under the 5 second bar.
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let cancelled = false
+    let consecutiveFailures = 0
+    const SUCCESS_INTERVAL = 15_000
+    const FAILURE_INTERVAL = 2_000
+    const FAILURE_THRESHOLD = 2
+
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled) return
+      timer = setTimeout(() => {
+        void checkHealth()
+      }, delayMs)
+    }
+
     const checkHealth = async () => {
       try {
         const res = await api.get<{ kernel: string }>('/status/clock')
+        if (cancelled) return
+        consecutiveFailures = 0
         setBackendUp(true)
         const k = res.kernel || ''
         setOstkUp(k !== 'unknown' && k !== '')
         setOstkKernel(k)
+        scheduleNext(SUCCESS_INTERVAL)
       } catch {
-        setBackendUp(false)
-        setOstkUp(false)
-        setOstkKernel('')
+        if (cancelled) return
+        consecutiveFailures += 1
+        if (consecutiveFailures >= FAILURE_THRESHOLD) {
+          setBackendUp(false)
+          setOstkUp(false)
+          setOstkKernel('')
+        }
+        // Keep retrying on the short failure interval until we either
+        // recover (consecutive resets to 0) or confirm the backend is
+        // really gone (already red).
+        scheduleNext(FAILURE_INTERVAL)
       }
     }
-    checkHealth()
-    const interval = setInterval(checkHealth, 15000)
-    return () => clearInterval(interval)
+    void checkHealth()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
   }, [])
 
   // Filter and sort nav items based on feature toggles.

@@ -8,12 +8,13 @@ interface Props {
   onSuccess?: () => void;
 }
 
-type Priority = "P0" | "P1" | "P2";
+type Priority = "P0" | "P1" | "P2" | "P3";
 
 const PRIORITIES: { value: Priority; label: string; description: string }[] = [
   { value: "P0", label: "P0", description: "Top priority" },
   { value: "P1", label: "P1", description: "Normal" },
   { value: "P2", label: "P2", description: "Later" },
+  { value: "P3", label: "P3", description: "Low" },
 ];
 
 export default function QuickAddTaskModal({ open, onClose, onSuccess }: Props) {

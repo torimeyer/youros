@@ -34,6 +34,7 @@ const priorityDot: Record<string, string> = {
   P0: "bg-pink-500",
   P1: "bg-orange-500",
   P2: "bg-blue-500",
+  P3: "bg-slate-500",
 };
 
 type ViewMode = "week" | "month" | "quarter";
@@ -126,7 +127,7 @@ export default function Timeline() {
               </button>
             </div>
             <div className="flex items-center gap-1 text-xs">
-              {["ALL", "P0", "P1", "P2"].map((p) => (
+              {["ALL", "P0", "P1", "P2", "P3"].map((p) => (
                 <button
                   key={p}
                   onClick={() => setPriorityFilter(p === "ALL" ? null : (priorityFilter === p ? null : p))}

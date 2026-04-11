@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 from typing import Optional
@@ -543,8 +544,12 @@ async def chat_websocket(websocket: WebSocket):
                     system_msg = f"You are the AI assistant for myOS. Here is the current workspace context:\n\n{combined}\n\nAnswer the user's question using this context."
                     messages = [{"role": "user", "content": system_msg}] + messages
 
-            # Convert [gif:URL] markers to image content blocks for vision
-            messages = transform_image_messages(messages)
+            # Convert [gif:URL] markers to image content blocks for vision.
+            # transform_image_messages calls urllib.request.urlopen and PIL
+            # decode per GIF, both blocking. Run on a worker thread so the
+            # uvicorn event loop keeps serving other HTTP requests while
+            # a GIF is being fetched.
+            messages = await asyncio.to_thread(transform_image_messages, messages)
 
             # The last message content might now be a list (image blocks), so
             # extract text for mention parsing from the original last_text.

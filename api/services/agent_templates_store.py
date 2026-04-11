@@ -17,6 +17,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from services.atomic_io import atomic_write_json, atomic_write_text
+
 AGENT_TEMPLATES_PATH = Path.home() / ".myos" / "agent_templates.json"
 
 # No built-in PM-focused templates. Templates are now installed per-user
@@ -31,7 +33,7 @@ class AgentTemplatesStore:
     def _ensure_exists(self) -> None:
         AGENT_TEMPLATES_PATH.parent.mkdir(parents=True, exist_ok=True)
         if not AGENT_TEMPLATES_PATH.exists():
-            AGENT_TEMPLATES_PATH.write_text("[]")
+            atomic_write_text(AGENT_TEMPLATES_PATH, "[]")
 
     def list_custom(self) -> list[dict]:
         self._ensure_exists()
@@ -42,7 +44,7 @@ class AgentTemplatesStore:
 
     def _save(self, templates: list[dict]) -> None:
         self._ensure_exists()
-        AGENT_TEMPLATES_PATH.write_text(json.dumps(templates, indent=2))
+        atomic_write_json(AGENT_TEMPLATES_PATH, templates)
 
     def create(self, data: dict) -> dict:
         templates = self.list_custom()

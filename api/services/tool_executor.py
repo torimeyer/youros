@@ -158,8 +158,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 },
                 "priority": {
                     "type": "string",
-                    "description": "Priority level: P0, P1, or P2.",
-                    "enum": ["P0", "P1", "P2"],
+                    "description": "Priority level: P0 (urgent), P1 (high), P2 (normal), or P3 (low).",
+                    "enum": ["P0", "P1", "P2", "P3"],
                 },
             },
             "required": ["title"],

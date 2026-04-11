@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from models.schemas import Settings
+from services.atomic_io import atomic_write_json
 
 SETTINGS_PATH = Path.home() / ".myos" / "settings.json"
 
@@ -77,7 +78,7 @@ class SettingsStore:
         # so future loads skip this branch.
         data, migrated = _migrate_briefing_keys(data)
         if migrated:
-            SETTINGS_PATH.write_text(json.dumps(data, indent=2))
+            atomic_write_json(SETTINGS_PATH, data)
         # Backfill any fields missing from an older settings.json with the
         # pydantic schema defaults. This is how new server-backed settings
         # like ``tour_complete`` show up for users who were onboarded before
@@ -93,7 +94,7 @@ class SettingsStore:
     def save(self, data: dict):
         if "features" in data and isinstance(data["features"], dict):
             data["features"] = _normalize_features(data["features"])
-        SETTINGS_PATH.write_text(json.dumps(data, indent=2))
+        atomic_write_json(SETTINGS_PATH, data)
 
     def get(self, key: str, default=None):
         return self.load().get(key, default)

@@ -42,6 +42,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from services.atomic_io import atomic_write_json, atomic_write_text
+
 RECURRING_TASKS_PATH = Path.home() / ".myos" / "recurring_tasks.json"
 
 
@@ -146,7 +148,7 @@ class RecurringTasksStore:
     def _ensure_exists(self) -> None:
         RECURRING_TASKS_PATH.parent.mkdir(parents=True, exist_ok=True)
         if not RECURRING_TASKS_PATH.exists():
-            RECURRING_TASKS_PATH.write_text("[]")
+            atomic_write_text(RECURRING_TASKS_PATH, "[]")
 
     def list_rules(self) -> list[dict]:
         self._ensure_exists()
@@ -160,7 +162,7 @@ class RecurringTasksStore:
 
     def _save(self, rules: list[dict]) -> None:
         self._ensure_exists()
-        RECURRING_TASKS_PATH.write_text(json.dumps(rules, indent=2))
+        atomic_write_json(RECURRING_TASKS_PATH, rules)
 
     def add_rule(self, rule: dict) -> dict:
         """Create a new rule. Returns the stored rule with its generated id."""

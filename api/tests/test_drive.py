@@ -296,8 +296,10 @@ async def test_drive_files_fetches_when_cache_stale(client, tmp_path):
     fake_files = _make_drive_files(5)
     index_path.write_text(json.dumps(fake_files))
 
-    # Make the cache appear 2 hours old.
-    old_time = time.time() - 7300
+    # Make the cache appear 7 hours old so it is past the 6 hour TTL.
+    # Needle 285 bumped the TTL from 1h to 6h so stale tests must age
+    # beyond the new floor or the fresh-cache path wins.
+    old_time = time.time() - (7 * 3600)
     import os
 
     os.utime(index_path, (old_time, old_time))

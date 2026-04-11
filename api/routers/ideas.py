@@ -63,21 +63,16 @@ def _compute_staleness(created_at_str: Optional[str], is_converted: bool) -> Opt
 
 
 def _load_hay_metadata() -> dict[str, dict]:
-    """Read audit.jsonl and return a dict of straw -> {timestamp, source}."""
+    """Return a dict of straw -> {timestamp, source} for filed hay events.
+
+    Uses the shared :func:`services.ostk.read_audit_entries` cache so
+    the 400 KB audit.jsonl is parsed once per file version, not on every
+    /api/ideas request. Before the cache this function was the single
+    biggest cost of the ideas endpoint.
+    """
+    from services.ostk import read_audit_entries
     result: dict[str, dict] = {}
-    if not _AUDIT_PATH.exists():
-        return result
-    try:
-        text = _AUDIT_PATH.read_text()
-    except OSError:
-        return result
-    for line in text.strip().splitlines():
-        if not line.strip():
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for entry in read_audit_entries(_AUDIT_PATH):
         if entry.get("event") == "hay.filed":
             straw = entry.get("straw", "")
             ts = entry.get("timestamp", "")

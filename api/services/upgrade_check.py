@@ -19,6 +19,7 @@ from typing import Optional
 import httpx
 
 from config import PROJECT_ROOT
+from services.atomic_io import atomic_write_json
 
 MYOS_DIR = Path.home() / ".myos"
 UPGRADE_CACHE_FILE = MYOS_DIR / "upgrade_cache.json"
@@ -56,12 +57,11 @@ def _load_cache() -> Optional[dict]:
 
 
 def _save_cache(result: dict) -> None:
-    MYOS_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "cached_at": datetime.now(timezone.utc).isoformat(),
         "result": result,
     }
-    UPGRADE_CACHE_FILE.write_text(json.dumps(payload, indent=2))
+    atomic_write_json(UPGRADE_CACHE_FILE, payload)
 
 
 def _invalidate_cache() -> None:

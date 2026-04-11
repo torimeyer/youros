@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -9,6 +10,8 @@ from pydantic import BaseModel
 from models.schemas import AgentSpawn, AgentNudge, AgentNudgeReply, GrantApprove, GrantDeny
 from services.ostk import ostk, OstkError
 import services.agent_memory as agent_memory_svc
+
+logger = logging.getLogger(__name__)
 
 
 class AgentMemorySave(BaseModel):
@@ -49,11 +52,19 @@ from config import AGENTS_DIR, OSTK_DIR
 AGENT_STATE_PATH = OSTK_DIR / "agent_state.json"
 
 # How long a running agent can go without a heartbeat before the list
-# endpoint marks it ``terminated_stale``. Ten minutes is long enough to
-# cover normal long-running agents, short enough that orphans clear
-# within a coffee break. Exposed as a module constant so tests and
-# future tuning can override it.
-STALE_AGENT_TIMEOUT_SECONDS = 600
+# endpoint marks it ``terminated_stale``. Fifteen minutes is long enough
+# to cover a slow pytest run, a tsc build, or a large write where the
+# agent legitimately goes quiet on the HTTP channel while the
+# subprocess is still doing real work. Short enough that orphans from
+# real crashes still clear within a coffee break. Exposed as a module
+# constant so tests and future tuning can override it.
+#
+# Needle 300 belt and suspenders: this is only half the safety net. The
+# sweep also refuses to terminate any record whose proc handle in
+# ``active_agents`` is still alive (ground truth), and GET /nudges and
+# POST /reply both refresh ``last_heartbeat_at`` so any agent following
+# the mailbox polling contract is effectively immune to the sweeper.
+STALE_AGENT_TIMEOUT_SECONDS = 900
 
 # How often every spawned agent must poll its nudge mailbox so Tori's
 # inline messages reach it in a human amount of time. Sixty seconds is
@@ -129,9 +140,19 @@ def _load_agent_state() -> dict:
 
 
 def _save_agent_state():
-    """Persist current agent metadata to disk."""
+    """Persist current agent metadata to disk atomically.
+
+    Every mutation site calls this after touching ``agent_metadata``.
+    The write goes through ``atomic_write_json`` so a crash mid-save
+    cannot leave a half-written JSON blob that would wipe every agent
+    record on the next load. Single-loop asyncio guarantees the dict is
+    consistent at the moment json.dumps runs, so we do not need a
+    separate lock: no await can interleave synchronous serialization
+    on the same loop.
+    """
+    from services.atomic_io import atomic_write_json
     try:
-        AGENT_STATE_PATH.write_text(json.dumps(agent_metadata, indent=2))
+        atomic_write_json(AGENT_STATE_PATH, agent_metadata)
     except OSError:
         pass
 
@@ -201,6 +222,25 @@ def _estimate_cost(model: str, tokens_used: int) -> float:
     return round(tokens_used * rate / 1_000_000, 4)
 
 
+def _proc_handle_is_alive(name: str) -> bool:
+    """Return True if we hold a live subprocess handle for this agent.
+
+    The sweep uses this as ground truth: a record whose proc is still
+    running must NEVER be marked ``terminated_stale`` no matter how old
+    its last heartbeat looks. A proc with ``returncode is None`` is
+    still executing. Any other state (returncode set, no handle, or a
+    handle without the attribute) means we cannot prove it is alive, so
+    the normal heartbeat age check wins.
+    """
+    proc = active_agents.get(name)
+    if proc is None:
+        return False
+    returncode = getattr(proc, "returncode", "missing")
+    if returncode == "missing":
+        return False
+    return returncode is None
+
+
 def _sweep_stale_running_agents() -> bool:
     """Mark any running agent with no recent heartbeat as ``terminated_stale``,
     or flag it for recovery if a handoff note exists.
@@ -211,6 +251,11 @@ def _sweep_stale_running_agents() -> bool:
     ``spawned_at`` so legacy records from before the heartbeat field was
     added still get swept. Returns ``True`` if any records changed, so
     the caller can persist once instead of per-record.
+
+    Needle 300 safety: before terminating, we check ``active_agents``
+    for a live proc handle. If the subprocess is still running, we
+    leave the record alone even past the timeout. The death signal
+    that matters most is the proc itself, not the HTTP silence.
     """
     now = datetime.now(timezone.utc)
     changed = False
@@ -223,6 +268,10 @@ def _sweep_stale_running_agents() -> bool:
             continue
         age_seconds = (now - last_seen).total_seconds()
         if age_seconds <= STALE_AGENT_TIMEOUT_SECONDS:
+            continue
+        # Needle 300: proc is ground truth. If we hold a live handle,
+        # the agent is working even if the HTTP channel is quiet.
+        if _proc_handle_is_alive(name):
             continue
 
         # Check if we should attempt recovery instead of terminating
@@ -260,7 +309,7 @@ def _recover_stale_agents():
     for name, meta in agent_metadata.items():
         if meta.get("status") != "running":
             continue
-        # Claude Code agents have no local PID — they run as remote subprocesses.
+        # Claude Code agents have no local PID, they run as remote subprocesses.
         # Leave them alone; they mark themselves complete via the API.
         if meta.get("source") == "claude-code":
             continue
@@ -371,7 +420,39 @@ def _is_stub_markdown(path: Path) -> bool:
     return text.endswith("(registered externally).") or text.endswith("completed.")
 
 
+# name -> (expires_at_monotonic, resolved_path). The resolver below walks
+# filesystem globs and opens candidate files per agent, which cost about
+# 11ms each. Multiplied by ~140 rows the Agents list endpoint was stuck
+# at 1.5s and froze the event loop for every other request. A short TTL
+# cache is enough: when a new agent actually starts writing, the next
+# list call after the TTL elapses picks it up. Tests that mutate files
+# during one process run should call _reset_transcript_resolver_cache().
+_resolve_cache: dict[str, tuple[float, Optional[Path]]] = {}
+_RESOLVE_TTL_SECONDS = 30.0
+
+
+def _reset_transcript_resolver_cache() -> None:
+    """Test hook. Drop the in-memory resolver cache."""
+    _resolve_cache.clear()
+
+
 def _resolve_transcript_source(name: str) -> Optional[Path]:
+    """Cached wrapper around :func:`_resolve_transcript_source_uncached`.
+
+    Results are memoized per agent name for ``_RESOLVE_TTL_SECONDS`` so a
+    single /api/agents request does not walk the filesystem 140 times.
+    """
+    import time as _time
+    now = _time.monotonic()
+    cached = _resolve_cache.get(name)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    result = _resolve_transcript_source_uncached(name)
+    _resolve_cache[name] = (now + _RESOLVE_TTL_SECONDS, result)
+    return result
+
+
+def _resolve_transcript_source_uncached(name: str) -> Optional[Path]:
     """Resolve the on-disk transcript for an agent.
 
     Looks in several places and returns the first real hit:
@@ -456,6 +537,97 @@ def _resolve_transcript_source(name: str) -> Optional[Path]:
     return stub_md
 
 
+# (root, pattern) -> (expires_at_monotonic, [(mtime, path, first_line_lower)])
+# Holds the result of one glob+first-line scan so that 140 resolver calls
+# in the same /api/agents request share a single sweep of the filesystem.
+# Before this cache each agent row re-globbed ~300 candidate files and
+# re-opened each one until it found a strict match, which pinned the cold
+# endpoint at 1.7 seconds. Keyed on string root/pattern so the cache
+# survives fresh Path object identities.
+_candidates_cache: dict[tuple[str, str], tuple[float, list[tuple[float, Path, str]]]] = {}
+_CANDIDATES_TTL_SECONDS = 10.0
+
+
+def _reset_candidates_cache() -> None:
+    """Test hook. Drop the cached glob+first-line index."""
+    _candidates_cache.clear()
+
+
+def _load_candidates(root: Path, pattern: str) -> list[tuple[float, Path, str]]:
+    """Return a cached list of ``(mtime, path, first_line_lower)`` tuples
+    for every file under ``root`` matching ``pattern``.
+
+    First call for a (root, pattern) pair does the real filesystem work
+    (glob, stat, open + readline per file). Subsequent calls within the
+    TTL return the cached list. Sorted freshest-first so callers can
+    stop at the first match.
+    """
+    import time as _time
+    now = _time.monotonic()
+    key = (str(root), pattern)
+    entry = _candidates_cache.get(key)
+    if entry is not None and entry[0] > now:
+        return entry[1]
+
+    candidates: list[tuple[float, Path, str]] = []
+    try:
+        for p in root.glob(pattern):
+            try:
+                stat = p.stat()
+                with open(p, "rb") as f:
+                    raw = f.readline(4096)
+            except OSError:
+                continue
+            try:
+                first_line = raw.decode("utf-8", errors="replace").lower()
+            except Exception:
+                first_line = ""
+            candidates.append((stat.st_mtime, p, first_line))
+            if len(candidates) >= _MAX_GLOB_FILES:
+                break
+    except OSError:
+        candidates = []
+
+    candidates.sort(key=lambda t: t[0], reverse=True)
+    _candidates_cache[key] = (now + _CANDIDATES_TTL_SECONDS, candidates)
+    return candidates
+
+
+def _first_line_matches_needle(first_line_lower: str, needle_lower: str) -> bool:
+    """In-memory equivalent of :func:`_jsonl_strict_match` that takes an
+    already-loaded first line instead of re-opening the file. Must stay
+    in lockstep with the strict match patterns below.
+    """
+    needle = needle_lower.strip()
+    if not needle or not first_line_lower:
+        return False
+    register_patterns = (
+        f'"name": "{needle}"',
+        f'"name":"{needle}"',
+        f'\\"name\\": \\"{needle}\\"',
+        f'\\"name\\":\\"{needle}\\"',
+    )
+    endpoint_patterns = (
+        f"/agents/{needle}/complete",
+        f"/agents/{needle}/register",
+        f"/api/agents/{needle}/",
+    )
+    intro_patterns = (
+        f'you are "{needle}"',
+        f'you are \\"{needle}\\"',
+        f"you are '{needle}'",
+        f"you are the {needle} agent",
+        f"agent: {needle}",
+    )
+    if any(p in first_line_lower for p in register_patterns):
+        return True
+    if any(p in first_line_lower for p in endpoint_patterns):
+        return True
+    if any(p in first_line_lower for p in intro_patterns):
+        return True
+    return False
+
+
 def _find_freshest_matching_jsonl(
     root: Path,
     needle_lower: str,
@@ -466,28 +638,12 @@ def _find_freshest_matching_jsonl(
 
     Strict match only. Agent transcripts frequently mention other
     agent names as examples or inside tool results, so a loose
-    substring match returns a confident-but-wrong file. We scan all
-    candidate files (bounded by ``_MAX_GLOB_FILES`` to keep
-    pathological dirs safe) and return the freshest that actually
-    targets this agent name in its initial spawn prompt.
+    substring match returns a confident-but-wrong file. Uses the
+    shared ``_load_candidates`` cache so one glob sweep serves every
+    agent row in the request.
     """
-    try:
-        candidates: list[tuple[float, Path]] = []
-        for p in root.glob(pattern):
-            try:
-                candidates.append((p.stat().st_mtime, p))
-            except OSError:
-                continue
-            if len(candidates) >= _MAX_GLOB_FILES:
-                break
-    except OSError:
-        return None
-
-    # Sort by mtime desc so the freshest strict match wins.
-    candidates.sort(key=lambda t: t[0], reverse=True)
-
-    for _mtime, path in candidates:
-        if _jsonl_strict_match(path, needle_lower):
+    for _mtime, path, first_line_lower in _load_candidates(root, pattern):
+        if _first_line_matches_needle(first_line_lower, needle_lower):
             return path
     return None
 
@@ -624,25 +780,45 @@ def _autodiscover_recent_transcript_path(max_age_seconds: int = 300) -> Optional
     return str(best_path) if best_path else None
 
 
+# path -> (size, mtime_ns, metrics). Keyed on resolved transcript path so
+# that a finished agent whose file is static (the vast majority) hits cache
+# instead of forcing a full line-count scan on every /api/agents request.
+# Without this cache, 142 transcripts * ~12ms per sync read pinned the
+# Agents list endpoint at 1.7s and starved the uvicorn event loop of other
+# requests while it was reading.
+_transcript_metrics_cache: dict[Path, tuple[int, int, dict]] = {}
+
+
 def _get_transcript_metrics(name: str) -> dict:
     """Get activity metrics from an agent's transcript file.
 
     Looks at every transcript source the resolver knows about, so
     Claude Code subagents (which write JSONL, not markdown) report
-    real byte and line counts on the Agents page.
+    real byte and line counts on the Agents page. Cached per file by
+    (size, mtime_ns) so unchanged transcripts skip the full re-read.
     """
     source = _resolve_transcript_source(name)
     if source is None:
         return {"transcript_bytes": 0, "transcript_lines": 0}
     try:
-        size = source.stat().st_size
-        lines = 0
+        stat = source.stat()
+    except OSError:
+        return {"transcript_bytes": 0, "transcript_lines": 0}
+    size = stat.st_size
+    mtime_ns = stat.st_mtime_ns
+    cached = _transcript_metrics_cache.get(source)
+    if cached is not None and cached[0] == size and cached[1] == mtime_ns:
+        return cached[2]
+    lines = 0
+    try:
         with open(source, "rb") as f:
             for _ in f:
                 lines += 1
-        return {"transcript_bytes": size, "transcript_lines": lines}
     except OSError:
         return {"transcript_bytes": 0, "transcript_lines": 0}
+    metrics = {"transcript_bytes": size, "transcript_lines": lines}
+    _transcript_metrics_cache[source] = (size, mtime_ns, metrics)
+    return metrics
 
 
 def _format_jsonl_transcript(jsonl_path: Path) -> str:
@@ -1000,6 +1176,11 @@ async def list_agents():
         age_seconds = (now_for_sweep - last_seen).total_seconds()
         if age_seconds <= STALE_AGENT_TIMEOUT_SECONDS:
             continue
+        # Needle 300: proc is ground truth. If the subprocess is still
+        # running, the agent is working even if its HTTP channel has
+        # been quiet past the timeout. Only the death signal matters.
+        if _proc_handle_is_alive(name):
+            continue
         terminated_at = now_for_sweep.isoformat()
         reason = (
             f"No heartbeat for {int(age_seconds)}s "
@@ -1097,6 +1278,40 @@ async def spawn_agent(body: AgentSpawn):
         prompt_with_memory = mailbox_block + "\n\n---\n\n" + prompt_with_memory
     else:
         prompt_with_memory = mailbox_block
+
+    # Append quality gate instructions from the matching Agentfile.
+    # When the caller passes an explicit template name (e.g. template="saa"),
+    # resolve by template and inject the FULL template envelope: PROMPT,
+    # TOOL list, LIMIT lines, and AC gates. Otherwise fall back to the
+    # legacy name-based lookup that only injects quality gates. See
+    # needle 295 for the Tasks page "Implement with saa" flow.
+    from services.agentfile_parser import (
+        build_quality_gate_instructions,
+        build_template_instructions,
+        get_agent_config,
+        get_agent_config_by_template,
+        list_available_templates,
+    )
+    if body.template:
+        template_config = get_agent_config_by_template(body.template)
+        if template_config is None:
+            available = list_available_templates()
+            available_str = ", ".join(available) if available else "none found"
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Unknown saa template: '{body.template}'. "
+                    f"Available templates: {available_str}."
+                ),
+            )
+        template_instructions = build_template_instructions(template_config)
+        if template_instructions:
+            prompt_with_memory = prompt_with_memory + "\n\n---\n\n" + template_instructions
+    else:
+        agent_config = get_agent_config(body.name)
+        quality_instructions = build_quality_gate_instructions(agent_config)
+        if quality_instructions:
+            prompt_with_memory = prompt_with_memory + "\n\n---\n\n" + quality_instructions
 
     cmd = [
         CLAUDE_BIN, "--print",
@@ -1332,6 +1547,35 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             "result": f"Agent '{name}' already {terminal_status}, complete ignored",
             "status": terminal_status,
         }
+
+    # Run quality gate checks from the matching Agentfile
+    from services.agentfile_parser import get_agent_config
+    agent_config = get_agent_config(name)
+    if agent_config.acceptance_criteria:
+        import subprocess
+        from config import PROJECT_ROOT
+        gate_failures: list[str] = []
+        for ac_cmd in agent_config.acceptance_criteria:
+            try:
+                result = subprocess.run(
+                    ac_cmd, shell=True, capture_output=True, text=True,
+                    cwd=str(PROJECT_ROOT), timeout=60,
+                )
+                if result.returncode != 0:
+                    gate_failures.append(
+                        f"AC failed: `{ac_cmd}` (exit {result.returncode})"
+                    )
+            except subprocess.TimeoutExpired:
+                gate_failures.append(f"AC timed out: `{ac_cmd}`")
+            except Exception as e:
+                gate_failures.append(f"AC error: `{ac_cmd}` ({e})")
+
+        if gate_failures:
+            # Record the failure but still allow completion
+            # (the agent already did the work, blocking helps nobody)
+            if name in agent_metadata:
+                agent_metadata[name]["gate_results"] = gate_failures
+                _save_agent_state()
 
     # Save session summary to memory if provided
     if body and body.summary:
@@ -1810,9 +2054,31 @@ async def post_agent_reply(name: str, body: AgentNudgeReply):
         nudge_replies[name] = []
     nudge_replies[name].append(reply_data)
 
+    # Needle 300: a live /reply is proof the agent is alive and working.
+    # Refresh last_heartbeat_at so the sweep cannot mark an actively
+    # chatting agent as terminated_stale. If the record was already
+    # marked terminated_stale (false positive from an earlier sweep),
+    # flip it back to completed. The reply itself proves the agent did
+    # its work, even if it was a final sign off.
+    meta = agent_metadata.get(name)
+    revived = False
+    if meta is not None:
+        now_iso = _now_iso()
+        meta["last_heartbeat_at"] = now_iso
+        if meta.get("status") == "terminated_stale":
+            meta["status"] = "completed"
+            meta["completed_at"] = now_iso
+            meta["revival_reason"] = (
+                "Reply arrived after the record was marked terminated_stale. "
+                "The agent was still working. Record restored to completed."
+            )
+            revived = True
+        _save_agent_state()
+
     return {
         "result": f"Reply recorded for '{name}'",
         "reply": reply_data,
+        "revived": revived,
     }
 
 
@@ -1828,11 +2094,28 @@ async def list_agent_nudges(name: str):
       can deduplicate.
     * ``replies``: file-based replies the agent has posted via /reply.
     * ``session_replies``: in-memory replies from the current session.
+
+    Needle 300: every mailbox poll also refreshes ``last_heartbeat_at``
+    for the agent. The spawn contract tells every subagent to poll
+    this endpoint every sixty seconds, so an agent that is following
+    the contract literally cannot fall silent unless it is actually
+    dead. The sweep thresholds become a backstop, not the front line.
     """
     file_nudges = await ostk.list_nudges(name)
     session_nudges = nudge_history.get(name, [])
     file_replies = await ostk.list_nudge_replies(name)
     session_replies = nudge_replies.get(name, [])
+
+    # Count this poll as a heartbeat if the agent is registered. We
+    # only touch running records so we do not bounce a completed or
+    # cancelled agent back into running by accident. Save is best
+    # effort: if atomic_write_json raises, we still return the nudge
+    # list so the mailbox loop does not die.
+    meta = agent_metadata.get(name)
+    if meta is not None and meta.get("status") == "running":
+        meta["last_heartbeat_at"] = _now_iso()
+        _save_agent_state()
+
     return {
         "agent": name,
         "nudges": file_nudges,
@@ -1858,15 +2141,38 @@ async def delegation_suggestions(needle_id: Optional[str] = None):
 
 @router.get("/agents/templates")
 async def list_templates():
+    """List every Agentfile in the repo with parsed capabilities.
+
+    Each entry carries a ``capabilities`` field so the Agents page can
+    show writes, restrictions, budget, time limit, and sandbox in plain
+    language before the user hits Spawn. If an Agentfile fails to
+    parse, the entry still appears with ``parse_error`` set, so the UI
+    can mark the card unspawnable and tell the user to fix the file.
+    """
+    from services.agentfile_parser import (
+        build_capabilities_summary,
+        parse_agentfile,
+        AgentfileParseError,
+    )
+
     templates = []
     if AGENTS_DIR.exists():
-        for f in AGENTS_DIR.glob("*.agent"):
+        for f in sorted(AGENTS_DIR.glob("*.agent")):
             content = f.read_text()
-            templates.append({
+            entry: dict = {
                 "name": f.stem,
                 "file": f.name,
                 "content": content[:500],
-            })
+                "capabilities": None,
+                "parse_error": None,
+            }
+            try:
+                config = parse_agentfile(f)
+                entry["capabilities"] = build_capabilities_summary(config)
+                entry["description"] = config.description or ""
+            except AgentfileParseError as exc:
+                entry["parse_error"] = str(exc)
+            templates.append(entry)
     return {"templates": templates}
 
 
@@ -1923,7 +2229,7 @@ async def list_grants(status: str = "pending"):
 
     Normalizes the ostk shape (agent_alias/request_type/timestamp) to the
     friendlier names the frontend expects (agent/type/requested_at). Also
-    filters out grants from "unknown" agents — those are almost always
+    filters out grants from "unknown" agents, those are almost always
     stale secret-lookup stubs from a missing key, not real agent requests.
     """
     try:
@@ -1996,8 +2302,15 @@ async def agent_stream(websocket: WebSocket, name: str):
             })
             if name in active_agents:
                 del active_agents[name]
-        except (WebSocketDisconnect, Exception):
+        except WebSocketDisconnect:
+            # Normal client-side disconnect. Not an error.
             pass
+        except Exception:
+            # Unexpected failures must be visible in server logs,
+            # otherwise silent WebSocket deaths hide real bugs
+            # (JSON encode errors, send_json on a closed socket,
+            # subprocess read failures). Leave the stack trace.
+            logger.exception("agent attach read_stdout failed for %s", name)
 
     async def read_client():
         """Read messages from the WebSocket client and forward to agent."""
@@ -2043,8 +2356,10 @@ async def agent_stream(websocket: WebSocket, name: str):
                         "type": "nudge_ack",
                         "data": record,
                     })
-        except (WebSocketDisconnect, Exception):
+        except WebSocketDisconnect:
             pass
+        except Exception:
+            logger.exception("agent attach read_client failed for %s", name)
 
     # Run both tasks concurrently
     stdout_task = asyncio.create_task(read_stdout())
@@ -2057,6 +2372,7 @@ async def agent_stream(websocket: WebSocket, name: str):
         for task in pending:
             task.cancel()
     except Exception:
+        logger.exception("agent attach task wait failed for %s", name)
         stdout_task.cancel()
         client_task.cancel()
 
@@ -2085,8 +2401,16 @@ async def agent_attach_stream(websocket: WebSocket, name: str):
         return
 
     # Locate the ostk binary. Prefer the PATH lookup so tests can
-    # substitute a mock, but fall back to the well-known install path.
-    ostk_bin = shutil.which("ostk") or "/Users/torimeyer/.local/bin/ostk"
+    # substitute a mock, fall back to the MYOS_OSTK_BIN env override,
+    # then the canonical per-user install path under ~/.local/bin.
+    # Never hardcode a literal username. The binary has to exist or
+    # the subprocess spawn below will fail fast with a clear error.
+    import os
+    ostk_bin = (
+        shutil.which("ostk")
+        or os.environ.get("MYOS_OSTK_BIN")
+        or str(Path.home() / ".local" / "bin" / "ostk")
+    )
 
     proc: Optional[asyncio.subprocess.Process] = None
     try:
@@ -2109,16 +2433,20 @@ async def agent_attach_stream(websocket: WebSocket, name: str):
                     "type": "done",
                     "return_code": return_code,
                 })
-            except (WebSocketDisconnect, Exception):
+            except WebSocketDisconnect:
                 pass
+            except Exception:
+                logger.exception("agent stream _stream_output failed for %s", name)
 
         async def _read_client():
             """Keep reading from the client so we detect disconnects."""
             try:
                 while True:
                     await websocket.receive_text()
-            except (WebSocketDisconnect, Exception):
+            except WebSocketDisconnect:
                 pass
+            except Exception:
+                logger.exception("agent stream _read_client failed for %s", name)
 
         output_task = asyncio.create_task(_stream_output())
         client_read_task = asyncio.create_task(_read_client())
@@ -2130,6 +2458,7 @@ async def agent_attach_stream(websocket: WebSocket, name: str):
             for task in _pending:
                 task.cancel()
         except Exception:
+            logger.exception("agent stream task wait failed for %s", name)
             output_task.cancel()
             client_read_task.cancel()
     finally:

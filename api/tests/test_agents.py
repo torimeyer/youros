@@ -30,6 +30,29 @@ from main import app
 from services.ostk import OstkService, OstkError, OSTK_DIR
 
 
+@pytest.fixture(autouse=True)
+def _reset_transcript_caches():
+    """Drop the transcript resolver cache before every test.
+
+    The list_agents endpoint memoizes transcript path resolution across
+    requests for performance (see feedback_deferred_tool_load and needle
+    275), but tests reuse agent names across fresh tmp_paths and must
+    see a cold resolver each time.
+    """
+    from routers.agents import (
+        _reset_transcript_resolver_cache,
+        _reset_candidates_cache,
+        _transcript_metrics_cache,
+    )
+    _reset_transcript_resolver_cache()
+    _reset_candidates_cache()
+    _transcript_metrics_cache.clear()
+    yield
+    _reset_transcript_resolver_cache()
+    _reset_candidates_cache()
+    _transcript_metrics_cache.clear()
+
+
 @pytest.fixture
 def audit_dir(tmp_path):
     """Create a temporary .ostk directory with an audit log."""
@@ -1078,6 +1101,85 @@ def test_transcript_metrics_empty_file(tmp_path):
     assert metrics["transcript_lines"] == 0
 
 
+def test_resolve_transcript_source_is_cached(tmp_path):
+    """Regression for needle 275 (pages load slowly).
+
+    Before the fix, `_resolve_transcript_source` walked filesystem globs
+    and opened candidate files on every call. With ~140 agent rows that
+    pinned GET /api/agents at ~1.7 seconds per request and froze the
+    uvicorn event loop for every other endpoint while it ran. The
+    resolver now memoizes per agent name for a short TTL so back to back
+    calls only do the filesystem work once.
+    """
+    import routers.agents as agents_module
+    from routers.agents import (
+        _resolve_transcript_source,
+        _reset_transcript_resolver_cache,
+    )
+
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir()
+    (transcripts_dir / "slow-agent.md").write_text("hello\n")
+
+    call_count = {"n": 0}
+    real_uncached = agents_module._resolve_transcript_source_uncached
+
+    def counting(name):
+        call_count["n"] += 1
+        return real_uncached(name)
+
+    _reset_transcript_resolver_cache()
+    with patch("config.PROJECT_ROOT", tmp_path), patch.object(
+        agents_module,
+        "_resolve_transcript_source_uncached",
+        side_effect=counting,
+    ):
+        first = _resolve_transcript_source("slow-agent")
+        second = _resolve_transcript_source("slow-agent")
+        third = _resolve_transcript_source("slow-agent")
+
+    assert first == second == third
+    # Exactly one uncached resolution even though we called the public
+    # API three times. If anyone rips the cache out this assert goes
+    # from 1 to 3.
+    assert call_count["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_list_agents_warm_cache_is_fast():
+    """Regression for needle 275 (pages load slowly).
+
+    The first /api/agents call is allowed to be slow (cold filesystem
+    scan). Every subsequent call within the resolver TTL must be at
+    least 10x faster, proving the cache is actually serving hits.
+    Without the resolver cache, back-to-back calls on a real workspace
+    with ~140 agent rows both took ~1.7 seconds and starved the event
+    loop of other requests.
+    """
+    import time
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        t = time.perf_counter()
+        resp_cold = await client.get("/api/agents")
+        cold_s = time.perf_counter() - t
+        assert resp_cold.status_code == 200
+
+        t = time.perf_counter()
+        resp_warm = await client.get("/api/agents")
+        warm_s = time.perf_counter() - t
+        assert resp_warm.status_code == 200
+
+    # Warm must be meaningfully faster than cold AND under a hard budget.
+    # The hard budget catches regressions even on tiny test workspaces
+    # where cold is already fast enough that a ratio check would pass.
+    assert warm_s < 0.3, f"warm /api/agents took {warm_s*1000:.0f}ms, budget 300ms"
+    if cold_s > 0.1:
+        assert warm_s * 5 < cold_s, (
+            f"warm {warm_s*1000:.0f}ms must be at least 5x faster "
+            f"than cold {cold_s*1000:.0f}ms"
+        )
+
+
 @pytest.mark.asyncio
 async def test_list_agents_includes_transcript_metrics():
     """The /api/agents response should include transcript_bytes and transcript_lines."""
@@ -2064,7 +2166,7 @@ def _build_jsonl_session(name: str) -> str:
     prompt_content = (
         "You are a myOS agent. Your FIRST action before any work: "
         "POST to http://localhost:8000/agents/register with body "
-        f'{{"name": "{name}", "status": "running"}} — fire and forget.\n\n'
+        f'{{"name": "{name}", "status": "running"}} (fire and forget).\n\n'
         "Do the work."
     )
     lines = [
@@ -3233,3 +3335,614 @@ async def test_list_agents_sweeps_running_record_with_no_heartbeat():
         assert agent_metadata[agent_name]["status"] == "terminated_stale"
     finally:
         agent_metadata.pop(agent_name, None)
+
+
+# ─── /api/agents/templates capability surface ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_templates_route_returns_capabilities(tmp_path, monkeypatch):
+    """Every template entry carries a parsed capabilities block.
+
+    The Agents page relies on this shape to render the "Capabilities"
+    panel. A regression here would silently blank the panel, which is
+    why we pin it down in a dedicated test.
+    """
+    from routers import agents as agents_module
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "demo.agent").write_text(
+        'FROM auto\n'
+        'PROMPT "hi"\n'
+        'DESC "Demo template"\n'
+        'PIN write: src/\n'
+        'PIN deny: .env\n'
+        'LIMIT budget_usd 5\n'
+        'LIMIT wall_clock 30m\n'
+        'ISOLATION docker\n'
+    )
+
+    monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/agents/templates")
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    names = [t["name"] for t in data["templates"]]
+    assert "demo" in names
+
+    demo = next(t for t in data["templates"] if t["name"] == "demo")
+    assert demo["parse_error"] is None
+    caps = demo["capabilities"]
+    assert caps is not None
+    assert caps["writes_to"] == "src/"
+    assert caps["cannot_touch"] == ".env"
+    assert caps["budget"] == "$5"
+    assert caps["time_limit"] == "30 minutes"
+    assert caps["sandbox"] == "docker container"
+    assert demo["description"] == "Demo template"
+
+
+@pytest.mark.asyncio
+async def test_templates_route_surfaces_parse_errors(tmp_path, monkeypatch):
+    """A malformed .agent file appears with parse_error set.
+
+    This lets the UI disable Spawn on a broken template without
+    hiding the card entirely, so the user can see which file is bad.
+    """
+    from routers import agents as agents_module
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "broken.agent").write_text(
+        'FROM auto\nPROMPT "x"\nISOLATION spaceship\n'
+    )
+
+    monkeypatch.setattr(agents_module, "AGENTS_DIR", agents_dir)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/agents/templates")
+
+    assert resp.status_code == 200, resp.text
+    broken = next(t for t in resp.json()["templates"] if t["name"] == "broken")
+    assert broken["capabilities"] is None
+    assert broken["parse_error"] is not None
+    assert "ISOLATION" in broken["parse_error"]
+
+
+# ── Needle 295: Tasks page Comprehensive build and Quick build ─────────
+#
+# The Tasks page "Comprehensive build" button posts
+# template="comprehensive" to /agents/spawn. The backend must resolve
+# the Agentfile by template name (not by agent name), prepend its
+# PROMPT, AC gates, TOOL list, and LIMIT lines to the stdin the claude
+# subprocess receives, and return a clean 400 with a plain-language
+# error when the template is unknown. Tori's muscle-memory "saa" alias
+# must resolve to the same template so old scripts keep working. These
+# tests mock asyncio.create_subprocess_exec so no real claude process
+# is launched.
+
+
+class _CaptureStdin:
+    """Async-style stdin that records every write for inspection.
+
+    The spawn_agent endpoint calls write/drain/close on proc.stdin. We
+    capture the bytes so the test can decode and assert against the
+    actual prompt that would have reached the claude subprocess.
+    """
+
+    def __init__(self):
+        self.written = bytearray()
+        self.closed = False
+
+    def write(self, data: bytes) -> None:
+        self.written.extend(data)
+
+    async def drain(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeProc:
+    """Minimal stand-in for the process object returned by create_subprocess_exec."""
+
+    def __init__(self):
+        self.pid = 424242
+        self.stdin = _CaptureStdin()
+
+
+def _patch_build_templates(monkeypatch, agents_dir: Path) -> None:
+    """Point the agentfile parser at a fixture agents_dir.
+
+    Writes a comprehensive.agent with the full plan, build, test,
+    verify pattern and a saa.agent that is just ``ALIAS comprehensive``.
+    This mirrors the real on-disk layout so tests exercise both
+    direct resolution and alias resolution without depending on repo
+    state. We also patch the module-level AGENTS_DIR used by
+    get_agent_config_by_template, list_available_templates, and
+    find_agentfile so every lookup path sees the fixture.
+    """
+    agents_dir.mkdir(exist_ok=True)
+    (agents_dir / "comprehensive.agent").write_text(
+        'FROM auto\n'
+        'PROMPT "You are a myOS comprehensive build agent. Follow this pattern strictly: '
+        '(1) Read the task and plan your approach. (2) Build the solution. '
+        '(3) Write tests and run them. (4) Verify everything passes before '
+        'marking complete. Report progress in plain language."\n'
+        'TOOL shell\n'
+        'TOOL file:read\n'
+        'TOOL file:write\n'
+        'LIMIT tokens 200000\n'
+        'LIMIT test_coverage 80\n'
+        'AC python3 -m pytest api/tests/ -x -q\n'
+        'AC cd app && npx tsc -b\n'
+        'REVIEW performance,security\n'
+        'STANDARDS .standards.md\n'
+        'BOOT ostk boot\n'
+        'PIN default\n'
+    )
+    (agents_dir / "saa.agent").write_text('ALIAS comprehensive\n')
+    from services import agentfile_parser
+    monkeypatch.setattr(agentfile_parser, "AGENTS_DIR", agents_dir)
+
+
+def _assert_has_full_envelope(decoded: str) -> None:
+    """Shared helper: every comprehensive build spawn must include the
+    PROMPT, TOOL list, LIMIT lines, and AC gates."""
+    # The PROMPT must be present so the agent sees plan, build,
+    # test, verify.
+    assert "Follow this pattern strictly" in decoded
+    assert "plan your approach" in decoded
+    assert "Build the solution" in decoded
+
+    # TOOL list must appear.
+    assert "shell" in decoded
+    assert "file:read" in decoded
+    assert "file:write" in decoded
+
+    # LIMIT lines must appear in plain language.
+    assert "200000" in decoded  # tokens
+    assert "80%" in decoded  # test coverage
+
+    # AC gates must appear verbatim so the agent knows what to run.
+    assert "python3 -m pytest api/tests/ -x -q" in decoded
+    assert "cd app && npx tsc -b" in decoded
+
+
+@pytest.mark.asyncio
+async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path, monkeypatch):
+    """POST /agents/spawn with template='comprehensive' prepends the
+    PROMPT, AC gates, TOOL list, and LIMIT lines to the stdin the
+    claude subprocess receives."""
+    _patch_build_templates(monkeypatch, tmp_path / "agents")
+
+    fake_proc = _FakeProc()
+
+    async def _returner(*args, **kwargs):
+        return fake_proc
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_returner):
+        with patch("routers.agents.ostk._run", new_callable=AsyncMock):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/agents/spawn",
+                    json={
+                        "name": "implement-comp-1",
+                        "prompt": "Implement this task: 'Fix login bug'.",
+                        "model": "sonnet",
+                        "budget": 2.0,
+                        "template": "comprehensive",
+                    },
+                )
+
+    assert resp.status_code == 200, resp.text
+    assert fake_proc.stdin.closed is True
+    decoded = fake_proc.stdin.written.decode()
+    _assert_has_full_envelope(decoded)
+    # The user-supplied prompt must still be there.
+    assert "Fix login bug" in decoded
+
+
+@pytest.mark.asyncio
+async def test_spawn_with_template_saa_alias_resolves_to_comprehensive(tmp_path, monkeypatch):
+    """Tori's muscle memory template name 'saa' must resolve to the
+    comprehensive.agent file via the built-in alias map plus the
+    ALIAS directive in saa.agent. The spawned agent should see the
+    exact same envelope as template='comprehensive'."""
+    _patch_build_templates(monkeypatch, tmp_path / "agents")
+
+    fake_proc = _FakeProc()
+
+    async def _returner(*args, **kwargs):
+        return fake_proc
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_returner):
+        with patch("routers.agents.ostk._run", new_callable=AsyncMock):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/agents/spawn",
+                    json={
+                        "name": "implement-saa-1",
+                        "prompt": "Implement this task: 'Fix auth bug'.",
+                        "model": "sonnet",
+                        "budget": 2.0,
+                        "template": "saa",
+                    },
+                )
+
+    assert resp.status_code == 200, resp.text
+    decoded = fake_proc.stdin.written.decode()
+    _assert_has_full_envelope(decoded)
+    assert "Fix auth bug" in decoded
+
+
+@pytest.mark.asyncio
+async def test_spawn_without_template_does_not_inject_template_envelope(tmp_path, monkeypatch):
+    """POST /agents/spawn with no template field must NOT inject the
+    comprehensive build PROMPT envelope. Legacy Quick build relies on
+    this so a fast draft posts a bare prompt without gates."""
+    _patch_build_templates(monkeypatch, tmp_path / "agents")
+
+    fake_proc = _FakeProc()
+
+    async def _returner(*args, **kwargs):
+        return fake_proc
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_returner):
+        with patch("routers.agents.ostk._run", new_callable=AsyncMock):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/agents/spawn",
+                    json={
+                        "name": "implement-quick-1",
+                        "prompt": "Implement this task: 'Fix legacy bug'.",
+                        "model": "sonnet",
+                        "budget": 2.0,
+                    },
+                )
+
+    assert resp.status_code == 200, resp.text
+    decoded = fake_proc.stdin.written.decode()
+
+    # User prompt is still delivered.
+    assert "Fix legacy bug" in decoded
+
+    # The PROMPT envelope must NOT be injected for a nameless quick
+    # spawn. This is how we tell template-based spawning apart from
+    # name-based spawning.
+    assert "Follow this pattern strictly" not in decoded
+    assert "### Tools you can use" not in decoded
+    assert "### Limits" not in decoded
+
+
+@pytest.mark.asyncio
+async def test_spawn_with_unknown_template_returns_plain_language_400(tmp_path, monkeypatch):
+    """POST /agents/spawn with an unknown template returns HTTP 400
+    with a plain-language error listing the available templates. No
+    500, no bare traceback."""
+    _patch_build_templates(monkeypatch, tmp_path / "agents")
+
+    async def _returner(*args, **kwargs):
+        return _FakeProc()
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_returner):
+        with patch("routers.agents.ostk._run", new_callable=AsyncMock):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/agents/spawn",
+                    json={
+                        "name": "implement-ghost-1",
+                        "prompt": "Do a thing.",
+                        "model": "sonnet",
+                        "budget": 2.0,
+                        "template": "doesnotexist",
+                    },
+                )
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert "doesnotexist" in detail
+    assert "Available templates" in detail
+    # Both the canonical name and the alias should appear in the
+    # list so Tori can pick either.
+    assert "comprehensive" in detail
+    assert "saa" in detail
+
+
+# ── Stale sweep safety (needle 300) ─────────────────────────────────
+#
+# Root cause: the stale sweep kept marking actively-working agents as
+# terminated_stale whenever they went quiet on the HTTP channel for a
+# few minutes during a long step like pytest or tsc. Tori hit this
+# three times in a single day. The fix is belt and suspenders:
+# (1) bump the timeout to 15 minutes, (2) count GET /nudges polls and
+# POST /reply as heartbeats so any agent following the mailbox
+# contract literally cannot look stale, (3) never terminate a record
+# whose proc handle is still alive, and (4) revive a terminated_stale
+# record to completed if a final /reply lands on it.
+# ---------------------------------------------------------------------
+
+
+class _FakeLiveProc:
+    """Minimal stand-in for an asyncio subprocess with a live handle.
+
+    ``returncode is None`` means the process is still running. The
+    sweep uses this as ground truth.
+    """
+
+    returncode = None
+
+
+@pytest.mark.asyncio
+async def test_sweep_skips_agents_with_live_proc_handle(tmp_path):
+    """A running agent with a stale heartbeat but a live proc handle
+    must NOT be marked terminated_stale. The subprocess is still
+    running, which is the only death signal that matters."""
+    from routers.agents import (
+        agent_metadata,
+        active_agents,
+        STALE_AGENT_TIMEOUT_SECONDS,
+    )
+
+    old_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 600)
+    ).isoformat()
+    agent_metadata["live-proc-agent"] = {
+        "spawned_at": old_ts,
+        "last_heartbeat_at": old_ts,
+        "source": "api",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+    active_agents["live-proc-agent"] = _FakeLiveProc()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert names["live-proc-agent"]["status"] == "running"
+                assert agent_metadata["live-proc-agent"]["status"] == "running"
+        finally:
+            agent_metadata.pop("live-proc-agent", None)
+            active_agents.pop("live-proc-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_nudges_poll_refreshes_heartbeat(tmp_path):
+    """GET /api/agents/{name}/nudges must refresh last_heartbeat_at on
+    the registered record. Without this, an agent that polls the
+    mailbox loyally every sixty seconds still looks stale to the sweep
+    because /register and /heartbeat are the only refresh sites the
+    old code touched."""
+    from routers.agents import agent_metadata
+
+    old_ts = (
+        datetime.now(timezone.utc) - timedelta(seconds=240)
+    ).isoformat()
+    agent_metadata["mailbox-poller"] = {
+        "spawned_at": old_ts,
+        "last_heartbeat_at": old_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk.list_nudges = AsyncMock(return_value=[])
+                mock_ostk.list_nudge_replies = AsyncMock(return_value=[])
+                resp = await client.get("/api/agents/mailbox-poller/nudges")
+                assert resp.status_code == 200
+                refreshed = agent_metadata["mailbox-poller"]["last_heartbeat_at"]
+                assert refreshed != old_ts, (
+                    "mailbox poll should have refreshed last_heartbeat_at"
+                )
+        finally:
+            agent_metadata.pop("mailbox-poller", None)
+
+
+@pytest.mark.asyncio
+async def test_nudges_poll_does_not_touch_terminal_records(tmp_path):
+    """GET /api/agents/{name}/nudges must only refresh heartbeats for
+    records whose status is running. A completed or cancelled record
+    must not be bounced back into the running cohort by a stray poll
+    from a wrapper that did not shut down cleanly."""
+    from routers.agents import agent_metadata
+
+    old_ts = "2026-04-01T00:00:00+00:00"
+    agent_metadata["wrapped-up"] = {
+        "spawned_at": old_ts,
+        "last_heartbeat_at": old_ts,
+        "source": "claude-code",
+        "status": "completed",
+        "completed_at": old_ts,
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk.list_nudges = AsyncMock(return_value=[])
+                mock_ostk.list_nudge_replies = AsyncMock(return_value=[])
+                resp = await client.get("/api/agents/wrapped-up/nudges")
+                assert resp.status_code == 200
+                assert agent_metadata["wrapped-up"]["last_heartbeat_at"] == old_ts
+                assert agent_metadata["wrapped-up"]["status"] == "completed"
+        finally:
+            agent_metadata.pop("wrapped-up", None)
+
+
+@pytest.mark.asyncio
+async def test_sweep_marks_stale_when_no_proc_and_no_polls(tmp_path):
+    """Regression guard: an agent with an old heartbeat, no proc handle,
+    and no /nudges polls must still be marked terminated_stale. This is
+    the real crash path the sweep is supposed to catch."""
+    from routers.agents import (
+        agent_metadata,
+        active_agents,
+        STALE_AGENT_TIMEOUT_SECONDS,
+    )
+
+    # Ensure no stray proc handle from another test.
+    active_agents.pop("truly-dead-agent", None)
+
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)
+    ).isoformat()
+    agent_metadata["truly-dead-agent"] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert names["truly-dead-agent"]["status"] == "terminated_stale"
+                assert agent_metadata["truly-dead-agent"]["status"] == "terminated_stale"
+        finally:
+            agent_metadata.pop("truly-dead-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_reply_revives_terminated_stale_record(tmp_path):
+    """If a final /reply arrives on a record that was already marked
+    terminated_stale by a false-positive sweep, flip the status back to
+    completed. The reply is proof the agent was still working when the
+    sweeper bit it."""
+    from routers.agents import agent_metadata
+
+    agent_metadata["falsely-swept"] = {
+        "spawned_at": "2026-04-08T00:00:00+00:00",
+        "last_heartbeat_at": "2026-04-08T00:00:00+00:00",
+        "source": "claude-code",
+        "status": "terminated_stale",
+        "terminated_at": "2026-04-08T00:15:00+00:00",
+        "terminated_reason": "No heartbeat for 900s (limit 900s)",
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk.append_nudge_reply = AsyncMock(return_value={
+                    "agent": "falsely-swept",
+                    "message": "done after all",
+                    "timestamp": "2026-04-08T00:16:00+00:00",
+                    "source": "agent",
+                    "in_reply_to": None,
+                })
+                resp = await client.post(
+                    "/api/agents/falsely-swept/reply",
+                    json={"message": "done after all"},
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["revived"] is True
+                assert agent_metadata["falsely-swept"]["status"] == "completed"
+                assert "revival_reason" in agent_metadata["falsely-swept"]
+                assert "completed_at" in agent_metadata["falsely-swept"]
+        finally:
+            agent_metadata.pop("falsely-swept", None)
+
+
+@pytest.mark.asyncio
+async def test_reply_refreshes_heartbeat_on_running_record(tmp_path):
+    """A /reply from a still-running agent must refresh its
+    last_heartbeat_at so the next sweep does not mistakenly mark it
+    stale just because it has been quiet on the mailbox channel."""
+    from routers.agents import agent_metadata
+
+    old_ts = "2026-04-08T00:00:00+00:00"
+    agent_metadata["chatty-agent"] = {
+        "spawned_at": old_ts,
+        "last_heartbeat_at": old_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk.append_nudge_reply = AsyncMock(return_value={
+                    "agent": "chatty-agent",
+                    "message": "still working",
+                    "timestamp": "2026-04-11T12:00:00+00:00",
+                    "source": "agent",
+                    "in_reply_to": None,
+                })
+                resp = await client.post(
+                    "/api/agents/chatty-agent/reply",
+                    json={"message": "still working"},
+                )
+                assert resp.status_code == 200
+                assert resp.json()["revived"] is False
+                assert agent_metadata["chatty-agent"]["last_heartbeat_at"] != old_ts
+                assert agent_metadata["chatty-agent"]["status"] == "running"
+        finally:
+            agent_metadata.pop("chatty-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_stale_timeout_is_at_least_fifteen_minutes():
+    """The stale timeout must be at least 15 minutes so normal long
+    operations like pytest runs and tsc builds cannot be marked
+    terminated_stale just for going quiet on the HTTP channel. Locks
+    the needle 300 fix in place against a future regression where
+    someone lowers the value back to 10 minutes."""
+    from routers.agents import STALE_AGENT_TIMEOUT_SECONDS
+
+    assert STALE_AGENT_TIMEOUT_SECONDS >= 900, (
+        "STALE_AGENT_TIMEOUT_SECONDS must be at least 900 (15 minutes) "
+        "to cover pytest, tsc, and large writes that legitimately "
+        "leave the mailbox quiet. See needle 300."
+    )

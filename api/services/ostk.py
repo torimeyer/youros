@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from config import PROJECT_ROOT, OSTK_DIR as _OSTK_DIR
+from services.atomic_io import atomic_write_text
 
 PROJECT_DIR = str(PROJECT_ROOT)
 OSTK_DIR = _OSTK_DIR
@@ -18,6 +19,102 @@ NUDGES_DIR = OSTK_DIR / "nudges"
 
 class OstkError(Exception):
     pass
+
+
+# Shared parse cache for .ostk/audit.jsonl. The file is ~400 KB and grew
+# every time routers/ideas.py, routers/dashboard.py, and
+# services/briefing.py re-read it on the async event loop. Before this
+# cache, a single /api/ideas request read + parsed the file three times
+# (1.2 MB I/O + three full JSON parses) and blocked the loop each time.
+# Now every caller goes through :func:`read_audit_entries` which checks
+# the file's size + mtime_ns and returns the cached parse if the file
+# is unchanged. Callers get a shared list[dict] they must NOT mutate.
+_audit_cache: dict[str, tuple[int, int, list[dict]]] = {}
+
+
+def read_audit_entries(audit_path: Optional[Path] = None) -> list[dict]:
+    """Return the parsed list of audit.jsonl entries, caching by (size, mtime_ns).
+
+    Thread-safe enough for FastAPI's async event loop: a dict write of
+    the cache slot is a single reference assignment. The cache is keyed
+    on the string path so multiple OstkService instances pointed at the
+    same file share one parse.
+    """
+    if audit_path is None:
+        audit_path = OSTK_DIR / "audit.jsonl"
+    if not audit_path.exists():
+        return []
+    try:
+        stat = audit_path.stat()
+    except OSError:
+        return []
+    key = str(audit_path)
+    cached = _audit_cache.get(key)
+    if cached is not None and cached[0] == stat.st_size and cached[1] == stat.st_mtime_ns:
+        return cached[2]
+    try:
+        text = audit_path.read_text()
+    except OSError:
+        return []
+    entries: list[dict] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    _audit_cache[key] = (stat.st_size, stat.st_mtime_ns, entries)
+    return entries
+
+
+def invalidate_audit_cache(audit_path: Optional[Path] = None) -> None:
+    """Drop the cached parse for an audit.jsonl file. Call this right
+    after appending an entry so the next reader sees the new line.
+    """
+    if audit_path is None:
+        audit_path = OSTK_DIR / "audit.jsonl"
+    _audit_cache.pop(str(audit_path), None)
+
+
+# In-flight coalescing for expensive read-only ostk calls. When two
+# handlers ask for the same thing at the same time (for example
+# /api/tasks and /api/dashboard/summary both call ``list_tasks()``
+# during the same page load), they share ONE subprocess spawn instead
+# of each spawning their own. Only applied to read-only calls keyed on
+# (method, args). Never dedupe writes like ``add_task`` or ``close_task``
+# because they would get silently merged.
+_inflight_calls: dict[tuple, "asyncio.Future"] = {}
+
+
+async def _coalesce_call(key: tuple, coro_factory):
+    """Run ``coro_factory()`` once per ``key`` at a time. Other callers
+    that enter before the first one finishes ``await`` its Future and
+    receive the same result. Not a TTL cache: as soon as the first
+    call resolves the key is freed, so serial callers always get fresh
+    results.
+    """
+    existing = _inflight_calls.get(key)
+    if existing is not None:
+        # Another task is already running this call. Wait for its
+        # result instead of spawning a second subprocess. shield()
+        # prevents a canceled waiter from canceling the producer.
+        return await asyncio.shield(existing)
+    loop = asyncio.get_event_loop()
+    fut: asyncio.Future = loop.create_future()
+    _inflight_calls[key] = fut
+    try:
+        result = await coro_factory()
+        if not fut.done():
+            fut.set_result(result)
+        return result
+    except BaseException as exc:
+        if not fut.done():
+            fut.set_exception(exc)
+        raise
+    finally:
+        _inflight_calls.pop(key, None)
 
 
 class OstkService:
@@ -164,16 +261,27 @@ class OstkService:
             args += ["--status", status]
         if priority:
             args += ["--priority", priority]
-        raw: list[dict] = await self._run_json(*args)
-        # issues.jsonl is append-only: closing a task appends a new entry with
-        # the same id. Deduplicate by keeping only the LAST occurrence of each
-        # id so the most-recent status wins.
-        seen: dict[str, dict] = {}
-        for entry in raw:
-            task_id = entry.get("id")
-            if task_id:
-                seen[task_id] = entry
-        return list(seen.values())
+
+        # Coalesce concurrent identical reads so a single page load that
+        # hits /api/tasks + /api/dashboard/summary + /api/briefing all
+        # at the same instant shares ONE ostk subprocess spawn instead
+        # of racing three of them. Keyed on the full argv so filtered
+        # variants do not collide with unfiltered calls. Returns a
+        # defensive copy so the shared list is not accidentally
+        # mutated by one caller in a way that leaks to the others.
+        key = ("list_tasks", self.cwd, tuple(args))
+
+        async def _do_call() -> list[dict]:
+            raw: list[dict] = await self._run_json(*args)
+            seen: dict[str, dict] = {}
+            for entry in raw:
+                task_id = entry.get("id")
+                if task_id:
+                    seen[task_id] = entry
+            return list(seen.values())
+
+        shared = await _coalesce_call(key, _do_call)
+        return list(shared)
 
     async def add_task(
         self,
@@ -193,8 +301,38 @@ class OstkService:
             "--ac", acceptance,
         )
 
-    async def close_task(self, task_id: str) -> str:
-        return await self._run("work", "close", task_id)
+    async def close_task(self, task_id: str, closed_reason: Optional[str] = None) -> str:
+        """Close a task and optionally tag it with a structured reason.
+
+        ``closed_reason`` is a controlled vocabulary used by the Tasks audit
+        feature to mark why a task was closed: ``"completed"`` when the work
+        is already done, ``"duplicate"`` when another task covers it, or
+        ``"archived"`` when it is no longer relevant. When omitted the task
+        is closed as usual and no extra field is written. Values outside
+        the allowed set are rejected so callers cannot invent ad-hoc tags.
+        """
+        result = await self._run("work", "close", task_id)
+        if closed_reason is not None:
+            allowed = {"completed", "duplicate", "archived"}
+            if closed_reason not in allowed:
+                raise OstkError(
+                    f"invalid closed_reason '{closed_reason}', must be one of {sorted(allowed)}"
+                )
+            issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+            if issues_path.exists():
+                lines = issues_path.read_text().strip().splitlines()
+                updated: list[str] = []
+                for line in lines:
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        updated.append(line)
+                        continue
+                    if entry.get("id") == task_id:
+                        entry["closed_reason"] = closed_reason
+                    updated.append(json.dumps(entry, ensure_ascii=False))
+                issues_path.write_text("\n".join(updated) + "\n")
+        return result
 
     async def reopen_task(self, task_id: str) -> str:
         """Reopen a closed task by editing the JSONL file directly."""
@@ -211,6 +349,7 @@ class OstkService:
                 entry["status"] = "open"
                 entry.pop("close_reason", None)
                 entry.pop("closed_at", None)
+                entry.pop("closed_reason", None)
                 found = True
             updated.append(json.dumps(entry, ensure_ascii=False))
 
@@ -244,7 +383,7 @@ class OstkService:
 
     async def update_task_priority(self, task_id: str, priority: str) -> str:
         """Update a task's priority by editing the JSONL file directly."""
-        valid = {"P0", "P1", "P2"}
+        valid = {"P0", "P1", "P2", "P3"}
         if priority not in valid:
             raise OstkError(f"invalid priority '{priority}', must be one of {valid}")
 
@@ -581,39 +720,32 @@ class OstkService:
             "task_id": task_id,
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
-        with open(audit_path, "a") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        # Write on a worker thread so the append does not block the
+        # async event loop, then invalidate the shared parse cache so
+        # the next reader sees this entry.
+        def _append() -> None:
+            with open(audit_path, "a") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        await asyncio.to_thread(_append)
+        invalidate_audit_cache(audit_path)
 
     async def list_converted_hay(self) -> list[dict]:
         """Return hay items that have been converted into tasks.
 
         Reads audit.jsonl for hay.converted events and returns a list of
-        dicts with the straw text and the task ID they became.
+        dicts with the straw text and the task ID they became. Uses the
+        shared :func:`read_audit_entries` cache so concurrent handlers
+        do not re-parse the file on every request.
         """
         audit_path = Path(self.cwd) / ".ostk" / "audit.jsonl"
-        if not audit_path.exists():
-            return []
-
         converted: list[dict] = []
-        try:
-            text = audit_path.read_text()
-        except OSError:
-            return []
-
-        for line in text.strip().splitlines():
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+        for entry in read_audit_entries(audit_path):
             if entry.get("event") == "hay.converted":
                 converted.append({
                     "straw": entry.get("straw", ""),
                     "task_id": entry.get("task_id", ""),
                     "converted_at": entry.get("timestamp", ""),
                 })
-
         return converted
 
     def _parse_hay(self, output: str) -> dict:
@@ -1310,32 +1442,39 @@ class OstkService:
 
         Returns a dict with 'raw' (the CLI output string), 'daemon_running'
         (bool), and 'agents' (list of parsed agent dicts when available).
+        Concurrent identical calls are coalesced into one subprocess spawn.
         """
-        try:
-            raw = await self._run("kernel", "ps")
-        except OstkError:
-            raw = "no daemon running"
+        key = ("kernel_ps", self.cwd)
 
-        daemon_running = "no daemon" not in raw.lower()
-        agents: list[dict] = []
+        async def _do_call() -> dict:
+            try:
+                raw = await self._run("kernel", "ps")
+            except OstkError:
+                raw = "no daemon running"
 
-        if daemon_running and raw.strip():
-            # Parse tabular or line-based output from kernel ps.
-            # Each non-header line with an agent name is treated as an entry.
-            for line in raw.strip().splitlines():
-                line = line.strip()
-                if not line or line.startswith("─") or line.lower().startswith("name"):
-                    continue
-                parts = line.split()
-                if parts:
-                    agent: dict = {"name": parts[0], "source": "daemon"}
-                    if len(parts) > 1:
-                        agent["status"] = parts[1]
-                    if len(parts) > 2:
-                        agent["model"] = parts[2]
-                    agents.append(agent)
+            daemon_running = "no daemon" not in raw.lower()
+            agents: list[dict] = []
 
-        return {"raw": raw, "daemon_running": daemon_running, "agents": agents}
+            if daemon_running and raw.strip():
+                for line in raw.strip().splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("─") or line.lower().startswith("name"):
+                        continue
+                    parts = line.split()
+                    if parts:
+                        agent: dict = {"name": parts[0], "source": "daemon"}
+                        if len(parts) > 1:
+                            agent["status"] = parts[1]
+                        if len(parts) > 2:
+                            agent["model"] = parts[2]
+                        agents.append(agent)
+
+            return {"raw": raw, "daemon_running": daemon_running, "agents": agents}
+
+        shared = await _coalesce_call(key, _do_call)
+        # Shallow copy: the dict has an "agents" list which we also copy
+        # so a downstream mutation does not bleed across coalesced callers.
+        return {**shared, "agents": list(shared.get("agents", []))}
 
     async def audit_agents(self) -> list[dict]:
         """Read .ostk/audit.jsonl and return agent lifecycle events.
@@ -1349,23 +1488,11 @@ class OstkService:
         has ended.
         """
         audit_path = OSTK_DIR / "audit.jsonl"
-        if not audit_path.exists():
-            return []
-
         agents_by_name: dict[str, dict] = {}
-        try:
-            text = audit_path.read_text()
-        except OSError:
-            return []
-
-        for line in text.strip().splitlines():
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
+        # Shared parse cache: the 400 KB audit.jsonl only reparses when
+        # its size or mtime changes, so rapid /api/agents polls do not
+        # re-scan the file on every hit.
+        for entry in read_audit_entries(audit_path):
             event = entry.get("event", "")
             name = entry.get("name", "")
 
@@ -1644,7 +1771,7 @@ class OstkService:
             "source": "ui",
         }
 
-        nudge_path.write_text(json.dumps(nudge_data, indent=2) + "\n")
+        atomic_write_text(nudge_path, json.dumps(nudge_data, indent=2) + "\n")
         return nudge_data
 
     async def list_nudges(self, agent_name: str) -> list[dict]:
@@ -1693,7 +1820,7 @@ class OstkService:
             "in_reply_to": in_reply_to,
         }
 
-        reply_path.write_text(json.dumps(reply_data, indent=2) + "\n")
+        atomic_write_text(reply_path, json.dumps(reply_data, indent=2) + "\n")
         return reply_data
 
     async def list_nudge_replies(self, agent_name: str) -> list[dict]:

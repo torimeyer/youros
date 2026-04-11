@@ -13,6 +13,8 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
+from services.atomic_io import atomic_write_json, atomic_write_text
+
 SHARES_PATH = Path.home() / ".myos" / "shares.json"
 
 SHARE_TYPES = {"task_list", "agent_output", "label_view"}
@@ -26,7 +28,7 @@ class SharesStore:
     def _ensure_exists(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         if not self._path.exists():
-            self._path.write_text("[]")
+            atomic_write_text(self._path, "[]")
 
     def _load(self) -> list[dict]:
         try:
@@ -38,7 +40,7 @@ class SharesStore:
             return []
 
     def _save(self, shares: list[dict]):
-        self._path.write_text(json.dumps(shares, indent=2))
+        atomic_write_json(self._path, shares)
 
     def create_share(
         self,

@@ -12,6 +12,8 @@ import os
 import time
 from pathlib import Path
 
+from services.atomic_io import atomic_write_text
+
 MYOS_DIR = Path.home() / ".myos"
 TOKEN_PATH = MYOS_DIR / "google_token.json"
 CREDENTIALS_PATH = MYOS_DIR / "google_credentials.json"
@@ -105,7 +107,9 @@ def exchange_code(code: str) -> None:
         tokens = json.loads(resp.read())
 
     # Store raw tokens (includes refresh_token on first auth).
-    TOKEN_PATH.write_text(json.dumps(tokens))
+    # Atomic write so a crash mid-save never leaves a half-written
+    # token file that forces Tori to re-auth.
+    atomic_write_text(TOKEN_PATH, json.dumps(tokens))
 
 
 def _refresh_if_needed(tokens: dict) -> dict:
@@ -143,7 +147,7 @@ def _refresh_if_needed(tokens: dict) -> dict:
         new_tokens.setdefault("refresh_token", refresh_token)
         expires_in = new_tokens.get("expires_in", 3600)
         new_tokens["expires_at"] = time.time() + int(expires_in)
-        TOKEN_PATH.write_text(json.dumps(new_tokens))
+        atomic_write_text(TOKEN_PATH, json.dumps(new_tokens))
         return new_tokens
     except Exception:
         return tokens

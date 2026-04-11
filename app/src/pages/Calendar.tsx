@@ -4,7 +4,7 @@ import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
 import { api } from '../lib/api'
 
-interface CalendarEvent {
+export interface CalendarEvent {
   id: string
   summary?: string
   start: { dateTime?: string; date?: string }
@@ -75,8 +75,39 @@ function isNowInEvent(ev: CalendarEvent): boolean {
   return new Date(startStr).getTime() <= now && now <= new Date(endStr).getTime()
 }
 
-function getEventDate(ev: CalendarEvent): string {
-  return (ev.start?.dateTime || ev.start?.date || '').substring(0, 10)
+// Return the event's start date as a local YYYY-MM-DD string.
+//
+// CRITICAL: a naive ``startStr.substring(0, 10)`` reads the literal ISO
+// date prefix, which is wrong for two different reasons:
+//   1. If the backend hands back a UTC string ending in ``Z``, an event
+//      at 11:30 AM local the next day can share the same UTC date as
+//      the viewer's late-evening ``new Date().toISOString()`` day.
+//   2. If the backend hands back an offset string like ``-07:00``, the
+//      prefix is already the viewer's local date, which is right by
+//      coincidence but would drift for any other viewer tz.
+// Parsing through ``new Date`` then pulling local components gives the
+// calendar day the viewer is actually living in. Regression guard for
+// needle 282.
+export function toLocalDateKey(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+export function getEventDate(ev: CalendarEvent): string {
+  const startStr = ev.start?.dateTime || ev.start?.date || ''
+  if (!startStr) return ''
+  // All-day events use ``date`` (no time component), which is already
+  // a calendar day with no tz. Trust the literal prefix so a full-day
+  // event never slides into the prior/next local day through a
+  // timezone detour.
+  if (!ev.start?.dateTime && ev.start?.date) {
+    return startStr.substring(0, 10)
+  }
+  const parsed = new Date(startStr)
+  if (Number.isNaN(parsed.getTime())) return startStr.substring(0, 10)
+  return toLocalDateKey(parsed)
 }
 
 
@@ -198,8 +229,12 @@ export default function Calendar() {
 
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-4 rounded-xl'
 
-  // Group events by day
-  const todayStr = new Date().toISOString().substring(0, 10)
+  // Group events by day. ``toISOString()`` would give UTC, so at 9pm
+  // PDT on April 10 the UTC date is already April 11 and an event at
+  // 11:30 AM local April 11 would collide with it. Use the local
+  // calendar day the viewer is actually on. Regression guard for
+  // needle 282.
+  const todayStr = toLocalDateKey(new Date())
   const todayEvents = events.filter((ev) => getEventDate(ev) === todayStr)
   const upcomingGroups: Record<string, CalendarEvent[]> = {}
   events.forEach((ev) => {

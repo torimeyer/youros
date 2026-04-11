@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from services.atomic_io import atomic_write_json
+
 TASK_LABELS_PATH = Path.home() / ".myos" / "task_labels.json"
 
 
@@ -29,7 +31,7 @@ class TaskLabelsStore:
     def _ensure_exists(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         if not self._path.exists():
-            self._path.write_text(json.dumps({"assignments": {}, "auto_applied": {}, "rejected": {}}))
+            atomic_write_json(self._path, {"assignments": {}, "auto_applied": {}, "rejected": {}})
 
     def _load_full(self) -> dict:
         """Return the full structured store. Migrates legacy format on the fly."""
@@ -53,7 +55,7 @@ class TaskLabelsStore:
         return self._load_full().get("assignments", {})
 
     def _save_full(self, data: dict):
-        self._path.write_text(json.dumps(data, indent=2))
+        atomic_write_json(self._path, data)
 
     def _save(self, assignments: dict[str, list[str]]):
         full = self._load_full()

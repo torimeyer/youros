@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from services.atomic_io import atomic_write_json
+
 logger = logging.getLogger(__name__)
 
 MYOS_DIR = Path.home() / ".myos"
@@ -67,8 +69,7 @@ def _load_config() -> dict:
 
 
 def _save_config(data: dict) -> None:
-    MYOS_DIR.mkdir(parents=True, exist_ok=True)
-    SYNC_CONFIG_PATH.write_text(json.dumps(data, indent=2))
+    atomic_write_json(SYNC_CONFIG_PATH, data)
 
 
 def is_configured() -> bool:

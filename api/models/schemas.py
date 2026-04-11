@@ -97,6 +97,10 @@ class AgentSpawn(BaseModel):
     description: Optional[str] = None
     transcript_path: Optional[str] = None
     token_limit: Optional[int] = None  # max tokens before auto-stop
+    # Optional Agentfile template name (e.g. "saa") to resolve by template
+    # instead of by agent name. When set, the matching agents/<template>.agent
+    # file supplies the PROMPT, AC gates, TOOL list, and LIMIT lines.
+    template: Optional[str] = None
 
 
 class AgentNudge(BaseModel):

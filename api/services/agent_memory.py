@@ -12,6 +12,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from services.atomic_io import atomic_write_json
+
 # Storage root — outside the repo, safe from git pull
 AGENT_MEMORY_DIR = Path.home() / ".myos" / "agent_memory"
 
@@ -35,8 +37,7 @@ def _load(agent_name: str) -> dict:
 
 def _save(agent_name: str, data: dict) -> None:
     path = _memory_path(agent_name)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2))
+    atomic_write_json(path, data)
 
 
 def save_memory(agent_name: str, key: str, value: str) -> None:

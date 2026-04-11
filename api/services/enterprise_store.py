@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from services.atomic_io import atomic_write_json
+
 MYOS_DIR = Path.home() / ".myos"
 ENTERPRISE_PATH = MYOS_DIR / "enterprise.json"
 
@@ -30,8 +32,7 @@ def _load() -> dict:
 
 
 def _save(data: dict) -> None:
-    MYOS_DIR.mkdir(parents=True, exist_ok=True)
-    ENTERPRISE_PATH.write_text(json.dumps(data, indent=2))
+    atomic_write_json(ENTERPRISE_PATH, data)
 
 
 def is_enterprise() -> bool:

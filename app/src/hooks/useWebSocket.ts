@@ -26,9 +26,20 @@ export function useWebSocket(path: string, autoConnect = false) {
   pathRef.current = path
 
   const connect = useCallback(() => {
-    // Close existing connection if any
+    // Close existing connection if any. Never call close() on a socket
+    // that is still in CONNECTING state: the browser logs
+    // "WebSocket is closed before the connection is established"
+    // which clutters the dev console and can mask real errors. Instead
+    // mark the stale socket with _shouldCloseOnOpen so its onopen
+    // handler closes it cleanly after the handshake finishes. This is
+    // the exact path React 19's StrictMode dev double-effect hits.
     if (wsRef.current) {
-      wsRef.current.close()
+      const prev = wsRef.current
+      if (prev.readyState === WebSocket.OPEN) {
+        prev.close()
+      } else if (prev.readyState === WebSocket.CONNECTING) {
+        ;(prev as WebSocket & { _shouldCloseOnOpen?: boolean })._shouldCloseOnOpen = true
+      }
       wsRef.current = null
     }
 
@@ -39,6 +50,10 @@ export function useWebSocket(path: string, autoConnect = false) {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${protocol}//${window.location.host}${pathRef.current}`)
     ws.onopen = () => {
+      if ((ws as WebSocket & { _shouldCloseOnOpen?: boolean })._shouldCloseOnOpen) {
+        ws.close()
+        return
+      }
       setIsConnected(true)
       // Flush any sends that were queued while the socket was still
       // connecting. Mark the stream as in progress for each so a mid-turn
@@ -108,7 +123,18 @@ export function useWebSocket(path: string, autoConnect = false) {
   }, [])
 
   const disconnect = useCallback(() => {
-    wsRef.current?.close()
+    const ws = wsRef.current
+    if (ws) {
+      // Same rule as connect(): do not call close() on a CONNECTING
+      // socket. Mark it so onopen closes cleanly instead. This kills
+      // the "closed before established" warning that React 19
+      // StrictMode's double-effect used to fire on every mount.
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close()
+      } else if (ws.readyState === WebSocket.CONNECTING) {
+        ;(ws as WebSocket & { _shouldCloseOnOpen?: boolean })._shouldCloseOnOpen = true
+      }
+    }
     wsRef.current = null
   }, [])
 

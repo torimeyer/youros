@@ -42,6 +42,36 @@ const mockEmptyCostData = {
   period: 'all',
 }
 
+const mockSavingsData = {
+  available: true,
+  savings_usd: 0.0781,
+  cache_efficiency_pct: 61.1,
+  compression_pct: 4.2,
+  cost_without_ostk_usd: 0.1608,
+  cost_with_ostk_usd: 0.0841,
+  period: 'session',
+}
+
+const mockSavingsUnavailable = { available: false }
+
+// Build a mock implementation of api.get that routes by path so tests can
+// set different responses for /costs and /costs/savings without stomping
+// on each other.
+function routedApiGet(
+  costs: unknown = mockCostData,
+  savings: unknown = mockSavingsData,
+) {
+  return (path: string) => {
+    if (path.startsWith('/costs/savings')) {
+      return Promise.resolve(savings)
+    }
+    if (path.startsWith('/costs')) {
+      return Promise.resolve(costs)
+    }
+    return Promise.resolve({})
+  }
+}
+
 function renderCostTracking() {
   return render(
     <MemoryRouter>
@@ -54,7 +84,7 @@ describe('CostTracking page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true })
-    mockedApiGet.mockResolvedValue(mockCostData)
+    mockedApiGet.mockImplementation(routedApiGet() as never)
   })
 
   it('renders the page title', async () => {
@@ -126,7 +156,7 @@ describe('CostTracking page', () => {
   })
 
   it('shows empty state when no agents', async () => {
-    mockedApiGet.mockResolvedValue(mockEmptyCostData)
+    mockedApiGet.mockImplementation(routedApiGet(mockEmptyCostData) as never)
     renderCostTracking()
     await waitFor(() => {
       expect(screen.getByText('No agent spending data yet')).toBeInTheDocument()
@@ -139,5 +169,37 @@ describe('CostTracking page', () => {
       // 7.10 / 3 = 2.37
       expect(screen.getByText('$2.37')).toBeInTheDocument()
     })
+  })
+
+  it('renders the myOS savings tile with the savings number when data is present', async () => {
+    renderCostTracking()
+    await waitFor(() => {
+      expect(screen.getByTestId('myos-savings-tile')).toBeInTheDocument()
+    })
+    // Savings tile headline
+    expect(screen.getByText('myOS savings')).toBeInTheDocument()
+    // Plain language labels (no finance jargon)
+    expect(screen.getByText('myOS saved you this session')).toBeInTheDocument()
+    expect(screen.getByText('Prompts that hit cache')).toBeInTheDocument()
+    expect(screen.getByText('Compression on stored context')).toBeInTheDocument()
+    // Numbers from the mock payload
+    await waitFor(() => {
+      expect(screen.getByText('$0.0781')).toBeInTheDocument()
+    })
+    expect(screen.getByText('61.1%')).toBeInTheDocument()
+    expect(screen.getByText('4.2%')).toBeInTheDocument()
+  })
+
+  it('shows the empty state on the savings tile when the endpoint says unavailable', async () => {
+    mockedApiGet.mockImplementation(
+      routedApiGet(mockCostData, mockSavingsUnavailable) as never,
+    )
+    renderCostTracking()
+    await waitFor(() => {
+      expect(screen.getByText('Savings data not available yet.')).toBeInTheDocument()
+    })
+    // Should not show any of the live labels
+    expect(screen.queryByText('myOS saved you this session')).not.toBeInTheDocument()
+    expect(screen.queryByText('Prompts that hit cache')).not.toBeInTheDocument()
   })
 })

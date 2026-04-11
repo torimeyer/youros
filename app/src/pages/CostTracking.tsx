@@ -33,6 +33,16 @@ interface CostData {
   period: string
 }
 
+interface SavingsData {
+  available: boolean
+  savings_usd?: number
+  cache_efficiency_pct?: number
+  compression_pct?: number
+  cost_without_ostk_usd?: number
+  cost_with_ostk_usd?: number
+  period?: string
+}
+
 const periodLabels: Record<Period, string> = {
   today: 'Today',
   week: 'This Week',
@@ -108,6 +118,7 @@ export default function CostTracking() {
   const [data, setData] = useState<CostData | null>(null)
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<Period>('all')
+  const [savings, setSavings] = useState<SavingsData | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -124,6 +135,23 @@ export default function CostTracking() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadSavings() {
+      try {
+        const res = await api.get<SavingsData>('/costs/savings')
+        if (!cancelled) setSavings(res)
+      } catch (e) {
+        console.error('Failed to fetch savings data:', e)
+        if (!cancelled) setSavings({ available: false })
+      }
+    }
+    loadSavings()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const maxDayBudget = data?.by_date.reduce((max, d) => Math.max(max, d.total_budget), 0) ?? 1
 
@@ -150,6 +178,51 @@ export default function CostTracking() {
             <Icon name="refresh" size={16} />
             Refresh
           </button>
+        </div>
+
+        {/* myOS Savings Tile */}
+        <div
+          data-testid="myos-savings-tile"
+          className={`${cardClass} mb-8`}
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+              <Icon name="savings" className="text-green-400" size={20} />
+            </div>
+            <h2 className="text-lg font-semibold">myOS savings</h2>
+          </div>
+          {savings === null ? (
+            <p className="text-sm text-slate-500">Loading savings data...</p>
+          ) : !savings.available ? (
+            <p className="text-sm text-slate-400">Savings data not available yet.</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-6">
+              <div>
+                <p className="text-sm text-slate-400 mb-2">
+                  myOS saved you this session
+                </p>
+                <p className="text-3xl font-bold text-green-400">
+                  ${(savings.savings_usd ?? 0).toFixed(4)}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-400 mb-2">
+                  Prompts that hit cache
+                </p>
+                <p className="text-3xl font-bold">
+                  {(savings.cache_efficiency_pct ?? 0).toFixed(1)}%
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-400 mb-2">
+                  Compression on stored context
+                </p>
+                <p className="text-3xl font-bold">
+                  {(savings.compression_pct ?? 0).toFixed(1)}%
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Time Filter Buttons */}

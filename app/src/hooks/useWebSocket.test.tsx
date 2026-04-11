@@ -6,15 +6,21 @@ import { useWebSocket } from './useWebSocket'
 // A tiny in-memory WebSocket that lets tests drive the server side.
 // Captures listeners so the test can fire onopen, onmessage, onclose, etc.
 class FakeWebSocket {
+  static CONNECTING = 0
   static OPEN = 1
+  static CLOSING = 2
+  static CLOSED = 3
   static instances: FakeWebSocket[] = []
 
   onopen: ((ev: unknown) => void) | null = null
   onclose: ((ev: unknown) => void) | null = null
   onerror: ((ev: unknown) => void) | null = null
   onmessage: ((ev: { data: string }) => void) | null = null
+  // Existing tests implicitly treat the socket as OPEN on construction.
+  // The StrictMode regression test manually flips this to CONNECTING.
   readyState = 1
   sent: string[] = []
+  closeCallCount = 0
   url: string
 
   constructor(url: string) {
@@ -27,6 +33,7 @@ class FakeWebSocket {
   }
 
   close() {
+    this.closeCallCount += 1
     if (this.onclose) this.onclose({})
   }
 
@@ -199,6 +206,59 @@ describe('useWebSocket multi-event burst handling', () => {
     ])
     // Both token strings must be present in order, not just the last one.
     expect(seenData.filter((d) => typeof d === 'string')).toEqual(['hello ', 'claude ', 'hi gemini'])
+  })
+
+  // StrictMode double-effect regression. React 19's dev StrictMode
+  // runs effects twice: mount, cleanup, mount. If the hook's cleanup
+  // calls close() on a socket that is still in CONNECTING state, the
+  // browser logs "WebSocket is closed before the connection is
+  // established" in the console. That noise clutters dev debugging
+  // and can mask real WebSocket errors. The fix is to NOT call
+  // close() on a CONNECTING socket, and instead mark it with
+  // _shouldCloseOnOpen so its onopen handler closes it cleanly.
+  it('does not call close() on a CONNECTING socket during disconnect', () => {
+    const { result, unmount } = renderHook(() => useWebSocket('/ws/chat'))
+
+    act(() => result.current.connect())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    // Simulate the real browser state: the handshake is in flight.
+    ws.readyState = FakeWebSocket.CONNECTING
+
+    // React StrictMode triggers the cleanup while the socket is still
+    // connecting. Unmounting calls disconnect() under the hood.
+    unmount()
+
+    // close() must NOT have been called while the socket was CONNECTING.
+    expect(ws.closeCallCount).toBe(0)
+    // Instead the hook must have stashed a deferred close signal.
+    expect(
+      (ws as unknown as { _shouldCloseOnOpen?: boolean })._shouldCloseOnOpen,
+    ).toBe(true)
+
+    // When the handshake finishes, the onopen handler must close the
+    // socket cleanly now that we are past CONNECTING.
+    ws.readyState = FakeWebSocket.OPEN
+    act(() => ws.triggerOpen())
+    expect(ws.closeCallCount).toBe(1)
+  })
+
+  it('does not call close() on a CONNECTING socket when reconnecting', () => {
+    // Same scenario but triggered by a second connect() call rather
+    // than unmount. The old socket must be deferred, not slammed.
+    const { result } = renderHook(() => useWebSocket('/ws/chat'))
+
+    act(() => result.current.connect())
+    const ws1 = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    ws1.readyState = FakeWebSocket.CONNECTING
+
+    act(() => result.current.connect())
+    const ws2 = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+
+    expect(ws1).not.toBe(ws2)
+    expect(ws1.closeCallCount).toBe(0)
+    expect(
+      (ws1 as unknown as { _shouldCloseOnOpen?: boolean })._shouldCloseOnOpen,
+    ).toBe(true)
   })
 
   it('preserves order across two consecutive bursts', () => {

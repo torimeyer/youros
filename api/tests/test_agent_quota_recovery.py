@@ -342,13 +342,19 @@ async def test_recover_with_handoff_note(tmp_path):
 @pytest.mark.asyncio
 async def test_sweep_with_handoff_marks_recovering(tmp_path):
     """The stale sweep should mark agents with handoff notes as 'recovering'."""
-    from routers.agents import _sweep_stale_running_agents
+    from routers.agents import (
+        _sweep_stale_running_agents,
+        STALE_AGENT_TIMEOUT_SECONDS,
+    )
 
     handoff_dir = tmp_path / "handoffs"
     handoff_dir.mkdir()
     (handoff_dir / "sweep-agent.md").write_text("Left off at step 3.")
 
-    old_time = (datetime.now(timezone.utc) - timedelta(seconds=700)).isoformat()
+    old_time = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)
+    ).isoformat()
     meta = {
         "sweep-agent": {
             "status": "running",
@@ -358,6 +364,7 @@ async def test_sweep_with_handoff_marks_recovering(tmp_path):
     }
 
     with patch("routers.agents.agent_metadata", meta), \
+         patch("routers.agents.active_agents", {}), \
          patch("routers.agents.OSTK_DIR", tmp_path):
         changed = _sweep_stale_running_agents()
 
@@ -369,9 +376,15 @@ async def test_sweep_with_handoff_marks_recovering(tmp_path):
 @pytest.mark.asyncio
 async def test_sweep_without_handoff_terminates(tmp_path):
     """The stale sweep should terminate agents without handoff notes."""
-    from routers.agents import _sweep_stale_running_agents
+    from routers.agents import (
+        _sweep_stale_running_agents,
+        STALE_AGENT_TIMEOUT_SECONDS,
+    )
 
-    old_time = (datetime.now(timezone.utc) - timedelta(seconds=700)).isoformat()
+    old_time = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)
+    ).isoformat()
     meta = {
         "dead-agent": {
             "status": "running",
@@ -381,6 +394,7 @@ async def test_sweep_without_handoff_terminates(tmp_path):
     }
 
     with patch("routers.agents.agent_metadata", meta), \
+         patch("routers.agents.active_agents", {}), \
          patch("routers.agents.OSTK_DIR", tmp_path):
         changed = _sweep_stale_running_agents()
 
@@ -391,13 +405,19 @@ async def test_sweep_without_handoff_terminates(tmp_path):
 @pytest.mark.asyncio
 async def test_sweep_exhausted_recovery_terminates(tmp_path):
     """The stale sweep should terminate agents that hit the recovery cap."""
-    from routers.agents import _sweep_stale_running_agents
+    from routers.agents import (
+        _sweep_stale_running_agents,
+        STALE_AGENT_TIMEOUT_SECONDS,
+    )
 
     handoff_dir = tmp_path / "handoffs"
     handoff_dir.mkdir()
     (handoff_dir / "maxed-agent.md").write_text("Still trying.")
 
-    old_time = (datetime.now(timezone.utc) - timedelta(seconds=700)).isoformat()
+    old_time = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)
+    ).isoformat()
     meta = {
         "maxed-agent": {
             "status": "running",
@@ -407,6 +427,7 @@ async def test_sweep_exhausted_recovery_terminates(tmp_path):
     }
 
     with patch("routers.agents.agent_metadata", meta), \
+         patch("routers.agents.active_agents", {}), \
          patch("routers.agents.OSTK_DIR", tmp_path):
         changed = _sweep_stale_running_agents()
 

@@ -25,6 +25,7 @@ import type { Label } from "../components/LabelsView";
 import { api } from "../lib/api";
 import SharePopover from "../components/SharePopover";
 import ExportButton from "../components/ExportButton";
+import TasksAuditModal from "../components/TasksAuditModal";
 
 interface Task {
   id: string;
@@ -41,6 +42,17 @@ interface Task {
   depends_on?: string[];
   thread_id?: string | null;
   unblocks?: number;
+  closed_reason?: "completed" | "duplicate" | "archived" | null;
+}
+
+// A task is "active" (shown under the Open tab and counted in the
+// open/P0/P1/P2 badges) if it is anything other than closed. ostk's
+// state machine produces both "open" and "in_progress" for active
+// work, and before this helper existed the page checked strictly
+// for status === "open" so every in_progress task was invisible on
+// the Tasks tab. See needle 277 for the regression context.
+function isActiveTask(t: { status: string }): boolean {
+  return t.status !== "closed";
 }
 
 interface Thread {
@@ -113,17 +125,66 @@ const priorityStyles: Record<string, string> = {
   P0: "bg-pink-500/20 text-pink-500",
   P1: "bg-orange-500/20 text-orange-500",
   P2: "bg-blue-500/20 text-blue-500",
+  P3: "bg-slate-500/20 text-slate-400",
 };
 
 const priorityDotColors: Record<string, string> = {
   P0: "bg-pink-500",
   P1: "bg-orange-500",
   P2: "bg-blue-500",
+  P3: "bg-slate-500",
 };
 
-const PRIORITIES = ["P0", "P1", "P2"] as const;
+const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 
 type StatusFilter = "open" | "closed" | "week";
+
+// First-paint cache (needle 299).
+//
+// Why this exists:
+//   Tori filed the same bug three times. /tasks and /agents showed an
+//   empty "Loading..." state for several seconds every time she opened
+//   the pages cold. Rounds 275 and 278 fixed the backend but she still
+//   saw the blank first paint because the page renders empty until the
+//   fetch resolves. The render path measured under 300ms in tests with
+//   fake latency but that is not what Tori sees. In a real cold browser
+//   the gap between mount and first data is whatever the slowest thing
+//   in the pipeline takes: vite transform, JS parse, fetch, React
+//   commit, StrictMode double mount.
+//
+// The fix:
+//   Cache the last successful /tasks response in localStorage so the
+//   VERY FIRST render on the next visit paints rows from that cache
+//   instead of an empty state. The live fetch still fires in the
+//   background and overwrites the cache when it arrives. Worst case
+//   Tori sees slightly stale rows for a fraction of a second before
+//   they refresh. Best case she never sees "Loading tasks..." again.
+//
+// The invariant, enforced by regression tests in Tasks.test.tsx:
+//   Every page that fetches primary data on mount must paint real rows
+//   within 300ms of render, seeded from localStorage if necessary.
+const TASKS_CACHE_KEY = "myos.tasksCache.v1";
+
+function readTasksCache(): Task[] {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return [];
+    const raw = window.localStorage.getItem(TASKS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as Task[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeTasksCache(tasks: Task[]) {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    window.localStorage.setItem(TASKS_CACHE_KEY, JSON.stringify(tasks));
+  } catch {
+    // Quota or serialization errors are not fatal. Skip the cache.
+  }
+}
 
 const STALE_DAYS = 7;
 
@@ -169,9 +230,16 @@ export default function Tasks() {
   const focusParam = searchParams.get("focus");
   const focusAppliedRef = useRef(false);
 
-  const [tasks, setTasks] = useState<Task[]>([]);
+  // Seed tasks from the localStorage cache on first mount so the
+  // very first paint shows real rows instead of a blank "Loading..."
+  // state. The live fetch still runs in useEffect and overwrites
+  // this as soon as fresh data arrives. See needle 299.
+  const [tasks, setTasks] = useState<Task[]>(() => readTasksCache());
   const [labels, setLabels] = useState<Label[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Start in the non-loading state when we have cached rows to show,
+  // otherwise start loading so the first-ever visit still renders the
+  // "Loading tasks..." hint.
+  const [loading, setLoading] = useState<boolean>(() => readTasksCache().length === 0);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<"context" | "history">("context");
@@ -205,17 +273,30 @@ export default function Tasks() {
   const [showTaskSharePopover, setShowTaskSharePopover] = useState(false);
   const [undoDelete, setUndoDelete] = useState<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null);
   const [openActionMenu, setOpenActionMenu] = useState<string | null>(null);
+  // Tracks which row's "what is comprehensive build?" help popover is
+  // open. Null when none. We track by task id so the popover is
+  // anchored next to the right row.
+  const [openBuildHelp, setOpenBuildHelp] = useState<string | null>(null);
+  const buildHelpRef = useRef<HTMLDivElement | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [auditModalOpen, setAuditModalOpen] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
 
   const fetchTasks = useCallback(async () => {
-    setLoading(true);
+    // Do NOT flip loading back on while we have cached rows to show.
+    // The cache seeded the first paint with real data, so refreshing
+    // should happen silently in the background. The only time we
+    // ever want the "Loading tasks..." hint is on the very first
+    // ever visit when the cache is empty, and the initial useState
+    // value handles that case.
     try {
       const res = await api.get<TasksResponse>("/tasks");
-      setTasks(res.tasks ?? []);
+      const nextTasks = res.tasks ?? [];
+      setTasks(nextTasks);
+      writeTasksCache(nextTasks);
     } catch (e) {
       console.error("Failed to fetch tasks:", e);
     } finally {
@@ -362,7 +443,7 @@ export default function Tasks() {
     // focused task is closed but the current filter only shows open, switch.
     if (match.status === "closed" && statusFilter === "open") {
       setStatusFilter("closed");
-    } else if (match.status === "open" && statusFilter === "closed") {
+    } else if (isActiveTask(match) && statusFilter === "closed") {
       setStatusFilter("open");
     }
 
@@ -416,10 +497,34 @@ export default function Tasks() {
       setOpenLinkDropdown(null);
       setOpenThreadDropdown(null);
       setOpenActionMenu(null);
+      setOpenBuildHelp(null);
     };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
   }, [openPriorityDropdown, openLabelDropdown, openLinkDropdown, openThreadDropdown, openActionMenu]);
+
+  // "What is comprehensive build?" help popover closes on outside click
+  // and on Escape. Uses a ref so clicks inside the popover itself do
+  // not dismiss it. See needle 295 for the plain-language help copy.
+  useEffect(() => {
+    if (!openBuildHelp) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (buildHelpRef.current && !buildHelpRef.current.contains(e.target as Node)) {
+        setOpenBuildHelp(null);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpenBuildHelp(null);
+      }
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [openBuildHelp]);
 
   const addTask = async () => {
     const title = newTaskTitle.trim();
@@ -612,30 +717,68 @@ export default function Tasks() {
     }
   };
 
-  const spawnAgentForTask = async (taskId: string, mode: "plan" | "implement") => {
+  // "plan" keeps the old one-shot plan agent.
+  // "comprehensive" runs the full build pattern: plan, build, write tests,
+  // run tests, run pytest and tsc, only report done when everything is green.
+  // "quick" is the legacy one-shot that just writes code with
+  // no tests and no gates. Kept as an escape hatch for fast drafts.
+  //
+  // The backend accepts template="comprehensive" as the primary name
+  // and template="saa" as an alias, to match Tori's muscle memory.
+  // We post "comprehensive" from the UI to keep telemetry clean.
+  type SpawnMode = "plan" | "comprehensive" | "quick";
+
+  const spawnAgentForTask = async (taskId: string, mode: SpawnMode) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     setActionLoading(taskId);
     try {
-      const prompt =
-        mode === "plan"
-          ? `Create a detailed plan for this task: "${task.title}". Break it down into steps, identify risks, and estimate effort.`
-          : `Implement this task: "${task.title}". Write the code, tests, and documentation needed.`;
-      await api.post("/agents/spawn", {
-        name: `${mode}-${taskId.replace(/[^a-zA-Z0-9]/g, "")}`,
-        prompt,
+      let prompt: string;
+      let namePrefix: string;
+      let bannerLabel: string;
+      const body: {
+        name: string;
+        prompt: string;
+        model: string;
+        budget: number;
+        template?: string;
+      } = {
+        name: "",
+        prompt: "",
         model: "sonnet",
         budget: 2.0,
-      });
-      setBanner(`${mode === "plan" ? "Plan" : "Implement"} agent started for "${task.title}".`);
+      };
+
+      if (mode === "plan") {
+        prompt = `Create a detailed plan for this task: "${task.title}". Break it down into steps, identify risks, and estimate effort.`;
+        namePrefix = "plan";
+        bannerLabel = "Plan";
+      } else if (mode === "comprehensive") {
+        prompt = `Implement this task: "${task.title}". Follow the comprehensive build pattern. Plan the approach, build the solution, write tests, run them, and only report done when everything is green.`;
+        namePrefix = "implement";
+        bannerLabel = "Comprehensive build";
+        body.template = "comprehensive";
+      } else {
+        prompt = `Implement this task: "${task.title}". Write the code, tests, and documentation needed.`;
+        namePrefix = "implement";
+        bannerLabel = "Quick build";
+      }
+
+      body.name = `${namePrefix}-${taskId.replace(/[^a-zA-Z0-9]/g, "")}`;
+      body.prompt = prompt;
+
+      await api.post("/agents/spawn", body);
+      setBanner(`${bannerLabel} started for "${task.title}".`);
       setTimeout(() => setBanner(null), 4000);
     } catch (e) {
       console.error(`Failed to spawn ${mode} agent:`, e);
-      setBanner(`Could not start ${mode} agent. Please try again.`);
+      const label = mode === "plan" ? "plan" : mode === "comprehensive" ? "Comprehensive build" : "Quick build";
+      setBanner(`Could not start ${label}. Please try again.`);
       setTimeout(() => setBanner(null), 4000);
     } finally {
       setActionLoading(null);
       setOpenActionMenu(null);
+      setOpenBuildHelp(null);
     }
   };
 
@@ -670,14 +813,18 @@ export default function Tasks() {
     });
   };
 
+  // Bulk Implement all defaults to the comprehensive build pattern.
+  // One button, not two, matches the per-row menu default. See needle 295.
   const bulkAction = async (mode: "plan" | "implement" | "break") => {
     const ids = Array.from(selectedTaskIds);
     if (ids.length === 0) return;
     setActionLoading("bulk");
     try {
       for (const id of ids) {
-        if (mode === "plan" || mode === "implement") {
-          await spawnAgentForTask(id, mode);
+        if (mode === "plan") {
+          await spawnAgentForTask(id, "plan");
+        } else if (mode === "implement") {
+          await spawnAgentForTask(id, "comprehensive");
         } else {
           await breakIntoTasks(id);
         }
@@ -759,7 +906,7 @@ export default function Tasks() {
       // Place updated active task at position in the full list
       const otherPriorityTasks = withoutActive.filter((t) => t.priority !== targetPriority);
       const merged = [...otherPriorityTasks];
-      // Insert the new group order inline — just append; visual sort is by priority
+      // Insert the new group order inline, just append; visual sort is by priority
       return [...merged, ...newGroupOrder.map((t) => (t.id === activeId ? updatedActive : t))];
     });
 
@@ -818,11 +965,11 @@ export default function Tasks() {
   let filteredTasks = tasks;
 
   if (statusFilter === "open") {
-    filteredTasks = filteredTasks.filter((t) => t.status === "open");
+    filteredTasks = filteredTasks.filter(isActiveTask);
   } else if (statusFilter === "closed") {
     filteredTasks = filteredTasks.filter((t) => t.status === "closed");
   } else if (statusFilter === "week") {
-    filteredTasks = filteredTasks.filter((t) => t.status === "open" && isThisWeek(t.created_at));
+    filteredTasks = filteredTasks.filter((t) => isActiveTask(t) && isThisWeek(t.created_at));
   }
 
   if (priorityFilter) {
@@ -839,12 +986,13 @@ export default function Tasks() {
     filteredTasks = filteredTasks.filter((t) => t.thread_id === threadFilter);
   }
 
-  const openCount = tasks.filter((t) => t.status === "open").length;
+  const openCount = tasks.filter(isActiveTask).length;
   const closedCount = tasks.filter((t) => t.status === "closed").length;
-  const weekCount = tasks.filter((t) => t.status === "open" && isThisWeek(t.created_at)).length;
-  const p0Count = tasks.filter((t) => t.status === "open" && t.priority === "P0").length;
-  const p1Count = tasks.filter((t) => t.status === "open" && t.priority === "P1").length;
-  const p2Count = tasks.filter((t) => t.status === "open" && t.priority === "P2").length;
+  const weekCount = tasks.filter((t) => isActiveTask(t) && isThisWeek(t.created_at)).length;
+  const p0Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P0").length;
+  const p1Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P1").length;
+  const p2Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P2").length;
+  const p3Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P3").length;
 
   const filterCounts: Record<StatusFilter, number> = {
     open: openCount,
@@ -852,7 +1000,12 @@ export default function Tasks() {
     week: weekCount,
   };
 
-  const priorityCounts: Record<string, number> = { P0: p0Count, P1: p1Count, P2: p2Count };
+  const priorityCounts: Record<string, number> = {
+    P0: p0Count,
+    P1: p1Count,
+    P2: p2Count,
+    P3: p3Count,
+  };
 
   const statusFilterClass = (f: StatusFilter) =>
     statusFilter === f
@@ -1257,7 +1410,7 @@ export default function Tasks() {
 
             {threads.map((thread) => {
               const threadTasks = tasks.filter((t) => t.thread_id === thread.id);
-              const openTasks = threadTasks.filter((t) => t.status === "open");
+              const openTasks = threadTasks.filter(isActiveTask);
               const closedTasks = threadTasks.filter((t) => t.status === "closed");
               return (
                 <div key={thread.id} className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
@@ -1367,7 +1520,7 @@ export default function Tasks() {
                 <div className="w-px h-5 bg-slate-800" />
 
                 <div className="flex items-center gap-2">
-                  {["P0", "P1", "P2"].map((p) => (
+                  {PRIORITIES.map((p) => (
                     <button
                       key={p}
                       onClick={() => setPriorityFilter(priorityFilter === p ? null : p)}
@@ -1455,7 +1608,16 @@ export default function Tasks() {
                 )}
               </div>
 
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAuditModalOpen(true)}
+                  data-testid="tasks-audit-button"
+                  className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 text-xs rounded-lg border border-blue-500/30"
+                  title="Review every open task. Nothing closes until you say so."
+                >
+                  <Icon name="fact_check" className="text-sm" />
+                  Audit for review
+                </button>
                 <button
                   onClick={() => setViewMode("list")}
                   className={`p-1.5 ${viewMode === "list" ? "text-slate-400" : "text-slate-600"} hover:text-white`}
@@ -1534,7 +1696,7 @@ export default function Tasks() {
               {!loading && filteredTasks.length === 0 && tasks.length > 0 && (
                 <p className="text-sm text-slate-500 py-4">No tasks match this filter.</p>
               )}
-              {(["P0", "P1", "P2"] as const).map((priority) => {
+              {PRIORITIES.map((priority) => {
                 const groupTasks = filteredTasks.filter((t) => t.priority === priority);
                 if (groupTasks.length === 0) return null;
                 return (
@@ -1593,6 +1755,30 @@ export default function Tasks() {
                         <span className={`text-sm ${task.status === "closed" ? "line-through text-slate-500" : ""}`}>
                           {task.title}
                         </span>
+                        {task.status === "closed" && task.closed_reason === "completed" && (
+                          <span
+                            data-testid={`closed-badge-${task.id}`}
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/15 text-green-400 border border-green-500/30"
+                          >
+                            Done
+                          </span>
+                        )}
+                        {task.status === "closed" && task.closed_reason === "duplicate" && (
+                          <span
+                            data-testid={`closed-badge-${task.id}`}
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/15 text-slate-400 border border-slate-500/30"
+                          >
+                            Duplicate
+                          </span>
+                        )}
+                        {task.status === "closed" && task.closed_reason === "archived" && (
+                          <span
+                            data-testid={`closed-badge-${task.id}`}
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                          >
+                            Archived
+                          </span>
+                        )}
                         {isStale(task) && (
                           <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
                             <Icon name="schedule" className="text-[11px] text-slate-500" />
@@ -1681,14 +1867,60 @@ export default function Tasks() {
                             <Icon name="description" className="text-sm text-purple-400" />
                             Plan
                           </button>
+                          {/* Comprehensive build (default) plus quick escape hatch. */}
+                          <div className="flex items-center w-full hover:bg-slate-700 transition-colors">
+                            <button
+                              onClick={() => spawnAgentForTask(task.id, "comprehensive")}
+                              disabled={actionLoading === task.id}
+                              className="flex-1 text-left px-3 py-1.5 text-xs flex items-center gap-2 text-slate-300"
+                            >
+                              <Icon name="code" className="text-sm text-green-400" />
+                              Comprehensive build
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenBuildHelp(openBuildHelp === task.id ? null : task.id);
+                              }}
+                              className="px-2 py-1.5 text-slate-500 hover:text-slate-200"
+                              title="What is comprehensive build?"
+                              aria-label="What is comprehensive build?"
+                            >
+                              <Icon name="help_outline" className="text-sm" />
+                            </button>
+                          </div>
                           <button
-                            onClick={() => spawnAgentForTask(task.id, "implement")}
+                            onClick={() => spawnAgentForTask(task.id, "quick")}
                             disabled={actionLoading === task.id}
                             className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
                           >
-                            <Icon name="code" className="text-sm text-green-400" />
-                            Implement
+                            <Icon name="bolt" className="text-sm text-yellow-400" />
+                            Quick build
                           </button>
+                          {openBuildHelp === task.id && (
+                            <div
+                              ref={buildHelpRef}
+                              role="dialog"
+                              aria-label="What is comprehensive build?"
+                              className="absolute right-full top-0 mr-2 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-xl z-50 p-4 text-xs text-slate-300 space-y-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="font-semibold text-slate-100 text-sm">What is comprehensive build?</div>
+                              <p>Comprehensive build spawns an agent that works the way you would want it to:</p>
+                              <ol className="list-decimal list-inside space-y-0.5">
+                                <li>Reads the task and plans the approach.</li>
+                                <li>Builds the solution.</li>
+                                <li>Writes tests.</li>
+                                <li>Runs the tests and fixes anything red.</li>
+                                <li>Runs pytest and tsc to catch regressions.</li>
+                                <li>Only reports done when everything is green.</li>
+                              </ol>
+                              <p>
+                                Use "Comprehensive build" when you want it done right.
+                                Use "Quick build" for a fast draft without tests or gates.
+                              </p>
+                            </div>
+                          )}
                           <button
                             onClick={() => breakIntoTasks(task.id)}
                             disabled={actionLoading === task.id}
@@ -2166,6 +2398,14 @@ export default function Tasks() {
           </>
         )}
       </div>
+
+      <TasksAuditModal
+        open={auditModalOpen}
+        onClose={() => setAuditModalOpen(false)}
+        onTasksChanged={() => {
+          fetchTasks();
+        }}
+      />
 
       {/* Undo delete toast */}
       {undoDelete && (

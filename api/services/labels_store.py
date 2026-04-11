@@ -11,6 +11,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+from services.atomic_io import atomic_write_json, atomic_write_text
+
 LABELS_PATH = Path.home() / ".myos" / "labels.json"
 
 # A palette of 10 pleasant colors for labels.
@@ -36,7 +38,7 @@ class LabelsStore:
     def _ensure_exists(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         if not self._path.exists():
-            self._path.write_text("[]")
+            atomic_write_text(self._path, "[]")
 
     def _load(self) -> list[dict]:
         try:
@@ -48,7 +50,7 @@ class LabelsStore:
             return []
 
     def _save(self, labels: list[dict]):
-        self._path.write_text(json.dumps(labels, indent=2))
+        atomic_write_json(self._path, labels)
 
     def list_labels(self) -> list[dict]:
         return self._load()

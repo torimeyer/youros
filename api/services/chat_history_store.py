@@ -28,6 +28,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from services.atomic_io import atomic_write_json
+
 CHAT_HISTORY_PATH = Path.home() / ".myos" / "chat_history.json"
 
 
@@ -43,7 +45,7 @@ class ChatHistoryStore:
     def _ensure_exists(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         if not self._path.exists():
-            self._path.write_text(json.dumps(_default_state(), indent=2))
+            atomic_write_json(self._path, _default_state())
 
     def load(self) -> dict[str, Any]:
         try:
@@ -69,11 +71,11 @@ class ChatHistoryStore:
         if not isinstance(active, str):
             active = ""
         payload = {"tabs": tabs, "active_tab_id": active}
-        self._path.write_text(json.dumps(payload, indent=2))
+        atomic_write_json(self._path, payload)
         return payload
 
     def clear(self) -> None:
-        self._path.write_text(json.dumps(_default_state(), indent=2))
+        atomic_write_json(self._path, _default_state())
 
 
 chat_history_store = ChatHistoryStore()

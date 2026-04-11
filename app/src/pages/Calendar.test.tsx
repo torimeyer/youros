@@ -157,3 +157,78 @@ describe('Calendar connect error', () => {
     })
   })
 })
+
+describe('Calendar day grouping helpers (needle 282)', () => {
+  // Regression for the bug where a late-evening session in PDT would
+  // read ``new Date().toISOString()`` as the NEXT UTC day and then
+  // compare that UTC day string against event.start.dateTime, causing
+  // tomorrow's events to land under the Today strip. The fix uses a
+  // local-calendar-day key for both sides of the comparison.
+  //
+  // Tests the helper functions directly. A full Calendar render test
+  // would need to freeze the wall clock with useFakeTimers, which
+  // breaks the waitFor polling that render-based tests rely on.
+
+  it('toLocalDateKey formats local date as YYYY-MM-DD', async () => {
+    const { toLocalDateKey } = await import('./Calendar')
+    const d = new Date(2026, 3, 10)  // April 10, 2026 local
+    expect(toLocalDateKey(d)).toBe('2026-04-10')
+  })
+
+  it('toLocalDateKey pads month and day', async () => {
+    const { toLocalDateKey } = await import('./Calendar')
+    const d = new Date(2026, 0, 1)  // January 1, 2026 local
+    expect(toLocalDateKey(d)).toBe('2026-01-01')
+  })
+
+  it('getEventDate returns local day for a dateTime event crossing the UTC boundary', async () => {
+    const { getEventDate, toLocalDateKey } = await import('./Calendar')
+    // The event starts at 11:30 AM PDT on April 11.
+    // Parsed into a Date, the local components are April 11 PDT.
+    const ev = {
+      id: 'soccer',
+      start: { dateTime: '2026-04-11T11:30:00-07:00' },
+      end:   { dateTime: '2026-04-11T12:45:00-07:00' },
+    }
+    const parsed = new Date(ev.start.dateTime)
+    // The helper must return the local key for the parsed date, which
+    // matches what the grouping key uses. Before the fix getEventDate
+    // returned the literal ISO prefix which could drift across tz.
+    expect(getEventDate(ev)).toBe(toLocalDateKey(parsed))
+  })
+
+  it('getEventDate trusts all-day event date verbatim', async () => {
+    const { getEventDate } = await import('./Calendar')
+    // All-day events use ``date`` (no time component). Must be
+    // returned literal so an all-day April 11 event stays on April
+    // 11 regardless of the viewer's tz offset.
+    const ev = {
+      id: 'holiday',
+      start: { date: '2026-04-11' },
+      end:   { date: '2026-04-12' },
+    }
+    expect(getEventDate(ev)).toBe('2026-04-11')
+  })
+
+  it('getEventDate returns empty string for an event with no start', async () => {
+    const { getEventDate } = await import('./Calendar')
+    const ev = { id: 'broken', start: {}, end: {} }
+    expect(getEventDate(ev)).toBe('')
+  })
+
+  it('toLocalDateKey always matches the calendar day getFullYear/getMonth/getDate describe', async () => {
+    // Run on a handful of sample dates so the helper is sanity-checked
+    // in whatever tz the test host happens to be in. This avoids
+    // hardcoding a tz-specific assertion that would only pass in PDT.
+    const { toLocalDateKey } = await import('./Calendar')
+    const samples = [
+      new Date(2026, 0, 1, 0, 0, 0),      // Jan 1
+      new Date(2026, 3, 10, 23, 59, 59),  // Apr 10 23:59:59
+      new Date(2026, 11, 31, 12, 0, 0),   // Dec 31 noon
+    ]
+    for (const d of samples) {
+      const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      expect(toLocalDateKey(d)).toBe(expected)
+    }
+  })
+})

@@ -7,5 +7,8 @@ TOOL shell
 TOOL file:read
 TOOL file:write
 LIMIT tokens 200000
+AC python3 -m pytest api/tests/ -x -q
+REVIEW security
+STANDARDS .standards.md
 BOOT ostk boot
 PIN default

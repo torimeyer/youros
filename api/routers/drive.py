@@ -68,7 +68,10 @@ _EXPORTABLE_MIME = {
 }
 
 # Cache TTL for exported PDFs (1 hour).
-_CACHE_TTL_SECONDS = 3600
+# 6 hours. Drive files rarely change in a way the user notices from
+# second to second, and a longer TTL means fewer cold hits with slow
+# Google API round trips. Sync button still bypasses the cache.
+_CACHE_TTL_SECONDS = 6 * 3600
 
 # Maximum files returned by the list endpoint.
 _MAX_FILES = 100
@@ -305,7 +308,15 @@ async def drive_files(
     q: Optional[str] = Query(None, description="Search query"),
     folder_id: Optional[str] = Query(None, description="Folder ID to list"),
 ):
-    """List Drive files sorted by last modified time (most recent first)."""
+    """List Drive files sorted by last modified time (most recent first).
+
+    Cold path wraps the Drive API call in an 8 second timeout and
+    falls back to any existing stale cache if the call hangs or
+    fails, so the UI never spins for 30 seconds or lands on an empty
+    list on a transient error. Regression guard for needle 285.
+    """
+    import asyncio
+
     if not is_authenticated():
         raise HTTPException(status_code=401, detail="Not connected to Google Drive.")
 
@@ -316,9 +327,23 @@ async def drive_files(
             return {"files": cached, "cached": True}
 
     try:
-        files = await _fetch_drive_files(q=q, folder_id=folder_id)
+        files = await asyncio.wait_for(
+            _fetch_drive_files(q=q, folder_id=folder_id),
+            timeout=8.0,
+        )
     except HTTPException:
         raise
+    except asyncio.TimeoutError:
+        # Drive API hung. Fall back to stale cache (if any) for
+        # unfiltered requests so the UI still shows something.
+        if not q and not folder_id:
+            stale = _load_file_list_cache(allow_stale=True)
+            if stale is not None:
+                return {"files": stale, "cached": True, "stale": True}
+        raise HTTPException(
+            status_code=504,
+            detail="Google Drive is slow to respond right now. Try again in a moment.",
+        )
     except Exception as exc:
         msg = str(exc).lower()
         if "accessnotconfigured" in msg or "has not been used" in msg:
@@ -333,6 +358,12 @@ async def drive_files(
                     ),
                 },
             ) from exc
+        # Any other failure: serve stale cache if we have one so the
+        # UI does not lose state on a transient 5xx from Google.
+        if not q and not folder_id:
+            stale = _load_file_list_cache(allow_stale=True)
+            if stale is not None:
+                return {"files": stale, "cached": True, "stale": True}
         raise HTTPException(
             status_code=500,
             detail=f"Could not load files from Google Drive: {exc}",
@@ -386,13 +417,21 @@ async def _fetch_drive_files(
 _INDEX_PATH = DRIVE_CACHE_DIR / "index.json"
 
 
-def _load_file_list_cache() -> list[dict] | None:
-    """Return cached file list if it exists and is less than 1 hour old."""
+def _load_file_list_cache(allow_stale: bool = False) -> list[dict] | None:
+    """Return cached file list.
+
+    When ``allow_stale`` is False (default) the TTL is enforced. When
+    True, any cached file is returned regardless of age. The stale
+    path is the fallback path for when the Drive API call hangs or
+    fails, so the UI never renders an empty file list on a transient
+    error. Regression guard for needle 285.
+    """
     if not _INDEX_PATH.exists():
         return None
-    age = time.time() - _INDEX_PATH.stat().st_mtime
-    if age > _CACHE_TTL_SECONDS:
-        return None
+    if not allow_stale:
+        age = time.time() - _INDEX_PATH.stat().st_mtime
+        if age > _CACHE_TTL_SECONDS:
+            return None
     try:
         return json.loads(_INDEX_PATH.read_text())
     except Exception:

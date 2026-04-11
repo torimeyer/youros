@@ -13,6 +13,13 @@ import { useAppStore } from '../stores/app';
 interface BriefingData {
   show: boolean;
   briefing: string | null;
+  // Frontend-only marker. Set to true by the fetch catch block so the
+  // empty-state UI knows the API call failed and should NOT lie that
+  // the user "dismissed" the briefing. Before this field, a network
+  // blip or zombie proxy hanging for 5s would fall through to the
+  // "dismissed" copy even though the user never touched Dismiss.
+  // See needle 281.
+  unavailable?: boolean;
 }
 
 interface FocusTask {
@@ -158,7 +165,11 @@ export default function Dashboard() {
           }
         })
         .catch(() => {
-          setBriefing({ show: false, briefing: null });
+          // The fetch failed (network issue, backend hang, vite
+          // proxy zombie, etc). Mark the briefing as unavailable so
+          // the empty state tells the truth instead of claiming the
+          // user dismissed it.
+          setBriefing({ show: false, briefing: null, unavailable: true });
           setBriefingLoading(false);
         });
     };
@@ -296,6 +307,17 @@ export default function Dashboard() {
     // The card must always render when its toggle is on, even if there
     // is nothing to put in it. Same pattern as renderFocusFirst,
     // renderNextMeeting, renderDaySummary.
+    //
+    // Copy rule: only say "dismissed" when the user actually dismissed
+    // it today. If the fetch failed (network, backend down, stuck
+    // proxy) we mark it unavailable instead. Saying "dismissed" after
+    // a failed fetch confused Tori into thinking she had clicked X
+    // when she had not. See needle 281.
+    const briefingUnavailable = briefing?.unavailable === true;
+    const emptyCopy = briefingUnavailable
+      ? "Briefing is temporarily unavailable. Check your connection and try again."
+      : "Your briefing was dismissed for today.";
+    const emptyAction = briefingUnavailable ? "Retry" : "Show briefing";
     return (
       <div
         key="briefing"
@@ -309,13 +331,13 @@ export default function Dashboard() {
           <div className="flex-1">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1.5">{greetingLabel}</p>
             <p className="text-sm text-slate-400 leading-relaxed mb-2">
-              Your briefing was dismissed for today.
+              {emptyCopy}
             </p>
             <button
               onClick={handleShowBriefing}
               className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
             >
-              Show briefing
+              {emptyAction}
             </button>
           </div>
         </div>

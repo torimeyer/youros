@@ -22,8 +22,10 @@ so this data is not at risk from ``git pull``.
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from pathlib import Path
+from typing import Optional
 
 from config import PROJECT_ROOT
 
@@ -80,3 +82,73 @@ def safe_record_chat_turn(**kwargs) -> None:
         record_chat_turn(**kwargs)
     except Exception:
         pass
+
+
+def get_ostk_savings() -> Optional[dict]:
+    """Shell out to ``ostk os metrics --json`` and return a plain dict
+    summarizing what ostk saved this session through prompt caching and
+    context squashing.
+
+    Returns ``None`` when the ``ostk`` binary is missing, exits with a
+    non-zero status, or returns something that cannot be parsed. Callers
+    should treat ``None`` as "no savings data available" and show a
+    neutral empty state.
+
+    The returned shape is:
+
+    .. code-block:: python
+
+        {
+            "savings_usd": float,          # cache + compression savings
+            "cache_efficiency_pct": float, # percent of prompts served from cache
+            "compression_pct": float,      # compression ratio on stored context
+            "cost_without_ostk_usd": float,
+            "cost_with_ostk_usd": float,
+            "period": "session",
+        }
+    """
+    try:
+        result = subprocess.run(
+            ["ostk", "os", "metrics", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    prompt_cache = payload.get("prompt_cache") or {}
+    squash = payload.get("squash") or {}
+    if not isinstance(prompt_cache, dict):
+        prompt_cache = {}
+    if not isinstance(squash, dict):
+        squash = {}
+
+    def _as_float(value, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    cache_savings = _as_float(prompt_cache.get("cache_savings_usd"))
+    compression_savings = _as_float(squash.get("est_saved_usd"))
+
+    return {
+        "savings_usd": round(cache_savings + compression_savings, 4),
+        "cache_efficiency_pct": _as_float(prompt_cache.get("efficiency_pct")),
+        "compression_pct": _as_float(squash.get("compression_pct")),
+        "cost_without_ostk_usd": _as_float(prompt_cache.get("no_cache_cost_usd")),
+        "cost_with_ostk_usd": _as_float(prompt_cache.get("cost_usd")),
+        "period": "session",
+    }

@@ -39,6 +39,7 @@ interface CommandPaletteProps {
 const priorityColor = (p: string) => {
   if (p === 'P0') return 'text-pink-400'
   if (p === 'P1') return 'text-orange-400'
+  if (p === 'P3') return 'text-slate-400'
   return 'text-blue-400'
 }
 

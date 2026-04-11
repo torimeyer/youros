@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query
 router = APIRouter(tags=["costs"])
 
 from config import OSTK_DIR
+from services import token_metrics
 
 AUDIT_PATH = OSTK_DIR / "audit.jsonl"
 
@@ -148,3 +149,16 @@ async def get_costs(period: Optional[str] = Query(None, description="Time filter
     result = _aggregate(filtered)
     result["period"] = period or "all"
     return result
+
+
+@router.get("/costs/savings")
+async def get_costs_savings():
+    """Return what ostk saved this session via prompt caching and context
+    compression. When the ostk binary is unavailable or fails, return
+    ``{"available": false}`` with HTTP 200 so the UI can show a neutral
+    empty state instead of a blocking error.
+    """
+    savings = token_metrics.get_ostk_savings()
+    if savings is None:
+        return {"available": False}
+    return {"available": True, **savings}

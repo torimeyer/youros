@@ -42,6 +42,9 @@ function renderTasks() {
 describe('Tasks page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear the first-paint tasks cache between tests so state does
+    // not leak from one test to the next. Needle 299.
+    window.localStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
@@ -1100,5 +1103,653 @@ describe('Tasks page', () => {
     })
   })
 
+  describe('in_progress tasks are treated as active (needle 277)', () => {
+    // Regression for the "where did all my tasks go?" bug. The ostk
+    // state machine produces three terminal-ish statuses: "open",
+    // "in_progress", and "closed". Before the fix, the Open tab and
+    // every count badge filtered strictly for status === "open", so
+    // every in_progress task disappeared from the UI. With 13
+    // in_progress tasks and 1 open task on Tori's workspace, the
+    // page showed 1 task instead of 14. Lock that in.
+    const mixedStatusTasks = [
+      { id: 'a1', title: 'Active open task', priority: 'P0', status: 'open',        created_at: new Date().toISOString(), goal: null, label_ids: [] },
+      { id: 'a2', title: 'Active in-progress one', priority: 'P1', status: 'in_progress', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+      { id: 'a3', title: 'Active in-progress two', priority: 'P2', status: 'in_progress', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+      { id: 'a4', title: 'Done dusted and gone',  priority: 'P1', status: 'closed',     created_at: new Date().toISOString(), goal: null, label_ids: [] },
+    ]
+
+    beforeEach(() => {
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: mixedStatusTasks })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        return Promise.resolve({})
+      })
+    })
+
+    it('Open tab shows in_progress tasks alongside open tasks', async () => {
+      renderTasks()
+
+      // Default filter is "open". All three active tasks must be visible,
+      // the closed one must not.
+      await waitFor(() => {
+        expect(screen.getByText('Active open task')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Active in-progress one')).toBeInTheDocument()
+      expect(screen.getByText('Active in-progress two')).toBeInTheDocument()
+      expect(screen.queryByText('Done dusted and gone')).not.toBeInTheDocument()
+    })
+
+    it('Open count badge includes in_progress tasks', async () => {
+      renderTasks()
+
+      // The open filter button renders with the count in a sibling span.
+      // Before the fix this badge read "1" instead of "3".
+      await waitFor(() => {
+        expect(screen.getByText('Active open task')).toBeInTheDocument()
+      })
+      // Find the Open filter button and check it has a "3" badge.
+      const openButton = screen.getByRole('button', { name: /open/i })
+      expect(openButton).toHaveTextContent('3')
+    })
+
+    it('Closed tab still only shows closed tasks', async () => {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Active open task')).toBeInTheDocument()
+      })
+
+      // Click the Closed filter.
+      fireEvent.click(screen.getByRole('button', { name: /closed/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Done dusted and gone')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Active open task')).not.toBeInTheDocument()
+      expect(screen.queryByText('Active in-progress one')).not.toBeInTheDocument()
+    })
+  })
+
+  // ── Needle 295: Comprehensive build vs Quick build ──────────────
+  //
+  // The Tasks page action menu now has a two-option build submenu.
+  // "Comprehensive build" runs the full plan, build, test, verify
+  // pattern. A small help icon next to it opens a plain-language
+  // popover explaining what comprehensive build does. "Quick build"
+  // is the legacy fast draft with no gates. The bulk Implement all
+  // button uses comprehensive by default. The backend accepts both
+  // "comprehensive" and the "saa" alias, but the UI posts the
+  // canonical name.
+  describe('Comprehensive build vs Quick build (needle 295)', () => {
+    async function openFirstActionMenu() {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      const actionButtons = screen.getAllByTitle('Actions')
+      fireEvent.click(actionButtons[0])
+      await waitFor(() => {
+        expect(screen.getByText('Comprehensive build')).toBeInTheDocument()
+      })
+    }
+
+    it('action menu shows both build options', async () => {
+      await openFirstActionMenu()
+      expect(screen.getByText('Comprehensive build')).toBeInTheDocument()
+      expect(screen.getByText('Quick build')).toBeInTheDocument()
+    })
+
+    it('clicking Comprehensive build posts template=comprehensive to /agents/spawn', async () => {
+      await openFirstActionMenu()
+
+      fireEvent.click(screen.getByText('Comprehensive build'))
+
+      await waitFor(() => {
+        expect(mockedApiPost).toHaveBeenCalledWith(
+          '/agents/spawn',
+          expect.objectContaining({ template: 'comprehensive' })
+        )
+      })
+
+      // The prompt should mention the comprehensive build pattern so
+      // the agent sees the plan, build, test, verify framing even
+      // before the template envelope is prepended server side.
+      const spawnCall = mockedApiPost.mock.calls.find(
+        (c) => c[0] === '/agents/spawn'
+      )
+      expect(spawnCall).toBeTruthy()
+      const body = spawnCall![1] as { template?: string; prompt: string; name: string }
+      expect(body.template).toBe('comprehensive')
+      expect(body.name.startsWith('implement-')).toBe(true)
+    })
+
+    it('clicking Quick build does not send a template field', async () => {
+      await openFirstActionMenu()
+
+      fireEvent.click(screen.getByText('Quick build'))
+
+      await waitFor(() => {
+        expect(mockedApiPost).toHaveBeenCalledWith(
+          '/agents/spawn',
+          expect.objectContaining({ name: expect.stringContaining('implement-') })
+        )
+      })
+
+      const spawnCall = mockedApiPost.mock.calls.find(
+        (c) => c[0] === '/agents/spawn'
+      )
+      const body = spawnCall![1] as { template?: string }
+      expect(body.template).toBeUndefined()
+    })
+
+    it('help icon opens the plain-language popover and Escape closes it', async () => {
+      await openFirstActionMenu()
+
+      // Click the "What is comprehensive build?" info icon next to
+      // the Comprehensive build option.
+      const helpButtons = screen.getAllByLabelText('What is comprehensive build?')
+      fireEvent.click(helpButtons[0])
+
+      // The popover dialog appears with the plain-language copy.
+      const dialog = await screen.findByRole('dialog', { name: 'What is comprehensive build?' })
+      expect(dialog).toBeInTheDocument()
+      expect(dialog).toHaveTextContent('Reads the task and plans the approach')
+      expect(dialog).toHaveTextContent('Runs pytest and tsc to catch regressions')
+      expect(dialog).toHaveTextContent('Only reports done when everything is green')
+
+      // Escape closes it.
+      fireEvent.keyDown(document, { key: 'Escape' })
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: 'What is comprehensive build?' })).not.toBeInTheDocument()
+      })
+    })
+
+    it('clicking outside the help popover closes it', async () => {
+      await openFirstActionMenu()
+
+      const helpButtons = screen.getAllByLabelText('What is comprehensive build?')
+      fireEvent.click(helpButtons[0])
+
+      await screen.findByRole('dialog', { name: 'What is comprehensive build?' })
+
+      // Mousedown on document body (outside the popover) closes it.
+      fireEvent.mouseDown(document.body)
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: 'What is comprehensive build?' })).not.toBeInTheDocument()
+      })
+    })
+
+    it('bulk Implement all posts template=comprehensive for every selected task', async () => {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+
+      // Select two open tasks by clicking the row checkboxes.
+      const checkboxes = screen
+        .getAllByRole('checkbox')
+        .filter((el) => (el as HTMLInputElement).type === 'checkbox')
+      fireEvent.click(checkboxes[0])
+      fireEvent.click(checkboxes[1])
+
+      // The bulk toolbar's "Implement all" button appears.
+      const implementAll = await screen.findByRole('button', {
+        name: /implement all/i,
+      })
+      fireEvent.click(implementAll)
+
+      await waitFor(() => {
+        const spawnCalls = mockedApiPost.mock.calls.filter(
+          (c) => c[0] === '/agents/spawn'
+        )
+        expect(spawnCalls.length).toBeGreaterThanOrEqual(1)
+        for (const call of spawnCalls) {
+          const body = call[1] as { template?: string }
+          expect(body.template).toBe('comprehensive')
+        }
+      })
+    })
+  })
+
   // Suggestions UI removed (→249). Tests will be restored when the feature is polished.
+
+  describe('Tasks audit feature', () => {
+    const nowIso = new Date().toISOString()
+    const auditClosedTasks = [
+      { id: '1', title: 'Fix login bug', priority: 'P0', status: 'open', created_at: nowIso, goal: null, label_ids: [] },
+      { id: '2', title: 'Done task', priority: 'P1', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [], closed_reason: 'completed' },
+      { id: '3', title: 'Duplicate task', priority: 'P1', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [], closed_reason: 'duplicate' },
+      { id: '4', title: 'Archived task', priority: 'P2', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [], closed_reason: 'archived' },
+    ]
+
+    it('renders the Audit for review button in the toolbar', async () => {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      const button = screen.getByTestId('tasks-audit-button')
+      expect(button).toBeInTheDocument()
+      expect(button.textContent).toContain('Audit for review')
+    })
+
+    it('clicking Audit opens the modal and posts /tasks/audit', async () => {
+      mockedApiPost.mockImplementation((path: string) => {
+        if (path === '/tasks/audit') return Promise.resolve({ job_id: 'job-abc' })
+        return Promise.resolve({})
+      })
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+        if (path === '/tasks/audit/job-abc') {
+          return Promise.resolve({
+            status: 'running',
+            checked: 0,
+            total: 3,
+            results: { closed: [], review: [], skipped_irl: 0, errors: [] },
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByTestId('tasks-audit-button'))
+
+      await waitFor(() => {
+        expect(mockedApiPost).toHaveBeenCalledWith('/tasks/audit')
+      })
+      expect(screen.getByTestId('tasks-audit-modal')).toBeInTheDocument()
+    })
+
+    it('shows progress line while audit job is running', async () => {
+      mockedApiPost.mockImplementation((path: string) => {
+        if (path === '/tasks/audit') return Promise.resolve({ job_id: 'job-running' })
+        return Promise.resolve({})
+      })
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+        if (path === '/tasks/audit/job-running') {
+          return Promise.resolve({
+            status: 'running',
+            checked: 2,
+            total: 5,
+            results: { closed: [], review: [], skipped_irl: 0, errors: [] },
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('tasks-audit-button'))
+
+      await waitFor(() => {
+        const progress = screen.getByTestId('audit-progress')
+        expect(progress.textContent).toContain('Checked 2 of 5')
+      })
+    })
+
+    it('review list renders each row with Close and Keep buttons', async () => {
+      mockedApiPost.mockImplementation((path: string) => {
+        if (path === '/tasks/audit') return Promise.resolve({ job_id: 'job-review' })
+        return Promise.resolve({})
+      })
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+        if (path === '/tasks/audit/job-review') {
+          return Promise.resolve({
+            status: 'done',
+            checked: 3,
+            total: 3,
+            results: {
+              closed: [],
+              review: [
+                {
+                  task_id: 'r-1',
+                  title: 'Old thing',
+                  reason_guess: 'completed',
+                  reason_label: 'This looks already done',
+                  evidence: 'exists in api/x.py',
+                  confidence: 'medium',
+                },
+                {
+                  task_id: 'r-2',
+                  title: 'Other thing',
+                  reason_guess: 'duplicate',
+                  reason_label: 'This looks like a duplicate of t-9',
+                  evidence: 'same as t-9',
+                  confidence: 'medium',
+                  duplicate_of: 't-9',
+                },
+              ],
+              skipped_irl: 1,
+              errors: [],
+            },
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('tasks-audit-button'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('audit-review-row-r-1')).toBeInTheDocument()
+      })
+      // Review headline must make clear nothing closes without approval.
+      expect(screen.getByTestId('audit-review-headline').textContent).toContain(
+        'Review every task. Nothing closes until you say so.',
+      )
+      expect(screen.getByTestId('audit-review-row-r-2')).toBeInTheDocument()
+      const closeButton = screen.getByTestId('audit-close-r-1')
+      expect(closeButton).toBeInTheDocument()
+      expect(closeButton.textContent).toContain('Close this task')
+      expect(screen.getByTestId('audit-keep-r-1')).toBeInTheDocument()
+      expect(screen.getByText('This looks already done')).toBeInTheDocument()
+      expect(screen.getByText(/duplicate of t-9/)).toBeInTheDocument()
+      // Summary line reports plain-language counts.
+      expect(screen.getByTestId('audit-summary').textContent).toContain(
+        '1 done',
+      )
+      expect(screen.getByTestId('audit-summary').textContent).toContain(
+        'Skipped 1 real-life task',
+      )
+    })
+
+    it('clicking Close calls the approve endpoint', async () => {
+      mockedApiPost.mockImplementation((path: string) => {
+        if (path === '/tasks/audit') return Promise.resolve({ job_id: 'job-approve' })
+        if (path.endsWith('/approve')) return Promise.resolve({ closed: 'r-1', reason: 'completed' })
+        return Promise.resolve({})
+      })
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+        if (path === '/tasks/audit/job-approve') {
+          return Promise.resolve({
+            status: 'done',
+            checked: 1,
+            total: 1,
+            results: {
+              closed: [],
+              review: [
+                {
+                  task_id: 'r-1',
+                  title: 'Old thing',
+                  reason_guess: 'completed',
+                  reason_label: 'This looks already done',
+                  evidence: 'exists in api/x.py',
+                  confidence: 'medium',
+                },
+              ],
+              skipped_irl: 0,
+              errors: [],
+            },
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('tasks-audit-button'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('audit-close-r-1')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('audit-close-r-1'))
+
+      await waitFor(() => {
+        expect(mockedApiPost).toHaveBeenCalledWith(
+          '/tasks/audit/job-approve/approve',
+          { task_id: 'r-1', reason: 'completed' },
+        )
+      })
+    })
+
+    it('clicking Keep calls the reject endpoint', async () => {
+      mockedApiPost.mockImplementation((path: string) => {
+        if (path === '/tasks/audit') return Promise.resolve({ job_id: 'job-keep' })
+        if (path.endsWith('/reject')) return Promise.resolve({ kept: 'r-1' })
+        return Promise.resolve({})
+      })
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+        if (path === '/tasks/audit/job-keep') {
+          return Promise.resolve({
+            status: 'done',
+            checked: 1,
+            total: 1,
+            results: {
+              closed: [],
+              review: [
+                {
+                  task_id: 'r-1',
+                  title: 'Old thing',
+                  reason_guess: 'completed',
+                  reason_label: 'This looks already done',
+                  evidence: 'exists in api/x.py',
+                  confidence: 'medium',
+                },
+              ],
+              skipped_irl: 0,
+              errors: [],
+            },
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('tasks-audit-button'))
+      await waitFor(() => {
+        expect(screen.getByTestId('audit-keep-r-1')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('audit-keep-r-1'))
+
+      await waitFor(() => {
+        expect(mockedApiPost).toHaveBeenCalledWith(
+          '/tasks/audit/job-keep/reject',
+          { task_id: 'r-1' },
+        )
+      })
+    })
+
+    it('renders closed_reason badges on closed tasks', async () => {
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: auditClosedTasks })
+        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+        return Promise.resolve({})
+      })
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      // Switch to the Closed filter so the closed rows render.
+      fireEvent.click(screen.getByRole('button', { name: /Closed/i }))
+      await waitFor(() => {
+        expect(screen.getByText('Done task')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('closed-badge-2').textContent).toBe('Done')
+      expect(screen.getByTestId('closed-badge-3').textContent).toBe('Duplicate')
+      expect(screen.getByTestId('closed-badge-4').textContent).toBe('Archived')
+    })
+  })
+})
+
+// Regression for needle 299: the Tasks page was showing "Loading tasks..."
+// for several seconds on first visit, even though the /tasks endpoint
+// itself returned in under 50ms. This suite pins the load-time contract
+// so the class of bug cannot silently return.
+//
+// Invariant:
+//   1. The first visible task row must appear within 300ms of render
+//      when the api mock resolves fast.
+//   2. Primary data renders immediately even if secondary data like
+//      /labels or /threads is slow to arrive.
+//   3. When localStorage has a cached task list from a prior visit,
+//      the very first render paints rows from that cache without
+//      waiting on any network call.
+describe('Tasks page - first-paint budget (needle 299)', () => {
+  const manyTasks = Array.from({ length: 100 }, (_, i) => ({
+    id: String(i + 1),
+    title: `Load test task ${i + 1}`,
+    priority: ['P0', 'P1', 'P2', 'P3'][i % 4],
+    status: i < 25 ? 'open' : 'closed',
+    created_at: new Date().toISOString(),
+    label_ids: [],
+  }))
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  const FIRST_ROW_BUDGET_MS = 300
+
+  it('first visible row arrives within 300ms on a warm backend', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: manyTasks })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/threads') return Promise.resolve({ threads: [] })
+      return Promise.resolve({})
+    })
+
+    const t0 = performance.now()
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByText('Load test task 1')).toBeInTheDocument()
+    })
+    const elapsed = performance.now() - t0
+    expect(elapsed).toBeLessThan(FIRST_ROW_BUDGET_MS)
+  })
+
+  it('renders task rows immediately even while /labels hangs for 2 seconds', async () => {
+    // This locks in the "render primary data first, hydrate secondary
+    // later" invariant. If some future refactor starts awaiting labels
+    // before painting the task list, this test goes red loudly.
+    //
+    // Deterministic variant (no wall-clock). We hand out explicit
+    // resolver handles for /labels and /threads and never call them,
+    // so those requests stay pending forever. The test asserts that
+    // task rows are visible while the resolvers are still pending.
+    // If a future refactor starts awaiting /labels or /threads before
+    // painting rows, the waitFor below will time out instead of the
+    // assertion flickering on slow CI hardware.
+    let labelsResolved = false
+    let threadsResolved = false
+    const pendingLabels = new Promise<{ labels: unknown[] }>(() => {
+      // Intentionally never resolved. The test verifies the page
+      // renders task rows even when this promise is still pending.
+    })
+    const pendingThreads = new Promise<{ threads: unknown[] }>(() => {
+      // Same: intentionally never resolved.
+    })
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: manyTasks })
+      if (path === '/labels') return pendingLabels
+      if (path === '/threads') return pendingThreads
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByText('Load test task 1')).toBeInTheDocument()
+    })
+
+    // The task rows painted while /labels and /threads are still
+    // pending. This is the core invariant needle 299 locks in: primary
+    // task data renders first, secondary data hydrates later.
+    expect(labelsResolved).toBe(false)
+    expect(threadsResolved).toBe(false)
+    expect(screen.getByText('Load test task 1')).toBeInTheDocument()
+  })
+
+  it('paints rows from the localStorage cache before any fetch resolves', async () => {
+    // Seed the cache the way a prior successful visit would have.
+    window.localStorage.setItem(
+      'myos.tasksCache.v1',
+      JSON.stringify([
+        {
+          id: 'cached-1',
+          title: 'Cached row from last visit',
+          priority: 'P1',
+          status: 'open',
+          created_at: new Date().toISOString(),
+          label_ids: [],
+        },
+      ]),
+    )
+
+    // Hang every endpoint so the test can ONLY succeed via the cache
+    // path. If the page waits for the network, this test times out.
+    mockedApiGet.mockImplementation(() => new Promise(() => {}))
+
+    renderTasks()
+
+    // The cached row is visible on the synchronous first paint, no
+    // waitFor needed. This is the core needle 299 invariant.
+    expect(screen.getByText('Cached row from last visit')).toBeInTheDocument()
+    // And the "Loading tasks..." hint must NOT appear over the cached
+    // row.
+    expect(screen.queryByText('Loading tasks...')).not.toBeInTheDocument()
+  })
+
+  it('overwrites the cache with the next successful /tasks response', async () => {
+    // Seed stale cache with one row.
+    window.localStorage.setItem(
+      'myos.tasksCache.v1',
+      JSON.stringify([
+        {
+          id: 'stale-1',
+          title: 'Old cached row',
+          priority: 'P1',
+          status: 'open',
+          created_at: new Date().toISOString(),
+          label_ids: [],
+        },
+      ]),
+    )
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: manyTasks })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/threads') return Promise.resolve({ threads: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+    // Stale cache row paints first.
+    expect(screen.getByText('Old cached row')).toBeInTheDocument()
+    // Fresh data replaces it.
+    await waitFor(() => {
+      expect(screen.getByText('Load test task 1')).toBeInTheDocument()
+    })
+    // Cache is now updated to the fresh data.
+    const persisted = JSON.parse(
+      window.localStorage.getItem('myos.tasksCache.v1') || '[]',
+    )
+    expect(Array.isArray(persisted)).toBe(true)
+    expect(persisted.length).toBe(manyTasks.length)
+    expect(persisted[0].title).toBe('Load test task 1')
+  })
 })

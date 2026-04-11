@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 
 from services.google_auth import get_email, is_authenticated
@@ -65,6 +67,14 @@ async def gmail_messages():
 
     try:
         messages = await gmail_service.get_inbox_messages()
+    except asyncio.TimeoutError as exc:
+        # Gmail API took longer than our 25 second ceiling and we have
+        # no stale cache to fall back to. Tell the user something
+        # useful instead of a generic 500.
+        raise HTTPException(
+            status_code=504,
+            detail="Gmail is slow to respond right now. Try again in a moment.",
+        ) from exc
     except Exception as exc:
         msg = str(exc).lower()
         if "accessnotconfigured" in msg or "has not been used" in msg:
@@ -77,9 +87,13 @@ async def gmail_messages():
                 status_code=403,
                 detail={"needs_reauth": True, "message": str(exc)},
             ) from exc
+        # Preserve any non-empty exception message; fall back to a
+        # generic hint when the exception chain provides nothing
+        # useful (empty-string TimeoutError, for example).
+        reason = str(exc).strip() or "Gmail did not respond."
         raise HTTPException(
             status_code=500,
-            detail=f"Could not load Gmail messages: {exc}",
+            detail=f"Could not load Gmail messages: {reason}",
         ) from exc
 
     return {"messages": messages}

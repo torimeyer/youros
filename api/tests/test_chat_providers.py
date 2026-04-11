@@ -650,6 +650,21 @@ class _FakeGeminiResponse:
         for chunk in self._chunks:
             yield chunk
 
+    def __aiter__(self):
+        # Production uses ``async for chunk in response`` now that
+        # stream_gemini awaits ``send_message_async``. Support both so
+        # test fixtures keep working.
+        if self._raise_blocked_prompt:
+            import google.generativeai as genai
+            raise genai.types.BlockedPromptException(
+                "prompt blocked for test"
+            )
+
+        async def _agen():
+            for chunk in self._chunks:
+                yield chunk
+        return _agen()
+
 
 class _FakeGeminiChat:
     def __init__(self, response: _FakeGeminiResponse):
@@ -657,6 +672,9 @@ class _FakeGeminiChat:
         self.history = []
 
     def send_message(self, content, stream=False):
+        return self._response
+
+    async def send_message_async(self, content, stream=False):
         return self._response
 
 
@@ -983,6 +1001,9 @@ class TestGeminiFinishReasonHandling:
 
         class _QuotaErrorChat:
             def send_message(self, content, stream=False):
+                raise quota_exc
+
+            async def send_message_async(self, content, stream=False):
                 raise quota_exc
 
         class _QuotaErrorModel:
@@ -1437,6 +1458,10 @@ class _RecordingFakeGeminiChat:
         self._log.append(content)
         return self._response
 
+    async def send_message_async(self, content, stream=False):
+        self._log.append(content)
+        return self._response
+
 
 class _RecordingFakeGeminiModel:
     def __init__(self, response: "_FakeGeminiResponse", send_log: list, history_log: list):
@@ -1671,6 +1696,13 @@ class TestGeminiContentBlobRegression:
                     ".types.content.Content'>"
                 )
 
+            async def send_message_async(self, content, stream=False):
+                raise TypeError(
+                    "Could not create `Blob`, expected `Blob`, `dict` or an `Image`"
+                    " type.\nGot a: <class 'google.ai.generativelanguage_v1beta"
+                    ".types.content.Content'>"
+                )
+
         class _BlobRaisingModel:
             def start_chat(self, history=None):
                 return _BlobRaisingChat()
@@ -1716,6 +1748,125 @@ class TestGeminiContentBlobRegression:
         # a blank assistant bubble.
         dones = websocket.get_messages_of_type("done")
         assert len(dones) == 0
+
+
+class TestGeminiDoesNotBlockEventLoop:
+    """Regression for needle 275 (pages load slowly).
+
+    The google.generativeai SDK's ``send_message(stream=True)`` returns
+    a SYNCHRONOUS generator. If ``stream_gemini`` iterates that generator
+    directly from the async websocket handler, every ``next()`` call
+    blocks the uvicorn event loop. While a Gemini turn was streaming,
+    every OTHER HTTP request served by the same worker (tasks,
+    briefings, agents, health, openapi.json) froze for the duration
+    of the stream. The fix: route both the initial ``send_message``
+    call and each ``next()`` through ``asyncio.to_thread`` so the loop
+    stays free between chunks.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_does_not_block_event_loop(self):
+        """Run a concurrent async task while stream_gemini pulls chunks
+        from a blocking sync iterator. The concurrent task must make
+        progress during the stream. Without asyncio.to_thread this test
+        times out because the sync iteration hogs the loop.
+        """
+        import asyncio
+        import threading
+        import time as _time
+        import google
+        import google.generativeai as real_genai
+        import sys
+
+        websocket = FakeWebSocket()
+        service = ChatService()
+
+        # Gate that the fake sync iterator waits on. The concurrent
+        # task releases the gate after a short sleep, proving the loop
+        # was free while the sync iterator was sleeping in a thread.
+        release = threading.Event()
+
+        class _BlockingResponse:
+            prompt_feedback = type("_PF", (), {"block_reason": None})()
+            candidates = [
+                type("_C", (), {"finish_reason": type("_FR", (), {"name": "STOP"})()})()
+            ]
+
+            def __iter__(self):
+                # First chunk emits text, but only after the concurrent
+                # task has released the gate. If the event loop were
+                # blocked in this method the gate would never flip and
+                # the test would time out.
+                released = release.wait(timeout=3.0)
+                assert released, "concurrent task never released the gate"
+                yield type("Chunk", (), {"text": "hello"})()
+
+        class _BlockingChat:
+            history: list = []
+
+            def send_message(self, content, stream=False):
+                return _BlockingResponse()
+
+        class _BlockingModel:
+            def start_chat(self, history=None):
+                return _BlockingChat()
+
+        fake_genai_module = MagicMock()
+        fake_genai_module.configure = MagicMock()
+        fake_genai_module.GenerativeModel = MagicMock(return_value=_BlockingModel())
+        fake_genai_module.types = real_genai.types
+        fake_genai_module.protos = real_genai.protos
+
+        original_sys_module = sys.modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        sys.modules["google.generativeai"] = fake_genai_module
+        google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+
+        async def release_after_delay():
+            # Short async sleep. If the loop is blocked by the sync
+            # iterator in stream_gemini, this coroutine never gets to
+            # run and the gate never releases.
+            await asyncio.sleep(0.05)
+            release.set()
+
+        try:
+            with patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value="test-key"),
+            ):
+                start = _time.perf_counter()
+                # Kick off both at once. If the event loop is free during
+                # the sync iteration, release_after_delay runs promptly
+                # and the stream returns shortly after.
+                results = await asyncio.wait_for(
+                    asyncio.gather(
+                        service.stream_gemini(
+                            [{"role": "user", "content": "hi"}],
+                            websocket,
+                        ),
+                        release_after_delay(),
+                    ),
+                    timeout=2.0,
+                )
+                elapsed = _time.perf_counter() - start
+        finally:
+            if original_sys_module is not None:
+                sys.modules["google.generativeai"] = original_sys_module
+            else:
+                sys.modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+
+        # The stream completed and we got our token.
+        tokens = websocket.get_messages_of_type("token")
+        assert len(tokens) == 1
+        assert tokens[0]["data"] == "hello"
+        dones = websocket.get_messages_of_type("done")
+        assert len(dones) == 1
+        # Sanity: the full cycle finished well under the timeout.
+        assert elapsed < 1.5, f"stream took {elapsed*1000:.0f}ms, loop likely blocked"
 
 
 class TestGeminiContentToTextHelper:

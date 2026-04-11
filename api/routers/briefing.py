@@ -7,6 +7,8 @@ POST /api/briefing/dismiss mark the briefing dismissed for today
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 
 from fastapi import APIRouter
 
@@ -18,20 +20,36 @@ from services.briefing import (
     should_show_briefing,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["briefing"])
 
 _generating = False
+# Monotonic timestamp of the last successful background generation.
+# The /api/briefing handler used to spawn a fresh generate task on EVERY
+# page mount if the cached briefing was stale, so opening Home five times
+# in a minute fired five concurrent Claude calls. The cooldown below
+# means repeated mounts within the window reuse the previous trigger
+# instead of fanning out. Expressed in seconds of monotonic time so the
+# wall clock cannot jump us out of the cooldown accidentally.
+_last_generated_at: float = 0.0
+_REGENERATE_COOLDOWN_SECONDS = 120.0
 
 
 async def _generate_in_background() -> None:
-    global _generating
+    global _generating, _last_generated_at
     if _generating:
         return
     _generating = True
     try:
         await generate_briefing()
+        _last_generated_at = time.monotonic()
     except Exception:
-        pass
+        # Briefing generation errors used to be swallowed silently,
+        # leaving users staring at a null briefing with zero clue
+        # what went wrong. Log the stack so server logs surface the
+        # real reason (missing API key, model timeout, etc.).
+        logger.exception("background briefing generation failed")
     finally:
         _generating = False
 
@@ -49,6 +67,16 @@ async def get_briefing():
 
     cached = get_cached_briefing()
     if cached and not await _task_count_changed():
+        return {"show": True, "briefing": cached}
+
+    # Cooldown: if we just fired a generation within the last 2 min,
+    # do not spawn another one. Return the stale cache (if any) so the
+    # UI shows something instead of spinning a second parallel Claude
+    # call that would land on top of the first.
+    if (
+        _last_generated_at
+        and (time.monotonic() - _last_generated_at) < _REGENERATE_COOLDOWN_SECONDS
+    ):
         return {"show": True, "briefing": cached}
 
     # Return immediately, generate in background
