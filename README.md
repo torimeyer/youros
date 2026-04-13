@@ -57,6 +57,15 @@ nvm install 20
 
 If you have SSH keys set up, you can also use `git clone git@github.com:torimeyer/myos.git ~/myos`.
 
+## Updating
+
+```bash
+cd ~/myos
+./update.sh
+```
+
+Your settings, chats, tasks, and labels live in `~/.myos/` (separate from the repo) and are never touched by updates. You can also verify this by running `ls -la ~/.myos/` before and after.
+
 ## Start
 
 ```bash
