@@ -1,99 +1,66 @@
 # myOS Product Roadmap
 
-## What myOS is today
-
-myOS is your personal operating system. It runs locally on your machine and gives you one place to manage tasks, capture ideas, talk to AI, spawn background agents, browse files, and track costs. It is built on ostk and connects to Claude and Gemini.
-
-### Current features (April 2026)
-
-- **Dashboard.** Smart focus card ("do this first"), day summary, session diff ("what changed"), quick launch, labels overview. Next meeting widget (requires Google Calendar).
-- **Tasks.** Create, prioritize (P0/P1/P2), close, reopen. Labels for organization. Dependencies (blocks/needs). Task briefings with full context. Health check for duplicates and missing info. Attributed commits linked to tasks. Attribution tracing (idea to commit history). Auto-labeling on creation and backfill on boot.
-- **Activity.** Chronological feed of everything that happened. Filter by category (tasks, agents, ideas, system). Powered by ostk os history.
-- **Chat.** Slide-out panel with Claude and Gemini. Multiple chat tabs. Tool mode (agent mode) for Claude with file editing, task creation, and agent spawning. Resizable. GIF search, emoji reactions, image paste. Default LLM chooser. Calendar and task context injected automatically when relevant.
-- **Agents.** Spawn Claude Code agents with custom prompts, models, and budgets. Permission requests (approve/deny). Delegation view showing which tasks to hand off. Agent templates. Duration estimation. Ghost agent cleanup on boot.
-- **Ideas.** Quick-capture thoughts. AI-powered clustering of related ideas. Convert ideas into tasks. Template picker (Feature idea, Problem to solve, Research spike, Meeting follow-up, Integration). Chat-to-idea ("save this as an idea" in chat). Idea aging badges. Admin-defined template library.
-- **Files.** Browse projects, navigate directories, preview text, image, and Office files (.pptx, .pdf).
-- **Google Drive.** Connect your Google account and browse, search, and preview Google Docs, Slides, and Sheets inside myOS. 1-hour preview cache. Drag-and-drop credentials setup.
-- **Google Calendar.** View today's events and the next 7 days. Create tasks from events. "What's on my calendar today?" works in chat. Meet link shortcuts.
-- **Notifications.** Bell icon with unread badge. Persistent notification store. Upgrade alerts, sync alerts, and agent completion notices.
-- **Upgrade check.** myOS checks for new versions of itself and the ostk kernel on startup. One-click upgrade from the settings page.
-- **Settings sync.** Keep settings, preferences, and idea templates in sync across machines via a private git repo. Auto-pull on boot.
-- **Timeline.** Visual view of tasks over time with week, month, and quarter views.
-- **Cost Tracking.** Budget allocation, breakdown by model, agent history.
-- **Settings.** OS name, theme, accent color, default LLM, Google OAuth sign-in (connect/disconnect), MCP servers (ostk-managed and manual), feature toggles, export/import config (API keys excluded). Sync configuration.
-- **Search.** Cmd+K concept search across tasks and ideas, plus quick navigation commands.
-- **What's New.** Release notes with badge for unseen updates.
-- **Onboarding.** Setup wizard with name, theme, AI provider, and dream-to-plan feature.
-- **Guided Tour.** Walkthrough of all major features for new users.
-- **Keyboard shortcuts.** Cmd+K (search), Cmd+L (chat), Cmd+N (new task), Cmd+1-8 (navigation).
-
-### ostk depth
-
-myOS now covers roughly 70% of ostk's surface area, including: work management (add/close/list/next/link/depends/near/activate/refine/radiate/hay/compile), threading, compounds, document lifecycle (draft/promote/decompose), attributed commits, tracing, os operations (history/diff/clock/status/metrics), agent management (spawn/ps/reap), grants (list/approve/deny), secrets (set/get/list), and MCP server listing.
+Last updated: April 2026
 
 ---
 
-## Year 1 (2026): Foundation and Daily Use
+## Year 1 (2026): Make it indispensable
 
-### Q2 2026: Polish and Integrations
+### Q2 2026: Quick wins and chat intelligence
 
-1. **Chat history persistence.** Save conversations across browser refreshes.
-2. **Mobile-friendly layout.** Dashboard and task list usable on phone or tablet.
-3. **Email summaries.** Connect to Gmail and surface unread email summaries.
-4. **Briefing.** Auto-generated daily summary when you open myOS, available at any hour. Built on top of calendar, tasks, and activity. Most of the pieces are already there.
-5. **Integration health dashboard.** One place to see which integrations (Drive, Calendar, Gmail) are connected and working. Surface errors before they become surprises.
-6. **Meeting prep agent.** Before a calendar event, automatically gather relevant tasks, Drive docs, and recent chat context into a briefing.
+1. **Chat memory across sessions.** The AI remembers what you talked about in prior conversations without you repeating context. Storage exists, just needs wiring into the chat prompt.
+2. **Email-to-task conversion.** "Create task" button on emails in the Gmail view. AI extracts a title and description from the email body.
+3. **Calendar-to-tasks automation.** After a meeting ends, suggest action items as tasks. "Create post-meeting tasks" button on meeting prep briefings.
+4. **Integration health dashboard.** One place to see which integrations (Drive, Calendar, Gmail) are connected and working. Surface errors before they become surprises.
 
-### Q3 2026: Workflows and Automation
+### Q3 2026: Polish and reliability
 
-1. **Recurring tasks and routines.** Tasks that repeat on a schedule.
-2. **Scheduled agents.** Agents that run at specific times or on a recurring basis.
-3. **Export and sharing.** Export task lists, progress, and timeline views as documents.
-4. **Plugin system via MCP.** MCP servers are already wired in. Formalize a plugin model so users can add integrations (Slack, Jira, Notion) by registering an MCP server, without modifying core code.
-5. **Audit trail export.** One-click export of the ostk audit log as a formatted report. Needed for enterprise compliance reviews.
+5. **Mobile-responsive layout.** Every page works on phone and tablet. Touch-friendly button sizing, collapsible chat panel on mobile, tablet-optimized layouts.
+6. **Push notifications.** Native OS notifications when agents finish, tasks are due, or emails arrive. Works even when the browser tab is closed.
+7. **Offline task management.** Tasks page works without internet. Reads from cache, queues writes, syncs when connection returns.
 
-### Q4 2026: Intelligence and Voice
+### Q4 2026: Integrations
 
-1. **Smart task suggestions.** Analyze work patterns and proactively suggest priority changes.
-2. **Stale work detection.** Flag tasks and ideas that have not had activity in a while.
-3. **Pattern recognition.** Learn which agent configurations and workflows work best.
-4. **Drag-and-drop task ordering.** Manually reorder tasks between priority levels and labels.
-5. **Voice interface.** Capture ideas and give instructions hands-free. Claude's voice APIs make this closer than the original 2027 estimate.
-6. **Document indexing.** Index the content of Drive files, PDFs, and slide decks so they are searchable and usable as chat context. (Preview and file access already exist — indexing is the next step.)
+8. **Slack integration.** OAuth flow, read/post messages, link tasks to Slack threads, get notified in myOS when mentioned in Slack.
+9. **GitHub issues sync.** Connect a repo, import issues as tasks. Status changes reflect back to GitHub. PR status shows on linked tasks.
+10. **Linear/Jira import.** One-time import from Linear or Jira. Maps issues to myOS tasks with labels, priority, and status.
 
 ---
 
-## Year 2 (2027): Power and Scale
+## Year 2 (2027): Make it collaborative
 
-### Q1-Q2 2027: Advanced Agent Orchestration
+### Q1-Q2 2027: Multi-user foundations
 
-1. **Multi-agent workflows.** Jobs requiring several agents in sequence or parallel.
-2. **Agent memory.** Agents remember past sessions and pick up where they left off.
-3. **Agent collaboration.** Running agents share information through a shared workspace.
-4. **Agent templates library.** Curated templates for common PM tasks.
-5. **Budget controls.** Spending limits and alerts per agent, per day, per project.
+1. **Real multi-user auth.** Login per person, not just an enterprise member list.
+2. **Shared task boards.** Team can see and assign tasks to each other.
+3. **Agent output sharing (live).** One person's running agent is visible to teammates in real time.
+4. **Role-based access.** Some people can spawn agents, others can only view.
+5. **Shared knowledge base.** Notes and docs visible across the team.
 
-### Q3-Q4 2027: Knowledge Management
+### Q3-Q4 2027: Team intelligence
 
-1. **Personal knowledge base.** Searchable knowledge graph from transcripts, outputs, ideas, and notes.
-2. **Weekly and monthly reviews.** Auto-generated progress reports with trends.
-3. **Cross-project insights.** Identify connections between projects.
-4. **Enterprise install packages.** Distributable myOS builds pre-configured for a specific organization (auth proxy, default settings, credentials). The NR enterprise path is the first example of this pattern.
+6. **Team dashboard.** Who is working on what, blockers, velocity across people.
+7. **Handoff workflows.** When you finish your part, it automatically routes to the next person.
+8. **Shared agent templates.** Team builds a library of proven agent patterns.
+9. **Cross-person briefings.** Your daily briefing includes what teammates shipped yesterday.
+10. **Compliance reporting.** Who did what, when, how much it cost, exportable for audits.
 
 ---
 
-## Year 3 (2028): Platform and Vision
+## Year 3 (2028): Make it autonomous
 
-### Q1-Q2 2028: Platform Capabilities
+### Q1-Q2 2028: Proactive agents
 
-1. **Custom dashboards.** Create your own layouts with preferred widgets.
-2. **Workflow builder.** Visual tool for multi-step automations.
-3. **Team sharing.** Share views, labels, or agent outputs with teammates.
-4. **Predictive planning.** Estimate goal timelines and warn about unrealistic deadlines.
+1. **Scheduled agent runs.** Run a research agent every Monday morning automatically.
+2. **Trigger-based automation.** When a new email matches a rule, create a task and assign an agent.
+3. **Long-running agents.** Agents that span days, check in, report progress, ask questions, keep going.
+4. **Agent-to-agent delegation.** One agent discovers it needs help and spawns another.
+5. **Self-healing infrastructure.** myOS detects its own issues and fixes them without you noticing.
 
-### Q3-Q4 2028: Long-Term Vision
+### Q3-Q4 2028: Platform
 
-1. **Ambient awareness.** Monitor relevant signals and surface what matters.
-2. **Career growth tracking.** Track skills, projects, and impact over time.
-3. **Open ecosystem.** Publish patterns so others can build their own personal OS.
-4. **Enterprise mode.** Team-wide ostk with shared audit trails and governance.
+6. **Plugin marketplace.** Community-built integrations and agent templates.
+7. **API for external tools.** Zapier, Make, custom webhooks can talk to myOS.
+8. **Multi-device sync with conflict resolution.** Desktop, phone, tablet all stay in sync.
+9. **Voice interface.** Talk to myOS like a real assistant, not just text.
+10. **Self-hosted enterprise deployment.** Run myOS on your own infrastructure with full data control.
