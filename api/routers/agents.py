@@ -1001,16 +1001,16 @@ async def list_agents():
                     pass
             agents_map[name] = {
                 "name": name,
-                "status": "completed" if proc.returncode == 0 else "failed",
                 "source": "api",
                 **meta,
+                "status": "completed" if proc.returncode == 0 else "failed",
             }
         else:
             agents_map[name] = {
                 "name": name,
-                "status": "running",
                 "source": "api",
                 **meta,
+                "status": "running",
             }
 
     # 2b. Persisted metadata (agents from previous server sessions)
@@ -1116,9 +1116,9 @@ async def list_agents():
         elif pid and _is_pid_alive(pid):
             agents_map[name] = {
                 "name": name,
-                "status": "running",
                 "source": "api",
                 **meta,
+                "status": "running",
             }
         else:
             # Process is dead (or externally managed). Check transcript for completion.
@@ -1126,9 +1126,9 @@ async def list_agents():
             if transcript.exists() and transcript.stat().st_size > 0:
                 agents_map[name] = {
                     "name": name,
-                    "status": "completed",
                     "source": meta.get("source", "api"),
                     **meta,
+                    "status": "completed",
                 }
             elif is_registered:
                 # Externally registered agent with no pid and no transcript.
@@ -1151,16 +1151,16 @@ async def list_agents():
                     _save_agent_state()
                     agents_map[name] = {
                         "name": name,
-                        "status": "abandoned",
                         "source": "claude-code",
                         **meta,
+                        "status": "abandoned",
                     }
                 else:
                     agents_map[name] = {
                         "name": name,
-                        "status": "running",
                         "source": "claude-code",
                         **meta,
+                        "status": "running",
                     }
 
     # 3. Daemon agents (highest priority, ground truth)

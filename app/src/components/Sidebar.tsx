@@ -109,6 +109,7 @@ export function Sidebar() {
     { to: '/github', icon: 'code', label: 'GitHub', featureLabel: 'GitHub' },
     { to: '/costs', icon: 'payments', label: 'Cost Tracking', featureLabel: 'Cost Tracking' },
     { to: '/docs', icon: 'description', label: 'Docs', featureLabel: 'Docs' },
+    { to: '/workflows', icon: 'account_tree', label: 'Automations', featureLabel: 'Automations' },
   ]
   const [activeAgents, setActiveAgents] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)

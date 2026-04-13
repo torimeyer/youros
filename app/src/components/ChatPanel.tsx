@@ -778,11 +778,15 @@ export function ChatPanel() {
     setReplyingTo(null)
     setPendingImage(null)
 
-    // Build the messages payload
+    // Build the messages payload. Include the model field on assistant
+    // messages so the backend can detect multi-model conversations and
+    // include the full history for models that need cross-model context.
     const apiMessages = updatedMessages.map(m => {
-      if (m.imageUrl) return { role: m.role, content: m.content || '[image]', image: m.imageUrl }
-      if (m.gifUrl) return { role: m.role, content: `[gif:${m.gifUrl}]` }
-      return { role: m.role, content: m.content || '' }
+      const base: Record<string, string> = { role: m.role, content: m.content || '' }
+      if (m.model) base.model = m.model
+      if (m.imageUrl) { base.content = m.content || '[image]'; (base as any).image = m.imageUrl }
+      if (m.gifUrl) base.content = `[gif:${m.gifUrl}]`
+      return base
     })
     if (userMessage.replyTo) {
       const repliedMsg = messages.find(m => m.id === userMessage.replyTo)

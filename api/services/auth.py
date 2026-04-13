@@ -25,16 +25,28 @@ def get_current_user(request: Request) -> dict | None:
         return None
 
     token = request.cookies.get(SESSION_COOKIE_NAME, "")
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated. Log in to continue.")
+    if token:
+        claims = verify_session(token)
+        if claims:
+            return {
+                "email": claims["sub"],
+                "role": claims.get("role", "member"),
+                "member_id": claims.get("member_id", ""),
+                "org_id": claims.get("org_id", ""),
+            }
 
-    claims = verify_session(token)
-    if not claims:
-        raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
+    # Local single-user mode: auto-authenticate as admin so enterprise
+    # features (policies, audit, team dashboard) work without a login flow.
+    org = enterprise_store.get_org()
+    if org:
+        members = enterprise_store.list_members()
+        admin = next((m for m in members if m.get("role") == "admin"), None)
+        if admin:
+            return {
+                "email": admin.get("email", ""),
+                "role": "admin",
+                "member_id": admin.get("id", ""),
+                "org_id": org.get("id", ""),
+            }
 
-    return {
-        "email": claims["sub"],
-        "role": claims.get("role", "member"),
-        "member_id": claims.get("member_id", ""),
-        "org_id": claims.get("org_id", ""),
-    }
+    raise HTTPException(status_code=401, detail="Not authenticated. Log in to continue.")

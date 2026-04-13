@@ -349,11 +349,12 @@ async def stream_chat(
     # instead of flattening messages into a single prompt string.
     tab_id = kwargs.get("tab_id")
     saw_partial = False  # track if we got stream deltas (avoid double-counting)
+    saw_deltas = False   # track if any streaming deltas arrived (skip assistant dup)
 
     if tab_id:
         session_uuid = _session_id_for_tab(tab_id)
         is_resume = session_uuid in _known_sessions
-        # In session mode, only send the latest user message
+        # Extract the latest user message
         last_msg = ""
         for msg in reversed(messages):
             if msg.get("role") == "user":
@@ -366,7 +367,46 @@ async def stream_chat(
                 else:
                     last_msg = str(content)
                 break
-        prompt = last_msg or "hello"
+
+        # Check if the conversation has messages from other models.
+        # Claude's session only stores its own turns, so messages from
+        # Gemini or other providers are invisible to it. When that
+        # happens, include the full conversation as context so Claude
+        # can see what the other models said.
+        has_other_model_msgs = any(
+            msg.get("model") and msg.get("model") != "claude"
+            for msg in messages
+            if msg.get("role") == "assistant"
+        )
+        if has_other_model_msgs and is_resume:
+            # Build a context preamble with the conversation so far,
+            # then append the latest user message at the end.
+            context_lines: list[str] = [
+                "Here is the full conversation so far (it includes "
+                "responses from multiple AI models):",
+                "",
+            ]
+            for msg in messages[:-1]:  # exclude the latest user msg
+                role = msg.get("role", "")
+                c = msg.get("content", "")
+                if isinstance(c, list):
+                    c = " ".join(
+                        b.get("text", "") for b in c
+                        if isinstance(b, dict) and b.get("type") == "text"
+                    )
+                c = str(c or "").strip()
+                if not c:
+                    continue
+                model_tag = msg.get("model", role)
+                if role == "user":
+                    context_lines.append(f"User: {c}")
+                else:
+                    context_lines.append(f"{model_tag}: {c}")
+            context_lines.append("")
+            context_lines.append(f"User: {last_msg}")
+            prompt = "\n\n".join(context_lines)
+        else:
+            prompt = last_msg or "hello"
         saw_partial = True  # session mode always uses partial messages
     else:
         session_uuid = None
@@ -418,7 +458,7 @@ async def stream_chat(
     final_usage: Optional[dict] = None
 
     async def _read_stdout() -> None:
-        nonlocal full_text, final_usage
+        nonlocal full_text, final_usage, saw_deltas
         assert proc.stdout is not None
         while True:
             line = await proc.stdout.readline()
@@ -429,11 +469,22 @@ async def stream_chat(
             except json.JSONDecodeError:
                 continue
 
+            etype = event.get("type", "")
             text, done, usage, extra_msg = _handle_stream_event(event)
             if text:
-                if not saw_partial:
-                    full_text += text
-                await _send_safe(websocket, {"type": "token", "data": text})
+                if etype == "stream_event":
+                    saw_deltas = True
+                # The "assistant" event carries the complete response text.
+                # When streaming deltas already forwarded it chunk-by-chunk,
+                # sending it again would duplicate the entire response.
+                if etype == "assistant" and saw_deltas:
+                    if not saw_partial:
+                        full_text += text
+                    # Skip WebSocket send, deltas already delivered this text
+                else:
+                    if not saw_partial:
+                        full_text += text
+                    await _send_safe(websocket, {"type": "token", "data": text})
             if extra_msg:
                 await _send_safe(websocket, extra_msg)
             if done:

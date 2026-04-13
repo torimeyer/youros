@@ -207,23 +207,37 @@ export default function OnboardingWizard() {
     }
   }
 
-  // Dark-mode-aware style helpers
-  const inputCls = darkMode
+  // Force light mode for all steps before the user picks a theme.
+  // darkMode defaults to true in the store, but the user hasn't chosen yet,
+  // so pre-theme steps should always look light.
+  const themeIdx = (STEPS as readonly string[]).indexOf('Theme')
+  const effectiveDark = themeIdx >= 0 && stepIndex >= themeIdx ? darkMode : false
+
+  // Sync the document data-theme attribute so global CSS variables and
+  // Tailwind's dark variant match the effective mode. Without this,
+  // data-theme stays "dark" from a prior session (via localStorage)
+  // and dark-variant styles override our explicit light-mode classes.
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', effectiveDark ? 'dark' : 'light')
+  }, [effectiveDark])
+
+  // Dark-mode-aware style helpers (use effectiveDark, not darkMode)
+  const inputCls = effectiveDark
     ? 'bg-slate-800 border-slate-700 text-white'
     : 'bg-white border-gray-300 text-slate-900'
-  const subtextCls = darkMode ? 'text-slate-400' : 'text-slate-500'
-  const cardCls = darkMode
+  const subtextCls = effectiveDark ? 'text-slate-400' : 'text-slate-500'
+  const cardCls = effectiveDark
     ? 'bg-slate-900/60 border-slate-800'
     : 'bg-white border-gray-200 shadow-sm'
-  const dotInactiveCls = darkMode ? 'bg-slate-700' : 'bg-gray-300'
-  const navBtnCls = darkMode
+  const dotInactiveCls = effectiveDark ? 'bg-slate-700' : 'bg-gray-300'
+  const navBtnCls = effectiveDark
     ? 'text-slate-400 hover:text-white'
     : 'text-slate-500 hover:text-slate-900'
 
   return (
     <div
       className={`fixed inset-0 z-50 flex items-center justify-center transition-colors duration-300 ${
-        darkMode ? 'bg-slate-950 text-white' : 'bg-gray-50 text-slate-900'
+        effectiveDark ? 'bg-slate-950 text-white' : 'bg-gray-50 text-slate-900'
       }`}
       data-testid="onboarding-wizard"
     >
@@ -242,7 +256,7 @@ export default function OnboardingWizard() {
 
         {/* Step content */}
         <div className="min-h-[320px]">
-          {step === 'Fork' && <ForkStep onChoose={handleForkChoice} subtextCls={subtextCls} cardCls={cardCls} darkMode={darkMode} />}
+          {step === 'Fork' && <ForkStep onChoose={handleForkChoice} subtextCls={subtextCls} cardCls={cardCls} darkMode={effectiveDark} />}
           {step === 'Welcome' && <WelcomeStep subtextCls={subtextCls} />}
           {step === 'You' && (
             <YouStep
@@ -332,16 +346,16 @@ export default function OnboardingWizard() {
                       className={`flex items-center gap-4 p-4 rounded-xl border text-left transition-colors ${
                         isPicked
                           ? 'bg-blue-500/20 border-blue-500'
-                          : `${cardCls} ${darkMode ? 'hover:border-slate-700' : 'hover:border-gray-400'}`
+                          : `${cardCls} ${effectiveDark ? 'hover:border-slate-700' : 'hover:border-gray-400'}`
                       }`}
                     >
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                        isPicked ? 'bg-blue-500/30 text-blue-300' : darkMode ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
+                        isPicked ? 'bg-blue-500/30 text-blue-300' : effectiveDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
                       }`}>
                         <Icon name={PERSONA_ICONS[cat.id] || 'person'} size={22} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className={`font-medium ${darkMode ? 'text-white' : 'text-slate-900'}`}>{cat.category}</p>
+                        <p className={`font-medium ${effectiveDark ? 'text-white' : 'text-slate-900'}`}>{cat.category}</p>
                         <p className={`text-sm ${subtextCls}`}>{cat.tagline}</p>
                       </div>
                       {isPicked && <Icon name="check_circle" className="text-blue-400" size={20} />}
@@ -408,10 +422,10 @@ export default function OnboardingWizard() {
             <AdminEmailStep adminEmail={teamAdminEmail} setAdminEmail={setTeamAdminEmail} inputCls={inputCls} subtextCls={subtextCls} />
           )}
           {step === 'InviteTeam' && (
-            <InviteTeamStep inviteEmails={teamInviteEmails} setInviteEmails={setTeamInviteEmails} inputCls={inputCls} subtextCls={subtextCls} />
+            <InviteTeamStep inviteEmails={teamInviteEmails} setInviteEmails={setTeamInviteEmails} inputCls={inputCls} subtextCls={subtextCls} darkMode={effectiveDark} />
           )}
           {step === 'Guardrails' && (
-            <GuardrailsStep isolationLevel={teamIsolationLevel} setIsolationLevel={setTeamIsolationLevel} subtextCls={subtextCls} />
+            <GuardrailsStep isolationLevel={teamIsolationLevel} setIsolationLevel={setTeamIsolationLevel} subtextCls={subtextCls} darkMode={effectiveDark} />
           )}
           {step === 'TeamReady' && (
             <TeamReadyStep

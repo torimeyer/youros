@@ -87,11 +87,13 @@ export function InviteTeamStep({
   setInviteEmails,
   inputCls,
   subtextCls,
+  darkMode,
 }: {
   inviteEmails: string[]
   setInviteEmails: (v: string[]) => void
   inputCls: string
   subtextCls: string
+  darkMode: boolean
 }) {
   const [currentEmail, setCurrentEmail] = useState('')
 
@@ -135,8 +137,8 @@ export function InviteTeamStep({
       {inviteEmails.length > 0 && (
         <div className="space-y-2">
           {inviteEmails.map((email) => (
-            <div key={email} className="flex items-center justify-between px-3 py-2 bg-slate-800/50 rounded-lg">
-              <span className="text-sm text-slate-300">{email}</span>
+            <div key={email} className={`flex items-center justify-between px-3 py-2 rounded-lg ${darkMode ? 'bg-slate-800/50' : 'bg-gray-100'}`}>
+              <span className={`text-sm ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>{email}</span>
               <button onClick={() => removeEmail(email)} className="text-slate-500 hover:text-red-400 transition-colors">
                 <Icon name="close" size={16} />
               </button>
@@ -179,11 +181,21 @@ export function GuardrailsStep({
   isolationLevel,
   setIsolationLevel,
   subtextCls,
+  darkMode,
 }: {
   isolationLevel: 'open' | 'governed' | 'sealed'
   setIsolationLevel: (v: 'open' | 'governed' | 'sealed') => void
   subtextCls: string
+  darkMode: boolean
 }) {
+  const unselectedCard = darkMode
+    ? 'bg-slate-900 border-slate-800 hover:border-slate-700'
+    : 'bg-white border-gray-200 hover:border-gray-300 shadow-sm'
+  const unselectedIcon = darkMode
+    ? 'bg-slate-800 text-slate-400'
+    : 'bg-gray-100 text-slate-500'
+  const labelCls = darkMode ? 'text-white' : 'text-slate-900'
+
   return (
     <div data-testid="step-guardrails">
       <h2 className="text-2xl font-bold mb-2">Set guardrails</h2>
@@ -198,16 +210,16 @@ export function GuardrailsStep({
             className={`w-full flex items-start gap-4 p-4 rounded-xl border text-left transition-colors ${
               isolationLevel === level.id
                 ? 'bg-blue-500/20 border-blue-500'
-                : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                : unselectedCard
             }`}
           >
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-              isolationLevel === level.id ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-800 text-slate-400'
+              isolationLevel === level.id ? 'bg-blue-500/30 text-blue-300' : unselectedIcon
             }`}>
               <Icon name={level.icon} size={22} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-white">{level.label}</p>
+              <p className={`font-medium ${labelCls}`}>{level.label}</p>
               <p className={`text-sm mt-0.5 ${subtextCls}`}>{level.description}</p>
             </div>
             {isolationLevel === level.id && <Icon name="check_circle" className="text-blue-400 mt-1" size={20} />}
