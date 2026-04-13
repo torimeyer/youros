@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
+import { Link } from "react-router-dom";
 import { AgentChatThread } from "../components/AgentChatThread";
 import { api, ApiError, ApiTimeoutError } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
@@ -3587,13 +3588,13 @@ export default function Agents() {
               <h3 className="text-white font-semibold">Workflows</h3>
               <p className="text-xs text-slate-500 mt-1">Multi-step agent pipelines you can run with one click</p>
             </div>
-            <a
-              href="/workflows/builder"
+            <Link
+              to="/workflows/builder"
               className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
             >
               <Icon name="add" className="text-base" />
               Build custom workflow
-            </a>
+            </Link>
           </div>
           <AutomationTemplatesList />
         </div>
