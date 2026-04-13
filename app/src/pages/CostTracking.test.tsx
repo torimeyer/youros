@@ -10,21 +10,41 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+// jsdom does not provide window.matchMedia. Provide a minimal stub
+// so components that use responsive breakpoints do not crash.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
 import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
 
 const mockCostData = {
   total_budget: 7.1,
+  total_input_tokens: 125000,
+  total_output_tokens: 42000,
+  event_count: 3,
   agent_count: 3,
   by_model: [
-    { model: 'claude-sonnet-4-5-20250929', count: 2, total_budget: 2.1 },
-    { model: 'claude-opus-4-5-20250929', count: 1, total_budget: 5.0 },
+    { model: 'claude-sonnet-4-5-20250929', count: 2, total_budget: 2.1, input_tokens: 50000, output_tokens: 18000 },
+    { model: 'claude-opus-4-5-20250929', count: 1, total_budget: 5.0, input_tokens: 75000, output_tokens: 24000 },
   ],
   by_date: [
-    { date: '2026-04-03', count: 1, total_budget: 5.0 },
-    { date: '2026-04-04', count: 2, total_budget: 2.1 },
+    { date: '2026-04-03', count: 1, total_budget: 5.0, input_tokens: 75000, output_tokens: 24000 },
+    { date: '2026-04-04', count: 2, total_budget: 2.1, input_tokens: 50000, output_tokens: 18000 },
   ],
+  by_type: [],
   agents: [
     { name: 'test-agent', model: 'claude-sonnet-4-5-20250929', budget: 0.1, timestamp: '2026-04-04T20:01:02Z' },
     { name: 'refactor-bot', model: 'claude-sonnet-4-5-20250929', budget: 2.0, timestamp: '2026-04-04T21:30:00Z' },
@@ -35,9 +55,13 @@ const mockCostData = {
 
 const mockEmptyCostData = {
   total_budget: 0,
+  total_input_tokens: 0,
+  total_output_tokens: 0,
+  event_count: 0,
   agent_count: 0,
   by_model: [],
   by_date: [],
+  by_type: [],
   agents: [],
   period: 'all',
 }
@@ -102,7 +126,7 @@ describe('CostTracking page', () => {
   it('shows agent count from API', async () => {
     renderCostTracking()
     await waitFor(() => {
-      expect(screen.getByText('3')).toBeInTheDocument()
+      expect(screen.getByText(/3 agents spawned/)).toBeInTheDocument()
     })
   })
 
@@ -141,7 +165,7 @@ describe('CostTracking page', () => {
   it('shows agent history table', async () => {
     renderCostTracking()
     await waitFor(() => {
-      expect(screen.getByText('Agent History')).toBeInTheDocument()
+      expect(screen.getByText('Usage History')).toBeInTheDocument()
     })
     expect(screen.getByText('test-agent')).toBeInTheDocument()
     expect(screen.getByText('refactor-bot')).toBeInTheDocument()
@@ -151,7 +175,7 @@ describe('CostTracking page', () => {
   it('shows spending over time chart', async () => {
     renderCostTracking()
     await waitFor(() => {
-      expect(screen.getByText('Budget Allocation Over Time')).toBeInTheDocument()
+      expect(screen.getByText('Usage Over Time')).toBeInTheDocument()
     })
   })
 
@@ -159,15 +183,14 @@ describe('CostTracking page', () => {
     mockedApiGet.mockImplementation(routedApiGet(mockEmptyCostData) as never)
     renderCostTracking()
     await waitFor(() => {
-      expect(screen.getByText('No agent spending data yet')).toBeInTheDocument()
+      expect(screen.getByText('No spending data yet')).toBeInTheDocument()
     })
   })
 
-  it('shows average budget per agent', async () => {
+  it('shows total AI calls from API', async () => {
     renderCostTracking()
     await waitFor(() => {
-      // 7.10 / 3 = 2.37
-      expect(screen.getByText('$2.37')).toBeInTheDocument()
+      expect(screen.getByText(/calls total/)).toBeInTheDocument()
     })
   })
 
@@ -180,8 +203,8 @@ describe('CostTracking page', () => {
     expect(screen.getByText('myOS savings')).toBeInTheDocument()
     // Plain language labels (no finance jargon)
     expect(screen.getByText('myOS saved you this session')).toBeInTheDocument()
-    expect(screen.getByText('Prompts that hit cache')).toBeInTheDocument()
-    expect(screen.getByText('Compression on stored context')).toBeInTheDocument()
+    expect(screen.getByText('Requests reused from memory')).toBeInTheDocument()
+    expect(screen.getByText('Space saved on stored information')).toBeInTheDocument()
     // Numbers from the mock payload
     await waitFor(() => {
       expect(screen.getByText('$0.0781')).toBeInTheDocument()
@@ -200,6 +223,6 @@ describe('CostTracking page', () => {
     })
     // Should not show any of the live labels
     expect(screen.queryByText('myOS saved you this session')).not.toBeInTheDocument()
-    expect(screen.queryByText('Prompts that hit cache')).not.toBeInTheDocument()
+    expect(screen.queryByText('Requests reused from memory')).not.toBeInTheDocument()
   })
 })

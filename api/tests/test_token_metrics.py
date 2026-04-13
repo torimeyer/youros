@@ -92,6 +92,42 @@ def test_safe_record_swallows_exceptions(metrics_file: Path):
         )
 
 
+
+
+def test_record_chat_turn_writes_cache_fields(metrics_file: Path):
+    """Cache fields must be written to metrics.jsonl so the savings
+    computation can calculate conversation_cache_pct."""
+    token_metrics.record_chat_turn(
+        model="claude-sonnet-4-20250514",
+        input_tokens=5000,
+        output_tokens=300,
+        has_ostk_boot=True,
+        boot_context_bytes=400,
+        backend="anthropic_api",
+        cache_creation_input_tokens=2000,
+        cache_read_input_tokens=3000,
+    )
+    events = _read_events(metrics_file)
+    assert len(events) == 1
+    e = events[0]
+    assert e["cache_creation_input_tokens"] == 2000
+    assert e["cache_read_input_tokens"] == 3000
+
+
+def test_record_chat_turn_cache_fields_default_zero(metrics_file: Path):
+    """When cache kwargs are omitted, fields should still appear as 0."""
+    token_metrics.record_chat_turn(
+        model="claude-sonnet-4-20250514",
+        input_tokens=1000,
+        output_tokens=200,
+        has_ostk_boot=False,
+    )
+    events = _read_events(metrics_file)
+    assert len(events) == 1
+    e = events[0]
+    assert e["cache_creation_input_tokens"] == 0
+    assert e["cache_read_input_tokens"] == 0
+
 def test_metrics_file_lives_under_project_dot_ostk():
     """The recorder must write to the same path the Rust `ostk metrics` reads.
 

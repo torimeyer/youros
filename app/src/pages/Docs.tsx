@@ -101,11 +101,11 @@ export default function Docs() {
   return (
     <>
       <TopBar title="Docs" />
-      <div data-tour="docs" className="pt-20 p-8 max-w-6xl mx-auto">
+      <div data-tour="docs" className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-6xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white">Docs</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Docs</h1>
             <span className="bg-blue-500 text-white text-xs rounded-full px-2">
               {docs.length}
             </span>

@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
 import type { AppNotification } from '../stores/notifications'
 import { api } from '../lib/api'
+import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications'
 
 interface PersistentNotification {
   id: string
@@ -129,12 +130,26 @@ export default function TopBar({ title }: TopBarProps) {
   const navigate = useNavigate()
   const toggleChat = useAppStore((s) => s.toggleChat)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
-  const osName = useAppStore((s) => s.osName)
+  const displayOsName = useAppStore((s) => s.displayOsName())
+  const instanceMode = useAppStore((s) => s.instanceMode)
+  const enterpriseUser = useAppStore((s) => s.enterpriseUser)
   const chatOpen = useAppStore((s) => s.chatOpen)
   const chatWidth = useAppStore((s) => s.chatWidth)
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+  )
+  useEffect(() => {
+    const mql = window.matchMedia('(min-width: 1024px)')
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [])
   const [showNotifications, setShowNotifications] = useState(false)
   const [, setTick] = useState(0)
   const [persistentNotifs, setPersistentNotifs] = useState<PersistentNotification[]>([])
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const [pushToggling, setPushToggling] = useState(false)
+  const [isOffline, setIsOffline] = useState(!navigator.onLine)
 
   const notifications = useNotificationStore((s) => s.notifications)
   const markAllRead = useNotificationStore((s) => s.markAllRead)
@@ -178,6 +193,42 @@ export default function TopBar({ title }: TopBarProps) {
     return () => clearInterval(interval)
   }, [fetchPersistentNotifs])
 
+  // Check push subscription state on mount
+  useEffect(() => {
+    if (isPushSupported()) {
+      isSubscribed().then(setPushEnabled).catch(() => {})
+    }
+  }, [])
+
+  // Track online/offline state
+  useEffect(() => {
+    const goOnline = () => setIsOffline(false)
+    const goOffline = () => setIsOffline(true)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [])
+
+  const handleTogglePush = useCallback(async () => {
+    setPushToggling(true)
+    try {
+      if (pushEnabled) {
+        await pushUnsubscribe()
+        setPushEnabled(false)
+      } else {
+        const ok = await pushSubscribe()
+        setPushEnabled(ok)
+      }
+    } catch {
+      // ignore
+    } finally {
+      setPushToggling(false)
+    }
+  }, [pushEnabled])
+
   const handleMarkPersistentRead = useCallback(async (id: string) => {
     try {
       await api.post(`/notifications/${id}/read`)
@@ -219,40 +270,40 @@ export default function TopBar({ title }: TopBarProps) {
 
   return (
     <header
-      className="fixed top-0 left-56 h-16 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/50 flex items-center justify-between px-8 z-40 transition-[right] duration-200"
-      style={{ right: chatOpen ? chatWidth : 0 }}
+      className="fixed top-0 left-0 lg:left-56 h-14 sm:h-16 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/50 flex items-center justify-between px-4 sm:px-8 z-40 transition-[right] duration-200"
+      style={{ right: chatOpen && isDesktop ? chatWidth : 0 }}
     >
-      <div className="flex items-center gap-4">
-        <span className="font-bold text-slate-100 tracking-tight">{title}</span>
+      <div className="flex items-center gap-4 pl-10 lg:pl-0">
+        <span className="font-bold text-slate-100 tracking-tight text-sm sm:text-base">{title}</span>
       </div>
 
-      <div data-tour="search" className="flex-1 max-w-md mx-8">
+      <div data-tour="search" className="flex-1 max-w-md mx-2 sm:mx-8 hidden sm:block">
         <button
           onClick={() => setCommandPaletteOpen(true)}
           className="w-full relative group flex items-center bg-slate-900 rounded-lg pl-10 pr-4 py-2 text-sm text-slate-500 hover:text-slate-400 transition-all cursor-pointer border border-transparent hover:border-slate-700"
         >
           <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-hover:text-blue-500" />
-          <span>Search {osName}</span>
+          <span>Search {displayOsName}</span>
           <kbd className="ml-auto text-[10px] font-mono text-slate-600 bg-slate-800 rounded px-1.5 py-0.5 border border-slate-700">
             ⌘K
           </kbd>
         </button>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         <button
           onClick={() => {
             navigate('/tasks')
             setTimeout(() => window.dispatchEvent(new CustomEvent('myos-quick-add-task')), 100)
           }}
-          className="p-2 text-slate-400 hover:text-blue-400 transition-all"
+          className="p-2.5 sm:p-2 text-slate-400 hover:text-blue-400 transition-all"
           title="Add Task"
         >
           <Icon name="add_task" />
         </button>
         <button
           onClick={toggleChat}
-          className="p-2 text-slate-400 hover:text-blue-400 transition-all"
+          className="p-2.5 sm:p-2 text-slate-400 hover:text-blue-400 transition-all"
           title="Toggle Chat (⌘L)"
         >
           <Icon name="chat" />
@@ -260,7 +311,7 @@ export default function TopBar({ title }: TopBarProps) {
         <div className="relative">
           <button
             onClick={handleOpenNotifications}
-            className="relative p-2 text-slate-400 hover:text-blue-400 transition-all"
+            className="relative p-2.5 sm:p-2 text-slate-400 hover:text-blue-400 transition-all"
           >
             <Icon name="notifications" />
             {unreadCount > 0 && (
@@ -321,12 +372,38 @@ export default function TopBar({ title }: TopBarProps) {
                     ))}
                   </div>
                 )}
+                {isPushSupported() && (
+                  <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-between">
+                    <span className="text-xs text-slate-400">Push notifications</span>
+                    <button
+                      onClick={handleTogglePush}
+                      disabled={pushToggling}
+                      className={`w-9 h-5 rounded-full relative transition-colors ${
+                        pushEnabled ? 'accent-bg' : 'bg-slate-700'
+                      } ${pushToggling ? 'opacity-50' : ''}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                          pushEnabled ? 'left-4' : 'left-0.5'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}
         </div>
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
-          {osName.charAt(0).toUpperCase()}
+        {isOffline && (
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-900/50 border border-amber-700/50">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-xs text-amber-300">Offline</span>
+          </div>
+        )}
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold ${instanceMode === 'team' ? 'bg-gradient-to-br from-indigo-500 to-blue-600' : 'bg-gradient-to-br from-pink-500 to-purple-600'}`}>
+          {instanceMode === 'team' && enterpriseUser?.email
+            ? enterpriseUser.email.charAt(0).toUpperCase()
+            : displayOsName.charAt(0).toUpperCase()}
         </div>
       </div>
     </header>

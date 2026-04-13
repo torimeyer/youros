@@ -6,7 +6,116 @@ import { api, ApiError, ApiTimeoutError } from "../lib/api";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 
-const BASE_TABS = ["Active", "Recent", "Insights", "Metrics", "Templates", "Automations"];
+const BASE_TABS = ["Active", "Recent", "Insights", "Templates"];
+
+/* ---------- Icon Picker ---------- */
+const ICON_PICKER_ICONS = [
+  // General
+  "smart_toy", "psychology", "search", "edit", "code", "bug_report",
+  "rocket_launch", "summarize", "today", "mail",
+  // Business
+  "business", "campaign", "article", "assignment_ind", "analytics",
+  "trending_up",
+  // Creative
+  "edit_note", "share", "title", "spellcheck", "label", "brush", "palette",
+  // Communication
+  "question_answer", "support_agent", "forward_to_inbox", "outgoing_mail",
+  "record_voice_over",
+  // Education
+  "school", "menu_book", "quiz", "format_quote", "format_list_numbered",
+  // Home / Lifestyle
+  "restaurant", "shopping_cart", "flight_takeoff", "redeem", "home",
+  // Tech
+  "storage", "security", "speed", "engineering", "architecture", "api", "build",
+  // Status
+  "check_circle", "warning", "info", "help_outline",
+];
+
+function IconPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (icon: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const filtered = search.trim()
+    ? ICON_PICKER_ICONS.filter((ic) =>
+        ic.toLowerCase().includes(search.trim().toLowerCase()),
+      )
+    : ICON_PICKER_ICONS;
+
+  return (
+    <div ref={containerRef} className="relative mb-4">
+      <label className="block text-sm text-slate-400 mb-1">Icon</label>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm hover:border-blue-500 transition-colors w-full text-left"
+        data-testid="icon-picker-trigger"
+      >
+        <Icon name={value} size={20} className="text-blue-400" />
+        <span className="flex-1">{value}</span>
+        <Icon name={open ? "expand_less" : "expand_more"} size={18} className="text-slate-500" />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 left-0 right-0 bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-3 max-h-80 overflow-y-auto" data-testid="icon-picker-dropdown">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search icons..."
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-2"
+            data-testid="icon-picker-search"
+            autoFocus
+          />
+          {filtered.length === 0 ? (
+            <p className="text-xs text-slate-500 text-center py-2">No matching icons</p>
+          ) : (
+            <div className="grid grid-cols-8 gap-1" data-testid="icon-picker-grid">
+              {filtered.map((ic) => (
+                <button
+                  key={ic}
+                  type="button"
+                  onClick={() => {
+                    onChange(ic);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                  title={ic}
+                  className={`flex items-center justify-center p-1.5 rounded-lg transition-colors ${
+                    ic === value
+                      ? "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500"
+                      : "text-slate-400 hover:bg-slate-700 hover:text-white"
+                  }`}
+                  data-testid={`icon-option-${ic}`}
+                >
+                  <Icon name={ic} size={22} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface AutoTemplate { id: string; name: string; description: string; icon: string; steps: { name: string; prompt: string }[] }
 
@@ -45,7 +154,7 @@ function AutomationTemplatesList() {
   if (templates.length === 0) return <p className="text-sm text-slate-500">Loading templates...</p>;
 
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       {templates.map((t) => {
         const isExpanded = expanded === t.id;
         return (
@@ -169,28 +278,28 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
     }
   };
 
-  if (loading) return <p className="text-sm text-slate-500">Loading Agentfiles...</p>;
+  if (loading) return <p className="text-sm text-slate-500">Loading agent configs...</p>;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-white font-semibold">Agentfiles</h3>
-          <p className="text-xs text-slate-500 mt-1">Standardized agent configs that launch via ostk run</p>
+          <h3 className="text-white font-semibold">Agent Configurations</h3>
+          <p className="text-xs text-slate-500 mt-1">Ready-made agent setups you can start with one click</p>
         </div>
         <button
           onClick={() => setShowCreate(!showCreate)}
           className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
         >
           <Icon name={showCreate ? "close" : "add"} className="text-base" />
-          {showCreate ? "Cancel" : "New Agentfile"}
+          {showCreate ? "Cancel" : "New Config"}
         </button>
       </div>
 
       {/* Create form */}
       {showCreate && (
         <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 mb-6">
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm text-slate-400 mb-1">Name</label>
               <input
@@ -240,7 +349,7 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
             disabled={creating || !createForm.name.trim() || !createForm.prompt.trim()}
             className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
           >
-            {creating ? "Creating..." : "Create Agentfile"}
+            {creating ? "Creating..." : "Create Config"}
           </button>
         </div>
       )}
@@ -249,11 +358,11 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
       {agentfiles.length === 0 ? (
         <div className="text-center py-12">
           <Icon name="description" className="text-4xl text-slate-600 mb-3" />
-          <p className="text-slate-400 text-sm">No Agentfiles found</p>
-          <p className="text-slate-500 text-xs mt-1">Create one above or add .agent files to the agents/ directory</p>
+          <p className="text-slate-400 text-sm">No agent configurations found</p>
+          <p className="text-slate-500 text-xs mt-1">Create one above to get started.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {agentfiles.map((af) => {
             const isExpanded = expanded === af.name;
             const icon = AGENTFILE_ICONS[af.name] || "smart_toy";
@@ -275,10 +384,10 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                         {af.source === "builtin" ? "built-in" : "custom"}
                       </span>
                     </div>
-                    <p className="text-slate-400 text-xs mt-0.5 line-clamp-3">{af.description || "No description"}</p>
+                    <p className="text-slate-400 text-xs mt-0.5 line-clamp-3">{af.description || "No description added yet"}</p>
                     <div className="flex gap-3 mt-1.5">
                       <span className="text-[10px] text-slate-500">model: {af.model}</span>
-                      <span className="text-[10px] text-slate-500">tools: {af.tools.length}</span>
+                      <span className="text-[10px] text-slate-500">capabilities: {af.tools.length}</span>
                       {af.token_limit > 0 && (
                         <span className="text-[10px] text-slate-500">{(af.token_limit / 1000).toFixed(0)}k tokens</span>
                       )}
@@ -291,7 +400,7 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                   <div className="mt-3 pt-3 border-t border-slate-700/50">
                     <div className="mb-3">
                       <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Prompt</p>
-                      <p className="text-xs text-slate-300 leading-relaxed">{af.prompt || "No prompt defined"}</p>
+                      <p className="text-xs text-slate-300 leading-relaxed">{af.prompt || "No instructions set"}</p>
                     </div>
                     {af.tools.length > 0 && (
                       <div className="mb-3">
@@ -449,14 +558,7 @@ function TemplateEditorModal({
         />
 
         {/* Icon */}
-        <label className="block text-sm text-slate-400 mb-1">Icon</label>
-        <input
-          type="text"
-          value={icon}
-          onChange={(e) => setIcon(e.target.value)}
-          placeholder="Material Symbols icon name"
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
-        />
+        <IconPicker value={icon} onChange={setIcon} />
 
         {/* Model + Budget row */}
         <div className="flex gap-4 mb-6">
@@ -581,6 +683,23 @@ interface PatternTemplateStat {
   median_duration_sec: number | null;
   median_cost: number | null;
   best_model: string | null;
+}
+
+interface ProvenTemplate {
+  template_name: string;
+  template_id: string;
+  model: string;
+  budget: number;
+  success_rate: number;
+  spawn_count: number;
+  promoted_at: string;
+}
+
+interface SuggestedAdjustment {
+  template_name: string;
+  template_id: string;
+  consecutive_failures: number;
+  suggestions: { type: string; value?: string | number; reason: string }[];
 }
 
 // Default estimates (used when no historical data exists)
@@ -1040,19 +1159,12 @@ function PMTemplateEditorForm({
         value={promptTemplate}
         onChange={(e) => setPromptTemplate(e.target.value)}
         rows={4}
-        placeholder="Use [placeholders] for parts the user will fill in before spawning"
+        placeholder="Use [placeholders] for parts you will fill in before spawning"
         className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-1 resize-none"
       />
       <p className="text-xs text-slate-500 mb-4">Use [square brackets] for parts the user fills in. Example: Research [topic] and write a summary.</p>
 
-      <label className="block text-sm text-slate-400 mb-1">Icon (Material Symbols name)</label>
-      <input
-        type="text"
-        value={icon}
-        onChange={(e) => setIcon(e.target.value)}
-        placeholder="smart_toy"
-        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
-      />
+      <IconPicker value={icon} onChange={setIcon} />
 
       <div className="flex gap-4 mb-6">
         <div className="flex-1">
@@ -1134,6 +1246,7 @@ export default function Agents() {
     isNew: boolean;
   }>({ open: false, template: null, isNew: false });
   const [pmTemplateSaving, setPmTemplateSaving] = useState(false);
+  const [orgTemplates, setOrgTemplates] = useState<PMAgentTemplate[]>([]);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
@@ -1182,6 +1295,8 @@ export default function Agents() {
   const [insightsStats, setInsightsStats] = useState<PatternTemplateStat[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState<string>("");
+  const [provenTemplates, setProvenTemplates] = useState<ProvenTemplate[]>([]);
+  const [adjustments, setAdjustments] = useState<SuggestedAdjustment[]>([]);
 
   // Nudge state: per-agent input text and message history
   const [nudgeInputs, setNudgeInputs] = useState<Record<string, string>>({});
@@ -1193,6 +1308,13 @@ export default function Agents() {
   // never silent (feedback_chat_response_silent.md).
   const [nudgeErrors, setNudgeErrors] = useState<Record<string, string>>({});
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+
+  // Coordination locks (needle 338)
+  const [locks, setLocks] = useState<{ name: string; holder?: string; created_at?: string }[]>([]);
+  const [releasingLock, setReleasingLock] = useState<Record<string, boolean>>({});
+
+  // Context pressure per agent (needle 337)
+  const [contextPressure, setContextPressure] = useState<Record<string, { available: boolean; pressure_pct?: number }>>({});
 
   // Fetch nudge history and memory when expanding an agent
   useEffect(() => {
@@ -1230,6 +1352,7 @@ export default function Agents() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorInitial, setEditorInitial] = useState<CustomTemplate | null>(null);
   const [editorIsNew, setEditorIsNew] = useState(false);
+  const [editorBuiltInName, setEditorBuiltInName] = useState<string | null>(null);
 
   // Custom templates live on the server via the app store. localStorage
   // is only a first paint cache.
@@ -1367,6 +1490,15 @@ export default function Agents() {
       setPmTemplates(data.templates || []);
     } catch {
       // keep empty
+    }
+  };
+
+  const fetchOrgTemplates = async () => {
+    try {
+      const data = await api.get<{ templates: Array<{ id: string; name: string; description: string; icon: string; prompt_template: string; model: string; budget: number }> }>("/enterprise/templates");
+      setOrgTemplates((data.templates || []).map((t) => ({ ...t, builtin: false })));
+    } catch {
+      // Not in enterprise mode or no templates, keep empty
     }
   };
 
@@ -1654,10 +1786,83 @@ export default function Agents() {
     }
   };
 
+  // Fetch coordination locks (needle 338)
+  const fetchLocks = useCallback(async () => {
+    try {
+      const data = await api.get<{ locks: typeof locks }>("/agents/locks");
+      setLocks(data.locks || []);
+    } catch {
+      // Locks are optional. If the endpoint is unavailable, hide the section.
+    }
+  }, []);
+
+  // Release a coordination lock (needle 338)
+  const handleReleaseLock = async (lockName: string) => {
+    setReleasingLock((prev) => ({ ...prev, [lockName]: true }));
+    try {
+      await api.delete(`/agents/locks/${encodeURIComponent(lockName)}`);
+      setLocks((prev) => prev.filter((l) => l.name !== lockName));
+    } catch {
+      // show nothing, the lock may already be released
+    } finally {
+      setReleasingLock((prev) => {
+        const next = { ...prev };
+        delete next[lockName];
+        return next;
+      });
+    }
+  };
+
+  // Fetch context pressure for a running agent (needle 337)
+  const fetchContextPressure = useCallback(async (agentName: string) => {
+    try {
+      const data = await api.get<{ available: boolean; pressure_pct?: number }>(
+        `/agents/${encodeURIComponent(agentName)}/context-pressure`
+      );
+      setContextPressure((prev) => ({ ...prev, [agentName]: data }));
+    } catch {
+      // Service unavailable, do not show anything
+    }
+  }, []);
+
+  // Send a correction to a running agent (needle 333)
+  const handleCorrection = async (agentName: string, message: string) => {
+    if (!message.trim()) return;
+    setNudgeSending((prev) => ({ ...prev, [agentName]: true }));
+    try {
+      const resp = await api.post<{ nudge: NudgeRecord }>(`/agents/${agentName}/correct`, { message });
+      setNudgeSending((prev) => {
+        const next = { ...prev };
+        delete next[agentName];
+        return next;
+      });
+      setNudgeHistory((prev) => ({
+        ...prev,
+        [agentName]: [...(prev[agentName] || []), resp.nudge],
+      }));
+      void fetchNudges(agentName);
+    } catch (err) {
+      const errorMessage =
+        err instanceof ApiTimeoutError
+          ? "The server did not respond in time. Correction was not sent."
+          : err instanceof ApiError
+            ? `Could not send correction. ${err.message}`
+            : "Could not send correction. Check your connection and try again.";
+      setNudgeErrors((prev) => ({ ...prev, [agentName]: errorMessage }));
+    } finally {
+      setNudgeSending((prev) => {
+        const next = { ...prev };
+        delete next[agentName];
+        return next;
+      });
+    }
+  };
+
   useEffect(() => {
     fetchAgents();
     fetchTemplates();
     fetchPmTemplates();
+    fetchOrgTemplates();
 
     // Poll for agent updates every 5 seconds
     const interval = setInterval(fetchAgents, 5000);
@@ -1683,6 +1888,36 @@ export default function Agents() {
     }
   }, [activeTab, fetchGrants]);
 
+  // Fetch coordination locks when the Active tab is showing (needle 338)
+  useEffect(() => {
+    if (activeTab === "Active") {
+      fetchLocks();
+      const interval = setInterval(fetchLocks, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, fetchLocks]);
+
+  // Fetch context pressure for running agents (needle 337)
+  useEffect(() => {
+    if (activeTab === "Active") {
+      const running = allAgents.filter(
+        (a) => a.status === "running" || a.status === "spawned"
+      );
+      for (const agent of running) {
+        fetchContextPressure(agent.name);
+      }
+      const interval = setInterval(() => {
+        const current = allAgents.filter(
+          (a) => a.status === "running" || a.status === "spawned"
+        );
+        for (const agent of current) {
+          fetchContextPressure(agent.name);
+        }
+      }, 30000); // Check every 30 seconds
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, allAgents, fetchContextPressure]);
+
   // Fetch workspace messages when the Workspace tab is selected
   useEffect(() => {
     if (activeTab === "Workspace") {
@@ -1693,7 +1928,7 @@ export default function Agents() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  // Fetch insights (recommendations + per-template stats) when the Insights tab is selected
+  // Fetch insights (recommendations + per-template stats + proven + adjustments) when the Insights tab is selected
   useEffect(() => {
     if (activeTab !== "Insights") return;
     let cancelled = false;
@@ -1701,13 +1936,17 @@ export default function Agents() {
       setInsightsLoading(true);
       setInsightsError("");
       try {
-        const [recsResp, statsResp] = await Promise.all([
+        const [recsResp, statsResp, provenResp, adjResp] = await Promise.all([
           api.get<{ recommendations: PatternRecommendation[] }>("/agent-patterns/recommendations"),
           api.get<{ stats: PatternTemplateStat[] }>("/agent-patterns/template-stats"),
+          api.get<{ proven: ProvenTemplate[] }>("/agent-patterns/proven").catch(() => ({ proven: [] })),
+          api.get<{ adjustments: SuggestedAdjustment[] }>("/agent-patterns/adjustments").catch(() => ({ adjustments: [] })),
         ]);
         if (cancelled) return;
         setInsightsRecs(recsResp.recommendations || []);
         setInsightsStats(statsResp.stats || []);
+        setProvenTemplates(provenResp.proven || []);
+        setAdjustments(adjResp.adjustments || []);
       } catch {
         if (cancelled) return;
         setInsightsError("Could not load insights. Try again in a moment.");
@@ -1730,7 +1969,7 @@ export default function Agents() {
     return () => window.removeEventListener('myos-quick-spawn-agent', handler);
   }, []);
 
-  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number, tokenLimit?: number | null) => {
+  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number, tokenLimit?: number | null, template?: string) => {
     if (!name.trim()) return;
     try {
       const spawnPayload: Record<string, unknown> = {
@@ -1741,6 +1980,9 @@ export default function Agents() {
       };
       if (tokenLimit && tokenLimit > 0) {
         spawnPayload.token_limit = tokenLimit;
+      }
+      if (template) {
+        spawnPayload.template = template;
       }
       await api.post("/agents/spawn", spawnPayload);
       setShowNewForm(false);
@@ -1840,12 +2082,12 @@ export default function Agents() {
   return (
     <>
       <TopBar title="Agents" />
-      <div data-tour="agents" className="pt-20 p-8">
+      <div data-tour="agents" className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-6">
-            <h1 className="text-2xl font-bold text-white">Agents</h1>
-            <div className="flex gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Agents</h1>
+            <div className="flex gap-2 sm:gap-4 flex-wrap">
               {tabs.map((tab) => (
                 <button
                   key={tab}
@@ -1863,7 +2105,7 @@ export default function Agents() {
           </div>
           <button
             onClick={() => setShowNewForm(!showNewForm)}
-            className="bg-pink-500 text-white rounded-lg px-4 py-2 flex items-center gap-2 hover:bg-pink-600 transition-colors"
+            className="bg-pink-500 text-white rounded-lg px-4 py-2 min-h-[44px] flex items-center gap-2 hover:bg-pink-600 transition-colors"
           >
             <Icon name="add" className="text-lg" />
             New Agent
@@ -1919,7 +2161,7 @@ export default function Agents() {
             </div>
             {/* Token budget limit */}
             <div className="flex items-center gap-3 mt-3">
-              <label className="text-sm text-slate-400 whitespace-nowrap">Token limit</label>
+              <label className="text-sm text-slate-400 whitespace-nowrap">Token usage</label>
               <input
                 type="number"
                 min={0}
@@ -1929,7 +2171,7 @@ export default function Agents() {
                 placeholder="No limit"
                 className="w-40 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
-              <span className="text-xs text-slate-500">Leave empty for no cap</span>
+              <span className="text-xs text-slate-500">Leave empty for unlimited</span>
             </div>
           </div>
         )}
@@ -1938,6 +2180,39 @@ export default function Agents() {
         {/* Tab content */}
         {activeTab === "Active" && (
           <>
+            {/* Coordination Locks (needle 338) */}
+            {locks.length > 0 && (
+              <div className="mb-4 bg-slate-900/40 border border-slate-800 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Icon name="lock" className="text-amber-400" size={18} />
+                  <span className="text-sm font-semibold text-white">Agents working on shared items</span>
+                  <span className="text-xs text-slate-500">({locks.length})</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {locks.map((lock) => (
+                    <div
+                      key={lock.name}
+                      className="flex items-center gap-2 bg-slate-800/60 border border-amber-500/30 rounded-lg px-3 py-1.5"
+                    >
+                      <Icon name="lock" className="text-amber-400" size={14} />
+                      <span className="text-sm text-white font-mono">{lock.name}</span>
+                      {lock.holder && (
+                        <span className="text-xs text-slate-400">{lock.holder}</span>
+                      )}
+                      <button
+                        onClick={() => handleReleaseLock(lock.name)}
+                        disabled={releasingLock[lock.name]}
+                        className="ml-1 text-xs text-slate-400 hover:text-red-400 transition-colors disabled:opacity-50"
+                        title="Unstick this"
+                      >
+                        {releasingLock[lock.name] ? "..." : "Release"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Active Sessions */}
             <h2 className="text-lg font-semibold text-white mb-4">
               Active Sessions
@@ -1952,7 +2227,7 @@ export default function Agents() {
             ) : allAgents.filter((a) => a.status === "running" || a.status === "spawned").length === 0 ? (
               <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center mb-8">
                 <Icon name="smart_toy" className="text-4xl text-slate-700 mb-2" />
-                <p className="text-sm text-slate-400 mb-1">No active agents.</p>
+                <p className="text-sm text-slate-400 mb-1">No agents running right now.</p>
                 <p className="text-xs text-slate-600">Click a template below, launch a fleet, or use the New Agent button to get started.</p>
               </div>
             ) : (
@@ -1993,6 +2268,21 @@ export default function Agents() {
                           recoveryCount={agent.recovery_count ?? 0}
                           maxRecoveries={agent.max_recoveries ?? 3}
                         />
+                        {/* Context pressure indicator (needle 337) */}
+                        {contextPressure[agent.name]?.available && contextPressure[agent.name]?.pressure_pct != null && (
+                          <span
+                            className={`text-xs font-bold px-2 py-0.5 rounded ${
+                              (contextPressure[agent.name]?.pressure_pct ?? 0) >= 90
+                                ? "bg-red-500/20 text-red-400"
+                                : (contextPressure[agent.name]?.pressure_pct ?? 0) >= 70
+                                  ? "bg-amber-500/20 text-amber-400"
+                                  : "bg-slate-700/50 text-slate-400"
+                            }`}
+                            title="How much of the agent's memory is used"
+                          >
+                            Context: {contextPressure[agent.name]?.pressure_pct}%
+                          </span>
+                        )}
                       </div>
                       <button
                         onClick={() => setExpandedAgent(isExpanded ? null : agent.name)}
@@ -2031,7 +2321,7 @@ export default function Agents() {
                               <Icon name="lock_open" className="text-yellow-400 mt-0.5" size={18} />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm text-white">
-                                  Wants to {grant.type === "secret" ? "access secret" : grant.type === "file_access" ? "read file" : grant.type === "tool" ? "use tool" : grant.type === "budget" ? "raise budget" : grant.type === "model_upgrade" ? "upgrade model" : grant.type}: <span className="font-mono text-yellow-300">{grant.target}</span>
+                                  Wants to {grant.type === "secret" ? "access a stored password" : grant.type === "file_access" ? "read a file" : grant.type === "tool" ? "use a tool" : grant.type === "budget" ? "increase its spending limit" : grant.type === "model_upgrade" ? "use a more powerful AI model" : grant.type}: <span className="font-mono text-yellow-300">{grant.target}</span>
                                 </p>
                                 {grant.detail && (
                                   <p className="text-xs text-slate-400 mt-1 break-words">{grant.detail}</p>
@@ -2078,6 +2368,7 @@ export default function Agents() {
                         timestamp: r.timestamp,
                       }))}
                       onSend={(message) => handleNudge(agent.name, message)}
+                      onCorrect={(message) => handleCorrection(agent.name, message)}
                       isSending={isSending}
                       errorMessage={nudgeError || null}
                       agentRegisteredAt={agent.spawned_at || agent.timestamp}
@@ -2667,6 +2958,79 @@ export default function Agents() {
                 )}
               </div>
 
+              {/* Proven templates section */}
+              {provenTemplates.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-3">Proven templates</h3>
+                  <p className="text-slate-500 text-xs mb-3">
+                    These templates have a strong track record. Use them with confidence.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {provenTemplates.map((pt) => (
+                      <div
+                        key={pt.template_id}
+                        className="bg-slate-900/40 border border-emerald-500/30 rounded-xl p-4"
+                        data-testid="proven-template-card"
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <Icon name="verified" className="text-emerald-400" size={18} />
+                          <p className="text-white font-medium">{pt.template_name}</p>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-slate-400">
+                          <span>{Math.round(pt.success_rate * 100)}% success</span>
+                          <span>{pt.spawn_count} runs</span>
+                          <span>Best on {pt.model}</span>
+                          <span>${pt.budget.toFixed(2)} spending limit</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Suggested adjustments section */}
+              {adjustments.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-3">Needs attention</h3>
+                  <p className="text-slate-500 text-xs mb-3">
+                    These templates keep failing. Here is what to try.
+                  </p>
+                  <div className="space-y-4">
+                    {adjustments.map((adj) => (
+                      <div
+                        key={adj.template_id}
+                        className="bg-slate-900/40 border border-amber-500/30 rounded-xl p-4"
+                        data-testid="adjustment-card"
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <Icon name="warning" className="text-amber-400" size={18} />
+                          <p className="text-white font-medium">{adj.template_name}</p>
+                          <span className="text-xs text-amber-400 ml-auto">
+                            {adj.consecutive_failures} failures in a row
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {adj.suggestions.map((sug, i) => (
+                            <div key={i} className="flex items-start gap-2 text-sm">
+                              <Icon
+                                name={
+                                  sug.type === "switch_model" ? "swap_horiz"
+                                    : sug.type === "increase_budget" ? "trending_up"
+                                    : "edit_note"
+                                }
+                                className="text-slate-400 mt-0.5"
+                                size={14}
+                              />
+                              <span className="text-slate-300">{sug.reason}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Bottom section: per-template runtime and success rate */}
               {insightsStats.length > 0 && (
                 <div className="mb-8">
@@ -2714,129 +3078,6 @@ export default function Agents() {
             </div>
           );
         })()}
-
-        {activeTab === "Metrics" && !agentsLoaded && (
-          <div
-            data-testid="metrics-loading"
-            className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8"
-          >
-            Loading...
-          </div>
-        )}
-
-        {activeTab === "Metrics" && agentsLoaded && (() => {
-          const totalSpawned = allAgents.length;
-          const completedAgents = allAgents.filter((a) => a.status === "completed");
-          const failedAgents = allAgents.filter((a) => a.status === "failed");
-          const stoppedAgents = allAgents.filter((a) => a.status === "stopped" || a.status === "killed");
-          const runningAgents = allAgents.filter((a) => a.status === "running" || a.status === "spawned");
-
-          // Compute average duration from learned rates (avg_min_per_dollar)
-          const rateEntries = Object.entries(learnedRates);
-          const avgDuration = rateEntries.length > 0
-            ? (rateEntries.reduce((sum, [, rate]) => sum + rate, 0) / rateEntries.length).toFixed(1)
-            : null;
-
-          // Recent completions (completed or failed, sorted newest first)
-          const recentDone = allAgents
-            .filter((a) => a.status === "completed" || a.status === "failed")
-            .sort((a, b) => {
-              const ta = a.spawned_at || a.timestamp || "";
-              const tb = b.spawned_at || b.timestamp || "";
-              return tb.localeCompare(ta);
-            })
-            .slice(0, 10);
-
-          return (
-            <>
-              {/* Stat cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
-                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Total Spawned</p>
-                  <p className="text-3xl font-bold text-white">{totalSpawned}</p>
-                </div>
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
-                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Completed</p>
-                  <p className="text-3xl font-bold text-blue-400">{completedAgents.length}</p>
-                </div>
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
-                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Failed</p>
-                  <p className="text-3xl font-bold text-red-400">{failedAgents.length}</p>
-                </div>
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
-                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Stopped / Cancelled</p>
-                  <p className="text-3xl font-bold text-orange-400">{stoppedAgents.length}</p>
-                </div>
-              </div>
-
-              {/* Secondary stats */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
-                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Currently Running</p>
-                  <p className="text-2xl font-bold text-green-400">{runningAgents.length}</p>
-                </div>
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
-                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Avg Duration per $1</p>
-                  <p className="text-2xl font-bold text-white">
-                    {avgDuration ? `${avgDuration} min` : "No data yet"}
-                  </p>
-                  <p className="text-slate-500 text-xs mt-1">Based on completed agents</p>
-                </div>
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
-                  <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Success Rate</p>
-                  <p className="text-2xl font-bold text-white">
-                    {completedAgents.length + failedAgents.length > 0
-                      ? `${Math.round((completedAgents.length / (completedAgents.length + failedAgents.length)) * 100)}%`
-                      : "No data yet"}
-                  </p>
-                </div>
-              </div>
-
-              {/* Recent completions table */}
-              <h2 className="text-lg font-semibold text-white mb-4">Recent Completions</h2>
-              {recentDone.length === 0 ? (
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400 mb-8">
-                  No completed agents yet. Metrics will appear here as agents finish.
-                </div>
-              ) : (
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden mb-8">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-800">
-                        <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Agent</th>
-                        <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Status</th>
-                        <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Model</th>
-                        <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Budget</th>
-                        <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Started</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recentDone.map((agent) => (
-                        <tr key={agent.name} className="border-b border-slate-800/50 last:border-b-0">
-                          <td className="px-5 py-3 text-white font-medium">{agent.name}</td>
-                          <td className="px-5 py-3">
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}>
-                              {statusLabel(agent.status)}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3 text-slate-400">{formatModelShort(agent.model)}</td>
-                          <td className="px-5 py-3 text-slate-400">{agent.budget ? `$${agent.budget}` : "N/A"}</td>
-                          <td className="px-5 py-3 text-slate-400">
-                            {agent.spawned_at
-                              ? new Date(agent.spawned_at).toLocaleString()
-                              : agent.timestamp || "Unknown"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          );
-        })()}
-
-
 
 
         {activeTab === "Templates" && (
@@ -2891,6 +3132,50 @@ export default function Agents() {
                   </div>
                 ))}
             </div>
+            {/* Team (org) templates */}
+            {orgTemplates.length > 0 && (
+              <>
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Team</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8" data-testid="org-templates">
+                  {orgTemplates
+                    .filter(
+                      (t) =>
+                        !pmTemplateSearch ||
+                        t.name.toLowerCase().includes(pmTemplateSearch.toLowerCase()) ||
+                        t.description.toLowerCase().includes(pmTemplateSearch.toLowerCase()),
+                    )
+                    .map((tpl) => (
+                      <div
+                        key={tpl.id}
+                        className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 flex items-start gap-4 hover:border-slate-700 transition-colors"
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-teal-500/10 border border-teal-500/20 flex items-center justify-center shrink-0">
+                          <Icon name={tpl.icon} className="text-teal-400" size={22} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-white font-medium">{tpl.name}</p>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-400">
+                              Team
+                            </span>
+                          </div>
+                          <p className="text-slate-400 text-xs mt-0.5">{tpl.description}</p>
+                          <div className="mt-2 bg-slate-950 border border-slate-800 rounded px-2 py-2 font-mono text-xs text-slate-100 whitespace-pre-wrap break-words">
+                            {tpl.prompt_template}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleUsePmTemplate(tpl)}
+                          className="shrink-0 bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-3 py-1.5 text-sm transition-colors"
+                        >
+                          Use
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </>
+            )}
+
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Your templates</h3>
               <button
@@ -3096,6 +3381,7 @@ export default function Agents() {
                   if (hasParseError) return;
                   setEditorInitial({ name: tpl.name, description: tpl.description, icon: tpl.icon, model: tpl.model, budget: tpl.budget });
                   setEditorIsNew(false);
+                  setEditorBuiltInName(tpl.isBuiltIn ? tpl.name : null);
                   setEditorOpen(true);
                 }}
                 className={`group relative bg-slate-900/40 border rounded-xl p-4 text-left transition-colors ${
@@ -3181,6 +3467,7 @@ export default function Agents() {
             onClick={() => {
               setEditorInitial(null);
               setEditorIsNew(true);
+              setEditorBuiltInName(null);
               setEditorOpen(true);
             }}
             className="bg-slate-900/20 border-2 border-dashed border-slate-700 rounded-xl p-4 text-center hover:border-blue-500 transition-colors cursor-pointer flex flex-col items-center justify-center"
@@ -3198,7 +3485,7 @@ export default function Agents() {
               <h3 className="text-white font-semibold">Fleets</h3>
               <span className="text-xs text-slate-500">Spawn a team of agents with different roles</span>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {fleets.map((fleet) => {
                 const isExpanded = fleetExpandedId === fleet.id;
                 const isSpawning = fleetSpawning === fleet.id;
@@ -3258,7 +3545,7 @@ export default function Agents() {
             {marketplaceCategories.map((cat) => (
               <div key={cat.category} className="mb-6 last:mb-0">
                 <h4 className="text-sm text-slate-400 font-medium mb-3 uppercase tracking-wider">{cat.category}</h4>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {cat.templates.map((mt) => {
                     const alreadyAdded = isCustomTemplate(mt.name) || builtInTemplates.some((b) => b.name === mt.name);
                     return (
@@ -3293,31 +3580,28 @@ export default function Agents() {
           </div>
         )}
 
+        {/* Workflows section within Templates */}
+        <div className="mt-8 border-t border-slate-800 pt-8">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-white font-semibold">Workflows</h3>
+              <p className="text-xs text-slate-500 mt-1">Multi-step agent pipelines you can run with one click</p>
+            </div>
+            <a
+              href="/workflows/builder"
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Icon name="add" className="text-base" />
+              Build custom workflow
+            </a>
+          </div>
+          <AutomationTemplatesList />
+        </div>
         </div>}
 
-        {/* Agentfiles tab */}
+        {/* Agent Configurations tab */}
         {activeTab === "Agentfiles" && (
           <AgentfilesTab onLaunch={fetchAgents} />
-        )}
-
-        {/* Automations tab */}
-        {activeTab === "Automations" && (
-          <div>
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h3 className="text-white font-semibold">Automation Templates</h3>
-                <p className="text-xs text-slate-500 mt-1">Pre-built multi-step workflows you can run with one click</p>
-              </div>
-              <a
-                href="/workflows/builder"
-                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
-              >
-                <Icon name="add" className="text-base" />
-                Build custom workflow
-              </a>
-            </div>
-            <AutomationTemplatesList />
-          </div>
         )}
 
         {/* Template Editor Modal */}
@@ -3330,7 +3614,9 @@ export default function Agents() {
                 t.name.toLowerCase().replace(/\s+/g, "-"),
                 t.description,
                 t.model,
-                t.budget
+                t.budget,
+                null,
+                editorBuiltInName || undefined
               );
               setEditorOpen(false);
             }}

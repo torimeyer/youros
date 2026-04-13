@@ -17,7 +17,31 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+// Mock push notifications module so tests don't touch real Push API
+vi.mock('../lib/pushNotifications', () => ({
+  isPushSupported: vi.fn().mockReturnValue(false),
+  isSubscribed: vi.fn().mockResolvedValue(false),
+  subscribe: vi.fn().mockResolvedValue(false),
+  unsubscribe: vi.fn().mockResolvedValue(false),
+}))
+
 import { api } from '../lib/api'
+
+// jsdom does not provide window.matchMedia. Provide a minimal stub
+// so the responsive desktop detection in TopBar does not crash.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
 
 const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)

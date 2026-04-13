@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { ChatPanel } from './ChatPanel'
@@ -27,12 +27,21 @@ const ACCENT_CSS_MAP: Record<string, string> = {
   orange: '#f97316',
 }
 
+// lg breakpoint in Tailwind is 1024px
+const LG_BREAKPOINT = 1024
+
 export function Layout() {
   const chatOpen = useAppStore((s) => s.chatOpen)
   const chatWidth = useAppStore((s) => s.chatWidth)
   const isResizing = useAppStore((s) => s.isResizing)
   const darkMode = useAppStore((s) => s.darkMode)
   const accentColor = useAppStore((s) => s.accentColor)
+  const teamAccentColor = useAppStore((s) => s.teamAccentColor)
+  const instanceMode = useAppStore((s) => s.instanceMode)
+  const compactMode = useAppStore((s) => s.compactMode)
+  const fontSize = useAppStore((s) => s.fontSize)
+  const sidebarPosition = useAppStore((s) => s.sidebarPosition)
+  const cardStyle = useAppStore((s) => s.cardStyle)
   const commandPaletteOpen = useAppStore((s) => s.commandPaletteOpen)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
   const toggleCommandPalette = useAppStore((s) => s.toggleCommandPalette)
@@ -41,6 +50,18 @@ export function Layout() {
   const setShowTour = useAppStore((s) => s.setShowTour)
   const tourComplete = useAppStore((s) => s.tourComplete)
   const navigate = useNavigate()
+
+  // Track whether the viewport is at desktop width so we can decide
+  // whether the chat panel should push main content or overlay it.
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= LG_BREAKPOINT : true
+  )
+  useEffect(() => {
+    const mql = window.matchMedia(`(min-width: ${LG_BREAKPOINT}px)`)
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [])
 
   const closeCommandPalette = useCallback(() => setCommandPaletteOpen(false), [setCommandPaletteOpen])
 
@@ -109,6 +130,34 @@ export function Layout() {
     document.documentElement.style.setProperty('--color-accent', hex)
   }, [accentColor])
 
+  // Apply team accent color when in team mode
+  useEffect(() => {
+    document.documentElement.style.setProperty('--color-team', teamAccentColor)
+    document.documentElement.setAttribute('data-instance-mode', instanceMode)
+  }, [teamAccentColor, instanceMode])
+
+  // Apply font size as a CSS variable on :root
+  useEffect(() => {
+    const sizeMap: Record<string, string> = { small: '14px', medium: '16px', large: '18px' }
+    document.documentElement.style.setProperty('--app-font-size', sizeMap[fontSize] || '16px')
+    document.documentElement.setAttribute('data-font-size', fontSize)
+  }, [fontSize])
+
+  // Apply compact mode as a data attribute on :root
+  useEffect(() => {
+    document.documentElement.setAttribute('data-compact', compactMode ? 'true' : 'false')
+  }, [compactMode])
+
+  // Apply sidebar position as a data attribute
+  useEffect(() => {
+    document.documentElement.setAttribute('data-sidebar', sidebarPosition)
+  }, [sidebarPosition])
+
+  // Apply card style as a data attribute
+  useEffect(() => {
+    document.documentElement.setAttribute('data-card-style', cardStyle)
+  }, [cardStyle])
+
   return (
     <div data-theme={darkMode ? 'dark' : 'light'}>
       <Sidebar />
@@ -118,8 +167,10 @@ export function Layout() {
       <NotificationToasts />
       <main
         data-testid="main-content"
-        className={`ml-56 min-h-screen min-w-0 overflow-x-hidden ${isResizing ? '' : 'transition-[margin] duration-200'}`}
-        style={chatOpen ? { marginRight: chatWidth } : undefined}
+        className={`min-h-screen min-w-0 overflow-x-hidden ${isResizing ? '' : 'transition-[margin] duration-200'} ${
+          sidebarPosition === 'right' ? 'ml-0 lg:mr-56' : 'ml-0 lg:ml-56'
+        }`}
+        style={chatOpen && isDesktop ? (sidebarPosition === 'right' ? { marginLeft: chatWidth } : { marginRight: chatWidth }) : undefined}
       >
         <Outlet />
       </main>

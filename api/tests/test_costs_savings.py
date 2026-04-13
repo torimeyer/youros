@@ -132,3 +132,33 @@ async def test_costs_savings_route_non_zero_exit(client):
 
     assert resp.status_code == 200
     assert resp.json() == {"available": False}
+
+@pytest.mark.asyncio
+async def test_costs_savings_route_includes_conversation_cache(client):
+    """The savings endpoint must include conversation_cache_tokens and
+    conversation_cache_pct fields for the frontend tile."""
+    with patch("services.token_metrics.subprocess.run") as mock_run:
+        mock_run.return_value = _fake_completed(json.dumps(SAMPLE_METRICS))
+        resp = await client.get("/api/costs/savings")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["available"] is True
+    # These fields should always be present (possibly 0)
+    assert "conversation_cache_tokens" in data
+    assert "conversation_cache_pct" in data
+    assert isinstance(data["conversation_cache_tokens"], (int, float))
+    assert isinstance(data["conversation_cache_pct"], (int, float))
+
+
+def test_get_ostk_savings_includes_conversation_cache_fields():
+    """The raw savings dict must include conversation cache fields."""
+    with patch("services.token_metrics.subprocess.run") as mock_run:
+        mock_run.return_value = _fake_completed(json.dumps(SAMPLE_METRICS))
+        result = token_metrics.get_ostk_savings()
+
+    assert result is not None
+    assert "conversation_cache_pct" in result
+    assert "conversation_cache_read_tokens" in result
+    assert "conversation_cache_creation_tokens" in result
+

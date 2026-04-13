@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, meeting_prep, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit
+from routers import tasks, ideas, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, docs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, meeting_prep, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, recordings, imessage
 
 app = FastAPI(title="myOS API")
 
@@ -64,6 +64,15 @@ app.include_router(indexing.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
 app.include_router(predictions.router, prefix="/api")
 app.include_router(growth.router, prefix="/api")
+app.include_router(slack.router, prefix="/api")
+app.include_router(github.router, prefix="/api")
+app.include_router(project_import.router, prefix="/api")
+app.include_router(push.router, prefix="/api")
+app.include_router(decisions.router, prefix="/api")
+app.include_router(team_dashboard.router, prefix="/api")
+app.include_router(sessions.router, prefix="/api")
+app.include_router(recordings.router, prefix="/api")
+app.include_router(imessage.router, prefix="/api")
 
 
 @app.on_event("startup")

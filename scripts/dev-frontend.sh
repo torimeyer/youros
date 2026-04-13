@@ -18,6 +18,7 @@
 #   scripts/dev-frontend.sh         # starts Vite on port 3010
 
 set -e
+set +m 2>/dev/null  # suppress job-control noise ([N] PID lines)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

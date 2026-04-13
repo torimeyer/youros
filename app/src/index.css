@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
   --color-primary: #3b82f6;
   --color-accent-pink: #ec4899;
@@ -7,6 +9,7 @@
   --color-ai-purple: #8b5cf6;
   --color-info-cyan: #06b6d4;
   --color-accent: #3b82f6;
+  --color-team: #6366f1;
 }
 
 /* Dark theme (default) */
@@ -95,7 +98,13 @@ body {
 [data-theme="light"] .text-slate-600 { color: #475569; }
 [data-theme="light"] .text-slate-700 { color: #334155; }
 [data-theme="light"] .text-blue-100 { color: #1e40af; }
+[data-theme="light"] .text-blue-200 { color: #1e3a8a; }
+[data-theme="light"] .text-blue-300 { color: #1e40af; }
+[data-theme="light"] .text-blue-400 { color: #1d4ed8; }
 [data-theme="light"] .text-amber-400 { color: #b45309; }
+[data-theme="light"] .text-purple-200 { color: #6b21a8; }
+[data-theme="light"] .text-purple-400 { color: #7c3aed; }
+[data-theme="light"] .hover\:text-purple-400:hover { color: #6d28d9; }
 
 /* Placeholder and focus overrides */
 [data-theme="light"] .placeholder-slate-600::placeholder { color: #94a3b8; }
@@ -108,6 +117,9 @@ body {
 [data-theme="light"] .hover\:bg-slate-800\/60:hover { background-color: rgba(226, 232, 240, 0.6); }
 [data-theme="light"] .hover\:text-white:hover { color: #1e293b; }
 [data-theme="light"] .hover\:text-slate-300:hover { color: #334155; }
+[data-theme="light"] .hover\:text-blue-200:hover { color: #1e40af; }
+[data-theme="light"] .hover\:text-blue-300:hover { color: #1d4ed8; }
+[data-theme="light"] .hover\:text-blue-400:hover { color: #2563eb; }
 [data-theme="light"] .hover\:border-slate-700:hover { border-color: #94a3b8; }
 [data-theme="light"] .hover\:border-slate-400:hover { border-color: #64748b; }
 
@@ -139,6 +151,24 @@ body {
   border-color: var(--color-accent);
 }
 
+/* Team mode color utilities */
+.team-highlight {
+  background-color: color-mix(in srgb, var(--color-team) 10%, transparent);
+  color: var(--color-team);
+}
+
+.team-bg {
+  background-color: var(--color-team);
+}
+
+.team-text {
+  color: var(--color-team);
+}
+
+.team-border {
+  border-color: var(--color-team);
+}
+
 /* Hide icon text until the Material Symbols font has loaded.
    The .icons-loaded class is added to <html> by main.tsx after fonts are ready. */
 .material-symbols-outlined {
@@ -158,3 +188,25 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+/* Font size setting: applied via --app-font-size on :root */
+[data-font-size="small"] body { font-size: 14px; }
+[data-font-size="medium"] body { font-size: 16px; }
+[data-font-size="large"] body { font-size: 18px; }
+
+/* Compact mode: tighter spacing across the app */
+[data-compact="true"] .p-4 { padding: 0.75rem; }
+[data-compact="true"] .p-6 { padding: 1rem; }
+[data-compact="true"] .sm\:p-6 { padding: 1rem; }
+[data-compact="true"] .sm\:p-8 { padding: 1.25rem; }
+[data-compact="true"] .gap-6 { gap: 1rem; }
+[data-compact="true"] .py-6 { padding-top: 1rem; padding-bottom: 1rem; }
+[data-compact="true"] .mb-5 { margin-bottom: 0.75rem; }
+[data-compact="true"] .mb-8 { margin-bottom: 1rem; }
+[data-compact="true"] .text-2xl { font-size: 1.25rem; }
+[data-compact="true"] .text-3xl { font-size: 1.5rem; }
+[data-compact="true"] .text-lg { font-size: 1rem; }
+
+/* Card style: solid removes the glass/blur effect and uses an opaque background */
+[data-card-style="solid"] .bg-slate-900\/40 { background-color: #0f172a; }
+[data-card-style="solid"][data-theme="light"] .bg-slate-900\/40 { background-color: #f1f5f9; }

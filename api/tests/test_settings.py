@@ -471,6 +471,175 @@ async def test_get_settings_backfills_missing_new_fields_for_old_files(tmp_path)
     assert data["auto_label_tasks"] is True
     assert data["auto_template_matching"] is True
     assert data["chat_backend_preference"] == "auto"
+    # Appearance settings should be backfilled with defaults.
+    assert data["sidebar_position"] == "left"
+    assert data["compact_mode"] is False
+    assert data["font_size"] == "medium"
+    assert data["icon_style"] == "filled"
+    assert data["card_style"] == "glass"
+    assert data["dashboard_layout"] == "full"
+    assert data["status_dot_style"] == "dots"
+    assert data["greeting_style"] == "time"
     # Pre-existing fields are untouched.
     assert data["os_name"] == "myOS"
     assert data["onboarded"] is True
+
+
+# --- Appearance settings tests ---
+# These verify the 8 new appearance fields round-trip through the API
+# and persist correctly to disk. Needle 340.
+
+
+@pytest.mark.asyncio
+async def test_appearance_settings_schema_defaults():
+    """The Settings schema must include the 8 appearance fields with correct defaults."""
+    from models.schemas import Settings
+    defaults = Settings()
+    assert defaults.sidebar_position == "left"
+    assert defaults.compact_mode is False
+    assert defaults.font_size == "medium"
+    assert defaults.icon_style == "filled"
+    assert defaults.card_style == "glass"
+    assert defaults.dashboard_layout == "full"
+    assert defaults.status_dot_style == "dots"
+    assert defaults.greeting_style == "time"
+
+
+@pytest.mark.asyncio
+async def test_patch_sidebar_position(client, settings_file):
+    """Patching sidebar_position should persist and be readable."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"sidebar_position": "right"})
+        assert resp.status_code == 200
+        resp = await client.get("/api/settings")
+    assert resp.json()["sidebar_position"] == "right"
+
+
+@pytest.mark.asyncio
+async def test_patch_compact_mode(client, settings_file):
+    """Patching compact_mode should persist and be readable."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"compact_mode": True})
+        assert resp.status_code == 200
+        resp = await client.get("/api/settings")
+    assert resp.json()["compact_mode"] is True
+
+
+@pytest.mark.asyncio
+async def test_patch_font_size(client, settings_file):
+    """Patching font_size should persist and be readable."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"font_size": "large"})
+        assert resp.status_code == 200
+        resp = await client.get("/api/settings")
+    assert resp.json()["font_size"] == "large"
+
+
+@pytest.mark.asyncio
+async def test_patch_icon_style(client, settings_file):
+    """Patching icon_style should persist and be readable."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"icon_style": "outlined"})
+        assert resp.status_code == 200
+        resp = await client.get("/api/settings")
+    assert resp.json()["icon_style"] == "outlined"
+
+
+@pytest.mark.asyncio
+async def test_patch_card_style(client, settings_file):
+    """Patching card_style should persist and be readable."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"card_style": "solid"})
+        assert resp.status_code == 200
+        resp = await client.get("/api/settings")
+    assert resp.json()["card_style"] == "solid"
+
+
+@pytest.mark.asyncio
+async def test_patch_dashboard_layout(client, settings_file):
+    """Patching dashboard_layout should persist and be readable."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"dashboard_layout": "focus"})
+        assert resp.status_code == 200
+        resp = await client.get("/api/settings")
+    assert resp.json()["dashboard_layout"] == "focus"
+
+
+@pytest.mark.asyncio
+async def test_patch_status_dot_style(client, settings_file):
+    """Patching status_dot_style should persist and be readable."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"status_dot_style": "badges"})
+        assert resp.status_code == 200
+        resp = await client.get("/api/settings")
+    assert resp.json()["status_dot_style"] == "badges"
+
+
+@pytest.mark.asyncio
+async def test_patch_greeting_style(client, settings_file):
+    """Patching greeting_style should persist and be readable."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch("/api/settings", json={"greeting_style": "quote"})
+        assert resp.status_code == 200
+        resp = await client.get("/api/settings")
+    assert resp.json()["greeting_style"] == "quote"
+
+
+@pytest.mark.asyncio
+async def test_patch_appearance_preserves_other_settings(client, settings_file):
+    """Patching appearance settings should not affect other settings."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await client.patch("/api/settings", json={
+            "sidebar_position": "right",
+            "compact_mode": True,
+            "font_size": "small",
+            "icon_style": "outlined",
+            "card_style": "solid",
+            "dashboard_layout": "focus",
+            "status_dot_style": "badges",
+            "greeting_style": "none",
+        })
+        resp = await client.get("/api/settings")
+    data = resp.json()
+    # Appearance settings updated
+    assert data["sidebar_position"] == "right"
+    assert data["compact_mode"] is True
+    assert data["font_size"] == "small"
+    assert data["icon_style"] == "outlined"
+    assert data["card_style"] == "solid"
+    assert data["dashboard_layout"] == "focus"
+    assert data["status_dot_style"] == "badges"
+    assert data["greeting_style"] == "none"
+    # Original settings still intact
+    assert data["os_name"] == "ToriOS"
+    assert data["dark_mode"] is True
+    assert data["accent_color"] == "blue"
+
+
+@pytest.mark.asyncio
+async def test_appearance_settings_survive_store_restart(tmp_path):
+    """Appearance settings should persist across SettingsStore restarts."""
+    sf = tmp_path / "settings.json"
+    with patch("services.settings_store.SETTINGS_PATH", sf):
+        from services.settings_store import SettingsStore
+        store_a = SettingsStore()
+        store_a.update({
+            "sidebar_position": "right",
+            "compact_mode": True,
+            "font_size": "large",
+            "icon_style": "outlined",
+            "card_style": "solid",
+            "dashboard_layout": "focus",
+            "status_dot_style": "badges",
+            "greeting_style": "quote",
+        })
+        store_b = SettingsStore()
+        data = store_b.load()
+    assert data["sidebar_position"] == "right"
+    assert data["compact_mode"] is True
+    assert data["font_size"] == "large"
+    assert data["icon_style"] == "outlined"
+    assert data["card_style"] == "solid"
+    assert data["dashboard_layout"] == "focus"
+    assert data["status_dot_style"] == "badges"
+    assert data["greeting_style"] == "quote"

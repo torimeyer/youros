@@ -21,8 +21,8 @@ vi.mock('../../lib/markdown', () => ({
 }))
 
 // Mock zustand store
-vi.mock('../../stores/app', () => ({
-  useAppStore: () => ({
+vi.mock('../../stores/app', () => {
+  const store = {
     chatOpen: true,
     toggleChat: vi.fn(),
     chatWidth: 500,
@@ -30,8 +30,13 @@ vi.mock('../../stores/app', () => ({
     isResizing: false,
     setIsResizing: vi.fn(),
     defaultChatModel: 'claude',
-  }),
-}))
+    setDefaultChatModel: vi.fn(),
+    displayOsName: () => 'myOS',
+  }
+  return {
+    useAppStore: (selector?: (s: typeof store) => unknown) => selector ? selector(store) : store,
+  }
+})
 
 beforeEach(() => {
   localStorage.clear()
@@ -145,9 +150,8 @@ describe('ChatPanel tabs', () => {
     // Create a new tab
     await user.click(screen.getByTestId('new-tab-button'))
 
-    // The input should be cleared in the new tab context (input is shared state but new tab is active)
-    // Actually input is component state, not per-tab. Let's just verify the empty state message appears.
-    expect(screen.getByText(/Messages go to/)).toBeInTheDocument()
+    // The new tab should show the empty state message since it has no messages.
+    expect(screen.getByText(/Talking to/)).toBeInTheDocument()
   })
 
   it('active tab is visually distinct with white text', async () => {

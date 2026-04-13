@@ -1,0 +1,369 @@
+import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import Icon from '../components/Icon'
+import TopBar from '../components/TopBar'
+import { api } from '../lib/api'
+
+interface SlackChannel {
+  id: string
+  name: string
+  is_private: boolean
+  num_members: number
+  topic: string
+}
+
+interface SlackMessage {
+  ts: string
+  user: string
+  text: string
+  type: string
+}
+
+interface SlackStatus {
+  connected: boolean
+  team_name: string
+  team_id: string
+  configured: boolean
+}
+
+// Seed from localStorage for instant paint
+const SLACK_CHANNELS_CACHE_KEY = 'myos.slackChannels.v1'
+
+function readChannelCache(): SlackChannel[] {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return []
+    const raw = window.localStorage.getItem(SLACK_CHANNELS_CACHE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as SlackChannel[]) : []
+  } catch {
+    return []
+  }
+}
+
+function writeChannelCache(channels: SlackChannel[]) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    window.localStorage.setItem(SLACK_CHANNELS_CACHE_KEY, JSON.stringify(channels))
+  } catch {
+    // not fatal
+  }
+}
+
+export default function Slack() {
+  const [searchParams] = useSearchParams()
+  const [status, setStatus] = useState<SlackStatus | null>(null)
+  const [channels, setChannels] = useState<SlackChannel[]>(() => readChannelCache())
+  const [loading, setLoading] = useState<boolean>(() => readChannelCache().length === 0)
+  const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
+  const [messages, setMessages] = useState<SlackMessage[]>([])
+  const [messagesLoading, setMessagesLoading] = useState(false)
+  const [newMessage, setNewMessage] = useState('')
+  const [sending, setSending] = useState(false)
+  const [connectError, setConnectError] = useState<string | null>(null)
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await api.get<SlackStatus>('/slack/status')
+      setStatus(res)
+    } catch {
+      setStatus({ connected: false, team_name: '', team_id: '', configured: false })
+    }
+  }, [])
+
+  const fetchChannels = useCallback(async () => {
+    try {
+      const res = await api.get<{ channels: SlackChannel[] }>('/slack/channels')
+      setChannels(res.channels || [])
+      writeChannelCache(res.channels || [])
+    } catch {
+      setChannels((prev) => (prev.length > 0 ? prev : []))
+    }
+  }, [])
+
+  const fetchMessages = useCallback(async (channelId: string) => {
+    setMessagesLoading(true)
+    try {
+      const res = await api.get<{ messages: SlackMessage[] }>(`/slack/messages/${channelId}`)
+      setMessages(res.messages || [])
+    } catch {
+      setMessages([])
+    } finally {
+      setMessagesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const hasCached = readChannelCache().length > 0
+    if (!hasCached) setLoading(true)
+    ;(async () => {
+      try {
+        const s = await api.get<SlackStatus>('/slack/status')
+        setStatus(s)
+        if (s.connected) {
+          await fetchChannels()
+        }
+      } catch {
+        setStatus({ connected: false, team_name: '', team_id: '', configured: false })
+      }
+      setLoading(false)
+    })()
+  }, [fetchChannels])
+
+  // Handle ?connected=true redirect
+  useEffect(() => {
+    if (searchParams.get('connected') === 'true') {
+      fetchStatus().then(() => fetchChannels())
+    }
+  }, [searchParams, fetchStatus, fetchChannels])
+
+  const handleConnect = async () => {
+    setConnectError(null)
+    try {
+      const res = await api.get<{ url: string }>('/slack/auth')
+      window.location.href = res.url
+    } catch {
+      setConnectError('Could not start the Slack connection. Make sure Slack is configured in your .env file (SLACK_CLIENT_ID and SLACK_CLIENT_SECRET).')
+    }
+  }
+
+  const handleDisconnect = async () => {
+    try {
+      await api.delete('/slack/disconnect')
+      setStatus({ connected: false, team_name: '', team_id: '', configured: false })
+      setChannels([])
+      setSelectedChannel(null)
+      setMessages([])
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleSelectChannel = (channelId: string) => {
+    setSelectedChannel(channelId)
+    fetchMessages(channelId)
+  }
+
+  const handleSend = async () => {
+    if (!selectedChannel || !newMessage.trim()) return
+    setSending(true)
+    try {
+      await api.post('/slack/send', { channel_id: selectedChannel, text: newMessage })
+      setNewMessage('')
+      await fetchMessages(selectedChannel)
+    } catch {
+      // ignore
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const handleCreateTask = async (msg: SlackMessage) => {
+    const channelName = channels.find((c) => c.id === selectedChannel)?.name || ''
+    const title = msg.text.length > 80 ? msg.text.slice(0, 77) + '...' : msg.text
+    try {
+      await api.post('/tasks', {
+        title: `[Slack #${channelName}] ${title}`,
+        priority: 'P2',
+        description: `From Slack #${channelName}:\n\n${msg.text}`,
+      })
+    } catch {
+      // ignore
+    }
+  }
+
+  const cardClass = 'bg-slate-900/40 border border-slate-800 p-4 rounded-xl'
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <TopBar title="Slack" />
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex items-center gap-2 text-slate-400">
+          <Icon name="progress_activity" size={20} className="animate-spin" />
+          Loading...
+        </div>
+      </div>
+    )
+  }
+
+  if (!status?.connected) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <TopBar title="Slack" />
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
+          <div className="bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl">
+            <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center mb-4">
+              <Icon name="chat" className="text-purple-400" size={24} />
+            </div>
+            <h2 className="text-xl font-semibold mb-2">Connect Slack</h2>
+            <p className="text-slate-400 mb-6">
+              See your Slack messages, reply to conversations, and create tasks from messages without leaving myOS.
+            </p>
+            {status?.configured ? (
+              <button
+                onClick={handleConnect}
+                className="w-full py-3 bg-purple-600 hover:bg-purple-700 rounded-xl font-medium transition-colors"
+              >
+                Connect Slack workspace
+              </button>
+            ) : (
+              <div className="text-sm text-slate-400">
+                <p className="mb-2">Slack is not configured yet. Add these to your <code className="text-slate-300">.env</code> file:</p>
+                <div className="bg-slate-800 rounded-lg p-3 font-mono text-xs">
+                  <p>SLACK_CLIENT_ID=your_client_id</p>
+                  <p>SLACK_CLIENT_SECRET=your_secret</p>
+                </div>
+                <p className="mt-2">Create a Slack app at <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer" className="text-purple-400 hover:text-purple-300">api.slack.com/apps</a></p>
+              </div>
+            )}
+            {connectError && (
+              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
+                {connectError}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white">
+      <TopBar title="Slack" />
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl sm:text-2xl font-bold">Slack</h1>
+              {status.team_name && (
+                <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-sm font-semibold rounded-full">
+                  {status.team_name}
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={handleDisconnect}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors text-slate-400"
+          >
+            <Icon name="link_off" size={16} />
+            Disconnect
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Channel list */}
+          <div className={cardClass}>
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="tag" className="text-purple-400" size={18} />
+              <h2 className="text-base font-semibold">Channels</h2>
+            </div>
+            {channels.length === 0 ? (
+              <p className="text-slate-500 text-sm">No channels found.</p>
+            ) : (
+              <div className="space-y-1 max-h-[60vh] overflow-y-auto">
+                {channels.map((ch) => (
+                  <button
+                    key={ch.id}
+                    onClick={() => handleSelectChannel(ch.id)}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                      selectedChannel === ch.id
+                        ? 'bg-purple-500/20 text-purple-300'
+                        : 'text-slate-300 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Icon name={ch.is_private ? 'lock' : 'tag'} size={14} className="text-slate-500" />
+                      {ch.name}
+                    </span>
+                    {ch.topic && (
+                      <span className="text-xs text-slate-500 truncate block mt-0.5">{ch.topic}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Messages */}
+          <div className={`${cardClass} lg:col-span-2`}>
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="forum" className="text-purple-400" size={18} />
+              <h2 className="text-base font-semibold">
+                {selectedChannel
+                  ? `#${channels.find((c) => c.id === selectedChannel)?.name || ''}`
+                  : 'Messages'}
+              </h2>
+            </div>
+
+            {!selectedChannel ? (
+              <div className="text-center py-12 text-slate-500">
+                <Icon name="arrow_back" size={36} className="mb-2 mx-auto opacity-40" />
+                <p>Select a channel to view messages.</p>
+              </div>
+            ) : messagesLoading ? (
+              <div className="text-center py-8 text-slate-500 flex items-center justify-center gap-2">
+                <Icon name="progress_activity" size={20} className="animate-spin" />
+                <p>Loading messages...</p>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                <p>No messages in this channel.</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3 max-h-[50vh] overflow-y-auto mb-4">
+                  {[...messages].reverse().map((msg) => (
+                    <div key={msg.ts} className="group flex items-start gap-3 px-2 py-2 rounded-lg hover:bg-slate-800/40">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-sm font-medium text-slate-200">{msg.user || 'Unknown'}</span>
+                          <span className="text-xs text-slate-500">
+                            {new Date(parseFloat(msg.ts) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-300 whitespace-pre-wrap">{msg.text}</p>
+                      </div>
+                      <button
+                        onClick={() => handleCreateTask(msg)}
+                        title="Create task from this message"
+                        className="shrink-0 opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-slate-700 transition-all"
+                      >
+                        <Icon name="add_task" size={16} className="text-slate-400" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Compose */}
+                <div className="flex items-center gap-2 pt-3 border-t border-slate-800">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSend()
+                      }
+                    }}
+                    placeholder="Type a message..."
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                  />
+                  <button
+                    onClick={handleSend}
+                    disabled={sending || !newMessage.trim()}
+                    className="px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    <Icon name="send" size={16} />
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

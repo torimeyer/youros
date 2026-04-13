@@ -60,7 +60,13 @@ class TestToolDefinitions:
             "web_search", "web_fetch",
             "git_status", "git_diff", "git_commit",
             "capture_idea",
+            "list_ideas",
+            "list_converted_ideas",
+            "delete_idea",
             "get_calendar_events",
+            "create_calendar_event",
+            "send_email",
+            "upload_to_drive",
         }
         assert expected == names
 

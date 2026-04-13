@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 
+from config import PROJECT_ROOT
 from models.schemas import DocDraft, DocPromote, DocDecompose
 from services.ostk import ostk, OstkError
 
@@ -44,3 +47,24 @@ async def decompose_spec(body: DocDecompose):
         return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/docs/{doc_path:path}")
+async def delete_doc(doc_path: str):
+    """Delete a draft or spec document by its relative path.
+
+    The path must live under docs/draft/ or docs/spec/ inside the
+    project root. Any path that escapes those directories is rejected.
+    """
+    docs_dir = Path(PROJECT_ROOT) / "docs"
+    target = (docs_dir / doc_path).resolve()
+    # Safety: only allow deletion inside docs/draft or docs/spec
+    if not (
+        str(target).startswith(str((docs_dir / "draft").resolve()))
+        or str(target).startswith(str((docs_dir / "spec").resolve()))
+    ):
+        raise HTTPException(status_code=400, detail="Path must be under docs/draft/ or docs/spec/")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Document not found")
+    target.unlink()
+    return {"result": "deleted"}

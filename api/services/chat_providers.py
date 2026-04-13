@@ -12,8 +12,69 @@ from services import claude_code_provider
 from services.ostk import ostk
 from services.settings_store import settings_store
 from services.template_matcher import match_template, merge_with_built_ins
+from services.ostk import write_audit_entry
 from services.token_metrics import safe_record_chat_turn
 from services.tool_executor import TOOL_DEFINITIONS, execute_tool
+
+
+def _extract_chat_topic(messages: list[dict], max_len: int = 60) -> str:
+    """Return a short topic string from the last user message.
+
+    Used by ``_log_chat_completion`` to give each chat session a
+    meaningful name in the usage history instead of a generic
+    "Chat session" label.
+    """
+    for msg in reversed(messages):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            # Vision/multi-block payload: grab the first text block
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    content = block.get("text", "")
+                    break
+            else:
+                content = ""
+        if not isinstance(content, str) or not content.strip():
+            continue
+        text = content.strip().replace("\n", " ")
+        if len(text) > max_len:
+            text = text[:max_len].rsplit(" ", 1)[0] + "..."
+        return text
+    return "Chat"
+
+
+def _log_chat_completion(
+    *,
+    model: str,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    provider: str = "anthropic",
+    cache_creation_input_tokens: int = 0,
+    cache_read_input_tokens: int = 0,
+    topic: str = "Chat",
+) -> None:
+    """Write a chat.completion event to audit.jsonl for cost tracking.
+
+    Called once per completed response (not per streaming chunk). The
+    caller is responsible for invoking this only after the full response
+    is assembled and token counts are final.
+    """
+    from datetime import datetime, timezone
+    write_audit_entry({
+        "event": "chat.completion",
+        "name": "chat",
+        "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "provider": provider,
+        "cache_creation_input_tokens": cache_creation_input_tokens,
+        "cache_read_input_tokens": cache_read_input_tokens,
+        "topic": topic,
+        "budget": 0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
 
 
 # Labels used in the ``backend_active`` websocket event so the chat panel
@@ -59,6 +120,13 @@ async def _send_backend_active(websocket: WebSocket, backend: str) -> None:
 _ENV_KEY_MAP = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "gemini_api_key": "GEMINI_API_KEY",
+}
+
+# Maps settings key names to the provider name used in enterprise_store
+# org-level API key storage.
+_SETTINGS_KEY_TO_PROVIDER = {
+    "anthropic_api_key": "anthropic",
+    "gemini_api_key": "gemini",
 }
 
 
@@ -422,27 +490,37 @@ async def _send_friendly_gemini_error(
 
 
 async def _resolve_api_key(settings_key: str) -> str:
-    """Return API key from the system keychain (ostk), settings, or env.
+    """Return API key from org config, system keychain (ostk), settings, or env.
 
     Resolution order:
-    1. System keychain via ``ostk secret get``
-    2. Legacy settings.json field (for backward compatibility)
-    3. Environment variable
+    1. Org-level key (enterprise mode only)
+    2. System keychain via ``ostk secret get``
+    3. Legacy settings.json field (for backward compatibility)
+    4. Environment variable
     """
+    # 1. Org-level key (enterprise mode)
+    provider = _SETTINGS_KEY_TO_PROVIDER.get(settings_key, "")
+    if provider:
+        from services import enterprise_store
+        if enterprise_store.is_enterprise():
+            org_key = enterprise_store.get_org_api_key(provider)
+            if org_key:
+                return org_key
+
     env_name = _ENV_KEY_MAP.get(settings_key, "")
 
-    # 1. System keychain (preferred)
+    # 2. System keychain (preferred)
     if env_name:
         keychain_value = await ostk.secret_get(env_name)
         if keychain_value:
             return keychain_value
 
-    # 2. Legacy settings.json (backward compat)
+    # 3. Legacy settings.json (backward compat)
     key = settings_store.get(settings_key, "")
     if key:
         return key
 
-    # 3. Environment variable
+    # 4. Environment variable
     if env_name:
         return os.environ.get(env_name, "")
     return ""
@@ -636,20 +714,60 @@ def _messages_contain_images(messages: list[dict]) -> bool:
     return False
 
 
-_BOOT_CONTEXT_CACHE: Optional[tuple[float, str]] = None
+# --- Extended thinking ---
+#
+# Complex questions benefit from extended thinking. We enable it when
+# the user's message is long enough or contains question words that
+# signal analytical reasoning. Short greetings and simple commands
+# skip thinking to keep responses snappy.
+
+import re as _re
+
+_THINKING_QUESTION_WORDS = _re.compile(
+    r"\b(why|how|explain|compare|analyze|analyse|evaluate|describe|"
+    r"what\s+(?:are|is|would|should|could|does)|"
+    r"should\s+i|can\s+you\s+explain)\b",
+    _re.IGNORECASE,
+)
+
+EXTENDED_THINKING_CHAR_THRESHOLD = 50
+EXTENDED_THINKING_BUDGET_TOKENS = 10000
 
 
-def _get_boot_context() -> str:
-    """Run `ostk boot` once per 5 minutes and cache the output.
+def _should_use_thinking(text: str) -> bool:
+    """Return True if the message seems complex enough to benefit from thinking.
 
-    The output is injected into the system prompt so the model never has
-    to call the shell tool (and ask for approval) to get session context.
+    Criteria (either one triggers thinking):
+      - The message is longer than EXTENDED_THINKING_CHAR_THRESHOLD characters.
+      - The message contains analytical question words.
     """
-    global _BOOT_CONTEXT_CACHE
-    import time as _time
-    now = _time.time()
-    if _BOOT_CONTEXT_CACHE and now - _BOOT_CONTEXT_CACHE[0] < 300:
-        return _BOOT_CONTEXT_CACHE[1]
+    if not isinstance(text, str):
+        return False
+    if len(text) > EXTENDED_THINKING_CHAR_THRESHOLD:
+        return True
+    if _THINKING_QUESTION_WORDS.search(text):
+        return True
+    return False
+
+
+_BOOT_CONTEXT_CACHE: Optional[tuple[float, str]] = None
+_BOOT_CONTEXT_REFRESH_IN_FLIGHT: bool = False
+
+
+def _strip_ansi(output: str) -> str:
+    """Remove ANSI escape codes from a string."""
+    import re
+    return re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output).strip()
+
+
+def _run_ostk_boot_sync() -> str:
+    """Run ``ostk boot`` synchronously and return the stripped output.
+
+    This is the blocking worker that actually shells out. It is safe to
+    call from ``asyncio.to_thread`` or from a non-async context. Never
+    call it directly from an async function, it will block the event
+    loop for up to five seconds.
+    """
     try:
         import subprocess
         result = subprocess.run(
@@ -660,29 +778,80 @@ def _get_boot_context() -> str:
             cwd=str(PROJECT_ROOT),
         )
         output = (result.stdout or "") + (result.stderr or "")
-        # Strip ANSI escape codes.
-        import re
-        output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output).strip()
+        return _strip_ansi(output)
     except Exception:
-        output = ""
+        return ""
+
+
+def _get_boot_context() -> str:
+    """Return cached ``ostk boot`` output. Safe to call from async code.
+
+    The output is injected into the system prompt so the model never has
+    to call the shell tool (and ask for approval) to get session context.
+    Cached for five minutes.
+
+    Critical safety rule: when called from inside a running asyncio event
+    loop and the cache is cold, this returns the stale value (or an empty
+    string) and schedules a background refresh. Running ``subprocess.run``
+    directly on the event loop would block it for up to five seconds,
+    which is exactly long enough to time out a fresh WebSocket handshake
+    with ``open_timeout=5``. That was the chat WS handshake deadlock bug.
+    """
+    global _BOOT_CONTEXT_CACHE, _BOOT_CONTEXT_REFRESH_IN_FLIGHT
+    import time as _time
+    now = _time.time()
+    if _BOOT_CONTEXT_CACHE and now - _BOOT_CONTEXT_CACHE[0] < 300:
+        return _BOOT_CONTEXT_CACHE[1]
+
+    # Detect whether we are inside a running asyncio loop. If we are,
+    # refuse to block on subprocess.run. Schedule the refresh in a
+    # worker thread instead and return the stale cached value.
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None:
+        if not _BOOT_CONTEXT_REFRESH_IN_FLIGHT:
+            _BOOT_CONTEXT_REFRESH_IN_FLIGHT = True
+
+            async def _refresh_and_cache() -> None:
+                global _BOOT_CONTEXT_CACHE, _BOOT_CONTEXT_REFRESH_IN_FLIGHT
+                try:
+                    output = await asyncio.to_thread(_run_ostk_boot_sync)
+                    _BOOT_CONTEXT_CACHE = (_time.time(), output)
+                finally:
+                    _BOOT_CONTEXT_REFRESH_IN_FLIGHT = False
+
+            try:
+                loop.create_task(_refresh_and_cache())
+            except Exception:
+                _BOOT_CONTEXT_REFRESH_IN_FLIGHT = False
+        # Return the stale value if we have one, or empty string on cold start.
+        return _BOOT_CONTEXT_CACHE[1] if _BOOT_CONTEXT_CACHE else ""
+
+    # Synchronous context: safe to block.
+    output = _run_ostk_boot_sync()
     _BOOT_CONTEXT_CACHE = (now, output)
     return output
 
 
 def _system_prompt() -> str:
+    """Return the static system prompt without boot context.
+
+    Boot context is added separately by ``_build_cached_system_blocks``
+    (as its own cached block) or by ``_compose_system_prompt`` (appended
+    inline for the Claude Code backend fallback).
+    """
     os_name = settings_store.get("os_name", "myOS")
     user_name = settings_store.get("user_name", "")
     owner = user_name if user_name else "the user"
-    boot_context = _get_boot_context()
-    boot_section = (
-        f"\n\nSESSION CONTEXT (from `ostk boot` — already run, do not run again):\n{boot_context}\n"
-        if boot_context else ""
-    )
     return (
         f"You are {os_name}, {owner}'s personal operating system. "
         "You have access to tools that let you read files, write files, edit files, "
         "run shell commands, search code, manage tasks, search the web, fetch web pages, "
-        f"run git operations, and spawn background agents in the workspace at {PROJECT_ROOT}. "
+        "run git operations, spawn background agents, create Google Calendar events, "
+        f"send emails via Gmail, and upload files to Google Drive in the workspace at {PROJECT_ROOT}. "
         "All tools including shell commands are pre-authorized. Never ask the user to approve "
         "a shell or tool call. Just run it. "
         f"Use these tools to help {owner} with whatever they need. "
@@ -708,13 +877,23 @@ def _system_prompt() -> str:
         "Read the actual code before making any claims. Never assume.\n\n"
         "ELIT COMMAND: When the user says 'elit' (explain like I'm Tori), explain the "
         "topic in plain language with no code, no jargon, and keep it brief.\n\n"
-        "IDEA CAPTURE: If the user mentions a stray thought, aside, or rough idea in "
-        "passing (phrases like 'random thought', 'idea:', 'btw it would be cool if', "
-        "'note to self', or any musing they want captured but not acted on), silently "
-        "call the capture_idea tool to file it as hay. Do NOT announce that you captured "
-        "it. Do NOT capture questions, direct action requests, or things they want done "
-        "right now. When in doubt, do not capture. After capturing, continue answering "
-        "the rest of their message normally.\n\n"
+        "GOOGLE INTEGRATION: When the user's Google account is connected through Settings, "
+        "you can use these tools directly. Never tell the user to connect via /mcp when "
+        "they are already connected through Settings.\n"
+        "- create_calendar_event: Use when the user says 'add to calendar', 'schedule', "
+        "'put on my calendar', or similar. For events without a specific time (field trips, "
+        "birthdays), set all_day to true.\n"
+        "- send_email: Use when the user says 'send an email', 'email', or 'write to'. "
+        "Draft the email text and send it. Confirm what you sent.\n"
+        "- upload_to_drive: Use when the user says 'save to Drive', 'upload to Drive', "
+        "or asks to create a document in Drive.\n"
+        "- get_calendar_events: Use to check what is on the calendar today.\n\n"
+        "IDEA MANAGEMENT: You can capture, list, and delete ideas.\n"
+        "- To capture a new idea when the user mentions one in passing, use capture_idea silently.\n"
+        "- To list active ideas, use list_ideas.\n"
+        "- To list converted ideas (turned into tasks), use list_converted_ideas.\n"
+        "- To delete an idea (active or converted), use delete_idea with the text or a fragment.\n"
+        "When the user asks to remove, delete, or clean up an idea, use delete_idea. Do not suggest they do it manually. When capturing ideas in passing, do NOT announce it.\n\n"
         "Keep your responses brief and focused on outcomes, not process. "
         "Do NOT narrate your steps. Do NOT say 'Let me check' or 'Let me look'. "
         "Just do the work and share the result. "
@@ -723,7 +902,6 @@ def _system_prompt() -> str:
         "Never use em-dashes. "
         "When the user sends a GIF, do not describe what is in the GIF. They can already see it. "
         "Just react naturally to the sentiment behind it, like you would in a text conversation."
-        + boot_section
     )
 
 
@@ -803,8 +981,15 @@ async def _maybe_match_template(
 
 
 def _compose_system_prompt(matched_template: Optional[dict]) -> str:
-    """Return the system prompt, optionally augmented by a matched template."""
+    """Return the full system prompt as a single string.
+
+    Used by the Claude Code backend fallback where we cannot split into
+    separate cached blocks. Includes boot context inline.
+    """
     base = _system_prompt()
+    boot_context = _get_boot_context()
+    if boot_context:
+        base += f"\n\nSESSION CONTEXT (from `ostk boot`, already run, do not run again):\n{boot_context}\n"
     if not matched_template:
         return base
     extra = str(matched_template.get("prompt") or "").strip()
@@ -813,8 +998,99 @@ def _compose_system_prompt(matched_template: Optional[dict]) -> str:
     return base + "\n\n---\nACTIVE TEMPLATE: " + str(matched_template.get("name", "")) + "\n" + extra
 
 
+def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
+    """Build system prompt as separate cached blocks.
+
+    Splits the system prompt into a stable instructions block (cached)
+    and a volatile boot context block (separate). This way the large,
+    mostly-static instructions stay cached even when needle counts,
+    fleet status, or other boot context changes between turns.
+
+    The Anthropic API supports up to 4 cache breakpoints. We use 2 here
+    (instructions + boot context) leaving 2 for conversation prefix caching.
+    """
+    os_name = settings_store.get("os_name", "myOS")
+    user_name = settings_store.get("user_name", "")
+    owner = user_name if user_name else "the user"
+
+    # Static instructions block. This text rarely changes, so it stays
+    # cached across many turns and even across conversations within the
+    # 5-minute TTL.
+    base = _system_prompt()
+    if matched_template:
+        extra = str(matched_template.get("prompt") or "").strip()
+        if extra:
+            base += "\n\n---\nACTIVE TEMPLATE: " + str(matched_template.get("name", "")) + "\n" + extra
+
+    boot_context = _get_boot_context()
+    if not boot_context:
+        return [
+            {
+                "type": "text",
+                "text": base,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
+    # Split: static instructions (cached) + volatile boot context (cached
+    # separately so a boot context change does not bust the instructions cache).
+    return [
+        {
+            "type": "text",
+            "text": base,
+            "cache_control": {"type": "ephemeral"},
+        },
+        {
+            "type": "text",
+            "text": f"SESSION CONTEXT (from `ostk boot`, already run, do not run again):\n{boot_context}",
+            "cache_control": {"type": "ephemeral"},
+        },
+    ]
+
+
+def _add_conversation_prefix_cache(messages: list[dict]) -> list[dict]:
+    """Add a cache breakpoint to the conversation prefix.
+
+    Marks the second-to-last message with cache_control so the entire
+    conversation history up to the previous turn is served from cache
+    on the next API call. Only the new message is billed at full price.
+
+    Returns a shallow copy with the cache marker injected. The original
+    list is not mutated.
+    """
+    if len(messages) < 2:
+        return messages
+
+    result = list(messages)
+    # The prefix boundary is the message just before the latest one.
+    target_idx = len(result) - 2
+    target = result[target_idx]
+    content = target.get("content")
+
+    if isinstance(content, str):
+        result[target_idx] = {
+            **target,
+            "content": [
+                {
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        }
+    elif isinstance(content, list) and len(content) > 0:
+        # Add cache_control to the last block in the content list.
+        new_content = list(content)
+        last_block = dict(new_content[-1])
+        last_block["cache_control"] = {"type": "ephemeral"}
+        new_content[-1] = last_block
+        result[target_idx] = {**target, "content": new_content}
+
+    return result
+
+
 class ChatService:
-    async def stream_anthropic(self, messages: list[dict], websocket: WebSocket) -> str:
+    async def stream_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "") -> str:
         # Run template matching up front so both backends pick up any
         # matched helper. The matcher itself uses the API key when one is
         # available, but it also handles the no-key case gracefully.
@@ -838,7 +1114,7 @@ class ChatService:
 
         if backend == "claude_code":
             return await claude_code_provider.stream_chat(
-                messages, websocket, system_prompt=system_prompt
+                messages, websocket, system_prompt=system_prompt, tab_id=tab_id
             )
 
         if not api_key:
@@ -852,13 +1128,32 @@ class ChatService:
             return ""
 
         client = anthropic.AsyncAnthropic(api_key=api_key)
+        cached_messages = _add_conversation_prefix_cache(messages)
         stream_kwargs: dict = {
             "model": "claude-sonnet-4-20250514",
             "max_tokens": 4096,
-            "messages": messages,
+            "messages": cached_messages,
         }
-        if system_prompt:
-            stream_kwargs["system"] = system_prompt
+        # Use split system blocks so stable instructions stay cached
+        # even when volatile boot context changes between turns.
+        stream_kwargs["system"] = _build_cached_system_blocks(matched_template)
+
+        # Enable extended thinking for complex questions so the model
+        # can reason through multi-step problems before answering.
+        last_user_text = _extract_last_user_text(messages)
+        use_thinking = _should_use_thinking(last_user_text)
+        if use_thinking:
+            stream_kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": EXTENDED_THINKING_BUDGET_TOKENS,
+            }
+            # Extended thinking requires max_tokens to cover both
+            # thinking and response. Bump it so the budget fits.
+            stream_kwargs["max_tokens"] = max(
+                stream_kwargs["max_tokens"],
+                EXTENDED_THINKING_BUDGET_TOKENS + 4096,
+            )
+
         full_text = ""
 
         async def _run_stream_once() -> Any:
@@ -867,13 +1162,51 @@ class ChatService:
             Defined as a local coroutine so ``_anthropic_retry_call`` can
             retry the whole attempt cleanly if Anthropic returns a 5xx
             during stream setup and no tokens have been forwarded yet.
+
+            When extended thinking is enabled, handles ``thinking`` type
+            content blocks by sending ``{"type": "thinking", ...}`` events
+            so the frontend can show a thinking indicator.
             """
             nonlocal full_text
-            async with client.messages.stream(**stream_kwargs) as stream:
-                async for text in stream.text_stream:
-                    full_text += text
-                    await websocket.send_json({"type": "token", "data": text})
-                return await stream.get_final_message()
+            if use_thinking:
+                # With thinking enabled we need to iterate raw stream
+                # events to capture both thinking and text blocks.
+                async with client.messages.stream(**stream_kwargs) as stream:
+                    async for event in stream:
+                        if hasattr(event, "type"):
+                            if event.type == "content_block_start":
+                                block = getattr(event, "content_block", None)
+                                if block and getattr(block, "type", "") == "thinking":
+                                    await websocket.send_json({
+                                        "type": "thinking",
+                                        "data": True,
+                                    })
+                            elif event.type == "content_block_delta":
+                                delta = getattr(event, "delta", None)
+                                if delta:
+                                    delta_type = getattr(delta, "type", "")
+                                    if delta_type == "thinking_delta":
+                                        thinking_text = getattr(delta, "thinking", "")
+                                        if thinking_text:
+                                            await websocket.send_json({
+                                                "type": "thinking",
+                                                "data": thinking_text,
+                                            })
+                                    elif delta_type == "text_delta":
+                                        text = getattr(delta, "text", "")
+                                        if text:
+                                            full_text += text
+                                            await websocket.send_json({
+                                                "type": "token",
+                                                "data": text,
+                                            })
+                    return await stream.get_final_message()
+            else:
+                async with client.messages.stream(**stream_kwargs) as stream:
+                    async for text in stream.text_stream:
+                        full_text += text
+                        await websocket.send_json({"type": "token", "data": text})
+                    return await stream.get_final_message()
 
         try:
             # Retry ONLY while no tokens have been emitted. Once the
@@ -886,11 +1219,15 @@ class ChatService:
                     _run_stream_once,
                     op_name="anthropic.messages.stream",
                 )
+            _cache_creation = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+            _cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
             await websocket.send_json({
                 "type": "done",
                 "usage": {
                     "input_tokens": response.usage.input_tokens,
                     "output_tokens": response.usage.output_tokens,
+                    "cache_creation_input_tokens": _cache_creation,
+                    "cache_read_input_tokens": _cache_read,
                 }
             })
             _boot_ctx = _get_boot_context()
@@ -901,6 +1238,17 @@ class ChatService:
                 has_ostk_boot=bool(_boot_ctx),
                 boot_context_bytes=len(_boot_ctx.encode("utf-8")) if _boot_ctx else 0,
                 backend="anthropic_api",
+                cache_creation_input_tokens=_cache_creation,
+                cache_read_input_tokens=_cache_read,
+            )
+            _log_chat_completion(
+                model="claude-sonnet-4-20250514",
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                provider="anthropic",
+                cache_creation_input_tokens=_cache_creation,
+                cache_read_input_tokens=_cache_read,
+                topic=_extract_chat_topic(messages),
             )
         except anthropic.APIStatusError as e:
             status = getattr(e, "status_code", None)
@@ -927,7 +1275,7 @@ class ChatService:
             return []
         return [s for s in servers if isinstance(s, dict) and s.get("enabled", True) and s.get("url")]
 
-    async def agent_anthropic(self, messages: list[dict], websocket: WebSocket) -> str:
+    async def agent_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "") -> str:
         """Run the Anthropic agent loop with tool use.
 
         Sends messages with tool definitions, executes any tool calls Claude
@@ -945,6 +1293,9 @@ class ChatService:
         # the chat panel shows a small "Using: <name>" badge. We do this
         # before picking a backend so both paths get the matched helper.
         matched_template = await _maybe_match_template(messages, websocket, api_key)
+        # Use split system blocks so stable instructions stay cached
+        # even when volatile boot context changes between turns.
+        cached_system_prompt = _build_cached_system_blocks(matched_template)
         active_system_prompt = _compose_system_prompt(matched_template)
 
         backend = await _resolve_chat_backend()
@@ -958,13 +1309,12 @@ class ChatService:
 
         await _send_backend_active(websocket, backend)
 
-        # The local program cannot run our Python tool loop today, so when
-        # the subscription path is active we fall back to text-only chat
-        # and skip the tool loop. The API-key path still runs the full
-        # agent loop below.
+        # With session mode, the local program handles tools natively
+        # via --dangerously-skip-permissions. The tab_id enables session
+        # persistence so the model has full conversation context.
         if backend == "claude_code":
             return await claude_code_provider.stream_chat(
-                messages, websocket, system_prompt=active_system_prompt
+                messages, websocket, system_prompt=active_system_prompt, tab_id=tab_id
             )
 
         if not api_key:
@@ -981,6 +1331,8 @@ class ChatService:
         conversation: list[dict] = list(messages)
         total_input_tokens = 0
         total_output_tokens = 0
+        total_cache_creation_tokens = 0
+        total_cache_read_tokens = 0
         mcp_servers = self._get_mcp_servers()
         use_mcp = len(mcp_servers) > 0
 
@@ -996,6 +1348,8 @@ class ChatService:
                         "usage": {
                             "input_tokens": total_input_tokens,
                             "output_tokens": total_output_tokens,
+                            "cache_creation_input_tokens": total_cache_creation_tokens,
+                            "cache_read_input_tokens": total_cache_read_tokens,
                         },
                     })
                     _boot_ctx = _get_boot_context()
@@ -1006,11 +1360,27 @@ class ChatService:
                         has_ostk_boot=bool(_boot_ctx),
                         boot_context_bytes=len(_boot_ctx.encode("utf-8")) if _boot_ctx else 0,
                         backend="anthropic_api",
+                        cache_creation_input_tokens=total_cache_creation_tokens,
+                        cache_read_input_tokens=total_cache_read_tokens,
+                    )
+                    _log_chat_completion(
+                        model="claude-sonnet-4-20250514",
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        provider="anthropic",
+                        cache_creation_input_tokens=total_cache_creation_tokens,
+                        cache_read_input_tokens=total_cache_read_tokens,
+                        topic=_extract_chat_topic(messages),
                     )
                     return msg
 
                 # Signal the frontend that we're working
                 await websocket.send_json({"type": "thinking", "data": True})
+
+                # Cache the conversation prefix so prior turns are served
+                # from cache on each new API call. Only the latest tool
+                # results and new messages are billed at full price.
+                cached_conversation = _add_conversation_prefix_cache(conversation)
 
                 if use_mcp:
                     mcp_server_params = [
@@ -1027,8 +1397,8 @@ class ChatService:
                         return await client.beta.messages.create(
                             model="claude-sonnet-4-20250514",
                             max_tokens=4096,
-                            system=active_system_prompt,
-                            messages=conversation,
+                            system=cached_system_prompt,
+                            messages=cached_conversation,
                             tools=TOOL_DEFINITIONS,  # type: ignore[arg-type]
                             mcp_servers=mcp_server_params,  # type: ignore[arg-type]
                             betas=["mcp-client-2025-04-04"],
@@ -1043,8 +1413,8 @@ class ChatService:
                         return await client.messages.create(
                             model="claude-sonnet-4-20250514",
                             max_tokens=4096,
-                            system=active_system_prompt,
-                            messages=conversation,
+                            system=cached_system_prompt,
+                            messages=cached_conversation,
                             tools=TOOL_DEFINITIONS,
                         )
 
@@ -1055,6 +1425,8 @@ class ChatService:
 
                 total_input_tokens += response.usage.input_tokens
                 total_output_tokens += response.usage.output_tokens
+                total_cache_creation_tokens += getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+                total_cache_read_tokens += getattr(response.usage, "cache_read_input_tokens", 0) or 0
 
                 # Process content blocks. MCP tool blocks (mcp_tool_use /
                 # mcp_tool_result) are handled server-side by Anthropic and
@@ -1125,6 +1497,8 @@ class ChatService:
                         "usage": {
                             "input_tokens": total_input_tokens,
                             "output_tokens": total_output_tokens,
+                            "cache_creation_input_tokens": total_cache_creation_tokens,
+                            "cache_read_input_tokens": total_cache_read_tokens,
                         },
                     })
                     _boot_ctx = _get_boot_context()
@@ -1135,6 +1509,15 @@ class ChatService:
                         has_ostk_boot=bool(_boot_ctx),
                         boot_context_bytes=len(_boot_ctx.encode("utf-8")) if _boot_ctx else 0,
                         backend="anthropic_api",
+                        cache_creation_input_tokens=total_cache_creation_tokens,
+                        cache_read_input_tokens=total_cache_read_tokens,
+                    )
+                    _log_chat_completion(
+                        model="claude-sonnet-4-20250514",
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        provider="anthropic",
+                        topic=_extract_chat_topic(messages),
                     )
                     return "\n".join(text_parts)
 
@@ -1391,6 +1774,26 @@ class ChatService:
                 )
                 return full_text
 
+            # Log Gemini usage to audit.jsonl. The streaming response
+            # exposes usage_metadata on some SDK versions. Fall back to 0
+            # when the field is absent so the audit entry still records the
+            # model and timestamp even without exact token counts.
+            _gem_input = 0
+            _gem_output = 0
+            try:
+                _usage_meta = getattr(response, "usage_metadata", None)
+                if _usage_meta is not None:
+                    _gem_input = getattr(_usage_meta, "prompt_token_count", 0) or 0
+                    _gem_output = getattr(_usage_meta, "candidates_token_count", 0) or 0
+            except Exception:
+                pass
+            _log_chat_completion(
+                model=model_name,
+                input_tokens=_gem_input,
+                output_tokens=_gem_output,
+                provider="gemini",
+                topic=_extract_chat_topic(messages),
+            )
             await websocket.send_json({"type": "done"})
         except Exception as e:
             error_text = str(e)

@@ -14,6 +14,22 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+// jsdom does not provide window.matchMedia. Provide a minimal stub
+// so components that use responsive breakpoints do not crash.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
 import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
@@ -1244,13 +1260,13 @@ describe('Tasks page', () => {
     it('help icon opens the plain-language popover and Escape closes it', async () => {
       await openFirstActionMenu()
 
-      // Click the "What is comprehensive build?" info icon next to
+      // Click the "What does this do?" info icon next to
       // the Comprehensive build option.
-      const helpButtons = screen.getAllByLabelText('What is comprehensive build?')
+      const helpButtons = screen.getAllByLabelText('What does this do?')
       fireEvent.click(helpButtons[0])
 
       // The popover dialog appears with the plain-language copy.
-      const dialog = await screen.findByRole('dialog', { name: 'What is comprehensive build?' })
+      const dialog = await screen.findByRole('dialog', { name: 'What does this do?' })
       expect(dialog).toBeInTheDocument()
       expect(dialog).toHaveTextContent('Reads the task and plans the approach')
       expect(dialog).toHaveTextContent('Runs pytest and tsc to catch regressions')
@@ -1259,24 +1275,53 @@ describe('Tasks page', () => {
       // Escape closes it.
       fireEvent.keyDown(document, { key: 'Escape' })
       await waitFor(() => {
-        expect(screen.queryByRole('dialog', { name: 'What is comprehensive build?' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('dialog', { name: 'What does this do?' })).not.toBeInTheDocument()
       })
     })
 
     it('clicking outside the help popover closes it', async () => {
       await openFirstActionMenu()
 
-      const helpButtons = screen.getAllByLabelText('What is comprehensive build?')
+      const helpButtons = screen.getAllByLabelText('What does this do?')
       fireEvent.click(helpButtons[0])
 
-      await screen.findByRole('dialog', { name: 'What is comprehensive build?' })
+      await screen.findByRole('dialog', { name: 'What does this do?' })
 
       // Mousedown on document body (outside the popover) closes it.
       fireEvent.mouseDown(document.body)
 
       await waitFor(() => {
-        expect(screen.queryByRole('dialog', { name: 'What is comprehensive build?' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('dialog', { name: 'What does this do?' })).not.toBeInTheDocument()
       })
+    })
+
+    it('shows banner text after Comprehensive build is triggered', async () => {
+      // Regression: the banner appeared as an empty purple bar because
+      // text-purple-200 was invisible in light mode (no CSS override).
+      // The banner must contain visible text after a successful spawn.
+      mockedApiPost.mockResolvedValue({ result: "Agent 'implement-1' spawned", pid: 123 })
+      await openFirstActionMenu()
+
+      fireEvent.click(screen.getByText('Comprehensive build'))
+
+      await waitFor(() => {
+        const banner = screen.getByText(/comprehensive build started/i)
+        expect(banner).toBeInTheDocument()
+        expect(banner.textContent!.trim().length).toBeGreaterThan(0)
+      })
+    })
+
+    it('does not render banner when value is empty or whitespace', async () => {
+      // Regression guard: even if setBanner is called with whitespace,
+      // the banner div must not appear. The guard `banner.trim()` in the
+      // JSX conditional prevents an empty purple bar.
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      // There should be no banner div visible by default
+      const bannerElements = document.querySelectorAll('.bg-purple-500\\/20')
+      expect(bannerElements.length).toBe(0)
     })
 
     it('bulk Implement all posts template=comprehensive for every selected task', async () => {

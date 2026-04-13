@@ -17,7 +17,8 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import Icon from './Icon'
 import WhatsNew from './WhatsNew'
-import { useAppStore, useTerms } from '../stores/app'
+import { useAppStore } from '../stores/app'
+import AdminSection from './AdminSection'
 import { api } from '../lib/api'
 
 interface NavItem {
@@ -29,12 +30,13 @@ interface NavItem {
   gmailBadge?: boolean
 }
 
-function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, onNavigate }: {
+function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, onNavigate, iconFilled }: {
   item: NavItem
   linkClass: (isActive: boolean) => string
   activeAgents: number
   gmailUnread: number
   onNavigate?: () => void
+  iconFilled: 'filled' | 'outlined'
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.to })
   const style: React.CSSProperties = {
@@ -61,7 +63,7 @@ function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, onNavigat
       >
         {({ isActive }) => (
           <>
-            <Icon name={item.icon} filled={isActive} className="text-xl" />
+            <Icon name={item.icon} filled={iconFilled === 'filled' ? true : isActive} className="text-xl" />
             <span className="text-sm font-medium">{item.label}</span>
             {item.badge && activeAgents > 0 && (
               <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
@@ -82,24 +84,31 @@ function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, onNavigat
 }
 
 export function Sidebar() {
-  const osName = useAppStore((s) => s.osName)
+  const displayOsName = useAppStore((s) => s.displayOsName())
+  const instanceMode = useAppStore((s) => s.instanceMode)
   const features = useAppStore((s) => s.features)
   const setFeatures = useAppStore((s) => s.setFeatures)
-  const t = useTerms()
+  const enterpriseUser = useAppStore((s) => s.enterpriseUser)
+  const sidebarPosition = useAppStore((s) => s.sidebarPosition)
+  const iconStyle = useAppStore((s) => s.iconStyle)
+  const statusDotStyle = useAppStore((s) => s.statusDotStyle)
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const allNavItems = [
     { to: '/', icon: 'home', label: 'Home', featureLabel: null },
-    { to: '/tasks', icon: 'checklist', label: t('tasks'), featureLabel: 'Tasks' },
-    { to: '/activity', icon: 'history', label: 'Activity', featureLabel: 'Activity' },
-    { to: '/ideas', icon: 'lightbulb', label: t('ideas'), featureLabel: 'Hay/Ideas' },
+    { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks' },
+    { to: '/ideas', icon: 'lightbulb', label: 'Ideas', featureLabel: 'Ideas' },
     { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
+    { to: '/activity', icon: 'history', label: 'Activity', featureLabel: 'Activity' },
     { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
     { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
     { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: 'Calendar' },
     { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true },
-    { to: '/transcripts', icon: 'history', label: 'History', featureLabel: 'Transcripts' },
-    { to: '/workflows', icon: 'account_tree', label: 'Automations', featureLabel: 'Automations' },
+    { to: '/imessage', icon: 'chat_bubble', label: 'iMessage', featureLabel: 'iMessage' },
+    { to: '/slack', icon: 'chat', label: 'Slack', featureLabel: 'Slack' },
+    { to: '/github', icon: 'code', label: 'GitHub', featureLabel: 'GitHub' },
+    { to: '/costs', icon: 'payments', label: 'Cost Tracking', featureLabel: 'Cost Tracking' },
+    { to: '/docs', icon: 'description', label: 'Docs', featureLabel: 'Docs' },
   ]
   const [activeAgents, setActiveAgents] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
@@ -107,6 +116,7 @@ export function Sidebar() {
   const [backendUp, setBackendUp] = useState<boolean | null>(null)
   const [ostkUp, setOstkUp] = useState<boolean | null>(null)
   const [ostkKernel, setOstkKernel] = useState('')
+  const [sessionCount, setSessionCount] = useState(0)
 
   useEffect(() => {
     const fetchAgents = async () => {
@@ -136,6 +146,20 @@ export function Sidebar() {
     }
     fetchGmail()
     const interval = setInterval(fetchGmail, 60000)
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    const fetchSessions = async () => {
+      try {
+        const res = await api.get<{ active_count: number }>('/sessions/active')
+        setSessionCount(res.active_count ?? 0)
+      } catch {
+        // ignore
+      }
+    }
+    fetchSessions()
+    const interval = setInterval(fetchSessions, 10000)
     return () => clearInterval(interval)
   }, [])
 
@@ -239,7 +263,7 @@ export function Sidebar() {
       {/* Mobile hamburger button */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-300 hover:text-white"
+        className={`lg:hidden fixed top-4 z-50 p-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-300 hover:text-white ${sidebarPosition === 'right' ? 'right-4' : 'left-4'}`}
         aria-label="Open menu"
       >
         <Icon name="menu" className="text-xl" />
@@ -253,15 +277,18 @@ export function Sidebar() {
         />
       )}
 
-    <aside data-tour="sidebar" className={`h-screen w-56 fixed left-0 top-0 border-r border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
+    <aside data-tour="sidebar" className={`h-screen w-56 fixed top-0 ${sidebarPosition === 'right' ? 'right-0 border-l' : 'left-0 border-r'} border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : sidebarPosition === 'right' ? 'translate-x-full' : '-translate-x-full'} lg:translate-x-0`}>
       <div className="px-5 mb-8">
-        <span className="text-xl font-black accent-text tracking-tight">{osName}</span>
+        <span className={`text-xl font-black tracking-tight ${instanceMode === 'team' ? 'team-text' : 'accent-text'}`}>{displayOsName}</span>
+        {instanceMode === 'team' && (
+          <span className="ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 align-middle">TEAM</span>
+        )}
         {version && (
           <span className="block text-[10px] text-slate-500 font-mono mt-0.5">{version}</span>
         )}
       </div>
 
-      <nav className="flex flex-col gap-1 px-3 flex-1">
+      <nav className="flex flex-col gap-1 px-3 flex-1 overflow-y-auto">
         {/* Home is always first and not draggable */}
         {navItems.filter((item) => !item.featureLabel).map((item) => (
           <NavLink
@@ -273,7 +300,7 @@ export function Sidebar() {
           >
             {({ isActive }) => (
               <>
-                <Icon name={item.icon} filled={isActive} className="text-xl" />
+                <Icon name={item.icon} filled={iconStyle === 'filled' ? true : isActive} className="text-xl" />
                 <span className="text-sm font-medium">{item.label}</span>
               </>
             )}
@@ -315,6 +342,7 @@ export function Sidebar() {
                 activeAgents={activeAgents}
                 gmailUnread={gmailUnread}
                 onNavigate={() => setMobileOpen(false)}
+                iconFilled={iconStyle}
               />
             ))}
           </SortableContext>
@@ -328,9 +356,30 @@ export function Sidebar() {
           onClick={() => { useAppStore.getState().setShowTour(true); setMobileOpen(false); }}
           className="group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-slate-800/50"
         >
-          <Icon name="explore" className="text-xl" />
+          <Icon name="explore" filled={iconStyle === 'filled'} className="text-xl" />
           <span className="text-sm font-medium">Tour</span>
         </button>
+        {instanceMode === 'team' && enterpriseUser?.role === 'admin' && (
+          <AdminSection
+            linkClass={linkClass}
+            iconStyle={iconStyle}
+            onNavigate={() => setMobileOpen(false)}
+          />
+        )}
+        {instanceMode === 'team' && enterpriseUser && enterpriseUser.role !== 'admin' && (
+          <NavLink
+            to="/admin"
+            onClick={() => setMobileOpen(false)}
+            className={({ isActive }) => linkClass(isActive)}
+          >
+            {({ isActive }) => (
+              <>
+                <Icon name="groups" filled={iconStyle === 'filled' ? true : isActive} className="text-xl" />
+                <span className="text-sm font-medium">Team</span>
+              </>
+            )}
+          </NavLink>
+        )}
         <NavLink
           to="/settings"
           onClick={() => setMobileOpen(false)}
@@ -338,7 +387,7 @@ export function Sidebar() {
         >
           {({ isActive }) => (
             <>
-              <Icon name="settings" filled={isActive} className="text-xl" />
+              <Icon name="settings" filled={iconStyle === 'filled' ? true : isActive} className="text-xl" />
               <span className="text-sm font-medium">Settings</span>
             </>
           )}
@@ -347,14 +396,46 @@ export function Sidebar() {
 
       {/* System status indicators */}
       <div className="px-5 pt-3 pb-2 border-t border-slate-800/50 flex flex-col gap-1.5">
-        <div className="flex items-center gap-2">
-          <span className={`w-1.5 h-1.5 rounded-full ${backendUp === null ? 'bg-slate-600' : backendUp ? 'bg-green-400' : 'bg-red-400'}`} />
-          <span className="text-[10px] text-slate-500">Backend</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`w-1.5 h-1.5 rounded-full ${ostkUp === null ? 'bg-slate-600' : ostkUp ? 'bg-green-400' : 'bg-red-400'}`} />
-          <span className="text-[10px] text-slate-500">ostk{ostkKernel ? ` ${ostkKernel}` : ''}</span>
-        </div>
+        {statusDotStyle === 'badges' ? (
+          <>
+            <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${backendUp === null ? 'bg-slate-700 text-slate-400' : backendUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+              Backend {backendUp === null ? '' : backendUp ? 'up' : 'down'}
+            </span>
+            <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${ostkUp === null ? 'bg-slate-700 text-slate-400' : ostkUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+              System{ostkKernel ? ` ${ostkKernel}` : ''} {ostkUp === null ? '' : ostkUp ? 'running' : 'offline'}
+            </span>
+            <NavLink
+              to="/activity"
+              className="hover:opacity-80 transition-opacity"
+              onClick={() => setMobileOpen(false)}
+            >
+              <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${sessionCount > 0 ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+                {sessionCount === 0 ? 'No sessions' : sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}
+              </span>
+            </NavLink>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <span className={`w-1.5 h-1.5 rounded-full ${backendUp === null ? 'bg-slate-600' : backendUp ? 'bg-green-400' : 'bg-red-400'}`} />
+              <span className="text-[10px] text-slate-500">Backend</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`w-1.5 h-1.5 rounded-full ${ostkUp === null ? 'bg-slate-600' : ostkUp ? 'bg-green-400' : 'bg-red-400'}`} />
+              <span className="text-[10px] text-slate-500">System{ostkKernel ? ` ${ostkKernel}` : ''}</span>
+            </div>
+            <NavLink
+              to="/activity"
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+              onClick={() => setMobileOpen(false)}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${sessionCount > 1 ? 'bg-green-400 animate-pulse' : sessionCount === 1 ? 'bg-green-400' : 'bg-slate-600'}`} />
+              <span className="text-[10px] text-slate-500">
+                {sessionCount === 0 ? 'No sessions' : sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}
+              </span>
+            </NavLink>
+          </>
+        )}
       </div>
     </aside>
     </>

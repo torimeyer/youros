@@ -26,7 +26,12 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // Use 127.0.0.1 instead of localhost. Node resolves localhost
+        // to both ::1 (IPv6) and 127.0.0.1 (IPv4), tries IPv6 first.
+        // Uvicorn binds IPv4 only, so every proxy request starts with
+        // a refused IPv6 attempt that poisons the connection pool and
+        // causes intermittent ETIMEDOUT on the IPv4 fallback. Needle 315.
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         configure: (proxy) => {
           // Force no keep-alive on every proxied HTTP request so a
@@ -54,7 +59,7 @@ export default defineConfig({
           })
         },
       },
-      '/ws': { target: 'http://localhost:8000', ws: true },
+      '/ws': { target: 'http://127.0.0.1:8000', ws: true },
     },
   },
 })

@@ -1,4 +1,4 @@
-# Agentfile — diagnose
+# Tracks down bugs. Reproduces the problem, finds the root cause, fixes it, and writes a test to make sure it stays fixed.
 # Find root cause, fix it, write regression tests.
 
 FROM auto

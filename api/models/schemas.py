@@ -14,6 +14,7 @@ class TaskClose(BaseModel):
 
 class TaskUpdate(BaseModel):
     priority: Optional[str] = None
+    reason: Optional[str] = None
 
 
 class TaskReorder(BaseModel):
@@ -67,6 +68,7 @@ class Settings(BaseModel):
     auto_label_tasks: bool = True
     chat_backend_preference: str = "auto"
     briefing_enabled: bool = True
+    chat_memory_enabled: bool = True
     # Order and visibility of home dashboard widgets. Any widget id present
     # in this list renders, in the given order. Any widget id missing from
     # the list is hidden. This lets users build a simple custom dashboard
@@ -79,6 +81,16 @@ class Settings(BaseModel):
         "next_meeting",
         "day_summary",
     ]
+    # Appearance settings
+    sidebar_position: str = "left"        # "left" | "right"
+    compact_mode: bool = False
+    font_size: str = "medium"             # "small" | "medium" | "large"
+    icon_style: str = "filled"            # "filled" | "outlined"
+    card_style: str = "glass"             # "glass" | "solid"
+    dashboard_layout: str = "full"        # "full" | "focus"
+    status_dot_style: str = "dots"        # "dots" | "badges"
+    greeting_style: str = "time"          # "time" | "quote" | "none"
+    instance_mode: str = "personal"       # "personal" | "team"
 
 
 class MCPServer(BaseModel):

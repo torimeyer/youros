@@ -1,4 +1,4 @@
-# Agentfile for comprehensive build. Plan, build, test, verify.
+# Your go-to builder. Reads the task, plans an approach, builds it, writes tests, and makes sure everything works before finishing.
 # The default work pattern for myOS when you want it done right.
 
 FROM auto

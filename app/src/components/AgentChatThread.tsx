@@ -29,6 +29,7 @@ interface AgentChatThreadProps {
   nudges: AgentThreadNudge[];
   replies: AgentThreadReply[];
   onSend: (message: string) => Promise<void> | void;
+  onCorrect?: (message: string) => Promise<void> | void;
   isSending: boolean;
   errorMessage?: string | null;
   // Timestamp the agent was first registered. Used by the mailbox warning
@@ -66,6 +67,7 @@ export function AgentChatThread({
   nudges,
   replies,
   onSend,
+  onCorrect,
   isSending,
   errorMessage,
   agentRegisteredAt,
@@ -128,6 +130,13 @@ export function AgentChatThread({
     await onSend(trimmed);
   };
 
+  const handleCorrectClick = async () => {
+    const trimmed = input.trim();
+    if (!trimmed || isSending || !onCorrect) return;
+    setInput("");
+    await onCorrect(trimmed);
+  };
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends, Shift+Enter inserts a newline. Matches Slack and the
     // main chat panel.
@@ -161,18 +170,32 @@ export function AgentChatThread({
         {entries.map((entry) => {
           if (entry.kind === "nudge") {
             const nudge = entry.data;
+            const isCorrection = nudge.message.startsWith("[CORRECTION]");
+            const displayMessage = isCorrection
+              ? nudge.message.replace(/^\[CORRECTION\]\s*/, "")
+              : nudge.message;
             return (
               <div
                 key={`n-${nudge.timestamp}-${entry.index}`}
                 data-testid="agent-chat-user-row"
                 className="group flex flex-col items-end"
               >
+                {isCorrection && (
+                  <div className="text-[10px] text-amber-400 mr-1 mb-1 flex items-center gap-1">
+                    <Icon name="edit" size={12} />
+                    Correction
+                  </div>
+                )}
                 <div className="relative ml-auto max-w-[75%] w-fit">
                   <div
                     data-testid="agent-chat-user-bubble"
-                    className="inline-block bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm whitespace-pre-wrap break-words"
+                    className={`inline-block px-4 py-2.5 rounded-2xl rounded-br-sm text-sm whitespace-pre-wrap break-words ${
+                      isCorrection
+                        ? "bg-amber-500/20 text-amber-100 border border-amber-500/30"
+                        : "bg-blue-500/20 text-blue-100"
+                    }`}
                   >
-                    {nudge.message}
+                    {displayMessage}
                   </div>
                 </div>
                 {nudge.delivery_message && (
@@ -265,6 +288,18 @@ export function AgentChatThread({
           className="flex-1 resize-none bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm text-slate-300 placeholder-slate-500 outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50"
           style={{ minHeight: "40px", maxHeight: "160px" }}
         />
+        {onCorrect && (
+          <button
+            data-testid={`agent-chat-correct-${agentName}`}
+            onClick={() => void handleCorrectClick()}
+            disabled={isSending || !input.trim()}
+            className="p-2 bg-amber-500/80 hover:bg-amber-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 text-sm border border-amber-400/30"
+            title="Send as a correction. The agent will treat this as a course change, not a follow-up."
+          >
+            <Icon name="edit" className="text-lg" />
+            <span>Correct</span>
+          </button>
+        )}
         <button
           data-testid={`agent-chat-send-${agentName}`}
           onClick={() => void handleSendClick()}

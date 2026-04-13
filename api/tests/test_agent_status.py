@@ -118,15 +118,16 @@ async def test_complete_persists_status_to_disk(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_recovery_marks_stale_running_as_abandoned(tmp_path):
-    """_recover_stale_agents() must mark running local-process agents with dead PIDs as abandoned.
+    """_recover_stale_agents() must mark ALL running agents with no live PID as abandoned.
 
-    Claude Code agents (source='claude-code') are skipped because they
-    mark themselves complete via the API and have no local PID to check.
+    This includes claude-code agents. If the server restarted, those agents
+    are certainly dead. The old code skipped them, but that left ghost agents
+    showing as 'running' forever when the parent session ended without calling
+    /complete.
     """
     state_path = _make_state_path(tmp_path)
     now = datetime.now(timezone.utc).isoformat()
 
-    # ghost-agent uses source=local (not claude-code) so recovery applies.
     initial_state = {
         "ghost-agent": {
             "spawned_at": now,
@@ -142,7 +143,7 @@ def test_recovery_marks_stale_running_as_abandoned(tmp_path):
             "model": "claude-sonnet-4-6",
             "source": "claude-code",
             "status": "running",
-            # claude-code agents must NOT be touched by recovery.
+            # claude-code agents with no PID must also be recovered.
         },
         "done-agent": {
             "spawned_at": now,
@@ -169,9 +170,10 @@ def test_recovery_marks_stale_running_as_abandoned(tmp_path):
         "Local agent with no live PID must be marked abandoned on startup"
     assert "abandoned_at" in meta["ghost-agent"]
 
-    # cc-agent (claude-code source) must be left alone
-    assert meta["cc-agent"]["status"] == "running", \
-        "claude-code agents must not be marked abandoned by recovery"
+    # cc-agent (claude-code source, no PID) must ALSO be abandoned
+    assert meta["cc-agent"]["status"] == "abandoned", \
+        "claude-code agent with no live PID must be marked abandoned on startup"
+    assert "abandoned_at" in meta["cc-agent"]
 
     # done-agent must stay completed
     assert meta["done-agent"]["status"] == "completed", \
@@ -180,6 +182,7 @@ def test_recovery_marks_stale_running_as_abandoned(tmp_path):
     # State must be persisted to disk
     saved = _read_state(state_path)
     assert saved["ghost-agent"]["status"] == "abandoned"
+    assert saved["cc-agent"]["status"] == "abandoned"
 
 
 # ---------------------------------------------------------------------------
@@ -260,3 +263,47 @@ async def test_list_shows_abandoned_not_running(tmp_path):
 
     assert "ghost-list-agent" not in data["active"], \
         "Abandoned agent must not appear in the active list"
+
+
+# ---------------------------------------------------------------------------
+# Test: GET /nudges must NOT refresh heartbeat (regression for ghost agents)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_nudges_does_not_refresh_heartbeat(tmp_path):
+    """GET /agents/{name}/nudges must NOT update last_heartbeat_at.
+
+    Root cause of ghost agents: the frontend polls /nudges every 3-5 seconds
+    for any agent the user has messaged. The old code refreshed the heartbeat
+    on every poll, which kept dead agents looking alive and prevented the
+    stale sweep from ever catching them. Only the agent itself should refresh
+    its heartbeat (via POST /heartbeat, POST /reply, or POST /register).
+    """
+    import routers.agents as agents_mod
+
+    now = datetime.now(timezone.utc).isoformat()
+    old_heartbeat = "2026-01-01T00:00:00+00:00"  # Ancient heartbeat
+    meta = {
+        "nudge-test-agent": {
+            "spawned_at": now,
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+            "source": "claude-code",
+            "status": "running",
+            "last_heartbeat_at": old_heartbeat,
+        }
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch.object(agents_mod, "agent_metadata", meta), \
+             patch.object(agents_mod, "ostk") as mock_ostk:
+            mock_ostk.list_nudges = AsyncMock(return_value=[])
+            mock_ostk.list_nudge_replies = AsyncMock(return_value=[])
+
+            resp = await client.get("/api/agents/nudge-test-agent/nudges")
+
+    assert resp.status_code == 200
+    # The heartbeat must NOT have been refreshed by the nudges endpoint
+    assert meta["nudge-test-agent"]["last_heartbeat_at"] == old_heartbeat, \
+        "GET /nudges must NOT refresh last_heartbeat_at (frontend polls this, not agents)"

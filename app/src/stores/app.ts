@@ -12,6 +12,7 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'quick_launch',
   'next_meeting',
   'day_summary',
+  'live_sessions',
 ]
 
 // Human readable labels for each dashboard widget id. Keep this in sync
@@ -23,6 +24,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   quick_launch: 'Quick Launch',
   next_meeting: 'Next Meeting',
   day_summary: 'Day Summary',
+  live_sessions: 'Live Sessions',
 }
 
 export interface FeatureToggle {
@@ -44,28 +46,37 @@ export const PROVIDER_TO_MODEL: Record<string, string> = {
   'Google Gemini': 'gemini',
 }
 
-// Terminology mapping: ostk terms vs plain language
-const OSTK_TERMS = {
-  task: 'Needle', tasks: 'Needles',
-  idea: 'Hay', ideas: 'Hay',
-  note: 'Straw', notes: 'Straws',
-} as const
-
-const STANDARD_TERMS = {
+// Standard terminology (always used)
+const TERMS = {
   task: 'Task', tasks: 'Tasks',
   idea: 'Idea', ideas: 'Ideas',
   note: 'Note', notes: 'Notes',
 } as const
 
-export type TermKey = keyof typeof STANDARD_TERMS
+export type TermKey = keyof typeof TERMS
 
 export function useTerms() {
-  const ostkTerms = useAppStore((s) => s.useOstkTerms)
-  const map = ostkTerms ? OSTK_TERMS : STANDARD_TERMS
-  return (key: TermKey) => map[key]
+  return (key: TermKey) => TERMS[key]
 }
 
+export interface EnterpriseUser {
+  authenticated: boolean
+  email: string
+  role: string
+}
+
+export type InstanceMode = 'personal' | 'team'
+
+export type SidebarPosition = 'left' | 'right'
+export type FontSize = 'small' | 'medium' | 'large'
+export type IconStyle = 'filled' | 'outlined'
+export type CardStyle = 'glass' | 'solid'
+export type DashboardLayout = 'full' | 'focus'
+export type StatusDotStyle = 'dots' | 'badges'
+export type GreetingStyle = 'time' | 'quote' | 'none'
+
 interface AppState {
+  hydrated: boolean
   onboarded: boolean
   setOnboarded: (v: boolean) => void
   chatOpen: boolean
@@ -102,7 +113,32 @@ interface AppState {
   setCustomAgentTemplates: (templates: CustomAgentTemplate[]) => void
   dashboardWidgets: string[]
   setDashboardWidgets: (widgets: string[]) => void
+  enterpriseUser: EnterpriseUser | null
+  instanceMode: InstanceMode
+  setInstanceMode: (mode: InstanceMode) => void
+  orgName: string
+  setOrgName: (name: string) => void
+  teamAccentColor: string
+  setTeamAccentColor: (color: string) => void
+  displayOsName: () => string
   hydrateFromServer: () => Promise<void>
+  // Appearance settings
+  sidebarPosition: SidebarPosition
+  setSidebarPosition: (v: SidebarPosition) => void
+  compactMode: boolean
+  setCompactMode: (v: boolean) => void
+  fontSize: FontSize
+  setFontSize: (v: FontSize) => void
+  iconStyle: IconStyle
+  setIconStyle: (v: IconStyle) => void
+  cardStyle: CardStyle
+  setCardStyle: (v: CardStyle) => void
+  dashboardLayout: DashboardLayout
+  setDashboardLayout: (v: DashboardLayout) => void
+  statusDotStyle: StatusDotStyle
+  setStatusDotStyle: (v: StatusDotStyle) => void
+  greetingStyle: GreetingStyle
+  setGreetingStyle: (v: GreetingStyle) => void
 }
 
 // Keys used to cache user state in localStorage for fast first paint.
@@ -121,6 +157,17 @@ const LS_KEYS = {
   dashboardWidgets: 'myos-dashboard-widgets',
   chatWidth: 'myos-chat-width',
   featureOrder: 'myos-feature-order',
+  sidebarPosition: 'myos-sidebar-position',
+  compactMode: 'myos-compact-mode',
+  fontSize: 'myos-font-size',
+  iconStyle: 'myos-icon-style',
+  cardStyle: 'myos-card-style',
+  dashboardLayout: 'myos-dashboard-layout',
+  statusDotStyle: 'myos-status-dot-style',
+  greetingStyle: 'myos-greeting-style',
+  instanceMode: 'myos-instance-mode',
+  orgName: 'myos-org-name',
+  teamAccentColor: 'myos-team-accent-color',
 } as const
 
 // Chat panel resize bounds.
@@ -191,6 +238,17 @@ const initialDefaultChatModel = lsGet(LS_KEYS.defaultChatModel) || 'claude'
 const initialUseOstkTerms = lsGet(LS_KEYS.useOstkTerms) === 'true'
 const initialTourComplete = lsGet(LS_KEYS.tourComplete) === 'true'
 const initialWhatsNewLastSeen = lsGet(LS_KEYS.whatsNewLastSeen) || ''
+const initialSidebarPosition = (lsGet(LS_KEYS.sidebarPosition) as SidebarPosition) || 'left'
+const initialCompactMode = lsGet(LS_KEYS.compactMode) === 'true'
+const initialFontSize = (lsGet(LS_KEYS.fontSize) as FontSize) || 'medium'
+const initialIconStyle = (lsGet(LS_KEYS.iconStyle) as IconStyle) || 'filled'
+const initialCardStyle = (lsGet(LS_KEYS.cardStyle) as CardStyle) || 'glass'
+const initialDashboardLayout = (lsGet(LS_KEYS.dashboardLayout) as DashboardLayout) || 'full'
+const initialStatusDotStyle = (lsGet(LS_KEYS.statusDotStyle) as StatusDotStyle) || 'dots'
+const initialGreetingStyle = (lsGet(LS_KEYS.greetingStyle) as GreetingStyle) || 'time'
+const initialInstanceMode = (lsGet(LS_KEYS.instanceMode) as InstanceMode) || 'personal'
+const initialOrgName = lsGet(LS_KEYS.orgName) || ''
+const initialTeamAccentColor = lsGet(LS_KEYS.teamAccentColor) || '#6366f1'
 
 function readInitialCustomTemplates(): CustomAgentTemplate[] {
   const raw = lsGet(LS_KEYS.customAgentTemplates)
@@ -256,6 +314,7 @@ function applyFeatureOrder(features: FeatureToggle[]): FeatureToggle[] {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  hydrated: false,
   onboarded: initialOnboarded,
   setOnboarded: (onboarded) => {
     lsSet(LS_KEYS.onboarded, String(onboarded))
@@ -295,16 +354,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   features: applyFeatureOrder([
     { label: 'Chat', enabled: true },
     { label: 'Tasks', enabled: true },
-    { label: 'Activity', enabled: false },
-    { label: 'Hay/Ideas', enabled: false },
+    { label: 'Ideas', enabled: false },
     { label: 'Agents', enabled: true },
+    { label: 'Activity', enabled: true },
     { label: 'Projects', enabled: true },
     { label: 'Drive', enabled: true },
     { label: 'Calendar', enabled: true },
     { label: 'Gmail', enabled: true },
+    { label: 'Slack', enabled: true },
+    { label: 'GitHub', enabled: true },
     { label: 'Docs', enabled: true },
-    { label: 'Transcripts', enabled: true },
     { label: 'Automations', enabled: false },
+    { label: 'Cost Tracking', enabled: true },
   ]),
   setFeatures: (features) => {
     lsSet(LS_KEYS.featureOrder, JSON.stringify(features.map((f) => f.label)))
@@ -361,11 +422,85 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ dashboardWidgets })
     patchServer({ dashboard_widgets: dashboardWidgets })
   },
+  // Appearance settings
+  sidebarPosition: initialSidebarPosition,
+  setSidebarPosition: (sidebarPosition) => {
+    lsSet(LS_KEYS.sidebarPosition, sidebarPosition)
+    set({ sidebarPosition })
+    patchServer({ sidebar_position: sidebarPosition })
+  },
+  compactMode: initialCompactMode,
+  setCompactMode: (compactMode) => {
+    lsSet(LS_KEYS.compactMode, String(compactMode))
+    set({ compactMode })
+    patchServer({ compact_mode: compactMode })
+  },
+  fontSize: initialFontSize,
+  setFontSize: (fontSize) => {
+    lsSet(LS_KEYS.fontSize, fontSize)
+    set({ fontSize })
+    patchServer({ font_size: fontSize })
+  },
+  iconStyle: initialIconStyle,
+  setIconStyle: (iconStyle) => {
+    lsSet(LS_KEYS.iconStyle, iconStyle)
+    set({ iconStyle })
+    patchServer({ icon_style: iconStyle })
+  },
+  cardStyle: initialCardStyle,
+  setCardStyle: (cardStyle) => {
+    lsSet(LS_KEYS.cardStyle, cardStyle)
+    set({ cardStyle })
+    patchServer({ card_style: cardStyle })
+  },
+  dashboardLayout: initialDashboardLayout,
+  setDashboardLayout: (dashboardLayout) => {
+    lsSet(LS_KEYS.dashboardLayout, dashboardLayout)
+    set({ dashboardLayout })
+    patchServer({ dashboard_layout: dashboardLayout })
+  },
+  statusDotStyle: initialStatusDotStyle,
+  setStatusDotStyle: (statusDotStyle) => {
+    lsSet(LS_KEYS.statusDotStyle, statusDotStyle)
+    set({ statusDotStyle })
+    patchServer({ status_dot_style: statusDotStyle })
+  },
+  greetingStyle: initialGreetingStyle,
+  setGreetingStyle: (greetingStyle) => {
+    lsSet(LS_KEYS.greetingStyle, greetingStyle)
+    set({ greetingStyle })
+    patchServer({ greeting_style: greetingStyle })
+  },
+  enterpriseUser: null,
+  instanceMode: initialInstanceMode,
+  setInstanceMode: (instanceMode) => {
+    lsSet(LS_KEYS.instanceMode, instanceMode)
+    set({ instanceMode })
+    patchServer({ instance_mode: instanceMode })
+  },
+  orgName: initialOrgName,
+  setOrgName: (orgName) => {
+    lsSet(LS_KEYS.orgName, orgName)
+    set({ orgName })
+  },
+  teamAccentColor: initialTeamAccentColor,
+  setTeamAccentColor: (teamAccentColor) => {
+    lsSet(LS_KEYS.teamAccentColor, teamAccentColor)
+    set({ teamAccentColor })
+  },
+  displayOsName: () => {
+    const s = get()
+    if (s.instanceMode === 'team' && s.orgName) {
+      return s.orgName + ' OS'
+    }
+    return s.osName
+  },
   hydrateFromServer: async () => {
     let server: Record<string, unknown> = {}
     try {
       server = await api.get<Record<string, unknown>>('/settings')
     } catch {
+      set({ hydrated: true })
       return
     }
 
@@ -395,6 +530,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       lsSet(LS_KEYS.osName, v)
     } else if (state.osName && state.osName !== 'myOS') {
       backfill.os_name = state.osName
+    }
+
+    // instance_mode
+    if (hasValue(server.instance_mode)) {
+      const v = String(server.instance_mode) as InstanceMode
+      updates.instanceMode = v
+      lsSet(LS_KEYS.instanceMode, v)
+    } else if (state.instanceMode !== 'personal') {
+      backfill.instance_mode = state.instanceMode
     }
 
     // dark_mode
@@ -482,11 +626,91 @@ export const useAppStore = create<AppState>((set, get) => ({
       backfill.dashboard_widgets = state.dashboardWidgets
     }
 
+    // Appearance settings hydration
+    const appearanceFields: Array<{
+      serverKey: string
+      storeKey: keyof AppState
+      lsKey: string
+      defaultVal: string | boolean
+    }> = [
+      { serverKey: 'sidebar_position', storeKey: 'sidebarPosition', lsKey: LS_KEYS.sidebarPosition, defaultVal: 'left' },
+      { serverKey: 'compact_mode', storeKey: 'compactMode', lsKey: LS_KEYS.compactMode, defaultVal: false },
+      { serverKey: 'font_size', storeKey: 'fontSize', lsKey: LS_KEYS.fontSize, defaultVal: 'medium' },
+      { serverKey: 'icon_style', storeKey: 'iconStyle', lsKey: LS_KEYS.iconStyle, defaultVal: 'filled' },
+      { serverKey: 'card_style', storeKey: 'cardStyle', lsKey: LS_KEYS.cardStyle, defaultVal: 'glass' },
+      { serverKey: 'dashboard_layout', storeKey: 'dashboardLayout', lsKey: LS_KEYS.dashboardLayout, defaultVal: 'full' },
+      { serverKey: 'status_dot_style', storeKey: 'statusDotStyle', lsKey: LS_KEYS.statusDotStyle, defaultVal: 'dots' },
+      { serverKey: 'greeting_style', storeKey: 'greetingStyle', lsKey: LS_KEYS.greetingStyle, defaultVal: 'time' },
+    ]
+    for (const field of appearanceFields) {
+      if (hasValue(server[field.serverKey])) {
+        const v = typeof field.defaultVal === 'boolean'
+          ? Boolean(server[field.serverKey])
+          : String(server[field.serverKey])
+        ;(updates as Record<string, unknown>)[field.storeKey] = v
+        lsSet(field.lsKey, String(v))
+      } else {
+        const current = state[field.storeKey]
+        if (current !== field.defaultVal) {
+          backfill[field.serverKey] = current
+        }
+      }
+    }
+
+    // features (sidebar toggles). The server stores a flat object like
+    // {Chat: true, Tasks: true, Automations: false}. Merge with the
+    // client-side defaults so new features appear and removed features
+    // disappear, but the enabled/disabled state from the server wins.
+    if (hasValue(server.features) && typeof server.features === 'object') {
+      const serverFeatures = server.features as Record<string, boolean>
+      const merged = state.features.map((f) => {
+        const serverVal = serverFeatures[f.label]
+        return serverVal !== undefined ? { ...f, enabled: serverVal } : f
+      })
+      updates.features = applyFeatureOrder(merged)
+    } else {
+      // Backfill: send client defaults to server so they persist.
+      const featuresObj: Record<string, boolean> = {}
+      state.features.forEach((f) => { featuresObj[f.label] = f.enabled })
+      backfill.features = featuresObj
+    }
+
     if (Object.keys(updates).length > 0) {
       set(updates)
     }
     if (Object.keys(backfill).length > 0) {
       patchServer(backfill)
+    }
+    set({ hydrated: true })
+
+    // Fetch enterprise user identity and org info
+    try {
+      const me = await api.get<{ authenticated: boolean; enterprise: boolean; email?: string; role?: string }>('/enterprise/me')
+      if (me.authenticated && me.email) {
+        set({ enterpriseUser: { authenticated: true, email: me.email, role: me.role || 'member' } })
+      } else {
+        set({ enterpriseUser: null })
+      }
+      // If enterprise is active, fetch org name and auto-detect team mode
+      if (me.enterprise) {
+        try {
+          const ent = await api.get<{ org?: { name?: string } }>('/enterprise')
+          if (ent.org?.name) {
+            lsSet(LS_KEYS.orgName, ent.org.name)
+            set({ orgName: ent.org.name })
+          }
+        } catch { /* org fetch is non-blocking */ }
+        // Auto-migrate: if enterprise is active but instance mode was never set to team
+        const current = get()
+        if (current.instanceMode === 'personal') {
+          lsSet(LS_KEYS.instanceMode, 'team')
+          set({ instanceMode: 'team' })
+          patchServer({ instance_mode: 'team' })
+        }
+      }
+    } catch {
+      set({ hydrated: true })
+      set({ enterpriseUser: null })
     }
   },
 }))

@@ -257,7 +257,7 @@ async def test_list_automation_templates(client, tmp_workflows_file):
     body = r.json()
     assert "templates" in body
     templates = body["templates"]
-    assert len(templates) == 9
+    assert len(templates) == 10
     ids = {t["id"] for t in templates}
     assert ids == {
         "builtin-daily-standup",
@@ -268,6 +268,7 @@ async def test_list_automation_templates(client, tmp_workflows_file):
         "builtin-stale-tasks",
         "builtin-project-status",
         "builtin-email-followup",
+        "builtin-pre-release",
         "builtin-sprint-planning",
     }
     # Each template must have the fields the frontend relies on

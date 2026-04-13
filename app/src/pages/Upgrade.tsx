@@ -68,7 +68,7 @@ export default function Upgrade() {
       <TopBar title="Updates" />
       <main className="pt-24 pb-12 px-8 max-w-2xl">
         <p className="text-slate-400 mb-8 text-sm">
-          Keep myOS and ostk up to date to get the latest features and fixes.
+          Keep everything up to date to get the latest features and fixes.
         </p>
 
         {loading && (
@@ -95,7 +95,7 @@ export default function Upgrade() {
               updating={running === 'myos' || running === 'both'}
             />
             <ComponentCard
-              name="ostk"
+              name="System Engine"
               description="The task and memory engine powering myOS"
               info={status.ostk}
               onUpdate={() => runUpgrade('ostk')}

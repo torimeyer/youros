@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- Left bubble (Claude) -->
+  <rect x="3" y="8" width="24" height="14" rx="6" fill="#888"/>
+  <!-- Right bubble (User) -->
+  <rect x="21" y="26" width="24" height="14" rx="6" fill="#4F46E5"/>
+</svg>

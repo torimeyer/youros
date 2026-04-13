@@ -162,6 +162,81 @@ async def get_today_events() -> list[dict]:
     return result
 
 
+async def create_event(
+    *,
+    summary: str,
+    start: str,
+    end: str | None = None,
+    all_day: bool = False,
+    description: str = "",
+    location: str = "",
+) -> dict:
+    """Create a new event on the user's primary Google Calendar.
+
+    Parameters:
+        summary: Event title (required).
+        start: Start date or datetime. For timed events use ISO format
+               like ``2026-04-28T09:00:00``. For all-day events use
+               ``YYYY-MM-DD``.
+        end: End date or datetime. Defaults to one hour after start for
+             timed events or the next day for all-day events.
+        all_day: When True, ``start`` and ``end`` are treated as dates.
+        description: Optional event description.
+        location: Optional location text.
+
+    Returns the created event dict from the Calendar API.
+    """
+    import copy
+    from datetime import datetime as _dt, timedelta as _td
+
+    body: dict = {"summary": summary}
+
+    if description:
+        body["description"] = description
+    if location:
+        body["location"] = location
+
+    if all_day or (len(start) == 10 and "T" not in start):
+        # All-day event: use date fields.
+        body["start"] = {"date": start}
+        if end:
+            body["end"] = {"date": end}
+        else:
+            # Default end: the next day.
+            try:
+                d = _dt.strptime(start, "%Y-%m-%d")
+                body["end"] = {"date": (d + _td(days=1)).strftime("%Y-%m-%d")}
+            except ValueError:
+                body["end"] = {"date": start}
+    else:
+        # Timed event: use dateTime fields.
+        body["start"] = {"dateTime": start}
+        if end:
+            body["end"] = {"dateTime": end}
+        else:
+            # Default end: one hour after start.
+            try:
+                parsed = _dt.fromisoformat(start)
+                body["end"] = {"dateTime": (parsed + _td(hours=1)).isoformat()}
+            except ValueError:
+                body["end"] = {"dateTime": start}
+
+    def _insert_sync():
+        service = _build_calendar_service()
+        return (
+            service.events()
+            .insert(calendarId="primary", body=body)
+            .execute()
+        )
+
+    event = await asyncio.get_event_loop().run_in_executor(None, _insert_sync)
+
+    # Bust the cache so the new event shows up immediately.
+    _clear_cache()
+
+    return event
+
+
 async def needs_reauth() -> bool:
     """Return True if the Calendar scope is missing (403 insufficientPermissions).
 

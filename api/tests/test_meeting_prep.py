@@ -215,3 +215,201 @@ async def test_meeting_prep_no_drive_no_tasks(tmp_path):
         result = await mp.generate_prep(event)
 
     assert "1:1" in result or len(result) > 5
+
+
+# ---------------------------------------------------------------------------
+# POST /api/meeting-prep/{event_id}/create-tasks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_tasks_not_authenticated(client, tmp_path):
+    """Endpoint returns 401 when not authenticated."""
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.post("/api/meeting-prep/evt-1/create-tasks")
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_tasks_event_not_found(client, tmp_path):
+    """Endpoint returns 404 when the event is not in calendar."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.calendar.get_upcoming_events",
+            new=AsyncMock(return_value=[_make_event("other")]),
+        ),
+    ):
+        resp = await client.post("/api/meeting-prep/nonexistent/create-tasks")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_tasks_from_briefing(client, tmp_path):
+    """Endpoint extracts action items and creates tasks."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    event = _make_event("evt-tasks", "Sprint Planning")
+    prep_cache_dir = tmp_path / "meeting_prep_cache"
+
+    # Claude returns two action items for the briefing extraction.
+    claude_calls = []
+    async def fake_claude(prompt: str) -> str:
+        claude_calls.append(prompt)
+        if len(claude_calls) == 1:
+            # First call: generate the briefing.
+            return "You should review the sprint backlog and check team capacity."
+        # Second call: extract action items from the briefing.
+        return "Review sprint backlog\nCheck team capacity for next sprint"
+
+    add_task_calls = []
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        add_task_calls.append(title)
+        return f"Added task {350 + len(add_task_calls)}"
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.calendar.get_upcoming_events",
+            new=AsyncMock(return_value=[event]),
+        ),
+        patch("services.meeting_prep.PREP_CACHE_DIR", prep_cache_dir),
+        patch(
+            "services.meeting_prep._fetch_drive_files",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "services.meeting_prep._fetch_open_tasks",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "services.meeting_prep._call_claude",
+            new=AsyncMock(side_effect=fake_claude),
+        ),
+        patch(
+            "services.ostk.OstkService.add_task",
+            new=AsyncMock(side_effect=fake_add_task),
+        ),
+        patch(
+            "services.task_labeling.schedule_auto_labels",
+            return_value=None,
+        ),
+    ):
+        resp = await client.post("/api/meeting-prep/evt-tasks/create-tasks")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["tasks_created"] == 2
+    assert len(data["tasks"]) == 2
+    titles = [t["title"] for t in data["tasks"]]
+    assert "Review sprint backlog" in titles
+    assert "Check team capacity for next sprint" in titles
+
+
+@pytest.mark.asyncio
+async def test_create_tasks_no_action_items(client, tmp_path):
+    """When Claude returns NONE, no tasks are created."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    event = _make_event("evt-none", "Casual chat")
+    prep_cache_dir = tmp_path / "meeting_prep_cache"
+
+    claude_calls = []
+    async def fake_claude(prompt: str) -> str:
+        claude_calls.append(prompt)
+        if len(claude_calls) == 1:
+            return "Just a casual catch-up, no prep needed."
+        return "NONE"
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.calendar.get_upcoming_events",
+            new=AsyncMock(return_value=[event]),
+        ),
+        patch("services.meeting_prep.PREP_CACHE_DIR", prep_cache_dir),
+        patch(
+            "services.meeting_prep._fetch_drive_files",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "services.meeting_prep._fetch_open_tasks",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "services.meeting_prep._call_claude",
+            new=AsyncMock(side_effect=fake_claude),
+        ),
+    ):
+        resp = await client.post("/api/meeting-prep/evt-none/create-tasks")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["tasks_created"] == 0
+    assert data["tasks"] == []
+
+
+@pytest.mark.asyncio
+async def test_create_tasks_with_cached_briefing(client, tmp_path):
+    """When briefing is already cached, the endpoint uses it without re-generating."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    event = _make_event("evt-cached2", "Review Meeting", minutes_from_now=60)
+    prep_cache_dir = tmp_path / "meeting_prep_cache"
+    prep_cache_dir.mkdir(parents=True)
+
+    # Pre-populate the briefing cache.
+    cache_file = prep_cache_dir / "evt-cached2.txt"
+    cache_file.write_text("Review the design docs and update the timeline.")
+
+    # Claude should only be called once (for action item extraction, not briefing gen).
+    claude_calls = []
+    async def fake_claude(prompt: str) -> str:
+        claude_calls.append(prompt)
+        return "Review the design docs\nUpdate the project timeline"
+
+    add_task_calls = []
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        add_task_calls.append(title)
+        return f"Added task {360 + len(add_task_calls)}"
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.calendar.get_upcoming_events",
+            new=AsyncMock(return_value=[event]),
+        ),
+        patch("services.meeting_prep.PREP_CACHE_DIR", prep_cache_dir),
+        patch(
+            "services.meeting_prep._call_claude",
+            new=AsyncMock(side_effect=fake_claude),
+        ),
+        patch(
+            "services.ostk.OstkService.add_task",
+            new=AsyncMock(side_effect=fake_add_task),
+        ),
+        patch(
+            "services.task_labeling.schedule_auto_labels",
+            return_value=None,
+        ),
+    ):
+        resp = await client.post("/api/meeting-prep/evt-cached2/create-tasks")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["tasks_created"] == 2
+    # Only one Claude call (action item extraction), not two (would need briefing gen too).
+    assert len(claude_calls) == 1

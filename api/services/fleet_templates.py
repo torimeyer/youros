@@ -53,8 +53,9 @@ BUILTIN_FLEET_TEMPLATES: list[dict[str, Any]] = [
                 "prompt": (
                     "You are the Security Engineer. Wait for the frontend and backend "
                     "work to appear in the shared workspace, then review it. Check for "
-                    "common vulnerabilities: XSS, SQL injection, auth issues, exposed "
-                    "secrets, insecure defaults. Write a short security report with "
+                    "common security problems: can attackers inject code, access data "
+                    "they should not see, or bypass login? Look for exposed passwords "
+                    "and unsafe default settings. Write a short security report with "
                     "findings and fixes. Save it to the shared workspace."
                 ),
             },
@@ -155,17 +156,18 @@ BUILTIN_FLEET_TEMPLATES: list[dict[str, Any]] = [
                 "icon": "shield",
                 "prompt": (
                     "You are the Security Reviewer. Review the code for security "
-                    "vulnerabilities: injection, auth bypass, data exposure, unsafe "
-                    "deserialization. Save your findings to the shared workspace."
+                    "problems: code injection, login bypass, data leaks, and unsafe "
+                    "data handling. Save your findings to the shared workspace."
                 ),
             },
             {
                 "role": "Performance Reviewer",
                 "icon": "speed",
                 "prompt": (
-                    "You are the Performance Reviewer. Review the code for performance "
-                    "issues: N+1 queries, unnecessary allocations, blocking calls, "
-                    "missing caching. Save your findings to the shared workspace."
+                    "You are the Performance Reviewer. Review the code for spots where "
+                    "the app might slow down: repeated database lookups, wasted memory, "
+                    "slow blocking operations, and missing speed optimizations. Save "
+                    "your findings to the shared workspace."
                 ),
             },
         ],
@@ -278,9 +280,9 @@ BUILTIN_FLEET_TEMPLATES: list[dict[str, Any]] = [
                 "role": "Security Reviewer",
                 "icon": "lock",
                 "prompt": (
-                    "You are the Security Reviewer. Review the API spec for auth "
-                    "vulnerabilities, data exposure, rate limiting gaps, and OWASP "
-                    "API top 10 issues. Save your review to shared workspace."
+                    "You are the Security Reviewer. Review the API spec for login "
+                    "weaknesses, data exposure, rate limiting gaps, and the most "
+                    "common API security risks. Save your review to shared workspace."
                 ),
             },
         ],

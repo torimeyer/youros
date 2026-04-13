@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from models.schemas import AgentSpawn, AgentNudge, AgentNudgeReply, GrantApprove, GrantDeny
@@ -61,9 +61,11 @@ AGENT_STATE_PATH = OSTK_DIR / "agent_state.json"
 #
 # Needle 300 belt and suspenders: this is only half the safety net. The
 # sweep also refuses to terminate any record whose proc handle in
-# ``active_agents`` is still alive (ground truth), and GET /nudges and
-# POST /reply both refresh ``last_heartbeat_at`` so any agent following
+# ``active_agents`` is still alive (ground truth). POST /reply and
+# POST /heartbeat refresh ``last_heartbeat_at`` so any agent following
 # the mailbox polling contract is effectively immune to the sweeper.
+# GET /nudges does NOT refresh the heartbeat because the frontend also
+# polls it, which would keep dead agents alive forever.
 STALE_AGENT_TIMEOUT_SECONDS = 900
 
 # How often every spawned agent must poll its nudge mailbox so Tori's
@@ -96,22 +98,22 @@ def agent_mailbox_instruction(agent_name: str) -> str:
     return (
         f"## Agent registration and mailbox (mandatory)\n\n"
         "### Step 0: Register immediately\n"
-        "Before doing ANY work, register yourself so Tori can see you "
+        "Before doing ANY work, register yourself so the user can see you "
         "in the Agents page:\n"
         f"   `curl -s -X POST http://localhost:8000/api/agents/register "
         "-H 'Content-Type: application/json' "
         f"-d '{{\"name\": \"{agent_name}\", \"model\": \"sonnet\", \"budget\": 5}}'`\n\n"
         f"### Mailbox checking (every {interval} seconds)\n\n"
-        "Tori may send you follow up instructions while you work via "
+        "The user may send you follow up instructions while you work via "
         "the Agents page in myOS. To pick those up, you MUST do the "
         "following on a regular schedule, alongside your heartbeat:\n\n"
         f"1. Every ~{interval} seconds, call:\n"
         f"   `curl -s http://localhost:8000/api/agents/{agent_name}/nudges`\n"
         "2. Compare the timestamps to the last batch you handled. Any "
-        "nudge with a newer timestamp is a NEW message from Tori.\n"
+        "nudge with a newer timestamp is a NEW message from the user.\n"
         "3. Treat each new nudge as an additional instruction added to "
         "your task. Decide if it changes your plan.\n"
-        "4. After acting on a nudge, post a short reply so Tori sees "
+        "4. After acting on a nudge, post a short reply so the user sees "
         "it inline:\n"
         f"   `curl -s -X POST http://localhost:8000/api/agents/{agent_name}/reply"
         " -H 'Content-Type: application/json' -d '{\"message\": \"<your reply>\"}'`\n"
@@ -304,14 +306,15 @@ def _recover_stale_agents():
     An agent that was left as 'running' in the state file when the server
     stopped has no live process now. We cannot know whether it finished or
     crashed, so we mark it 'abandoned' so it does not show as running forever.
+
+    This includes Claude Code (source='claude-code') agents. They have no
+    local PID, but if the server restarted they are certainly dead. The old
+    code skipped them, assuming they would call /complete themselves, but if
+    the parent session ended they never do.
     """
     changed = False
     for name, meta in agent_metadata.items():
         if meta.get("status") != "running":
-            continue
-        # Claude Code agents have no local PID, they run as remote subprocesses.
-        # Leave them alone; they mark themselves complete via the API.
-        if meta.get("source") == "claude-code":
             continue
         pid = meta.get("pid")
         # If there is a live PID we can verify, leave it alone.
@@ -1012,8 +1015,22 @@ async def list_agents():
 
     # 2b. Persisted metadata (agents from previous server sessions)
     for name, meta in agent_metadata.items():
-        if name in active_agents or name in agents_map:
-            continue  # already handled above
+        if name in active_agents:
+            continue  # in-memory process, step 2 already handled it
+        # If this agent is already in agents_map from the audit log (step 1)
+        # but agent_metadata says it's "running" or "completed", the metadata
+        # from the register/complete endpoint is more authoritative than the
+        # audit log's guess. Override the audit log entry.
+        persisted_status_check = meta.get("status")
+        if name in agents_map and persisted_status_check in ("running", "completed"):
+            agents_map[name] = {
+                "name": name,
+                "source": meta.get("source", "api"),
+                **meta,
+            }
+            continue
+        if name in agents_map:
+            continue  # audit log entry stands
         pid = meta.get("pid")
         is_registered = meta.get("source") == "claude-code"
         persisted_status = meta.get("status")
@@ -1245,8 +1262,31 @@ MODEL_MAP = {
 
 
 @router.post("/agents/spawn")
-async def spawn_agent(body: AgentSpawn):
+async def spawn_agent(body: AgentSpawn, request: Request = None):
     from config import PROJECT_ROOT
+    from services.policy_enforcement import (
+        check_budget,
+        check_approval_required,
+        get_isolation_level,
+        isolation_to_permission_mode,
+    )
+
+    # Enterprise policy checks: budget limit and approval threshold
+    allowed, reason = check_budget(body.budget)
+    if not allowed:
+        raise HTTPException(status_code=403, detail=reason)
+
+    if check_approval_required(body.budget):
+        from services import enterprise_store as _es
+        _threshold = _es.get_policies().get("require_approval_above", 5.0)
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Agent budget ${body.budget:.2f} requires admin approval "
+                f"(limit: ${_threshold:.2f}). Ask an admin to approve or "
+                f"raise the threshold in Settings > Enterprise > Policies."
+            ),
+        )
 
     model = MODEL_MAP.get(body.model, body.model)
     transcript_path = PROJECT_ROOT / "transcripts" / f"{body.name}.md"
@@ -1313,12 +1353,15 @@ async def spawn_agent(body: AgentSpawn):
         if quality_instructions:
             prompt_with_memory = prompt_with_memory + "\n\n---\n\n" + quality_instructions
 
+    # Map isolation level to Claude CLI permission mode
+    _perm_mode = isolation_to_permission_mode(get_isolation_level())
+
     cmd = [
         CLAUDE_BIN, "--print",
         "--model", model,
         "--output-format", "text",
         "--max-budget-usd", str(body.budget),
-        "--permission-mode", "bypassPermissions",
+        "--permission-mode", _perm_mode,
     ]
 
     try:
@@ -1358,8 +1401,17 @@ async def spawn_agent(body: AgentSpawn):
 
         # Log to audit
         try:
+            audit_data = {"name": body.name, "model": model, "budget": str(body.budget)}
+            if request:
+                from services import enterprise_store
+                if enterprise_store.is_enterprise():
+                    from services.session import verify_session, SESSION_COOKIE_NAME
+                    _tok = request.cookies.get(SESSION_COOKIE_NAME, "")
+                    _claims = verify_session(_tok) if _tok else None
+                    if _claims:
+                        audit_data["user"] = _claims["sub"]
             await ostk._run("os", "audit", "--event", "agent.spawned",
-                           "--data", json.dumps({"name": body.name, "model": model, "budget": str(body.budget)}))
+                           "--data", json.dumps(audit_data))
         except Exception:
             pass
 
@@ -1394,6 +1446,24 @@ async def spawn_fleet(body: FleetSpawn):
     prepended. All agents share the workspace for coordination.
     """
     from services.fleet_templates import list_fleet_templates
+    from services.policy_enforcement import check_budget, check_approval_required
+
+    # Fail fast: check the per-member budget before spawning anything
+    allowed, reason = check_budget(body.budget)
+    if not allowed:
+        raise HTTPException(status_code=403, detail=reason)
+
+    if check_approval_required(body.budget):
+        from services import enterprise_store as _es
+        _threshold = _es.get_policies().get("require_approval_above", 5.0)
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Fleet per-member budget ${body.budget:.2f} requires admin approval "
+                f"(limit: ${_threshold:.2f}). Ask an admin to approve or "
+                f"raise the threshold in Settings > Enterprise > Policies."
+            ),
+        )
 
     templates = list_fleet_templates()
     fleet = next((f for f in templates if f["id"] == body.fleet_id), None)
@@ -1446,7 +1516,7 @@ async def spawn_fleet(body: FleetSpawn):
 
 
 @router.post("/agents/register")
-async def register_agent(body: AgentSpawn):
+async def register_agent(body: AgentSpawn, request: Request = None):
     """Register an external agent (e.g., Claude Code subagent) without spawning a process.
 
     This lets myOS track agents that are managed by another system. Agents
@@ -1504,8 +1574,17 @@ async def register_agent(body: AgentSpawn):
 
     # Log to audit
     try:
+        audit_data = {"name": body.name, "model": model, "budget": str(body.budget)}
+        if request:
+            from services import enterprise_store
+            if enterprise_store.is_enterprise():
+                from services.session import verify_session, SESSION_COOKIE_NAME
+                _tok = request.cookies.get(SESSION_COOKIE_NAME, "")
+                _claims = verify_session(_tok) if _tok else None
+                if _claims:
+                    audit_data["user"] = _claims["sub"]
         await ostk._run("os", "audit", "--event", "agent.spawned",
-                       "--data", json.dumps({"name": body.name, "model": model, "budget": str(body.budget)}))
+                       "--data", json.dumps(audit_data))
     except Exception:
         pass
 
@@ -2095,26 +2174,22 @@ async def list_agent_nudges(name: str):
     * ``replies``: file-based replies the agent has posted via /reply.
     * ``session_replies``: in-memory replies from the current session.
 
-    Needle 300: every mailbox poll also refreshes ``last_heartbeat_at``
-    for the agent. The spawn contract tells every subagent to poll
-    this endpoint every sixty seconds, so an agent that is following
-    the contract literally cannot fall silent unless it is actually
-    dead. The sweep thresholds become a backstop, not the front line.
+    Needle 300: heartbeat is NOT refreshed here. The frontend also
+    polls this endpoint to show nudge replies, so refreshing here
+    would keep dead agents alive forever. Agents refresh their own
+    heartbeat via POST /heartbeat, POST /reply, or POST /register.
     """
     file_nudges = await ostk.list_nudges(name)
     session_nudges = nudge_history.get(name, [])
     file_replies = await ostk.list_nudge_replies(name)
     session_replies = nudge_replies.get(name, [])
 
-    # Count this poll as a heartbeat if the agent is registered. We
-    # only touch running records so we do not bounce a completed or
-    # cancelled agent back into running by accident. Save is best
-    # effort: if atomic_write_json raises, we still return the nudge
-    # list so the mailbox loop does not die.
-    meta = agent_metadata.get(name)
-    if meta is not None and meta.get("status") == "running":
-        meta["last_heartbeat_at"] = _now_iso()
-        _save_agent_state()
+    # DO NOT refresh last_heartbeat_at here. The frontend also polls
+    # this endpoint (every 3-5s) to display nudge replies. If we
+    # refresh the heartbeat on every frontend poll, dead agents look
+    # alive forever because the browser keeps their heartbeat fresh.
+    # Only the agent itself should refresh its heartbeat, via
+    # POST /heartbeat, POST /reply, or POST /register.
 
     return {
         "agent": name,
@@ -2274,6 +2349,112 @@ async def deny_grant(grant_id: str, body: Optional[GrantDeny] = None):
     try:
         result = await ostk.deny_grant(grant_id, reason=reason)
         return {"result": result, "grant_id": grant_id, "action": "denied"}
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Agent Correction (needle 333) ──────────────────────────────────
+
+
+@router.post("/agents/{name}/correct")
+async def correct_agent(name: str, body: AgentNudge):
+    """Send a structured correction to a running agent.
+
+    Calls ostk :correct to record the correction in the audit trail,
+    then sends a regular nudge so both systems stay in sync. The nudge
+    is tagged as a correction so the UI can render it with a distinct
+    amber/orange visual.
+    """
+    message = body.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Correction message cannot be empty")
+
+    meta = agent_metadata.get(name)
+    if meta is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{name}' is not registered.",
+        )
+
+    # 1. Call ostk correct for the audit trail
+    correction_result = None
+    try:
+        correction_result = await ostk.correct_agent(name, message)
+    except OstkError:
+        # ostk correct may not be available. Continue with the nudge
+        # so the message still reaches the agent.
+        pass
+
+    # 2. Send a regular nudge so the agent sees the message
+    correction_message = f"[CORRECTION] {message}"
+    nudge_data = await ostk.write_nudge(name, correction_message)
+
+    # Try stdin delivery
+    proc = active_agents.get(name)
+    delivery = "file_only"
+    if proc and hasattr(proc, "stdin") and proc.stdin:
+        try:
+            proc.stdin.write((correction_message + "\n").encode())
+            await proc.stdin.drain()
+            delivery = "stdin"
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            delivery = "file_only"
+
+    delivery_message = _nudge_delivery_message(delivery, name)
+
+    # Track in session history
+    if name not in nudge_history:
+        nudge_history[name] = []
+    record = {
+        "message": correction_message,
+        "timestamp": nudge_data["timestamp"],
+        "source": "ui",
+        "type": "correction",
+        "delivery": delivery,
+        "delivery_message": delivery_message,
+        "stdin_delivered": delivery == "stdin",
+    }
+    nudge_history[name].append(record)
+
+    return {
+        "result": f"Correction sent to '{name}'",
+        "nudge": record,
+        "ostk_result": correction_result,
+    }
+
+
+# ── Context Pressure (needle 337) ─────────────────────────────────
+
+
+@router.get("/agents/{name}/context-pressure")
+async def get_context_pressure(name: str):
+    """Return context pressure data for an agent if the service is available.
+
+    If the :dying service is inactive, returns available: false so the
+    UI knows not to show anything.
+    """
+    data = await ostk.check_context_pressure(name)
+    if data is None:
+        return {"available": False, "agent": name}
+    return {"available": True, "agent": name, **data}
+
+
+# ── Coordination Locks (needle 338) ───────────────────────────────
+
+
+@router.get("/agents/locks")
+async def list_locks():
+    """List all active coordination locks."""
+    locks = await ostk.list_locks()
+    return {"locks": locks}
+
+
+@router.delete("/agents/locks/{lock_name}")
+async def release_lock(lock_name: str):
+    """Force release a coordination lock by name."""
+    try:
+        result = await ostk.release_lock(lock_name)
+        return {"result": result, "lock": lock_name, "action": "released"}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

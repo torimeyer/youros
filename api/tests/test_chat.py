@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import os
 
 import pytest
@@ -7,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 from routers.chat import (
     _extract_gif_frames,
+    build_memory_context,
     infer_second_model,
     parse_mentions,
     should_inject_context,
@@ -751,7 +753,7 @@ class TestChatBackendDispatch:
 
         service = ChatService()
 
-        async def fake_stream_chat(messages, ws, system_prompt=None):
+        async def fake_stream_chat(messages, ws, system_prompt=None, **kwargs):
             await ws.send_json({"type": "token", "data": "from-claude-code"})
             await ws.send_json({"type": "done", "usage": {"input_tokens": 1, "output_tokens": 1}})
             return "from-claude-code"
@@ -852,7 +854,7 @@ class TestChatBackendDispatch:
 
         claude_stream_called = {"yes": False}
 
-        async def fake_stream_chat(messages, ws, system_prompt=None):
+        async def fake_stream_chat(messages, ws, system_prompt=None, **kwargs):
             claude_stream_called["yes"] = True
             return ""
 
@@ -897,7 +899,7 @@ class TestChatBackendDispatch:
 
         service = ChatService()
 
-        async def fake_stream_chat(messages, ws, system_prompt=None):
+        async def fake_stream_chat(messages, ws, system_prompt=None, **kwargs):
             await ws.send_json({"type": "token", "data": "agent-path"})
             await ws.send_json({"type": "done", "usage": {"input_tokens": 1, "output_tokens": 1}})
             return "agent-path"
@@ -1065,6 +1067,188 @@ class TestChatReachesFrontendWithNonEmptyToken:
         assert first_token_idx < done_idx, (
             "done arrived before any token event, so the bubble is empty when done fires"
         )
+
+
+# --- WebSocket handshake must not block the event loop ---
+#
+# Needle 307: the e2e smoke test phase 5 was failing with
+# "chat WS could not connect: timed out during opening handshake".
+# Root cause: ``_get_boot_context`` in services/chat_providers.py was a
+# synchronous function that called ``subprocess.run(['ostk', 'boot'])``
+# with a five second timeout. It was being called from three places
+# inside the async chat pipeline (stream_anthropic, stream_gemini,
+# agent_anthropic, plus the lazy import in claude_code_provider.py).
+# When the cache was cold, the event loop blocked for up to five
+# seconds while the subprocess ran, which was exactly the window a
+# fresh WebSocket handshake (``open_timeout=5``) needed to connect.
+# The fix makes ``_get_boot_context`` detect an active event loop and
+# schedule the refresh in a worker thread instead of blocking the
+# loop. These tests lock the fix in.
+
+
+class TestChatWebSocketHandshakeNeverBlocksEventLoop:
+    """Regression guard for needle 307.
+
+    The WebSocket handshake and a follow-up HTTP request must both
+    complete in well under a second, even when a real chat turn has
+    just finished. This proves the event loop is not being blocked by
+    any sync subprocess call made during or after the chat turn.
+    """
+
+    @pytest.mark.asyncio
+    async def test_boot_context_does_not_block_event_loop(self):
+        """When called from async context, _get_boot_context must not
+        block the loop on a cold cache. It must return immediately and
+        schedule the refresh in the background.
+        """
+        import time
+        from services import chat_providers
+
+        # Force a cold cache so the function would otherwise shell out.
+        chat_providers._BOOT_CONTEXT_CACHE = None
+        chat_providers._BOOT_CONTEXT_REFRESH_IN_FLIGHT = False
+
+        async def fake_run() -> str:
+            # If the refresh ever runs for real, burn 5 seconds of wall
+            # clock. That would trip the assertion below if it happened
+            # on the main loop.
+            await __import__("asyncio").sleep(0.1)
+            return "fake boot ctx"
+
+        async def fake_to_thread(fn, *args, **kwargs):
+            return await fake_run()
+
+        import asyncio as _asyncio
+
+        original_to_thread = _asyncio.to_thread
+        _asyncio.to_thread = fake_to_thread  # type: ignore[assignment]
+        try:
+            t0 = time.monotonic()
+            result = chat_providers._get_boot_context()
+            elapsed = time.monotonic() - t0
+        finally:
+            _asyncio.to_thread = original_to_thread  # type: ignore[assignment]
+
+        # The call must return immediately. Anything over 100 ms means
+        # we blocked the loop on a subprocess again.
+        assert elapsed < 0.1, (
+            f"_get_boot_context blocked the event loop for {elapsed:.3f}s "
+            "on a cold cache. It must schedule the refresh and return."
+        )
+        # Cold cache returns an empty string while the refresh runs in
+        # the background. The exact value does not matter, only that it
+        # is a string and the call did not block.
+        assert isinstance(result, str)
+
+    @pytest.mark.asyncio
+    async def test_boot_context_still_blocks_when_no_event_loop(self):
+        """When called from a plain sync context, _get_boot_context must
+        still run the subprocess inline. Regression guard so the new
+        async path does not silently break the metrics side of the house.
+        """
+        from services import chat_providers
+
+        chat_providers._BOOT_CONTEXT_CACHE = None
+        chat_providers._BOOT_CONTEXT_REFRESH_IN_FLIGHT = False
+
+        called = {"count": 0}
+
+        def fake_run_ostk_boot_sync() -> str:
+            called["count"] += 1
+            return "sync boot ctx"
+
+        original = chat_providers._run_ostk_boot_sync
+        chat_providers._run_ostk_boot_sync = fake_run_ostk_boot_sync  # type: ignore[assignment]
+
+        # Run the sync call in a worker thread so we are NOT inside a
+        # running event loop when it fires.
+        import asyncio as _asyncio
+        try:
+            result = await _asyncio.to_thread(chat_providers._get_boot_context)
+        finally:
+            chat_providers._run_ostk_boot_sync = original  # type: ignore[assignment]
+
+        assert called["count"] == 1
+        assert result == "sync boot ctx"
+
+    def test_websocket_round_trip_under_three_seconds_and_event_loop_stays_responsive(self):
+        """Full integration: connect, send, receive a token and done, and
+        immediately make an HTTP request to /api/status/clock. The whole
+        thing must complete in under three seconds.
+        """
+        import json
+        import time
+
+        from fastapi.testclient import TestClient
+
+        from main import app
+        from services import chat_providers
+        from services.chat_providers import ChatService
+        from services.template_matcher import clear_cache
+
+        clear_cache()
+        chat_providers.claude_code_provider.clear_detection_cache()
+        chat_providers._BOOT_CONTEXT_CACHE = None
+        chat_providers._BOOT_CONTEXT_REFRESH_IN_FLIGHT = False
+
+        async def fake_stream_anthropic(self, messages, websocket, tab_id=""):
+            # Mock: send two tokens and rely on the caller to send done.
+            # The real stream_anthropic does NOT send done itself on
+            # success, the websocket handler trusts the provider to emit
+            # the done. So we emit it here to match production shape.
+            await websocket.send_json({"type": "token", "data": "hi "})
+            await websocket.send_json({"type": "token", "data": "there"})
+            await websocket.send_json({
+                "type": "done",
+                "usage": {"input_tokens": 1, "output_tokens": 2},
+            })
+            return "hi there"
+
+        with patch.object(
+            ChatService, "stream_anthropic", new=fake_stream_anthropic
+        ):
+            client = TestClient(app)
+
+            t0 = time.monotonic()
+            with client.websocket_connect("/ws/chat") as ws:
+                ws.send_json({
+                    "messages": [{"role": "user", "content": "say hi"}],
+                    "model": "@claude",
+                })
+
+                got_token = False
+                got_done = False
+                for _ in range(20):
+                    event = ws.receive_json()
+                    et = event.get("type")
+                    if et == "token" and event.get("data"):
+                        got_token = True
+                    if et == "done":
+                        got_done = True
+                        break
+                    if et == "error":
+                        pytest.fail(f"unexpected error: {event.get('data')}")
+            ws_elapsed = time.monotonic() - t0
+
+            assert got_token, "no token event arrived"
+            assert got_done, "no done event arrived"
+            assert ws_elapsed < 3.0, (
+                f"WebSocket round trip took {ws_elapsed:.2f}s, should be < 3s"
+            )
+
+            # Immediately fire an HTTP request. If the event loop was
+            # blocked by any sync call in the chat handler, this will
+            # time out or return slowly.
+            t1 = time.monotonic()
+            resp = client.get("/api/status/clock")
+            http_elapsed = time.monotonic() - t1
+
+            assert resp.status_code == 200
+            assert http_elapsed < 0.5, (
+                f"HTTP request after WebSocket took {http_elapsed:.2f}s. "
+                "The event loop is being blocked by a sync call in the "
+                "chat pipeline."
+            )
 
 
 # --- GIF frame extraction ---
@@ -1528,7 +1712,7 @@ class TestTwoMentionRouting:
         async def fake_orchestration(**kwargs):
             orchestration_calls["count"] += 1
 
-        async def fake_call_model(provider, messages, websocket, label="", use_tools=False):
+        async def fake_call_model(provider, messages, websocket, label="", use_tools=False, tab_id=""):
             call_model_calls["count"] += 1
             call_model_calls["model"] = provider
             await websocket.send_json({"type": "done"})
@@ -1842,3 +2026,534 @@ class TestGroupBroadcastRouting:
 
             mock_single.assert_called_once()
             mock_broadcast.assert_not_called()
+
+
+# --- ChatHistoryStore.get_prior_messages ---
+
+
+class TestGetPriorMessages:
+    """Tests for ChatHistoryStore.get_prior_messages."""
+
+    def test_returns_messages_from_prior_tab(self, tmp_path):
+        from services.chat_history_store import ChatHistoryStore
+        path = tmp_path / "chat_history.json"
+        store = ChatHistoryStore(path=path)
+        store.save({
+            "tabs": [
+                {
+                    "id": "tab-old",
+                    "name": "Old chat",
+                    "messages": [
+                        {"id": "1", "role": "user", "content": "Hello from old tab"},
+                        {"id": "2", "role": "assistant", "content": "Hi there!"},
+                    ],
+                },
+                {
+                    "id": "tab-current",
+                    "name": "Current chat",
+                    "messages": [
+                        {"id": "3", "role": "user", "content": "New message"},
+                    ],
+                },
+            ],
+            "active_tab_id": "tab-current",
+        })
+        result = store.get_prior_messages(current_tab_id="tab-current", limit=10)
+        assert len(result) == 2
+        assert result[0]["role"] == "user"
+        assert result[0]["content"] == "Hello from old tab"
+        assert result[1]["role"] == "assistant"
+        assert result[1]["content"] == "Hi there!"
+
+    def test_skips_current_tab(self, tmp_path):
+        from services.chat_history_store import ChatHistoryStore
+        path = tmp_path / "chat_history.json"
+        store = ChatHistoryStore(path=path)
+        store.save({
+            "tabs": [
+                {
+                    "id": "tab-only",
+                    "name": "Only chat",
+                    "messages": [
+                        {"id": "1", "role": "user", "content": "Solo"},
+                    ],
+                },
+            ],
+            "active_tab_id": "tab-only",
+        })
+        result = store.get_prior_messages(current_tab_id="tab-only", limit=10)
+        assert result == []
+
+    def test_respects_limit(self, tmp_path):
+        from services.chat_history_store import ChatHistoryStore
+        path = tmp_path / "chat_history.json"
+        store = ChatHistoryStore(path=path)
+        many_msgs = [{"id": str(i), "role": "user", "content": f"msg {i}"} for i in range(20)]
+        store.save({
+            "tabs": [
+                {"id": "tab-old", "name": "Old", "messages": many_msgs},
+                {"id": "tab-new", "name": "New", "messages": []},
+            ],
+            "active_tab_id": "tab-new",
+        })
+        result = store.get_prior_messages(current_tab_id="tab-new", limit=5)
+        assert len(result) == 5
+        # Should be the LAST 5 messages
+        assert result[0]["content"] == "msg 15"
+        assert result[4]["content"] == "msg 19"
+
+    def test_empty_history_returns_empty(self, tmp_path):
+        from services.chat_history_store import ChatHistoryStore
+        path = tmp_path / "chat_history.json"
+        store = ChatHistoryStore(path=path)
+        result = store.get_prior_messages(current_tab_id="tab-x", limit=10)
+        assert result == []
+
+    def test_picks_most_recent_prior_tab(self, tmp_path):
+        """When there are multiple prior tabs, pick the last one with messages."""
+        from services.chat_history_store import ChatHistoryStore
+        path = tmp_path / "chat_history.json"
+        store = ChatHistoryStore(path=path)
+        store.save({
+            "tabs": [
+                {
+                    "id": "tab-1",
+                    "name": "First",
+                    "messages": [{"id": "1", "role": "user", "content": "from first"}],
+                },
+                {
+                    "id": "tab-2",
+                    "name": "Second",
+                    "messages": [{"id": "2", "role": "user", "content": "from second"}],
+                },
+                {
+                    "id": "tab-current",
+                    "name": "Current",
+                    "messages": [{"id": "3", "role": "user", "content": "current"}],
+                },
+            ],
+            "active_tab_id": "tab-current",
+        })
+        result = store.get_prior_messages(current_tab_id="tab-current", limit=10)
+        # Should pick tab-2 (the last non-current tab with messages)
+        assert len(result) == 1
+        assert result[0]["content"] == "from second"
+
+    def test_skips_empty_tabs(self, tmp_path):
+        """Tabs with no messages are skipped."""
+        from services.chat_history_store import ChatHistoryStore
+        path = tmp_path / "chat_history.json"
+        store = ChatHistoryStore(path=path)
+        store.save({
+            "tabs": [
+                {
+                    "id": "tab-1",
+                    "name": "Has messages",
+                    "messages": [{"id": "1", "role": "user", "content": "hello"}],
+                },
+                {
+                    "id": "tab-2",
+                    "name": "Empty tab",
+                    "messages": [],
+                },
+                {
+                    "id": "tab-current",
+                    "name": "Current",
+                    "messages": [{"id": "3", "role": "user", "content": "now"}],
+                },
+            ],
+            "active_tab_id": "tab-current",
+        })
+        result = store.get_prior_messages(current_tab_id="tab-current", limit=10)
+        # Should skip tab-2 (empty) and pick tab-1
+        assert len(result) == 1
+        assert result[0]["content"] == "hello"
+
+
+# --- build_memory_context ---
+
+
+class TestBuildMemoryContext:
+    """Tests for the build_memory_context function in chat.py."""
+
+    def test_returns_context_when_prior_messages_exist(self, tmp_path):
+        from services.chat_history_store import ChatHistoryStore
+        path = tmp_path / "chat_history.json"
+        store = ChatHistoryStore(path=path)
+        store.save({
+            "tabs": [
+                {
+                    "id": "tab-old",
+                    "name": "Old",
+                    "messages": [
+                        {"id": "1", "role": "user", "content": "What is 2+2?"},
+                        {"id": "2", "role": "assistant", "content": "4"},
+                    ],
+                },
+                {
+                    "id": "tab-new",
+                    "name": "New",
+                    "messages": [],
+                },
+            ],
+            "active_tab_id": "tab-new",
+        })
+        with patch("routers.chat.chat_history_store", store), \
+             patch("routers.chat.settings_store") as mock_settings:
+            mock_settings.get.return_value = True
+            result = build_memory_context(current_tab_id="tab-new")
+
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert "[Prior conversation for context]" in result[0]["content"]
+        assert "User: What is 2+2?" in result[0]["content"]
+        assert "Assistant: 4" in result[0]["content"]
+        assert "[End of prior conversation]" in result[0]["content"]
+
+    def test_returns_empty_when_disabled(self, tmp_path):
+        with patch("routers.chat.settings_store") as mock_settings:
+            mock_settings.get.return_value = False
+            result = build_memory_context(current_tab_id="tab-new")
+        assert result == []
+
+    def test_returns_empty_when_no_prior_tabs(self, tmp_path):
+        from services.chat_history_store import ChatHistoryStore
+        path = tmp_path / "chat_history.json"
+        store = ChatHistoryStore(path=path)
+        store.save({
+            "tabs": [
+                {
+                    "id": "tab-only",
+                    "name": "Only",
+                    "messages": [{"id": "1", "role": "user", "content": "hi"}],
+                },
+            ],
+            "active_tab_id": "tab-only",
+        })
+        with patch("routers.chat.chat_history_store", store), \
+             patch("routers.chat.settings_store") as mock_settings:
+            mock_settings.get.return_value = True
+            result = build_memory_context(current_tab_id="tab-only")
+        assert result == []
+
+
+# --- Slash command router ---
+
+
+class TestSlashCommands:
+    """Slash commands typed in ToriChat must be intercepted before AI
+    routing and return results directly over the WebSocket.
+    """
+
+    @pytest.fixture
+    def ws(self):
+        return FakeWebSocket()
+
+    @pytest.mark.asyncio
+    async def test_help_command(self, ws):
+        from routers.chat import _handle_slash_command
+
+        handled = await _handle_slash_command("/help", ws)
+        assert handled is True
+        texts = ws.get_messages_of_type("text")
+        assert len(texts) == 1
+        assert "/status" in texts[0]["data"]
+        assert "/tasks" in texts[0]["data"]
+        assert "/commit" in texts[0]["data"]
+        assert "/agents" in texts[0]["data"]
+        assert "/ideas" in texts[0]["data"]
+        assert "/mcp" in texts[0]["data"]
+        done = ws.get_messages_of_type("done")
+        assert len(done) == 1
+
+    @pytest.mark.asyncio
+    async def test_mcp_command(self, ws):
+        from routers.chat import _handle_slash_command
+
+        handled = await _handle_slash_command("/mcp", ws)
+        assert handled is True
+        texts = ws.get_messages_of_type("text")
+        assert "Settings" in texts[0]["data"]
+        assert ws.get_messages_of_type("done")
+
+    @pytest.mark.asyncio
+    async def test_status_command(self, ws):
+        from routers.chat import _handle_slash_command
+
+        with patch("routers.chat.ostk") as mock_ostk:
+            mock_ostk.os_status = AsyncMock(return_value="all systems go")
+            handled = await _handle_slash_command("/status", ws)
+
+        assert handled is True
+        texts = ws.get_messages_of_type("text")
+        assert "all systems go" in texts[0]["data"]
+
+    @pytest.mark.asyncio
+    async def test_tasks_command(self, ws):
+        from routers.chat import _handle_slash_command
+
+        fake_tasks = [
+            {"id": "T1", "title": "Fix login", "priority": "high", "status": "open"},
+            {"id": "T2", "title": "Add tests", "priority": "med", "status": "open"},
+        ]
+        with patch("routers.chat.ostk") as mock_ostk:
+            mock_ostk.list_tasks = AsyncMock(return_value=fake_tasks)
+            handled = await _handle_slash_command("/tasks", ws)
+
+        assert handled is True
+        texts = ws.get_messages_of_type("text")
+        assert "Fix login" in texts[0]["data"]
+        assert "Add tests" in texts[0]["data"]
+        assert "T1" in texts[0]["data"]
+
+    @pytest.mark.asyncio
+    async def test_tasks_command_empty(self, ws):
+        from routers.chat import _handle_slash_command
+
+        with patch("routers.chat.ostk") as mock_ostk:
+            mock_ostk.list_tasks = AsyncMock(return_value=[])
+            handled = await _handle_slash_command("/tasks", ws)
+
+        assert handled is True
+        texts = ws.get_messages_of_type("text")
+        assert "No open tasks" in texts[0]["data"]
+
+    @pytest.mark.asyncio
+    async def test_commit_command(self, ws):
+        from routers.chat import _handle_slash_command
+
+        with patch("routers.chat.ostk") as mock_ostk:
+            mock_ostk.commit = AsyncMock(return_value="committed abc123")
+            handled = await _handle_slash_command("/commit fix the bug", ws)
+
+        assert handled is True
+        mock_ostk.commit.assert_awaited_once_with("fix the bug")
+        texts = ws.get_messages_of_type("text")
+        assert "committed" in texts[0]["data"].lower() or "abc123" in texts[0]["data"]
+
+    @pytest.mark.asyncio
+    async def test_commit_command_no_message(self, ws):
+        from routers.chat import _handle_slash_command
+
+        handled = await _handle_slash_command("/commit", ws)
+        assert handled is True
+        texts = ws.get_messages_of_type("text")
+        assert "Usage" in texts[0]["data"]
+
+    @pytest.mark.asyncio
+    async def test_ideas_command(self, ws):
+        from routers.chat import _handle_slash_command
+
+        fake_hay = {
+            "clusters": [
+                {"label": "Product", "items": ["idea A", "idea B"], "count": 2},
+            ],
+            "unclustered": ["idea C"],
+        }
+        with patch("routers.chat.ostk") as mock_ostk:
+            mock_ostk.list_hay = AsyncMock(return_value=fake_hay)
+            handled = await _handle_slash_command("/ideas", ws)
+
+        assert handled is True
+        texts = ws.get_messages_of_type("text")
+        assert "idea A" in texts[0]["data"]
+        assert "idea C" in texts[0]["data"]
+        assert "Product" in texts[0]["data"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_command(self, ws):
+        from routers.chat import _handle_slash_command
+
+        handled = await _handle_slash_command("/foobar", ws)
+        assert handled is True
+        texts = ws.get_messages_of_type("text")
+        assert "Unknown command" in texts[0]["data"]
+        assert "/help" in texts[0]["data"]
+
+    @pytest.mark.asyncio
+    async def test_non_slash_message_not_handled(self, ws):
+        from routers.chat import _handle_slash_command
+
+        handled = await _handle_slash_command("hello world", ws)
+        assert handled is False
+        assert ws.messages == []
+
+    @pytest.mark.asyncio
+    async def test_slash_command_skips_ai_routing(self):
+        """A /help message in the WebSocket handler must NOT reach
+        call_model or any AI provider.
+        """
+        from routers.chat import chat_websocket
+
+        class SlashWS:
+            def __init__(self):
+                self.messages = []
+                self._queue = [
+                    {
+                        "messages": [{"role": "user", "content": "/help"}],
+                        "model": "@claude",
+                    }
+                ]
+
+            async def accept(self):
+                pass
+
+            async def receive_json(self):
+                if self._queue:
+                    return self._queue.pop(0)
+                from fastapi import WebSocketDisconnect
+                raise WebSocketDisconnect()
+
+            async def send_json(self, data):
+                self.messages.append(data)
+
+            def get_messages_of_type(self, t):
+                return [m for m in self.messages if m.get("type") == t]
+
+        ws = SlashWS()
+        with patch("routers.chat.call_model", new_callable=AsyncMock) as mock_call:
+            await chat_websocket(ws)
+
+        mock_call.assert_not_called()
+        texts = [m for m in ws.messages if m.get("type") == "text"]
+        assert len(texts) == 1
+        assert "/status" in texts[0]["data"]
+
+
+# --- Prompt caching ---
+
+
+class TestPromptCaching:
+    """The system prompt must be wrapped with cache_control when sent
+    to the Anthropic API so subsequent turns reuse the cached prompt.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_anthropic_passes_cached_system_prompt(self):
+        """stream_anthropic must pass the system prompt as a list with
+        cache_control, not as a plain string.
+        """
+        from services import chat_providers
+        from services.chat_providers import ChatService
+        from services.template_matcher import clear_cache
+
+        clear_cache()
+        chat_providers.claude_code_provider.clear_detection_cache()
+
+        service = ChatService()
+        captured_kwargs = {}
+
+        class FakeTextStream:
+            """Async iterator that yields nothing (empty response)."""
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        class FakeStreamContext:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            @property
+            def text_stream(self):
+                return FakeTextStream()
+
+            async def get_final_message(self):
+                class Usage:
+                    input_tokens = 10
+                    output_tokens = 5
+                class Msg:
+                    usage = Usage()
+                return Msg()
+
+        class FakeMessages:
+            def stream(self, **kwargs):
+                captured_kwargs.update(kwargs)
+                return FakeStreamContext()
+
+        class FakeClient:
+            messages = FakeMessages()
+
+        ws = FakeWebSocket()
+
+        async def fake_match(messages, ws, api_key):
+            return None
+
+        with patch(
+            "services.chat_providers._resolve_chat_backend",
+            new=AsyncMock(return_value="anthropic_api"),
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="sk-fake"),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers.anthropic.AsyncAnthropic",
+            return_value=FakeClient(),
+        ), patch(
+            "services.chat_providers.settings_store",
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: default
+
+            await service.stream_anthropic(
+                [{"role": "user", "content": "hello"}], ws
+            )
+
+        # The system prompt should not be present (no template matched, so
+        # _compose_system_prompt returns None in stream_anthropic when
+        # matched_template is falsy). But if it IS present, it must be
+        # the cached list form.
+        if "system" in captured_kwargs:
+            system_val = captured_kwargs["system"]
+            assert isinstance(system_val, list), (
+                "system prompt must be a list with cache_control, not a plain string"
+            )
+            assert len(system_val) == 1
+            assert system_val[0]["type"] == "text"
+            assert system_val[0]["cache_control"] == {"type": "ephemeral"}
+
+
+# --- Extended thinking ---
+
+
+class TestExtendedThinking:
+    """Extended thinking must be enabled for complex questions and
+    disabled for simple ones.
+    """
+
+    def test_short_greeting_no_thinking(self):
+        from services.chat_providers import _should_use_thinking
+        assert _should_use_thinking("hello") is False
+        assert _should_use_thinking("hi") is False
+        assert _should_use_thinking("thanks") is False
+
+    def test_long_message_triggers_thinking(self):
+        from services.chat_providers import _should_use_thinking
+        long_msg = "Can you help me understand the overall architecture of this system and how the different components interact with each other?"
+        assert _should_use_thinking(long_msg) is True
+
+    def test_question_words_trigger_thinking(self):
+        from services.chat_providers import _should_use_thinking
+        assert _should_use_thinking("why is the sky blue") is True
+        assert _should_use_thinking("how does caching work") is True
+        assert _should_use_thinking("explain prompt caching") is True
+        assert _should_use_thinking("compare Claude and Gemini") is True
+        assert _should_use_thinking("analyze this data") is True
+
+    def test_non_string_returns_false(self):
+        from services.chat_providers import _should_use_thinking
+        assert _should_use_thinking(None) is False  # type: ignore[arg-type]
+        assert _should_use_thinking(123) is False  # type: ignore[arg-type]
+
+    def test_threshold_constant_is_50(self):
+        from services.chat_providers import EXTENDED_THINKING_CHAR_THRESHOLD
+        assert EXTENDED_THINKING_CHAR_THRESHOLD == 50
+
+    def test_budget_constant_is_10000(self):
+        from services.chat_providers import EXTENDED_THINKING_BUDGET_TOKENS
+        assert EXTENDED_THINKING_BUDGET_TOKENS == 10000

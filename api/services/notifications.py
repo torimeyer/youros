@@ -188,7 +188,26 @@ class NotificationsService:
             notifications = notifications[:MAX_NOTIFICATIONS]
 
         self._save(notifications)
+
+        # Fire a web push notification so the user sees it even when
+        # the browser tab is in the background or closed.
+        self._send_push(n)
+
         return n
+
+    def _send_push(self, n: "Notification") -> None:
+        """Best-effort web push delivery. Never raises."""
+        try:
+            from services.push import push_service
+
+            push_service.send_to_all(
+                title=n.title,
+                body=n.body,
+                url=n.action_url or "/",
+                tag=n.type,
+            )
+        except Exception:
+            pass
 
     def list_all(self) -> list[Notification]:
         return self._load()

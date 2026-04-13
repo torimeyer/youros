@@ -60,7 +60,7 @@ interface TranscriptListResponse {
   total: number;
 }
 
-export default function Transcripts() {
+export default function Transcripts({ embedded }: { embedded?: boolean }) {
   const [transcripts, setTranscripts] = useState<TranscriptSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -158,8 +158,8 @@ export default function Transcripts() {
     const summary = transcripts.find((t) => t.session_id === selectedId);
     return (
       <>
-        <TopBar title="Transcripts" />
-        <div className="pt-20 p-8">
+        {!embedded && <TopBar title="History" />}
+        <div className={embedded ? "" : "pt-16 px-4 pb-4 sm:pt-20 sm:p-8"}>
           {/* Back button and header */}
           <div className="flex items-center gap-4 mb-6">
             <button
@@ -281,11 +281,11 @@ export default function Transcripts() {
 
   return (
     <>
-      <TopBar title="Transcripts" />
-      <div className="pt-20 p-8">
-        <div className="flex items-center justify-between mb-6">
+      {!embedded && <TopBar title="History" />}
+      <div className={embedded ? "" : "pt-16 px-4 pb-4 sm:pt-20 sm:p-8"}>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-white">Transcripts</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Transcripts</h1>
             <p className="text-slate-400 text-sm mt-1">
               Conversation history from your AI sessions
             </p>

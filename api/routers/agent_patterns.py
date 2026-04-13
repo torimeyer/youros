@@ -1,10 +1,10 @@
 """Agent patterns router.
 
-Exposes the read-only pattern analyzer to the Insights tab in the UI.
-All three endpoints are idempotent GETs.
+Exposes the pattern analyzer to the Insights tab in the UI.
+Includes read-only analysis endpoints plus proven template management.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from services import agent_patterns
 
@@ -40,3 +40,34 @@ async def get_runs(limit: int = 100, offset: int = 0):
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.get("/agent-patterns/proven")
+async def get_proven_templates():
+    """Return all proven (high-confidence) templates."""
+    return {"proven": agent_patterns.proven_templates()}
+
+
+@router.post("/agent-patterns/promote/{template_name}")
+async def promote_template(template_name: str):
+    """Promote a template to proven status.
+
+    The template must exist in the stats with >= 2 runs and >= 75%
+    success rate. Returns the promoted entry on success.
+    """
+    entry = agent_patterns.promote_template(template_name)
+    if entry is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Template '{template_name}' was not found or does not qualify. "
+                "It needs at least 2 runs and 75% or higher success rate."
+            ),
+        )
+    return {"promoted": entry}
+
+
+@router.get("/agent-patterns/adjustments")
+async def get_suggested_adjustments():
+    """Return suggested adjustments for templates that keep failing."""
+    return {"adjustments": agent_patterns.suggested_adjustments()}

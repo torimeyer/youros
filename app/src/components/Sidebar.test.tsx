@@ -33,16 +33,16 @@ describe('Sidebar', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
-        { label: 'Activity', enabled: true },
-        { label: 'Hay/Ideas', enabled: true },
+        { label: 'Ideas', enabled: true },
         { label: 'Agents', enabled: true },
+        { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
         { label: 'Drive', enabled: true },
         { label: 'Calendar', enabled: true },
         { label: 'Gmail', enabled: true },
-        { label: 'Docs', enabled: true },
-        { label: 'Transcripts', enabled: true },
-        { label: 'Automations', enabled: true },
+        { label: 'Slack', enabled: true },
+        { label: 'GitHub', enabled: true },
+        { label: 'Cost Tracking', enabled: true },
       ],
     })
     mockedApiGet.mockResolvedValue({ active: [] })
@@ -51,7 +51,7 @@ describe('Sidebar', () => {
   it('renders all navigation items when all features enabled', async () => {
     renderSidebar()
 
-    const navLabels = ['Home', 'Tasks', 'Activity', 'Ideas', 'Agents', 'Files', 'Drive', 'Calendar', 'Gmail', 'History', 'Automations', 'Settings']
+    const navLabels = ['Home', 'Tasks', 'Ideas', 'Agents', 'Activity', 'Files', 'Drive', 'Calendar', 'Gmail', 'Settings']
     for (const label of navLabels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
@@ -79,15 +79,13 @@ describe('Sidebar', () => {
     const expectedPaths: Record<string, string> = {
       Home: '/',
       Tasks: '/tasks',
-      Activity: '/activity',
       Ideas: '/ideas',
       Agents: '/agents',
+      Activity: '/activity',
       Files: '/files',
       Drive: '/drive',
       Calendar: '/calendar',
       Gmail: '/gmail',
-      History: '/transcripts',
-      Automations: '/workflows',
       Settings: '/settings',
     }
 
@@ -255,16 +253,16 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
-        { label: 'Activity', enabled: true },
-        { label: 'Hay/Ideas', enabled: true },
+        { label: 'Ideas', enabled: true },
         { label: 'Agents', enabled: true },
+        { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
         { label: 'Drive', enabled: true },
         { label: 'Calendar', enabled: true },
         { label: 'Gmail', enabled: true },
-        { label: 'Docs', enabled: true },
-        { label: 'Transcripts', enabled: true },
-        { label: 'Automations', enabled: true },
+        { label: 'Slack', enabled: true },
+        { label: 'GitHub', enabled: true },
+        { label: 'Cost Tracking', enabled: true },
       ],
     })
   })
@@ -283,12 +281,12 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
 
   const ostkDot = () => {
     const label = screen.getByText((_content, node) => {
-      return !!node && node.tagName === 'SPAN' && (node.textContent ?? '').startsWith('ostk')
+      return !!node && node.tagName === 'SPAN' && (node.textContent ?? '').startsWith('System')
     })
     const row = label.parentElement
-    if (!row) throw new Error('ostk row not found')
+    if (!row) throw new Error('System row not found')
     const dot = row.querySelector('span.rounded-full')
-    if (!dot) throw new Error('ostk dot not found')
+    if (!dot) throw new Error('System dot not found')
     return dot as HTMLElement
   }
 

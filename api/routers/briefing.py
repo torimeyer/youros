@@ -2,6 +2,10 @@
 
 GET  /api/briefing         return the briefing if it should be shown
 POST /api/briefing/dismiss mark the briefing dismissed for today
+
+The GET endpoint returns ``{ text, action_items, show, briefing }`` where
+``action_items`` is a list of structured one-click actions the dashboard
+can render as buttons below the briefing text.
 """
 
 from __future__ import annotations
@@ -15,7 +19,9 @@ from fastapi import APIRouter
 from services.briefing import (
     _task_count_changed,
     dismiss_briefing,
+    generate_action_items,
     generate_briefing,
+    get_cached_action_items,
     get_cached_briefing,
     should_show_briefing,
 )
@@ -43,6 +49,12 @@ async def _generate_in_background() -> None:
     _generating = True
     try:
         await generate_briefing()
+        # Generate action items alongside the briefing text so both
+        # arrive together on the next poll.
+        try:
+            await generate_action_items()
+        except Exception:
+            logger.exception("action items generation failed")
         _last_generated_at = time.monotonic()
     except Exception:
         # Briefing generation errors used to be swallowed silently,
@@ -61,13 +73,16 @@ async def get_briefing():
     If the briefing is already cached for today, returns it instantly.
     If not, returns show=true with briefing=null and kicks off background
     generation. The frontend polls and picks it up within a few seconds.
+
+    Response shape: { show, briefing, action_items }
     """
     if not should_show_briefing():
-        return {"show": False, "briefing": None}
+        return {"show": False, "briefing": None, "action_items": []}
 
     cached = get_cached_briefing()
+    action_items = get_cached_action_items() or []
     if cached and not await _task_count_changed():
-        return {"show": True, "briefing": cached}
+        return {"show": True, "briefing": cached, "action_items": action_items}
 
     # Cooldown: if we just fired a generation within the last 2 min,
     # do not spawn another one. Return the stale cache (if any) so the
@@ -77,11 +92,11 @@ async def get_briefing():
         _last_generated_at
         and (time.monotonic() - _last_generated_at) < _REGENERATE_COOLDOWN_SECONDS
     ):
-        return {"show": True, "briefing": cached}
+        return {"show": True, "briefing": cached, "action_items": action_items}
 
     # Return immediately, generate in background
     asyncio.create_task(_generate_in_background())
-    return {"show": True, "briefing": None}
+    return {"show": True, "briefing": None, "action_items": []}
 
 
 @router.post("/briefing/dismiss")

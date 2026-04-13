@@ -930,9 +930,9 @@ export default function Drive() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Drive" />
 
-      <div className="pt-20 p-8 max-w-6xl mx-auto">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold">Google Drive</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">Google Drive</h1>
         </div>
 
         {/* OAuth callback banner */}
@@ -1197,7 +1197,7 @@ export default function Drive() {
             {!filesLoading && !filesError && files.length === 0 && (
               <div className="text-center py-12 text-slate-500">
                 <Icon name="cloud_off" className="text-4xl mb-2" />
-                <p>No files found. Try syncing.</p>
+                <p>No files found. Click Sync to pull your latest files from Drive.</p>
                 <button
                   onClick={handleSync}
                   className="mt-3 text-sm text-blue-400 hover:text-blue-300"

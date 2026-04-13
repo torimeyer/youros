@@ -14,6 +14,30 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+// Mock push notifications module
+vi.mock('../lib/pushNotifications', () => ({
+  isPushSupported: vi.fn().mockReturnValue(false),
+  isSubscribed: vi.fn().mockResolvedValue(false),
+  subscribe: vi.fn().mockResolvedValue(false),
+  unsubscribe: vi.fn().mockResolvedValue(false),
+}))
+
+// jsdom does not provide window.matchMedia. Provide a minimal stub
+// so the responsive detection in TopBar (rendered by Settings) does not crash.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
 import { api } from '../lib/api'
 
 const mockedApiPatch = vi.mocked(api.patch)
@@ -43,11 +67,12 @@ describe('Settings', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
-        { label: 'Hay/Ideas', enabled: true },
+        { label: 'Ideas', enabled: true },
         { label: 'Agents', enabled: true },
+        { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
         { label: 'Docs', enabled: true },
-        { label: 'Transcripts', enabled: false },
+        { label: 'Automations', enabled: false },
       ],
     })
   })
@@ -136,22 +161,22 @@ describe('Settings', () => {
   describe('Feature toggles', () => {
     it('updates features in the global store when toggled', () => {
       renderSettings()
-      // Click the toggle switch for Transcripts
-      const toggle = screen.getByRole('switch', { name: /Transcripts/i })
+      // Click the toggle switch for Automations (disabled by default)
+      const toggle = screen.getByRole('switch', { name: /Automations/i })
       fireEvent.click(toggle)
 
       const updated = useAppStore.getState().features
-      const transcripts = updated.find((f) => f.label === 'Transcripts')
-      expect(transcripts?.enabled).toBe(true)
+      const automations = updated.find((f) => f.label === 'Automations')
+      expect(automations?.enabled).toBe(true)
     })
 
     it('persists feature toggles to API', () => {
       renderSettings()
-      const toggle = screen.getByRole('switch', { name: /Transcripts/i })
+      const toggle = screen.getByRole('switch', { name: /Automations/i })
       fireEvent.click(toggle)
 
       expect(mockedApiPatch).toHaveBeenCalledWith('/settings', expect.objectContaining({
-        features: expect.objectContaining({ Transcripts: true }),
+        features: expect.objectContaining({ Automations: true }),
       }))
     })
 
@@ -250,34 +275,34 @@ describe('Settings', () => {
     })
   })
 
-  describe('Default LLM selector', () => {
-    it('renders the Default Chat AI section with Claude and Gemini options', () => {
+  describe('AI Provider selector', () => {
+    it('renders the AI Provider section with Anthropic and Google Gemini options', () => {
       renderSettings()
-      expect(screen.getByText('Default Chat AI')).toBeInTheDocument()
-      // Both provider cards should be rendered via data-testid
-      expect(screen.getByTestId('default-llm-anthropic')).toBeInTheDocument()
-      expect(screen.getByTestId('default-llm-google-gemini')).toBeInTheDocument()
+      expect(screen.getByText('AI Provider')).toBeInTheDocument()
+      expect(screen.getByText('Anthropic')).toBeInTheDocument()
+      expect(screen.getByText('Google Gemini')).toBeInTheDocument()
     })
 
-    it('selects Gemini as default LLM and persists to API', () => {
+    it('selects Gemini provider and persists to API', () => {
       renderSettings()
-      const geminiCard = screen.getByTestId('default-llm-google-gemini')
+      // Find the Google Gemini provider card and click it
+      const geminiCard = screen.getByText('Google Gemini').closest('div[class*="cursor-pointer"]')!
       fireEvent.click(geminiCard)
 
-      expect(useAppStore.getState().defaultChatModel).toBe('gemini')
-      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { default_model: '@gemini' })
+      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { provider: 'Google Gemini' })
     })
 
-    it('selects Claude as default LLM and persists to API', () => {
+    it('selects Anthropic provider and persists to API', () => {
       renderSettings()
-      // First select Gemini, then go back to Claude
-      fireEvent.click(screen.getByTestId('default-llm-google-gemini'))
+      // First select Gemini, then go back to Anthropic
+      const geminiCard = screen.getByText('Google Gemini').closest('div[class*="cursor-pointer"]')!
+      fireEvent.click(geminiCard)
       vi.clearAllMocks()
 
-      fireEvent.click(screen.getByTestId('default-llm-anthropic'))
+      const anthropicCard = screen.getByText('Anthropic').closest('div[class*="cursor-pointer"]')!
+      fireEvent.click(anthropicCard)
 
-      expect(useAppStore.getState().defaultChatModel).toBe('claude')
-      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { default_model: '@claude' })
+      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { provider: 'Anthropic' })
     })
 
     it('loads default_model from API on mount and updates the store', async () => {
@@ -306,11 +331,9 @@ describe('Settings', () => {
       })
     })
 
-    it('describes the feature in plain language', () => {
+    it('renders the Set Up Provider label', () => {
       renderSettings()
-      expect(
-        screen.getByText(/new conversations will use this AI by default/i)
-      ).toBeInTheDocument()
+      expect(screen.getByText('Set Up Provider')).toBeInTheDocument()
     })
   })
 
@@ -319,7 +342,7 @@ describe('Settings', () => {
       // Simulate a backend that returns lowercase keys (old format)
       const mockedApiGet = vi.mocked(api.get)
       mockedApiGet.mockResolvedValue({
-        features: { tasks: false, chat: true, transcripts: true },
+        features: { tasks: false, chat: true, activity: true },
       })
 
       renderSettings()
@@ -333,14 +356,14 @@ describe('Settings', () => {
       const state = useAppStore.getState()
       const chat = state.features.find((f) => f.label === 'Chat')
       expect(chat?.enabled).toBe(true)
-      const transcripts = state.features.find((f) => f.label === 'Transcripts')
-      expect(transcripts?.enabled).toBe(true)
+      const activity = state.features.find((f) => f.label === 'Activity')
+      expect(activity?.enabled).toBe(true)
     })
 
     it('reads TitleCase feature keys from backend and applies them correctly', async () => {
       const mockedApiGet = vi.mocked(api.get)
       mockedApiGet.mockResolvedValue({
-        features: { Tasks: false, Chat: true, Transcripts: true },
+        features: { Tasks: false, Chat: true, Activity: true },
       })
 
       renderSettings()
@@ -403,7 +426,7 @@ describe('Settings', () => {
         expect(screen.getByText('linear')).toBeInTheDocument()
       })
       expect(screen.getByText('github')).toBeInTheDocument()
-      expect(screen.getByText('Managed by ostk (configured in your HUMANFILE)')).toBeInTheDocument()
+      expect(screen.getByText('Managed automatically (configured in your profile)')).toBeInTheDocument()
     })
 
     it('does not show the ostk section when no ostk servers exist', async () => {
@@ -425,7 +448,7 @@ describe('Settings', () => {
         expect(screen.getByText('Connected Tools')).toBeInTheDocument()
       })
 
-      expect(screen.queryByText('Managed by ostk (configured in your HUMANFILE)')).not.toBeInTheDocument()
+      expect(screen.queryByText('Managed automatically (configured in your profile)')).not.toBeInTheDocument()
     })
 
     it('shows "Added manually" label when both ostk and manual servers exist', async () => {

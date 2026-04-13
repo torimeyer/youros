@@ -30,7 +30,7 @@ const TOOL_LABELS: Record<string, string> = {
   write_file: 'Write file',
   edit_file: 'Edit file',
   run_command: 'Run command',
-  list_directory: 'List directory',
+  list_directory: 'Browse folder',
   search_files: 'Search files',
   list_tasks: 'List tasks',
   create_task: 'Create task',
@@ -38,10 +38,10 @@ const TOOL_LABELS: Record<string, string> = {
   check_agents: 'Check agents',
   spawn_agent: 'Spawn agent',
   web_search: 'Web search',
-  web_fetch: 'Fetch page',
-  git_status: 'Git status',
-  git_diff: 'Git diff',
-  git_commit: 'Git commit',
+  web_fetch: 'Read web page',
+  git_status: 'Check for changes',
+  git_diff: 'Compare changes',
+  git_commit: 'Save changes',
 }
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '🔥', '👎']
@@ -285,7 +285,8 @@ function GiphyPicker({ initialSearch, onSelect, onClose }: {
 }
 
 export function ChatPanel() {
-  const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel, osName } = useAppStore()
+  const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel, setDefaultChatModel } = useAppStore()
+  const displayOsName = useAppStore((s) => s.displayOsName())
 
   // --- Tab state ---
   // First paint reads cached messages from localStorage so the panel is
@@ -800,6 +801,7 @@ export function ChatPanel() {
       model: `@${defaultChatModel}`,
       messages: apiMessages,
       tools: toolsEnabled,
+      tab_id: activeTabId,
     })
   }
 
@@ -829,6 +831,7 @@ export function ChatPanel() {
       model: `@${defaultChatModel}`,
       messages: apiMessages,
       tools: toolsEnabled,
+      tab_id: activeTabId,
     })
   }
 
@@ -1042,19 +1045,20 @@ export function ChatPanel() {
   return (
     <div
       data-tour="chat"
-      className="fixed top-0 right-0 h-screen bg-slate-950 border-l border-slate-800 z-50 flex flex-col"
-      style={{ width: chatWidth }}
+      className="fixed inset-0 lg:inset-auto lg:top-0 lg:right-0 lg:h-screen bg-slate-950 lg:border-l border-slate-800 z-50 flex flex-col"
+      style={{ ['--chat-w' as string]: `${chatWidth}px` }}
     >
-      {/* Resize handle */}
+      <style>{`@media (min-width: 1024px) { [data-tour="chat"] { width: var(--chat-w) !important; } }`}</style>
+      {/* Resize handle (hidden on mobile where chat is full-screen) */}
       <div
         onMouseDown={handleMouseDown}
-        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/30 transition-colors z-10"
+        className="hidden lg:block absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-500/30 transition-colors z-10"
       />
 
       <div className="flex items-center justify-between p-4 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <Icon name="chat" className="text-blue-400" />
-          <span className="font-bold text-white">{osName}Chat</span>
+          <span className="font-bold text-white">{displayOsName} Chat</span>
           {isConnected && (
             <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
           )}
@@ -1119,14 +1123,14 @@ export function ChatPanel() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-10 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto px-4 lg:px-10 py-4 space-y-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 px-6">
             <Icon name="chat" className="text-5xl text-slate-700 mb-3" />
             <p className="text-slate-400 text-sm mb-1">
-              Messages go to <span className={MODEL_COLORS[defaultChatModel] ?? 'text-blue-400'}>{defaultChatModel}</span> by default.
+              Talking to <span className={MODEL_COLORS[defaultChatModel] ?? 'text-blue-400'}>{defaultChatModel}</span>.
             </p>
-            <p className="text-slate-600 text-xs mb-6">Use @gemini to talk to a different model.</p>
+            <p className="text-slate-600 text-xs mb-6">Switch with the button below, or type @claude / @gemini in your message.</p>
             <div className="flex flex-wrap justify-center gap-2 max-w-sm">
               {[
                 { icon: 'calendar_month', text: "What's on my calendar today?" },
@@ -1362,6 +1366,18 @@ export function ChatPanel() {
 
         {/* NEEDLE: removed gray box container around input */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setDefaultChatModel(defaultChatModel === 'claude' ? 'gemini' : 'claude')}
+            className={`shrink-0 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+              defaultChatModel === 'claude'
+                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+            }`}
+            title={`Talking to ${defaultChatModel}. Click to switch.`}
+            data-testid="chat-model-toggle"
+          >
+            {defaultChatModel === 'claude' ? 'Claude' : 'Gemini'}
+          </button>
           <input
             ref={inputRef}
             value={input}
@@ -1373,7 +1389,7 @@ export function ChatPanel() {
           />
           <button
             onClick={() => { setShowGiphy(!showGiphy); setGiphyInitialSearch('') }}
-            className={`p-2 transition-colors rounded-lg ${showGiphy ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
+            className={`hidden sm:block p-2 transition-colors rounded-lg ${showGiphy ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
             title="Search GIFs"
           >
             <Icon name="gif_box" className="text-lg" />
@@ -1390,7 +1406,7 @@ export function ChatPanel() {
           <button
             onClick={handleSend}
             disabled={!input.trim() && !pendingImage}
-            className="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isStreaming ? (
               <span className="inline-block w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

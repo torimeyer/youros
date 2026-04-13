@@ -36,11 +36,12 @@ describe('useAppStore', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
-        { label: 'Hay/Ideas', enabled: true },
+        { label: 'Ideas', enabled: true },
         { label: 'Agents', enabled: true },
+        { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
         { label: 'Docs', enabled: true },
-        { label: 'Transcripts', enabled: false },
+        { label: 'Automations', enabled: false },
       ],
     })
     // Clear localStorage between tests so cached values do not leak
@@ -53,7 +54,7 @@ describe('useAppStore', () => {
     expect(state.osName).toBe('myOS')
     expect(state.darkMode).toBe(true)
     expect(state.accentColor).toBe('blue')
-    expect(state.features).toHaveLength(7)
+    expect(state.features).toHaveLength(8)
   })
 
   it('toggleChat flips chatOpen from true to false', () => {
@@ -173,7 +174,7 @@ describe('useAppStore', () => {
   })
 
   it('isFeatureEnabled returns false for disabled features', () => {
-    expect(useAppStore.getState().isFeatureEnabled('Transcripts')).toBe(false)
+    expect(useAppStore.getState().isFeatureEnabled('Automations')).toBe(false)
   })
 
   it('isFeatureEnabled returns true for unknown features', () => {
@@ -181,12 +182,12 @@ describe('useAppStore', () => {
   })
 
   it('toggling a feature updates isFeatureEnabled', () => {
-    expect(useAppStore.getState().isFeatureEnabled('Transcripts')).toBe(false)
+    expect(useAppStore.getState().isFeatureEnabled('Automations')).toBe(false)
     const updated = useAppStore.getState().features.map((f) =>
-      f.label === 'Transcripts' ? { ...f, enabled: true } : f
+      f.label === 'Automations' ? { ...f, enabled: true } : f
     )
     useAppStore.getState().setFeatures(updated)
-    expect(useAppStore.getState().isFeatureEnabled('Transcripts')).toBe(true)
+    expect(useAppStore.getState().isFeatureEnabled('Automations')).toBe(true)
   })
 
   describe('defaultChatModel', () => {

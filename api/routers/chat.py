@@ -1,4 +1,5 @@
 import asyncio
+import json as _json
 import os
 import re
 from typing import Optional
@@ -14,6 +15,7 @@ from services.chat_providers import (
     stream_multi_ai_conversation,
 )
 from services.ostk import ostk
+from services.settings_store import settings_store
 
 router = APIRouter(tags=["chat"])
 
@@ -21,7 +23,7 @@ GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", "uac5bYV974kGSu3Pe0B92ChNrIQypZ0
 
 CONTEXT_KEYWORDS = {"tasks", "needles", "task", "needle", "focus", "agents", "hay", "ideas", "status"}
 
-CALENDAR_KEYWORDS = {"calendar", "meeting", "meetings", "schedule", "today", "tomorrow"}
+CALENDAR_KEYWORDS = {"calendar", "meeting", "meetings", "schedule", "today", "tomorrow", "event", "field trip"}
 
 # Phrases that trigger saving the current conversation topic as an idea.
 _SAVE_AS_IDEA_PATTERNS = [
@@ -259,6 +261,34 @@ def infer_second_model(text: str, already_mentioned: list[str]) -> Optional[str]
     return None
 
 
+CHAT_MEMORY_MSG_LIMIT = 10
+
+
+def build_memory_context(current_tab_id: str = "") -> list[dict]:
+    """Build a prior-conversation context block if chat memory is enabled.
+
+    Returns a list with a single user-role message summarizing the prior
+    conversation, or an empty list when memory is disabled or there are
+    no prior messages.
+    """
+    if not settings_store.get("chat_memory_enabled", True):
+        return []
+
+    prior = chat_history_store.get_prior_messages(
+        current_tab_id=current_tab_id,
+        limit=CHAT_MEMORY_MSG_LIMIT,
+    )
+    if not prior:
+        return []
+
+    lines = ["[Prior conversation for context]"]
+    for msg in prior:
+        role_label = "User" if msg["role"] == "user" else "Assistant"
+        lines.append(f"{role_label}: {msg['content']}")
+    lines.append("[End of prior conversation]")
+    return [{"role": "user", "content": "\n".join(lines)}]
+
+
 GIF_RE = re.compile(r"\[gif:(https?://[^\]]+)\]")
 
 
@@ -409,15 +439,15 @@ async def build_calendar_context() -> str:
         return ""
 
 
-async def call_model(provider: str, messages: list[dict], websocket: WebSocket, label: str = "", use_tools: bool = False):
+async def call_model(provider: str, messages: list[dict], websocket: WebSocket, label: str = "", use_tools: bool = False, tab_id: str = ""):
     """Call a single model and stream the response, returning the full text."""
     if label:
         await websocket.send_json({"type": "model_label", "data": label})
 
     if provider == "claude":
         if use_tools:
-            return await chat_service.agent_anthropic(messages, websocket)
-        return await chat_service.stream_anthropic(messages, websocket)
+            return await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id)
+        return await chat_service.stream_anthropic(messages, websocket, tab_id=tab_id)
     elif provider == "gemini":
         return await chat_service.stream_gemini(messages, websocket)
     else:
@@ -465,6 +495,164 @@ async def search_giphy(q: str = Query(...), limit: int = Query(default=12, le=25
         ]
 
 
+_SLASH_HELP_TEXT = (
+    "Available commands:\n"
+    "  /status   . Show system status\n"
+    "  /tasks    . List open tasks\n"
+    "  /commit <message> . Commit with a message\n"
+    "  /agents   . Show active and recent agents\n"
+    "  /ideas    . List ideas\n"
+    "  /mcp      . Info about MCP server management\n"
+    "  /help     . Show this list"
+)
+
+_MCP_INFO_TEXT = (
+    "MCP servers are managed in Settings. "
+    "Go to Settings to add or remove servers."
+)
+
+
+async def _handle_slash_command(text: str, websocket: WebSocket) -> bool:
+    """Intercept messages starting with ``/`` and run the matching command.
+
+    Returns True if a command was handled (caller should skip AI routing).
+    Returns False if the message is not a slash command.
+    """
+    if not isinstance(text, str) or not text.startswith("/"):
+        return False
+
+    parts = text.strip().split(None, 1)
+    command = parts[0].lower()
+    args = parts[1] if len(parts) > 1 else ""
+
+    result = ""
+
+    if command == "/help":
+        result = _SLASH_HELP_TEXT
+
+    elif command == "/mcp":
+        result = _MCP_INFO_TEXT
+
+    elif command == "/status":
+        try:
+            result = await ostk.os_status()
+        except Exception as exc:
+            result = f"Could not get status: {exc}"
+
+    elif command == "/tasks":
+        try:
+            tasks = await ostk.list_tasks(status="open")
+            if not tasks:
+                result = "No open tasks."
+            else:
+                lines = [f"Open tasks ({len(tasks)}):"]
+                for t in tasks[:30]:
+                    tid = t.get("id", "?")
+                    title = t.get("title", "Untitled")
+                    priority = t.get("priority", "")
+                    status = t.get("status", "")
+                    line = f"  {tid}"
+                    if priority:
+                        line += f" [{priority}]"
+                    line += f" {title}"
+                    if status:
+                        line += f" ({status})"
+                    lines.append(line)
+                if len(tasks) > 30:
+                    lines.append(f"  ... and {len(tasks) - 30} more")
+                result = "\n".join(lines)
+        except Exception as exc:
+            result = f"Could not list tasks: {exc}"
+
+    elif command == "/commit":
+        if not args.strip():
+            result = "Usage: /commit <message>"
+        else:
+            try:
+                result = await ostk.commit(args.strip())
+                if not result.strip():
+                    result = "Commit completed."
+            except Exception as exc:
+                result = f"Commit failed: {exc}"
+
+    elif command == "/agents":
+        try:
+            resp = await _fetch_agents_list()
+            result = resp
+        except Exception as exc:
+            result = f"Could not list agents: {exc}"
+
+    elif command == "/ideas":
+        try:
+            hay = await ostk.list_hay()
+            clusters = hay.get("clusters", [])
+            unclustered = hay.get("unclustered", [])
+            if not clusters and not unclustered:
+                result = "No ideas yet."
+            else:
+                lines = []
+                for cluster in clusters:
+                    label = cluster.get("label", "Cluster")
+                    items = cluster.get("items", [])
+                    lines.append(f"{label} ({len(items)}):")
+                    for item in items[:10]:
+                        lines.append(f"  - {item}")
+                if unclustered:
+                    lines.append(f"Unclustered ({len(unclustered)}):")
+                    for item in unclustered[:10]:
+                        lines.append(f"  - {item}")
+                result = "\n".join(lines)
+        except Exception as exc:
+            result = f"Could not list ideas: {exc}"
+
+    else:
+        result = "Unknown command. Type /help for available commands."
+
+    await websocket.send_json({"type": "text", "data": result})
+    await websocket.send_json({"type": "done"})
+    return True
+
+
+async def _fetch_agents_list() -> str:
+    """Fetch and format the agents list for the /agents slash command."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get("http://127.0.0.1:8000/api/agents", timeout=5)
+            data = resp.json()
+    except Exception:
+        # Fall back to ostk kernel ps if the HTTP endpoint is not reachable.
+        ps = await ostk.kernel_ps()
+        agents = ps.get("agents", [])
+        if not agents:
+            return "No agents found."
+        lines = ["Agents:"]
+        for a in agents:
+            name = a.get("name", "?")
+            status = a.get("status", "unknown")
+            lines.append(f"  {name} ({status})")
+        return "\n".join(lines)
+
+    agents = data if isinstance(data, list) else data.get("agents", [])
+    if not agents:
+        return "No agents found."
+
+    running = [a for a in agents if a.get("status") == "running"]
+    recent = [a for a in agents if a.get("status") != "running"][:10]
+
+    lines = []
+    if running:
+        lines.append(f"Running ({len(running)}):")
+        for a in running:
+            lines.append(f"  {a.get('name', '?')}")
+    if recent:
+        lines.append(f"Recent ({len(recent)}):")
+        for a in recent:
+            name = a.get("name", "?")
+            status = a.get("status", "unknown")
+            lines.append(f"  {name} ({status})")
+    return "\n".join(lines) if lines else "No agents found."
+
+
 @router.websocket("/ws/chat")
 async def chat_websocket(websocket: WebSocket):
     await websocket.accept()
@@ -479,6 +667,13 @@ async def chat_websocket(websocket: WebSocket):
                 continue
 
             last_text = messages[-1].get("content", "")
+
+            # --- Slash commands: intercept before AI routing ---
+            if isinstance(last_text, str) and last_text.strip().startswith("/"):
+                handled = await _handle_slash_command(last_text.strip(), websocket)
+                if handled:
+                    continue
+
             use_tools = data.get("tools", False)
             mentioned_models = parse_mentions(last_text)
 
@@ -544,6 +739,13 @@ async def chat_websocket(websocket: WebSocket):
                     system_msg = f"You are the AI assistant for myOS. Here is the current workspace context:\n\n{combined}\n\nAnswer the user's question using this context."
                     messages = [{"role": "user", "content": system_msg}] + messages
 
+            # Inject prior conversation memory so the AI can reference
+            # what the user talked about in their last chat tab.
+            tab_id = data.get("tab_id", "")
+            memory_msgs = build_memory_context(current_tab_id=tab_id)
+            if memory_msgs:
+                messages = memory_msgs + messages
+
             # Convert [gif:URL] markers to image content blocks for vision.
             # transform_image_messages calls urllib.request.urlopen and PIL
             # decode per GIF, both blocking. Run on a worker thread so the
@@ -589,7 +791,7 @@ async def chat_websocket(websocket: WebSocket):
                     # Single model call (even if @mentioned)
                     model = mentioned_models[0]
                     label = model.capitalize() if len(mentioned_models) > 0 else ""
-                    await call_model(model, messages, websocket, label=label, use_tools=use_tools)
+                    await call_model(model, messages, websocket, label=label, use_tools=use_tools, tab_id=tab_id)
             except WebSocketDisconnect:
                 raise
             except Exception as exc:

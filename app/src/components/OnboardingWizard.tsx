@@ -3,8 +3,19 @@ import { useAppStore } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
 import { AGENT_MARKETPLACE, PERSONA_ICONS, type MarketplaceCategory } from '../data/agentMarketplace'
+import {
+  OrgNameStep,
+  AdminEmailStep,
+  InviteTeamStep,
+  GuardrailsStep,
+  TeamReadyStep,
+  finishTeamOnboarding,
+  type TeamOnboardingData,
+} from './TeamOnboardingSteps'
 
-const STEPS = ['Welcome', 'You', 'Name', 'Profile', 'Persona', 'Theme', 'Connect', 'Adventure', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Persona', 'Theme', 'Connect', 'Adventure', 'Ready'] as const
+const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
+type OnboardingMode = 'undecided' | 'personal' | 'team'
 
 interface AdventureTemplate {
   id: string
@@ -27,6 +38,8 @@ const PROVIDER_SECRET_NAME: Record<string, string> = {
 
 export default function OnboardingWizard() {
   const [stepIndex, setStepIndex] = useState(0)
+  const [onboardingMode, setOnboardingMode] = useState<OnboardingMode>('undecided')
+  const STEPS = onboardingMode === 'team' ? TEAM_STEPS : PERSONAL_STEPS
   const step = STEPS[stepIndex]
 
   // Store bindings
@@ -37,6 +50,8 @@ export default function OnboardingWizard() {
   const setOnboarded = useAppStore((s) => s.setOnboarded)
   const setDefaultChatModel = useAppStore((s) => s.setDefaultChatModel)
   const setCustomAgentTemplates = useAppStore((s) => s.setCustomAgentTemplates)
+  const setInstanceMode = useAppStore((s) => s.setInstanceMode)
+  const setOrgName = useAppStore((s) => s.setOrgName)
 
   // Local state
   const [userName, setUserName] = useState('')
@@ -58,6 +73,21 @@ export default function OnboardingWizard() {
   const [adventureLoading, setAdventureLoading] = useState(false)
   const [adventurePhase, setAdventurePhase] = useState<'pick' | 'describe' | 'show'>('pick')
 
+  // Team onboarding state
+  const [teamOrgName, setTeamOrgName] = useState('')
+  const [teamAdminEmail, setTeamAdminEmail] = useState('')
+  const [teamInviteEmails, setTeamInviteEmails] = useState<string[]>([])
+  const [teamIsolationLevel, setTeamIsolationLevel] = useState<'open' | 'governed' | 'sealed'>('governed')
+
+  const handleForkChoice = (mode: 'personal' | 'team') => {
+    setOnboardingMode(mode)
+    if (mode === 'team') {
+      setInstanceMode('team')
+    }
+    // Move to next step (index stays at 0, but STEPS array changes for team)
+    setStepIndex(1)
+  }
+
   const next = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
   const back = () => setStepIndex((i) => Math.max(i - 1, 0))
 
@@ -76,12 +106,34 @@ export default function OnboardingWizard() {
     setCustomAgentTemplates(templates)
   }
 
-  const finish = () => {
+  const finish = async () => {
+    if (onboardingMode === 'team') {
+      // Team finish: create org, invite members, set policies
+      const data: TeamOnboardingData = {
+        orgName: teamOrgName,
+        adminEmail: teamAdminEmail,
+        inviteEmails: teamInviteEmails,
+        isolationLevel: teamIsolationLevel,
+      }
+      await finishTeamOnboarding(data)
+      setOrgName(teamOrgName)
+      setInstanceMode('team')
+      const settings: Record<string, unknown> = {
+        dark_mode: darkMode,
+        provider: selectedProvider,
+        instance_mode: 'team',
+      }
+      api.patch('/settings', settings).catch(() => {})
+      setOnboarded(true)
+      return
+    }
+    // Personal finish
     const settings: Record<string, unknown> = {
       os_name: osName,
       user_name: userName,
       dark_mode: darkMode,
       provider: selectedProvider,
+      instance_mode: 'personal',
     }
     if (selectedPersonaId) settings.persona = selectedPersonaId
     if (profileRole) settings.user_role = profileRole
@@ -190,6 +242,7 @@ export default function OnboardingWizard() {
 
         {/* Step content */}
         <div className="min-h-[320px]">
+          {step === 'Fork' && <ForkStep onChoose={handleForkChoice} subtextCls={subtextCls} cardCls={cardCls} darkMode={darkMode} />}
           {step === 'Welcome' && <WelcomeStep subtextCls={subtextCls} />}
           {step === 'You' && (
             <YouStep
@@ -279,16 +332,16 @@ export default function OnboardingWizard() {
                       className={`flex items-center gap-4 p-4 rounded-xl border text-left transition-colors ${
                         isPicked
                           ? 'bg-blue-500/20 border-blue-500'
-                          : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                          : `${cardCls} ${darkMode ? 'hover:border-slate-700' : 'hover:border-gray-400'}`
                       }`}
                     >
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                        isPicked ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-800 text-slate-400'
+                        isPicked ? 'bg-blue-500/30 text-blue-300' : darkMode ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
                       }`}>
                         <Icon name={PERSONA_ICONS[cat.id] || 'person'} size={22} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-white">{cat.category}</p>
+                        <p className={`font-medium ${darkMode ? 'text-white' : 'text-slate-900'}`}>{cat.category}</p>
                         <p className={`text-sm ${subtextCls}`}>{cat.tagline}</p>
                       </div>
                       {isPicked && <Icon name="check_circle" className="text-blue-400" size={20} />}
@@ -347,12 +400,35 @@ export default function OnboardingWizard() {
               cardCls={cardCls}
             />
           )}
+          {/* Team steps */}
+          {step === 'OrgName' && (
+            <OrgNameStep orgName={teamOrgName} setOrgName={setTeamOrgName} inputCls={inputCls} subtextCls={subtextCls} />
+          )}
+          {step === 'AdminEmail' && (
+            <AdminEmailStep adminEmail={teamAdminEmail} setAdminEmail={setTeamAdminEmail} inputCls={inputCls} subtextCls={subtextCls} />
+          )}
+          {step === 'InviteTeam' && (
+            <InviteTeamStep inviteEmails={teamInviteEmails} setInviteEmails={setTeamInviteEmails} inputCls={inputCls} subtextCls={subtextCls} />
+          )}
+          {step === 'Guardrails' && (
+            <GuardrailsStep isolationLevel={teamIsolationLevel} setIsolationLevel={setTeamIsolationLevel} subtextCls={subtextCls} />
+          )}
+          {step === 'TeamReady' && (
+            <TeamReadyStep
+              orgName={teamOrgName}
+              adminEmail={teamAdminEmail}
+              inviteCount={teamInviteEmails.length}
+              isolationLevel={teamIsolationLevel}
+              subtextCls={subtextCls}
+              cardCls={cardCls}
+            />
+          )}
         </div>
 
         {/* Navigation buttons */}
         <div className="flex items-center justify-between mt-8">
           <div>
-            {stepIndex > 0 && step !== 'Ready' && (
+            {stepIndex > 0 && step !== 'Ready' && step !== 'TeamReady' && step !== 'Fork' && (
               <button
                 onClick={back}
                 className={`px-4 py-2 text-sm transition-colors ${navBtnCls}`}
@@ -364,7 +440,7 @@ export default function OnboardingWizard() {
           </div>
 
           <div className="flex items-center gap-3">
-            {step !== 'Welcome' && step !== 'Ready' && (
+            {step !== 'Welcome' && step !== 'Ready' && step !== 'Fork' && step !== 'TeamReady' && (
               <button
                 onClick={skip}
                 className={`px-4 py-2 text-sm transition-colors ${navBtnCls}`}
@@ -374,7 +450,7 @@ export default function OnboardingWizard() {
               </button>
             )}
 
-            {step === 'Ready' ? (
+            {step === 'Fork' ? null : (step === 'Ready' || step === 'TeamReady') ? (
               <button
                 onClick={finish}
                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
@@ -399,6 +475,56 @@ export default function OnboardingWizard() {
 }
 
 /* ---- Step Components ---- */
+
+function ForkStep({
+  onChoose,
+  subtextCls,
+  cardCls,
+  darkMode,
+}: {
+  onChoose: (mode: 'personal' | 'team') => void
+  subtextCls: string
+  cardCls: string
+  darkMode: boolean
+}) {
+  return (
+    <div className="text-center" data-testid="step-fork">
+      <div className="mb-6">
+        <Icon name="rocket_launch" size={48} className="text-blue-400" />
+      </div>
+      <h1 className="text-3xl font-bold mb-2">Welcome!</h1>
+      <p className={`${subtextCls} text-lg mb-8`}>Who is this for?</p>
+      <div className="grid grid-cols-1 gap-4">
+        <button
+          onClick={() => onChoose('personal')}
+          className={`flex items-center gap-4 p-5 rounded-xl border ${cardCls} hover:border-blue-500 hover:bg-blue-500/10 text-left transition-all`}
+          data-testid="fork-personal"
+        >
+          <div className="w-12 h-12 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center shrink-0">
+            <Icon name="person" size={28} />
+          </div>
+          <div>
+            <p className={`font-bold text-lg ${darkMode ? 'text-white' : 'text-slate-900'}`}>Just me</p>
+            <p className={`text-sm ${subtextCls}`}>A personal OS for managing your tasks, agents, and tools.</p>
+          </div>
+        </button>
+        <button
+          onClick={() => onChoose('team')}
+          className={`flex items-center gap-4 p-5 rounded-xl border ${cardCls} hover:border-indigo-500 hover:bg-indigo-500/10 text-left transition-all`}
+          data-testid="fork-team"
+        >
+          <div className="w-12 h-12 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+            <Icon name="groups" size={28} />
+          </div>
+          <div>
+            <p className={`font-bold text-lg ${darkMode ? 'text-white' : 'text-slate-900'}`}>My team</p>
+            <p className={`text-sm ${subtextCls}`}>A shared workspace with governance, policies, and shared agents.</p>
+          </div>
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function WelcomeStep({ subtextCls }: { subtextCls: string }) {
   return (
@@ -706,7 +832,7 @@ function ConnectStep({
             </li>
             <li>Open Credentials and click Create credentials, API key.</li>
             <li>
-              Edit the new key and restrict it to "Generative Language API" under API restrictions. It only appears in the dropdown after step 1.
+              Open the key you just created, scroll to "API restrictions", and select "Generative Language API" from the list. (This option only shows up after you complete step 1 above.)
             </li>
           </ol>
           <p>

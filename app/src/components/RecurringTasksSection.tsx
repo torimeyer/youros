@@ -59,12 +59,41 @@ const EMPTY_FORM = {
   day_of_month: 1,
 };
 
+const SUGGESTED_RECURRING = [
+  {
+    title: "Weekly review",
+    description: "Look back at what got done this week, close finished tasks, and pick priorities for next week.",
+    priority: "P1",
+    schedule: { kind: "weekly" as const, days: [4] }, // Friday
+  },
+  {
+    title: "Daily standup prep",
+    description: "Check open tasks and blockers so you are ready to share your status.",
+    priority: "P2",
+    schedule: { kind: "daily" as const, days: [0, 1, 2, 3, 4] }, // Weekdays
+  },
+  {
+    title: "Monthly goals check-in",
+    description: "Review your goals for the month. Are you on track? What needs to change?",
+    priority: "P1",
+    schedule: { kind: "monthly" as const, day_of_month: 1 },
+  },
+  {
+    title: "Inbox zero sweep",
+    description: "Go through unread emails, reply or create tasks, archive the rest.",
+    priority: "P2",
+    schedule: { kind: "daily" as const, days: [0, 1, 2, 3, 4] },
+  },
+];
+
 interface Props {
   // When rendered inside a card, we let the parent provide the outer class.
   cardClass?: string;
+  // When true, show one-click preset suggestions in the empty state.
+  showSuggestions?: boolean;
 }
 
-export default function RecurringTasksSection({ cardClass }: Props) {
+export default function RecurringTasksSection({ cardClass, showSuggestions }: Props) {
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -190,9 +219,45 @@ export default function RecurringTasksSection({ cardClass }: Props) {
       )}
 
       {!loading && rules.length === 0 && (
-        <p className="text-sm text-slate-500">
-          No recurring tasks yet. Add one to have it show up automatically each day, week, or month.
-        </p>
+        <div>
+          <p className="text-sm text-slate-500 mb-4">
+            No recurring tasks yet. Add one to have it show up automatically each day, week, or month.
+          </p>
+          {showSuggestions && (
+            <div>
+              <p className="text-xs text-slate-400 font-medium mb-2">Quick start</p>
+              <div className="grid grid-cols-2 gap-2">
+                {SUGGESTED_RECURRING.map((s) => (
+                  <button
+                    key={s.title}
+                    onClick={async () => {
+                      try {
+                        await api.post("/recurring", {
+                          task_template: {
+                            title: s.title,
+                            description: s.description,
+                            priority: s.priority,
+                            ac: "",
+                          },
+                          schedule: s.schedule,
+                          active: true,
+                        });
+                        await fetchRules();
+                      } catch { /* ignore */ }
+                    }}
+                    className="text-left p-3 rounded-lg border border-slate-700 bg-slate-800/50 hover:border-slate-600 transition-colors"
+                  >
+                    <p className="text-sm font-medium text-slate-200">{s.title}</p>
+                    <p className="text-xs text-slate-500 mt-1">{s.description}</p>
+                    <p className="text-[10px] text-slate-600 mt-1.5">
+                      {scheduleLabel(s.schedule)} · {s.priority}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {!loading && rules.length > 0 && (

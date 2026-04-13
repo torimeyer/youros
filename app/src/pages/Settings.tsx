@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
-import RecurringTasksSection from '../components/RecurringTasksSection';
 import { api } from '../lib/api';
+import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 
 interface MCPServer {
   name: string;
@@ -29,14 +29,14 @@ interface MCPDirectoryEntry {
 
 const MCP_DIRECTORY: MCPDirectoryEntry[] = [
   { name: 'Filesystem', description: 'Access local files and folders on your machine', icon: 'folder_open', npmPackage: '@modelcontextprotocol/server-filesystem', setupCommand: 'npx -y @modelcontextprotocol/server-filesystem /path/to/allowed/dir', requiresAuth: false },
-  { name: 'GitHub', description: 'Access repos, issues, and pull requests', icon: 'code', npmPackage: '@modelcontextprotocol/server-github', setupCommand: 'npx -y @modelcontextprotocol/server-github', requiresAuth: true, authHint: 'Needs a GitHub personal access token (set GITHUB_PERSONAL_ACCESS_TOKEN)' },
+  { name: 'GitHub', description: 'Access repos, issues, and pull requests', icon: 'code', npmPackage: '@modelcontextprotocol/server-github', setupCommand: 'npx -y @modelcontextprotocol/server-github', requiresAuth: true, authHint: 'Needs a GitHub access key. Create one at github.com/settings/tokens.' },
   { name: 'Postgres', description: 'Query and manage your databases', icon: 'database', npmPackage: '@modelcontextprotocol/server-postgres', setupCommand: 'npx -y @modelcontextprotocol/server-postgres postgresql://localhost/mydb', requiresAuth: false },
   { name: 'Brave Search', description: 'Search the web using Brave', icon: 'travel_explore', npmPackage: '@modelcontextprotocol/server-brave-search', setupCommand: 'npx -y @modelcontextprotocol/server-brave-search', requiresAuth: true, authHint: 'Needs a Brave Search API key (set BRAVE_API_KEY)' },
   { name: 'Puppeteer', description: 'Automate a web browser for scraping or testing', icon: 'web', npmPackage: '@modelcontextprotocol/server-puppeteer', setupCommand: 'npx -y @modelcontextprotocol/server-puppeteer', requiresAuth: false },
   { name: 'Memory', description: 'Persistent notes and memory that last across sessions', icon: 'psychology', npmPackage: '@modelcontextprotocol/server-memory', setupCommand: 'npx -y @modelcontextprotocol/server-memory', requiresAuth: false },
   { name: 'Google Calendar', description: 'View and manage your calendar events', icon: 'calendar_month', npmPackage: 'mcp-server-google-calendar', setupCommand: 'npx -y mcp-server-google-calendar', requiresAuth: true, authHint: 'Needs Google OAuth credentials (client ID and secret)' },
-  { name: 'Slack', description: 'Send messages and read channels', icon: 'forum', npmPackage: '@modelcontextprotocol/server-slack', setupCommand: 'npx -y @modelcontextprotocol/server-slack', requiresAuth: true, authHint: 'Needs a Slack Bot token (set SLACK_BOT_TOKEN)' },
-  { name: 'Figma', description: 'Access and inspect design files', icon: 'palette', npmPackage: 'figma-mcp', setupCommand: 'npx -y figma-mcp', requiresAuth: true, authHint: 'Needs a Figma personal access token (set FIGMA_TOKEN)' },
+  { name: 'Slack', description: 'Send messages and read channels', icon: 'forum', npmPackage: '@modelcontextprotocol/server-slack', setupCommand: 'npx -y @modelcontextprotocol/server-slack', requiresAuth: true, authHint: 'Needs a Slack bot key from your Slack app settings.' },
+  { name: 'Figma', description: 'Access and inspect design files', icon: 'palette', npmPackage: 'figma-mcp', setupCommand: 'npx -y figma-mcp', requiresAuth: true, authHint: 'Needs a Figma access key from figma.com/developers.' },
   { name: 'Google Drive', description: 'Access Google Docs, Sheets, and Drive files', icon: 'folder_shared', npmPackage: '@modelcontextprotocol/server-gdrive', setupCommand: 'npx -y @modelcontextprotocol/server-gdrive', requiresAuth: true, authHint: 'Needs Google OAuth credentials (client ID and secret)' },
 ];
 
@@ -73,144 +73,11 @@ const featureIcons: Record<string, string> = {
 const featureDisplayNames: Record<string, string> = {
   'Hay/Ideas': 'Ideas',
   'Projects': 'Files',
+  'Transcripts': 'History',
 };
 
 
-function SSOSection({ darkMode }: { darkMode: boolean }) {
-  const [ssoConfig, setSsoConfig] = useState<{ configured: boolean; provider?: string; issuer_url?: string } | null>(null);
-  const [provider, setProvider] = useState('okta');
-  const [issuerUrl, setIssuerUrl] = useState('');
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const inputCls = darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900';
-
-  useEffect(() => {
-    api.get<{ configured: boolean; provider?: string; issuer_url?: string }>('/enterprise/sso')
-      .then(setSsoConfig).catch(() => {});
-  }, []);
-
-  if (!ssoConfig) return <p className="text-xs text-slate-500">Loading...</p>;
-
-  if (ssoConfig.configured) {
-    return (
-      <div className="flex items-center justify-between px-3 py-2 bg-emerald-900/20 border border-emerald-800/30 rounded-lg">
-        <div>
-          <p className="text-sm text-emerald-300 font-medium">SSO active</p>
-          <p className="text-xs text-slate-400">{ssoConfig.provider} ({ssoConfig.issuer_url})</p>
-        </div>
-        <button onClick={async () => { await api.delete('/enterprise/sso'); setSsoConfig({ configured: false }); }}
-          className="text-xs text-red-400 hover:text-red-300">Remove</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      <select value={provider} onChange={(e) => setProvider(e.target.value)}
-        className={`w-full border rounded-lg px-3 py-2 text-sm ${inputCls}`}>
-        <option value="okta">Okta</option>
-        <option value="azure">Azure AD</option>
-        <option value="google">Google Workspace</option>
-        <option value="auth0">Auth0</option>
-      </select>
-      <input type="text" value={issuerUrl} onChange={(e) => setIssuerUrl(e.target.value)}
-        placeholder="Issuer URL (e.g. https://yourorg.okta.com)"
-        className={`w-full border rounded-lg px-3 py-2 text-sm ${inputCls}`} />
-      <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)}
-        placeholder="Client ID"
-        className={`w-full border rounded-lg px-3 py-2 text-sm ${inputCls}`} />
-      <input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)}
-        placeholder="Client Secret"
-        className={`w-full border rounded-lg px-3 py-2 text-sm ${inputCls}`} />
-      <button
-        onClick={async () => {
-          await api.post('/enterprise/sso', { provider, issuer_url: issuerUrl, client_id: clientId, client_secret: clientSecret });
-          setSsoConfig({ configured: true, provider, issuer_url: issuerUrl });
-        }}
-        disabled={!issuerUrl || !clientId || !clientSecret}
-        className="px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm rounded-lg">
-        Configure SSO
-      </button>
-    </div>
-  );
-}
-
-function IsolationSection() {
-  const [current, setCurrent] = useState('open');
-  const [levels, setLevels] = useState<Record<string, { label: string; description: string }>>({});
-
-  useEffect(() => {
-    api.get<{ current: string; levels: Record<string, { label: string; description: string }> }>('/enterprise/isolation')
-      .then((res) => { setCurrent(res.current); setLevels(res.levels); }).catch(() => {});
-  }, []);
-
-  return (
-    <div className="space-y-2">
-      {Object.entries(levels).map(([id, level]) => (
-        <button
-          key={id}
-          onClick={async () => { await api.patch('/enterprise/isolation', { level: id }); setCurrent(id); }}
-          className={`w-full text-left p-3 rounded-lg border transition-colors ${
-            current === id ? 'border-purple-500 bg-purple-500/10' : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-200">{level.label}</span>
-            {current === id && <Icon name="check_circle" size={16} className="text-purple-400" />}
-          </div>
-          <p className="text-xs text-slate-500 mt-0.5">{level.description}</p>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function AgentfileSection() {
-  const [agentfile, setAgentfile] = useState<{ content: string; exists: boolean; isolation_level: string; permissions: string[] } | null>(null);
-  const [generating, setGenerating] = useState(false);
-
-  useEffect(() => {
-    api.get<{ content: string; exists: boolean; isolation_level: string; permissions: string[] }>('/enterprise/agentfile')
-      .then(setAgentfile).catch(() => {});
-  }, []);
-
-  if (!agentfile) return <p className="text-xs text-slate-500">Loading...</p>;
-
-  return (
-    <div>
-      <p className="text-xs text-slate-500 mb-2">
-        The Agentfile defines what your default agent can do. It is generated from your isolation level and profile.
-      </p>
-      {agentfile.exists ? (
-        <pre className="text-xs text-slate-400 bg-slate-800/50 border border-slate-700/50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap mb-3">
-          {agentfile.content}
-        </pre>
-      ) : (
-        <p className="text-xs text-slate-500 mb-3">No Agentfile generated yet.</p>
-      )}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={async () => {
-            setGenerating(true);
-            try {
-              const res = await api.post<{ content: string }>('/enterprise/agentfile/generate', {});
-              setAgentfile({ ...agentfile, content: res.content, exists: true });
-            } catch { /* ignore */ }
-            setGenerating(false);
-          }}
-          disabled={generating}
-          className="px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm rounded-lg"
-        >
-          {generating ? 'Generating...' : agentfile.exists ? 'Regenerate' : 'Generate Agentfile'}
-        </button>
-        <span className="text-xs text-slate-500">
-          Isolation: {agentfile.isolation_level} | Permissions: {agentfile.permissions.length}
-        </span>
-      </div>
-    </div>
-  );
-}
-
+// --- Enterprise Setup Wizard ---
 export default function Settings() {
   const {
     osName, setOsName,
@@ -218,12 +85,17 @@ export default function Settings() {
     accentColor, setAccentColor,
     features, setFeatures,
     setDefaultChatModel,
-    useOstkTerms, setUseOstkTerms,
+    setUseOstkTerms,
     powerUserMode, setPowerUserMode,
+    instanceMode,
+    compactMode, setCompactMode,
+    fontSize, setFontSize,
+    iconStyle, setIconStyle,
+    dashboardLayout, setDashboardLayout,
+    greetingStyle, setGreetingStyle,
   } = useAppStore();
 
   const [selectedProvider, setSelectedProvider] = useState('Anthropic');
-  const [defaultLlm, setDefaultLlm] = useState('Anthropic');
   // Chat backend preference: "auto" picks the subscription when ready,
   // otherwise falls back to the Anthropic key. Users can force either
   // pathway from the Settings page.
@@ -241,6 +113,7 @@ export default function Settings() {
   const [quietHours, setQuietHours] = useState(true);
   const [autoTemplateMatching, setAutoTemplateMatching] = useState(true);
   const [briefingEnabled, setBriefingEnabled] = useState(true);
+  const [chatMemoryEnabled, setChatMemoryEnabled] = useState(true);
   const [showAllKeys, setShowAllKeys] = useState(false);
   const [keySaveStatus, setKeySaveStatus] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
@@ -255,6 +128,11 @@ export default function Settings() {
   const [keyAvailable, setKeyAvailable] = useState<Record<string, boolean>>({ Anthropic: false, 'Google Gemini': false });
   const [keySource, setKeySource] = useState<Record<string, string>>({});
   const [ostkMcpServers, setOstkMcpServers] = useState<OstkMCPServer[]>([]);
+
+  // Push notification state
+  const [settingsPushEnabled, setSettingsPushEnabled] = useState(false);
+  const [pushToggling, setPushToggling] = useState(false);
+  const pushSupported = isPushSupported();
 
   // Sync state
   const [syncConfigured, setSyncConfigured] = useState(false);
@@ -279,25 +157,6 @@ export default function Settings() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Enterprise state
-  interface EnterpriseMember { id: string; email: string; role: string; added_at: string }
-  interface EnterpriseState { enabled: boolean; org: { id: string; name: string; admin_email: string } | null; members: EnterpriseMember[]; policies: Record<string, unknown> }
-  const [enterprise, setEnterprise] = useState<EnterpriseState>({ enabled: false, org: null, members: [], policies: {} });
-  const [entOrgName, setEntOrgName] = useState('');
-  const [entAdminEmail, setEntAdminEmail] = useState('');
-  const [entNewMemberEmail, setEntNewMemberEmail] = useState('');
-  const [entNewMemberRole, setEntNewMemberRole] = useState('member');
-
-  const fetchEnterprise = async () => {
-    try {
-      const data = await api.get<EnterpriseState>('/enterprise');
-      setEnterprise(data);
-    } catch { /* ignore */ }
-  };
-
-  useEffect(() => {
-    fetchEnterprise();
-  }, []);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -326,15 +185,12 @@ export default function Settings() {
         if (data.provider) {
           setSelectedProvider(data.provider);
         }
-        // Load the default LLM from the saved default_model field
+        // Load the default chat model from the saved default_model field
         if ((data as any).default_model) {
           const raw = (data as any).default_model.replace(/^@/, '');
-          const providerName = raw === 'gemini' ? 'Google Gemini' : 'Anthropic';
-          setDefaultLlm(providerName);
           setDefaultChatModel(raw);
         } else if (data.provider) {
           // Fall back to provider if default_model is not set
-          setDefaultLlm(data.provider);
           const chatModel = PROVIDER_TO_MODEL[data.provider] ?? 'claude';
           setDefaultChatModel(chatModel);
         }
@@ -355,6 +211,9 @@ export default function Settings() {
         }
         if ((data as any).briefing_enabled !== undefined) {
           setBriefingEnabled((data as any).briefing_enabled);
+        }
+        if ((data as any).chat_memory_enabled !== undefined) {
+          setChatMemoryEnabled((data as any).chat_memory_enabled);
         }
         if ((data as any).use_ostk_terms !== undefined) setUseOstkTerms((data as any).use_ostk_terms);
         if (data.mcp_servers) setMcpServers(data.mcp_servers);
@@ -389,8 +248,29 @@ export default function Settings() {
         setSyncLastSynced(data.last_synced ?? null);
       })
       .catch(() => {});
+    // Check push subscription state
+    if (pushSupported) {
+      isSubscribed().then(setSettingsPushEnabled).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handlePushToggle = async () => {
+    setPushToggling(true);
+    try {
+      if (settingsPushEnabled) {
+        await pushUnsubscribe();
+        setSettingsPushEnabled(false);
+      } else {
+        const ok = await pushSubscribe();
+        setSettingsPushEnabled(ok);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setPushToggling(false);
+    }
+  };
 
   const accentColors = [
     { color: 'bg-blue-500', name: 'blue' },
@@ -529,12 +409,6 @@ export default function Settings() {
     api.patch('/settings', { chat_backend_preference: value }).catch(() => {});
   };
 
-  const handleDefaultLlmChange = (name: string) => {
-    setDefaultLlm(name);
-    const chatModel = PROVIDER_TO_MODEL[name] ?? 'claude';
-    setDefaultChatModel(chatModel);
-    api.patch('/settings', { default_model: `@${chatModel}` }).catch(() => {});
-  };
 
   const PROVIDER_SECRET_NAME: Record<string, string> = {
     Anthropic: 'ANTHROPIC_API_KEY',
@@ -551,11 +425,11 @@ export default function Settings() {
           setApiKeys(prev => ({ ...prev, [selectedProvider]: '' }));
           setKeyAvailable(prev => ({ ...prev, [selectedProvider]: true }));
           setKeySource(prev => ({ ...prev, [selectedProvider]: 'keychain' }));
-          setTimeout(() => setKeySaveStatus(null), 2000);
+          setTimeout(() => setKeySaveStatus(null), 4000);
         })
         .catch(() => {
           setKeySaveStatus('Error saving');
-          setTimeout(() => setKeySaveStatus(null), 2000);
+          setTimeout(() => setKeySaveStatus(null), 4000);
         });
     }
   };
@@ -593,6 +467,12 @@ export default function Settings() {
     const next = !briefingEnabled;
     setBriefingEnabled(next);
     api.patch('/settings', { briefing_enabled: next }).catch(() => {});
+  };
+
+  const handleChatMemoryToggle = () => {
+    const next = !chatMemoryEnabled;
+    setChatMemoryEnabled(next);
+    api.patch('/settings', { chat_memory_enabled: next }).catch(() => {});
   };
 
   const handleImport = () => {
@@ -694,17 +574,16 @@ export default function Settings() {
   };
 
   const cardClass =
-    'bg-slate-900/40 border border-slate-800 p-6 rounded-xl hover:border-slate-700 transition-colors';
+    'bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-700 transition-colors';
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Settings" />
 
-      <div className="pt-20 p-8 space-y-6">
-        {/* Row 1: Appearance + Shortcuts */}
-        <div className="grid grid-cols-2 gap-6">
-          {/* Appearance */}
-          <div className={cardClass}>
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 space-y-6">
+        {/* Row 1: Appearance + System Features */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          <div>
             <h2 className="text-lg font-semibold mb-5">Appearance</h2>
 
             {/* Color Mode */}
@@ -760,75 +639,123 @@ export default function Settings() {
                 value={osName}
                 onChange={(e) => setOsName(e.target.value)}
                 onBlur={handleOsNameBlur}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>
 
-            {/* Terminology */}
-            <div>
-              <label className="text-sm text-slate-400 mb-2 block">Terminology</label>
+            {/* Compact Mode */}
+            <div className="mb-5">
+              <label className="text-sm text-slate-400 mb-2 block">Compact Mode</label>
+              <p className="text-xs text-slate-500 mb-2">Tighter spacing and smaller text throughout the app.</p>
               <div className="flex gap-2">
                 <button
-                  onClick={() => { setUseOstkTerms(false); api.patch('/settings', { use_ostk_terms: false }).catch(() => {}) }}
+                  onClick={() => setCompactMode(false)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    !useOstkTerms ? 'accent-bg !text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    !compactMode
+                      ? 'accent-bg !text-white'
+                      : 'bg-slate-800 text-slate-400 hover:text-white'
                   }`}
                 >
-                  Standard
+                  Normal
                 </button>
                 <button
-                  onClick={() => { setUseOstkTerms(true); api.patch('/settings', { use_ostk_terms: true }).catch(() => {}) }}
+                  onClick={() => setCompactMode(true)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    useOstkTerms ? 'accent-bg !text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                    compactMode
+                      ? 'accent-bg !text-white'
+                      : 'bg-slate-800 text-slate-400 hover:text-white'
                   }`}
                 >
-                  ostk
+                  Compact
                 </button>
               </div>
-              <p className="text-xs text-slate-500 mt-2">
-                {useOstkTerms
-                  ? 'Using ostk terms: Needles, Hay, Straws'
-                  : 'Using standard terms: Tasks, Ideas, Notes'}
-              </p>
             </div>
-          </div>
 
-          {/* Shortcuts */}
-          <div className={cardClass}>
-            <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
-            <div className="space-y-3">
-              {shortcuts.map((s) => (
-                <div key={s.label} className="flex items-center justify-between py-2">
-                  <span className="text-sm text-slate-300">{s.label}</span>
-                  <kbd className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-md text-xs text-slate-300 font-mono">
-                    {s.keys}
-                  </kbd>
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={() => setShowAllKeys(!showAllKeys)}
-              className="mt-4 text-sm text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              {showAllKeys ? 'Show Less' : 'View All Keys'}
-            </button>
-            {showAllKeys && (
-              <div className="mt-3 pt-3 border-t border-slate-800 space-y-3">
-                {allShortcuts.slice(shortcuts.length).map((s) => (
-                  <div key={s.label} className="flex items-center justify-between py-1">
-                    <span className="text-sm text-slate-300">{s.label}</span>
-                    <kbd className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-md text-xs text-slate-300 font-mono">
-                      {s.keys}
-                    </kbd>
-                  </div>
+            {/* Font Size */}
+            <div className="mb-5">
+              <label className="text-sm text-slate-400 mb-2 block">Font Size</label>
+              <div className="flex gap-2">
+                {(['small', 'medium', 'large'] as const).map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => setFontSize(size)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      fontSize === size
+                        ? 'accent-bg !text-white'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {size === 'small' ? 'Small' : size === 'medium' ? 'Medium' : 'Large'}
+                  </button>
                 ))}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
 
-        {/* Row 2: System Features */}
-        <div className={cardClass}>
+            {/* Icon Style */}
+            <div className="mb-5">
+              <label className="text-sm text-slate-400 mb-2 block">Icon Style</label>
+              <div className="flex gap-2">
+                {(['filled', 'outlined'] as const).map((style) => (
+                  <button
+                    key={style}
+                    onClick={() => setIconStyle(style)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      iconStyle === style
+                        ? 'accent-bg !text-white'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {style === 'filled' ? 'Filled' : 'Outlined'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Dashboard Layout */}
+            <div className="mb-5">
+              <label className="text-sm text-slate-400 mb-2 block">Dashboard Layout</label>
+              <p className="text-xs text-slate-500 mb-2">Focus mode shows only your top priorities.</p>
+              <div className="flex gap-2">
+                {(['full', 'focus'] as const).map((layout) => (
+                  <button
+                    key={layout}
+                    onClick={() => setDashboardLayout(layout)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      dashboardLayout === layout
+                        ? 'accent-bg !text-white'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {layout === 'full' ? 'Full' : 'Focus'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Greeting Style */}
+            <div className="mb-5">
+              <label className="text-sm text-slate-400 mb-2 block">Home Greeting</label>
+              <div className="flex gap-2">
+                {(['time', 'quote', 'none'] as const).map((style) => (
+                  <button
+                    key={style}
+                    onClick={() => setGreetingStyle(style)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      greetingStyle === style
+                        ? 'accent-bg !text-white'
+                        : 'bg-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {style === 'time' ? 'Time of day' : style === 'quote' ? 'Quote' : 'None'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+          </div>
+
+          {/* System Features */}
+          <div className={cardClass}>
           <h2 className="text-lg font-semibold mb-5">System Features</h2>
           <p className="text-xs text-slate-500 mb-3">Toggle to show or hide in the sidebar. Drag items in the sidebar itself to reorder.</p>
           <div className="space-y-1.5">
@@ -879,46 +806,19 @@ export default function Settings() {
             </div>
             <p className="text-xs text-slate-500 mt-2">Shows advanced agent tabs (Delegate and Shared Workspace) in the Agents page.</p>
           </div>
+          </div>
         </div>
 
-        {/* Recurring tasks */}
-        <RecurringTasksSection cardClass={cardClass} />
-
-        {/* Row 3: AI Provider + Notifications */}
-        <div className="grid grid-cols-2 gap-6">
+        {/* Row 2: AI Provider + Notifications */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
           {/* AI Provider */}
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">AI Provider</h2>
 
-            {/* Default Chat AI */}
-            <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">Default Chat AI</label>
-              <p className="text-xs text-slate-500 mb-3">
-                New conversations will use this AI by default. You can still switch mid-chat by typing @gemini or @claude.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                {providers.map((p) => (
-                  <div
-                    key={`default-${p.name}`}
-                    onClick={() => handleDefaultLlmChange(p.name)}
-                    data-testid={`default-llm-${p.name.toLowerCase().replace(/\s+/g, '-')}`}
-                    className={`p-3 rounded-lg border text-center cursor-pointer transition-colors ${
-                      defaultLlm === p.name
-                        ? 'accent-border accent-highlight'
-                        : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
-                    }`}
-                  >
-                    <p className="text-sm font-medium">{p.model}</p>
-                    <p className="text-xs text-slate-500">{p.name}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
             {/* Provider for API Key setup */}
             <div className="mb-5">
               <label className="text-sm text-slate-400 mb-2 block">Set Up Provider</label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {providers.map((p) => (
                   <div
                     key={p.name}
@@ -1077,9 +977,17 @@ export default function Settings() {
                 </div>
                 <button
                   onClick={handleApiKeySave}
-                  disabled={!apiKeys[selectedProvider]?.trim()}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                  disabled={!apiKeys[selectedProvider]?.trim() || keySaveStatus === 'Saved to keychain'}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                    keySaveStatus === 'Saved to keychain'
+                      ? 'bg-emerald-600 text-white'
+                      : keySaveStatus === 'Error saving'
+                        ? 'bg-red-600 text-white'
+                        : 'bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white'
+                  }`}
                 >
+                  {keySaveStatus === 'Saved to keychain' && <Icon name="check_circle" size={16} />}
+                  {keySaveStatus === 'Error saving' && <Icon name="error" size={16} />}
                   {keySaveStatus || 'Save to Keychain'}
                 </button>
               </div>
@@ -1094,7 +1002,7 @@ export default function Settings() {
               <select
                 value={selectedModel}
                 onChange={(e) => handleModelChange(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
+                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
               >
                 <option>claude-opus-4-20250514</option>
                 <option>claude-sonnet-4-20250514</option>
@@ -1183,6 +1091,30 @@ export default function Settings() {
                 </div>
               ))}
             </div>
+            {pushSupported && (
+              <div className="mt-5 pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Push notifications</p>
+                    <p className="text-xs text-slate-500">Get alerts even when the browser tab is closed</p>
+                  </div>
+                  <button
+                    data-testid="push-toggle"
+                    onClick={handlePushToggle}
+                    disabled={pushToggling}
+                    className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
+                      settingsPushEnabled ? 'accent-bg' : 'bg-slate-700'
+                    } ${pushToggling ? 'opacity-50' : ''}`}
+                  >
+                    <span
+                      className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                        settingsPushEnabled ? 'left-5' : 'left-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="mt-5 pt-4 border-t border-slate-800">
               <div className="flex items-center justify-between">
                 <div>
@@ -1250,11 +1182,33 @@ export default function Settings() {
                   />
                 </button>
               </div>
+              <div className="flex items-center justify-between mt-4">
+                <div className="pr-3">
+                  <p className="text-sm text-slate-300">Chat Memory</p>
+                  <p className="text-xs text-slate-500">
+                    Let the AI remember what you talked about in your previous chat tab.
+                  </p>
+                </div>
+                <button
+                  data-testid="chat-memory-toggle"
+                  onClick={handleChatMemoryToggle}
+                  className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
+                    chatMemoryEnabled ? 'accent-bg' : 'bg-slate-700'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                      chatMemoryEnabled ? 'left-5' : 'left-1'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Row 4: MCP Servers */}
+        {/* Row 3: MCP Servers + Sync */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
         <div className={cardClass}>
           <div className="flex items-center gap-2 mb-5">
             <h2 className="text-lg font-semibold">Connected Tools</h2>
@@ -1262,7 +1216,7 @@ export default function Settings() {
             <div className="group relative ml-1">
               <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
-                Connect external tool servers (like Stitch, Gmail, Calendar). ToriChat can use their tools the same way it uses built-in tools.
+                Connect external tool servers (like Stitch, Gmail, Calendar). The chat panel can use their tools the same way it uses built-in tools.
               </div>
             </div>
             <button
@@ -1279,17 +1233,17 @@ export default function Settings() {
             <div className="mb-4">
               <p className="text-xs text-slate-500 mb-2 flex items-center gap-1.5">
                 <Icon name="settings_suggest" size={14} />
-                Managed by ostk (configured in your HUMANFILE)
+                Managed automatically (configured in your profile)
               </p>
               <div className="space-y-2">
                 {ostkMcpServers.map((server) => (
                   <div key={server.name} className="flex items-center gap-3 px-3 py-2.5 bg-slate-800/50 rounded-lg border border-emerald-900/40">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" title="Managed by ostk" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" title="Managed automatically" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-slate-200 font-medium">{server.name}</p>
                       <p className="text-xs text-slate-500 truncate font-mono">{server.command}</p>
                     </div>
-                    <span className="text-xs text-emerald-400/70 flex-shrink-0">ostk</span>
+                    <span className="text-xs text-emerald-400/70 flex-shrink-0">auto</span>
                   </div>
                 ))}
               </div>
@@ -1332,13 +1286,13 @@ export default function Settings() {
 
           {/* Add new server */}
           <div className="space-y-2">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 type="text"
                 value={newMcpName}
                 onChange={e => setNewMcpName(e.target.value)}
                 placeholder="Server name (e.g. Stitch)"
-                className="w-36 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-36 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
               />
               <input
                 type="text"
@@ -1346,19 +1300,19 @@ export default function Settings() {
                 onChange={e => setNewMcpUrl(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleAddMcpServer()}
                 placeholder="Paste your server URL after running setup"
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                className="flex-1 min-w-[200px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
               />
               <input
                 type="password"
                 value={newMcpToken}
                 onChange={e => setNewMcpToken(e.target.value)}
                 placeholder="Auth token (optional)"
-                className="w-44 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-44 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
               />
               <button
                 onClick={handleAddMcpServer}
                 disabled={!newMcpName.trim() || !newMcpUrl.trim()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-white text-sm font-medium transition-colors whitespace-nowrap"
               >
                 Add
               </button>
@@ -1398,7 +1352,7 @@ export default function Settings() {
                 {/* Info note */}
                 <div className="px-5 pb-3">
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    MCP servers run locally on your machine. Run the setup command in your terminal, then add the server URL (usually http://localhost:PORT) here.
+                    These tools run on your computer. Follow the setup instructions for each one, then paste the connection address here.
                   </p>
                 </div>
 
@@ -1482,13 +1436,12 @@ export default function Settings() {
           )}
         </div>
 
-        {/* Row 5: Sync */}
         <div className={cardClass}>
           <div className="flex items-center gap-2 mb-5">
             <h2 className="text-lg font-semibold">Sync</h2>
             <div className="group relative ml-1">
               <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-[60]">
+              <div className="absolute bottom-full left-0 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-[60]">
                 Keep your settings the same across all your devices using a private git repo you own.
               </div>
             </div>
@@ -1545,13 +1498,13 @@ export default function Settings() {
                   onKeyDown={(e) => e.key === 'Enter' && handleSetupSync()}
                   placeholder="git@github.com:you/myos-sync.git"
                   data-testid="sync-repo-input"
-                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
+                  className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
                 />
                 <button
                   onClick={handleSetupSync}
                   disabled={syncLoading || !syncRepoInput.trim()}
                   data-testid="sync-setup-button"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-white text-sm font-medium transition-colors whitespace-nowrap"
                 >
                   {syncLoading ? 'Setting up...' : 'Set up sync'}
                 </button>
@@ -1562,189 +1515,29 @@ export default function Settings() {
             </div>
           )}
         </div>
-
-        {/* Row 6: Enterprise */}
-        <div className={cardClass}>
-          <div className="flex items-center gap-2 mb-5">
-            <Icon name="business" size={22} className="text-purple-400" />
-            <h2 className="text-lg font-semibold">Enterprise</h2>
-            {enterprise.enabled && (
-              <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-[10px] font-bold rounded-full">Active</span>
-            )}
-          </div>
-
-          {!enterprise.enabled ? (
-            <div>
-              <p className="text-sm text-slate-400 mb-4">
-                Enterprise mode lets you set up an org, add team members, and enforce policies across all agents. Your personal profile stays the same. This adds org-level controls on top.
-              </p>
-              <div className="space-y-3 mb-4">
-                <input
-                  type="text"
-                  value={entOrgName}
-                  onChange={(e) => setEntOrgName(e.target.value)}
-                  placeholder="Organization name"
-                  className={`w-full border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-purple-500 transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
-                />
-                <input
-                  type="email"
-                  value={entAdminEmail}
-                  onChange={(e) => setEntAdminEmail(e.target.value)}
-                  placeholder="Admin email"
-                  className={`w-full border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-purple-500 transition-colors ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
-                />
-              </div>
-              <button
-                onClick={async () => {
-                  if (!entOrgName.trim() || !entAdminEmail.trim()) return;
-                  await api.post('/enterprise/org', { name: entOrgName, admin_email: entAdminEmail });
-                  fetchEnterprise();
-                }}
-                disabled={!entOrgName.trim() || !entAdminEmail.trim()}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
-              >
-                Activate Enterprise Mode
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {/* Org info */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-slate-200">{enterprise.org?.name}</p>
-                  <p className="text-xs text-slate-500">Admin: {enterprise.org?.admin_email}</p>
-                </div>
-                <button
-                  onClick={async () => {
-                    await api.delete('/enterprise/org');
-                    setEnterprise({ enabled: false, org: null, members: [], policies: {} });
-                  }}
-                  className="text-xs text-red-400 hover:text-red-300"
-                >
-                  Deactivate
-                </button>
-              </div>
-
-              {/* Team members */}
-              <div>
-                <h3 className="text-sm font-semibold text-slate-300 mb-3">Team Members</h3>
-                <div className="space-y-2 mb-3">
-                  {enterprise.members.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between px-3 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                      <div>
-                        <span className="text-sm text-slate-300">{m.email}</span>
-                        <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                          m.role === 'admin' ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-700 text-slate-400'
-                        }`}>{m.role}</span>
-                      </div>
-                      {m.role !== 'admin' && (
-                        <button
-                          onClick={async () => {
-                            await api.delete(`/enterprise/members/${m.id}`);
-                            fetchEnterprise();
-                          }}
-                          className="text-xs text-red-400 hover:text-red-300"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="email"
-                    value={entNewMemberEmail}
-                    onChange={(e) => setEntNewMemberEmail(e.target.value)}
-                    placeholder="Email address"
-                    className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
-                  />
-                  <select
-                    value={entNewMemberRole}
-                    onChange={(e) => setEntNewMemberRole(e.target.value)}
-                    className={`border rounded-lg px-2 py-2 text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
-                  >
-                    <option value="member">Member</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                  <button
-                    onClick={async () => {
-                      if (!entNewMemberEmail.trim()) return;
-                      try {
-                        await api.post('/enterprise/members', { email: entNewMemberEmail, role: entNewMemberRole });
-                        setEntNewMemberEmail('');
-                        fetchEnterprise();
-                      } catch { /* ignore */ }
-                    }}
-                    className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg"
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
-
-              {/* Policies */}
-              <div>
-                <h3 className="text-sm font-semibold text-slate-300 mb-3">Policies</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-slate-300">Max agent budget</p>
-                      <p className="text-xs text-slate-500">Maximum spend per agent spawn</p>
-                    </div>
-                    <span className="text-sm text-slate-400">${String(enterprise.policies.max_agent_budget ?? 10)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-slate-300">Require approval above</p>
-                      <p className="text-xs text-slate-500">Agents above this budget need approval</p>
-                    </div>
-                    <span className="text-sm text-slate-400">${String(enterprise.policies.require_approval_above ?? 5)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-slate-300">Audit retention</p>
-                      <p className="text-xs text-slate-500">How long to keep audit logs</p>
-                    </div>
-                    <span className="text-sm text-slate-400">{String(enterprise.policies.audit_retention_days ?? 90)} days</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* SSO */}
-              <div>
-                <h3 className="text-sm font-semibold text-slate-300 mb-3">Single Sign-On (SSO)</h3>
-                <SSOSection darkMode={darkMode} />
-              </div>
-
-              {/* Isolation Level */}
-              <div>
-                <h3 className="text-sm font-semibold text-slate-300 mb-3">Isolation Level</h3>
-                <IsolationSection />
-              </div>
-
-              {/* Agentfile */}
-              <div>
-                <h3 className="text-sm font-semibold text-slate-300 mb-3">Agentfile</h3>
-                <AgentfileSection />
-              </div>
-
-              {/* Audit export */}
-              <div>
-                <button
-                  onClick={() => window.open('/api/enterprise/audit', '_blank')}
-                  className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm text-slate-300"
-                >
-                  <Icon name="download" size={16} />
-                  Export audit trail
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Row 7: Data Management */}
-        <div className={cardClass}>
+        {/* Row 4: Admin Link + Data Management */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        {instanceMode === 'team' && (
+          <div className={cardClass}>
+            <div className="flex items-center gap-2 mb-3">
+              <Icon name="admin_panel_settings" size={22} className="text-indigo-400" />
+              <h2 className="text-lg font-semibold">Team Admin</h2>
+            </div>
+            <p className="text-sm text-slate-400 mb-4">
+              Manage your team, policies, security, and audit trail.
+            </p>
+            <a
+              href="/admin"
+              className="inline-flex items-center gap-2 px-4 py-2 team-bg hover:opacity-90 text-white font-semibold text-sm rounded-lg transition-opacity"
+            >
+              <Icon name="open_in_new" size={16} />
+              Open admin settings
+            </a>
+          </div>
+        )}
+<div className={cardClass}>
           <div className="flex items-center gap-2 mb-2">
             <h2 className="text-lg font-semibold">Data Management</h2>
             <div className="group relative">
@@ -1802,8 +1595,10 @@ export default function Settings() {
             </button>
           </div>
         </div>
+        </div>
 
-        {/* Row 7: Shared Links */}
+        {/* Row 5: Shared Links + Shortcuts */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
         <div className={cardClass}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">Shared links</h2>
@@ -1853,6 +1648,39 @@ export default function Settings() {
               ))}
             </div>
           )}
+        </div>
+
+        <div className={cardClass}>
+          <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
+          <div className="space-y-3">
+            {shortcuts.map((s) => (
+              <div key={s.label} className="flex items-center justify-between py-2">
+                <span className="text-sm text-slate-300">{s.label}</span>
+                <kbd className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-md text-xs text-slate-300 font-mono">
+                  {s.keys}
+                </kbd>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowAllKeys(!showAllKeys)}
+            className="mt-4 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            {showAllKeys ? 'Show Less' : 'View All Keys'}
+          </button>
+          {showAllKeys && (
+            <div className="mt-3 pt-3 border-t border-slate-800 space-y-3">
+              {allShortcuts.slice(shortcuts.length).map((s) => (
+                <div key={s.label} className="flex items-center justify-between py-1">
+                  <span className="text-sm text-slate-300">{s.label}</span>
+                  <kbd className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-md text-xs text-slate-300 font-mono">
+                    {s.keys}
+                  </kbd>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         </div>
       </div>
     </div>

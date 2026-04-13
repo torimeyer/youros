@@ -78,6 +78,24 @@ def invalidate_audit_cache(audit_path: Optional[Path] = None) -> None:
     _audit_cache.pop(str(audit_path), None)
 
 
+def write_audit_entry(entry: dict, audit_path: Optional[Path] = None) -> None:
+    """Append a single JSON entry to audit.jsonl and invalidate the cache.
+
+    Best-effort: any IO failure is swallowed so audit logging can never
+    break the caller. Used by chat handlers and agent registration to
+    record usage events without shelling out to ``ostk``.
+    """
+    if audit_path is None:
+        audit_path = OSTK_DIR / "audit.jsonl"
+    try:
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(audit_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        invalidate_audit_cache(audit_path)
+    except OSError:
+        pass
+
+
 # In-flight coalescing for expensive read-only ostk calls. When two
 # handlers ask for the same thing at the same time (for example
 # /api/tasks and /api/dashboard/summary both call ``list_tasks()``
@@ -204,6 +222,12 @@ class OstkService:
             return ("trace", {"needle": args[1]})
         if head == "boot":
             return ("boot", {})
+
+        # Deep search verbs (MCP-only, no CLI equivalent)
+        if head == "pitchfork" and len(args) >= 2:
+            return ("pitchfork", {"query": " ".join(args[1:])})
+        if head == "recall" and len(args) >= 2:
+            return ("recall", {"query": " ".join(args[1:])})
 
         return None
 
@@ -381,11 +405,27 @@ class OstkService:
         issues_path.write_text("\n".join(updated) + ("\n" if updated else ""))
         return f"deleted {task_id}"
 
-    async def update_task_priority(self, task_id: str, priority: str) -> str:
-        """Update a task's priority by editing the JSONL file directly."""
+    async def update_task_priority(
+        self,
+        task_id: str,
+        priority: str,
+        reason: Optional[str] = None,
+    ) -> str:
+        """Update a task's priority.
+
+        When *reason* is provided, the change is logged via ``ostk work promote``
+        so the audit trail captures why the priority was changed. Without a
+        reason the JSONL file is edited directly (preserving the existing
+        fast-path behaviour).
+        """
         valid = {"P0", "P1", "P2", "P3"}
         if priority not in valid:
             raise OstkError(f"invalid priority '{priority}', must be one of {valid}")
+
+        if reason:
+            return await self._run(
+                "work", "promote", task_id, priority, "--reason", reason
+            )
 
         issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
         if not issues_path.exists():
@@ -406,6 +446,14 @@ class OstkService:
 
         issues_path.write_text("\n".join(updated) + "\n")
         return f"updated {task_id} priority to {priority}"
+
+    async def shelve_task(self, task_id: str) -> str:
+        """Pause a task via ``ostk work shelve``."""
+        return await self._run("work", "shelve", task_id)
+
+    async def unshelve_task(self, task_id: str) -> str:
+        """Resume a shelved task via ``ostk work unshelve``."""
+        return await self._run("work", "unshelve", task_id)
 
     async def link_tasks(self, source: str, relation: str, target: str) -> str:
         """Link two tasks with a relationship (blocks or depends-on)."""
@@ -663,8 +711,12 @@ class OstkService:
             args.append("--dry-run")
         return await self._run(*args)
 
-    async def delete_hay(self, straw: str) -> str:
-        """Remove a hay entry from audit.jsonl by its straw text."""
+    async def delete_hay(self, straw: str, include_converted: bool = False) -> str:
+        """Remove a hay entry from audit.jsonl by its straw text.
+
+        When *include_converted* is True, also remove any matching
+        hay.converted event so the idea disappears from both lists.
+        """
         audit_path = Path(self.cwd) / ".ostk" / "audit.jsonl"
         if not audit_path.exists():
             raise OstkError("audit.jsonl not found")
@@ -676,14 +728,40 @@ class OstkService:
             entry = json.loads(line)
             if entry.get("event") == "hay.filed" and entry.get("straw") == straw:
                 found = True
-                continue  # skip this line to delete it
+                continue
+            if include_converted and entry.get("event") == "hay.converted" and entry.get("straw") == straw:
+                continue
             updated.append(line)
 
         if not found:
             raise OstkError(f"hay item not found: {straw}")
 
         audit_path.write_text("\n".join(updated) + "\n")
+        invalidate_audit_cache(audit_path)
         return f"deleted hay: {straw}"
+
+    async def delete_converted_hay(self, straw: str) -> str:
+        """Remove a hay.converted entry from audit.jsonl by its straw text."""
+        audit_path = Path(self.cwd) / ".ostk" / "audit.jsonl"
+        if not audit_path.exists():
+            raise OstkError("audit.jsonl not found")
+
+        lines = audit_path.read_text().strip().splitlines()
+        found = False
+        updated = []
+        for line in lines:
+            entry = json.loads(line)
+            if entry.get("event") == "hay.converted" and entry.get("straw") == straw:
+                found = True
+                continue
+            updated.append(line)
+
+        if not found:
+            raise OstkError(f"converted hay item not found: {straw}")
+
+        audit_path.write_text("\n".join(updated) + "\n")
+        invalidate_audit_cache(audit_path)
+        return f"deleted converted hay: {straw}"
 
     async def convert_hay_to_task(self, straw: str, priority: str = "P1", delete_hay: bool = False) -> str:
         """Turn a hay entry into a task and mark it as converted.
@@ -958,6 +1036,126 @@ class OstkService:
                     "title": match.group(3).strip(),
                 })
         return results
+
+    # --- Deep Search (pitchfork / recall) ---
+
+    async def pitchfork(self, query: str) -> dict:
+        """Search all kernel state via ostk pitchfork.
+
+        Returns categorized results: needles, audit event summaries,
+        and transcript snippets. Uses the MCP socket (no CLI equivalent).
+        Timeout is longer because pitchfork scans transcripts.
+        """
+        try:
+            raw = await self._run("pitchfork", query, timeout=15)
+        except OstkError:
+            return {"needles": [], "audit": [], "transcripts": [], "query": query}
+        return self._parse_pitchfork(raw, query)
+
+    async def recall(self, query: str) -> dict:
+        """Search kernel state and past transcripts via ostk recall.
+
+        Same output format as pitchfork. Kept as a separate method in
+        case the two diverge in the future, but today the MCP tools
+        return the same structure.
+        """
+        try:
+            raw = await self._run("recall", query, timeout=15)
+        except OstkError:
+            return {"needles": [], "audit": [], "transcripts": [], "query": query}
+        return self._parse_pitchfork(raw, query)
+
+    @staticmethod
+    def _parse_pitchfork(output: str, query: str) -> dict:
+        """Parse the text output of pitchfork/recall into structured data.
+
+        Output has three sections separated by blank lines:
+          needles (N matches):
+            - ->NNN [status] title
+          audit (N matches, last 1000 events):
+            - event_type (xN)
+          transcripts (N matches in ~/.claude/projects/):
+            - [date] session_id
+              role: snippet...
+        """
+        needles: list[dict] = []
+        audit: list[dict] = []
+        transcripts: list[dict] = []
+
+        section: Optional[str] = None
+        current_transcript: Optional[dict] = None
+
+        for line in output.splitlines():
+            stripped = line.strip()
+
+            # Detect section headers
+            if stripped.startswith("needles ("):
+                section = "needles"
+                continue
+            if stripped.startswith("audit ("):
+                section = "audit"
+                continue
+            if stripped.startswith("transcripts ("):
+                section = "transcripts"
+                continue
+
+            if not stripped:
+                continue
+
+            if section == "needles" and stripped.startswith("- "):
+                item = stripped[2:]
+                # Parse: ->NNN [status] title
+                m = re.match(r"(→\d+)\s+\[(\w+)\]\s+(.+)", item)
+                if m:
+                    needles.append({
+                        "id": m.group(1),
+                        "status": m.group(2),
+                        "title": m.group(3).strip(),
+                    })
+
+            elif section == "audit" and stripped.startswith("- "):
+                item = stripped[2:]
+                # Parse: event_type (xN)
+                m = re.match(r"(.+?)\s+\(×(\d+)\)", item)
+                if m:
+                    audit.append({
+                        "event": m.group(1).strip(),
+                        "count": int(m.group(2)),
+                    })
+
+            elif section == "transcripts":
+                if stripped.startswith("- ["):
+                    # New transcript entry: - [date] session_id
+                    if current_transcript is not None:
+                        transcripts.append(current_transcript)
+                    m = re.match(r"-\s+\[([^\]]+)\]\s+(\S+)", stripped)
+                    if m:
+                        current_transcript = {
+                            "date": m.group(1),
+                            "session_id": m.group(2),
+                            "snippets": [],
+                        }
+                    else:
+                        current_transcript = None
+                elif current_transcript is not None:
+                    # Snippet lines: "ai: ..." or "user: ..."
+                    role_match = re.match(r"(ai|user):\s+(.*)", stripped)
+                    if role_match:
+                        current_transcript["snippets"].append({
+                            "role": role_match.group(1),
+                            "text": role_match.group(2).strip(),
+                        })
+
+        # Flush last transcript
+        if current_transcript is not None:
+            transcripts.append(current_transcript)
+
+        return {
+            "needles": needles,
+            "audit": audit,
+            "transcripts": transcripts,
+            "query": query,
+        }
 
     # --- Delegation / Radiate ---
 
@@ -1528,10 +1726,9 @@ class OstkService:
         return list(agents_by_name.values())
 
     async def kernel_spawn(self, name: str, prompt: str = "", model: str = "sonnet", budget: float = 2.0) -> asyncio.subprocess.Process:
-        args = ["ostk", "kernel", "spawn", name]
-        if prompt:
-            args.append(prompt)
-        args += ["--model", model, "--budget", str(budget)]
+        # Pass prompt via stdin, never as a CLI argument, so it does not
+        # appear in the process list (ps aux / pgrep output). Needle 342.
+        args = ["ostk", "kernel", "spawn", name, "--model", model, "--budget", str(budget)]
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.PIPE,
@@ -1539,6 +1736,10 @@ class OstkService:
             stderr=asyncio.subprocess.PIPE,
             cwd=self.cwd,
         )
+        if prompt:
+            proc.stdin.write(prompt.encode())
+            await proc.stdin.drain()
+        proc.stdin.close()
         return proc
 
     async def kernel_kill(self, name: str) -> dict:
@@ -1876,6 +2077,89 @@ class OstkService:
 
     # --- Secrets ---
 
+    # --- Decisions ---
+
+    async def log_decision(self, key: str, value: str, reason: str = "") -> str:
+        """Log a decision via ``ostk decide <key> <value> --reason <reason>``.
+
+        Appends an entry to .ostk/decisions.jsonl with the key, value,
+        reason, and a timestamp.
+        """
+        args = ["decide", key, value]
+        if reason:
+            args += ["--reason", reason]
+        return await self._run(*args)
+
+    def list_decisions(self) -> list[dict]:
+        """Read .ostk/decisions.jsonl and return entries as a list of dicts.
+
+        Each entry has key, value, reason, and timestamp fields.
+        Returns newest first.
+        """
+        decisions_path = Path(self.cwd) / ".ostk" / "decisions.jsonl"
+        if not decisions_path.exists():
+            return []
+        entries: list[dict] = []
+        try:
+            text = decisions_path.read_text()
+        except OSError:
+            return []
+        for line in text.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        entries.reverse()  # newest first
+        return entries
+
+    async def get_activity_summary(self) -> str:
+        """Build a plain-text summary of the last 24 hours using ostk data.
+
+        Combines ostk os history (recent events) and ostk os diff (session
+        delta) into a short text block. This runs locally without any LLM
+        call, so it is fast and free.
+
+        Returns the summary text, or empty string if nothing is available.
+        """
+        parts: list[str] = []
+
+        # Recent history (last 50 events)
+        try:
+            events = await self.get_history(last=50)
+            if events:
+                # Count events by type
+                counts: dict[str, int] = {}
+                for ev in events:
+                    event_type = ev.get("event", "unknown")
+                    counts[event_type] = counts.get(event_type, 0) + 1
+
+                summary_lines = []
+                for etype, count in sorted(counts.items(), key=lambda x: -x[1]):
+                    summary_lines.append(f"  {count}x {etype}")
+                parts.append("Recent activity:\n" + "\n".join(summary_lines))
+        except OstkError:
+            pass
+
+        # Session diff
+        try:
+            diff = await self.get_session_diff()
+            diff_lines = []
+            if diff.get("files_changed"):
+                diff_lines.append(f"  {len(diff['files_changed'])} files changed this session")
+            if diff.get("needles_filed"):
+                diff_lines.append(f"  {len(diff['needles_filed'])} tasks filed this session")
+            if diff.get("audit_total"):
+                diff_lines.append(f"  {diff['audit_total']} total audit events")
+            if diff_lines:
+                parts.append("Session summary:\n" + "\n".join(diff_lines))
+        except OstkError:
+            pass
+
+        return "\n\n".join(parts)
+
     async def secret_set(self, key: str, value: str) -> str:
         """Store a secret in the system keychain via ostk."""
         return await self._run("secret", "set", key, "--value", value)
@@ -1926,6 +2210,115 @@ class OstkService:
                 "tag": tag,
             })
         return secrets
+
+    # --- Agent Correction (needle 333) ---
+
+    async def correct_agent(self, agent_name: str, message: str) -> str:
+        """Send a structured correction to an agent via ostk work correct.
+
+        This calls the ostk :correct verb which records the correction in
+        the audit trail and delivers it to the agent. The caller should
+        also send a regular nudge so both systems stay in sync.
+        """
+        return await self._run("work", "correct", agent_name, message, timeout=10)
+
+    # --- Compile / Idea Triage (needle 336) ---
+
+    async def compile_ideas(self, dry_run: bool = False) -> str:
+        """Run ostk work compile to triage hay into needles.
+
+        This is the compile_hay method exposed under a friendlier name
+        that matches the ostk :compile verb.
+        """
+        return await self.compile_hay(dry_run=dry_run)
+
+    # --- Agent Lifecycle / Context Pressure (needle 337) ---
+
+    async def agent_lifecycle(self, agent_name: str) -> dict | None:
+        """Query the lifecycle service for an agent.
+
+        The :lifecycle service may be inactive. If it fails, returns None
+        so callers can degrade gracefully.
+        """
+        try:
+            raw = await self._run("work", "lifecycle", agent_name, timeout=5)
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                return {"raw": raw, "agent": agent_name}
+        except OstkError:
+            return None
+
+    async def check_context_pressure(self, agent_name: str) -> dict | None:
+        """Check context pressure for an agent via the :dying service.
+
+        The :dying service may be inactive. If it fails, returns None so
+        callers can degrade gracefully without showing anything in the UI.
+        """
+        try:
+            raw = await self._run("work", "dying", agent_name, timeout=5)
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                pct_match = re.search(r"(\d+)%", raw)
+                if pct_match:
+                    return {
+                        "agent": agent_name,
+                        "pressure_pct": int(pct_match.group(1)),
+                        "raw": raw,
+                    }
+                return {"agent": agent_name, "raw": raw}
+        except OstkError:
+            return None
+
+    # --- Coordination Locks (needle 338) ---
+
+    async def list_locks(self) -> list[dict]:
+        """List active coordination locks via ostk lock list.
+
+        Returns a list of dicts with lock name, holder, and creation time.
+        If no locks exist or the command fails, returns an empty list.
+        """
+        try:
+            raw = await self._run("lock", "list", timeout=5)
+        except OstkError:
+            return []
+
+        if not raw.strip() or "no active locks" in raw.lower():
+            return []
+
+        locks: list[dict] = []
+        # Try JSON parse first
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, dict) and "locks" in parsed:
+                return parsed["locks"]
+        except json.JSONDecodeError:
+            pass
+
+        # Parse text output line by line
+        for line in raw.strip().splitlines():
+            line = line.strip()
+            if not line or line.startswith("─") or line.startswith("="):
+                continue
+            # Skip header lines
+            if "LOCK" in line.upper() and "NAME" in line.upper():
+                continue
+            parts = line.split()
+            if len(parts) >= 1:
+                lock: dict = {"name": parts[0]}
+                if len(parts) >= 2:
+                    lock["holder"] = parts[1]
+                if len(parts) >= 3:
+                    lock["created_at"] = " ".join(parts[2:])
+                locks.append(lock)
+        return locks
+
+    async def release_lock(self, name: str) -> str:
+        """Release a coordination lock by name."""
+        return await self._run("lock", "release", name, timeout=5)
 
 
 ostk = OstkService()

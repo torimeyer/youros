@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Right-Align User Messages",
+  "version": "1.0.0",
+  "description": "Right-aligns your messages in claude.ai so they appear on the right side, like in iMessage or WhatsApp.",
+  "permissions": [],
+  "host_permissions": [
+    "https://claude.ai/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "css": ["content.css"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-16.svg",
+    "48": "icons/icon-48.svg",
+    "128": "icons/icon-128.svg"
+  },
+  "action": {
+    "default_title": "Claude Right-Align",
+    "default_icon": {
+      "16": "icons/icon-16.svg",
+      "48": "icons/icon-48.svg",
+      "128": "icons/icon-128.svg"
+    }
+  }
+}

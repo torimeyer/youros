@@ -34,6 +34,33 @@ interface SendCapability {
 
 type ComposerState = { messageId: string; replyAll: boolean } | null
 
+// Seed the message list from localStorage so the page paints rows
+// immediately instead of showing a spinner while the Gmail API
+// responds (which can take 25+ seconds on a cold cache). Same
+// pattern as Tasks.tsx. Needle 316.
+const GMAIL_CACHE_KEY = 'myos.gmailCache.v1'
+
+function readGmailCache(): GmailMessage[] {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return []
+    const raw = window.localStorage.getItem(GMAIL_CACHE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as GmailMessage[]) : []
+  } catch {
+    return []
+  }
+}
+
+function writeGmailCache(messages: GmailMessage[]) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    window.localStorage.setItem(GMAIL_CACHE_KEY, JSON.stringify(messages))
+  } catch {
+    // Quota or serialization errors are not fatal.
+  }
+}
+
 function formatDate(dateStr: string): string {
   if (!dateStr) return ''
   try {
@@ -61,8 +88,8 @@ function gmailUrl(messageId: string): string {
 export default function Gmail() {
   const [searchParams] = useSearchParams()
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
-  const [messages, setMessages] = useState<GmailMessage[]>([])
-  const [loading, setLoading] = useState(true)
+  const [messages, setMessages] = useState<GmailMessage[]>(() => readGmailCache())
+  const [loading, setLoading] = useState<boolean>(() => readGmailCache().length === 0)
   const [syncing, setSyncing] = useState(false)
   const [lastSynced, setLastSynced] = useState<Date | null>(null)
   const [markingRead, setMarkingRead] = useState<Set<string>>(new Set())
@@ -72,6 +99,23 @@ export default function Gmail() {
   const [composer, setComposer] = useState<ComposerState>(null)
   const [sendCapability, setSendCapability] = useState<SendCapability | null>(null)
   const [sentConfirmationId, setSentConfirmationId] = useState<string | null>(null)
+  const [taskStatus, setTaskStatus] = useState<Record<string, 'loading' | 'done' | 'error'>>({})
+  const [taskResult, setTaskResult] = useState<Record<string, { title: string }>>({})
+
+  const handleCreateTask = async (e: React.MouseEvent, messageId: string) => {
+    e.stopPropagation()
+    setTaskStatus((prev) => ({ ...prev, [messageId]: 'loading' }))
+    try {
+      const res = await api.post<{ ok: boolean; title: string; task_id: string }>(
+        '/gmail/to-task',
+        { message_id: messageId },
+      )
+      setTaskStatus((prev) => ({ ...prev, [messageId]: 'done' }))
+      setTaskResult((prev) => ({ ...prev, [messageId]: { title: res.title } }))
+    } catch {
+      setTaskStatus((prev) => ({ ...prev, [messageId]: 'error' }))
+    }
+  }
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -85,11 +129,15 @@ export default function Gmail() {
   const fetchMessages = useCallback(async () => {
     try {
       const res = await api.get<{ messages: GmailMessage[] }>('/gmail/messages')
-      setMessages(res.messages || [])
+      const fetched = res.messages || []
+      setMessages(fetched)
+      writeGmailCache(fetched)
       setLastSynced(new Date())
       setApiNotEnabled(false)
     } catch (err: unknown) {
-      setMessages([])
+      // Keep existing messages on failure so a timeout does not blank
+      // the UI. Only clear if we have nothing cached.
+      setMessages((prev) => prev.length > 0 ? prev : [])
       const detail = (err as { response?: { data?: { detail?: { api_not_enabled?: boolean } } } })?.response?.data?.detail
       if (detail?.api_not_enabled) setApiNotEnabled(true)
     }
@@ -105,13 +153,22 @@ export default function Gmail() {
   }, [])
 
   useEffect(() => {
-    setLoading(true)
+    // Only show the loading spinner if we have no cached messages.
+    // When cached data exists, the page paints rows immediately and
+    // the background fetch updates them when it arrives. Needle 316.
+    const hasCached = readGmailCache().length > 0
+    if (!hasCached) setLoading(true)
     ;(async () => {
       try {
         const status = await api.get<AuthStatus>('/gmail/auth/status')
         setAuthStatus(status)
         if (status.authenticated && !status.needs_reauth) {
-          await Promise.all([fetchMessages(), fetchSendCapability()])
+          // Fire both in parallel. Don't block on fetchMessages when
+          // we already have cached rows showing.
+          const msgPromise = fetchMessages()
+          await fetchSendCapability()
+          if (!hasCached) await msgPromise
+          // If we had cache, msgPromise resolves in the background.
         }
       } catch {
         setAuthStatus({ authenticated: false, needs_reauth: false, email: null, unread_count: 0 })
@@ -206,13 +263,13 @@ export default function Gmail() {
     }
   }
 
-  const cardClass = 'bg-slate-900/40 border border-slate-800 p-4 rounded-xl'
+  const cardClass = 'bg-slate-900/40 border border-slate-800 p-3 sm:p-4 rounded-xl'
 
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-20 p-8 flex items-center gap-2 text-slate-400">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex items-center gap-2 text-slate-400">
           <Icon name="progress_activity" size={20} className="animate-spin" />
           Loading...
         </div>
@@ -224,8 +281,8 @@ export default function Gmail() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-20 p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-2xl">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
+          <div className="bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl">
             <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mb-4">
               <Icon name="mail" className="text-red-400" size={24} />
             </div>
@@ -273,8 +330,8 @@ export default function Gmail() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-20 p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-amber-800/40 p-8 rounded-2xl">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
+          <div className="bg-slate-900/40 border border-amber-800/40 p-5 sm:p-8 rounded-2xl">
             <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
               <Icon name="warning" className="text-amber-400" size={24} />
             </div>
@@ -308,12 +365,12 @@ export default function Gmail() {
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Gmail" />
-      <div className="pt-20 p-8">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         {/* Header row */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">Gmail</h1>
+              <h1 className="text-xl sm:text-2xl font-bold">Gmail</h1>
               {messages.filter((m) => m.is_unread).length > 0 && (
                 <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-sm font-semibold rounded-full">
                   {messages.filter((m) => m.is_unread).length}
@@ -414,14 +471,32 @@ export default function Gmail() {
                               From {msg.from_name || msg.from_email}
                               {msg.from_name ? ` (${msg.from_email})` : ''}
                             </div>
-                            <button
-                              type="button"
-                              onClick={(e) => handleOpenInGmail(e, msg.id)}
-                              className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
-                            >
-                              <Icon name="open_in_new" size={14} />
-                              Open in Gmail
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(e) => handleCreateTask(e, msg.id)}
+                                disabled={taskStatus[msg.id] === 'loading' || taskStatus[msg.id] === 'done'}
+                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+                              >
+                                {taskStatus[msg.id] === 'loading' ? (
+                                  <><Icon name="progress_activity" size={14} className="animate-spin" /> Creating task...</>
+                                ) : taskStatus[msg.id] === 'done' ? (
+                                  <><Icon name="check_circle" size={14} className="text-green-400" /> Task created</>
+                                ) : taskStatus[msg.id] === 'error' ? (
+                                  <><Icon name="error" size={14} className="text-red-400" /> Failed</>
+                                ) : (
+                                  <><Icon name="add_task" size={14} /> Create task</>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => handleOpenInGmail(e, msg.id)}
+                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+                              >
+                                <Icon name="open_in_new" size={14} />
+                                Open in Gmail
+                              </button>
+                            </div>
                           </div>
                           <p className="text-sm text-slate-200 whitespace-pre-wrap">
                             {msg.snippet}
@@ -431,6 +506,13 @@ export default function Gmail() {
                             <div className="mt-3 flex items-center gap-2 text-sm text-emerald-400">
                               <Icon name="check_circle" size={16} />
                               Reply sent
+                            </div>
+                          )}
+
+                          {taskStatus[msg.id] === 'done' && taskResult[msg.id] && (
+                            <div className="mt-3 flex items-center gap-2 text-sm text-emerald-400">
+                              <Icon name="task_alt" size={16} />
+                              Task created: {taskResult[msg.id].title}
                             </div>
                           )}
 

@@ -54,6 +54,21 @@ ALLOWED_SUBSCRIPTION_TYPES: frozenset[str] = frozenset({
 })
 
 
+
+# ---------- session persistence ----------
+# Maps ToriChat tab IDs to deterministic UUIDs for Claude Code sessions.
+# Once a tab has been used, subsequent turns resume the same session so
+# the model has full conversation context without us flattening messages.
+import uuid as _uuid_mod
+
+_known_sessions: set[str] = set()
+
+
+def _session_id_for_tab(tab_id: str) -> str:
+    """Deterministic UUID from a tab ID so the same tab always resumes."""
+    return str(_uuid_mod.uuid5(_uuid_mod.NAMESPACE_URL, f"torichat:{tab_id}"))
+
+
 # How long to trust a cached detection result.
 _DETECTION_CACHE_TTL_SECONDS: float = 60.0
 
@@ -238,19 +253,51 @@ async def _send_safe(websocket: WebSocket, payload: dict) -> None:
         pass
 
 
-def _handle_stream_event(event: dict) -> tuple[Optional[str], bool, Optional[dict]]:
-    """Extract a text fragment, done flag, and usage dict from a stream event.
+def _handle_stream_event(event: dict) -> tuple[Optional[str], bool, Optional[dict], Optional[dict]]:
+    """Extract text, done flag, usage, and extra WS payloads from a stream event.
 
-    Returns ``(text, done, usage)``:
-      - ``text``: a fragment to forward to the websocket as a token, or None
+    Returns ``(text, done, usage, extra_ws_msg)``:
+      - ``text``: a text fragment to forward as a token, or None
       - ``done``: True when this event signals the end of the response
-      - ``usage``: token usage dict from the final ``result`` event, or None
+      - ``usage``: token usage dict from the final result event, or None
+      - ``extra_ws_msg``: an additional WebSocket message to send (tool calls, thinking), or None
     """
     etype = event.get("type")
 
+    # Real-time streaming deltas (from --include-partial-messages)
+    if etype == "stream_event":
+        inner = event.get("event", {})
+        inner_type = inner.get("type", "")
+
+        if inner_type == "content_block_delta":
+            delta = inner.get("delta", {})
+            delta_type = delta.get("type", "")
+            if delta_type == "text_delta":
+                return delta.get("text") or None, False, None, None
+            if delta_type == "thinking_delta":
+                thinking = delta.get("thinking", "")
+                if thinking:
+                    return None, False, None, {"type": "thinking", "data": thinking}
+
+        elif inner_type == "content_block_start":
+            block = inner.get("content_block", {})
+            if block.get("type") == "thinking":
+                return None, False, None, {"type": "thinking", "data": True}
+            if block.get("type") == "tool_use":
+                return None, False, None, {
+                    "type": "tool_use",
+                    "data": {
+                        "tool": block.get("name", ""),
+                        "id": block.get("id", ""),
+                        "input": {},
+                    },
+                }
+
+        return None, False, None, None
+
+    # Full assistant message (arrives after all deltas when using partial messages,
+    # or as the only text event when not using partial messages)
     if etype == "assistant":
-        # The main body of a response arrives as an assistant message with
-        # content blocks. Pull any text blocks out.
         message = event.get("message") or {}
         blocks = message.get("content") or []
         parts: list[str] = []
@@ -258,26 +305,26 @@ def _handle_stream_event(event: dict) -> tuple[Optional[str], bool, Optional[dic
             if isinstance(block, dict) and block.get("type") == "text":
                 parts.append(str(block.get("text", "")))
         text = "".join(parts)
-        return (text or None), False, None
+        return (text or None), False, None, None
 
     if etype == "result":
         usage_raw = event.get("usage") or {}
         usage = {
             "input_tokens": int(usage_raw.get("input_tokens", 0) or 0),
             "output_tokens": int(usage_raw.get("output_tokens", 0) or 0),
+            "cache_creation_input_tokens": int(usage_raw.get("cache_creation_input_tokens", 0) or 0),
+            "cache_read_input_tokens": int(usage_raw.get("cache_read_input_tokens", 0) or 0),
         }
-        return None, True, usage
+        return None, True, usage, None
 
-    # system/init, rate_limit_event, tool_use, partial deltas, and other
-    # events are not forwarded here. Keeping this simple avoids having to
-    # track every event type the local program might emit.
-    return None, False, None
+    return None, False, None, None
 
 
 async def stream_chat(
     messages: list[dict],
     websocket: WebSocket,
     system_prompt: Optional[str] = None,
+    **kwargs: Any,
 ) -> str:
     """Stream a chat response from the local ``claude`` program.
 
@@ -298,18 +345,56 @@ async def stream_chat(
         )
         return ""
 
-    prompt = _messages_to_prompt(messages, system_prompt)
+    # Session mode: if we have a tab_id, use Claude Code session persistence
+    # instead of flattening messages into a single prompt string.
+    tab_id = kwargs.get("tab_id")
+    saw_partial = False  # track if we got stream deltas (avoid double-counting)
+
+    if tab_id:
+        session_uuid = _session_id_for_tab(tab_id)
+        is_resume = session_uuid in _known_sessions
+        # In session mode, only send the latest user message
+        last_msg = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    last_msg = " ".join(
+                        b.get("text", "") for b in content
+                        if isinstance(b, dict) and b.get("type") == "text"
+                    )
+                else:
+                    last_msg = str(content)
+                break
+        prompt = last_msg or "hello"
+        saw_partial = True  # session mode always uses partial messages
+    else:
+        session_uuid = None
+        is_resume = False
+        prompt = _messages_to_prompt(messages, system_prompt)
 
     args = [
         claude_path,
         "-p",
-        prompt,
         "--output-format",
         "stream-json",
         "--verbose",
-        "--model",
-        "sonnet",
+        "--include-partial-messages",
+        "--dangerously-skip-permissions",
     ]
+    # Session persistence flags
+    if session_uuid:
+        if is_resume:
+            args.extend(["--resume", session_uuid])
+        else:
+            args.extend(["--session-id", session_uuid])
+            if system_prompt:
+                args.extend(["--append-system-prompt", system_prompt])
+        _known_sessions.add(session_uuid)
+
+    # Append the prompt as the final argument
+    args.append(prompt)
+
     env = _build_subprocess_env()
 
     try:
@@ -344,10 +429,13 @@ async def stream_chat(
             except json.JSONDecodeError:
                 continue
 
-            text, done, usage = _handle_stream_event(event)
+            text, done, usage, extra_msg = _handle_stream_event(event)
             if text:
-                full_text += text
+                if not saw_partial:
+                    full_text += text
                 await _send_safe(websocket, {"type": "token", "data": text})
+            if extra_msg:
+                await _send_safe(websocket, extra_msg)
             if done:
                 if usage:
                     final_usage = usage

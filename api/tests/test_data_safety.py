@@ -44,6 +44,8 @@ STORE_PATH_CONSTANTS = {
     "routers.indexing": "INDEX_PATH",
     "routers.knowledge": "KNOWLEDGE_PATH",
     "routers.growth": "GROWTH_PATH",
+    "services.recordings": "RECORDINGS_DIR",
+    "services.imessage": "IMESSAGE_CACHE_DIR",
 }
 
 
@@ -151,25 +153,27 @@ def test_agent_durations_path_is_gitignored():
     )
 
 
-def test_agent_patterns_service_does_not_write():
-    """The pattern analyzer is read-only. This test makes sure nobody
-    accidentally adds a write path that lands inside the repo.
-
-    It scans the module source for calls like ``write_text(``, ``open(``
-    with a write mode, or ``json.dump(``. If you add a legitimate write
-    path, it MUST target ``~/.myos/``. Update this test to whitelist the
-    new write path.
+def test_agent_patterns_proven_templates_path_is_outside_repo():
+    """The proven templates file written by agent_patterns must live under
+    ``~/.myos/`` so a ``git pull`` never clobbers it. The agent_patterns
+    service writes to this path when promoting templates to proven status.
     """
-    module_path = REPO_ROOT / "api" / "services" / "agent_patterns.py"
-    assert module_path.exists()
-    source = module_path.read_text()
-    write_markers = ["write_text(", ".write(", "json.dump(", '"w"', "'w'", '"a"', "'a'"]
-    offenders = [m for m in write_markers if m in source]
-    assert not offenders, (
-        f"services.agent_patterns seems to perform writes ({offenders}). "
-        "The analyzer must stay read-only. If you are adding persistent state, "
-        "route it to ~/.myos/ and update this test."
+    from services import agent_patterns
+
+    path: Path = agent_patterns.PROVEN_TEMPLATES_PATH
+    assert isinstance(path, Path)
+    assert not _is_inside_repo(path), (
+        f"agent_patterns.PROVEN_TEMPLATES_PATH = {path} lives inside the repo. "
+        "Move it under ~/.myos/ so user data is safe from git pull."
     )
+    home = Path.home().resolve()
+    expected_prefix = home / ".myos"
+    try:
+        path.resolve().relative_to(expected_prefix)
+    except ValueError:
+        pytest.fail(
+            f"agent_patterns.PROVEN_TEMPLATES_PATH = {path} is not under {expected_prefix}."
+        )
 
 
 def test_myos_home_dir_is_the_canonical_location():

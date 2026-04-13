@@ -134,6 +134,49 @@ async def test_activity_unknown_event_gets_fallback_label(client):
     assert event["category"] == "other"
 
 
+
+@pytest.mark.asyncio
+async def test_activity_filters_hidden_events(client):
+    """Noise events like chat.completion and tack.unknown should be filtered out."""
+    with patch("routers.activity.ostk") as mock_ostk:
+        mock_ostk.get_history = AsyncMock(return_value=[
+            {"timestamp": "2026-04-06T18:00:00Z", "event": "task.added", "detail": "real event"},
+            {"timestamp": "2026-04-06T18:00:01Z", "event": "chat.completion", "detail": "noise"},
+            {"timestamp": "2026-04-06T18:00:02Z", "event": "tool.bash", "detail": "noise"},
+            {"timestamp": "2026-04-06T18:00:03Z", "event": "tack.unknown", "detail": "input=bg-white"},
+            {"timestamp": "2026-04-06T18:00:04Z", "event": "heartbeat_injected", "detail": "noise"},
+        ])
+        resp = await client.get("/api/activity")
+
+    data = resp.json()
+    assert data["count"] == 1
+    assert data["events"][0]["event"] == "task.added"
+
+
+@pytest.mark.asyncio
+async def test_activity_tack_resolved_has_readable_detail(client):
+    """tack.resolved events should have human-readable detail text."""
+    with patch("routers.activity.ostk") as mock_ostk:
+        mock_ostk.get_history = AsyncMock(return_value=[
+            {"timestamp": "2026-04-06T18:00:00Z", "event": "tack.resolved", "detail": "input=:compile suggestions=[]"},
+        ])
+        resp = await client.get("/api/activity")
+
+    event = resp.json()["events"][0]
+    assert event["label"] == "Command resolved"
+    assert event["category"] == "system"
+    assert event["detail"].startswith("Ran: ")
+
+
+@pytest.mark.asyncio
+async def test_activity_known_events_all_have_labels(client):
+    """Every event type in EVENT_LABELS should produce a human-readable label."""
+    from routers.activity import EVENT_LABELS
+    for event_type, label in EVENT_LABELS.items():
+        assert label != event_type, f"{event_type} label is just the raw type"
+        assert label[0].isupper(), f"{event_type} label should start with a capital letter"
+
+
 # --- OstkService.get_history unit tests ---
 
 

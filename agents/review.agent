@@ -1,4 +1,4 @@
-# Agentfile — code review
+# Reads through code changes and flags bugs, missing edge cases, style issues, and security concerns. Gives clear, actionable feedback.
 # Review code for bugs, style issues, and improvement opportunities.
 
 FROM auto

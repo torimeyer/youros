@@ -38,7 +38,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     selector: '[data-tour="agents"]',
     title: 'Agents',
-    description: 'Spawn background AI agents to work on tasks for you. See their permissions, delegate tasks, and track progress.',
+    description: 'Spawn background AI agents that work on tasks for you. See what they are allowed to do, hand off work, and track their progress.',
     route: '/agents',
     position: 'bottom',
   },

@@ -5,11 +5,16 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from services.google_auth import get_email, is_authenticated
 from services import gmail as gmail_service
 
 router = APIRouter(tags=["gmail"])
+
+
+class EmailToTaskRequest(BaseModel):
+    message_id: str
 
 
 @router.get("/gmail/auth/status")
@@ -138,3 +143,77 @@ async def gmail_mark_read(message_id: str):
         ) from exc
 
     return {"ok": True}
+
+
+@router.post("/gmail/to-task")
+async def gmail_to_task(body: EmailToTaskRequest):
+    """Convert a Gmail message into a task.
+
+    Reads the email content, uses Claude to extract a concise task title
+    and description, then creates the task via ostk.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Gmail.")
+
+    try:
+        email = await gmail_service.get_message_content(body.message_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not read the email: {exc}",
+        ) from exc
+
+    # Use Claude to extract a task title and description from the email.
+    from services.meeting_prep import _call_claude
+
+    subject = email.get("subject", "(no subject)")
+    sender = email.get("from_name") or email.get("from_email", "")
+    body_text = email.get("body") or email.get("snippet", "")
+    # Truncate very long emails so the prompt stays reasonable.
+    if len(body_text) > 2000:
+        body_text = body_text[:2000] + "..."
+
+    prompt = (
+        f"I received an email from {sender} with subject: {subject}\n\n"
+        f"Email body:\n{body_text}\n\n"
+        "Extract a clear, actionable task from this email. Return EXACTLY two lines:\n"
+        "Line 1: A short task title (under 80 characters)\n"
+        "Line 2: A one-sentence description of what needs to be done\n\n"
+        "No bullet points, no numbering, no labels. Just the title on line 1 "
+        "and the description on line 2. Plain language, no jargon."
+    )
+
+    try:
+        result = await _call_claude(prompt)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not generate task from email: {exc}",
+        ) from exc
+
+    # Parse the two-line response.
+    lines = [l.strip() for l in result.strip().splitlines() if l.strip()]
+    title = lines[0] if lines else f"Follow up on: {subject}"
+    description = lines[1] if len(lines) > 1 else f"Email from {sender} about: {subject}"
+
+    # Create the task via ostk.
+    from services.ostk import ostk, OstkError
+    from services.task_labeling import schedule_auto_labels, extract_task_id
+
+    try:
+        add_result = await ostk.add_task(title, "P1", description=description)
+    except OstkError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not create task: {exc}",
+        ) from exc
+
+    task_id = extract_task_id(add_result)
+    schedule_auto_labels(task_id, title, description)
+
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "title": title,
+        "description": description,
+    }

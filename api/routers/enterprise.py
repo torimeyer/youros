@@ -6,12 +6,16 @@ and compliance audit export. All endpoints are prefixed with /enterprise.
 
 from __future__ import annotations
 
+import secrets
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from services import enterprise_store
+from services.policy_enforcement import ISOLATION_LEVELS
+from services.session import create_session, verify_session, SESSION_COOKIE_NAME
 
 router = APIRouter(tags=["enterprise"])
 
@@ -39,6 +43,20 @@ class PolicyUpdate(BaseModel):
     require_approval_above: Optional[float] = None
     allowed_models: Optional[list] = None
     audit_retention_days: Optional[int] = None
+
+
+class ApiKeySet(BaseModel):
+    provider: str
+    key: str
+
+
+class OrgTemplateCreate(BaseModel):
+    name: str
+    description: str = ""
+    icon: str = "smart_toy"
+    prompt_template: str = ""
+    model: str = "sonnet"
+    budget: float = 2.0
 
 
 @router.get("/enterprise")
@@ -118,6 +136,67 @@ async def update_policies(body: PolicyUpdate):
     return {"policies": policies}
 
 
+# --- Org-level API keys ---
+
+@router.post("/enterprise/api-keys")
+async def set_api_key(body: ApiKeySet):
+    """Admin sets an org-level API key for a provider (e.g. Anthropic, Gemini)."""
+    if not enterprise_store.is_enterprise():
+        raise HTTPException(status_code=400, detail="Enterprise mode must be active first")
+    try:
+        enterprise_store.set_org_api_key(body.provider, body.key)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "provider": body.provider.lower()}
+
+
+@router.get("/enterprise/api-keys")
+async def list_api_keys():
+    """List which providers have org keys configured. Never returns key values."""
+    providers = enterprise_store.list_org_api_key_providers()
+    return {"providers": providers}
+
+
+@router.delete("/enterprise/api-keys/{provider}")
+async def delete_api_key(provider: str):
+    """Remove the org-level API key for a provider."""
+    if not enterprise_store.is_enterprise():
+        raise HTTPException(status_code=400, detail="Enterprise mode must be active first")
+    if enterprise_store.delete_org_api_key(provider):
+        return {"ok": True}
+    raise HTTPException(status_code=404, detail="No key found for that provider")
+
+
+# --- Org-level shared templates ---
+
+@router.get("/enterprise/templates")
+async def list_org_templates():
+    """List shared org-level agent templates."""
+    return {"templates": enterprise_store.list_org_templates()}
+
+
+@router.post("/enterprise/templates")
+async def create_org_template(body: OrgTemplateCreate):
+    """Admin creates a shared org template."""
+    if not enterprise_store.is_enterprise():
+        raise HTTPException(status_code=400, detail="Enterprise mode must be active first")
+    try:
+        tpl = enterprise_store.add_org_template(body.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"template": tpl}
+
+
+@router.delete("/enterprise/templates/{template_id}")
+async def delete_org_template(template_id: str):
+    """Admin removes a shared org template."""
+    if not enterprise_store.is_enterprise():
+        raise HTTPException(status_code=400, detail="Enterprise mode must be active first")
+    if enterprise_store.delete_org_template(template_id):
+        return {"ok": True}
+    raise HTTPException(status_code=404, detail="Template not found")
+
+
 # --- Audit export ---
 
 @router.get("/enterprise/audit")
@@ -147,6 +226,182 @@ async def export_audit():
         "total": len(events),
         "enterprise": enterprise_store.is_enterprise(),
     }
+
+
+# --- User session ---
+
+
+class InviteCreate(BaseModel):
+    email: str
+    role: str = "member"
+
+
+@router.post("/enterprise/invite")
+async def create_invite(body: InviteCreate, request: Request):
+    """Admin creates an invite link for a new team member."""
+    from services.auth import get_current_user
+
+    user = get_current_user(request)
+    if user and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can invite members")
+
+    if not enterprise_store.is_enterprise():
+        raise HTTPException(status_code=400, detail="Enterprise mode must be active first")
+
+    import os
+
+    token = secrets.token_urlsafe(32)
+    try:
+        enterprise_store.add_invite(body.email, body.role, token)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    invite_url = f"{frontend_url}/invite/{token}"
+    return {"invite_url": invite_url, "email": body.email}
+
+
+@router.get("/enterprise/invite/{token}")
+async def accept_invite(token: str):
+    """Accept an invite link, add user as member, redirect to login."""
+    import os
+
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+
+    invite = enterprise_store.consume_invite(token)
+    if not invite:
+        raise HTTPException(
+            status_code=404, detail="Invalid or expired invite link"
+        )
+
+    session_token = create_session(
+        email=invite["email"],
+        role=invite.get("role", "member"),
+        member_id=invite["id"],
+        org_id=invite.get("org_id", ""),
+    )
+
+    response = RedirectResponse(
+        url=f"{frontend_url}/?invite_accepted=true"
+    )
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_token,
+        httponly=True,
+        samesite="lax",
+        max_age=86400,
+        path="/",
+    )
+    return response
+
+
+@router.get("/enterprise/invites")
+async def list_invites(request: Request):
+    """List pending invites. Admin only."""
+    from services.auth import get_current_user
+
+    user = get_current_user(request)
+    if user and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view invites")
+
+    return {"invites": enterprise_store.list_pending_invites()}
+
+
+class MagicLinkRequest(BaseModel):
+    email: str
+
+
+@router.post("/enterprise/magic-link")
+async def send_magic_link(body: MagicLinkRequest):
+    """Generate a magic link login token for the given email.
+
+    The email must belong to an existing team member. In production
+    the link would be emailed. For now the URL is returned directly
+    so an admin can share it.
+    """
+    if not enterprise_store.is_enterprise():
+        raise HTTPException(status_code=400, detail="Enterprise mode must be active first")
+
+    # Check the email is a registered member
+    members = enterprise_store.list_members()
+    member = next((m for m in members if m["email"].lower() == body.email.lower()), None)
+    if not member:
+        raise HTTPException(status_code=404, detail="No team member with that email")
+
+    token = secrets.token_urlsafe(32)
+    enterprise_store.add_login_token(body.email, token)
+
+    import os
+    base_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
+    login_url = f"{base_url}/api/enterprise/login/{token}"
+
+    return {
+        "result": "Magic link created",
+        "login_url": login_url,
+        "email": body.email,
+    }
+
+
+@router.get("/enterprise/login/{token}")
+async def magic_link_login(token: str):
+    """Consume a magic link token, create a session, set a cookie, and redirect."""
+    import os
+
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+
+    member = enterprise_store.consume_login_token(token)
+    if not member:
+        return RedirectResponse(f"{frontend_url}/settings?login_error=invalid_or_expired")
+
+    org = enterprise_store.get_org()
+    org_id = org.get("id", "") if org else ""
+
+    session_token = create_session(
+        email=member["email"],
+        role=member.get("role", "member"),
+        member_id=member["id"],
+        org_id=org_id,
+    )
+
+    response = RedirectResponse(f"{frontend_url}/settings?login_success=true")
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_token,
+        httponly=True,
+        samesite="lax",
+        max_age=24 * 3600,
+        path="/",
+    )
+    return response
+
+
+@router.get("/enterprise/me")
+async def get_me(request: Request):
+    """Return the current user's identity and enterprise status."""
+    if not enterprise_store.is_enterprise():
+        return {"authenticated": False, "enterprise": False}
+
+    token = request.cookies.get(SESSION_COOKIE_NAME, "")
+    claims = verify_session(token) if token else None
+
+    if not claims:
+        return {"authenticated": False, "enterprise": True}
+
+    return {
+        "authenticated": True,
+        "enterprise": True,
+        "email": claims["sub"],
+        "role": claims.get("role", "member"),
+        "member_id": claims.get("member_id", ""),
+    }
+
+
+@router.post("/enterprise/logout")
+async def logout():
+    """Clear the session cookie and log out."""
+    response = JSONResponse({"result": "logged out"})
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    return response
 
 
 # --- SSO ---
@@ -242,7 +497,36 @@ async def sso_callback(code: str = "", state: str = ""):
         except ValueError:
             pass  # Already a member
 
-    return RedirectResponse(f"{frontend_url}/settings?sso_success=true&sso_email={email}")
+    # Find the member record and create a session
+    member = None
+    for m in enterprise_store.list_members():
+        if m["email"].lower() == email.lower():
+            member = m
+            break
+
+    if not member:
+        return RedirectResponse(f"{frontend_url}/settings?sso_error=member_not_found")
+
+    org = enterprise_store.get_org()
+    org_id = org.get("id", "") if org else ""
+
+    session_token = create_session(
+        email=email,
+        role=member.get("role", "member"),
+        member_id=member["id"],
+        org_id=org_id,
+    )
+
+    response = RedirectResponse(f"{frontend_url}/settings?sso_success=true")
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_token,
+        httponly=True,
+        samesite="lax",
+        max_age=24 * 3600,
+        path="/",
+    )
+    return response
 
 
 # --- Autonomy / Isolation ---
@@ -250,30 +534,6 @@ async def sso_callback(code: str = "", state: str = ""):
 class IsolationUpdate(BaseModel):
     level: str  # "open", "governed", "sealed"
 
-
-ISOLATION_LEVELS = {
-    "open": {
-        "label": "Open",
-        "description": "Full agent access, minimal restrictions. Best for solo use.",
-        "agent_permissions": ["shell", "file:read", "file:write", "file:edit", "web:search", "web:fetch"],
-        "require_approval": False,
-        "allow_destructive": True,
-    },
-    "governed": {
-        "label": "Governed",
-        "description": "Agents need approval for destructive operations. Best for teams.",
-        "agent_permissions": ["shell:readonly", "file:read", "file:edit", "web:search"],
-        "require_approval": True,
-        "allow_destructive": False,
-    },
-    "sealed": {
-        "label": "Sealed",
-        "description": "Strict enforcement. Agents can only read and suggest. Best for compliance.",
-        "agent_permissions": ["file:read", "web:search"],
-        "require_approval": True,
-        "allow_destructive": False,
-    },
-}
 
 
 @router.get("/enterprise/isolation")
@@ -349,7 +609,7 @@ async def generate_agentfile():
     tools = "\n".join(f"TOOL {t}" for t in level_config["agent_permissions"])
 
     agentfile = (
-        f"# Agentfile — {os_name} default agent\n"
+        f"# Agentfile - {os_name} default agent\n"
         f"# Generated by enterprise mode (isolation: {isolation})\n"
         f"# Owner: {user_name or 'not set'}\n"
         f"# Role: {user_role or 'not set'}\n"

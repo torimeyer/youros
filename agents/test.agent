@@ -1,4 +1,4 @@
-# Agentfile — test runner
+# Runs your tests and tells you what passed and what broke. For failures, it reads the code and suggests how to fix them.
 # Run tests, report results, suggest fixes for failures.
 
 FROM auto

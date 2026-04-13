@@ -302,7 +302,7 @@ def test_recommendations_flags_slow_template(patched_paths):
 
 # ---------- recommendations: abandoned fast ----------
 
-def test_recommendations_flags_abandoned_fast_prompts(patched_paths):
+def test_recommendations_flags_abandoned_fast_prompts(patched_paths, monkeypatch):
     state = {
         "bad-prompt-1": {
             "spawned_at": _ts(400),
@@ -328,6 +328,8 @@ def test_recommendations_flags_abandoned_fast_prompts(patched_paths):
         },
     }
     patched_paths["state"].write_text(json.dumps(state))
+    # Give them transcripts so they count as prompt failures, not infra errors
+    monkeypatch.setattr(ap, "_cost_from_transcript", lambda name: 0.01)
 
     recs = ap.recommendations()
     fast = [r for r in recs if r["type"] == "abandoned_fast"]
@@ -335,6 +337,40 @@ def test_recommendations_flags_abandoned_fast_prompts(patched_paths):
     assert fast[0]["severity"] == "warning"
     assert "2 agents" in fast[0]["message"]
     assert "bad-prompt-1" in fast[0]["message"]
+
+
+def test_recommendations_abandoned_infra_not_flagged_as_bad_prompt(patched_paths):
+    """Agents that registered but never ran (no transcript) should be
+    classified as infrastructure failures, not bad prompts."""
+    state = {
+        "api-error-1": {
+            "spawned_at": _ts(400),
+            "abandoned_at": _ts(395),
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+            "status": "abandoned",
+        },
+        "api-error-2": {
+            "spawned_at": _ts(300),
+            "abandoned_at": _ts(280),
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+            "status": "abandoned",
+        },
+    }
+    patched_paths["state"].write_text(json.dumps(state))
+    # Default fixture mocks cost as None (no transcript)
+
+    recs = ap.recommendations()
+    # Should NOT appear as abandoned_fast (bad prompt)
+    fast = [r for r in recs if r["type"] == "abandoned_fast"]
+    assert len(fast) == 0
+    # Should appear as abandoned_infra
+    infra = [r for r in recs if r["type"] == "abandoned_infra"]
+    assert len(infra) == 1
+    assert infra[0]["severity"] == "info"
+    assert "never ran" in infra[0]["message"]
+    assert "api-error-1" in infra[0]["message"]
 
 
 # ---------- recommendations: high-success highlights ----------
@@ -426,3 +462,187 @@ async def test_runs_endpoint_returns_200_and_paginates(patched_paths):
     assert "total" in body
     assert body["limit"] == 10
     assert body["offset"] == 0
+
+
+# ---------- proven templates ----------
+
+def test_proven_templates_empty_by_default(patched_paths, monkeypatch):
+    proven_path = patched_paths["templates"].parent / "proven_templates.json"
+    proven_path.write_text("[]")
+    monkeypatch.setattr(ap, "PROVEN_TEMPLATES_PATH", proven_path)
+
+    result = ap.proven_templates()
+    assert result == []
+
+
+def test_promote_template_success(patched_paths, monkeypatch):
+    """A template with >= 2 runs and >= 75% success can be promoted."""
+    templates = [
+        {"id": "tmpl-good", "name": "Good Template", "model": "sonnet", "budget": 2.0},
+    ]
+    state = {}
+    for i in range(3):
+        state[f"good template-{i}"] = {
+            "spawned_at": f"2026-04-08T12:{i:02d}:00+00:00",
+            "completed_at": f"2026-04-08T12:{i:02d}:30+00:00",
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+            "status": "completed",
+            "template_id": "tmpl-good",
+        }
+    patched_paths["templates"].write_text(json.dumps(templates))
+    patched_paths["state"].write_text(json.dumps(state))
+
+    proven_path = patched_paths["templates"].parent / "proven_templates.json"
+    proven_path.write_text("[]")
+    monkeypatch.setattr(ap, "PROVEN_TEMPLATES_PATH", proven_path)
+
+    entry = ap.promote_template("Good Template")
+    assert entry is not None
+    assert entry["template_name"] == "Good Template"
+    assert entry["success_rate"] == 1.0
+
+    # Check it was saved
+    saved = ap.proven_templates()
+    assert len(saved) == 1
+    assert saved[0]["template_id"] == "tmpl-good"
+
+
+def test_promote_template_rejects_low_success(patched_paths, monkeypatch):
+    """A template with < 75% success should not be promotable."""
+    templates = [
+        {"id": "tmpl-bad", "name": "Bad Template", "model": "sonnet", "budget": 2.0},
+    ]
+    state = {
+        "bad template-a": {
+            "spawned_at": "2026-04-08T12:00:00+00:00",
+            "completed_at": "2026-04-08T12:00:30+00:00",
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+            "status": "completed",
+            "template_id": "tmpl-bad",
+        },
+        "bad template-b": {
+            "spawned_at": "2026-04-08T12:01:00+00:00",
+            "failed_at": "2026-04-08T12:01:20+00:00",
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+            "status": "failed",
+            "template_id": "tmpl-bad",
+        },
+    }
+    patched_paths["templates"].write_text(json.dumps(templates))
+    patched_paths["state"].write_text(json.dumps(state))
+
+    proven_path = patched_paths["templates"].parent / "proven_templates.json"
+    proven_path.write_text("[]")
+    monkeypatch.setattr(ap, "PROVEN_TEMPLATES_PATH", proven_path)
+
+    result = ap.promote_template("Bad Template")
+    assert result is None
+
+
+# ---------- suggested adjustments ----------
+
+def test_suggested_adjustments_flags_consecutive_failures(patched_paths):
+    templates = [
+        {"id": "tmpl-failing", "name": "Failing Template", "model": "sonnet", "budget": 2.0},
+    ]
+    state = {}
+    # 4 consecutive failures, newest first when sorted
+    for i in range(4):
+        state[f"failing template-{i}"] = {
+            "spawned_at": _ts(400 - i * 10),
+            "failed_at": _ts(400 - i * 10 + 5),
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+            "status": "failed",
+            "template_id": "tmpl-failing",
+        }
+    patched_paths["templates"].write_text(json.dumps(templates))
+    patched_paths["state"].write_text(json.dumps(state))
+
+    adjs = ap.suggested_adjustments()
+    assert len(adjs) == 1
+    assert adjs[0]["template_name"] == "Failing Template"
+    assert adjs[0]["consecutive_failures"] == 4
+    # Should always include a review_prompt suggestion
+    types = [s["type"] for s in adjs[0]["suggestions"]]
+    assert "review_prompt" in types
+
+
+def test_suggested_adjustments_empty_when_no_streak(patched_paths):
+    templates = [
+        {"id": "tmpl-mixed", "name": "Mixed Template", "model": "sonnet", "budget": 2.0},
+    ]
+    state = {
+        "mixed template-a": {
+            "spawned_at": _ts(300),
+            "completed_at": _ts(280),
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+            "status": "completed",
+            "template_id": "tmpl-mixed",
+        },
+        "mixed template-b": {
+            "spawned_at": _ts(200),
+            "failed_at": _ts(195),
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+            "status": "failed",
+            "template_id": "tmpl-mixed",
+        },
+        "mixed template-c": {
+            "spawned_at": _ts(100),
+            "completed_at": _ts(80),
+            "budget": "2.0",
+            "model": "claude-sonnet-4-6",
+            "status": "completed",
+            "template_id": "tmpl-mixed",
+        },
+    }
+    patched_paths["templates"].write_text(json.dumps(templates))
+    patched_paths["state"].write_text(json.dumps(state))
+
+    adjs = ap.suggested_adjustments()
+    assert len(adjs) == 0
+
+
+# ---------- proven + adjustments endpoints ----------
+
+@pytest.mark.asyncio
+async def test_proven_endpoint_returns_200(patched_paths, monkeypatch):
+    proven_path = patched_paths["templates"].parent / "proven_templates.json"
+    proven_path.write_text("[]")
+    monkeypatch.setattr(ap, "PROVEN_TEMPLATES_PATH", proven_path)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/agent-patterns/proven")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "proven" in body
+    assert isinstance(body["proven"], list)
+
+
+@pytest.mark.asyncio
+async def test_adjustments_endpoint_returns_200(patched_paths):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/agent-patterns/adjustments")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "adjustments" in body
+    assert isinstance(body["adjustments"], list)
+
+
+@pytest.mark.asyncio
+async def test_promote_endpoint_rejects_unknown_template(patched_paths, monkeypatch):
+    proven_path = patched_paths["templates"].parent / "proven_templates.json"
+    proven_path.write_text("[]")
+    monkeypatch.setattr(ap, "PROVEN_TEMPLATES_PATH", proven_path)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/agent-patterns/promote/NonexistentTemplate")
+    assert resp.status_code == 400

@@ -144,11 +144,88 @@ async def list_tasks(status: Optional[str] = None, priority: Optional[str] = Non
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _clean_task_title(title: str) -> str:
+    """Fix grammar and capitalization in a task title.
+
+    Capitalizes the first letter, fixes common proper nouns (brand names,
+    app names), and cleans up whitespace. No API call, just fast regex
+    so task creation stays instant.
+    """
+    if not title or not title.strip():
+        return title
+
+    t = title.strip()
+
+    # Capitalize first letter
+    t = t[0].upper() + t[1:]
+
+    # Known proper nouns and brand names (case-insensitive match, correct replacement)
+    proper_nouns = {
+        "lego": "Lego",
+        "roblox": "Roblox",
+        "minecraft": "Minecraft",
+        "fortnite": "Fortnite",
+        "nintendo": "Nintendo",
+        "playstation": "PlayStation",
+        "xbox": "Xbox",
+        "iphone": "iPhone",
+        "ipad": "iPad",
+        "macbook": "MacBook",
+        "airpods": "AirPods",
+        "youtube": "YouTube",
+        "tiktok": "TikTok",
+        "instagram": "Instagram",
+        "spotify": "Spotify",
+        "netflix": "Netflix",
+        "amazon": "Amazon",
+        "google": "Google",
+        "gmail": "Gmail",
+        "slack": "Slack",
+        "github": "GitHub",
+        "figma": "Figma",
+        "notion": "Notion",
+        "discord": "Discord",
+        "gameboy": "Game Boy",
+        "game boy": "Game Boy",
+        "pokemon": "Pokemon",
+        "disney": "Disney",
+        "costco": "Costco",
+        "target": "Target",
+        "ikea": "IKEA",
+        "uber": "Uber",
+        "lyft": "Lyft",
+        "doordash": "DoorDash",
+        "grubhub": "Grubhub",
+        "venmo": "Venmo",
+        "paypal": "PayPal",
+        "stripe": "Stripe",
+        "torios": "ToriOS",
+        "myos": "myOS",
+        "ostk": "ostk",
+        "claude": "Claude",
+        "gemini": "Gemini",
+        "anthropic": "Anthropic",
+        "new relic": "New Relic",
+    }
+
+    for wrong, right in proper_nouns.items():
+        # Word boundary match, case insensitive
+        t = re.sub(
+            r'\b' + re.escape(wrong) + r'\b',
+            right,
+            t,
+            flags=re.IGNORECASE,
+        )
+
+    return t
+
+
 @router.post("/tasks")
 async def create_task(body: TaskCreate):
+    clean_title = _clean_task_title(body.title)
     try:
         result = await ostk.add_task(
-            body.title,
+            clean_title,
             body.priority,
             description=body.description or "",
         )
@@ -157,7 +234,7 @@ async def create_task(body: TaskCreate):
 
     # Fire-and-forget auto label suggestion. Never blocks task creation.
     new_id = _extract_task_id(result)
-    schedule_auto_labels(new_id, body.title, body.description or "")
+    schedule_auto_labels(new_id, clean_title, body.description or "")
     return {"result": result, "task_id": new_id}
 
 
@@ -165,9 +242,31 @@ async def create_task(body: TaskCreate):
 async def update_task(task_id: str, body: TaskUpdate):
     try:
         if body.priority:
-            result = await ostk.update_task_priority(task_id, body.priority)
+            result = await ostk.update_task_priority(
+                task_id, body.priority, reason=body.reason
+            )
             return {"result": result}
         raise HTTPException(status_code=400, detail="No update fields provided")
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/tasks/{task_id}/shelve")
+async def shelve_task(task_id: str):
+    """Pause a task so it stays on the board but is hidden from the active view."""
+    try:
+        result = await ostk.shelve_task(task_id)
+        return {"result": result}
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/tasks/{task_id}/unshelve")
+async def unshelve_task(task_id: str):
+    """Resume a previously paused task."""
+    try:
+        result = await ostk.unshelve_task(task_id)
+        return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -338,6 +437,16 @@ async def auto_label_task(task_id: str):
     return {"label_ids": label_ids}
 
 
+# Batch-close guard (needle 317). On 2026-04-11 an agent called this
+# endpoint 13 times in 3 minutes and silently closed tasks that Tori
+# expected to still be open. The guard rejects closes after a short
+# burst so nothing can ever batch-close without going through the
+# audit review flow (which requires one-by-one user approval).
+_CLOSE_WINDOW_SECONDS = 60
+_CLOSE_BURST_LIMIT = 3
+_recent_closes: list[float] = []
+
+
 @router.post("/tasks/{task_id}/close")
 async def close_task(task_id: str, body: TaskClose = TaskClose()):
     """Close a task. ``reason`` is the structured audit tag.
@@ -345,12 +454,34 @@ async def close_task(task_id: str, body: TaskClose = TaskClose()):
     Only accepts the controlled vocabulary ``completed``, ``duplicate`` or
     ``archived`` when present. Anything else is dropped so pre-audit
     callers that still send free-form text continue to work.
+
+    Batch-close guard: rejects the request when more than 3 tasks have
+    been closed in the last 60 seconds. Use the audit review flow for
+    bulk operations so Tori approves each one.
     """
+    import time as _time
+
+    now = _time.time()
+    cutoff = now - _CLOSE_WINDOW_SECONDS
+    # Prune stale entries.
+    while _recent_closes and _recent_closes[0] < cutoff:
+        _recent_closes.pop(0)
+    if len(_recent_closes) >= _CLOSE_BURST_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Too many tasks closed in the last {_CLOSE_WINDOW_SECONDS} seconds. "
+                "Use the Audit review to close tasks in bulk so each one "
+                "gets reviewed first."
+            ),
+        )
+
     allowed_reasons = {"completed", "duplicate", "archived"}
     raw_reason = (body.reason or "").strip()
     structured_reason = raw_reason if raw_reason in allowed_reasons else None
     try:
         result = await ostk.close_task(task_id, closed_reason=structured_reason)
+        _recent_closes.append(now)
         return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -861,3 +992,34 @@ async def remove_label_from_task(task_id: str, label_id: str):
     was_auto = task_labels_store.is_auto_applied(task_id, label_id)
     label_ids = task_labels_store.remove_label(task_id, label_id, mark_rejected=was_auto)
     return {"label_ids": label_ids}
+
+
+@router.get("/tasks/{task_id}/context")
+async def get_task_context(task_id: str):
+    """Return related emails, events, and files for a task.
+
+    Matches by keywords from the task title and description against
+    recent Gmail messages, upcoming Calendar events, and Drive files.
+    Results are cached in memory for 5 minutes.
+    """
+    from services.context_linker import get_linked_context
+
+    # Look up the task to get its title and description
+    try:
+        all_tasks = await ostk.list_tasks()
+    except OstkError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    task = None
+    for t in all_tasks:
+        if t.get("id") == task_id:
+            task = t
+            break
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    title = task.get("title", "")
+    description = task.get("description", "")
+    linked = await get_linked_context(task_id, title, description)
+    return linked

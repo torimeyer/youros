@@ -271,7 +271,7 @@ async def test_delete_idea(client):
 
     assert resp.status_code == 200
     assert "deleted" in resp.json()["result"]
-    mock_ostk.delete_hay.assert_called_once_with("buy groceries")
+    mock_ostk.delete_hay.assert_called_once_with("buy groceries", include_converted=True)
 
 
 @pytest.mark.asyncio
@@ -626,3 +626,30 @@ async def test_answer_endpoint_can_return_another_question(client):
     assert "teams" in body["question"].lower() or "individuals" in body["question"].lower()
     mock_ostk.convert_hay_to_task.assert_not_called()
     mock_ostk.add_task.assert_not_called()
+
+
+# ── Needle 336: ostk compile for idea triage ──────────────────────
+
+
+class TestCompileIdeaTriage:
+    """Test that OstkService.compile_ideas delegates correctly."""
+
+    @pytest.mark.asyncio
+    async def test_compile_ideas_delegates_to_compile_hay(self):
+        """compile_ideas should delegate to compile_hay."""
+        svc = OstkService(cwd="/tmp")
+        mock_compile = AsyncMock(return_value="compiled")
+        with patch.object(svc, "compile_hay", mock_compile):
+            result = await svc.compile_ideas(dry_run=False)
+        assert result == "compiled"
+        mock_compile.assert_called_once_with(dry_run=False)
+
+    @pytest.mark.asyncio
+    async def test_compile_ideas_with_dry_run(self):
+        """compile_ideas passes dry_run through."""
+        svc = OstkService(cwd="/tmp")
+        mock_compile = AsyncMock(return_value="dry run")
+        with patch.object(svc, "compile_hay", mock_compile):
+            result = await svc.compile_ideas(dry_run=True)
+        assert result == "dry run"
+        mock_compile.assert_called_once_with(dry_run=True)

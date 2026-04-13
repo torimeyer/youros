@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
 # Regression test for the tori() shell function in ~/.zshrc.
 #
-# Bug: tori() used npm (npm info / npm install -g) to check and update
-# Claude Code, but Claude Code on this machine is installed via the
-# native installer, not npm. npm would have installed a second copy
-# that the PATH symlink would not resolve to, silently failing to
-# update the real binary. Fix: let "command claude update" handle it.
-#
-# This test enforces two static invariants on the tori() function in
-# ~/.zshrc so the bug cannot regress:
-#   1. tori() MUST invoke "command claude update".
+# Enforces static invariants so known bugs cannot regress:
+#   1. tori() MUST invoke "command claude update" (not npm).
 #   2. tori() MUST NOT invoke "npm install -g @anthropic-ai/claude-code".
+#   3. tori() MUST try "darwin-universal" for ostk downloads (v3.0.0+ naming).
+#   4. tori() MUST NOT hardcode "aarch64-apple-darwin" as the only download path.
+#   5. tori() MUST run "ostk boot" visibly (not redirected to /dev/null).
 
 set -u
 
@@ -53,9 +49,34 @@ if grep -qF 'npm install -g @anthropic-ai/claude-code' <<<"$tori_body"; then
   fail=1
 fi
 
+# Invariant 3: must try "darwin-universal" for ostk downloads.
+# v3.0.0 switched from per-arch tarballs to a universal macOS binary.
+if ! grep -qF 'darwin-universal' <<<"$tori_body"; then
+  echo "FAIL: tori() does not try 'darwin-universal' for ostk downloads." >&2
+  echo "      ostk v3.0.0+ ships a universal macOS binary. The old" >&2
+  echo "      aarch64-apple-darwin naming returns 404 on new releases." >&2
+  fail=1
+fi
+
+# Invariant 4: must NOT hardcode aarch64-apple-darwin as the ONLY download path.
+# It is OK as a fallback, but "darwin-universal" must appear first.
+if grep -qF 'local arch="aarch64-apple-darwin"' <<<"$tori_body"; then
+  echo "FAIL: tori() hardcodes arch='aarch64-apple-darwin' as the sole" >&2
+  echo "      download target. ostk v3.0.0+ uses darwin-universal." >&2
+  fail=1
+fi
+
+# Invariant 5: ostk boot must run visibly (not silenced).
+# The boot output is part of the startup experience.
+if grep -q 'ostk boot.*/dev/null' <<<"$tori_body"; then
+  echo "FAIL: tori() silences 'ostk boot' output. Boot status should" >&2
+  echo "      be visible so the user sees kernel state at startup." >&2
+  fail=1
+fi
+
 if [[ "$fail" -ne 0 ]]; then
   exit 1
 fi
 
-echo "PASS: tori() uses 'command claude update' and does not shell out to npm for Claude Code."
+echo "PASS: tori() updater invariants hold (claude update, darwin-universal, visible boot)."
 exit 0

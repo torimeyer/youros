@@ -124,6 +124,22 @@ export default function Calendar() {
   const [expandedPrep, setExpandedPrep] = useState<Record<string, boolean>>({})
   const [apiNotEnabled, setApiNotEnabled] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
+  const [briefingTaskStatus, setBriefingTaskStatus] = useState<Record<string, 'loading' | 'done' | 'error'>>({})
+  const [briefingTaskCount, setBriefingTaskCount] = useState<Record<string, number>>({})
+
+  const handleCreateTasksFromBriefing = async (eventId: string) => {
+    setBriefingTaskStatus((prev) => ({ ...prev, [eventId]: 'loading' }))
+    try {
+      const res = await api.post<{ ok: boolean; tasks_created: number; tasks: { task_id: string; title: string }[] }>(
+        `/meeting-prep/${eventId}/create-tasks`,
+        {},
+      )
+      setBriefingTaskStatus((prev) => ({ ...prev, [eventId]: 'done' }))
+      setBriefingTaskCount((prev) => ({ ...prev, [eventId]: res.tasks_created }))
+    } catch {
+      setBriefingTaskStatus((prev) => ({ ...prev, [eventId]: 'error' }))
+    }
+  }
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -227,7 +243,7 @@ export default function Calendar() {
     }
   }
 
-  const cardClass = 'bg-slate-900/40 border border-slate-800 p-4 rounded-xl'
+  const cardClass = 'bg-slate-900/40 border border-slate-800 p-3 sm:p-4 rounded-xl'
 
   // Group events by day. ``toISOString()`` would give UTC, so at 9pm
   // PDT on April 10 the UTC date is already April 11 and an event at
@@ -249,7 +265,7 @@ export default function Calendar() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-20 p-8 flex items-center gap-2 text-slate-400">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex items-center gap-2 text-slate-400">
           <Icon name="progress_activity" size={20} className="animate-spin" />
           Loading...
         </div>
@@ -261,8 +277,8 @@ export default function Calendar() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-20 p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-slate-800 p-8 rounded-2xl">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
+          <div className="bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl">
             <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center mb-4">
               <Icon name="calendar_month" className="text-blue-400" size={24} />
             </div>
@@ -310,8 +326,8 @@ export default function Calendar() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-20 p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-amber-800/40 p-8 rounded-2xl">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
+          <div className="bg-slate-900/40 border border-amber-800/40 p-5 sm:p-8 rounded-2xl">
             <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
               <Icon name="warning" className="text-amber-400" size={24} />
             </div>
@@ -345,11 +361,11 @@ export default function Calendar() {
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Calendar" />
-      <div className="pt-20 p-8">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         {/* Header row */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-2xl font-bold">Calendar</h1>
+            <h1 className="text-xl sm:text-2xl font-bold">Calendar</h1>
             {authStatus.email && (
               <p className="text-sm text-slate-400 mt-0.5">{authStatus.email}</p>
             )}
@@ -465,13 +481,30 @@ export default function Calendar() {
                     {briefing && expanded && (
                       <div className="ml-[88px] bg-violet-500/10 border border-violet-500/20 rounded-xl p-3 space-y-2">
                         <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
-                        <button
-                          onClick={() => navigator.clipboard.writeText(briefing)}
-                          className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
-                        >
-                          <Icon name="content_copy" size={12} />
-                          Copy
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => navigator.clipboard.writeText(briefing)}
+                            className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+                          >
+                            <Icon name="content_copy" size={12} />
+                            Copy
+                          </button>
+                          <button
+                            onClick={() => handleCreateTasksFromBriefing(ev.id)}
+                            disabled={briefingTaskStatus[ev.id] === 'loading' || briefingTaskStatus[ev.id] === 'done'}
+                            className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
+                          >
+                            {briefingTaskStatus[ev.id] === 'loading' ? (
+                              <><Icon name="progress_activity" size={12} className="animate-spin" /> Creating tasks...</>
+                            ) : briefingTaskStatus[ev.id] === 'done' ? (
+                              <><Icon name="check_circle" size={12} className="text-green-400" /> {briefingTaskCount[ev.id] || 0} tasks created</>
+                            ) : briefingTaskStatus[ev.id] === 'error' ? (
+                              <><Icon name="error" size={12} className="text-red-400" /> Failed</>
+                            ) : (
+                              <><Icon name="add_task" size={12} /> Create tasks from briefing</>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -561,13 +594,30 @@ export default function Calendar() {
                           {briefing && expanded && (
                             <div className="ml-[79px] bg-violet-500/10 border border-violet-500/20 rounded-lg p-2.5 space-y-1.5">
                               <p className="text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
-                              <button
-                                onClick={() => navigator.clipboard.writeText(briefing)}
-                                className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
-                              >
-                                <Icon name="content_copy" size={11} />
-                                Copy
-                              </button>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => navigator.clipboard.writeText(briefing)}
+                                  className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+                                >
+                                  <Icon name="content_copy" size={11} />
+                                  Copy
+                                </button>
+                                <button
+                                  onClick={() => handleCreateTasksFromBriefing(ev.id)}
+                                  disabled={briefingTaskStatus[ev.id] === 'loading' || briefingTaskStatus[ev.id] === 'done'}
+                                  className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
+                                >
+                                  {briefingTaskStatus[ev.id] === 'loading' ? (
+                                    <><Icon name="progress_activity" size={11} className="animate-spin" /> Creating tasks...</>
+                                  ) : briefingTaskStatus[ev.id] === 'done' ? (
+                                    <><Icon name="check_circle" size={11} className="text-green-400" /> {briefingTaskCount[ev.id] || 0} tasks created</>
+                                  ) : briefingTaskStatus[ev.id] === 'error' ? (
+                                    <><Icon name="error" size={11} className="text-red-400" /> Failed</>
+                                  ) : (
+                                    <><Icon name="add_task" size={11} /> Create tasks from briefing</>
+                                  )}
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>

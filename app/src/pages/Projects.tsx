@@ -68,11 +68,11 @@ export default function Projects() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Projects" />
 
-      <div className="pt-20 p-8">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
           <div>
-            <h1 className="text-3xl font-bold mb-1">Projects</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold mb-1">Projects</h1>
             <p className="text-slate-400">
               All directories in the myOS workspace.
             </p>

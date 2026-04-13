@@ -9,9 +9,11 @@ This is NOT machine learning. It is a dumb analyzer that:
 - Computes per-template stats (spawn count, success rate, median duration, best model).
 - Applies a fixed rule set to emit recommendations (underbudgeted, overbudgeted,
   wrong model, slow template, abandoned pattern, high-success template).
+- Detects consecutive failures (3+) and generates suggested adjustments.
+- Identifies consistently successful templates and saves them as "proven".
 
-The analyzer is read-only. It never writes state. If additional state ever needs
-to be persisted it MUST go in ``~/.myos/`` so it survives ``git pull``.
+Proven templates live in ``~/.myos/proven_templates.json`` so they survive
+``git pull``.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from config import OSTK_DIR
 AGENT_STATE_PATH = OSTK_DIR / "agent_state.json"
 AGENT_DURATIONS_PATH = OSTK_DIR / "agent_durations.json"
 AGENT_TEMPLATES_PATH = Path.home() / ".myos" / "agent_templates.json"
+PROVEN_TEMPLATES_PATH = Path.home() / ".myos" / "proven_templates.json"
 
 
 # ---------- low level loaders ----------
@@ -488,23 +491,47 @@ def recommendations() -> list[dict]:
         })
 
     # ---- 5. Abandoned-fast pattern ----
-    # Any agent that abandoned within the first 60 seconds is probably a bad prompt.
-    fast_abandons = [
-        r for r in runs
-        if r["status"] == "abandoned"
-        and r.get("duration_sec") is not None
-        and r["duration_sec"] <= 60
-    ]
-    if fast_abandons:
-        sample_names = ", ".join(r["name"] for r in fast_abandons[:3])
-        more = f" (and {len(fast_abandons) - 3} more)" if len(fast_abandons) > 3 else ""
+    # Agents that abandoned within 60 seconds. Separate real prompt failures
+    # (agent ran but gave up) from infrastructure errors (agent never ran,
+    # e.g. API 500 errors). An agent with cost=None had no transcript, which
+    # means it never got to execute.
+    fast_abandons_prompt = []
+    fast_abandons_infra = []
+    for r in runs:
+        if r["status"] != "abandoned":
+            continue
+        if r.get("duration_sec") is None or r["duration_sec"] > 60:
+            continue
+        if r.get("cost") is not None:
+            fast_abandons_prompt.append(r)
+        else:
+            fast_abandons_infra.append(r)
+
+    if fast_abandons_prompt:
+        sample_names = ", ".join(r["name"] for r in fast_abandons_prompt[:3])
+        more = f" (and {len(fast_abandons_prompt) - 3} more)" if len(fast_abandons_prompt) > 3 else ""
         out.append({
             "type": "abandoned_fast",
             "severity": "warning",
             "message": (
-                f"{len(fast_abandons)} agents gave up in the first minute: "
+                f"{len(fast_abandons_prompt)} agents gave up in the first minute: "
                 f"{sample_names}{more}. These are usually bad prompts. Open each one, "
                 f"check the prompt, and fix whatever is confusing the agent."
+            ),
+            "related_template_id": None,
+            "suggested_value": None,
+        })
+
+    if fast_abandons_infra:
+        sample_names = ", ".join(r["name"] for r in fast_abandons_infra[:3])
+        more = f" (and {len(fast_abandons_infra) - 3} more)" if len(fast_abandons_infra) > 3 else ""
+        out.append({
+            "type": "abandoned_infra",
+            "severity": "info",
+            "message": (
+                f"{len(fast_abandons_infra)} agents registered but never ran: "
+                f"{sample_names}{more}. This usually means the AI provider had an "
+                f"outage or the parent session ended before the agent could start."
             ),
             "related_template_id": None,
             "suggested_value": None,
@@ -526,6 +553,193 @@ def recommendations() -> list[dict]:
             ),
             "related_template_id": s["template_id"],
             "suggested_value": None,
+        })
+
+    return out
+
+
+# ---------- proven templates ----------
+
+def _load_proven_templates() -> list[dict]:
+    import services.agent_patterns as _self
+    data = _load_json(_self.PROVEN_TEMPLATES_PATH, [])
+    return data if isinstance(data, list) else []
+
+
+def _save_proven_templates(templates: list[dict]) -> None:
+    import services.agent_patterns as _self
+    path: Path = _self.PROVEN_TEMPLATES_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    from services.atomic_io import atomic_write_json
+    atomic_write_json(path, templates)
+
+
+def proven_templates() -> list[dict]:
+    """Return all proven (high-confidence) templates.
+
+    Shape per item::
+
+        {
+            "template_name": str,
+            "template_id": str,
+            "model": str,
+            "budget": float,
+            "success_rate": float,
+            "spawn_count": int,
+            "promoted_at": str,   # ISO timestamp
+        }
+    """
+    return _load_proven_templates()
+
+
+def promote_template(template_name: str) -> dict | None:
+    """Promote a template to proven status based on its stats.
+
+    If the template has a good track record (>= 2 runs, >= 75% success),
+    save its winning configuration. Returns the promoted entry, or None
+    if the template was not found or did not qualify.
+    """
+    stats = template_stats()
+    match = None
+    for s in stats:
+        if s["template_name"].lower() == template_name.lower():
+            match = s
+            break
+
+    if not match:
+        return None
+
+    # Threshold: at least 2 runs and >= 75% success
+    if match["spawn_count"] < 2 or match["success_rate"] < 0.75:
+        return None
+
+    templates = _load_custom_templates()
+    tmpl_config = None
+    for t in templates:
+        if t.get("id") == match["template_id"]:
+            tmpl_config = t
+            break
+
+    entry = {
+        "template_name": match["template_name"],
+        "template_id": match["template_id"],
+        "model": match.get("best_model") or (tmpl_config.get("model") if tmpl_config else "sonnet"),
+        "budget": tmpl_config.get("budget", 2.0) if tmpl_config else 2.0,
+        "success_rate": match["success_rate"],
+        "spawn_count": match["spawn_count"],
+        "promoted_at": datetime.now().isoformat(),
+    }
+
+    existing = _load_proven_templates()
+    # Replace if already proven
+    existing = [e for e in existing if e.get("template_id") != match["template_id"]]
+    existing.append(entry)
+    _save_proven_templates(existing)
+
+    return entry
+
+
+def auto_detect_proven() -> list[dict]:
+    """Scan template stats and auto-promote templates that qualify.
+
+    A template qualifies for auto-promotion when it has >= 5 runs
+    and >= 90% success rate. Returns the list of newly promoted entries.
+    """
+    stats = template_stats()
+    existing = _load_proven_templates()
+    existing_ids = {e.get("template_id") for e in existing}
+    newly_promoted: list[dict] = []
+
+    for s in stats:
+        if s["template_id"] in existing_ids:
+            continue
+        if s["spawn_count"] >= 5 and s["success_rate"] >= 0.9:
+            entry = promote_template(s["template_name"])
+            if entry:
+                newly_promoted.append(entry)
+
+    return newly_promoted
+
+
+def suggested_adjustments() -> list[dict]:
+    """Generate suggested adjustments for templates that fail repeatedly.
+
+    When a template has 3+ consecutive failures (most recent runs),
+    suggest changes: different model, higher budget, or prompt review.
+
+    Shape per item::
+
+        {
+            "template_name": str,
+            "template_id": str,
+            "consecutive_failures": int,
+            "suggestions": [
+                {"type": "switch_model", "value": str, "reason": str},
+                {"type": "increase_budget", "value": float, "reason": str},
+                {"type": "review_prompt", "reason": str},
+            ],
+        }
+    """
+    runs = analyze_runs()
+    stats = template_stats()
+    out: list[dict] = []
+
+    for s in stats:
+        tid = s["template_id"]
+        # Get runs for this template, sorted newest first
+        template_runs = [
+            r for r in runs
+            if r.get("template_id") == tid
+        ]
+        # template_runs is already newest-first from analyze_runs()
+        consecutive_fails = 0
+        for r in template_runs:
+            if r["status"] in ("failed", "abandoned"):
+                consecutive_fails += 1
+            else:
+                break
+
+        if consecutive_fails < 3:
+            continue
+
+        suggestions: list[dict] = []
+
+        # 1. Suggest a different model if the current one keeps failing
+        by_model = s.get("by_model") or {}
+        current_model = template_runs[0].get("model", "sonnet") if template_runs else "sonnet"
+        for m, mdata in by_model.items():
+            if m != current_model and mdata.get("success_rate", 0) > 0.5:
+                suggestions.append({
+                    "type": "switch_model",
+                    "value": m,
+                    "reason": f"{m} has a {int(mdata['success_rate'] * 100)}% success rate for this template.",
+                })
+                break
+
+        # 2. Suggest a higher budget if runs are hitting the cap
+        budget_runs = [r for r in template_runs if r.get("cost") is not None and r.get("budget") and r["budget"] > 0]
+        if budget_runs:
+            avg_usage = sum(r["cost"] / r["budget"] for r in budget_runs) / len(budget_runs)
+            if avg_usage > 0.8:
+                max_cost = max(r["cost"] for r in budget_runs)
+                suggested_budget = round(max_cost * 2, 2)
+                suggestions.append({
+                    "type": "increase_budget",
+                    "value": suggested_budget,
+                    "reason": f"Recent runs used over 80% of the budget on average. Try ${suggested_budget:.2f}.",
+                })
+
+        # 3. Always suggest prompt review for 3+ consecutive failures
+        suggestions.append({
+            "type": "review_prompt",
+            "reason": f"{consecutive_fails} failures in a row. The prompt may need to be clearer or simpler.",
+        })
+
+        out.append({
+            "template_name": s["template_name"],
+            "template_id": tid,
+            "consecutive_failures": consecutive_fails,
+            "suggestions": suggestions,
         })
 
     return out

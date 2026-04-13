@@ -151,6 +151,8 @@ async def test_create_task_with_description_round_trip(client):
 
 @pytest.mark.asyncio
 async def test_close_task(client):
+    from routers.tasks import _recent_closes
+    _recent_closes.clear()
     with patch("routers.tasks.ostk") as mock_ostk:
         mock_ostk.close_task = AsyncMock(return_value="closed t-1")
         resp = await client.post("/api/tasks/t-1/close")
@@ -158,6 +160,32 @@ async def test_close_task(client):
     assert resp.status_code == 200
     assert resp.json()["result"] == "closed t-1"
     mock_ostk.close_task.assert_called_once_with("t-1", closed_reason=None)
+
+
+@pytest.mark.asyncio
+async def test_close_task_batch_guard_rejects_rapid_closes(client):
+    """Needle 317: more than 3 closes in 60 seconds must be rejected.
+
+    An agent batch-closed 13 tasks on 2026-04-11 without asking Tori.
+    The guard ensures bulk closes go through the audit review flow.
+    """
+    from routers.tasks import _recent_closes
+    _recent_closes.clear()
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.close_task = AsyncMock(return_value="closed")
+
+        # First 3 closes succeed.
+        for i in range(3):
+            resp = await client.post(f"/api/tasks/t-{i}/close")
+            assert resp.status_code == 200, f"close {i} should succeed"
+
+        # 4th close is rejected with 429.
+        resp = await client.post("/api/tasks/t-extra/close")
+        assert resp.status_code == 429
+        assert "Audit review" in resp.json()["detail"]
+
+    # ostk.close_task was called exactly 3 times, not 4.
+    assert mock_ostk.close_task.call_count == 3
 
 
 # --- POST /api/tasks/{id}/reopen ---
@@ -277,7 +305,7 @@ async def test_update_task_priority(client):
 
     assert resp.status_code == 200
     assert resp.json()["result"] == "updated t-1 priority to P0"
-    mock_ostk.update_task_priority.assert_called_once_with("t-1", "P0")
+    mock_ostk.update_task_priority.assert_called_once_with("t-1", "P0", reason=None)
 
 
 @pytest.mark.asyncio
@@ -1779,3 +1807,82 @@ async def test_auto_label_task_no_labels_assigned(client):
 
     assert resp.status_code == 200
     assert resp.json()["label_ids"] == []
+
+
+# --- POST /api/tasks/{id}/shelve ---
+
+@pytest.mark.asyncio
+async def test_shelve_task(client):
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.shelve_task = AsyncMock(return_value="shelved t-1")
+        resp = await client.post("/api/tasks/t-1/shelve")
+
+    assert resp.status_code == 200
+    assert resp.json()["result"] == "shelved t-1"
+    mock_ostk.shelve_task.assert_called_once_with("t-1")
+
+
+@pytest.mark.asyncio
+async def test_shelve_task_not_found(client):
+    from services.ostk import OstkError
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.shelve_task = AsyncMock(
+            side_effect=OstkError("task 'no-exist' not found")
+        )
+        resp = await client.post("/api/tasks/no-exist/shelve")
+
+    assert resp.status_code == 400
+
+
+# --- POST /api/tasks/{id}/unshelve ---
+
+@pytest.mark.asyncio
+async def test_unshelve_task(client):
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.unshelve_task = AsyncMock(return_value="unshelved t-1")
+        resp = await client.post("/api/tasks/t-1/unshelve")
+
+    assert resp.status_code == 200
+    assert resp.json()["result"] == "unshelved t-1"
+    mock_ostk.unshelve_task.assert_called_once_with("t-1")
+
+
+@pytest.mark.asyncio
+async def test_unshelve_task_not_found(client):
+    from services.ostk import OstkError
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.unshelve_task = AsyncMock(
+            side_effect=OstkError("task 'no-exist' not found")
+        )
+        resp = await client.post("/api/tasks/no-exist/unshelve")
+
+    assert resp.status_code == 400
+
+
+# --- PATCH /api/tasks/{id} with reason ---
+
+@pytest.mark.asyncio
+async def test_update_task_priority_with_reason(client):
+    """When a reason is provided, it is forwarded to ostk."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_priority = AsyncMock(return_value="promoted t-1 to P0")
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={"priority": "P0", "reason": "customer request"},
+        )
+
+    assert resp.status_code == 200
+    mock_ostk.update_task_priority.assert_called_once_with(
+        "t-1", "P0", reason="customer request"
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_task_priority_without_reason(client):
+    """When no reason is provided, reason=None is forwarded."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_priority = AsyncMock(return_value="updated t-2 priority to P1")
+        resp = await client.patch("/api/tasks/t-2", json={"priority": "P1"})
+
+    assert resp.status_code == 200
+    mock_ostk.update_task_priority.assert_called_once_with("t-2", "P1", reason=None)

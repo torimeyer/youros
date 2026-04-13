@@ -53,6 +53,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
+      credentials: 'include',
     })
     if (!res.ok) {
       const text = await res.text()

@@ -23,6 +23,22 @@ vi.mock('../lib/api', async (importOriginal) => {
   }
 })
 
+// jsdom does not provide window.matchMedia. Provide a minimal stub
+// so components that use responsive breakpoints do not crash.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
 import { api, ApiTimeoutError } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
@@ -240,7 +256,7 @@ describe('Agents page - Nudge feature', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText('No active agents.')
+        screen.getByText('No agents running right now.')
       ).toBeInTheDocument()
     })
 
@@ -699,7 +715,7 @@ describe('Agents page - tabs', () => {
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
   })
 
-  it('shows Active, Recent, and Metrics tabs', async () => {
+  it('shows Active, Recent, Insights, and Templates tabs', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
       if (path === '/agents/templates') return mockTemplatesResponse
@@ -711,7 +727,7 @@ describe('Agents page - tabs', () => {
     await waitFor(() => {
       expect(screen.getByText('Active')).toBeInTheDocument()
       expect(screen.getByText('Recent')).toBeInTheDocument()
-      expect(screen.getByText('Metrics')).toBeInTheDocument()
+      expect(screen.getByText('Insights')).toBeInTheDocument()
     })
   })
 
@@ -1111,11 +1127,11 @@ describe('Agents page - first-load state', () => {
 
     expect(await screen.findByTestId('active-agents-loading')).toBeInTheDocument()
     expect(
-      screen.queryByText('No active agents.')
+      screen.queryByText('No agents running right now.')
     ).not.toBeInTheDocument()
     expect(
       screen.queryByText(
-        'No active agents.'
+        'No agents running right now.'
       )
     ).not.toBeInTheDocument()
 
@@ -1149,7 +1165,7 @@ describe('Agents page - first-load state', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText('No active agents.')
+        screen.getByText('No agents running right now.')
       ).toBeInTheDocument()
     })
     expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
@@ -1173,7 +1189,7 @@ describe('Agents page - first-load state', () => {
     })
     expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
     expect(
-      screen.queryByText('No active agents.')
+      screen.queryByText('No agents running right now.')
     ).not.toBeInTheDocument()
   })
 
@@ -1323,11 +1339,11 @@ describe('Agents page - first-load state', () => {
     // first fetch is still pending. They are all driven by allAgents, which
     // starts as []. Without the agentsLoaded gate they would flash.
     expect(
-      screen.queryByText('No active agents.')
+      screen.queryByText('No agents running right now.')
     ).not.toBeInTheDocument()
     expect(
       screen.queryByText(
-        'No active agents.'
+        'No agents running right now.'
       )
     ).not.toBeInTheDocument()
     expect(
@@ -2067,5 +2083,144 @@ describe('Agents page - first-paint budget (needle 299)', () => {
     expect(Array.isArray(persisted)).toBe(true)
     expect(persisted.length).toBe(manyAgents.length)
     expect(persisted[0].name).toBe('agent-1')
+  })
+})
+
+describe('Icon Picker in Template Editor', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path === '/agents/pm-templates') return { templates: [] }
+      if (path === '/agent-patterns/recommendations') return { recommendations: [] }
+      if (path === '/agent-patterns/template-stats') return { stats: [] }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({ result: 'ok' })
+  })
+
+  async function openTemplateEditor() {
+    renderAgents()
+
+    // Navigate to Templates tab
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    // Click New Template card
+    await waitFor(() => {
+      expect(screen.getByText('New Template')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('New Template'))
+
+    // Wait for the modal to appear
+    await waitFor(() => {
+      expect(screen.getByTestId('icon-picker-trigger')).toBeInTheDocument()
+    })
+  }
+
+  it('shows the icon picker trigger with the default icon', async () => {
+    await openTemplateEditor()
+
+    const trigger = screen.getByTestId('icon-picker-trigger')
+    expect(trigger).toBeInTheDocument()
+    // Default icon should be smart_toy
+    expect(trigger.textContent).toContain('smart_toy')
+  })
+
+  it('opens the icon grid dropdown when clicking the trigger', async () => {
+    await openTemplateEditor()
+
+    expect(screen.queryByTestId('icon-picker-dropdown')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('icon-picker-trigger'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('icon-picker-dropdown')).toBeInTheDocument()
+      expect(screen.getByTestId('icon-picker-grid')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking an icon in the grid updates the selection and closes the picker', async () => {
+    await openTemplateEditor()
+
+    // Open the picker
+    fireEvent.click(screen.getByTestId('icon-picker-trigger'))
+    await waitFor(() => {
+      expect(screen.getByTestId('icon-picker-dropdown')).toBeInTheDocument()
+    })
+
+    // Click the "rocket_launch" icon
+    const rocketIcon = screen.getByTestId('icon-option-rocket_launch')
+    fireEvent.click(rocketIcon)
+
+    // Dropdown should close
+    await waitFor(() => {
+      expect(screen.queryByTestId('icon-picker-dropdown')).not.toBeInTheDocument()
+    })
+
+    // The trigger should now show the new icon name
+    expect(screen.getByTestId('icon-picker-trigger').textContent).toContain('rocket_launch')
+  })
+
+  it('search filters the icon grid', async () => {
+    await openTemplateEditor()
+
+    // Open the picker
+    fireEvent.click(screen.getByTestId('icon-picker-trigger'))
+    await waitFor(() => {
+      expect(screen.getByTestId('icon-picker-search')).toBeInTheDocument()
+    })
+
+    // Type a search term
+    const searchInput = screen.getByTestId('icon-picker-search')
+    fireEvent.change(searchInput, { target: { value: 'rocket' } })
+
+    // Only rocket_launch should be visible
+    await waitFor(() => {
+      expect(screen.getByTestId('icon-option-rocket_launch')).toBeInTheDocument()
+    })
+
+    // Other icons should not be visible
+    expect(screen.queryByTestId('icon-option-smart_toy')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('icon-option-code')).not.toBeInTheDocument()
+  })
+
+  it('shows "No matching icons" when search yields no results', async () => {
+    await openTemplateEditor()
+
+    fireEvent.click(screen.getByTestId('icon-picker-trigger'))
+    await waitFor(() => {
+      expect(screen.getByTestId('icon-picker-search')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByTestId('icon-picker-search'), {
+      target: { value: 'zzzznonexistent' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('No matching icons')).toBeInTheDocument()
+    })
+  })
+
+  it('highlights the currently selected icon in the grid', async () => {
+    await openTemplateEditor()
+
+    // Open the picker (default icon is smart_toy)
+    fireEvent.click(screen.getByTestId('icon-picker-trigger'))
+    await waitFor(() => {
+      expect(screen.getByTestId('icon-picker-grid')).toBeInTheDocument()
+    })
+
+    // The smart_toy icon should have the selected styling (ring-1 ring-blue-500)
+    const selectedBtn = screen.getByTestId('icon-option-smart_toy')
+    expect(selectedBtn.className).toContain('ring-blue-500')
+
+    // Another icon should not have the selected styling
+    const otherBtn = screen.getByTestId('icon-option-code')
+    expect(otherBtn.className).not.toContain('ring-blue-500')
   })
 })

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   DndContext,
   DragOverlay,
@@ -26,6 +26,7 @@ import { api } from "../lib/api";
 import SharePopover from "../components/SharePopover";
 import ExportButton from "../components/ExportButton";
 import TasksAuditModal from "../components/TasksAuditModal";
+import RecurringTasksSection from "../components/RecurringTasksSection";
 
 interface Task {
   id: string;
@@ -46,13 +47,13 @@ interface Task {
 }
 
 // A task is "active" (shown under the Open tab and counted in the
-// open/P0/P1/P2 badges) if it is anything other than closed. ostk's
-// state machine produces both "open" and "in_progress" for active
+// open/P0/P1/P2 badges) if it is anything other than closed or shelved.
+// ostk's state machine produces both "open" and "in_progress" for active
 // work, and before this helper existed the page checked strictly
 // for status === "open" so every in_progress task was invisible on
 // the Tasks tab. See needle 277 for the regression context.
 function isActiveTask(t: { status: string }): boolean {
-  return t.status !== "closed";
+  return t.status !== "closed" && t.status !== "shelved";
 }
 
 interface Thread {
@@ -137,7 +138,7 @@ const priorityDotColors: Record<string, string> = {
 
 const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 
-type StatusFilter = "open" | "closed" | "week";
+type StatusFilter = "open" | "closed" | "week" | "recurring" | "shelved";
 
 // First-paint cache (needle 299).
 //
@@ -227,6 +228,7 @@ export default function Tasks() {
   const inputRef = useRef<HTMLInputElement>(null);
   const taskRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const focusParam = searchParams.get("focus");
   const focusAppliedRef = useRef(false);
 
@@ -242,10 +244,16 @@ export default function Tasks() {
   const [loading, setLoading] = useState<boolean>(() => readTasksCache().length === 0);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [detailTab, setDetailTab] = useState<"context" | "history">("context");
+  const [detailTab, setDetailTab] = useState<"context" | "history" | "related">("context");
   const [briefing, setBriefing] = useState<TaskBriefing | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [trace, setTrace] = useState<TaskTrace | null>(null);
+  const [linkedContext, setLinkedContext] = useState<{
+    emails: { id: string; subject: string; from: string; snippet: string }[];
+    events: { id: string; summary: string; start: string }[];
+    files: { id: string; name: string; mimeType: string; webViewLink: string }[];
+  } | null>(null);
+  const [linkedLoading, setLinkedLoading] = useState(false);
   const [traceLoading, setTraceLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
@@ -281,6 +289,18 @@ export default function Tasks() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [auditModalOpen, setAuditModalOpen] = useState(false);
+  // Priority reason prompt: when a user changes priority, we show a small
+  // input asking "Why?" before committing the change. The user can skip it.
+  const [pendingPriorityChange, setPendingPriorityChange] = useState<{
+    taskId: string;
+    priority: string;
+  } | null>(null);
+  const [priorityReason, setPriorityReason] = useState("");
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importSource, setImportSource] = useState<'linear' | 'jira'>('linear');
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<{ ok: boolean; created: number; errors: string[] } | null>(null);
+  const [importFields, setImportFields] = useState<Record<string, string>>({});
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
@@ -404,18 +424,37 @@ export default function Tasks() {
     }
   }, []);
 
+  const fetchLinkedContext = useCallback(async (taskId: string) => {
+    setLinkedLoading(true);
+    setLinkedContext(null);
+    try {
+      const res = await api.get<{
+        emails: { id: string; subject: string; from: string; snippet: string }[];
+        events: { id: string; summary: string; start: string }[];
+        files: { id: string; name: string; mimeType: string; webViewLink: string }[];
+      }>(`/tasks/${taskId}/context`);
+      setLinkedContext(res);
+    } catch {
+      // Silently fail. The Related tab just shows "No related items."
+    } finally {
+      setLinkedLoading(false);
+    }
+  }, []);
+
   const handleTaskClick = useCallback((taskId: string) => {
     if (selectedTaskId === taskId) {
       setSelectedTaskId(null);
       setBriefing(null);
       setTrace(null);
+      setLinkedContext(null);
     } else {
       setSelectedTaskId(taskId);
       setDetailTab("context");
       fetchBriefing(taskId);
       fetchTrace(taskId);
+      fetchLinkedContext(taskId);
     }
-  }, [selectedTaskId, fetchBriefing, fetchTrace]);
+  }, [selectedTaskId, fetchBriefing, fetchTrace, fetchLinkedContext]);
 
   useEffect(() => {
     fetchTasks();
@@ -440,9 +479,11 @@ export default function Tasks() {
     setActiveTab("tasks");
 
     // Make sure the task is visible under the current status filter. If the
-    // focused task is closed but the current filter only shows open, switch.
-    if (match.status === "closed" && statusFilter === "open") {
+    // focused task is closed or shelved but the current filter hides it, switch.
+    if (match.status === "closed" && statusFilter !== "closed") {
       setStatusFilter("closed");
+    } else if (match.status === "shelved" && statusFilter !== "shelved") {
+      setStatusFilter("shelved");
     } else if (isActiveTask(match) && statusFilter === "closed") {
       setStatusFilter("open");
     }
@@ -556,6 +597,34 @@ export default function Tasks() {
     }
   };
 
+  const shelveTask = async (id: string) => {
+    try {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, status: "shelved" } : t))
+      );
+      setOpenActionMenu(null);
+      await api.post(`/tasks/${id}/shelve`);
+      await fetchTasks();
+    } catch (e) {
+      console.error("Failed to pause task:", e);
+      await fetchTasks();
+    }
+  };
+
+  const unshelveTask = async (id: string) => {
+    try {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, status: "open" } : t))
+      );
+      setOpenActionMenu(null);
+      await api.post(`/tasks/${id}/unshelve`);
+      await fetchTasks();
+    } catch (e) {
+      console.error("Failed to resume task:", e);
+      await fetchTasks();
+    }
+  };
+
   const deleteTask = (id: string) => {
     // Cancel any previous pending delete
     if (undoDelete) {
@@ -591,12 +660,24 @@ export default function Tasks() {
   };
 
   const updatePriority = async (id: string, priority: string) => {
+    // Show a small "Why?" prompt so the reason can be logged. The user
+    // can skip it (commits without a reason) or type a short note.
+    setOpenPriorityDropdown(null);
+    setPendingPriorityChange({ taskId: id, priority });
+    setPriorityReason("");
+  };
+
+  const commitPriorityChange = async (skip?: boolean) => {
+    if (!pendingPriorityChange) return;
+    const { taskId, priority } = pendingPriorityChange;
+    const reason = skip ? undefined : priorityReason.trim() || undefined;
+    setPendingPriorityChange(null);
+    setPriorityReason("");
     try {
       setTasks((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, priority } : t))
+        prev.map((t) => (t.id === taskId ? { ...t, priority } : t))
       );
-      setOpenPriorityDropdown(null);
-      await api.patch(`/tasks/${id}`, { priority });
+      await api.patch(`/tasks/${taskId}`, { priority, reason });
     } catch (e) {
       console.error("Failed to update priority:", e);
       await fetchTasks();
@@ -968,6 +1049,8 @@ export default function Tasks() {
     filteredTasks = filteredTasks.filter(isActiveTask);
   } else if (statusFilter === "closed") {
     filteredTasks = filteredTasks.filter((t) => t.status === "closed");
+  } else if (statusFilter === "shelved") {
+    filteredTasks = filteredTasks.filter((t) => t.status === "shelved");
   } else if (statusFilter === "week") {
     filteredTasks = filteredTasks.filter((t) => isActiveTask(t) && isThisWeek(t.created_at));
   }
@@ -988,15 +1071,17 @@ export default function Tasks() {
 
   const openCount = tasks.filter(isActiveTask).length;
   const closedCount = tasks.filter((t) => t.status === "closed").length;
+  const shelvedCount = tasks.filter((t) => t.status === "shelved").length;
   const weekCount = tasks.filter((t) => isActiveTask(t) && isThisWeek(t.created_at)).length;
   const p0Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P0").length;
   const p1Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P1").length;
   const p2Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P2").length;
   const p3Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P3").length;
 
-  const filterCounts: Record<StatusFilter, number> = {
+  const filterCounts: Partial<Record<StatusFilter, number>> = {
     open: openCount,
     closed: closedCount,
+    shelved: shelvedCount,
     week: weekCount,
   };
 
@@ -1248,9 +1333,9 @@ export default function Tasks() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Tasks" />
 
-      <div data-tour="tasks" className="pt-20 p-8 max-w-6xl mx-auto">
+      <div data-tour="tasks" className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-6xl mx-auto">
         {/* Banner */}
-        {banner && (
+        {banner && banner.trim() && (
           <div className="mb-4 px-4 py-3 bg-purple-500/20 border border-purple-500/40 rounded-lg text-sm text-purple-200 flex items-center justify-between">
             <span>{banner}</span>
             <button onClick={() => setBanner(null)} className="text-purple-400 hover:text-white ml-4">
@@ -1260,10 +1345,10 @@ export default function Tasks() {
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="flex flex-wrap items-center gap-4 sm:gap-6">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">Tasks</h1>
+              <h1 className="text-xl sm:text-2xl font-bold">Tasks</h1>
               <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
                 <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                 LIVE
@@ -1297,19 +1382,20 @@ export default function Tasks() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleNext}
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700"
+              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700 min-h-[44px]"
             >
               <Icon name="auto_awesome" className="text-amber-400 text-base" />
-              What should I do next?
+              <span className="hidden sm:inline">What should I do next?</span>
+              <span className="sm:hidden">Next?</span>
             </button>
             <button
               data-testid="label-all-btn"
               onClick={labelAllTasks}
               disabled={labelAllLoading}
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm px-3 py-1.5 rounded-lg border border-slate-700"
+              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm px-3 py-1.5 rounded-lg border border-slate-700 min-h-[44px]"
               title="Auto-label all unlabeled tasks"
             >
               {labelAllLoading ? (
@@ -1317,7 +1403,7 @@ export default function Tasks() {
               ) : (
                 <Icon name="label" className="text-purple-400 text-base" />
               )}
-              {labelAllLoading ? "Labeling..." : "Label all"}
+              <span className="hidden sm:inline">{labelAllLoading ? "Labeling..." : "Label all"}</span>
             </button>
             {labelAllResult && (
               <span className="text-xs text-purple-300 bg-purple-500/10 px-2 py-1 rounded-md border border-purple-500/30">
@@ -1343,7 +1429,7 @@ export default function Tasks() {
                 <SharePopover
                   shareType="task_list"
                   contentIds={filteredTasks.map((t) => t.id)}
-                  title={statusFilter === "open" ? "Open tasks" : statusFilter === "closed" ? "Closed tasks" : "Tasks this week"}
+                  title={statusFilter === "open" ? "Open tasks" : statusFilter === "closed" ? "Closed tasks" : statusFilter === "shelved" ? "Paused tasks" : "Tasks this week"}
                   onClose={() => setShowTaskSharePopover(false)}
                 />
               )}
@@ -1355,6 +1441,13 @@ export default function Tasks() {
                 return `/api/export/tasks?format=${format}&status=${exportStatus}`;
               }}
             />
+            <button
+              onClick={() => { setImportModalOpen(true); setImportResult(null); setImportFields({}); }}
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700"
+              title="Import from Linear or Jira"
+            >
+              <Icon name="download" className="text-slate-400 text-base" />
+            </button>
           </div>
         </div>
 
@@ -1481,7 +1574,7 @@ export default function Tasks() {
         ) : (
           <>
             {/* Quick add input */}
-            <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
               <div className="flex-1 relative">
                 <input
                   ref={inputRef}
@@ -1495,19 +1588,19 @@ export default function Tasks() {
               </div>
               <button
                 onClick={addTask}
-                className="w-9 h-9 flex items-center justify-center bg-blue-500 hover:bg-blue-600 rounded-full text-white"
+                className="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center bg-blue-500 hover:bg-blue-600 rounded-full text-white shrink-0"
               >
                 <Icon name="add" className="text-lg" />
               </button>
             </div>
 
             {/* Filters */}
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
                 <div className="flex items-center gap-1 text-sm">
-                  {(["open", "closed", "week"] as StatusFilter[]).map((f) => (
+                  {(["open", "closed", "shelved", "week"] as StatusFilter[]).map((f) => (
                     <button key={f} className={statusFilterClass(f)} onClick={() => setStatusFilter(f)}>
-                      {f === "week" ? "This week" : f.charAt(0).toUpperCase() + f.slice(1)}
+                      {f === "week" ? "This week" : f === "shelved" ? "Paused" : f.charAt(0).toUpperCase() + f.slice(1)}
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                         statusFilter === f ? "bg-blue-500/30 text-blue-300" : "bg-slate-700 text-slate-500"
                       }`}>
@@ -1515,11 +1608,14 @@ export default function Tasks() {
                       </span>
                     </button>
                   ))}
+                  <button className={statusFilterClass("recurring")} onClick={() => setStatusFilter("recurring")}>
+                    Recurring
+                  </button>
                 </div>
 
-                <div className="w-px h-5 bg-slate-800" />
+                <div className="hidden sm:block w-px h-5 bg-slate-800" />
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {PRIORITIES.map((p) => (
                     <button
                       key={p}
@@ -1539,7 +1635,7 @@ export default function Tasks() {
                 {/* Label filter chips */}
                 {labels.length > 0 && (
                   <>
-                    <div className="w-px h-5 bg-slate-800" />
+                    <div className="hidden sm:block w-px h-5 bg-slate-800" />
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {labels.map((label) => (
                         <button
@@ -1675,8 +1771,13 @@ export default function Tasks() {
               </div>
             )}
 
+            {/* Recurring tasks tab */}
+            {statusFilter === "recurring" && (
+              <RecurringTasksSection showSuggestions />
+            )}
+
             {/* Task list */}
-            <DndContext
+            {statusFilter !== "recurring" && <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
               onDragStart={handleDragStart}
@@ -1752,9 +1853,17 @@ export default function Tasks() {
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-sm ${task.status === "closed" ? "line-through text-slate-500" : ""}`}>
+                        <span className={`text-sm ${task.status === "closed" ? "line-through text-slate-500" : ""} ${task.status === "shelved" ? "text-slate-500" : ""}`}>
                           {task.title}
                         </span>
+                        {task.status === "shelved" && (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/15 text-slate-400 border border-slate-500/30"
+                          >
+                            <Icon name="pause" className="text-[10px]" />
+                            Paused
+                          </span>
+                        )}
                         {task.status === "closed" && task.closed_reason === "completed" && (
                           <span
                             data-testid={`closed-badge-${task.id}`}
@@ -1883,8 +1992,8 @@ export default function Tasks() {
                                 setOpenBuildHelp(openBuildHelp === task.id ? null : task.id);
                               }}
                               className="px-2 py-1.5 text-slate-500 hover:text-slate-200"
-                              title="What is comprehensive build?"
-                              aria-label="What is comprehensive build?"
+                              title="What does this do?"
+                              aria-label="What does this do?"
                             >
                               <Icon name="help_outline" className="text-sm" />
                             </button>
@@ -1901,13 +2010,14 @@ export default function Tasks() {
                             <div
                               ref={buildHelpRef}
                               role="dialog"
-                              aria-label="What is comprehensive build?"
+                              aria-label="What does this do?"
                               className="absolute right-full top-0 mr-2 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-xl z-50 p-4 text-xs text-slate-300 space-y-2"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <div className="font-semibold text-slate-100 text-sm">What is comprehensive build?</div>
+                              <div className="font-semibold text-slate-100 text-sm">What does this do?</div>
                               <p>Comprehensive build spawns an agent that works the way you would want it to:</p>
                               <ol className="list-decimal list-inside space-y-0.5">
+                                <li>Loads workspace context.</li>
                                 <li>Reads the task and plans the approach.</li>
                                 <li>Builds the solution.</li>
                                 <li>Writes tests.</li>
@@ -1929,6 +2039,24 @@ export default function Tasks() {
                             <Icon name="call_split" className="text-sm text-amber-400" />
                             Break into tasks
                           </button>
+                          <div className="border-t border-slate-700 my-1" />
+                          {task.status === "shelved" ? (
+                            <button
+                              onClick={() => unshelveTask(task.id)}
+                              className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                            >
+                              <Icon name="play_arrow" className="text-sm text-green-400" />
+                              Resume
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => shelveTask(task.id)}
+                              className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                            >
+                              <Icon name="pause" className="text-sm text-slate-400" />
+                              Pause
+                            </button>
+                          )}
                           {actionLoading === task.id && (
                             <div className="px-3 py-1 flex items-center gap-2 text-xs text-slate-500">
                               <Icon name="hourglass_empty" className="text-sm animate-spin" />
@@ -2029,7 +2157,34 @@ export default function Tasks() {
 
                   {/* Detail panel (Context + History tabs) */}
                   {selectedTaskId === task.id && (
-                    <div data-testid="briefing-panel" className="ml-8 mt-1 mb-2 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-blue-500/30 rounded-lg p-4 text-sm text-slate-700 dark:text-slate-300">
+                    <div data-testid="briefing-panel" className="ml-0 sm:ml-8 mt-1 mb-2 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-blue-500/30 rounded-lg p-3 sm:p-4 text-sm text-slate-700 dark:text-slate-300">
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <button
+                          onClick={() => spawnAgentForTask(task.id, "comprehensive")}
+                          disabled={actionLoading === task.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
+                        >
+                          <Icon name="code" className="text-sm" />
+                          Comprehensive build
+                        </button>
+                        <button
+                          onClick={() => spawnAgentForTask(task.id, "plan")}
+                          disabled={actionLoading === task.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors disabled:opacity-50"
+                        >
+                          <Icon name="description" className="text-sm" />
+                          Plan
+                        </button>
+                        <button
+                          onClick={() => spawnAgentForTask(task.id, "quick")}
+                          disabled={actionLoading === task.id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
+                        >
+                          <Icon name="bolt" className="text-sm" />
+                          Quick build
+                        </button>
+                      </div>
                       {/* Tab bar */}
                       <div className="flex items-center gap-4 mb-3 border-b border-slate-800 pb-2">
                         <button
@@ -2052,6 +2207,17 @@ export default function Tasks() {
                           }`}
                         >
                           History
+                        </button>
+                        <button
+                          data-testid="related-tab"
+                          onClick={() => setDetailTab("related")}
+                          className={`text-xs font-medium pb-1 ${
+                            detailTab === "related"
+                              ? "text-blue-400 border-b-2 border-blue-400"
+                              : "text-slate-500 hover:text-slate-300"
+                          }`}
+                        >
+                          Related
                         </button>
                       </div>
 
@@ -2305,6 +2471,102 @@ export default function Tasks() {
                         </div>
                       )}
 
+                      {/* Related tab (cross-integration context) */}
+                      {detailTab === "related" && (
+                        <div data-testid="related-panel">
+                          {linkedLoading && (
+                            <div className="flex items-center gap-2 text-slate-400">
+                              <Icon name="hourglass_empty" className="text-base animate-spin" />
+                              Finding related items...
+                            </div>
+                          )}
+                          {!linkedLoading && linkedContext && (
+                            <div className="space-y-4">
+                              {linkedContext.emails.length > 0 && (
+                                <div>
+                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Related emails</h4>
+                                  <div className="space-y-2">
+                                    {linkedContext.emails.map((email) => (
+                                      <div
+                                        key={email.id}
+                                        onClick={() => navigate(`/gmail?thread=${email.id}`)}
+                                        className="flex items-start gap-2 p-2 rounded-md bg-slate-800/50 hover:bg-slate-800 cursor-pointer transition-colors"
+                                      >
+                                        <Icon name="mail" className="text-blue-400 mt-0.5" size={14} />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-slate-200 text-sm truncate">{email.subject}</p>
+                                          <p className="text-slate-500 text-xs">{email.from}</p>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {linkedContext.events.length > 0 && (
+                                <div>
+                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Related events</h4>
+                                  <div className="space-y-2">
+                                    {linkedContext.events.map((ev) => (
+                                      <div
+                                        key={ev.id}
+                                        onClick={() => navigate('/calendar')}
+                                        className="flex items-start gap-2 p-2 rounded-md bg-slate-800/50 hover:bg-slate-800 cursor-pointer transition-colors"
+                                      >
+                                        <Icon name="event" className="text-purple-400 mt-0.5" size={14} />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-slate-200 text-sm">{ev.summary}</p>
+                                          {ev.start && (
+                                            <p className="text-slate-500 text-xs">
+                                              {(() => {
+                                                try {
+                                                  const d = new Date(ev.start);
+                                                  return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' at ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                                                } catch { return ev.start; }
+                                              })()}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {linkedContext.files.length > 0 && (
+                                <div>
+                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Related files</h4>
+                                  <div className="space-y-2">
+                                    {linkedContext.files.map((file) => (
+                                      <a
+                                        key={file.id}
+                                        href={file.webViewLink || '#'}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-start gap-2 p-2 rounded-md bg-slate-800/50 hover:bg-slate-800 transition-colors block"
+                                      >
+                                        <Icon name="description" className="text-emerald-400 mt-0.5" size={14} />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-slate-200 text-sm truncate">{file.name}</p>
+                                        </div>
+                                        <Icon name="open_in_new" className="text-slate-500" size={12} />
+                                      </a>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {linkedContext.emails.length === 0 && linkedContext.events.length === 0 && linkedContext.files.length === 0 && (
+                                <p className="text-slate-500">No related emails, events, or files found for this task.</p>
+                              )}
+                            </div>
+                          )}
+                          {!linkedLoading && !linkedContext && (
+                            <p className="text-slate-500">No related items found.</p>
+                          )}
+                        </div>
+                      )}
+
                       {/* Link a commit to this task */}
                       <div className="mt-4 pt-3 border-t border-slate-800">
                         {commitTaskId === task.id ? (
@@ -2379,7 +2641,7 @@ export default function Tasks() {
                 </div>
               ) : null}
             </DragOverlay>
-            </DndContext>
+            </DndContext>}
 
             {/* Footer */}
             <div className="flex items-center justify-between mt-6 text-sm">
@@ -2407,7 +2669,182 @@ export default function Tasks() {
         }}
       />
 
+      {/* Import modal */}
+      {importModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setImportModalOpen(false)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Import Tasks</h2>
+              <button onClick={() => setImportModalOpen(false)} className="text-slate-400 hover:text-white">
+                <Icon name="close" size={20} />
+              </button>
+            </div>
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => { setImportSource('linear'); setImportResult(null); setImportFields({}); }}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${importSource === 'linear' ? 'bg-purple-500/20 text-purple-300' : 'bg-slate-800 text-slate-400 hover:text-slate-300'}`}
+              >
+                Linear
+              </button>
+              <button
+                onClick={() => { setImportSource('jira'); setImportResult(null); setImportFields({}); }}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${importSource === 'jira' ? 'bg-blue-500/20 text-blue-300' : 'bg-slate-800 text-slate-400 hover:text-slate-300'}`}
+              >
+                Jira
+              </button>
+            </div>
+
+            {importSource === 'linear' ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">API Key</label>
+                  <input
+                    type="password"
+                    value={importFields.linear_key || ''}
+                    onChange={(e) => setImportFields({ ...importFields, linear_key: e.target.value })}
+                    placeholder="lin_api_..."
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Team ID</label>
+                  <input
+                    type="text"
+                    value={importFields.linear_team || ''}
+                    onChange={(e) => setImportFields({ ...importFields, linear_team: e.target.value })}
+                    placeholder="e.g. abc123"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Jira domain</label>
+                  <input
+                    type="text"
+                    value={importFields.jira_domain || ''}
+                    onChange={(e) => setImportFields({ ...importFields, jira_domain: e.target.value })}
+                    placeholder="yourcompany.atlassian.net"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={importFields.jira_email || ''}
+                    onChange={(e) => setImportFields({ ...importFields, jira_email: e.target.value })}
+                    placeholder="you@company.com"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">API Token</label>
+                  <input
+                    type="password"
+                    value={importFields.jira_token || ''}
+                    onChange={(e) => setImportFields({ ...importFields, jira_token: e.target.value })}
+                    placeholder="Your Jira API token"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Project Key</label>
+                  <input
+                    type="text"
+                    value={importFields.jira_project || ''}
+                    onChange={(e) => setImportFields({ ...importFields, jira_project: e.target.value })}
+                    placeholder="e.g. PROJ"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                  />
+                </div>
+              </div>
+            )}
+
+            {importResult && (
+              <div className={`mt-4 p-3 rounded-lg text-sm ${importResult.errors.length > 0 ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' : 'bg-green-500/10 border border-green-500/30 text-green-300'}`}>
+                {importResult.created > 0 && <span>Created {importResult.created} tasks. </span>}
+                {importResult.errors.map((e, i) => <span key={i} className="block">{e}</span>)}
+              </div>
+            )}
+
+            <button
+              onClick={async () => {
+                setImportLoading(true);
+                setImportResult(null);
+                try {
+                  if (importSource === 'linear') {
+                    const res = await api.post<{ ok: boolean; created: number; errors: string[] }>('/import/linear', {
+                      api_key: importFields.linear_key || '',
+                      team_id: importFields.linear_team || '',
+                    });
+                    setImportResult(res);
+                  } else {
+                    const res = await api.post<{ ok: boolean; created: number; errors: string[] }>('/import/jira', {
+                      domain: importFields.jira_domain || '',
+                      email: importFields.jira_email || '',
+                      api_token: importFields.jira_token || '',
+                      project_key: importFields.jira_project || '',
+                    });
+                    setImportResult(res);
+                  }
+                  fetchTasks();
+                } catch (err: unknown) {
+                  const message = err instanceof Error ? err.message : 'Import failed';
+                  setImportResult({ ok: false, created: 0, errors: [message] });
+                } finally {
+                  setImportLoading(false);
+                }
+              }}
+              disabled={importLoading}
+              className="mt-4 w-full py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium text-sm transition-colors disabled:opacity-50"
+            >
+              {importLoading ? 'Importing...' : `Import from ${importSource === 'linear' ? 'Linear' : 'Jira'}`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Undo delete toast */}
+      {/* Priority reason prompt */}
+      {pendingPriorityChange && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-5 w-80 space-y-3">
+            <div className="text-sm font-medium text-slate-200">
+              Why are you changing the priority?
+            </div>
+            <p className="text-xs text-slate-400">Optional. Press Skip to change without a note.</p>
+            <input
+              type="text"
+              value={priorityReason}
+              onChange={(e) => setPriorityReason(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitPriorityChange();
+                if (e.key === "Escape") commitPriorityChange(true);
+              }}
+              placeholder="e.g. customer request, blocking release..."
+              className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              autoFocus
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => commitPriorityChange(true)}
+                className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Skip
+              </button>
+              <button
+                onClick={() => commitPriorityChange()}
+                className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {undoDelete && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg">
           <span>Task deleted.</span>

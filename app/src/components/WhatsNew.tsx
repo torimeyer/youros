@@ -55,7 +55,7 @@ export default function WhatsNew() {
       <span className="text-sm font-medium">What&apos;s New</span>
       {unseenCount > 0 && (
         <span
-          className="ml-auto min-w-[16px] h-4 bg-yellow-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1"
+          className="ml-auto min-w-[16px] h-4 bg-blue-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1"
           data-testid="whats-new-badge"
         >
           {unseenCount > 9 ? '9+' : unseenCount}

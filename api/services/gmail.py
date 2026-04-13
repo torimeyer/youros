@@ -21,6 +21,37 @@ GMAIL_CACHE_DIR = MYOS_DIR / "gmail_cache"
 INBOX_CACHE_PATH = GMAIL_CACHE_DIR / "inbox.json"
 FULL_INBOX_CACHE_PATH = GMAIL_CACHE_DIR / "inbox_full.json"
 
+# Circuit breaker. After 2 consecutive Gmail API failures, stop trying
+# for 5 minutes. Without this, every page load (briefing, sidebar unread
+# badge, Gmail page) triggers a 25-second blocking call that poisons the
+# backend event loop. The breaker resets on any successful call.
+_BREAKER_THRESHOLD = 2
+_BREAKER_COOLDOWN = 300  # seconds
+_breaker_failures: int = 0
+_breaker_tripped_at: float = 0.0
+
+
+def _breaker_is_open() -> bool:
+    """Return True when the circuit breaker is open (Gmail calls blocked)."""
+    if _breaker_failures < _BREAKER_THRESHOLD:
+        return False
+    if _breaker_tripped_at and (time.time() - _breaker_tripped_at) > _BREAKER_COOLDOWN:
+        return False  # cooldown expired, allow a retry
+    return True
+
+
+def _breaker_record_failure() -> None:
+    global _breaker_failures, _breaker_tripped_at
+    _breaker_failures += 1
+    if _breaker_failures >= _BREAKER_THRESHOLD:
+        _breaker_tripped_at = time.time()
+
+
+def _breaker_record_success() -> None:
+    global _breaker_failures, _breaker_tripped_at
+    _breaker_failures = 0
+    _breaker_tripped_at = 0.0
+
 # 5 minutes TTL for the unread-only cache (used by the briefing and the
 # unread count shown on /api/gmail/auth/status).
 _CACHE_TTL_SECONDS = 300
@@ -242,16 +273,28 @@ async def get_unread_summary(max_results: int = 20) -> list[dict]:
 
     Checks the on-disk cache first (5 min TTL, empty results treated as a
     miss so a transient error does not pin the UI to an empty inbox). On
-    cache miss, calls the Gmail API in a thread so the async event loop
-    is not blocked.
+    cache miss, calls the Gmail API in a thread behind a 15 second timeout
+    so the async event loop is not blocked. Circuit breaker stops attempts
+    after 2 consecutive failures for 5 minutes.
     """
     cached = _load_cache()
     if cached is not None:
         return cached
 
-    messages = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: _fetch_unread_sync(max_results)
-    )
+    if _breaker_is_open():
+        return []
+
+    try:
+        messages = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None, lambda: _fetch_unread_sync(max_results)
+            ),
+            timeout=15.0,
+        )
+        _breaker_record_success()
+    except (asyncio.TimeoutError, Exception):
+        _breaker_record_failure()
+        return []
     _save_cache(messages)
     return messages
 
@@ -359,6 +402,13 @@ async def get_inbox_messages(cap: int = FULL_INBOX_CAP) -> list[dict]:
     if cached is not None:
         return cached
 
+    # Circuit breaker: if Gmail has failed twice in a row, don't try
+    # again for 5 minutes. Return stale cache or empty list instead of
+    # hanging for 25 seconds on every page load.
+    if _breaker_is_open():
+        stale = _load_full_inbox_cache(allow_stale=True)
+        return stale if stale is not None else []
+
     try:
         messages = await asyncio.wait_for(
             asyncio.get_event_loop().run_in_executor(
@@ -366,12 +416,15 @@ async def get_inbox_messages(cap: int = FULL_INBOX_CAP) -> list[dict]:
             ),
             timeout=25.0,
         )
+        _breaker_record_success()
     except asyncio.TimeoutError:
+        _breaker_record_failure()
         stale = _load_full_inbox_cache(allow_stale=True)
         if stale is not None:
             return stale
         raise
     except Exception:
+        _breaker_record_failure()
         stale = _load_full_inbox_cache(allow_stale=True)
         if stale is not None:
             return stale
@@ -420,6 +473,96 @@ async def mark_read(message_id: str) -> None:
     # Invalidate both caches so the next fetch reflects the change.
     _clear_cache()
     invalidate_full_inbox_cache()
+
+
+def _fetch_message_full_sync(message_id: str) -> dict:
+    """Synchronous call to fetch a single message with full body text."""
+    service = _build_gmail_service()
+    msg = (
+        service.users().messages()
+        .get(
+            userId="me",
+            id=message_id,
+            format="full",
+        )
+        .execute()
+    )
+    return msg
+
+
+def _extract_body_text(msg: dict) -> str:
+    """Extract the plain-text body from a full Gmail message.
+
+    Walks the MIME parts looking for text/plain first, then falls back
+    to text/html (stripped to plain text). Returns the snippet as a last
+    resort.
+    """
+    payload = msg.get("payload", {})
+
+    def _decode_part(part: dict) -> str:
+        data = part.get("body", {}).get("data", "")
+        if data:
+            return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+        return ""
+
+    def _walk_parts(parts: list[dict]) -> tuple[str, str]:
+        """Return (plain_text, html_text) from nested MIME parts."""
+        plain = ""
+        html = ""
+        for part in parts:
+            mime = part.get("mimeType", "")
+            if mime == "text/plain" and not plain:
+                plain = _decode_part(part)
+            elif mime == "text/html" and not html:
+                html = _decode_part(part)
+            # Recurse into nested multipart containers.
+            sub_parts = part.get("parts", [])
+            if sub_parts:
+                sub_plain, sub_html = _walk_parts(sub_parts)
+                if not plain:
+                    plain = sub_plain
+                if not html:
+                    html = sub_html
+        return plain, html
+
+    mime_type = payload.get("mimeType", "")
+    if mime_type == "text/plain":
+        text = _decode_part(payload)
+        if text:
+            return text
+    elif mime_type == "text/html":
+        text = _decode_part(payload)
+        if text:
+            # Strip HTML tags as a rough plain-text extraction.
+            import re as _re
+            return _re.sub(r"<[^>]+>", " ", text).strip()
+
+    parts = payload.get("parts", [])
+    if parts:
+        plain, html = _walk_parts(parts)
+        if plain:
+            return plain
+        if html:
+            import re as _re
+            return _re.sub(r"<[^>]+>", " ", html).strip()
+
+    return msg.get("snippet", "")
+
+
+async def get_message_content(message_id: str) -> dict:
+    """Fetch a single Gmail message and return parsed subject, sender, and body.
+
+    Returns a dict with keys: subject, from_name, from_email, body, snippet.
+    """
+    raw = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _fetch_message_full_sync(message_id)
+    )
+    parsed = _parse_message(raw)
+    body = _extract_body_text(raw)
+    return {
+        **parsed,
+        "body": body,
+    }
 
 
 async def needs_reauth() -> bool:

@@ -3,6 +3,10 @@
 Generates a short daily briefing using Claude whenever the user asks for
 it. State lives in ~/.myos/briefing_state.json so it never touches the
 repo and survives git pulls.
+
+Also generates structured action items alongside the text briefing. Each
+action item has a type, label, action_url, and context so the dashboard
+can render one-click buttons.
 """
 
 from __future__ import annotations
@@ -116,13 +120,22 @@ async def _task_count_changed() -> bool:
 async def generate_briefing() -> str:
     """Generate a briefing using Claude and cache it.
 
-    Pulls in today's calendar events, open P0/P1 tasks, and yesterday's
-    activity summary. Returns a 3-5 sentence plain-language briefing.
+    First calls ostk to get a local activity summary (fast, no LLM cost).
+    Then enriches with calendar events, open tasks, and compounds.
+    Falls back to the full Claude-only approach if ostk data is empty.
     """
     from services.ostk import ostk, OstkError
 
     # Gather context pieces
     context_parts: list[str] = []
+
+    # Start with ostk activity summary (local, fast, free)
+    try:
+        activity_summary = await ostk.get_activity_summary()
+        if activity_summary.strip():
+            context_parts.append(f"ostk activity summary:\n{activity_summary}")
+    except (OstkError, Exception):
+        pass
 
     # Calendar events (best effort)
     try:
@@ -385,3 +398,128 @@ def dismiss_briefing() -> None:
     state = _load_state()
     state["dismissed_date"] = _today_str()
     _save_state(state)
+
+
+def get_cached_action_items() -> list[dict] | None:
+    """Return cached action items, or None if not yet generated.
+
+    Action items are generated alongside the briefing. They are valid
+    as long as they exist in state. They get refreshed on the next
+    briefing generation cycle.
+    """
+    state = _load_state()
+    return state.get("action_items")
+
+
+async def generate_action_items() -> list[dict]:
+    """Generate structured action items from tasks, emails, and calendar.
+
+    Each item has: type, label, action_url, context.
+    Types: reply_email, close_task, prep_meeting, review_agent.
+    """
+    items: list[dict] = []
+
+    # 1. Overdue or stale tasks that could be closed
+    try:
+        from services.ostk import ostk, OstkError
+        all_tasks = await ostk.list_tasks()
+        today = datetime.now(timezone.utc)
+        for t in all_tasks:
+            if t.get("status") == "closed":
+                continue
+            task_id = t.get("id", "")
+            title = t.get("title", "Untitled")
+            priority = t.get("priority", "")
+            created = t.get("created_at", "")
+            if created:
+                try:
+                    days_open = (today - datetime.fromisoformat(created.replace("Z", "+00:00"))).days
+                except Exception:
+                    days_open = 0
+            else:
+                days_open = 0
+            # Suggest closing tasks that are P0/P1 and open > 14 days
+            if priority in ("P0", "P1") and days_open > 14:
+                items.append({
+                    "type": "close_task",
+                    "label": f"Review: {title}",
+                    "action_url": f"/api/tasks/{task_id}",
+                    "context": f"This {priority} task has been open for {days_open} days. Check if it can be closed.",
+                })
+                if len(items) >= 5:
+                    break
+    except Exception:
+        pass
+
+    # 2. Unread emails that might need a reply
+    try:
+        from services.google_auth import is_authenticated
+        if is_authenticated():
+            from services import gmail as gmail_service
+            unread = await gmail_service.get_unread_summary()
+            for msg in unread[:3]:
+                subject = msg.get("subject", "No subject")
+                sender = msg.get("from", "Unknown sender")
+                msg_id = msg.get("id", "")
+                items.append({
+                    "type": "reply_email",
+                    "label": f"Reply to: {subject[:60]}",
+                    "action_url": f"/gmail?thread={msg_id}",
+                    "context": f"From {sender}.",
+                })
+    except Exception:
+        pass
+
+    # 3. Upcoming meetings that might need prep
+    try:
+        from services.google_auth import is_authenticated
+        if is_authenticated():
+            from services import calendar as cal_service
+            events = await cal_service.get_today_events()
+            now = datetime.now(timezone.utc)
+            for ev in events[:2]:
+                summary = ev.get("summary", "Untitled meeting")
+                start_str = ev.get("start", {}).get("dateTime") or ev.get("start", {}).get("date") or ""
+                if start_str:
+                    try:
+                        start_dt = datetime.fromisoformat(start_str)
+                        if start_dt.tzinfo is None:
+                            start_dt = start_dt.replace(tzinfo=timezone.utc)
+                        # Only suggest prep for meetings that have not started yet
+                        if start_dt > now:
+                            time_label = start_dt.strftime("%-I:%M %p").lower()
+                            items.append({
+                                "type": "prep_meeting",
+                                "label": f"Prep for: {summary[:50]}",
+                                "action_url": "/calendar",
+                                "context": f"Starts at {time_label}.",
+                            })
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    # 4. Check for recent agent runs that need review
+    try:
+        from services import agent_patterns
+        runs = agent_patterns.analyze_runs()
+        failed_runs = [r for r in runs if r["status"] == "failed"][:2]
+        for run in failed_runs:
+            items.append({
+                "type": "review_agent",
+                "label": f"Review failed: {run['name'][:40]}",
+                "action_url": "/agents",
+                "context": f"Agent {run['name']} failed. Check the transcript.",
+            })
+    except Exception:
+        pass
+
+    # Cap at 6 items total so the dashboard stays clean
+    items = items[:6]
+
+    # Cache results
+    state = _load_state()
+    state["action_items"] = items
+    _save_state(state)
+
+    return items

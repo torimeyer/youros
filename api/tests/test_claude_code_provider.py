@@ -372,10 +372,11 @@ class TestHandleStreamEvent:
                 ]
             },
         }
-        text, done, usage = _handle_stream_event(event)
+        text, done, usage, extra = _handle_stream_event(event)
         assert text == "hello world"
         assert done is False
         assert usage is None
+        assert extra is None
 
     def test_result_event_marks_done_and_returns_usage(self):
         event = {
@@ -384,17 +385,93 @@ class TestHandleStreamEvent:
             "is_error": False,
             "usage": {"input_tokens": 3, "output_tokens": 5},
         }
-        text, done, usage = _handle_stream_event(event)
+        text, done, usage, extra = _handle_stream_event(event)
         assert text is None
         assert done is True
-        assert usage == {"input_tokens": 3, "output_tokens": 5}
+        assert usage["input_tokens"] == 3
+        assert usage["output_tokens"] == 5
+
+    def test_result_event_includes_cache_tokens(self):
+        event = {
+            "type": "result",
+            "usage": {
+                "input_tokens": 3,
+                "output_tokens": 5,
+                "cache_creation_input_tokens": 100,
+                "cache_read_input_tokens": 200,
+            },
+        }
+        text, done, usage, extra = _handle_stream_event(event)
+        assert usage["cache_creation_input_tokens"] == 100
+        assert usage["cache_read_input_tokens"] == 200
 
     def test_system_event_ignored(self):
         event = {"type": "system", "subtype": "init"}
-        text, done, usage = _handle_stream_event(event)
+        text, done, usage, extra = _handle_stream_event(event)
         assert text is None
         assert done is False
         assert usage is None
+        assert extra is None
+
+    def test_stream_event_text_delta(self):
+        event = {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "delta": {"type": "text_delta", "text": "hello"},
+            },
+        }
+        text, done, usage, extra = _handle_stream_event(event)
+        assert text == "hello"
+        assert done is False
+        assert extra is None
+
+    def test_stream_event_thinking_delta(self):
+        event = {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "delta": {"type": "thinking_delta", "thinking": "hmm"},
+            },
+        }
+        text, done, usage, extra = _handle_stream_event(event)
+        assert text is None
+        assert extra == {"type": "thinking", "data": "hmm"}
+
+    def test_stream_event_tool_use_start(self):
+        event = {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "content_block": {"type": "tool_use", "name": "Read", "id": "tu_123"},
+            },
+        }
+        text, done, usage, extra = _handle_stream_event(event)
+        assert text is None
+        assert extra["type"] == "tool_use"
+        assert extra["data"]["tool"] == "Read"
+        assert extra["data"]["id"] == "tu_123"
+
+
+class TestSessionIdForTab:
+    def test_deterministic(self):
+        from services.claude_code_provider import _session_id_for_tab
+        id1 = _session_id_for_tab("tab-1")
+        id2 = _session_id_for_tab("tab-1")
+        assert id1 == id2
+
+    def test_different_tabs_different_ids(self):
+        from services.claude_code_provider import _session_id_for_tab
+        id1 = _session_id_for_tab("tab-1")
+        id2 = _session_id_for_tab("tab-2")
+        assert id1 != id2
+
+    def test_returns_valid_uuid(self):
+        import uuid
+        from services.claude_code_provider import _session_id_for_tab
+        result = _session_id_for_tab("default")
+        parsed = uuid.UUID(result)
+        assert str(parsed) == result
 
 
 class TestMessagesToPrompt:
@@ -479,7 +556,8 @@ class TestStreamChat:
         assert tokens[0]["data"] == "hello from claude"
         done = websocket.of_type("done")
         assert len(done) == 1
-        assert done[0]["usage"] == {"input_tokens": 2, "output_tokens": 4}
+        assert done[0]["usage"]["input_tokens"] == 2
+        assert done[0]["usage"]["output_tokens"] == 4
 
     @pytest.mark.asyncio
     async def test_non_zero_exit_sends_friendly_error(self, monkeypatch):

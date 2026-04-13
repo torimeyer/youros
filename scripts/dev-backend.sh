@@ -13,6 +13,7 @@
 #   scripts/dev-backend.sh          # starts uvicorn on port 8000
 
 set -e
+set +m 2>/dev/null  # suppress job-control noise ([N] PID lines)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -100,6 +101,7 @@ if [ "${RELEASE_MODE:-0}" = "1" ]; then
     exec uvicorn main:app \
         --host 127.0.0.1 \
         --port $UVICORN_PORT \
+        --workers 2 \
         --no-access-log
 fi
 

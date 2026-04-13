@@ -195,6 +195,50 @@ BUILTIN_AUTOMATION_TEMPLATES: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "builtin-pre-release",
+        "name": "Pre-release check",
+        "description": "Run all automated checks, verify every part of myOS works, and confirm it is ready for release.",
+        "icon": "verified",
+        "steps": [
+            {
+                "name": "Run e2e smoke tests",
+                "prompt": (
+                    "Run scripts/e2e_smoke.sh with RELEASE_MODE=1 and report the results. "
+                    "If any phase fails, stop and diagnose the root cause before continuing."
+                ),
+            },
+            {
+                "name": "Verify frontend builds clean",
+                "prompt": (
+                    "Run tsc -b in app/ and confirm zero errors. Check for any unused "
+                    "imports or type errors that slipped past the test suite."
+                ),
+            },
+            {
+                "name": "Check for uncommitted changes",
+                "prompt": (
+                    "Run git status and git diff. If there are uncommitted changes, list "
+                    "them and flag whether they should be committed or reverted before release."
+                ),
+            },
+            {
+                "name": "Verify live UI in browser",
+                "prompt": (
+                    "Open http://localhost:3010 in a browser. Verify: dashboard loads with "
+                    "real data, sidebar navigation works for every enabled page, chat panel "
+                    "opens and streams a response. Report any blank pages or errors."
+                ),
+            },
+            {
+                "name": "Generate release summary",
+                "prompt": (
+                    "Summarize the release: what is new, what was fixed, how many e2e tests "
+                    "passed. Write it in plain language suitable for a changelog."
+                ),
+            },
+        ],
+    },
+    {
         "id": "builtin-sprint-planning",
         "name": "Sprint planning",
         "description": "Review open tasks and plan the next sprint based on priority and capacity.",

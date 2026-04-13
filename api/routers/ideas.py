@@ -163,7 +163,16 @@ async def compile_ideas(dry_run: bool = False):
 @router.delete("/ideas/{straw:path}")
 async def delete_idea(straw: str):
     try:
-        result = await ostk.delete_hay(straw)
+        result = await ostk.delete_hay(straw, include_converted=True)
+        return {"result": result}
+    except OstkError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/ideas/converted/{straw:path}")
+async def delete_converted_idea(straw: str):
+    try:
+        result = await ostk.delete_converted_hay(straw)
         return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -219,9 +228,52 @@ async def _create_tasks_from_breakdown(
 async def convert_idea_to_task(body: HayConvert):
     """Break the idea into the full list of tasks needed to ship it.
 
+    First tries ostk :compile which triages hay into needles natively.
+    If compile returns tasks, uses those. If compile returns nothing or
+    fails, falls back to the Claude-based idea breakdown.
+
     If the idea is too vague, returns a clarifying question for the user
     to answer via POST /api/ideas/answer.
     """
+    # Try ostk compile first (needle 336). If it produces tasks, use them.
+    try:
+        compile_result = await ostk.compile_ideas()
+        if compile_result and compile_result.strip():
+            # Parse the compile output for any created tasks
+            import re as _re
+            compiled_tasks: list[dict] = []
+            for line in compile_result.strip().splitlines():
+                # Look for lines like "added ->042 Title here" or similar
+                match = _re.search(r"(→\d+|->?\d+)\s+(.+)", line)
+                if match:
+                    task_id = match.group(1)
+                    title = match.group(2).strip()
+                    compiled_tasks.append({
+                        "id": task_id,
+                        "title": title,
+                        "description": "",
+                        "priority": body.priority,
+                        "order": len(compiled_tasks),
+                    })
+            if compiled_tasks:
+                # Mark the original idea as converted
+                try:
+                    await ostk._mark_hay_converted(body.straw, compiled_tasks[0].get("id", ""))
+                except Exception:
+                    pass
+                first_id = compiled_tasks[0]["id"] if compiled_tasks else None
+                return {
+                    "status": "created",
+                    "result": f"created {len(compiled_tasks)} task(s) via compile",
+                    "task_id": first_id,
+                    "tasks": compiled_tasks,
+                    "source": "ostk_compile",
+                }
+    except Exception:
+        # Compile failed or returned nothing useful. Fall back to Claude.
+        pass
+
+    # Fall back to Claude-based breakdown
     from services.chat_providers import _resolve_api_key
     api_key = await _resolve_api_key("anthropic_api_key")
     if not api_key:

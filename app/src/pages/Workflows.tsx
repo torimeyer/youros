@@ -466,11 +466,11 @@ export default function Workflows() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Automations" />
 
-      <div className="pt-20 p-8">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         {/* Header row */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-white">Automations</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Automations</h1>
             <p className="text-sm text-slate-400 mt-1">
               Chain agents together. Steps run at the same time unless you set dependencies.
             </p>

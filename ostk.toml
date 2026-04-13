@@ -5,10 +5,10 @@
 name = "myos"
 bail = "os-tack/ostk.ai"
 
-# ostk.toml — official v2.2.9 release configuration
+# ostk.toml — official v3.1.0 release configuration
 # os-tack/ostk.ai — the distributed OS seed repository
 
-kernel = ">=2.2.9, <2.5.0"
+kernel = ">=3.1.0, <4.0.0"
 
 [authorization]
 # Trust is GPG web-of-trust, not platform accounts.
@@ -58,4 +58,4 @@ tui = true
 agents = true
 audit = true
 digest = true
-embeddings = false
+embeddings = true

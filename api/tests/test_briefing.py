@@ -526,6 +526,100 @@ async def test_generate_briefing_counts_in_progress_p0_tasks(tmp_path):
     assert "No high-priority tasks open right now" not in prompt
 
 
+# ---------------------------------------------------------------------------
+# Action items generation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_generate_action_items_returns_list(tmp_path):
+    """generate_action_items should return a list of dicts with the right shape."""
+    import services.briefing as bf
+    import services.ostk as ostk_module
+
+    tasks = [
+        {
+            "id": "→200",
+            "title": "Old P0 task",
+            "priority": "P0",
+            "status": "open",
+            "created_at": "2026-03-01T00:00:00Z",
+        },
+    ]
+
+    async def fake_list_tasks(status=None, priority=None):
+        return list(tasks)
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", tmp_path / "state.json"), \
+         patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks), \
+         patch("services.google_auth.is_authenticated", return_value=False):
+        items = await bf.generate_action_items()
+
+    assert isinstance(items, list)
+    # The old P0 task (open 42+ days) should generate a close_task suggestion
+    close_items = [i for i in items if i["type"] == "close_task"]
+    assert len(close_items) >= 1
+    assert "Old P0 task" in close_items[0]["label"]
+    # Each item must have the required keys
+    for item in items:
+        assert "type" in item
+        assert "label" in item
+        assert "action_url" in item
+        assert "context" in item
+
+
+@pytest.mark.asyncio
+async def test_action_items_cached(tmp_path):
+    """Once generated, action items should be cached in state."""
+    import services.briefing as bf
+    import services.ostk as ostk_module
+
+    async def fake_list_tasks(status=None, priority=None):
+        return []
+
+    state_path = tmp_path / "state.json"
+    with patch.object(bf, "BRIEFING_STATE_PATH", state_path), \
+         patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks), \
+         patch("services.google_auth.is_authenticated", return_value=False), \
+         patch("services.briefing.datetime", _make_datetime_cls(9)):
+        await bf.generate_action_items()
+        cached = bf.get_cached_action_items()
+
+    assert cached is not None
+    assert isinstance(cached, list)
+
+
+@pytest.mark.asyncio
+async def test_briefing_endpoint_returns_action_items(client):
+    """The GET /api/briefing endpoint must return an action_items field."""
+    with (
+        patch("routers.briefing.should_show_briefing", return_value=True),
+        patch("routers.briefing.get_cached_briefing", return_value="Hello."),
+        patch("routers.briefing.get_cached_action_items", return_value=[
+            {"type": "close_task", "label": "Review: test", "action_url": "/api/tasks/1", "context": "Old task."},
+        ]),
+        patch("routers.briefing._task_count_changed", new=AsyncMock(return_value=False)),
+    ):
+        resp = await client.get("/api/briefing")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "action_items" in data
+    assert len(data["action_items"]) == 1
+    assert data["action_items"][0]["type"] == "close_task"
+
+
+@pytest.mark.asyncio
+async def test_briefing_endpoint_action_items_empty_when_not_shown(client):
+    """When briefing is not shown, action_items should be an empty list."""
+    with patch("routers.briefing.should_show_briefing", return_value=False):
+        resp = await client.get("/api/briefing")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["action_items"] == []
+
+
 @pytest.mark.asyncio
 async def test_task_count_changed_counts_in_progress(tmp_path):
     """``_task_count_changed`` should see the same active-task count as

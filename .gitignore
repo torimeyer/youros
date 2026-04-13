@@ -17,3 +17,4 @@ haystack-main/
 workspaces/
 .coverage
 coverage/
+e2e-screenshots/*.png

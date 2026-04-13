@@ -23,6 +23,22 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+// jsdom does not provide window.matchMedia. Provide a minimal stub
+// so components that use responsive breakpoints do not crash.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
 function renderSidebar() {
   return render(
     <MemoryRouter>
@@ -123,16 +139,16 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
-        { label: 'Activity', enabled: true },
-        { label: 'Hay/Ideas', enabled: true },
+        { label: 'Ideas', enabled: true },
         { label: 'Agents', enabled: true },
+        { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
         { label: 'Drive', enabled: true },
         { label: 'Calendar', enabled: true },
         { label: 'Gmail', enabled: true },
-        { label: 'Docs', enabled: true },
-        { label: 'Transcripts', enabled: true },
-        { label: 'Automations', enabled: true },
+        { label: 'Slack', enabled: true },
+        { label: 'GitHub', enabled: true },
+        { label: 'Cost Tracking', enabled: true },
       ],
     })
   })
@@ -147,10 +163,10 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.queryByText('Tasks')).not.toBeInTheDocument()
   })
 
-  it('hides Ideas nav item when Hay/Ideas feature is disabled', () => {
+  it('hides Ideas nav item when Ideas feature is disabled', () => {
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
-        f.label === 'Hay/Ideas' ? { ...f, enabled: false } : f
+        f.label === 'Ideas' ? { ...f, enabled: false } : f
       ),
     })
     renderSidebar()
@@ -177,14 +193,14 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.queryByText('Files')).not.toBeInTheDocument()
   })
 
-  it('hides History nav item when Transcripts feature is disabled', () => {
+  it('hides Activity nav item when Activity feature is disabled', () => {
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
-        f.label === 'Transcripts' ? { ...f, enabled: false } : f
+        f.label === 'Activity' ? { ...f, enabled: false } : f
       ),
     })
     renderSidebar()
-    expect(screen.queryByText('History')).not.toBeInTheDocument()
+    expect(screen.queryByText('Activity')).not.toBeInTheDocument()
   })
 
   it('always shows Home and Settings regardless of feature toggles', () => {
@@ -202,7 +218,7 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.getByText('Ideas')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
     expect(screen.getByText('Files')).toBeInTheDocument()
-    expect(screen.getByText('History')).toBeInTheDocument()
+    expect(screen.getByText('Activity')).toBeInTheDocument()
   })
 
   it('re-enabling a feature shows the nav item again', () => {
@@ -234,16 +250,16 @@ describe('Settings integration: OS name in Sidebar', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
-        { label: 'Activity', enabled: true },
-        { label: 'Hay/Ideas', enabled: true },
+        { label: 'Ideas', enabled: true },
         { label: 'Agents', enabled: true },
+        { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
         { label: 'Drive', enabled: true },
         { label: 'Calendar', enabled: true },
         { label: 'Gmail', enabled: true },
-        { label: 'Docs', enabled: true },
-        { label: 'Transcripts', enabled: true },
-        { label: 'Automations', enabled: true },
+        { label: 'Slack', enabled: true },
+        { label: 'GitHub', enabled: true },
+        { label: 'Cost Tracking', enabled: true },
       ],
     })
   })

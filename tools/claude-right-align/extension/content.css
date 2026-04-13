@@ -1,0 +1,58 @@
+/*
+ * Claude UI: Right-align user message bubbles
+ * Targets claude.ai conversation turns and right-aligns human messages
+ * to match the layout of typical chat apps (iMessage, WhatsApp, etc.)
+ *
+ * Selectors are listed from most specific to most general.
+ * Multiple selectors handle different UI versions and future updates.
+ */
+
+/* ── Turn wrapper: push the entire human turn to the right ── */
+
+/* Selector set 1: data-testid attributes (most stable across UI updates) */
+[data-testid="human-turn"],
+[data-testid="user-message"] {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: flex-end !important;
+  align-items: flex-start !important;
+}
+
+/* Selector set 2: known semantic class names */
+.human-turn,
+.HumanTurn,
+[class*="human-turn"],
+[class*="HumanMessage"],
+[class*="userMessage"],
+[class*="user-message"] {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: flex-end !important;
+  align-items: flex-start !important;
+}
+
+/* ── Bubble: constrain width and keep text left-aligned inside ── */
+
+[data-testid="human-turn"] > *,
+[data-testid="user-message"] > *,
+.human-turn > *,
+[class*="human-turn"] > *,
+[class*="HumanMessage"] > *,
+[class*="userMessage"] > * {
+  max-width: 72% !important;
+  text-align: left !important;
+}
+
+/* ── Applied by JS for structural detection fallback ── */
+
+[data-claude-right-align="true"] {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: flex-end !important;
+  align-items: flex-start !important;
+}
+
+[data-claude-right-align="true"] > * {
+  max-width: 72% !important;
+  text-align: left !important;
+}

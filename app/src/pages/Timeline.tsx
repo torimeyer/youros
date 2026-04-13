@@ -94,11 +94,11 @@ export default function Timeline() {
     <div className="min-h-screen bg-slate-950 text-white flex flex-col">
       <TopBar title="Timeline" />
 
-      <div className="pt-20 p-8 flex-1 flex flex-col">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex-1 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-6">
-            <h1 className="text-2xl font-bold">Timeline</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+            <h1 className="text-xl sm:text-2xl font-bold">Timeline</h1>
             <div className="flex items-center gap-1 text-sm">
               {(["week", "month", "quarter"] as ViewMode[]).map((v) => (
                 <button key={v} className={viewModeClass(v)} onClick={() => setViewMode(v)}>

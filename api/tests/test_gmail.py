@@ -677,3 +677,211 @@ def test_inbox_cache_invalidates_on_send(tmp_path):
         gmail_service.invalidate_full_inbox_cache()
 
     assert not full_cache_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Email-to-task endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gmail_to_task_not_authenticated(client, tmp_path):
+    """to-task should return 401 when not authenticated."""
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.post(
+            "/api/gmail/to-task",
+            json={"message_id": "msg-1"},
+        )
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_gmail_to_task_success(client, tmp_path):
+    """to-task reads the email, calls Claude, creates a task, and returns it."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_email = {
+        "id": "msg-42",
+        "thread_id": "thread-42",
+        "subject": "Q3 budget approval needed",
+        "from_name": "Alice",
+        "from_email": "alice@example.com",
+        "snippet": "Please review the Q3 budget.",
+        "date": "2026-04-10T09:00:00+00:00",
+        "is_unread": True,
+        "body": "Hi, please review and approve the Q3 budget by Friday.",
+    }
+
+    claude_response = "Review Q3 budget proposal\nRead and approve the Q3 budget document by Friday."
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.gmail.get_message_content",
+            new=AsyncMock(return_value=fake_email),
+        ),
+        patch(
+            "services.meeting_prep._call_claude",
+            new=AsyncMock(return_value=claude_response),
+        ),
+        patch(
+            "services.ostk.OstkService.add_task",
+            new=AsyncMock(return_value="Added task 350"),
+        ),
+        patch(
+            "services.task_labeling.schedule_auto_labels",
+            return_value=None,
+        ),
+    ):
+        resp = await client.post(
+            "/api/gmail/to-task",
+            json={"message_id": "msg-42"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["title"] == "Review Q3 budget proposal"
+    assert "Q3 budget" in data["description"]
+
+
+@pytest.mark.asyncio
+async def test_gmail_to_task_claude_fallback(client, tmp_path):
+    """When Claude returns a single line, the endpoint still creates a task."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_email = {
+        "id": "msg-99",
+        "thread_id": "thread-99",
+        "subject": "Meeting follow-up",
+        "from_name": "Bob",
+        "from_email": "bob@example.com",
+        "snippet": "Attaching the notes.",
+        "date": "2026-04-10T14:00:00+00:00",
+        "is_unread": False,
+        "body": "Attaching the notes from today's meeting.",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.gmail.get_message_content",
+            new=AsyncMock(return_value=fake_email),
+        ),
+        patch(
+            "services.meeting_prep._call_claude",
+            new=AsyncMock(return_value="Review meeting notes"),
+        ),
+        patch(
+            "services.ostk.OstkService.add_task",
+            new=AsyncMock(return_value="Added task 351"),
+        ),
+        patch(
+            "services.task_labeling.schedule_auto_labels",
+            return_value=None,
+        ),
+    ):
+        resp = await client.post(
+            "/api/gmail/to-task",
+            json={"message_id": "msg-99"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["title"] == "Review meeting notes"
+    # When only one line, description falls back to sender info.
+    assert "Bob" in data["description"]
+
+
+# ---------------------------------------------------------------------------
+# get_message_content and _extract_body_text
+# ---------------------------------------------------------------------------
+
+
+def test_extract_body_text_plain():
+    """_extract_body_text returns the plain-text body from a message."""
+    from services.gmail import _extract_body_text
+    import base64
+
+    body_data = base64.urlsafe_b64encode(b"Hello, plain text body.").decode()
+    msg = {
+        "payload": {
+            "mimeType": "text/plain",
+            "body": {"data": body_data},
+        },
+        "snippet": "Hello, plain",
+    }
+    assert _extract_body_text(msg) == "Hello, plain text body."
+
+
+def test_extract_body_text_multipart():
+    """_extract_body_text digs into multipart/alternative parts."""
+    from services.gmail import _extract_body_text
+    import base64
+
+    plain_data = base64.urlsafe_b64encode(b"Plain version.").decode()
+    html_data = base64.urlsafe_b64encode(b"<p>HTML version.</p>").decode()
+    msg = {
+        "payload": {
+            "mimeType": "multipart/alternative",
+            "body": {"data": ""},
+            "parts": [
+                {
+                    "mimeType": "text/plain",
+                    "body": {"data": plain_data},
+                },
+                {
+                    "mimeType": "text/html",
+                    "body": {"data": html_data},
+                },
+            ],
+        },
+        "snippet": "Plain",
+    }
+    assert _extract_body_text(msg) == "Plain version."
+
+
+def test_extract_body_text_html_fallback():
+    """When only HTML part exists, _extract_body_text strips tags."""
+    from services.gmail import _extract_body_text
+    import base64
+
+    html_data = base64.urlsafe_b64encode(b"<p>Hello <b>world</b></p>").decode()
+    msg = {
+        "payload": {
+            "mimeType": "multipart/alternative",
+            "body": {"data": ""},
+            "parts": [
+                {
+                    "mimeType": "text/html",
+                    "body": {"data": html_data},
+                },
+            ],
+        },
+        "snippet": "Hello",
+    }
+    result = _extract_body_text(msg)
+    assert "Hello" in result
+    assert "world" in result
+    assert "<p>" not in result
+
+
+def test_extract_body_text_snippet_fallback():
+    """When no parts have data, fall back to the snippet."""
+    from services.gmail import _extract_body_text
+
+    msg = {
+        "payload": {
+            "mimeType": "multipart/mixed",
+            "body": {"data": ""},
+            "parts": [],
+        },
+        "snippet": "Snippet fallback text.",
+    }
+    assert _extract_body_text(msg) == "Snippet fallback text."

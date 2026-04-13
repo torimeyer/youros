@@ -245,11 +245,11 @@ export default function Ideas() {
   return (
     <>
       <TopBar title="Ideas" />
-      <div data-tour="ideas" className="pt-20 p-8 max-w-6xl mx-auto">
+      <div data-tour="ideas" className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-6xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white">Ideas</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-white">Ideas</h1>
             <span className="bg-pink-500 text-white text-xs rounded-full px-2">
               {hayEntries.length}
             </span>

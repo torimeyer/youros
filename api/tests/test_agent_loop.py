@@ -373,11 +373,15 @@ class TestAgentLoop:
                 )
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        # The system prompt should be a non-empty string
-        assert "personal operating system" in call_kwargs["system"]
+        # The system prompt may be a string or a list of content blocks.
+        raw_system = call_kwargs["system"]
+        system_text = raw_system if isinstance(raw_system, str) else " ".join(
+            b["text"] for b in raw_system if isinstance(b, dict) and "text" in b
+        )
+        assert "personal operating system" in system_text
         # And should instruct the model to silently capture stray ideas as hay
-        assert "capture_idea" in call_kwargs["system"]
-        assert "IDEA CAPTURE" in call_kwargs["system"]
+        assert "capture_idea" in system_text
+        assert "IDEA MANAGEMENT" in system_text
 
     @pytest.mark.asyncio
     async def test_tools_included_in_api_call(self, websocket):

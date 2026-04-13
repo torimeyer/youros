@@ -10,9 +10,17 @@ import { api } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
 import { useAppStore } from '../stores/app';
 
+interface ActionItem {
+  type: 'reply_email' | 'close_task' | 'prep_meeting' | 'review_agent';
+  label: string;
+  action_url: string;
+  context: string;
+}
+
 interface BriefingData {
   show: boolean;
   briefing: string | null;
+  action_items?: ActionItem[];
   // Frontend-only marker. Set to true by the fetch catch block so the
   // empty-state UI knows the API call failed and should NOT lie that
   // the user "dismissed" the briefing. Before this field, a network
@@ -70,6 +78,20 @@ interface SessionDiff {
   audit_total: number;
 }
 
+interface LiveSession {
+  session_id: string;
+  last_active: string;
+  status: 'active' | 'idle';
+  recent_events: { type: string; timestamp: string }[];
+}
+
+interface LiveSessionsData {
+  sessions: LiveSession[];
+  count: number;
+  active_count: number;
+  idle_count: number;
+}
+
 
 const focusIcons = ['code', 'mail', 'smart_toy', 'target', 'bolt'];
 const focusColors = [
@@ -83,9 +105,11 @@ const focusColors = [
 export default function Dashboard() {
   const navigate = useNavigate();
   const toggleChat = useAppStore((s) => s.toggleChat);
-  const osName = useAppStore((s) => s.osName);
+  const displayOsName = useAppStore((s) => s.displayOsName());
   const dashboardWidgets = useAppStore((s) => s.dashboardWidgets);
   const setDashboardWidgets = useAppStore((s) => s.setDashboardWidgets);
+  const dashboardLayout = useAppStore((s) => s.dashboardLayout);
+  const greetingStyle = useAppStore((s) => s.greetingStyle);
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [summaryBullets, setSummaryBullets] = useState<string[]>([]);
@@ -94,6 +118,7 @@ export default function Dashboard() {
   const [, setSessionDiff] = useState<SessionDiff | null>(null);
   const [briefing, setBriefing] = useState<BriefingData | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(true);
+  const [liveSessions, setLiveSessions] = useState<LiveSessionsData | null>(null);
   const [quickAddTaskOpen, setQuickAddTaskOpen] = useState(false);
   const [quickSpawnOpen, setQuickSpawnOpen] = useState(false);
   const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
@@ -150,8 +175,27 @@ export default function Dashboard() {
   }, [fetchData]);
 
   useEffect(() => {
+    const fetchSessions = async () => {
+      try {
+        const res = await api.get<LiveSessionsData>('/sessions/active');
+        setLiveSessions(res);
+      } catch {
+        // ignore
+      }
+    };
+    fetchSessions();
+    const interval = setInterval(fetchSessions, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     setBriefingLoading(true);
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    // The backend may still be starting when the page first loads
+    // (needle 315). Retry up to 3 times before giving up so a
+    // short startup race does not permanently show "unavailable".
+    const MAX_RETRIES = 3;
 
     const fetchBriefing = () => {
       api.get<BriefingData>('/briefing')
@@ -165,10 +209,16 @@ export default function Dashboard() {
           }
         })
         .catch(() => {
-          // The fetch failed (network issue, backend hang, vite
-          // proxy zombie, etc). Mark the briefing as unavailable so
-          // the empty state tells the truth instead of claiming the
-          // user dismissed it.
+          retryCount += 1;
+          if (retryCount <= MAX_RETRIES) {
+            // Backend may still be starting. Retry before giving up.
+            pollTimer = setTimeout(fetchBriefing, 2000);
+            return;
+          }
+          // The fetch failed after retries (network issue, backend
+          // hang, vite proxy zombie, etc). Mark the briefing as
+          // unavailable so the empty state tells the truth instead
+          // of claiming the user dismissed it.
           setBriefing({ show: false, briefing: null, unavailable: true });
           setBriefingLoading(false);
         });
@@ -237,20 +287,42 @@ export default function Dashboard() {
   const [nextMeeting, setNextMeeting] = useState<CalendarEvent | null | undefined>(undefined);
 
 
-  const cardClass = 'bg-slate-900/40 border border-slate-800 p-6 rounded-xl hover:border-slate-700 transition-colors';
+  const cardClass = 'bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-700 transition-colors';
 
   const hour = new Date().getHours();
+
+  // Motivational quotes for the "quote" greeting style
+  const motivationalQuotes = [
+    'Small steps every day lead to big results.',
+    'Focus on progress, not perfection.',
+    'You are closer than you think.',
+    'One thing at a time.',
+    'Make today count.',
+    'Trust the process.',
+    'Keep building.',
+  ];
+  const quoteOfDay = motivationalQuotes[new Date().getDay()];
+
   let greetingLabel: string;
   let greetingSubtitle: string;
-  if (hour < 12) {
-    greetingLabel = 'Good morning';
-    greetingSubtitle = 'Ready to get started?';
-  } else if (hour < 18) {
-    greetingLabel = 'Good afternoon';
-    greetingSubtitle = "What's on your plate?";
+  if (greetingStyle === 'none') {
+    greetingLabel = '';
+    greetingSubtitle = '';
+  } else if (greetingStyle === 'quote') {
+    greetingLabel = '';
+    greetingSubtitle = quoteOfDay;
   } else {
-    greetingLabel = 'Good evening';
-    greetingSubtitle = 'Wrapping up for today?';
+    // Default: time-based
+    if (hour < 12) {
+      greetingLabel = 'Good morning';
+      greetingSubtitle = 'Ready to get started?';
+    } else if (hour < 18) {
+      greetingLabel = 'Good afternoon';
+      greetingSubtitle = "What's on your plate?";
+    } else {
+      greetingLabel = 'Good evening';
+      greetingSubtitle = 'Wrapping up for today?';
+    }
   }
 
   // Render the Briefing banner (or its skeleton while loading).
@@ -288,6 +360,43 @@ export default function Dashboard() {
                     <p key={i}>{renderMarkdown(para)}</p>
                   ))}
                 </div>
+                {briefing.action_items && briefing.action_items.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2" data-testid="briefing-action-items">
+                    {briefing.action_items.map((item, i) => {
+                      const iconMap: Record<string, string> = {
+                        reply_email: 'reply',
+                        close_task: 'task_alt',
+                        prep_meeting: 'event_note',
+                        review_agent: 'smart_toy',
+                      };
+                      const colorMap: Record<string, string> = {
+                        reply_email: 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30',
+                        close_task: 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30',
+                        prep_meeting: 'bg-purple-500/20 text-purple-300 hover:bg-purple-500/30',
+                        review_agent: 'bg-orange-500/20 text-orange-300 hover:bg-orange-500/30',
+                      };
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => {
+                            const url = item.action_url;
+                            if (url.startsWith('/api/')) {
+                              // API action: navigate to the task/resource view
+                              navigate(url.replace('/api/tasks/', '/tasks?focus='));
+                            } else {
+                              navigate(url);
+                            }
+                          }}
+                          title={item.context}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${colorMap[item.type] || 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'}`}
+                        >
+                          <Icon name={iconMap[item.type] || 'bolt'} size={14} />
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
             <button
@@ -351,7 +460,7 @@ export default function Dashboard() {
         <div
           key="focus_first"
           data-testid="widget-focus-first"
-          className="mb-6 bg-slate-900/40 border border-slate-800 p-6 rounded-xl"
+          className="mb-6 bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl"
         >
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-full bg-pink-500/20 flex items-center justify-center">
@@ -373,7 +482,7 @@ export default function Dashboard() {
         key="focus_first"
         data-testid="widget-focus-first"
         onClick={() => navigate(`/tasks?focus=${encodeURIComponent(compounds.top!.id)}`)}
-        className="mb-6 bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/30 p-6 rounded-xl hover:border-pink-500/50 transition-colors cursor-pointer"
+        className="mb-6 bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/30 p-4 sm:p-6 rounded-xl hover:border-pink-500/50 transition-colors cursor-pointer"
       >
         <div className="flex items-center gap-3 mb-2">
           <div className="w-10 h-10 rounded-full bg-pink-500/20 flex items-center justify-center">
@@ -469,12 +578,12 @@ export default function Dashboard() {
   const renderQuickLaunch = () => (
     <div key="quick_launch" data-testid="widget-quick-launch" className={cardClass}>
       <h2 className="text-lg font-semibold mb-4">Quick Launch</h2>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
         {quickLaunch.map((item) => (
           <button
             key={item.label}
             onClick={quickLaunchActions[item.label]}
-            className={`flex flex-col items-center p-4 bg-slate-900 rounded-lg border border-slate-800 ${item.hoverBorder} transition-colors`}
+            className={`flex flex-col items-center p-3 sm:p-4 min-h-[44px] bg-slate-900 rounded-lg border border-slate-800 ${item.hoverBorder} transition-colors`}
           >
             <Icon name={item.icon} className={item.color} size={24} />
             <span className="text-sm text-slate-300 mt-2">{item.label}</span>
@@ -585,7 +694,7 @@ export default function Dashboard() {
           {summaryLoading && summaryBullets.length === 0 ? (
             <p className="text-sm text-slate-500">Loading summary...</p>
           ) : summaryBullets.length === 0 ? (
-            <p className="text-sm text-slate-500">No activity to summarize yet.</p>
+            <p className="text-sm text-slate-500">Nothing to summarize yet. Once you start using myOS, a daily recap will appear here.</p>
           ) : (
             <ul className="space-y-2">
               {summaryBullets.map((bullet, i) => (
@@ -601,6 +710,81 @@ export default function Dashboard() {
     );
   };
 
+  const renderLiveSessions = () => {
+    const sessions = liveSessions?.sessions ?? [];
+    const activeCount = liveSessions?.active_count ?? 0;
+    const idleCount = liveSessions?.idle_count ?? 0;
+    const total = activeCount + idleCount;
+
+    const lastToolLabel = (session: LiveSession) => {
+      const events = session.recent_events;
+      if (!events.length) return 'no recent activity';
+      const last = events[events.length - 1];
+      return last.type || 'event';
+    };
+
+    const timeAgo = (isoStr: string) => {
+      try {
+        const diff = Date.now() - new Date(isoStr).getTime();
+        const mins = Math.floor(diff / 60000);
+        if (mins < 1) return 'just now';
+        if (mins === 1) return '1 min ago';
+        return `${mins} min ago`;
+      } catch {
+        return '';
+      }
+    };
+
+    return (
+      <div key="live_sessions" data-testid="widget-live-sessions" className={cardClass}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Icon name="terminal" className="text-emerald-400" size={20} />
+            <h2 className="text-lg font-semibold">Live Sessions</h2>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            {activeCount > 0 && (
+              <span className="flex items-center gap-1 text-green-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                {activeCount} active
+              </span>
+            )}
+            {idleCount > 0 && (
+              <span className="flex items-center gap-1 text-amber-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                {idleCount} idle
+              </span>
+            )}
+          </div>
+        </div>
+        {total === 0 ? (
+          <p className="text-sm text-slate-500">No active sessions right now.</p>
+        ) : (
+          <div className="space-y-2">
+            {sessions.map((s) => (
+              <div
+                key={s.session_id}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-800/40"
+              >
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    s.status === 'active' ? 'bg-green-400 animate-pulse' : 'bg-amber-400'
+                  }`}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-200 truncate">{s.session_id}</p>
+                  <p className="text-xs text-slate-500 truncate">
+                    {lastToolLabel(s)} . {timeAgo(s.last_active)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Map of widget id to render function. Only widgets present in
   // dashboardWidgets render, and they render in that order. Widgets above
   // the grid (briefing and focus first) are full width banners,
@@ -612,6 +796,7 @@ export default function Dashboard() {
     quick_launch: renderQuickLaunch,
     next_meeting: renderNextMeeting,
     day_summary: renderDaySummary,
+    live_sessions: renderLiveSessions,
   };
 
   const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);
@@ -623,23 +808,34 @@ export default function Dashboard() {
   };
 
   const bannerIds = new Set(['briefing', 'focus_first']);
-  const visibleBanners = dashboardWidgets.filter((id) => bannerIds.has(id));
-  const visibleGridCards = dashboardWidgets.filter(
-    (id) => !bannerIds.has(id) && widgetRenderers[id],
-  );
+  // In focus mode, only show the first 3 widgets total (banners + grid cards)
+  const focusLimit = dashboardLayout === 'focus' ? 3 : Infinity;
+  let focusCount = 0;
+  const visibleBanners = dashboardWidgets.filter((id) => {
+    if (!bannerIds.has(id)) return false;
+    if (focusCount >= focusLimit) return false;
+    focusCount++;
+    return true;
+  });
+  const visibleGridCards = dashboardWidgets.filter((id) => {
+    if (bannerIds.has(id) || !widgetRenderers[id]) return false;
+    if (focusCount >= focusLimit) return false;
+    focusCount++;
+    return true;
+  });
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Home Dashboard" />
 
-      <div className="pt-20 p-8">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         {visibleBanners.map((id) => widgetRenderers[id]?.())}
 
         {/* Greeting + Customize button */}
-        <div className="mb-8 flex items-start justify-between gap-4">
+        <div className="mb-6 sm:mb-8 flex items-start justify-between gap-4">
           <div data-tour="dashboard">
-            <h1 className="text-3xl font-bold mb-1">Welcome to {osName}</h1>
-            <p className="text-slate-400">{greetingSubtitle}</p>
+            <h1 className="text-2xl sm:text-3xl font-bold mb-1">Welcome to {displayOsName}</h1>
+            {greetingSubtitle && <p className="text-slate-400">{greetingSubtitle}</p>}
           </div>
           <button
             onClick={() => setCustomizeOpen(true)}
@@ -684,7 +880,7 @@ export default function Dashboard() {
       {/* Floating Action Button - Open Chat */}
       <button
         onClick={() => useAppStore.getState().toggleChat()}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-blue-500 hover:bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/25 transition-colors"
+        className="fixed bottom-4 right-4 sm:bottom-8 sm:right-8 w-14 h-14 bg-blue-500 hover:bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/25 transition-colors"
       >
         <Icon name="chat" className="text-white" size={28} />
       </button>

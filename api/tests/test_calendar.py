@@ -380,3 +380,263 @@ async def test_tool_executor_get_calendar_events_no_events(tmp_path):
         result = await execute_tool("get_calendar_events", {})
 
     assert "no events" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# POST /api/calendar/events (create event)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_calendar_create_event_not_authenticated(client, tmp_path):
+    """Creating an event without auth should return 401."""
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.post(
+            "/api/calendar/events",
+            json={"summary": "Test Event", "start": "2026-04-28"},
+        )
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_calendar_create_event_empty_title(client, tmp_path):
+    """Creating an event with an empty title should return 400."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar",
+    }))
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.post(
+            "/api/calendar/events",
+            json={"summary": "  ", "start": "2026-04-28"},
+        )
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_calendar_create_event_success(client, tmp_path):
+    """Creating an event should call the calendar service and return the event."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar",
+    }))
+
+    fake_event = {
+        "id": "new-event-1",
+        "summary": "Pepper magic show field trip",
+        "start": {"date": "2026-04-28"},
+        "end": {"date": "2026-04-29"},
+        "htmlLink": "https://calendar.google.com/event?eid=abc123",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.calendar.create_event",
+            new=AsyncMock(return_value=fake_event),
+        ),
+    ):
+        resp = await client.post(
+            "/api/calendar/events",
+            json={
+                "summary": "Pepper magic show field trip",
+                "start": "2026-04-28",
+                "all_day": True,
+            },
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["event"]["summary"] == "Pepper magic show field trip"
+    assert data["event"]["id"] == "new-event-1"
+
+
+@pytest.mark.asyncio
+async def test_calendar_create_event_scope_error(client, tmp_path):
+    """Insufficient permissions on create should return 403 with reauth hint."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.calendar.create_event",
+            new=AsyncMock(side_effect=Exception("403 insufficientPermissions")),
+        ),
+    ):
+        resp = await client.post(
+            "/api/calendar/events",
+            json={"summary": "Test Event", "start": "2026-04-28"},
+        )
+
+    assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Tool executor: create_calendar_event
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tool_create_calendar_event_not_authenticated(tmp_path):
+    """create_calendar_event tool should return a friendly message when not connected."""
+    from services.tool_executor import execute_tool
+
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        result = await execute_tool("create_calendar_event", {
+            "title": "Test Event",
+            "start": "2026-04-28",
+        })
+
+    assert "not connected" in result.lower() or "connect" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_tool_create_calendar_event_success(tmp_path):
+    """create_calendar_event tool should create the event and return confirmation."""
+    from services.tool_executor import execute_tool
+
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar",
+    }))
+
+    fake_event = {
+        "id": "new-ev-42",
+        "summary": "Pepper magic show field trip",
+        "start": {"date": "2026-04-28"},
+        "end": {"date": "2026-04-29"},
+        "htmlLink": "https://calendar.google.com/event?eid=xyz",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.calendar.create_event",
+            new=AsyncMock(return_value=fake_event),
+        ),
+    ):
+        result = await execute_tool("create_calendar_event", {
+            "title": "Pepper magic show field trip",
+            "start": "2026-04-28",
+            "all_day": True,
+        })
+
+    assert "Pepper magic show field trip" in result
+    assert "2026-04-28" in result
+
+
+# ---------------------------------------------------------------------------
+# Tool executor: send_email
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tool_send_email_not_authenticated(tmp_path):
+    """send_email tool should return a friendly message when Gmail is not connected."""
+    from services.tool_executor import execute_tool
+
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        result = await execute_tool("send_email", {
+            "to": "test@example.com",
+            "subject": "Hello",
+            "body": "Test body",
+        })
+
+    assert "not connected" in result.lower() or "connect" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_tool_send_email_no_send_scope(tmp_path):
+    """send_email tool should return reauth hint when send scope is missing."""
+    from services.tool_executor import execute_tool
+
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+    }))
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.gmail_reply.TOKEN_PATH", token_path),
+    ):
+        result = await execute_tool("send_email", {
+            "to": "test@example.com",
+            "subject": "Hello",
+            "body": "Test body",
+        })
+
+    assert "send access" in result.lower() or "reconnect" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tool executor: upload_to_drive
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tool_upload_to_drive_not_authenticated(tmp_path):
+    """upload_to_drive tool should return a friendly message when not connected."""
+    from services.tool_executor import execute_tool
+
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        result = await execute_tool("upload_to_drive", {
+            "filename": "notes.txt",
+            "content": "Some notes",
+        })
+
+    assert "not connected" in result.lower() or "connect" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_tool_upload_to_drive_no_write_scope(tmp_path):
+    """upload_to_drive tool should return reauth hint when write scope is missing."""
+    from services.tool_executor import execute_tool
+
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/drive.readonly",
+    }))
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        result = await execute_tool("upload_to_drive", {
+            "filename": "notes.txt",
+            "content": "Some notes",
+        })
+
+    assert "write access" in result.lower() or "reconnect" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tool definitions: new tools are registered
+# ---------------------------------------------------------------------------
+
+
+def test_tool_definitions_include_new_tools():
+    """Verify the new Google integration tools are in TOOL_DEFINITIONS."""
+    from services.tool_executor import TOOL_DEFINITIONS
+
+    names = {t["name"] for t in TOOL_DEFINITIONS}
+    assert "create_calendar_event" in names
+    assert "send_email" in names
+    assert "upload_to_drive" in names

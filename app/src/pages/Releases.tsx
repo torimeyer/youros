@@ -20,11 +20,11 @@ export default function Releases() {
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="What's New" />
 
-      <div className="pt-20 p-8">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center gap-3 mb-2">
             <Icon name="auto_awesome" className="text-yellow-400" size={28} />
-            <h1 className="text-3xl font-bold text-white">What's New in myOS</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">What's New in myOS</h1>
           </div>
           <p className="text-slate-400 mb-10">
             Everything that has shipped recently, in plain language.

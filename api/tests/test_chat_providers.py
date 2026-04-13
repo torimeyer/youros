@@ -221,7 +221,7 @@ class TestAgentAnthropicImageRouting:
 
         claude_code_called = {"yes": False}
 
-        async def fake_stream_chat(messages, ws, system_prompt=None):
+        async def fake_stream_chat(messages, ws, system_prompt=None, **kwargs):
             claude_code_called["yes"] = True
             await ws.send_json({"type": "token", "data": "no-image-support"})
             await ws.send_json({

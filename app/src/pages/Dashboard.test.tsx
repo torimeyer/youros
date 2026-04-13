@@ -24,6 +24,22 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+// jsdom does not provide window.matchMedia. Provide a minimal stub
+// so components that use responsive breakpoints do not crash.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
 import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
@@ -133,7 +149,7 @@ describe('Dashboard Day Summary', () => {
 
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByText('No activity to summarize yet.')).toBeInTheDocument()
+      expect(screen.getByText(/Nothing to summarize yet/)).toBeInTheDocument()
     })
   })
 
@@ -280,6 +296,103 @@ describe('Quick Launch inline modals', () => {
     expect(screen.getByRole('dialog', { name: /Capture a new idea/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Capture idea' })).toBeInTheDocument()
     expect(mockNavigate).not.toHaveBeenCalledWith('/ideas')
+  })
+})
+
+describe('Briefing startup retry (needle 315)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    useAppStore.setState({
+      chatOpen: false,
+      osName: 'ToriOS',
+      darkMode: true,
+      showTour: false,
+      dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS],
+    })
+    localStorage.setItem('myos-tour-complete', 'true')
+  })
+
+  it('retries up to 3 times before showing unavailable', async () => {
+    vi.useFakeTimers()
+    let briefingCalls = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/briefing') {
+        briefingCalls++
+        return Promise.reject(new Error('connection refused'))
+      }
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+
+    renderDashboard()
+
+    // Initial call fires on mount
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(briefingCalls).toBe(1)
+
+    // Three retries at 2s intervals
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(briefingCalls).toBe(2)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(briefingCalls).toBe(3)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(briefingCalls).toBe(4) // initial + 3 retries
+
+    // After exhausting retries, shows unavailable
+    await vi.advanceTimersByTimeAsync(1)
+    expect(screen.getByText(/temporarily unavailable/i)).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  it('recovers when a retry succeeds after initial failures', async () => {
+    vi.useFakeTimers()
+    let briefingCalls = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/briefing') {
+        briefingCalls++
+        if (briefingCalls <= 2) {
+          return Promise.reject(new Error('connection refused'))
+        }
+        return Promise.resolve({ show: true, briefing: 'Good morning!' })
+      }
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+
+    renderDashboard()
+
+    // First two calls fail
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(briefingCalls).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(briefingCalls).toBe(2)
+
+    // Third call succeeds
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(briefingCalls).toBe(3)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(screen.getByText('Good morning!')).toBeInTheDocument()
+    expect(screen.queryByText(/temporarily unavailable/i)).toBeNull()
+
+    vi.useRealTimers()
   })
 })
 

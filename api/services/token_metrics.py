@@ -22,6 +22,7 @@ so this data is not at risk from ``git pull``.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -32,6 +33,12 @@ from config import PROJECT_ROOT
 # Same path the Rust `ostk metrics` command reads from. The squasher
 # also writes here under the "squash" event type.
 _METRICS_PATH = Path(PROJECT_ROOT) / ".ostk" / "metrics.jsonl"
+
+# TTL cache for get_ostk_savings(): (timestamp, result). The ostk binary
+# subprocess is ~100 ms. Caching for 30 seconds means concurrent requests
+# (e.g. dashboard + costs page loading simultaneously) share one call.
+_SAVINGS_CACHE: Optional[tuple[float, Optional[dict]]] = None
+_SAVINGS_TTL_SECONDS = 30
 
 
 def _ensure_parent() -> None:
@@ -49,6 +56,8 @@ def record_chat_turn(
     has_ostk_boot: bool,
     boot_context_bytes: int = 0,
     backend: str = "anthropic_api",
+    cache_creation_input_tokens: int = 0,
+    cache_read_input_tokens: int = 0,
 ) -> None:
     """Append one chat-turn event to ``<project>/.ostk/metrics.jsonl``.
 
@@ -66,6 +75,8 @@ def record_chat_turn(
         "has_ostk_boot": bool(has_ostk_boot),
         "boot_context_bytes": int(boot_context_bytes),
         "backend": backend,
+        "cache_creation_input_tokens": int(cache_creation_input_tokens),
+        "cache_read_input_tokens": int(cache_read_input_tokens),
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     line = json.dumps(event, separators=(",", ":")) + "\n"
@@ -84,35 +95,19 @@ def safe_record_chat_turn(**kwargs) -> None:
         pass
 
 
-def get_ostk_savings() -> Optional[dict]:
-    """Shell out to ``ostk os metrics --json`` and return a plain dict
-    summarizing what ostk saved this session through prompt caching and
-    context squashing.
+def _fetch_ostk_savings_raw() -> Optional[dict]:
+    """Shell out to ``ostk os metrics --json`` and return parsed savings dict.
 
-    Returns ``None`` when the ``ostk`` binary is missing, exits with a
-    non-zero status, or returns something that cannot be parsed. Callers
-    should treat ``None`` as "no savings data available" and show a
-    neutral empty state.
-
-    The returned shape is:
-
-    .. code-block:: python
-
-        {
-            "savings_usd": float,          # cache + compression savings
-            "cache_efficiency_pct": float, # percent of prompts served from cache
-            "compression_pct": float,      # compression ratio on stored context
-            "cost_without_ostk_usd": float,
-            "cost_with_ostk_usd": float,
-            "period": "session",
-        }
+    Returns ``None`` on any failure. This is the cold-path call; callers
+    should normally go through ``get_ostk_savings`` which adds a TTL cache.
     """
     try:
         result = subprocess.run(
-            ["ostk", "os", "metrics", "--json"],
+            [os.path.expanduser("~/.local/bin/ostk"), "os", "metrics", "--json"],
             capture_output=True,
             text=True,
             timeout=5,
+            cwd=str(PROJECT_ROOT),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
@@ -144,11 +139,87 @@ def get_ostk_savings() -> Optional[dict]:
     cache_savings = _as_float(prompt_cache.get("cache_savings_usd"))
     compression_savings = _as_float(squash.get("est_saved_usd"))
 
+    # Compute conversation-level cache stats from our own metrics.jsonl
+    conv_cache_read = 0
+    conv_cache_creation = 0
+    conv_total_input = 0
+    try:
+        if _METRICS_PATH.exists():
+            import json as _json
+            for line in _METRICS_PATH.read_text().splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    ev = _json.loads(line)
+                except (ValueError, _json.JSONDecodeError):
+                    continue
+                if ev.get("event") != "chat_turn":
+                    continue
+                conv_cache_read += int(ev.get("cache_read_input_tokens", 0) or 0)
+                conv_cache_creation += int(ev.get("cache_creation_input_tokens", 0) or 0)
+                conv_total_input += int(ev.get("input_tokens", 0) or 0)
+    except OSError:
+        pass
+
+    conversation_cache_pct = 0.0
+    if conv_total_input > 0:
+        conversation_cache_pct = round((conv_cache_read / conv_total_input) * 100, 1)
+
     return {
         "savings_usd": round(cache_savings + compression_savings, 4),
         "cache_efficiency_pct": _as_float(prompt_cache.get("efficiency_pct")),
         "compression_pct": _as_float(squash.get("compression_pct")),
         "cost_without_ostk_usd": _as_float(prompt_cache.get("no_cache_cost_usd")),
         "cost_with_ostk_usd": _as_float(prompt_cache.get("cost_usd")),
+        "conversation_cache_pct": conversation_cache_pct,
+        "conversation_cache_read_tokens": conv_cache_read,
+        "conversation_cache_creation_tokens": conv_cache_creation,
         "period": "session",
     }
+
+
+def get_ostk_savings() -> Optional[dict]:
+    """Return ostk savings data, cached for ``_SAVINGS_TTL_SECONDS`` seconds.
+
+    Shells out to ``ostk os metrics --json`` on a cache miss and caches
+    the result (including ``None`` on failure) so concurrent page loads
+    and dashboard refreshes share a single subprocess call. The TTL is
+    short enough that savings numbers update within half a minute.
+
+    Returns ``None`` when the ``ostk`` binary is missing, exits with a
+    non-zero status, or returns something that cannot be parsed. Callers
+    should treat ``None`` as "no savings data available" and show a
+    neutral empty state.
+
+    The returned shape is:
+
+    .. code-block:: python
+
+        {
+            "savings_usd": float,          # cache + compression savings
+            "cache_efficiency_pct": float, # percent of prompts served from cache
+            "compression_pct": float,      # compression ratio on stored context
+            "cost_without_ostk_usd": float,
+            "cost_with_ostk_usd": float,
+            "period": "session",
+        }
+    """
+    global _SAVINGS_CACHE
+    now = time.monotonic()
+    if _SAVINGS_CACHE is not None:
+        cached_at, cached_result = _SAVINGS_CACHE
+        if now - cached_at < _SAVINGS_TTL_SECONDS:
+            return cached_result
+
+    result = _fetch_ostk_savings_raw()
+    _SAVINGS_CACHE = (now, result)
+    return result
+
+
+def invalidate_savings_cache() -> None:
+    """Force the next ``get_ostk_savings`` call to re-run the subprocess.
+
+    Useful in tests that need to observe fresh values.
+    """
+    global _SAVINGS_CACHE
+    _SAVINGS_CACHE = None
