@@ -14,6 +14,7 @@ import { type AgentInfo, agentTitleParts, isAgentActive, isUserSpawnedAgent } fr
 import { renderMarkdown } from "../lib/markdown";
 import { hasSpeakerPrefixes, parseTranscript } from "../lib/transcript";
 import { Button, EmptyState, Card } from "../components/ui";
+import { formatTokenBudget, formatTokenBudgetApprox } from "../lib/budgetDisplay";
 
 // Re-export so tests can still import these from './Agents'
 export { friendlyAgentName, isMainSession, isUserSpawnedAgent } from "../lib/agentUtils";
@@ -814,7 +815,7 @@ function TemplateEditorModal({
             </select>
           </div>
           <div className="flex-1">
-            <label className="block text-sm text-slate-400 mb-1">Budget ($)</label>
+            <label className="block text-sm text-slate-400 mb-1">Token budget</label>
             <input
               type="number"
               min={0}
@@ -1216,10 +1217,14 @@ function AgentStatusBar({ spawnedAt, budget, model, transcriptBytes, transcriptL
     etaText = "calculating";
   }
 
+  // Per-agent limit is a token budget, not a dollar charge. Tori runs on
+  // a Claude subscription so nothing is debited. See app/src/lib/budgetDisplay.ts
+  // for the conversion source.
+  const tokenBudgetLabel = budget ? formatTokenBudget(budget, model) : "";
   const segments = [
     `${elapsedMin}:${elapsedRemSec.toString().padStart(2, "0")}`,
     formatModelShort(model),
-    budget ? `$${budget} cap` : null,
+    tokenBudgetLabel || null,
     transcriptBytes ? formatBytes(transcriptBytes) : null,
     transcriptLines ? `${transcriptLines} lines` : null,
   ].filter(Boolean);
@@ -1246,7 +1251,7 @@ function AgentStatusBar({ spawnedAt, budget, model, transcriptBytes, transcriptL
 // Mirrors the AgentStatusBar but in a single inline row so the card stays
 // tiny. Tori asked for this so the Active Sessions list is scannable by
 // default and the full chat + controls only appear on demand.
-function AgentCompactSummary({ spawnedAt, budget, model, costEstimate, durationStats }: {
+function AgentCompactSummary({ spawnedAt, budget, model, costEstimate: _costEstimate, durationStats }: {
   spawnedAt?: string;
   budget?: string;
   model?: string;
@@ -1273,10 +1278,10 @@ function AgentCompactSummary({ spawnedAt, budget, model, costEstimate, durationS
     }
   }
   segments.push(formatModelShort(model));
-  if (costEstimate !== undefined && costEstimate > 0 && budget) {
-    segments.push(`$${costEstimate.toFixed(2)}/${budget}`);
-  } else if (budget) {
-    segments.push(`$${budget} cap`);
+  // Per-agent limit is a token budget, not a dollar charge. See
+  // app/src/lib/budgetDisplay.ts for the conversion source.
+  if (budget) {
+    segments.push(formatTokenBudget(budget, model));
   }
 
   // See AgentStatusBar above for the rationale. Once elapsed exceeds
@@ -3479,8 +3484,8 @@ export default function Agents() {
                             </div>
                             {agent.budget && (
                               <div>
-                                <span className="text-slate-500">Budget</span>
-                                <p className="text-white mt-1">${agent.budget}</p>
+                                <span className="text-slate-500">Token budget</span>
+                                <p className="text-white mt-1">{formatTokenBudgetApprox(agent.budget, agent.model)}</p>
                               </div>
                             )}
                             <div>

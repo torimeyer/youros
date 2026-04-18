@@ -816,12 +816,16 @@ describe('Agents page - Status bar', () => {
     })
   })
 
-  it('displays budget cap in status bar', async () => {
+  it('displays token budget in status bar', async () => {
     renderAgents()
 
     await waitFor(() => {
       const statusBar = screen.getByTestId('agent-status-bar')
-      expect(statusBar.textContent).toContain('$2.00 cap')
+      // Budget is a token budget, not a dollar charge. Subscription users
+      // see "Nk tokens" / "NM tokens" rather than "$X cap".
+      expect(statusBar.textContent).toContain('tokens')
+      expect(statusBar.textContent).not.toContain('$')
+      expect(statusBar.textContent).not.toContain('cap')
     })
   })
 
@@ -1016,12 +1020,14 @@ describe('Agents page - active card collapse/expand default', () => {
       expect(screen.getByTitle('test-agent')).toBeInTheDocument()
     })
 
-    // The compact summary renders with model name, budget cap, and
+    // The compact summary renders with model name, token budget, and
     // an ETA in a single inline row. It must be visible when collapsed.
     const summary = screen.getByTestId('agent-compact-summary')
     expect(summary).toBeInTheDocument()
     expect(summary.textContent).toContain('sonnet')
-    expect(summary.textContent).toContain('$2.00')
+    // Subscription users see a token figure, not a dollar amount.
+    expect(summary.textContent).toContain('tokens')
+    expect(summary.textContent).not.toContain('$')
   })
 
   it('active agent card expands on Expand chevron click', async () => {
