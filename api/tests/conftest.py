@@ -210,3 +210,19 @@ def _isolate_external_data_sources():
          patch("routers.sessions._claude_code_transcript_sessions", return_value=[]), \
          patch("routers.sessions._agent_sessions", return_value=[]):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_api_key_cache():
+    """Clear the module-level API key cache before and after each test.
+
+    _API_KEY_CACHE stores resolved Anthropic/Gemini API keys for 60s.
+    Without this reset, a test that resolves a real key from os.environ
+    pollutes later tests that patch settings_store and ostk to return no
+    key -- those patches are bypassed by the warm cache, causing the
+    patched tests to make real API calls instead of hitting the error path.
+    """
+    from services.chat_providers import _clear_api_key_cache
+    _clear_api_key_cache()
+    yield
+    _clear_api_key_cache()
