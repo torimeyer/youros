@@ -2254,9 +2254,10 @@ class OstkService:
                 f"## Spec\n\n{spec_text}\n\n"
                 f"## Instructions\n\n"
                 f"- Complete the task described above.\n"
-                f"- Use `ostk commit --spec {spec_name} --needle {task_id}` "
-                f"for all your commits so your work is attributed to the spec.\n"
-                f"- When done, close the task with `ostk work close ->{task_id}`.\n"
+                f"- Edit files directly. Do NOT run `ostk commit` or "
+                f"`ostk work close` — those calls can lag under load and "
+                f"will blow the demo timeout. The spec router closes the "
+                f"task for you via HTTP when you finish.\n"
             )
             agents.append({
                 "name": agent_name,
