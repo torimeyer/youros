@@ -14,6 +14,7 @@ vi.mock('../lib/api', () => ({
 }))
 
 import { api } from '../lib/api'
+import { _resetSidebarBus } from '../lib/sidebarBus'
 
 const mockedApiGet = vi.mocked(api.get)
 
@@ -57,6 +58,7 @@ describe('Sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    _resetSidebarBus()
     useAppStore.setState({
       osName: 'myOS',
       features: DEFAULT_FEATURES,
@@ -187,6 +189,33 @@ describe('Sidebar', () => {
     await waitFor(() => {
       expect(screen.getByText('5')).toBeInTheDocument()
     })
+  })
+
+  it('excludes locally dismissed agents from the badge count', async () => {
+    // Start with three running agents. The Agents page dismisses one of
+    // them (for example the user cancelled it), so the sidebar badge
+    // should drop to 2 on the next refetch even though the backend still
+    // returns all three.
+    mockedApiGet.mockResolvedValue({
+      active: ['a1', 'a2', 'a3'],
+      agents: [
+        { name: 'a1', status: 'running', source: 'claude-code' },
+        { name: 'a2', status: 'running', source: 'claude-code' },
+        { name: 'a3', status: 'running', source: 'claude-code' },
+      ],
+    })
+    const { addDismissed, bumpAgents } = await import('../lib/sidebarBus')
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.getByText('3')).toBeInTheDocument()
+    })
+    // Simulate the Agents page cancelling a1. Nudge the bus so the sidebar
+    // refetches right away instead of waiting for its 2s poll tick.
+    addDismissed('a1')
+    bumpAgents()
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument()
+    }, { timeout: 3000 })
   })
 
   it('Sidebar renders a count badge on the Tasks nav when there are open tasks', async () => {
@@ -578,6 +607,7 @@ describe('Sidebar grouped nav', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    _resetSidebarBus()
     useAppStore.setState({
       osName: 'myOS',
       features: DEFAULT_FEATURES,
@@ -795,6 +825,7 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    _resetSidebarBus()
     useAppStore.setState({
       osName: 'myOS',
       features: DEFAULT_FEATURES,

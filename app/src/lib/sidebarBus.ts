@@ -11,11 +11,69 @@
 // The api wrapper calls these automatically for any non-GET request whose
 // path starts with /agents or /tasks, so most callers do not need to do
 // anything. Direct callers (tests, edge cases) can still bump manually.
+//
+// Cross-tab delivery: when the browser supports BroadcastChannel, bumps
+// are also fanned out to every other tab on the same origin so the
+// sidebar badge in tab A updates the instant tab B spawns or completes
+// an agent, without waiting on the 2 s poll. Tabs without
+// BroadcastChannel (older browsers, some jsdom versions) silently skip
+// this step. The 2 s poll remains a belt-and-suspenders fallback in
+// every case.
 
 type Listener = () => void
 
 const agentsListeners = new Set<Listener>()
 const tasksListeners = new Set<Listener>()
+
+// Names the user has locally dismissed (cancelled or deleted from the
+// Agents page). Shared at module scope so BOTH the Agents page and the
+// Sidebar badge consult the same set. Before this lived only in a
+// component-local ref inside Agents.tsx, so the Sidebar kept counting
+// dismissed agents for one or two poll ticks until the backend status
+// caught up. Also fanned out across tabs via BroadcastChannel so dismiss
+// in tab A hides the row in tab B without waiting on the next poll.
+const dismissedAgents = new Set<string>()
+
+type BroadcastPayload =
+  | { kind: 'agents' | 'tasks' }
+  | { kind: 'dismiss'; name: string }
+
+// BroadcastChannel is wrapped in a try/catch because some environments
+// (Safari private mode, older jsdom) expose the constructor but throw
+// when constructed. Falls back to null when unavailable.
+let channel: BroadcastChannel | null = null
+try {
+  if (typeof BroadcastChannel !== 'undefined') {
+    channel = new BroadcastChannel('myos-sidebar-bus')
+    channel.onmessage = (ev: MessageEvent<BroadcastPayload>) => {
+      const kind = ev.data?.kind
+      if (kind === 'agents') {
+        fanOut(agentsListeners)
+      } else if (kind === 'tasks') {
+        fanOut(tasksListeners)
+      } else if (kind === 'dismiss') {
+        // Another tab just dismissed an agent locally. Mirror it into this
+        // tab's set so our Sidebar badge and Agents list filter match.
+        // Note: do NOT re-post on the channel (that would cause an echo
+        // loop). postMessage already does not fire onmessage in the sender.
+        const name = ev.data?.name
+        if (name) dismissedAgents.add(name)
+      }
+    }
+  }
+} catch {
+  channel = null
+}
+
+function fanOut(listeners: Set<Listener>): void {
+  for (const fn of Array.from(listeners)) {
+    try {
+      fn()
+    } catch {
+      // Never let a single subscriber throw and block the others.
+    }
+  }
+}
 
 export function onAgentsChange(fn: Listener): () => void {
   agentsListeners.add(fn)
@@ -32,22 +90,22 @@ export function onTasksChange(fn: Listener): () => void {
 }
 
 export function bumpAgents(): void {
-  for (const fn of Array.from(agentsListeners)) {
-    try {
-      fn()
-    } catch {
-      // Never let a single subscriber throw and block the others.
-    }
+  fanOut(agentsListeners)
+  // Notify other tabs. postMessage never fires onmessage in the sender,
+  // so local listeners only run once.
+  try {
+    channel?.postMessage({ kind: 'agents' } satisfies BroadcastPayload)
+  } catch {
+    // ignore transient BroadcastChannel errors
   }
 }
 
 export function bumpTasks(): void {
-  for (const fn of Array.from(tasksListeners)) {
-    try {
-      fn()
-    } catch {
-      // Never let a single subscriber throw and block the others.
-    }
+  fanOut(tasksListeners)
+  try {
+    channel?.postMessage({ kind: 'tasks' } satisfies BroadcastPayload)
+  } catch {
+    // ignore
   }
 }
 
@@ -55,4 +113,35 @@ export function bumpTasks(): void {
 export function _resetSidebarBus(): void {
   agentsListeners.clear()
   tasksListeners.clear()
+  dismissedAgents.clear()
+}
+
+// Mark an agent name as locally dismissed. Both the Agents page (when the
+// user cancels or removes a row) and the Sidebar (when filtering the badge
+// count) consult the same set, so the badge updates in the same render
+// tick. Also fanned out to other tabs on the same origin.
+export function addDismissed(name: string): void {
+  if (!name) return
+  dismissedAgents.add(name)
+  try {
+    channel?.postMessage({ kind: 'dismiss', name } satisfies BroadcastPayload)
+  } catch {
+    // ignore transient BroadcastChannel errors
+  }
+}
+
+// Pure check. Returns true when the given name has been locally dismissed.
+export function isDismissed(name: string): boolean {
+  return dismissedAgents.has(name)
+}
+
+// Read-only view of the dismissed set. Handy for tests and debugging.
+export function getDismissed(): ReadonlySet<string> {
+  return dismissedAgents
+}
+
+// Undo a dismissal. Used when the user respawns an agent with the same
+// name so the placeholder row is not hidden by a stale entry.
+export function clearDismissed(name: string): void {
+  dismissedAgents.delete(name)
 }

@@ -6,7 +6,7 @@ import { AgentChatThread } from "../components/AgentChatThread";
 import ConfirmModal from "../components/ConfirmModal";
 import { useConfirm } from "../hooks/useConfirm";
 import { api, ApiError, ApiTimeoutError } from "../lib/api";
-import { onAgentsChange } from "../lib/sidebarBus";
+import { onAgentsChange, addDismissed, isDismissed, clearDismissed } from "../lib/sidebarBus";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 import { AGENT_MARKETPLACE } from "../data/agentMarketplace";
@@ -1789,9 +1789,6 @@ export default function Agents() {
   const [allAgents, setAllAgents] = useState<AgentInfo[]>(() =>
     readAgentsCache().filter((a) => a.name !== 'daemon'),
   );
-  // Agents the user locally dismissed (cancelled or deleted). The poll
-  // must not re-add these until the page is fully reloaded.
-  const dismissedAgentsRef = useRef<Set<string>>(new Set());
   // Tracks whether the first /agents fetch has resolved. We use this to show
   // a loading state on first paint instead of flashing the empty state.
   // Subsequent polling refreshes do not reset this flag, so the spinner never
@@ -2144,7 +2141,7 @@ export default function Agents() {
       const prev = prevStatusRef.current;
       for (const agent of newAgents) {
         // Skip notifications for agents the user explicitly dismissed
-        if (dismissedAgentsRef.current.has(agent.name)) continue;
+        if (isDismissed(agent.name)) continue;
         const prevStatus = prev[agent.name];
         const newStatus = agent.status;
         if (prevStatus !== undefined && prevStatus !== newStatus) {
@@ -2169,7 +2166,7 @@ export default function Agents() {
       prevStatusRef.current = Object.fromEntries(newAgents.map((a) => [a.name, a.status]));
 
       const filtered = newAgents.filter(
-        (a) => a.name !== 'daemon' && !dismissedAgentsRef.current.has(a.name)
+        (a) => a.name !== 'daemon' && !isDismissed(a.name)
       );
       setAllAgents(filtered);
       // Persist the last good response so the next cold visit paints
@@ -2779,7 +2776,7 @@ export default function Agents() {
       transcript_lines: 0,
     };
     // Make sure the placeholder is not blocked by a stale dismissal.
-    dismissedAgentsRef.current.delete(cleanName);
+    clearDismissed(cleanName);
     setAllAgents((prev) => {
       // If a row with this name is already in the list (rare race),
       // do not insert a duplicate.
@@ -2860,7 +2857,7 @@ export default function Agents() {
       // Remove cancelled agents from the local list immediately.
       if (data.names && data.names.length > 0) {
         const cancelledSet = new Set(data.names);
-        cancelledSet.forEach((n) => dismissedAgentsRef.current.add(n));
+        cancelledSet.forEach((n) => addDismissed(n));
         setAllAgents((prev) => prev.filter((a) => !cancelledSet.has(a.name)));
       }
       // Refresh the full agent list so the UI reflects the updated statuses.
@@ -2894,7 +2891,7 @@ export default function Agents() {
     } finally {
       setKillingAgents((prev) => ({ ...prev, [name]: false }));
       // Dismiss so the poll never brings it back
-      dismissedAgentsRef.current.add(name);
+      addDismissed(name);
       setAllAgents((prev) => prev.filter((a) => a.name !== name));
     }
   };
@@ -3821,7 +3818,7 @@ export default function Agents() {
                                 } catch {
                                   // may fail if agent is still running
                                 }
-                                dismissedAgentsRef.current.add(agent.name);
+                                addDismissed(agent.name);
                                 setAllAgents((prev) => prev.filter((a) => a.name !== agent.name));
                               }}
                               className="text-slate-600 hover:text-red-400 transition-colors text-xs flex items-center gap-1"

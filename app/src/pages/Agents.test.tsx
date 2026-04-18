@@ -25,6 +25,15 @@ vi.mock('../lib/api', async (importOriginal) => {
   }
 })
 
+// The Agents page shares its dismissed-agents set with the Sidebar via
+// the sidebarBus module. That set is module-level and survives across
+// tests (vitest keeps modules loaded for a file). Reset it before every
+// test so names cancelled in one test do not leak into the next.
+import { _resetSidebarBus } from '../lib/sidebarBus'
+beforeEach(() => {
+  _resetSidebarBus()
+})
+
 // jsdom does not provide window.matchMedia. Provide a minimal stub
 // so components that use responsive breakpoints do not crash.
 Object.defineProperty(window, 'matchMedia', {

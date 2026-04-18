@@ -20,7 +20,7 @@ import WhatsNew from './WhatsNew'
 import { useAppStore } from '../stores/app'
 import AdminSection from './AdminSection'
 import { api } from '../lib/api'
-import { onAgentsChange, onTasksChange } from '../lib/sidebarBus'
+import { onAgentsChange, onTasksChange, isDismissed } from '../lib/sidebarBus'
 import { isAgentActive, isUserSpawnedAgent } from '../lib/agentUtils'
 
 // ------------- types -------------
@@ -355,8 +355,12 @@ export function Sidebar() {
       try {
         interface AgentInfo { name: string; status: string; source?: string; model?: string; description?: string; spawned_at?: string; completed_at?: string; last_heartbeat_at?: string }
         const res = await api.get<{ active: string[]; agents: AgentInfo[] }>('/agents')
+        // Also exclude locally-dismissed agents so the badge matches what
+        // the Agents page shows. Without this filter, the sidebar keeps
+        // counting an agent for one or two poll ticks after the user
+        // cancels it.
         const userSpawnedRunning = (res.agents || []).filter(
-          (a) => isAgentActive(a) && isUserSpawnedAgent(a)
+          (a) => isAgentActive(a) && isUserSpawnedAgent(a) && !isDismissed(a.name)
         )
         setActiveAgents(userSpawnedRunning.length)
       } catch {
