@@ -520,6 +520,136 @@ async def test_nudge_no_stdin_writer_and_no_proc_uses_file_only():
 
 
 @pytest.mark.asyncio
+async def test_nudge_survives_closed_proc_stdin_runtimeerror():
+    """Second message to a running agent whose proc stdin transport is
+    already closed must NOT 500.
+
+    Regression for the "Could not send message. Internal Server Error"
+    report on 2026-04-18 22:38 UTC. The user sent a second nudge to a
+    registered agent and got HTTP 500. Backend log:
+
+        File "api/routers/agents.py", line 5456, in nudge_agent
+            proc.stdin.write(...)
+        RuntimeError: unable to perform operation on
+            <WriteUnixTransport closed=True ...>; the handler is closed
+
+    The legacy active_agents path was only catching
+    (BrokenPipeError, ConnectionResetError, OSError), not the
+    RuntimeError uvloop raises for a torn-down transport. The fix is to
+    catch RuntimeError too and fall through to file_only delivery so the
+    UI gets a 200 with an honest delivery indicator.
+    """
+    from routers.agents import (
+        agent_metadata,
+        active_agents,
+        _agent_stdin_writers,
+        nudge_history,
+    )
+
+    agent_name = "closed-proc-agent"
+    agent_metadata[agent_name] = {"status": "running", "source": "claude-code"}
+    _agent_stdin_writers.pop(agent_name, None)  # force legacy path
+
+    mock_stdin = MagicMock()
+    # Simulate uvloop's closed-transport behavior: write() raises
+    # RuntimeError synchronously.
+    mock_stdin.write = MagicMock(
+        side_effect=RuntimeError(
+            "unable to perform operation on <WriteUnixTransport closed=True "
+            "reading=False>; the handler is closed"
+        )
+    )
+    mock_stdin.drain = AsyncMock()
+
+    mock_proc = MagicMock()
+    mock_proc.stdin = mock_stdin
+    active_agents[agent_name] = mock_proc
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": agent_name,
+                    "message": "second message",
+                    "timestamp": "2026-04-18T22:38:00+00:00",
+                    "source": "ui",
+                })
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/nudge",
+                    json={"message": "second message"},
+                )
+    finally:
+        active_agents.pop(agent_name, None)
+        agent_metadata.pop(agent_name, None)
+        nudge_history.pop(agent_name, None)
+
+    assert resp.status_code == 200, (
+        f"expected 200 (graceful fallback), got {resp.status_code}: "
+        f"{resp.text}"
+    )
+    data = resp.json()
+    assert data["nudge"]["delivery"] == "file_only"
+    assert data["nudge"]["stdin_delivered"] is False
+
+
+@pytest.mark.asyncio
+async def test_nudge_survives_closed_stdin_writer_runtimeerror():
+    """Companion to the legacy-proc test: the _agent_stdin_writers path
+    must also survive a RuntimeError from a transport closed between
+    is_closing() and write().
+
+    This is the is_closing()==False but write() still raises race. Without
+    RuntimeError in the except tuple the user sees a 500.
+    """
+    from routers.agents import agent_metadata, _agent_stdin_writers, nudge_history
+
+    agent_name = "writer-runtimeerror-agent"
+    agent_metadata[agent_name] = {"status": "running", "source": "claude-code"}
+
+    mock_writer = MagicMock()
+    mock_writer.is_closing.return_value = False  # race: looked alive
+    mock_writer.write = MagicMock(
+        side_effect=RuntimeError(
+            "unable to perform operation on <WriteUnixTransport closed=True>; "
+            "the handler is closed"
+        )
+    )
+    mock_writer.drain = AsyncMock()
+    _agent_stdin_writers[agent_name] = mock_writer
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": agent_name,
+                    "message": "race message",
+                    "timestamp": "2026-04-18T22:39:00+00:00",
+                    "source": "ui",
+                })
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/nudge",
+                    json={"message": "race message"},
+                )
+    finally:
+        _agent_stdin_writers.pop(agent_name, None)
+        agent_metadata.pop(agent_name, None)
+        nudge_history.pop(agent_name, None)
+
+    assert resp.status_code == 200, (
+        f"expected 200 (graceful fallback), got {resp.status_code}: "
+        f"{resp.text}"
+    )
+    data = resp.json()
+    assert data["nudge"]["delivery"] == "file_only"
+    assert data["nudge"]["stdin_delivered"] is False
+    # Stale writer must be evicted so the next nudge goes straight to
+    # file_only without the RuntimeError detour.
+    assert agent_name not in _agent_stdin_writers
+
+
+@pytest.mark.asyncio
 async def test_reply_endpoint_records_agent_reply():
     """POST /api/agents/{name}/reply should persist an agent reply.
 

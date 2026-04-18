@@ -5445,8 +5445,11 @@ async def nudge_agent(name: str, body: AgentNudge):
                 writer.write((stdin_payload + "\n").encode())
                 await writer.drain()
                 delivery = "stdin"
-            except (BrokenPipeError, ConnectionResetError, OSError):
+            except (BrokenPipeError, ConnectionResetError, OSError, RuntimeError):
                 # Pipe broke mid-write. Clean up and fall back to file.
+                # RuntimeError covers uvloop's "handler is closed" when the
+                # underlying transport was torn down between is_closing() and
+                # write() (incident 2026-04-18 22:38 UTC, inline chat 500).
                 _agent_stdin_writers.pop(name, None)
                 delivery = "file_only"
     else:
@@ -5456,7 +5459,14 @@ async def nudge_agent(name: str, body: AgentNudge):
                 proc.stdin.write((stdin_payload + "\n").encode())
                 await proc.stdin.drain()
                 delivery = "stdin"
-            except (BrokenPipeError, ConnectionResetError, OSError):
+            except (BrokenPipeError, ConnectionResetError, OSError, RuntimeError):
+                # Legacy path for agents tracked in active_agents. uvloop
+                # raises RuntimeError("... handler is closed") when the
+                # subprocess has already exited and its stdin transport was
+                # torn down. The second message the user sends in the inline
+                # chat hits this (incident 2026-04-18 22:38 UTC). Fall back
+                # to file_only so the message still lands and the UI shows
+                # a 200 with a delivery indicator instead of a generic 500.
                 delivery = "file_only"
 
     delivery_message = _nudge_delivery_message(delivery, name)
