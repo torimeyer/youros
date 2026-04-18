@@ -558,11 +558,11 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
         chat_agent_name = f"chat-{tab_id[:8]}" if tab_id else "chat-default"
     try:
         from routers.agents import register_chat_session
-        await register_chat_session(
+        asyncio.create_task(register_chat_session(
             chat_agent_name,
             model=provider,
             prompt_preview=last_user,
-        )
+        ))
     except Exception:
         pass
 
@@ -585,7 +585,7 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
     finally:
         try:
             from routers.agents import complete_chat_session
-            await complete_chat_session(chat_agent_name, status=status)
+            asyncio.create_task(complete_chat_session(chat_agent_name, status=status))
         except Exception:
             pass
 
@@ -1016,12 +1016,21 @@ async def chat_websocket(websocket: WebSocket):
             # since the agent can look up context itself via tools)
             if not use_tools and (should_inject_context(last_text) or should_inject_calendar(last_text)):
                 context_parts = []
-                if should_inject_context(last_text):
-                    ctx = await build_context()
+                needs_ctx = should_inject_context(last_text)
+                needs_cal = should_inject_calendar(last_text)
+                gather_coros = []
+                if needs_ctx:
+                    gather_coros.append(build_context())
+                if needs_cal:
+                    gather_coros.append(build_calendar_context())
+                gather_results = await asyncio.gather(*gather_coros)
+                result_idx = 0
+                if needs_ctx:
+                    ctx = gather_results[result_idx]; result_idx += 1
                     if ctx:
                         context_parts.append(ctx)
-                if should_inject_calendar(last_text):
-                    cal_ctx = await build_calendar_context()
+                if needs_cal:
+                    cal_ctx = gather_results[result_idx]
                     if cal_ctx:
                         context_parts.append(cal_ctx)
                 if context_parts:

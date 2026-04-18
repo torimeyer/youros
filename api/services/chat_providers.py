@@ -302,6 +302,18 @@ def _clear_anthropic_client_cache() -> None:
     _ANTHROPIC_CLIENT_CACHE.clear()
 
 
+# Cache for resolved API keys keyed on settings_key. Avoids an ostk subprocess
+# call (secret_get) on every chat turn. TTL is 60 seconds: short enough that a
+# key rotation takes effect quickly, long enough to cover a full conversation.
+_API_KEY_CACHE: dict[str, tuple[float, str]] = {}
+_API_KEY_CACHE_TTL_S: float = 60.0
+
+
+def _clear_api_key_cache() -> None:
+    """Evict all cached API keys (used in tests and on key rotation)."""
+    _API_KEY_CACHE.clear()
+
+
 # One-time log marker so we print the active Gemini model on the first
 # chat and stay quiet after that. Useful when debugging "which model is
 # my instance actually talking to" without spamming the log every turn.
@@ -697,6 +709,12 @@ async def _resolve_api_key(settings_key: str) -> str:
     3. Legacy settings.json field (for backward compatibility)
     4. Environment variable
     """
+    import time as _t
+    now = _t.monotonic()
+    cached = _API_KEY_CACHE.get(settings_key)
+    if cached is not None and (now - cached[0]) < _API_KEY_CACHE_TTL_S:
+        return cached[1]
+
     # 1. Org-level key (enterprise mode)
     provider = _SETTINGS_KEY_TO_PROVIDER.get(settings_key, "")
     if provider:
@@ -704,6 +722,7 @@ async def _resolve_api_key(settings_key: str) -> str:
         if enterprise_store.is_enterprise():
             org_key = enterprise_store.get_org_api_key(provider)
             if org_key:
+                _API_KEY_CACHE[settings_key] = (now, org_key)
                 return org_key
 
     env_name = _ENV_KEY_MAP.get(settings_key, "")
@@ -712,17 +731,19 @@ async def _resolve_api_key(settings_key: str) -> str:
     if env_name:
         keychain_value = await ostk.secret_get(env_name)
         if keychain_value:
+            _API_KEY_CACHE[settings_key] = (now, keychain_value)
             return keychain_value
 
     # 3. Legacy settings.json (backward compat)
     key = settings_store.get(settings_key, "")
     if key:
+        _API_KEY_CACHE[settings_key] = (now, key)
         return key
 
     # 4. Environment variable
-    if env_name:
-        return os.environ.get(env_name, "")
-    return ""
+    result = os.environ.get(env_name, "") if env_name else ""
+    _API_KEY_CACHE[settings_key] = (now, result)
+    return result
 
 MAX_AGENT_TURNS = 25
 

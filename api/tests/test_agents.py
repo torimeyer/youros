@@ -3268,6 +3268,81 @@ async def test_heartbeat_endpoint_returns_404_for_unknown_agent():
 
 
 @pytest.mark.asyncio
+async def test_register_is_idempotent(tmp_path):
+    """Two back-to-back /register calls with the same body must both
+    succeed. The second call must preserve ``spawned_at`` so the agent's
+    duration stays accurate, and it must not 4xx/5xx. This protects the
+    MCP-flap retry path in register-agent.sh, which may replay the same
+    body multiple times if the first POST returns a transient error."""
+    from routers.agents import agent_metadata
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk._run = AsyncMock(return_value="")
+                body = {
+                    "name": "idempotent-register",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "task": "test idempotency",
+                    "source": "claude-code",
+                }
+                first = await client.post("/api/agents/register", json=body)
+                assert first.status_code == 200
+                first_spawned_at = agent_metadata["idempotent-register"]["spawned_at"]
+                # Second call with identical body: same outcome, state converges.
+                second = await client.post("/api/agents/register", json=body)
+                assert second.status_code == 200
+                # spawned_at is preserved (proves the replay did not reset duration).
+                assert agent_metadata["idempotent-register"]["spawned_at"] == first_spawned_at
+                # Status stays running.
+                assert agent_metadata["idempotent-register"]["status"] == "running"
+        finally:
+            agent_metadata.pop("idempotent-register", None)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_is_idempotent(tmp_path):
+    """Two back-to-back /heartbeat calls must both return 200. State
+    converges to the latest heartbeat timestamp. This protects the
+    detached heartbeat loop in register-agent.sh, which may retry the
+    same heartbeat if a uvicorn reload returns an empty body."""
+    from routers.agents import agent_metadata
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            agent_metadata["idempotent-beat"] = {
+                "spawned_at": "2026-04-18T00:00:00+00:00",
+                "last_heartbeat_at": "2026-04-18T00:00:00+00:00",
+                "source": "claude-code",
+                "status": "running",
+            }
+            with patch("routers.agents._save_agent_state"):
+                first = await client.post(
+                    "/api/agents/idempotent-beat/heartbeat",
+                    json={"step": "phase one"},
+                )
+                assert first.status_code == 200
+                first_ts = first.json()["last_heartbeat_at"]
+                second = await client.post(
+                    "/api/agents/idempotent-beat/heartbeat",
+                    json={"step": "phase one"},
+                )
+                assert second.status_code == 200
+                second_ts = second.json()["last_heartbeat_at"]
+                # Both calls succeeded. Second timestamp is at least as
+                # fresh as the first (monotonic clock).
+                assert second_ts >= first_ts
+                # State converged on the latest value.
+                assert agent_metadata["idempotent-beat"]["last_heartbeat_at"] == second_ts
+        finally:
+            agent_metadata.pop("idempotent-beat", None)
+
+
+@pytest.mark.asyncio
 async def test_list_endpoint_marks_stale_running_agents(tmp_path):
     """GET /api/agents must mark any running agent whose last_heartbeat_at
     is older than STALE_AGENT_TIMEOUT_SECONDS as terminated_stale and persist
@@ -8816,6 +8891,135 @@ async def test_fleet_demo_run_unknown_fleet_id_returns_404():
 
 
 @pytest.mark.asyncio
+async def test_fleet_spawn_with_e2e_context_tags_source_e2e_smoke(monkeypatch):
+    """POST /agents/fleets/spawn with 'e2e test only' in context tags members.
+
+    scripts/e2e_smoke.sh calls this endpoint on every release and marks
+    the request with ``context="e2e test only"``. Without a tag, the
+    resulting agents pile up in Tori's Recent Agents panel as noise.
+    The backend must stamp ``source="e2e-smoke"`` on every member so
+    the UI can filter them out by default.
+    """
+    from routers import agents as agents_mod
+    from routers.agents import active_agents, agent_metadata
+
+    async def _fake_spawn_agent(body, request=None):
+        return {"result": "ok", "pid": 55555, "transcript": "/tmp/t.md"}
+
+    monkeypatch.setattr(agents_mod, "spawn_agent", _fake_spawn_agent)
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+    monkeypatch.setattr(
+        agents_mod,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+
+    member_names = [
+        "fleet-build-website-product-manager",
+        "fleet-build-website-backend-developer",
+        "fleet-build-website-frontend-developer",
+        "fleet-build-website-security-engineer",
+    ]
+    for n in member_names:
+        agent_metadata.pop(n, None)
+        active_agents.pop(n, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/fleets/spawn",
+                json={
+                    "fleet_id": "fleet-build-website",
+                    "context": "e2e test only",
+                    "model": "sonnet",
+                    "budget": 0,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["total"] == 4
+
+        for name in member_names:
+            meta = agent_metadata.get(name)
+            assert meta is not None, f"fleet member {name} missing metadata"
+            assert meta.get("source") == "e2e-smoke", (
+                f"expected source='e2e-smoke' on {name}, got "
+                f"source={meta.get('source')!r}. Recent Agents needs this "
+                f"tag to hide e2e smoke runs from the default view."
+            )
+    finally:
+        for n in member_names:
+            agent_metadata.pop(n, None)
+            active_agents.pop(n, None)
+
+
+@pytest.mark.asyncio
+async def test_fleet_spawn_without_e2e_context_keeps_default_source(monkeypatch):
+    """POST /agents/fleets/spawn without the e2e sentinel keeps source='claude-code'.
+
+    The e2e-smoke tag must only fire on real e2e requests. A regular
+    user-driven fleet launch (empty context, or any context that does
+    not mention the sentinel) must keep the default claude-code source
+    so the agents stay visible in Recent Agents.
+    """
+    from routers import agents as agents_mod
+    from routers.agents import active_agents, agent_metadata
+
+    async def _fake_spawn_agent(body, request=None):
+        return {"result": "ok", "pid": 55555, "transcript": "/tmp/t.md"}
+
+    monkeypatch.setattr(agents_mod, "spawn_agent", _fake_spawn_agent)
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+    monkeypatch.setattr(
+        agents_mod,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+
+    member_names = [
+        "fleet-build-website-product-manager",
+        "fleet-build-website-backend-developer",
+        "fleet-build-website-frontend-developer",
+        "fleet-build-website-security-engineer",
+    ]
+    for n in member_names:
+        agent_metadata.pop(n, None)
+        active_agents.pop(n, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/fleets/spawn",
+                json={
+                    "fleet_id": "fleet-build-website",
+                    "context": "a dog walking business site",
+                    "model": "sonnet",
+                    "budget": 0,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        for name in member_names:
+            meta = agent_metadata.get(name)
+            assert meta is not None, f"fleet member {name} missing metadata"
+            assert meta.get("source") == "claude-code", (
+                f"expected source='claude-code' on {name}, got "
+                f"source={meta.get('source')!r}. Only the 'e2e test only' "
+                f"sentinel should flip the source to e2e-smoke."
+            )
+    finally:
+        for n in member_names:
+            agent_metadata.pop(n, None)
+            active_agents.pop(n, None)
+
+
+@pytest.mark.asyncio
 async def test_spawn_with_roadmap_template_auto_routes_to_demo_mode(monkeypatch):
     """Clicking the Roadmap template card in the UI must auto-route to demo mode.
 
@@ -10789,3 +10993,435 @@ async def test_spawn_delete_spawn_shows_in_agents_list(tmp_path, monkeypatch):
         agent_metadata.pop(agent_name, None)
         active_agents.pop(agent_name, None)
 
+
+# ---------------------------------------------------------------------------
+# Regression: live JSONL must beat stale legacy .md in transcript resolution.
+#
+# Root cause: a prior subagent run with the same slug (e.g.,
+# "diagnose-and-fix-slow-page-loads") leaves a non-stub transcripts/<name>.md
+# on disk. The resolver returned that .md as soon as it found it, so the
+# stale-sweep's ``_transcript_grew_recently`` check saw a cold mtime and
+# marked the currently-running agent "completed" ~20s after spawn even
+# though its real subagent JSONL was still streaming.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_live_jsonl_beats_stale_legacy_md_in_resolver(tmp_path, monkeypatch):
+    """The resolver must return the LIVE subagent JSONL when both a stale
+    legacy .md and a live JSONL exist. This is the direct regression test for
+    the "subagent marked completed 20 seconds after spawn" bug.
+    """
+    import os
+    from routers import agents as agents_module
+    from routers.agents import (
+        _resolve_transcript_source_uncached,
+        _reset_transcript_resolver_cache,
+    )
+
+    # Fake project root and Claude Code projects dir.
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    cc_projects = tmp_path / "claude_projects"
+    cc_projects.mkdir()
+
+    monkeypatch.setattr("config.PROJECT_ROOT", project_root)
+    monkeypatch.setattr(agents_module, "_claude_code_projects_dir", lambda: cc_projects)
+
+    agent_name = "diagnose-and-fix-slow-page-loads"
+
+    # Stale legacy .md from a prior run: real content (not a stub), old mtime.
+    legacy_dir = project_root / "transcripts"
+    legacy_dir.mkdir()
+    legacy_md = legacy_dir / f"{agent_name}.md"
+    legacy_md.write_text(
+        "## Prior session notes\n\n"
+        "This is a real, non-stub transcript from a previous run.\n"
+        "It contains more than 256 bytes of content so it is not treated as\n"
+        "a stub by _is_stub_markdown. The resolver used to return this file\n"
+        "greedily and the stale sweep would use its cold mtime to decide the\n"
+        "currently-running agent with the same slug had finished.\n"
+    )
+    old_mtime = (datetime.now(timezone.utc) - timedelta(hours=6)).timestamp()
+    os.utime(str(legacy_md), (old_mtime, old_mtime))
+
+    # Live subagent JSONL: freshly written, first line references the agent name.
+    project_label = str(project_root).replace("/", "-").lstrip("-")
+    session_dir = cc_projects / f"-{project_label}" / "session-abc" / "subagents"
+    session_dir.mkdir(parents=True)
+    live_jsonl = session_dir / "agent-xyz.jsonl"
+    first_line = json.dumps({
+        "type": "user",
+        "content": f"register: {{\"name\": \"{agent_name}\", \"budget\": 5}}",
+    })
+    live_jsonl.write_text(first_line + "\n")
+    # mtime is "now" by default -- leave it alone.
+
+    _reset_transcript_resolver_cache()
+    resolved = _resolve_transcript_source_uncached(agent_name)
+
+    assert resolved == live_jsonl, (
+        "Resolver must prefer the live subagent JSONL over a stale legacy .md "
+        f"from a prior run. Got: {resolved!r}, expected: {live_jsonl!r}."
+    )
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_does_not_complete_running_agent_with_live_jsonl(tmp_path, monkeypatch):
+    """End-to-end regression: a fresh claude-code subagent with a live JSONL
+    transcript must NOT be marked completed by the stale sweep even when a
+    non-stub legacy transcripts/<name>.md from a prior run exists with a cold
+    mtime. This was the observed bug: agents flipped to completed ~20s after
+    spawn because the resolver returned the stale .md.
+    """
+    import os
+    from routers import agents as agents_module
+    from routers.agents import (
+        agent_metadata,
+        _autocomplete_exited_subagents,
+        _reset_transcript_resolver_cache,
+    )
+
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    cc_projects = tmp_path / "claude_projects"
+    cc_projects.mkdir()
+
+    monkeypatch.setattr("config.PROJECT_ROOT", project_root)
+    monkeypatch.setattr(agents_module, "_claude_code_projects_dir", lambda: cc_projects)
+
+    agent_name = "diagnose-slow-loads-live"
+
+    # Stale non-stub legacy .md (the trap).
+    legacy_dir = project_root / "transcripts"
+    legacy_dir.mkdir()
+    legacy_md = legacy_dir / f"{agent_name}.md"
+    legacy_md.write_text(
+        "## Old session notes\n\n"
+        "Plenty of real content here from last week. This file is more than\n"
+        "256 bytes so it is NOT a completion stub, and the old resolver would\n"
+        "happily return it as the transcript source and let the stale sweep\n"
+        "flip the currently-running subagent to completed.\n"
+    )
+    old_mtime = (datetime.now(timezone.utc) - timedelta(hours=12)).timestamp()
+    os.utime(str(legacy_md), (old_mtime, old_mtime))
+
+    # Live subagent JSONL (mtime = now).
+    project_label = str(project_root).replace("/", "-").lstrip("-")
+    session_dir = cc_projects / f"-{project_label}" / "session-live" / "subagents"
+    session_dir.mkdir(parents=True)
+    live_jsonl = session_dir / "agent-live.jsonl"
+    first_line = json.dumps({
+        "type": "user",
+        "content": f"register: {{\"name\": \"{agent_name}\", \"budget\": 5}}",
+    })
+    live_jsonl.write_text(first_line + "\n")
+
+    # Agent registered less than 30 seconds ago, heartbeat fresh.
+    spawn_ts = (datetime.now(timezone.utc) - timedelta(seconds=25)).isoformat()
+    agent_metadata[agent_name] = {
+        "spawned_at": spawn_ts,
+        "last_heartbeat_at": spawn_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "5.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    try:
+        _reset_transcript_resolver_cache()
+        with patch("routers.agents._save_agent_state"), \
+             patch("routers.agents._is_pid_alive", return_value=False):
+            _autocomplete_exited_subagents()
+        assert agent_metadata[agent_name]["status"] == "running", (
+            "A fresh claude-code subagent with a live JSONL transcript must "
+            "not be marked completed by the stale sweep even when a non-stub "
+            "legacy .md from a prior run sits next to it. "
+            f"Got status: {agent_metadata[agent_name]['status']!r}."
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+
+
+# ---------------------------------------------------------------------------
+# Regression: /complete on claude-code subagents skips the pytest AC gate.
+#
+# Root cause: the gate called `python3 -m pytest api/tests/` with a 30s budget.
+# The real suite takes far longer, so every Agent-tool subagent got
+# "AC timed out" logged on /complete, which added no signal and polluted the
+# agent row. Agent-tool subagents run their own tests inline as part of the
+# task prompt; the main session owns repo-wide quality gates.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_complete_skips_ac_gate_for_claude_code_source(tmp_path):
+    """POST /complete on a source='claude-code' agent must NOT run the AC gate,
+    so the agent completes cleanly without "AC timed out" noise and without
+    blocking the response on a repo-wide pytest run.
+    """
+    from routers.agents import agent_metadata
+
+    agent_name = "ac-gate-skip-claude-code"
+    agent_metadata[agent_name] = {
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        "source": "claude-code",
+        "status": "running",
+        "budget": "5.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    # Fake an Agentfile that WOULD run a slow command if the gate fired.
+    fake_config = MagicMock()
+    fake_config.acceptance_criteria = ["python3 -m pytest api/tests/ -x -q"]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.get_agent_config", return_value=fake_config), \
+                 patch("routers.agents._save_agent_state"):
+                # Instrument subprocess.run so the test fails if the gate ran.
+                import subprocess as _sp
+                called = {"n": 0}
+                orig_run = _sp.run
+
+                def _boom(*args, **kwargs):
+                    called["n"] += 1
+                    return orig_run(*args, **kwargs)
+
+                with patch("subprocess.run", side_effect=_boom):
+                    resp = await client.post(
+                        f"/api/agents/{agent_name}/complete",
+                        json={"summary": "done"},
+                    )
+            assert resp.status_code == 200, resp.text
+            assert called["n"] == 0, (
+                "AC gate must be skipped for source='claude-code' agents. "
+                f"subprocess.run was called {called['n']} times; it should be 0."
+            )
+            # No gate_results written means no bogus "AC timed out" noise.
+            meta = agent_metadata.get(agent_name, {})
+            assert "gate_results" not in meta or not meta["gate_results"], (
+                "No gate_results should be recorded when the gate is skipped. "
+                f"Got: {meta.get('gate_results')!r}."
+            )
+            assert meta.get("status") == "completed", (
+                f"Agent must reach status=completed; got: {meta.get('status')!r}."
+            )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_complete_still_runs_ac_gate_for_non_claude_code_source(tmp_path):
+    """Complement to the skip test: source='api' (or ui/chat) agents must
+    still trigger the AC gate so main-session-owned quality checks keep firing.
+    """
+    from routers.agents import agent_metadata
+
+    agent_name = "ac-gate-keep-api"
+    agent_metadata[agent_name] = {
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        "source": "api",
+        "status": "running",
+        "budget": "5.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    fake_config = MagicMock()
+    fake_config.acceptance_criteria = ["true"]  # trivial, passes fast
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.get_agent_config", return_value=fake_config), \
+                 patch("routers.agents._save_agent_state"):
+                import subprocess as _sp
+                called = {"n": 0}
+                orig_run = _sp.run
+
+                def _tracking_run(*args, **kwargs):
+                    called["n"] += 1
+                    return orig_run(*args, **kwargs)
+
+                with patch("subprocess.run", side_effect=_tracking_run):
+                    resp = await client.post(
+                        f"/api/agents/{agent_name}/complete",
+                        json={"summary": "done"},
+                    )
+            assert resp.status_code == 200, resp.text
+            assert called["n"] >= 1, (
+                "AC gate must still run for source='api'. subprocess.run was "
+                f"called {called['n']} times; expected at least 1."
+            )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+# ---------------------------------------------------------------------------
+# Chat feedback endpoint (torichat spawn bubble follow-up)
+#
+# The torichat panel polls GET /api/agents/{name}/status-feedback after a
+# spawn_agent tool call so it can drop a plain-language bubble into the
+# conversation when the agent finishes, fails, or stalls. These tests
+# cover the shape and plain-language rendering of that endpoint.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_status_feedback_unknown_agent_returns_exists_false():
+    """Polling an unknown name must not 404; the chat poller stops on
+    ``exists=false`` so a spurious agent record name is a graceful stop.
+    """
+    from routers.agents import agent_metadata
+
+    agent_metadata.pop("no-such-feedback-agent", None)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/agents/no-such-feedback-agent/status-feedback")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["exists"] is False
+    assert data["terminal"] is False
+    assert data["feedback"] is None
+
+
+@pytest.mark.asyncio
+async def test_status_feedback_running_agent_plain_language():
+    """A running agent must return terminal=false and a conversational
+    feedback line the chat can render in place.
+    """
+    from routers.agents import agent_metadata
+
+    name = "feedback-running"
+    agent_metadata[name] = {
+        "status": "running",
+        "source": "chat",
+        "spawned_at": "2026-04-18T21:00:00+00:00",
+        "last_heartbeat_at": "2026-04-18T21:05:00+00:00",
+    }
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents/{name}/status-feedback")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["exists"] is True
+        assert data["status"] == "running"
+        assert data["terminal"] is False
+        assert data["feedback"] and "still working" in data["feedback"].lower()
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_status_feedback_completed_agent_includes_summary():
+    """Completed agents must return terminal=true and surface the agent's
+    own summary verbatim in the feedback string so the chat bubble shows
+    the specific reason, not a generic 'something happened'.
+    """
+    from routers.agents import agent_metadata
+
+    name = "feedback-done"
+    agent_metadata[name] = {
+        "status": "completed",
+        "source": "chat",
+        "summary": "created 12 tasks from roadmap.md",
+        "completed_at": "2026-04-18T21:10:00+00:00",
+    }
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents/{name}/status-feedback")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["exists"] is True
+        assert data["status"] == "completed"
+        assert data["terminal"] is True
+        assert data["summary"] == "created 12 tasks from roadmap.md"
+        assert "finished" in data["feedback"]
+        assert "created 12 tasks from roadmap.md" in data["feedback"]
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_status_feedback_failed_agent_surfaces_reason():
+    """Failed agents must terminal=true with the specific reason so the
+    bubble never reads as a bland 'something went wrong'.
+    """
+    from routers.agents import agent_metadata
+
+    name = "feedback-fail"
+    agent_metadata[name] = {
+        "status": "failed",
+        "source": "chat",
+        "summary": "pytest exit 1: test_foo failed",
+        "completed_at": "2026-04-18T21:12:00+00:00",
+    }
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents/{name}/status-feedback")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["terminal"] is True
+        assert data["status"] == "failed"
+        assert "failed" in data["feedback"]
+        assert "pytest exit 1: test_foo failed" in data["feedback"]
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_status_feedback_stale_agent_uses_friendly_copy():
+    """terminated_stale is a background sweep decision, never an agent
+    action, so the copy must explain what happened in plain language.
+    """
+    from routers.agents import agent_metadata
+
+    name = "feedback-stale"
+    agent_metadata[name] = {
+        "status": "terminated_stale",
+        "source": "chat",
+        "terminated_reason": "No heartbeat for 15 minutes",
+    }
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents/{name}/status-feedback")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["terminal"] is True
+        # No raw field names leaked to the user.
+        assert "terminated_stale" not in data["feedback"]
+        assert "heartbeat" not in data["feedback"].lower() or "check-in" in data["feedback"].lower()
+        assert "stopped responding" in data["feedback"].lower()
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_status_feedback_completing_still_reads_as_running():
+    """The 'completing' sentinel (AC gate in flight) must not be shown as
+    terminal so the chat bubble does not prematurely flip to 'finished'.
+    """
+    from routers.agents import agent_metadata
+
+    name = "feedback-completing"
+    agent_metadata[name] = {
+        "status": "completing",
+        "source": "chat",
+    }
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/api/agents/{name}/status-feedback")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "running"
+        assert data["terminal"] is False
+    finally:
+        agent_metadata.pop(name, None)

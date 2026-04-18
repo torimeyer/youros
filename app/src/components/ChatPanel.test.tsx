@@ -2435,4 +2435,124 @@ describe('ChatPanel', () => {
       }
     })
   })
+
+  // Follow-up bubble after a spawn_agent tool call.
+  // Regression target: Tori spawned `optimize-inline-chat-speed` from
+  // chat, saw the "Spawn agent" card, and then nothing until she asked
+  // if it worked. The panel now polls /agents/<name>/status-feedback
+  // and drops a plain-language bubble on a terminal transition.
+  describe('Spawn agent follow-up feedback bubble', () => {
+    it('appends a completion bubble when /status-feedback flips to terminal', async () => {
+      const apiMod = await import('../lib/api')
+      const getMock = apiMod.api.get as unknown as ReturnType<typeof vi.fn>
+
+      // First call: hydrate chat history (empty tabs). Then polls for
+      // the agent status. Returning `terminal=true` with a feedback
+      // string must cause a new assistant bubble to appear.
+      getMock.mockImplementation((path: string) => {
+        if (path === '/chat/history') {
+          return Promise.resolve({ tabs: [], active_tab_id: '' })
+        }
+        if (path.startsWith('/agents/')) {
+          return Promise.resolve({
+            exists: true,
+            terminal: true,
+            status: 'completed',
+            feedback: 'Agent optimize-inline-chat-speed finished. swapped markdown renderer to memo',
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'saa optimize inline chat speed' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Simulate the chat WebSocket emitting the spawn_agent tool call.
+      mockLastMessage = {
+        type: 'tool_use',
+        data: {
+          tool: 'spawn_agent',
+          id: 'tc-feedback-1',
+          input: { name: 'optimize-inline-chat-speed', prompt: 'go' },
+        },
+      }
+      rerender(<ChatPanel />)
+
+      // The effect polls /status-feedback immediately on mount, so the
+      // plain-language bubble must appear without waiting for the 30s
+      // interval.
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Agent optimize-inline-chat-speed finished/i),
+        ).toBeTruthy()
+      })
+      expect(
+        screen.getByText(/swapped markdown renderer to memo/i),
+      ).toBeTruthy()
+
+      // Every /agents/.../status-feedback call must target the name
+      // from the spawn_agent tool input, not the generic list
+      // endpoint. Guards against a future refactor pointing the poll
+      // at /agents and filtering client-side.
+      const calls = getMock.mock.calls
+        .map((c: unknown[]) => c[0] as string)
+        .filter((p: string) => p.startsWith('/agents/'))
+      expect(calls.length).toBeGreaterThan(0)
+      for (const c of calls) {
+        expect(c).toBe(
+          '/agents/optimize-inline-chat-speed/status-feedback',
+        )
+      }
+    })
+
+    it('does not append any bubble while the agent is still running', async () => {
+      const apiMod = await import('../lib/api')
+      const getMock = apiMod.api.get as unknown as ReturnType<typeof vi.fn>
+
+      getMock.mockImplementation((path: string) => {
+        if (path === '/chat/history') {
+          return Promise.resolve({ tabs: [], active_tab_id: '' })
+        }
+        if (path.startsWith('/agents/')) {
+          return Promise.resolve({
+            exists: true,
+            terminal: false,
+            status: 'running',
+            feedback: 'Agent saa-running is still working.',
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'saa running' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'tool_use',
+        data: {
+          tool: 'spawn_agent',
+          id: 'tc-feedback-2',
+          input: { name: 'saa-running', prompt: 'go' },
+        },
+      }
+      rerender(<ChatPanel />)
+
+      // Give the effect a tick to poll /status-feedback.
+      await new Promise((r) => setTimeout(r, 20))
+
+      // No terminal bubble means nothing that reads "finished" or
+      // "still working" should have been appended by the poller.
+      // (We do not gate on the absence of the 'is still working' copy
+      // because a future enhancement may render periodic pulses; the
+      // hard invariant is no terminal-state bubble yet.)
+      expect(screen.queryByText(/finished\./i)).toBeNull()
+      expect(screen.queryByText(/failed\./i)).toBeNull()
+    })
+  })
 })

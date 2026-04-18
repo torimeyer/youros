@@ -430,6 +430,14 @@ export function ChatPanel() {
   // duplicate. This ref is NOT reset when a new turn starts because
   // the new turn's first real event will be a different object reference.
   const processedMessageRef = useRef<unknown>(null)
+  // Tracked background agents spawned from chat via the spawn_agent
+  // tool. Each entry is polled every ~30s; on a terminal transition
+  // we append a plain-language bubble and flip `announced` so the
+  // effect stops polling. Without this the chat goes silent after the
+  // "Spawn agent" card until the user asks manually, which was the
+  // feedback regression Tori saw on optimize-inline-chat-speed.
+  type TrackedAgent = { name: string; announced: boolean }
+  const [trackedAgents, setTrackedAgents] = useState<TrackedAgent[]>([])
 
   const { connect, disconnect, send, lastMessage, isConnected } = useWebSocket('/ws/chat')
   const { confirm, confirmProps } = useConfirm()
@@ -644,6 +652,20 @@ export function ChatPanel() {
       // automatic bump in api.ts never fires for chat-driven spawns.
       if (data.tool === 'spawn_agent') {
         bumpAgents()
+        // Track this agent so the panel polls /status-feedback and
+        // drops a plain-language follow-up bubble when the agent
+        // transitions to a terminal state (completed, failed,
+        // cancelled, stale). Without this the chat goes silent after
+        // the Spawn agent card and the user has to ask manually.
+        const spawnInput = data.input as { name?: unknown } | undefined
+        const agentName =
+          typeof spawnInput?.name === 'string' ? spawnInput.name.trim() : ''
+        if (agentName) {
+          setTrackedAgents(prev => {
+            if (prev.some(a => a.name === agentName)) return prev
+            return [...prev, { name: agentName, announced: false }]
+          })
+        }
       }
     } else if (lastMessage.type === 'mcp_tool_use') {
       const data = lastMessage.data as unknown as { tool: string; server: string; input: Record<string, unknown>; id: string }
@@ -927,6 +949,76 @@ export function ChatPanel() {
   useEffect(() => {
     if (replyingTo) inputRef.current?.focus()
   }, [replyingTo])
+
+  // Spawn-agent follow-up feedback.
+  // Before this effect, the chat would show one "Spawn agent" card when
+  // the assistant called spawn_agent and then go silent. Tori had to
+  // ask "did it work?" to find out if the agent was still running or
+  // had finished. That felt like the agent vanished. Now, every
+  // tracked agent (populated from the spawn_agent tool_use handler)
+  // gets polled once every 30 seconds. On the first terminal status
+  // we append a plain-language assistant bubble (completed / failed /
+  // cancelled / stale) and flag the row announced=true so the effect
+  // does not post again. The bubble uses the server's `feedback`
+  // string, which already weaves in the agent's own summary or the
+  // specific reason it stopped.
+  useEffect(() => {
+    const pending = trackedAgents.filter(a => !a.announced)
+    if (pending.length === 0) return
+    let cancelled = false
+    const pollOnce = async () => {
+      for (const agent of pending) {
+        try {
+          const resp = await api.get<{
+            exists: boolean
+            terminal: boolean
+            status: string | null
+            feedback: string | null
+          }>(`/agents/${encodeURIComponent(agent.name)}/status-feedback`)
+          if (cancelled) return
+          if (!resp) continue
+          // Unknown name: stop polling so we do not loop forever on a
+          // typo or an agent the backend never recorded.
+          if (!resp.exists) {
+            setTrackedAgents(prev =>
+              prev.map(a =>
+                a.name === agent.name ? { ...a, announced: true } : a,
+              ),
+            )
+            continue
+          }
+          if (resp.terminal && resp.feedback) {
+            setMessages(prev => [
+              ...prev,
+              {
+                id: genId(),
+                role: 'assistant',
+                content: resp.feedback || `Agent ${agent.name} finished.`,
+                model: 'myos',
+              },
+            ])
+            setTrackedAgents(prev =>
+              prev.map(a =>
+                a.name === agent.name ? { ...a, announced: true } : a,
+              ),
+            )
+          }
+        } catch {
+          // Network/backend down; try again on next tick.
+        }
+      }
+    }
+    // Poll immediately on mount so a very short agent (ran in under
+    // 30s) still produces a bubble, then every 30s while any agent
+    // is still running.
+    pollOnce()
+    const timer = setInterval(pollOnce, 30_000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackedAgents, setMessages])
 
   // Resize handling. We throttle mouse move writes to the store with
   // requestAnimationFrame so a fast drag does not flood Zustand with

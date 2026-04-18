@@ -879,6 +879,12 @@ const USER_TEMPLATES_CACHE_KEY = "myos.userTemplatesCache.v1";
 // store "1" here so a page refresh keeps their choice.
 const RECENT_SHOW_CANCELLED_KEY = "myos.recentShowCancelled.v1";
 
+// Persistence key for the Recent tab's "show e2e tests" toggle. Same
+// pattern as the cancelled toggle: default hidden, click to reveal,
+// persist across refreshes. Agents spawned by scripts/e2e_smoke.sh get
+// tagged source="e2e-smoke" by the backend so we can filter on it.
+const RECENT_SHOW_E2E_KEY = "myos.recentShowE2e.v1";
+
 function readShowCancelledPref(): boolean {
   try {
     if (typeof window === "undefined" || !window.localStorage) return false;
@@ -895,6 +901,28 @@ function writeShowCancelledPref(show: boolean) {
       window.localStorage.setItem(RECENT_SHOW_CANCELLED_KEY, "1");
     } else {
       window.localStorage.removeItem(RECENT_SHOW_CANCELLED_KEY);
+    }
+  } catch {
+    // Quota or serialization errors are not fatal.
+  }
+}
+
+function readShowE2ePref(): boolean {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return false;
+    return window.localStorage.getItem(RECENT_SHOW_E2E_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeShowE2ePref(show: boolean) {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    if (show) {
+      window.localStorage.setItem(RECENT_SHOW_E2E_KEY, "1");
+    } else {
+      window.localStorage.removeItem(RECENT_SHOW_E2E_KEY);
     }
   } catch {
     // Quota or serialization errors are not fatal.
@@ -1925,6 +1953,18 @@ export default function Agents() {
     setShowInactive((prev) => {
       const next = !prev;
       writeShowCancelledPref(next);
+      return next;
+    });
+  };
+  // Recent tab also hides agents spawned by scripts/e2e_smoke.sh. The
+  // backend tags them source="e2e-smoke" when the spawn context contains
+  // "e2e test only". Default hidden, click to reveal, persist across
+  // refreshes just like the cancelled toggle.
+  const [showE2e, setShowE2e] = useState<boolean>(() => readShowE2ePref());
+  const toggleShowE2e = () => {
+    setShowE2e((prev) => {
+      const next = !prev;
+      writeShowE2ePref(next);
       return next;
     });
   };
@@ -3614,6 +3654,11 @@ export default function Agents() {
           // visible, even when the chip is set to hide cancellations.
           // The chip toggles cancellation-synonyms only.
           const inactiveStatuses = CANCELLED_SYNONYM_STATUSES as readonly string[];
+          // Agents spawned by scripts/e2e_smoke.sh carry source="e2e-smoke"
+          // (set by the fleet-spawn backend). These are automated smoke
+          // tests we run on every release, so they should not clutter
+          // Recent unless the user explicitly asks to see them.
+          const isE2eSmoke = (a: AgentInfo) => a.source === "e2e-smoke";
           const allRecent = allAgents
             .filter((a) => terminalStatuses.includes(a.status) && isUserSpawnedAgent(a))
             .sort((a, b) => {
@@ -3622,10 +3667,14 @@ export default function Agents() {
               return tb.localeCompare(ta);
             })
             .slice(0, 20);
-          const recentAgents = showInactive
+          const afterCancelledFilter = showInactive
             ? allRecent
             : allRecent.filter((a) => !inactiveStatuses.includes(a.status));
+          const recentAgents = showE2e
+            ? afterCancelledFilter
+            : afterCancelledFilter.filter((a) => !isE2eSmoke(a));
           const hiddenCount = allRecent.length - allRecent.filter((a) => !inactiveStatuses.includes(a.status)).length;
+          const hiddenE2eCount = afterCancelledFilter.filter(isE2eSmoke).length;
           const canRecover = (a: AgentInfo) =>
             ["failed", "terminated_stale", "abandoned", "cancelled", "stopped"].includes(a.status)
             && (a.recovery_count ?? 0) < (a.max_recoveries ?? 3);
@@ -3635,28 +3684,52 @@ export default function Agents() {
                 <h2 className="text-lg font-semibold text-white">
                   Recent Agents
                 </h2>
-                {(hiddenCount > 0 || showInactive) && (
-                  <button
-                    type="button"
-                    onClick={toggleShowInactive}
-                    data-testid="recent-cancelled-toggle"
-                    className="inline-flex items-center gap-2 text-xs text-slate-300 bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700 rounded-full px-3 py-1 transition-colors"
-                  >
-                    {showInactive ? (
-                      <>
-                        <span>Showing cancelled</span>
-                        <span className="text-slate-500">.</span>
-                        <span className="text-sky-400">hide</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Hiding cancelled</span>
-                        <span className="text-slate-500">.</span>
-                        <span className="text-sky-400">show</span>
-                      </>
-                    )}
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {(hiddenCount > 0 || showInactive) && (
+                    <button
+                      type="button"
+                      onClick={toggleShowInactive}
+                      data-testid="recent-cancelled-toggle"
+                      className="inline-flex items-center gap-2 text-xs text-slate-300 bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700 rounded-full px-3 py-1 transition-colors"
+                    >
+                      {showInactive ? (
+                        <>
+                          <span>Showing cancelled</span>
+                          <span className="text-slate-500">.</span>
+                          <span className="text-sky-400">hide</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Hiding cancelled</span>
+                          <span className="text-slate-500">.</span>
+                          <span className="text-sky-400">show</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                  {(hiddenE2eCount > 0 || showE2e) && (
+                    <button
+                      type="button"
+                      onClick={toggleShowE2e}
+                      data-testid="recent-e2e-toggle"
+                      className="inline-flex items-center gap-2 text-xs text-slate-300 bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700 rounded-full px-3 py-1 transition-colors"
+                    >
+                      {showE2e ? (
+                        <>
+                          <span>Showing e2e tests</span>
+                          <span className="text-slate-500">.</span>
+                          <span className="text-sky-400">hide</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Hiding e2e tests</span>
+                          <span className="text-slate-500">.</span>
+                          <span className="text-sky-400">show</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
               {!agentsLoaded ? (
                 <div
@@ -3707,6 +3780,15 @@ export default function Agents() {
                           <div className="flex items-center gap-4">
                             {agent.model && (
                               <span className="text-slate-500 text-xs">{agent.model}</span>
+                            )}
+                            {isE2eSmoke(agent) && (
+                              <span
+                                data-testid="recent-e2e-pill"
+                                className="text-[10px] uppercase tracking-wide font-semibold text-slate-400 bg-slate-800/70 border border-slate-700 rounded px-1.5 py-0.5"
+                                title="Spawned by the end-to-end smoke test"
+                              >
+                                e2e
+                              </span>
                             )}
                             {(agent.spawned_at || agent.timestamp) && (
                               <span className="text-slate-500 text-sm">

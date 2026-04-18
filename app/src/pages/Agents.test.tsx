@@ -1209,6 +1209,53 @@ describe('Agents page - Recent tab filtering', () => {
     expect(chip).toHaveTextContent(/Showing cancelled/)
   })
 
+  it('hides e2e-smoke agents on Recent tab by default and reveals them with a pill when toggled', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return {
+        daemon_running: true,
+        status: 'ok',
+        active: [],
+        agents: [
+          { name: 'e2e-agent', status: 'completed', source: 'e2e-smoke', model: 'sonnet', spawned_at: new Date().toISOString() },
+          { name: 'user-agent', status: 'completed', source: 'claude-code', model: 'sonnet', spawned_at: new Date().toISOString() },
+          { name: 'nosrc-agent', status: 'completed', model: 'sonnet', spawned_at: new Date().toISOString() },
+        ],
+      }
+      if (path === '/agents/templates') return mockTemplatesResponse
+      return {}
+    })
+
+    renderAgents()
+
+    const recentTab = await screen.findByRole('button', { name: 'Recent' })
+    fireEvent.click(recentTab)
+
+    await waitFor(() => {
+      expect(screen.getByTitle('user-agent')).toBeInTheDocument()
+    })
+    expect(screen.getByTitle('nosrc-agent')).toBeInTheDocument()
+    expect(screen.queryByTitle('e2e-agent')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('recent-e2e-pill')).not.toBeInTheDocument()
+
+    const e2eChip = screen.getByTestId('recent-e2e-toggle')
+    expect(e2eChip).toHaveTextContent(/Hiding e2e tests/)
+    expect(e2eChip).toHaveTextContent(/show/)
+
+    fireEvent.click(e2eChip)
+
+    await waitFor(() => {
+      expect(screen.getByTitle('e2e-agent')).toBeInTheDocument()
+    })
+    const pill = screen.getByTestId('recent-e2e-pill')
+    expect(pill).toBeInTheDocument()
+    expect(pill).toHaveTextContent(/^e2e$/)
+    expect(e2eChip).toHaveTextContent(/Showing e2e tests/)
+    expect(e2eChip).toHaveTextContent(/hide/)
+
+    expect(screen.getByTitle('user-agent')).toBeInTheDocument()
+    expect(screen.getByTitle('nosrc-agent')).toBeInTheDocument()
+  })
+
   it('shows empty state in Recent tab when no terminal agents exist', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/agents') return {
