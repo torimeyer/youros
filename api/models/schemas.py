@@ -182,6 +182,13 @@ class AgentSpawn(BaseModel):
     # spec /build during a live demo, "build it" chat chain) so a single
     # slow agent never blows the demo budget.
     demo_mode: Optional[bool] = None
+    # True when this register call is the Claude Code PreToolUse hook
+    # pre-registering a subagent row before the subagent itself boots.
+    # Used to distinguish "hook row" from "subagent self-register" so a
+    # later self-register under a different name can MERGE into the hook
+    # row instead of creating a duplicate. Unused outside the
+    # claude-code source. Defaults to None/False.
+    hook_preregister: Optional[bool] = None
 
 
 class AgentNudge(BaseModel):

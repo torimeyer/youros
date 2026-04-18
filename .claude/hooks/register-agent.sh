@@ -97,6 +97,12 @@ body = {
     "source": "claude-code",
     "description": os.environ.get("DESCRIPTION") or "claude-code subagent",
     "prompt": os.environ.get("PROMPT") or os.environ.get("DESCRIPTION") or "claude-code subagent",
+    # Marks this as the pre-registration written BEFORE the subagent boots.
+    # The /register handler uses this flag to detect the duplicate-row case:
+    # when the subagent later self-registers under a different name (from
+    # its own prompt body), the backend merges that second call into this
+    # row instead of creating a second Active Sessions entry.
+    "hook_preregister": True,
 }
 print(json.dumps(body))
 ' 2>/dev/null)

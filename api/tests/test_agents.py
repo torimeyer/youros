@@ -11555,3 +11555,201 @@ async def test_status_feedback_completing_still_reads_as_running():
         assert data["terminal"] is False
     finally:
         agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_register_merges_with_hook_preregister():
+    """Regression guard for the duplicate-row incident.
+
+    When the Claude Code PreToolUse hook pre-registers a subagent under
+    a slug-of-description name, and the subagent's own prompt tells it
+    to self-register under a different name a few seconds later, the
+    second register call MUST merge into the hook row instead of
+    creating a second row. Heartbeats and completion under the
+    subagent's chosen name must still reach the merged row.
+    """
+    from datetime import datetime, timezone, timedelta
+    from routers.agents import agent_metadata, agent_aliases
+
+    hook_name = "merge-test-hook-preregister"
+    self_name = "merge-test-subagent-self-register"
+    # Defensive: ensure neither name collides with persisted state from
+    # a real backend run so the test starts from a clean slate.
+    agent_metadata.pop(hook_name, None)
+    agent_metadata.pop(self_name, None)
+    agent_aliases.pop(self_name, None)
+    # Simulate the hook's pre-registration 10 seconds ago so it falls
+    # inside the 120 second merge window.
+    spawned_at = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
+    agent_metadata[hook_name] = {
+        "spawned_at": spawned_at,
+        "last_heartbeat_at": spawned_at,
+        "source": "claude-code",
+        "status": "running",
+        "model": "claude-sonnet-4-6",
+        "description": "Diagnose why Active Sessions shows 3",
+        "prompt": "",
+        "budget": "5",
+        "hook_preregister": True,
+    }
+    try:
+        transport = ASGITransport(app=app)
+        with patch("routers.agents._save_agent_state"):
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                # Subagent's self-register: different name, same source
+                # and same window, but no existing row under this name.
+                body = {
+                    "name": self_name,
+                    "source": "claude-code",
+                    "status": "running",
+                    "description": "why does Active Sessions still show 3",
+                    "prompt": "root cause + fix",
+                }
+                resp = await client.post("/api/agents/register", json=body)
+                assert resp.status_code == 200, resp.text
+                payload = resp.json()
+                # The response tells the caller which canonical row was
+                # merged into, and does NOT create a new record.
+                assert payload.get("merged_into") == hook_name
+                assert self_name not in agent_metadata
+                assert agent_aliases.get(self_name) == hook_name
+                # The hook row picked up the self-register's prompt since
+                # its own prompt was empty.
+                assert agent_metadata[hook_name]["prompt"] == "root cause + fix"
+
+                # A later /heartbeat under the subagent's chosen name
+                # still finds and refreshes the merged row.
+                hb = await client.post(f"/api/agents/{self_name}/heartbeat")
+                assert hb.status_code == 200, hb.text
+                assert "last_heartbeat_at" in hb.json()
+    finally:
+        agent_metadata.pop(hook_name, None)
+        agent_metadata.pop(self_name, None)
+        agent_aliases.pop(self_name, None)
+
+
+def _write_stale_sweep_jsonl(project_dir: Path, agent_name: str, *, with_edit: bool) -> Path:
+    """Build a JSONL transcript for stale-sweep summary tests.
+
+    ``with_edit=True`` drops an Edit tool_use block so the summary
+    picker classifies it as "did work". ``with_edit=False`` only emits
+    Bash reads, so the picker falls through to "no visible changes".
+    """
+    subagents_dir = project_dir / "session-sweep" / "subagents"
+    subagents_dir.mkdir(parents=True, exist_ok=True)
+    jsonl = subagents_dir / f"agent-{agent_name.replace('/', '_')}.jsonl"
+    prompt_content = (
+        "You are a myOS agent. Your FIRST action before any work: "
+        "POST to http://localhost:8000/agents/register with body "
+        f'{{"name": "{agent_name}", "status": "running"}} (fire and forget).\n\n'
+        "Do the work."
+    )
+    if with_edit:
+        tool_block = {
+            "type": "tool_use",
+            "name": "Edit",
+            "input": {
+                "file_path": "/tmp/x.py",
+                "old_string": "a",
+                "new_string": "b",
+            },
+        }
+    else:
+        tool_block = {
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {"command": "ls"},
+        }
+    lines = [
+        json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": prompt_content},
+        }),
+        json.dumps({
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "On it."}, tool_block],
+            },
+        }),
+    ]
+    jsonl.write_text("\n".join(lines) + "\n")
+    return jsonl
+
+
+def test_stale_sweep_summary_reflects_work_done(tmp_path):
+    """When the stale sweep fires on an agent whose transcript has a
+    real Edit tool_use, the summary should tell the user work was done
+    and point them at git log / transcript.
+    """
+    from routers import agents as agents_module
+    from routers.agents import (
+        _stale_sweep_summary_for,
+        _STALE_SWEEP_SUMMARY_DID_WORK,
+        agent_metadata,
+    )
+
+    fake_home = tmp_path / "home"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
+    project_dir.mkdir(parents=True)
+    _write_stale_sweep_jsonl(project_dir, "fix-edit-agent", with_edit=True)
+
+    agent_metadata["fix-edit-agent"] = {
+        "spawned_at": "2026-04-08T20:00:00+00:00",
+        "source": "claude-code",
+        "status": "running",
+    }
+    try:
+        with patch.object(
+            agents_module, "_claude_code_projects_dir",
+            return_value=fake_home / ".claude" / "projects",
+        ), patch.object(
+            agents_module, "_claude_code_tasks_root",
+            return_value=tmp_path / "tasks-root",
+        ), patch("config.PROJECT_ROOT", fake_repo):
+            summary = _stale_sweep_summary_for("fix-edit-agent")
+        assert summary == _STALE_SWEEP_SUMMARY_DID_WORK
+    finally:
+        agent_metadata.pop("fix-edit-agent", None)
+
+
+def test_stale_sweep_summary_when_nothing_done(tmp_path):
+    """No Edit / Write / git commit in the transcript means the user
+    should get the gentler "no visible changes; consider re-running"
+    message, not the misleading "finished its work" variant.
+    """
+    from routers import agents as agents_module
+    from routers.agents import (
+        _stale_sweep_summary_for,
+        _STALE_SWEEP_SUMMARY_NO_WORK,
+        agent_metadata,
+    )
+
+    fake_home = tmp_path / "home"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
+    project_dir.mkdir(parents=True)
+    _write_stale_sweep_jsonl(project_dir, "read-only-agent", with_edit=False)
+
+    agent_metadata["read-only-agent"] = {
+        "spawned_at": "2026-04-08T20:00:00+00:00",
+        "source": "claude-code",
+        "status": "running",
+    }
+    try:
+        with patch.object(
+            agents_module, "_claude_code_projects_dir",
+            return_value=fake_home / ".claude" / "projects",
+        ), patch.object(
+            agents_module, "_claude_code_tasks_root",
+            return_value=tmp_path / "tasks-root",
+        ), patch("config.PROJECT_ROOT", fake_repo):
+            summary = _stale_sweep_summary_for("read-only-agent")
+        assert summary == _STALE_SWEEP_SUMMARY_NO_WORK
+    finally:
+        agent_metadata.pop("read-only-agent", None)

@@ -43,6 +43,98 @@ active_agents: dict[str, object] = {}
 # Spawn metadata (timestamp, budget, model) for API-spawned agents
 agent_metadata: dict[str, dict] = {}
 
+# Alias map: caller-supplied name -> canonical name in agent_metadata.
+# Populated when a claude-code subagent's self-register call is merged into
+# the row a PreToolUse hook already created a few seconds earlier. Every
+# agent lookup (heartbeat / status / complete / nudge / list membership)
+# runs through ``_resolve_agent_name`` so the alias is transparent to the
+# caller. Purely in-memory: a backend restart clears the map, which is
+# fine since the hook-preregister row outlives any in-flight subagent
+# and fresh spawns re-establish their own aliases.
+agent_aliases: dict[str, str] = {}
+
+
+def _resolve_agent_name(name: str) -> str:
+    """Return the canonical ``agent_metadata`` key for ``name``.
+
+    If ``name`` is an alias created by the merge-with-hook-preregister
+    path in ``/agents/register``, return the target row's name. Otherwise
+    return ``name`` unchanged. Safe to call with any string: never
+    raises. Lookups remain O(1).
+    """
+    if not name:
+        return name
+    target = agent_aliases.get(name)
+    if target and target in agent_metadata:
+        return target
+    return name
+
+
+# Time window for matching a subagent self-register to a recent
+# hook-preregister row. The hook fires at PreToolUse (subprocess boot)
+# and the subagent's first tool call runs within seconds to a minute.
+# 120 seconds gives comfortable headroom for slow Sonnet cold starts
+# without accidentally merging into an unrelated prior agent.
+_HOOK_PREREGISTER_MERGE_WINDOW_SECONDS = 120
+
+
+def _find_recent_hook_preregister(now_iso: str):
+    """Find a recently spawned running claude-code row that was created
+    by the PreToolUse hook and is still awaiting its subagent's own
+    self-register.
+
+    Returns ``(name, meta)`` for the best match, or ``None`` if no
+    candidate is within the merge window. A candidate must be:
+
+    * explicitly flagged ``hook_preregister: True`` by the hook
+    * ``source == 'claude-code'``
+    * ``status == 'running'``
+    * spawned within ``_HOOK_PREREGISTER_MERGE_WINDOW_SECONDS`` of now
+    * not already merged into by another alias (so two back-to-back
+      subagent spawns cannot both claim the same hook row)
+
+    Requiring the explicit flag avoids accidentally merging a fresh
+    subagent register into an unrelated recent claude-code session
+    row that just happened to be running. Returns the newest matching
+    row so a fresh spawn always wins over a stale one.
+    """
+    try:
+        now = datetime.fromisoformat(now_iso)
+    except Exception:
+        return None
+    already_merged_targets = set(agent_aliases.values())
+    best_name = None
+    best_meta = None
+    best_spawned = None
+    for name, meta in agent_metadata.items():
+        if not isinstance(meta, dict):
+            continue
+        if not meta.get("hook_preregister"):
+            continue
+        if meta.get("source") != "claude-code":
+            continue
+        if meta.get("status") != "running":
+            continue
+        if name in already_merged_targets:
+            continue
+        spawned_raw = meta.get("spawned_at")
+        if not spawned_raw:
+            continue
+        try:
+            spawned = datetime.fromisoformat(spawned_raw)
+        except Exception:
+            continue
+        delta = (now - spawned).total_seconds()
+        if delta < 0 or delta > _HOOK_PREREGISTER_MERGE_WINDOW_SECONDS:
+            continue
+        if best_spawned is None or spawned > best_spawned:
+            best_name = name
+            best_meta = meta
+            best_spawned = spawned
+    if best_name is None:
+        return None
+    return best_name, best_meta
+
 # Stdin writers for API-spawned claude-code subagents. Keyed by agent name.
 # When /agents/spawn keeps stdin open (i.e. does not close it after the
 # initial prompt), the asyncio.StreamWriter is stored here so /nudge can
@@ -769,6 +861,84 @@ def _transcript_grew_recently(name: str, now: datetime) -> bool:
         return False
 
 
+_STALE_SWEEP_SUMMARY_NO_WORK = (
+    "Agent stopped responding. No visible changes; consider re-running."
+)
+_STALE_SWEEP_SUMMARY_DID_WORK = (
+    "Agent finished its work. It didn't formally close the task - "
+    "check git log / transcript for details."
+)
+
+
+def _stale_sweep_summary_for(name: str) -> str:
+    """Pick a user-facing summary for an agent swept by the auto-complete path.
+
+    The default "Agent exited without calling /complete" message is technically
+    accurate but gives the user no signal about whether the underlying task
+    was actually done. We scan the transcript for evidence of real work:
+
+      * any Edit / Write / fs_write / str_replace tool_use block, or
+      * a successful ``git commit`` shell call.
+
+    If any is found, return the "Agent finished its work" variant so the user
+    knows to look at git log / transcripts. Otherwise, return the gentler
+    "no visible changes" variant so they know to re-run.
+
+    Transcript paths can be either ``.md`` (legacy stub) or a JSONL stream.
+    We only deep-scan JSONL because the .md files are just free text.
+    """
+    source = _resolve_transcript_source(name)
+    if source is None:
+        return _STALE_SWEEP_SUMMARY_NO_WORK
+    try:
+        # Only deep-scan JSONL transcripts (claude-code streaming format).
+        if source.suffix != ".jsonl":
+            # Fallback: a non-empty .md transcript means SOMETHING was
+            # written. Treat it as "did work" so we do not falsely claim
+            # nothing happened.
+            if source.stat().st_size > 0:
+                return _STALE_SWEEP_SUMMARY_DID_WORK
+            return _STALE_SWEEP_SUMMARY_NO_WORK
+        edit_tool_names = {"Edit", "Write", "str_replace",
+                           "mcp__ostk__edit", "mcp__ostk__fs_write"}
+        with source.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                # Cheap substring check first to avoid json.loads on every
+                # line. These tokens are robustly present when an edit/commit
+                # tool_use was emitted.
+                if ('"tool_use"' not in line
+                        and '"Edit"' not in line
+                        and '"Write"' not in line
+                        and 'git commit' not in line):
+                    continue
+                try:
+                    evt = json.loads(line)
+                except ValueError:
+                    continue
+                msg = evt.get("message") if isinstance(evt, dict) else None
+                content = msg.get("content") if isinstance(msg, dict) else None
+                blocks = content if isinstance(content, list) else []
+                for block in blocks:
+                    if not isinstance(block, dict):
+                        continue
+                    btype = block.get("type")
+                    if btype == "tool_use":
+                        if block.get("name") in edit_tool_names:
+                            return _STALE_SWEEP_SUMMARY_DID_WORK
+                        # Bash / shell tool_use carrying a git commit.
+                        cmd = ""
+                        binp = block.get("input")
+                        if isinstance(binp, dict):
+                            cmd = str(binp.get("command") or binp.get("cmd") or "")
+                        if "git commit" in cmd:
+                            return _STALE_SWEEP_SUMMARY_DID_WORK
+    except OSError:
+        pass
+    return _STALE_SWEEP_SUMMARY_NO_WORK
+
+
 def _autocomplete_exited_subagents() -> bool:
     """Auto-complete Agent-tool subagents that exited without calling /complete.
 
@@ -830,7 +1000,7 @@ def _autocomplete_exited_subagents() -> bool:
                 # Transcript exists and is idle: agent finished.
                 meta["status"] = "completed"
                 meta["completed_at"] = now.isoformat()
-                meta["summary"] = "Agent exited without calling /complete"
+                meta["summary"] = _stale_sweep_summary_for(name)
                 changed = True
                 _emit_audit_event("agent.completed", {"name": name})
             # Either idle (just completed above) or still active.
@@ -848,7 +1018,7 @@ def _autocomplete_exited_subagents() -> bool:
         # All checks passed: agent exited without calling /complete.
         meta["status"] = "completed"
         meta["completed_at"] = now.isoformat()
-        meta["summary"] = "Agent exited without calling /complete"
+        meta["summary"] = _stale_sweep_summary_for(name)
         changed = True
         _emit_audit_event("agent.completed", {"name": name})
     return changed
@@ -3873,6 +4043,50 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     # immediately. Callers may pass an explicit status to override.
     status = body.status or "running"
     now_iso = datetime.now(timezone.utc).isoformat()
+    # Merge-with-hook-preregister guard. The Claude Code PreToolUse hook
+    # (.claude/hooks/register-agent.sh) already POSTs /register under a
+    # slug-of-description name BEFORE the subagent boots. The subagent's
+    # own prompt then tells it to POST /register again under a different
+    # name from its prompt body. Without this guard that second call
+    # would create a SECOND row with the same source and a near-identical
+    # purpose, producing the duplicate "Active Sessions" entries the user
+    # sees. If we can find a recent hook-preregister that matches the
+    # same parent session window, merge into it: return the existing row
+    # and skip inserting a duplicate.
+    if (
+        body.name not in agent_metadata
+        and body.source == "claude-code"
+        and (status or "running") == "running"
+        and not body.hook_preregister
+    ):
+        merge_target = _find_recent_hook_preregister(now_iso)
+        if merge_target is not None:
+            existing_name, existing_meta = merge_target
+            # Refresh heartbeat so the merged row does not get swept as
+            # stale while the subagent is doing real work.
+            existing_meta["last_heartbeat_at"] = now_iso
+            # Preserve the hook's description (usually richer) but adopt
+            # the subagent's prompt if the hook did not capture one.
+            if body.prompt and not existing_meta.get("prompt"):
+                existing_meta["prompt"] = body.prompt[:500]
+            # Record the alias so later /heartbeat, /status, and /complete
+            # calls under the subagent-chosen name route back to the
+            # existing row without 404-ing.
+            agent_aliases[body.name] = existing_name
+            agent_metadata[existing_name] = existing_meta
+            _save_agent_state()
+            return {
+                "result": (
+                    f"Agent '{body.name}' merged into existing hook "
+                    f"preregistration '{existing_name}'"
+                ),
+                "source": "claude-code",
+                "status": existing_meta.get("status", "running"),
+                "merged_into": existing_name,
+                "mailbox_instruction": agent_mailbox_instruction(existing_name),
+                "mailbox_check_interval_seconds": MAILBOX_CHECK_INTERVAL_SECONDS,
+            }
+
     # Preserve spawned_at across re-registers so an agent that calls
     # register again (for a heartbeat-like ping) does not lose its
     # original start time and its duration stays accurate.
@@ -3933,6 +4147,13 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     # Preserve recovery_count across re-registers
     if existing.get("recovery_count"):
         record["recovery_count"] = existing["recovery_count"]
+    if body.hook_preregister:
+        # Persist so _find_recent_hook_preregister can find this row
+        # when the subagent self-registers a few seconds later.
+        record["hook_preregister"] = True
+    elif existing.get("hook_preregister"):
+        # Preserve the flag on idempotent re-registers from the hook.
+        record["hook_preregister"] = True
     if body.task:
         record["task"] = body.task
     if body.description:
@@ -4534,6 +4755,10 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     # immediately below (before any awaits) so that a second concurrent
     # request arriving while the AC gate is running sees a non-None
     # terminal-like status and bails early.
+    # Route through the alias map so /complete on a subagent's chosen
+    # self-register name lands on the hook-preregister row it was
+    # merged into.
+    name = _resolve_agent_name(name)
     existing_meta = agent_metadata.get(name, {})
     terminal_status = existing_meta.get("status")
     if terminal_status == "cancelled":
@@ -4792,6 +5017,10 @@ async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
     is provided it is stored on the record so the UI can surface the
     current phase the agent is working on.
     """
+    # Route through the alias map so a subagent whose self-register was
+    # merged into a hook-preregister row still lands on the correct
+    # record when it heartbeats under its own chosen name.
+    name = _resolve_agent_name(name)
     if name not in agent_metadata:
         raise HTTPException(
             status_code=404,
