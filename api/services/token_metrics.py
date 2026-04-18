@@ -40,6 +40,85 @@ _METRICS_PATH = Path(PROJECT_ROOT) / ".ostk" / "metrics.jsonl"
 _SAVINGS_CACHE: Optional[tuple[float, Optional[dict]]] = None
 _SAVINGS_TTL_SECONDS = 30
 
+# Incremental running-totals cache for conv cache stats from metrics.jsonl.
+# Keyed on (file_size, mtime_ns, inode). On cache miss where the file has
+# only grown (same inode, larger size) we read only the new tail bytes
+# instead of re-reading the entire 500 MB+ file.
+# Tuple: (file_size, mtime_ns, inode, cache_read, cache_create, total_input)
+_METRICS_TOTALS_CACHE: Optional[tuple[int, int, int, int, int, int]] = None
+
+
+def _compute_conv_totals_incremental() -> tuple[int, int, int]:
+    """Return (conv_cache_read, conv_cache_creation, conv_total_input).
+
+    Uses an append-only incremental read: after the first full pass, only
+    new bytes appended since the last read are parsed. Inode is checked so
+    a file replacement always triggers a full re-read.
+    """
+    global _METRICS_TOTALS_CACHE
+    try:
+        if not _METRICS_PATH.exists():
+            _METRICS_TOTALS_CACHE = None
+            return (0, 0, 0)
+        st = _METRICS_PATH.stat()
+    except OSError:
+        return (0, 0, 0)
+
+    if _METRICS_TOTALS_CACHE is not None:
+        c_size, c_mtime, c_ino, c_read, c_create, c_input = _METRICS_TOTALS_CACHE
+        if st.st_size == c_size and st.st_mtime_ns == c_mtime and st.st_ino == c_ino:
+            return (c_read, c_create, c_input)
+        if st.st_ino == c_ino and st.st_size > c_size:
+            try:
+                with open(_METRICS_PATH, "rb") as f:
+                    f.seek(c_size)
+                    new_bytes = f.read()
+                new_read, new_create, new_input = c_read, c_create, c_input
+                for line in new_bytes.decode("utf-8", errors="replace").splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except (ValueError, json.JSONDecodeError):
+                        continue
+                    if ev.get("event") != "chat_turn":
+                        continue
+                    new_read += int(ev.get("cache_read_input_tokens", 0) or 0)
+                    new_create += int(ev.get("cache_creation_input_tokens", 0) or 0)
+                    new_input += int(ev.get("input_tokens", 0) or 0)
+                _METRICS_TOTALS_CACHE = (st.st_size, st.st_mtime_ns, st.st_ino, new_read, new_create, new_input)
+                return (new_read, new_create, new_input)
+            except OSError:
+                pass
+
+    # Full re-read
+    conv_cache_read = conv_cache_creation = conv_total_input = 0
+    try:
+        with open(_METRICS_PATH, "rb") as f:
+            raw = f.read()
+        for line in raw.decode("utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            try:
+                ev = json.loads(line)
+            except (ValueError, json.JSONDecodeError):
+                continue
+            if ev.get("event") != "chat_turn":
+                continue
+            conv_cache_read += int(ev.get("cache_read_input_tokens", 0) or 0)
+            conv_cache_creation += int(ev.get("cache_creation_input_tokens", 0) or 0)
+            conv_total_input += int(ev.get("input_tokens", 0) or 0)
+    except OSError:
+        pass
+
+    _METRICS_TOTALS_CACHE = (st.st_size, st.st_mtime_ns, st.st_ino, conv_cache_read, conv_cache_creation, conv_total_input)
+    return (conv_cache_read, conv_cache_creation, conv_total_input)
+
+
+def invalidate_conv_totals_cache() -> None:
+    global _METRICS_TOTALS_CACHE
+    _METRICS_TOTALS_CACHE = None
+
 
 def _ensure_parent() -> None:
     try:
@@ -140,33 +219,9 @@ def _fetch_ostk_savings_raw() -> Optional[dict]:
     compression_savings = _as_float(squash.get("est_saved_usd"))
 
     # Compute conversation-level cache stats from our own metrics.jsonl.
-    # SOURCE NOTE: cache_read_input_tokens in chat_turn events is the value
-    # Anthropic returns in the API response (provider-native prompt caching).
-    # It is NOT ostk's coordination-layer savings. The conversation_cache_*
-    # fields below reflect how much of each prompt Claude's KV-cache served
-    # from its server-side store, which ostk keeps warm via consistent
-    # system-prompt injection. A future iteration should replace this with
-    # ostk's needle-recall count to surface purely ostk-layer savings.
-    conv_cache_read = 0
-    conv_cache_creation = 0
-    conv_total_input = 0
-    try:
-        if _METRICS_PATH.exists():
-            import json as _json
-            for line in _METRICS_PATH.read_text().splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    ev = _json.loads(line)
-                except (ValueError, _json.JSONDecodeError):
-                    continue
-                if ev.get("event") != "chat_turn":
-                    continue
-                conv_cache_read += int(ev.get("cache_read_input_tokens", 0) or 0)
-                conv_cache_creation += int(ev.get("cache_creation_input_tokens", 0) or 0)
-                conv_total_input += int(ev.get("input_tokens", 0) or 0)
-    except OSError:
-        pass
+    # Uses the incremental tail-reader so only new bytes are parsed after
+    # the first full read (avoids re-reading the 500 MB+ file every 30 s).
+    conv_cache_read, conv_cache_creation, conv_total_input = _compute_conv_totals_incremental()
 
     conversation_cache_pct = 0.0
     if conv_total_input > 0:

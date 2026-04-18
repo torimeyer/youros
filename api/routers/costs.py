@@ -656,37 +656,64 @@ async def get_costs(period: Optional[str] = Query(None, description="Time filter
     return result
 
 
-# Stat-based parse cache for metrics.jsonl so _compute_savings_for_period()
-# does not re-read and re-parse the file on every period switch. Keyed on
-# (file_size, mtime_ns). Parsed events are a list of dicts shared across all
-# period filters.
-_metrics_parse_cache: Optional[tuple[int, int, list[dict]]] = None
+# Stat-based parse cache for metrics.jsonl. Keyed on (file_size, mtime_ns,
+# inode). On cache miss where the file has only grown (same inode, larger
+# size) only the new tail bytes are read and parsed, turning a 500 MB full
+# read into a tiny incremental read on every 5-minute TTL expiry.
+# Tuple: (file_size, mtime_ns, inode, events)
+_metrics_parse_cache: Optional[tuple[int, int, int, list[dict]]] = None
 
 
 def _read_metrics_events_cached() -> list[dict]:
-    """Return parsed events from metrics.jsonl, cached by file stat.
+    """Return parsed events from metrics.jsonl using an incremental tail-reader.
 
-    When the file has not changed since the last call, returns the cached
-    list in microseconds. The shared list must not be mutated by callers.
+    On cache hit (stat unchanged) returns the cached list in microseconds.
+    On cache miss where the file only grew (append-only, same inode) reads
+    only the new bytes. Full re-read on first call or file replacement.
+    The shared list must not be mutated by callers.
     """
     global _metrics_parse_cache
     from services.token_metrics import _METRICS_PATH
 
     try:
         if not _METRICS_PATH.exists():
+            _metrics_parse_cache = None
             return []
         st = _METRICS_PATH.stat()
     except OSError:
         return []
 
     if _metrics_parse_cache is not None:
-        cached_size, cached_mtime, cached_events = _metrics_parse_cache
-        if st.st_size == cached_size and st.st_mtime_ns == cached_mtime:
-            return cached_events
+        c_size, c_mtime, c_ino, c_events = _metrics_parse_cache
+        if st.st_size == c_size and st.st_mtime_ns == c_mtime and st.st_ino == c_ino:
+            return c_events
+        # Incremental: same file, only appended
+        if st.st_ino == c_ino and st.st_size > c_size:
+            try:
+                with open(_METRICS_PATH, "rb") as f:
+                    f.seek(c_size)
+                    new_bytes = f.read()
+                new_events: list[dict] = []
+                for line in new_bytes.decode("utf-8", errors="replace").splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        new_events.append(_json.loads(line))
+                    except (ValueError, _json.JSONDecodeError):
+                        continue
+                _enrich_timestamps(new_events, ts_field="ts")
+                all_events = c_events + new_events
+                _metrics_parse_cache = (st.st_size, st.st_mtime_ns, st.st_ino, all_events)
+                return all_events
+            except OSError:
+                pass  # fall through to full re-read
 
+    # Full re-read
     events: list[dict] = []
     try:
-        for line in _METRICS_PATH.read_text().splitlines():
+        with open(_METRICS_PATH, "rb") as f:
+            raw = f.read()
+        for line in raw.decode("utf-8", errors="replace").splitlines():
             if not line.strip():
                 continue
             try:
@@ -697,8 +724,13 @@ def _read_metrics_events_cached() -> list[dict]:
         pass
 
     _enrich_timestamps(events, ts_field="ts")
-    _metrics_parse_cache = (st.st_size, st.st_mtime_ns, events)
+    _metrics_parse_cache = (st.st_size, st.st_mtime_ns, st.st_ino, events)
     return events
+
+
+def invalidate_metrics_parse_cache() -> None:
+    global _metrics_parse_cache
+    _metrics_parse_cache = None
 
 
 # Cache for /costs/savings: keyed on period string -> (result_dict, expires_at_monotonic)

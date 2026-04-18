@@ -46,12 +46,31 @@ if [ -n "$existing_pids" ]; then
     done
     live_uvicorn_pids="${live_uvicorn_pids# }"  # trim leading space
 
+    # KILL-AND-REPLACE instead of abort. Earlier versions of this script
+    # aborted here with an error and asked the user to `kill` the existing
+    # uvicorn manually. In practice that left the old hung uvicorn in place
+    # while the watchdog kept retrying restarts, and any transient race in
+    # process detection let a SECOND uvicorn bind the same port via
+    # SO_REUSEPORT (macOS default). Two uvicorns on the same socket produce
+    # empty-body responses and long API hangs, which make the Agents page
+    # show stale "running" rows long after agents have completed.
+    #
+    # We now assume the caller actually wants this backend to be the live
+    # one (they just ran `dev-backend.sh`) and kill the existing uvicorn
+    # plus any orphan listener pid before proceeding. free_port_or_die below
+    # handles the hard-kill escalation if SIGTERM is not enough.
     if [ -n "$live_uvicorn_pids" ]; then
-        echo "ERROR: A dev-backend.sh uvicorn is already listening on port $UVICORN_PORT (PID(s): $live_uvicorn_pids)." >&2
-        echo "       Running two instances double-binds the socket and causes empty-body responses." >&2
-        echo "       To restart: kill $live_uvicorn_pids  (or press Ctrl-C in the terminal that owns it)" >&2
-        echo "       then re-run this script." >&2
-        exit 1
+        echo "Existing uvicorn(s) on port $UVICORN_PORT (PID(s): $live_uvicorn_pids). Killing to reclaim socket and avoid double-bind."
+        kill $live_uvicorn_pids 2>/dev/null || true
+        # Give them up to 3 seconds to release the port gracefully. If the
+        # socket is still held after that, free_port_or_die below will
+        # escalate to SIGKILL.
+        for _i in 1 2 3 4 5 6; do
+            sleep 0.5
+            if [ -z "$(lsof -tiTCP:$UVICORN_PORT -sTCP:LISTEN 2>/dev/null || true)" ]; then
+                break
+            fi
+        done
     fi
 fi
 

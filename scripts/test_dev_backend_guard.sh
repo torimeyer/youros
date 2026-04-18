@@ -1,14 +1,19 @@
 #!/bin/bash
 # test_dev_backend_guard.sh
 #
-# Verifies that scripts/dev-backend.sh refuses to start a second instance
-# when a live uvicorn is already listening on port 8000, and that the
-# guard text is present in the script itself.
+# Verifies that scripts/dev-backend.sh kills any existing uvicorn listening
+# on port 8000 before starting a new one, so two uvicorns can never share
+# the same socket. Two uvicorns on the same socket double-bind via
+# SO_REUSEPORT and produce empty-body responses. That left the Agents page
+# showing three stale "running" rows after the real agents had completed,
+# because the UI kept polling a hung backend.
 #
 # Tests:
-#   1. Script text assertion: the guard block exists in dev-backend.sh.
-#   2. Double-bind prevention: starting a second dev-backend.sh while one
-#      is running prints the expected error and exits non-zero.
+#   1. Script text assertion: the kill-and-replace block exists in
+#      dev-backend.sh and references the double-bind hazard.
+#   2. Double-bind prevention: the script now kills the old uvicorn
+#      rather than aborting, so the watchdog can always bring the
+#      backend back.
 #
 # This test is standalone (no pytest, no venv required) and completes in
 # under 15 seconds.
@@ -22,12 +27,16 @@ PORT=8009  # use a throwaway port so the real backend is not disturbed
 pass() { echo "PASS: $*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-# --- Test 1: guard text exists in dev-backend.sh ---
-if grep -q "already listening on port" "$BACKEND_SCRIPT" && \
-   grep -q "double-binds the socket" "$BACKEND_SCRIPT"; then
-    pass "guard block is present in dev-backend.sh"
+# --- Test 1: kill-and-replace block exists in dev-backend.sh ---
+# We require BOTH the hazard callout (double-bind) AND the kill action so
+# a future edit that silently reverts to "abort on conflict" fails this
+# test. The old abort behavior let two uvicorns coexist and caused the
+# Active Sessions page to show three stale agents after backend hangs.
+if grep -q "double-bind" "$BACKEND_SCRIPT" && \
+   grep -q "Killing to reclaim socket" "$BACKEND_SCRIPT"; then
+    pass "kill-and-replace block is present in dev-backend.sh"
 else
-    fail "guard block not found in dev-backend.sh"
+    fail "kill-and-replace block not found in dev-backend.sh (reverted to abort-on-conflict?)"
 fi
 
 # --- Test 2: double-bind is blocked ---

@@ -16,15 +16,17 @@ from services import token_metrics
 
 @pytest.fixture(autouse=True)
 def clear_savings_caches():
-    """Invalidate both the token_metrics TTL cache and the router-level cache
-    before every test so tests cannot bleed cached results into each other."""
+    """Invalidate all savings caches before every test to prevent bleed."""
     token_metrics.invalidate_savings_cache()
-    # Also clear the router-level _savings_cache dict
+    token_metrics.invalidate_conv_totals_cache()
     from routers import costs as costs_router
     costs_router._savings_cache.clear()
+    costs_router.invalidate_metrics_parse_cache()
     yield
     token_metrics.invalidate_savings_cache()
+    token_metrics.invalidate_conv_totals_cache()
     costs_router._savings_cache.clear()
+    costs_router.invalidate_metrics_parse_cache()
 
 
 SAMPLE_METRICS = {
