@@ -129,18 +129,6 @@ interface LiveSessionsData {
   idle_count: number;
 }
 
-interface RecentSpec {
-  path: string;
-  filename: string;
-  title: string;
-  created_at: string;
-  promoted_at?: string;
-  status?: string;
-}
-
-interface RecentSpecsResponse {
-  docs: RecentSpec[];
-}
 
 
 const focusIcons = ['code', 'mail', 'smart_toy', 'target', 'bolt'];
@@ -342,27 +330,6 @@ export default function Dashboard() {
       .catch(() => {});
   }, [adventureDismissed]);
 
-  // Load recent specs
-  useEffect(() => {
-    const fetchRecentSpecs = async () => {
-      setRecentSpecsLoading(true);
-      try {
-        const res = await api.get<{ docs: any[] }>('/specs');
-        const specs = res.docs || [];
-        const sorted = specs.sort((a: any, b: any) => {
-          const dateA = new Date(a.promoted_at || a.created_at || '').getTime();
-          const dateB = new Date(b.promoted_at || b.created_at || '').getTime();
-          return dateB - dateA;
-        });
-        setRecentSpecs(sorted.slice(0, 5));
-      } catch {
-        // silently ignore
-      } finally {
-        setRecentSpecsLoading(false);
-      }
-    };
-    fetchRecentSpecs();
-  }, []);
 
   const handleDismissAdventure = () => {
     localStorage.setItem(ADVENTURE_DISMISSED_KEY, 'true');
