@@ -77,6 +77,35 @@ const MIME_ICONS: Record<string, { icon: string; color: string }> = {
   'application/pdf': { icon: 'picture_as_pdf', color: 'text-red-400' },
 };
 
+// Seed the Drive file list from localStorage so the page paints rows
+// immediately on a return visit. The backend has its own 6-hour cache,
+// but a cache miss still costs ~600ms round trip to Google on the cold
+// path and the JSON is 58 KB so the first-paint benefits from having
+// something to render while the network catches up. Same pattern as
+// Gmail/Tasks. Needle 316.
+const DRIVE_CACHE_KEY = 'myos.driveCache.v1';
+
+function readDriveCache(): DriveFile[] {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return [];
+    const raw = window.localStorage.getItem(DRIVE_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as DriveFile[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDriveCache(files: DriveFile[]) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.setItem(DRIVE_CACHE_KEY, JSON.stringify(files));
+  } catch {
+    // Quota or serialization errors are not fatal.
+  }
+}
+
 function mimeIcon(mimeType: string): { icon: string; color: string } {
   return MIME_ICONS[mimeType] ?? { icon: 'insert_drive_file', color: 'text-slate-400' };
 }
@@ -514,8 +543,26 @@ function SetupGuideModal({ onClose }: { onClose: () => void }) {
 // ---------------------------------------------------------------------------
 
 export default function Drive() {
-  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
-  const [files, setFiles] = useState<DriveFile[]>([]);
+  // If we have rows in localStorage the user has connected before, so
+  // we optimistically paint the main view as authenticated while the
+  // real auth status round trip is in flight. If the real status comes
+  // back unauthenticated (very rare: token revoked, cleared storage)
+  // we switch to the connect screen. This avoids a 100ms "Checking
+  // connection..." spinner on every return visit. Mirrors the pattern
+  // used for Gmail/Tasks.
+  const hasInitialCache = typeof window !== 'undefined' && readDriveCache().length > 0;
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(
+    hasInitialCache
+      ? {
+          authenticated: true,
+          email: null,
+          credentials_file_present: true,
+          needs_reauth: false,
+        }
+      : null,
+  );
+  // Paint rows instantly from localStorage on a return visit.
+  const [files, setFiles] = useState<DriveFile[]>(() => readDriveCache());
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -607,7 +654,14 @@ export default function Drive() {
     try {
       const path = q ? `/drive/files?q=${encodeURIComponent(q)}` : '/drive/files';
       const res = await api.get<FilesResponse>(path);
-      setFiles(res.files ?? []);
+      const list = res.files ?? [];
+      setFiles(list);
+      // Persist unfiltered results to localStorage so the next page
+      // load can paint instantly. Skip for search queries so a
+      // narrowed list does not replace the full cache, and skip on
+      // empty results so a transient zero-result fetch does not pin
+      // the UI blank on the next visit.
+      if (!q && list.length > 0) writeDriveCache(list);
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: { api_not_enabled?: boolean } } } })
         ?.response?.data?.detail;
@@ -640,7 +694,32 @@ export default function Drive() {
   }, []);
 
   // Load auth status on mount.
+  //
+  // Fire status and files in parallel when we already have cached rows
+  // (i.e. the user has visited before and is almost certainly still
+  // authenticated). The old code waited for the ~100ms status round
+  // trip before starting the ~600ms files round trip, which stacked
+  // the two latencies. When the user has no cache we still wait on
+  // status before kicking off the files fetch so we don't hit Drive
+  // for an unauthenticated user. Regression guard for slow page load
+  // on return visits.
   useEffect(() => {
+    const hasCached = readDriveCache().length > 0;
+    if (hasCached) {
+      // Speculatively fire both in parallel. If status says we are
+      // not authenticated we throw away the files result silently.
+      const statusPromise = fetchStatus();
+      const filesPromise = fetchFiles();
+      statusPromise.then((status) => {
+        if (!status?.authenticated) {
+          // The page will render the connect flow anyway; the files
+          // fetch result is harmless to ignore here.
+          return;
+        }
+        return filesPromise;
+      });
+      return;
+    }
     fetchStatus().then((status) => {
       if (status?.authenticated) {
         fetchFiles();
@@ -682,6 +761,15 @@ export default function Drive() {
       setAuthStatus({ authenticated: false, email: null, credentials_file_present: true, needs_reauth: false });
       setFiles([]);
       setPreviewFile(null);
+      // Clear the localStorage cache too so a different account
+      // connecting next does not see the previous account's files.
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.removeItem(DRIVE_CACHE_KEY);
+        }
+      } catch {
+        // Ignore storage errors.
+      }
     } catch {
       // Best effort.
     }

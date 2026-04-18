@@ -56,10 +56,18 @@ def _breaker_record_success() -> None:
 # unread count shown on /api/gmail/auth/status).
 _CACHE_TTL_SECONDS = 300
 
-# 60 seconds TTL for the full inbox cache. Short so a reply or incoming
-# message appears on the next reload without a manual sync, but long enough
-# to absorb a rapid burst of page loads without hitting Gmail every time.
-_FULL_INBOX_CACHE_TTL_SECONDS = 60
+# 5 minutes TTL for the full inbox cache.
+#
+# We used to ship a 60 second TTL, but on a cold cache the Gmail fan-out
+# fetch takes 3-10 seconds (50 messages over a thread pool of 10) and the
+# user pays that full cost every minute just from leaving the tab open.
+# Any action that actually changes the inbox (send a reply, mark read,
+# trash a message, hit the Sync button) already calls
+# ``invalidate_full_inbox_cache`` explicitly, so fresh content still shows
+# up right away when it matters. The 5 minute TTL applies only when
+# nothing has changed, which means the page feels instant for the common
+# case of tab-switching and stays correct for the case of user actions.
+_FULL_INBOX_CACHE_TTL_SECONDS = 300
 
 # Hard cap on how many messages the full inbox fetch will pull in a single
 # request. 200 keeps the response small enough to render quickly, keeps

@@ -232,10 +232,10 @@ async def test_gmail_messages_cache_miss_fetches_api(client, tmp_path):
     cache_dir = tmp_path / "gmail_cache"
     cache_dir.mkdir()
     full_cache_path = cache_dir / "inbox_full.json"
-    # Write a stale cache (mtime older than full inbox TTL of 60 s)
+    # Write a stale cache (mtime older than full inbox TTL of 300 s)
     old_messages = _make_messages(1)
     full_cache_path.write_text(json.dumps(old_messages))
-    old_time = time.time() - 120  # > 60 s full-inbox TTL
+    old_time = time.time() - 600  # > 300 s full-inbox TTL
     import os
     os.utime(full_cache_path, (old_time, old_time))
 

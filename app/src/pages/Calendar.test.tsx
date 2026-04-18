@@ -255,6 +255,77 @@ describe('Calendar empty-cache recovery (demo bug fix)', () => {
   })
 })
 
+describe('Calendar localStorage cache (faster return visits)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.calendarCache.v1')
+  })
+
+  afterEach(() => {
+    window.localStorage.removeItem('myos.calendarCache.v1')
+  })
+
+  it('paints events from localStorage immediately before the network responds', async () => {
+    const cached = [
+      {
+        id: 'ev-cached',
+        summary: 'Standup from cache',
+        start: { dateTime: '2026-04-21T09:00:00-05:00' },
+        end: { dateTime: '2026-04-21T09:30:00-05:00' },
+      },
+    ]
+    window.localStorage.setItem('myos.calendarCache.v1', JSON.stringify(cached))
+
+    // Network hangs so we can prove the first paint came from cache.
+    let resolveStatus: (v: unknown) => void = () => {}
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) {
+        return new Promise((resolve) => {
+          resolveStatus = resolve
+        })
+      }
+      if (path.includes('/calendar/events')) return new Promise(() => {})
+      return Promise.resolve({})
+    })
+
+    renderCalendar()
+
+    // Row is painted from cache before the status response lands.
+    await waitFor(() => {
+      expect(screen.getByText('Standup from cache')).toBeInTheDocument()
+    })
+
+    resolveStatus(AUTHENTICATED)
+  })
+
+  it('writes fresh events to localStorage so the next visit paints instantly', async () => {
+    const freshEvents = [
+      {
+        id: 'ev-fresh',
+        summary: 'New standup',
+        start: { dateTime: '2026-04-21T10:00:00-05:00' },
+        end: { dateTime: '2026-04-21T10:30:00-05:00' },
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) return Promise.resolve({ events: freshEvents })
+      return Promise.resolve({})
+    })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByText('New standup')).toBeInTheDocument()
+    })
+
+    // The freshly fetched events should now be in localStorage.
+    const saved = window.localStorage.getItem('myos.calendarCache.v1')
+    expect(saved).not.toBeNull()
+    expect(saved && JSON.parse(saved)[0].id).toBe('ev-fresh')
+  })
+})
+
 describe('Calendar connect error', () => {
   beforeEach(() => {
     vi.clearAllMocks()

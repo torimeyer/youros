@@ -88,6 +88,10 @@ function renderDrive() {
 describe('Drive page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear localStorage so each test starts with no cached file list.
+    // The page seeds from localStorage for a faster return visit, which
+    // would otherwise leak rows between tests.
+    window.localStorage.removeItem('myos.driveCache.v1')
   })
 
   it('shows a loading spinner while checking auth', async () => {
@@ -619,5 +623,57 @@ describe('Drive page', () => {
       writable: true,
       value: { ...window.location, search: '', pathname: '/drive' },
     })
+  })
+})
+
+describe('Drive localStorage cache (faster return visits)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.driveCache.v1')
+  })
+
+  it('paints files from localStorage immediately before the network responds', async () => {
+    const cachedFiles = [
+      {
+        id: 'cached-1',
+        name: 'Cached doc',
+        mimeType: 'application/vnd.google-apps.document',
+        modifiedTime: new Date().toISOString(),
+        iconLink: '',
+        webViewLink: 'https://docs.google.com/document/d/cached-1',
+        size: null,
+      },
+    ]
+    window.localStorage.setItem('myos.driveCache.v1', JSON.stringify(cachedFiles))
+
+    // Network hangs so we prove the first paint came from cache.
+    mockedApiGet.mockReturnValue(new Promise(() => {}))
+
+    renderDrive()
+
+    await waitFor(() => {
+      expect(screen.getByText('Cached doc')).toBeInTheDocument()
+    })
+  })
+
+  it('writes fresh files to localStorage so the next visit paints instantly', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+
+    renderDrive()
+
+    await waitFor(() => {
+      expect(screen.getByText('Q1 Report')).toBeInTheDocument()
+    })
+
+    // The freshly fetched files should now be in localStorage.
+    const saved = window.localStorage.getItem('myos.driveCache.v1')
+    expect(saved).not.toBeNull()
+    const parsed = saved ? JSON.parse(saved) : []
+    expect(parsed).toHaveLength(2)
+    expect(parsed[0].id).toBe('file-1')
   })
 })
