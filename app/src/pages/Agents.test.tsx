@@ -4131,8 +4131,8 @@ describe('Transcript viewer', () => {
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
-          transcript_bytes: 0,
-          transcript_lines: 0,
+          transcript_bytes: 1024,
+          transcript_lines: 10,
         }],
       }
       if (path === '/agents/templates') return { templates: [] }
@@ -4169,6 +4169,8 @@ describe('Transcript viewer', () => {
           source: 'claude-code',
           model: 'claude-sonnet-4-6',
           spawned_at: new Date().toISOString(),
+          transcript_bytes: 1024,
+          transcript_lines: 10,
         }],
       }
       if (path === '/agents/templates') return { templates: [] }

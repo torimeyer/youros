@@ -3356,15 +3356,19 @@ export default function Agents() {
                         </div>
 
                         <div className="flex items-center justify-between mt-4">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openTranscript(agent.name)}
-                            className="text-blue-400 hover:text-blue-300"
-                          >
-                            <Icon name="description" size={16} />
-                            View Transcript
-                          </Button>
+                          {(agent.transcript_bytes ?? 0) > 0 ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openTranscript(agent.name)}
+                              className="text-blue-400 hover:text-blue-300"
+                            >
+                              <Icon name="description" size={16} />
+                              View Transcript
+                            </Button>
+                          ) : (
+                            <span />
+                          )}
                           <Button
                             variant="secondary"
                             size="sm"
@@ -3717,6 +3721,15 @@ export default function Agents() {
                               >
                                 <Icon name="replay" size={14} />
                                 {recoveringAgents[agent.name] ? "Recovering..." : "Recover"}
+                              </button>
+                            )}
+                            {(agent.transcript_bytes ?? 0) > 0 && (
+                              <button
+                                onClick={() => openTranscript(agent.name)}
+                                className="text-xs text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+                              >
+                                <Icon name="description" size={14} />
+                                Transcript
                               </button>
                             )}
                             <button
