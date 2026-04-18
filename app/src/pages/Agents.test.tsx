@@ -451,6 +451,120 @@ describe('Agents page - Nudge feature', () => {
       expect(seen.some((p) => p.includes('/agents/test-agent/nudges'))).toBe(true)
     })
   })
+
+  it('replies long-poll: passes wait and since params and re-issues immediately on response', async () => {
+    // After the initial snapshot GET seeds a since marker, subsequent
+    // /nudges requests from the background poll loop must be long
+    // polls: ?wait=30&since=<timestamp>. This is the fix for the
+    // slow-reply bug where the UI took up to 5s to show an agent
+    // reply because the polling loop was a plain GET every 3-5s.
+    const seenPaths: string[] = []
+    const firstSnapshotTimestamp = '2026-04-09T03:08:57.000000+00:00'
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return mockAgentsResponse
+      if (path === '/agents/templates') return mockTemplatesResponse
+      if (path.includes('/agents/test-agent/nudges')) {
+        seenPaths.push(path)
+        // Seed the first test-agent snapshot with a message so the
+        // since ref picks up a timestamp. Later calls return empty
+        // so the long-poll loop exits quickly without hanging.
+        if (seenPaths.length === 1) {
+          return {
+            agent: 'test-agent',
+            nudges: [
+              {
+                message: 'hello',
+                timestamp: firstSnapshotTimestamp,
+                source: 'ui',
+                stdin_delivered: false,
+              },
+            ],
+            session_nudges: [],
+            replies: [],
+            session_replies: [],
+          }
+        }
+        return {
+          agent: 'test-agent',
+          nudges: [],
+          session_nudges: [],
+          replies: [],
+          session_replies: [],
+        }
+      }
+      if (path.includes('/nudges')) {
+        // Other agents the page also polls (e.g. activeExpandedMap
+        // seeded test fixtures). Return empty so they do not pollute
+        // the assertion below.
+        return {
+          agent: 'x',
+          nudges: [],
+          session_nudges: [],
+          replies: [],
+          session_replies: [],
+        }
+      }
+      return {}
+    })
+    mockedApiPost.mockResolvedValue({
+      result: "Nudge sent to 'test-agent'",
+      nudge: {
+        message: 'ping',
+        timestamp: '2026-04-09T03:09:00+00:00',
+        source: 'ui',
+        stdin_delivered: false,
+        delivery: 'file_only',
+        delivery_message: 'Saved for the agent.',
+      },
+    })
+
+    renderAgents()
+
+    await waitFor(() => {
+      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+    })
+
+    // Trigger a send so the background long-poll loop spins up for
+    // this agent (the loop only runs for agents the user has
+    // messaged in this session).
+    const input = screen.getByPlaceholderText('Message test-agent...')
+    fireEvent.change(input, { target: { value: 'ping' } })
+    fireEvent.click(screen.getByTestId('agent-chat-send-test-agent'))
+
+    await waitFor(
+      () => {
+        // At least one long-poll URL must show up with both wait=30
+        // and the since marker from the first snapshot. This is the
+        // contract that gives us sub-second reply arrival.
+        const longPoll = seenPaths.find(
+          (p) => p.includes('wait=30') && p.includes('since='),
+        )
+        expect(longPoll).toBeTruthy()
+        expect(longPoll).toContain('/agents/test-agent/nudges')
+        expect(longPoll).toContain('wait=30')
+        // The since= must carry the timestamp we returned on the
+        // seed snapshot, URL-encoded.
+        expect(longPoll).toContain(
+          `since=${encodeURIComponent(firstSnapshotTimestamp)}`,
+        )
+      },
+      { timeout: 3000 },
+    )
+
+    // The loop re-issues immediately after each response (with a
+    // ~100ms yield). A second waitFor gives the loop a moment to
+    // kick off the next iteration; this proves the "re-issue on
+    // response" half of the contract.
+    await waitFor(
+      () => {
+        const count = seenPaths.filter(
+          (p) => p.includes('wait=30') && p.includes('since='),
+        ).length
+        expect(count).toBeGreaterThanOrEqual(2)
+      },
+      { timeout: 3000 },
+    )
+  })
 })
 
 // Regression for needle 237: Tori saw the inline Send button get stuck

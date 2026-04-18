@@ -1919,6 +1919,14 @@ export default function Agents() {
   const [nudgeInputs, setNudgeInputs] = useState<Record<string, string>>({});
   const [nudgeHistory, setNudgeHistory] = useState<Record<string, NudgeRecord[]>>({});
   const [nudgeReplies, setNudgeReplies] = useState<Record<string, NudgeReplyRecord[]>>({});
+  // Per-agent "since" marker used by the long-poll version of
+  // fetchNudges. A ref (not state) so the freshly updated timestamp is
+  // visible to the next long-poll iteration without re-rendering. The
+  // value is the newest ISO timestamp the UI has already seen across
+  // nudges, session_nudges, replies, and session_replies for that
+  // agent. Used as the ?since= query param so the backend blocks the
+  // request until something strictly newer arrives (needle 300).
+  const nudgeSinceRef = useRef<Record<string, string>>({});
   const [nudgeSending, setNudgeSending] = useState<Record<string, boolean>>({});
   // Per-agent inline error message for the nudge Send flow. Empty
   // string means no error. Shown under the input so a failed send is
@@ -1973,15 +1981,47 @@ export default function Agents() {
   // Context pressure per agent (needle 337)
   const [contextPressure, setContextPressure] = useState<Record<string, { available: boolean; pressure_pct?: number }>>({});
 
-  // Fetch nudge history and memory when expanding an agent
+  // Fetch nudge history and memory when expanding an agent.
+  //
+  // Instead of a 5s plain-GET poll (the pre-long-poll behaviour, which
+  // meant replies took up to 5s to appear in the thread), we run a
+  // recursive long-poll loop. The initial call does a snapshot GET to
+  // seed the per-agent "since" marker; every subsequent call uses
+  // ?wait=30&since=<latest_ts> and returns the instant something
+  // strictly newer lands on the backend. A 60s safety interval still
+  // does a plain refresh so a dropped connection or clock skew never
+  // permanently wedges the thread.
   useEffect(() => {
-    if (expandedAgent) {
-      fetchNudges(expandedAgent);
-      fetchMemory(expandedAgent);
-      // Poll nudges while expanded
-      const interval = setInterval(() => fetchNudges(expandedAgent), 5000);
-      return () => clearInterval(interval);
-    }
+    if (!expandedAgent) return;
+    let cancelled = false;
+    const agent = expandedAgent;
+    (async () => {
+      // Seed: snapshot GET so nudgeSinceRef has a marker before the
+      // first long-poll iteration.
+      await fetchNudges(agent);
+      fetchMemory(agent);
+      while (!cancelled) {
+        await fetchNudges(agent, { longPoll: true });
+        // Yield to the event loop between iterations. In production
+        // the backend holds the long-poll open for up to 30s so this
+        // is effectively a no-op. But if something returns instantly
+        // (empty snapshot, proxy strips the wait param, a test mocks
+        // api.get to resolve synchronously), the setTimeout keeps us
+        // from busy-looping and starving the microtask queue.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    })();
+    // Safety net: if a long-poll stalls for any reason (network
+    // blip, backend restart, browser throttling the tab in the
+    // background), a 60s snapshot refresh guarantees the thread
+    // catches up eventually.
+    const safety = setInterval(() => {
+      if (!cancelled) fetchNudges(agent);
+    }, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(safety);
+    };
   }, [expandedAgent]);
 
   // Active Sessions cards hide the chat thread until expanded. When any
@@ -2007,17 +2047,39 @@ export default function Agents() {
   // was expanded. We now poll nudges for every active agent the user
   // has messaged in this session, whether or not its card is expanded,
   // so agent replies surface in the same place the user sent them.
+  //
+  // Speed-up: the pre-long-poll implementation did a plain GET every
+  // 3 seconds, which put a 3s floor on how fast the ack bot reply
+  // could show up in the thread. We now run one recursive long-poll
+  // loop per agent with messages. Each loop uses
+  // ?wait=30&since=<latest_ts> and wakes sub-second when a new nudge
+  // or reply lands. The 60s safety refresh below guards against a
+  // stalled connection so the thread never goes silent forever.
   const agentsWithMessages = Object.keys(nudgeHistory);
   const agentsWithMessagesKey = agentsWithMessages.sort().join("|");
   useEffect(() => {
     if (agentsWithMessages.length === 0) return;
-    const tick = () => {
+    let cancelled = false;
+    for (const name of agentsWithMessages) {
+      (async () => {
+        while (!cancelled) {
+          await fetchNudges(name, { longPoll: true });
+          // Yield to the event loop between iterations. See comment
+          // above on the expanded-agent long-poll for rationale.
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      })();
+    }
+    const safety = setInterval(() => {
+      if (cancelled) return;
       for (const name of agentsWithMessages) {
         fetchNudges(name);
       }
+    }, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(safety);
     };
-    const interval = setInterval(tick, 3000);
-    return () => clearInterval(interval);
     // Using the joined key string so the effect only re-subscribes
     // when the set of agents actually changes, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2419,9 +2481,35 @@ export default function Agents() {
     }
   };
 
-  const fetchNudges = async (agentName: string) => {
+  // Refresh the nudge + reply thread for one agent. When
+  // options.longPoll is true, the request uses the backend long-poll
+  // branch with ?wait=30&since=<latest_ts_seen>, so it blocks on the
+  // server until something strictly newer than the caller's marker
+  // lands. That collapses the old 3-5s UI polling gap (plain GET every
+  // few seconds) down to sub-second delivery for both the ack bot
+  // reply and the real subagent reply. Without options.longPoll it
+  // does a plain snapshot GET (used on first open and as a safety
+  // refresh). Needle for the speed-up follows the research in
+  // docs/inline-chat-latency-research.md.
+  const fetchNudges = async (
+    agentName: string,
+    options?: { longPoll?: boolean },
+  ) => {
     try {
-      const data = await api.get<NudgesListResponse>(`/agents/${agentName}/nudges`);
+      const longPoll = !!options?.longPoll;
+      let path = `/agents/${agentName}/nudges`;
+      if (longPoll) {
+        const since = nudgeSinceRef.current[agentName];
+        // The backend requires a since marker to arm the long-poll
+        // waiter. Without one it returns immediately, so we fall back
+        // to a snapshot GET rather than wasting a connection. The
+        // first call after mount has no marker yet; it will pick one
+        // up from the snapshot response below.
+        if (since) {
+          path = `/agents/${agentName}/nudges?wait=30&since=${encodeURIComponent(since)}`;
+        }
+      }
+      const data = await api.get<NudgesListResponse>(path);
       // Merge file-based and session nudges from the server, then
       // merge again with any optimistic entries we already have in
       // local state. A server poll must never erase a message the
@@ -2462,6 +2550,22 @@ export default function Agents() {
         unique.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
         return { ...prev, [agentName]: unique };
       });
+
+      // Update the per-agent "since" marker to the newest timestamp in
+      // the merged response. The next long-poll iteration uses this as
+      // its ?since= so only strictly-newer messages wake it.
+      const allStamps: string[] = [];
+      for (const n of data.nudges || []) allStamps.push(n.timestamp);
+      for (const n of data.session_nudges || []) allStamps.push(n.timestamp);
+      for (const r of data.replies || []) allStamps.push(r.timestamp);
+      for (const r of data.session_replies || []) allStamps.push(r.timestamp);
+      if (allStamps.length > 0) {
+        const latest = allStamps.reduce((a, b) => (a > b ? a : b));
+        const prev = nudgeSinceRef.current[agentName];
+        if (!prev || latest > prev) {
+          nudgeSinceRef.current[agentName] = latest;
+        }
+      }
     } catch {
       // keep existing
     }
