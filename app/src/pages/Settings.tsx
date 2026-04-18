@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
+import { PageHeader } from '../components/ui';
 import { api } from '../lib/api';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 
@@ -57,23 +58,22 @@ const featureIcons: Record<string, string> = {
   'Chat': 'chat',
   'Tasks': 'task_alt',
   'Activity': 'history',
-  'Hay/Ideas': 'lightbulb',
   'Agents': 'smart_toy',
   'Projects': 'folder',
   'Drive': 'cloud',
   'Calendar': 'calendar_month',
   'Gmail': 'mail',
-  'Docs': 'description',
+  'Specs': 'description',
   'Transcripts': 'mic',
   'Automations': 'account_tree',
+  'Cost Tracking': 'payments',
 };
 
-// Display names for features. Internal keys like "Hay/Ideas" use ostk
-// terminology that users should not see.
+// Display names for features. Internal keys use ostk terminology that users should not see.
 const featureDisplayNames: Record<string, string> = {
-  'Hay/Ideas': 'Ideas',
   'Projects': 'Files',
   'Transcripts': 'History',
+  'Cost Tracking': 'Usage',
 };
 
 
@@ -93,6 +93,7 @@ export default function Settings() {
     iconStyle, setIconStyle,
     dashboardLayout, setDashboardLayout,
     greetingStyle, setGreetingStyle,
+    showBudgetCaps, setShowBudgetCaps,
   } = useAppStore();
 
   const [selectedProvider, setSelectedProvider] = useState('Anthropic');
@@ -103,7 +104,15 @@ export default function Settings() {
   const [claudeCodeReady, setClaudeCodeReady] = useState<boolean | null>(null);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({ Anthropic: '', 'Google Gemini': '' });
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('claude-opus-4-20250514');
+  const [selectedModel, setSelectedModel] = useState('claude-sonnet-4-6');
+  // Model list and default come from the backend so there's a single source
+  // of truth. When Anthropic ships a new model we edit one file on the
+  // server and the dropdown updates everywhere.
+  const [anthropicModels, setAnthropicModels] = useState<{ id: string; label: string; tier: string }[]>([
+    { id: 'claude-opus-4-6', label: 'Opus 4.6', tier: 'opus' },
+    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', tier: 'sonnet' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', tier: 'haiku' },
+  ]);
   const [notifications, setNotifications] = useState([
     { label: 'Agent Complete', enabled: true },
     { label: 'Agent Needs Input', enabled: true },
@@ -114,6 +123,18 @@ export default function Settings() {
   const [autoTemplateMatching, setAutoTemplateMatching] = useState(true);
   const [briefingEnabled, setBriefingEnabled] = useState(true);
   const [chatMemoryEnabled, setChatMemoryEnabled] = useState(true);
+  const [standingInstructions, setStandingInstructions] = useState('');
+  const [standingSaveStatus, setStandingSaveStatus] = useState<string | null>(null);
+  const [standingSaveIsError, setStandingSaveIsError] = useState(false);
+  const standingSectionRef = useRef<HTMLDivElement>(null);
+  // Auto-draft suggestions: the "Suggest for me" button calls the backend
+  // generator, which returns 5-10 candidate instructions based on the
+  // user's real patterns. Each row has a checkbox (default checked) and
+  // an inline editable text. The Save all checked button joins the
+  // checked rows with newlines and PATCHes the settings store.
+  const [suggestions, setSuggestions] = useState<{ text: string; checked: boolean }[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
   const [showAllKeys, setShowAllKeys] = useState(false);
   const [keySaveStatus, setKeySaveStatus] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
@@ -128,6 +149,21 @@ export default function Settings() {
   const [keyAvailable, setKeyAvailable] = useState<Record<string, boolean>>({ Anthropic: false, 'Google Gemini': false });
   const [keySource, setKeySource] = useState<Record<string, string>>({});
   const [ostkMcpServers, setOstkMcpServers] = useState<OstkMCPServer[]>([]);
+
+  // Connection-status state for Gmail, Calendar, Drive, and Slack.
+  // All four are fetched in parallel on mount so every dot appears in
+  // the same render tick rather than 1-2 seconds apart.
+  interface ConnectionDot {
+    loading: boolean;
+    connected: boolean;
+    label: string;
+  }
+  const [connectionStatus, setConnectionStatus] = useState<Record<string, ConnectionDot>>({
+    Gmail: { loading: true, connected: false, label: '' },
+    Calendar: { loading: true, connected: false, label: '' },
+    Drive: { loading: true, connected: false, label: '' },
+    Slack: { loading: true, connected: false, label: '' },
+  });
 
   // Push notification state
   const [settingsPushEnabled, setSettingsPushEnabled] = useState(false);
@@ -215,6 +251,9 @@ export default function Settings() {
         if ((data as any).chat_memory_enabled !== undefined) {
           setChatMemoryEnabled((data as any).chat_memory_enabled);
         }
+        if (typeof (data as any).standing_instructions === 'string') {
+          setStandingInstructions((data as any).standing_instructions);
+        }
         if ((data as any).use_ostk_terms !== undefined) setUseOstkTerms((data as any).use_ostk_terms);
         if (data.mcp_servers) setMcpServers(data.mcp_servers);
         const prefRaw = (data as any).chat_backend_preference;
@@ -230,6 +269,19 @@ export default function Settings() {
     api.get<{ claude_code_available?: boolean }>('/settings/chat-backend-status')
       .then((data) => setClaudeCodeReady(!!data.claude_code_available))
       .catch(() => setClaudeCodeReady(false));
+    // Load the current Anthropic model list from the server. The server
+    // is the single source of truth so one edit updates every client.
+    api.get<{ models?: { id: string; label: string; tier: string }[]; default?: string }>(
+      '/models/anthropic',
+    )
+      .then((data) => {
+        if (data.models && data.models.length > 0) {
+          setAnthropicModels(data.models);
+        }
+      })
+      .catch(() => {
+        // Server unreachable. Keep the built-in fallback list defined above.
+      });
     api.get<{ google_oauth_available?: boolean; google_connected?: boolean; anthropic?: boolean; gemini?: boolean; anthropic_source?: string; gemini_source?: string }>('/secrets/key-status')
       .then((data) => {
         setGoogleOAuthAvailable(data.google_oauth_available ?? false);
@@ -241,6 +293,28 @@ export default function Settings() {
     api.get<{ ostk_servers?: OstkMCPServer[] }>('/settings/mcp-servers')
       .then((data) => setOstkMcpServers(data.ostk_servers ?? []))
       .catch(() => {});
+
+    // Kick off all four connection status fetches in parallel so every
+    // dot renders in the same tick. Each call is cached server-side with
+    // a short TTL so repeat visits return in under one millisecond.
+    void (async () => {
+      type GmailStatus = { authenticated: boolean; email: string | null };
+      type CalStatus = { authenticated: boolean; email: string | null };
+      type DriveStatus = { authenticated: boolean; email: string | null };
+      type SlackStat = { connected: boolean; team_name: string };
+      const [gmail, cal, drive, slack] = await Promise.all([
+        api.get<GmailStatus>('/gmail/auth/status').catch(() => ({ authenticated: false, email: null })),
+        api.get<CalStatus>('/calendar/auth/status').catch(() => ({ authenticated: false, email: null })),
+        api.get<DriveStatus>('/drive/auth/status').catch(() => ({ authenticated: false, email: null })),
+        api.get<SlackStat>('/slack/status').catch(() => ({ connected: false, team_name: '' })),
+      ]);
+      setConnectionStatus({
+        Gmail: { loading: false, connected: !!gmail.authenticated, label: gmail.email || '' },
+        Calendar: { loading: false, connected: !!cal.authenticated, label: cal.email || '' },
+        Drive: { loading: false, connected: !!drive.authenticated, label: drive.email || '' },
+        Slack: { loading: false, connected: !!slack.connected, label: slack.team_name || '' },
+      });
+    })();
     api.get<{ configured?: boolean; remote_url?: string | null; last_synced?: string | null }>('/sync/status')
       .then((data) => {
         setSyncConfigured(data.configured ?? false);
@@ -291,11 +365,10 @@ export default function Settings() {
     { label: 'Go to Home', keys: '\u23181' },
     { label: 'Go to Tasks', keys: '\u23182' },
     { label: 'Go to Timeline', keys: '\u23183' },
-    { label: 'Go to Ideas', keys: '\u23184' },
-    { label: 'Go to Agents', keys: '\u23185' },
-    { label: 'Go to Files', keys: '\u23186' },
-    { label: 'Go to Transcripts', keys: '\u23187' },
-    { label: 'Go to Settings', keys: '\u23188' },
+    { label: 'Go to Agents', keys: '\u23184' },
+    { label: 'Go to Files', keys: '\u23185' },
+    { label: 'Go to Transcripts', keys: '\u23186' },
+    { label: 'Go to Settings', keys: '\u23187' },
   ];
 
   const providers = [
@@ -475,6 +548,88 @@ export default function Settings() {
     api.patch('/settings', { chat_memory_enabled: next }).catch(() => {});
   };
 
+  const handleSaveStandingInstructions = async () => {
+    try {
+      await api.patch('/settings', { standing_instructions: standingInstructions });
+      setStandingSaveIsError(false);
+      setStandingSaveStatus('Saved');
+    } catch {
+      setStandingSaveIsError(true);
+      setStandingSaveStatus('Could not save. Check your connection and try again.');
+    } finally {
+      setTimeout(() => setStandingSaveStatus(null), 3000);
+    }
+  };
+
+  // Ask the backend to draft standing instructions from the user's own
+  // patterns so she never has to stare at a blank textarea.
+  const handleSuggestStandingInstructions = async () => {
+    setSuggestLoading(true);
+    setSuggestError(null);
+    try {
+      const resp = await api.post<{ suggestions: string[] }>('/settings/standing-instructions/suggest', {});
+      const list = Array.isArray(resp?.suggestions) ? resp.suggestions : [];
+      setSuggestions(list.map((text) => ({ text, checked: true })));
+      if (list.length === 0) {
+        setSuggestError('No suggestions yet. Try writing a few messages first, then try again.');
+      }
+    } catch {
+      setSuggestError('Could not get suggestions. Check your connection and try again.');
+    } finally {
+      setSuggestLoading(false);
+    }
+  };
+
+  // Join the checked suggestions with newlines, append to any existing
+  // instructions the user already has, and PATCH the settings store.
+  const handleSaveCheckedSuggestions = async () => {
+    const joined = suggestions
+      .filter((s) => s.checked && s.text.trim().length > 0)
+      .map((s) => s.text.trim())
+      .join('\n');
+    if (!joined) {
+      setSuggestError('Pick at least one suggestion to save.');
+      return;
+    }
+    const merged = standingInstructions.trim()
+      ? `${standingInstructions.trim()}\n${joined}`
+      : joined;
+    try {
+      await api.patch('/settings', { standing_instructions: merged });
+      setStandingInstructions(merged);
+      setSuggestions([]);
+      setSuggestError(null);
+      setStandingSaveIsError(false);
+      setStandingSaveStatus('Saved');
+      setTimeout(() => setStandingSaveStatus(null), 3000);
+    } catch {
+      setSuggestError('Could not save. Check your connection and try again.');
+    }
+  };
+
+  // Scroll to the standing instructions section when the page loads
+  // with ``#standing-instructions`` in the URL. The Usage page uses this
+  // anchor so the cache-reuse hint deep-links straight to the feature.
+  // When the hash is ``#standing-instructions-suggest`` we also kick
+  // off the suggest flow so the Usage page's "Save standing instructions
+  // to raise this" link is a true one-click path.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash;
+    if (hash !== '#standing-instructions' && hash !== '#standing-instructions-suggest') {
+      return;
+    }
+    // Defer a tick so the section has mounted before we try to scroll.
+    const handle = window.setTimeout(() => {
+      standingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (hash === '#standing-instructions-suggest') {
+        handleSuggestStandingInstructions();
+      }
+    }, 0);
+    return () => window.clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleImport = () => {
     fileInputRef.current?.click();
   };
@@ -581,6 +736,128 @@ export default function Settings() {
       <TopBar title="Settings" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 space-y-6">
+        <PageHeader title="Settings" />
+
+        {/* Standing instructions */}
+        <div
+          ref={standingSectionRef}
+          id="standing-instructions"
+          className={cardClass}
+          data-testid="standing-instructions-section"
+        >
+          <h2 className="text-lg font-semibold mb-2">Standing instructions</h2>
+          <p className="text-sm text-slate-400 mb-4">
+            Write instructions once and every chat, agent run, and task will follow them. Examples: your preferred tone, what apps to prefer, how you want code explained.
+          </p>
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={handleSuggestStandingInstructions}
+              disabled={suggestLoading}
+              data-testid="standing-instructions-suggest"
+              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-60 rounded-lg text-white text-sm font-medium transition-colors"
+            >
+              {suggestLoading ? 'Thinking...' : 'Suggest for me'}
+            </button>
+            <span className="ml-3 text-xs text-slate-500">
+              Draft from your recent chats, corrections, and connected apps.
+            </span>
+          </div>
+          {suggestError && (
+            <div
+              data-testid="standing-instructions-suggest-error"
+              role="alert"
+              className="mb-3 text-sm text-red-400"
+            >
+              {suggestError}
+            </div>
+          )}
+          {suggestions.length > 0 && (
+            <div
+              data-testid="standing-instructions-suggestions"
+              className="mb-4 p-3 bg-slate-800/60 border border-slate-700 rounded-lg space-y-2"
+            >
+              <p className="text-sm text-slate-300 mb-2">
+                Uncheck or edit any you do not want, then save.
+              </p>
+              {suggestions.map((s, i) => (
+                <div
+                  key={i}
+                  className="flex items-start gap-2"
+                  data-testid={`standing-instructions-suggestion-row-${i}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={s.checked}
+                    onChange={(e) => {
+                      const next = [...suggestions];
+                      next[i] = { ...next[i], checked: e.target.checked };
+                      setSuggestions(next);
+                    }}
+                    data-testid={`standing-instructions-suggestion-check-${i}`}
+                    className="mt-1"
+                  />
+                  <input
+                    type="text"
+                    value={s.text}
+                    onChange={(e) => {
+                      const next = [...suggestions];
+                      next[i] = { ...next[i], text: e.target.value };
+                      setSuggestions(next);
+                    }}
+                    data-testid={`standing-instructions-suggestion-text-${i}`}
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              ))}
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveCheckedSuggestions}
+                  data-testid="standing-instructions-save-checked"
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white text-sm font-medium transition-colors"
+                >
+                  Save all checked
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSuggestions([]); setSuggestError(null); }}
+                  data-testid="standing-instructions-dismiss-suggestions"
+                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm font-medium transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+          <textarea
+            value={standingInstructions}
+            onChange={(e) => setStandingInstructions(e.target.value)}
+            rows={6}
+            data-testid="standing-instructions-textarea"
+            placeholder="For example: always explain things in plain language, prefer Google Calendar over iCal, keep replies short unless I ask for detail."
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+          />
+          <div className="flex items-center gap-3 mt-3">
+            <button
+              onClick={handleSaveStandingInstructions}
+              data-testid="standing-instructions-save"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white text-sm font-medium transition-colors"
+            >
+              Save
+            </button>
+            {standingSaveStatus && (
+              <span
+                data-testid="standing-instructions-status"
+                role={standingSaveIsError ? 'alert' : 'status'}
+                className={`text-sm ${standingSaveIsError ? 'text-red-400' : 'text-green-400'}`}
+              >
+                {standingSaveStatus}
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* Row 1: Appearance + System Features */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
           <div>
@@ -639,6 +916,7 @@ export default function Settings() {
                 value={osName}
                 onChange={(e) => setOsName(e.target.value)}
                 onBlur={handleOsNameBlur}
+                onKeyDown={(e) => { if (e.key === "Enter") handleOsNameBlur(); }}
                 className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>
@@ -780,8 +1058,25 @@ export default function Settings() {
             ))}
           </div>
 
-          {/* Power user mode toggle */}
+          {/* Budget Caps toggle */}
           <div className="mt-6 pt-6 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-200">Show budget caps</span>
+              <button
+                data-testid="budget-caps-toggle"
+                onClick={() => setShowBudgetCaps(!showBudgetCaps)}
+                className={`relative w-11 h-6 rounded-full transition-colors ${showBudgetCaps ? 'bg-blue-500' : 'bg-slate-700'}`}
+                aria-pressed={showBudgetCaps}
+                aria-label="Toggle budget caps visibility"
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${showBudgetCaps ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mt-2">Shows budget cap columns in Usage. Off by default since caps are not real spend.</p>
+          </div>
+
+          {/* Power user mode toggle */}
+          <div className="mt-4 pt-4 border-t border-slate-800">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-slate-200">Power user mode</span>
@@ -996,19 +1291,25 @@ export default function Settings() {
               </p>
             </div>
 
-            {/* Model Selector */}
-            <div>
-              <label className="text-sm text-slate-400 mb-2 block">Model</label>
-              <select
-                value={selectedModel}
-                onChange={(e) => handleModelChange(e.target.value)}
-                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
-              >
-                <option>claude-opus-4-20250514</option>
-                <option>claude-sonnet-4-20250514</option>
-                <option>claude-haiku-35-20241022</option>
-              </select>
-            </div>
+            {/* Model Selector: only shown when Anthropic is the chat provider.
+                Google Gemini picks its own model elsewhere, so surfacing the
+                Claude model list while Gemini is selected is confusing. */}
+            {selectedProvider === 'Anthropic' && (
+              <div data-testid="anthropic-model-dropdown">
+                <label className="text-sm text-slate-400 mb-2 block">Model</label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => handleModelChange(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
+                >
+                  {anthropicModels.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Chat backend: pick the subscription or the API key.
                 Default is auto, which uses the subscription when the
@@ -1207,6 +1508,52 @@ export default function Settings() {
           </div>
         </div>
 
+        {/* Connections: Gmail, Calendar, Drive, Slack status dots */}
+        <div className={cardClass} data-testid="connections-section">
+          <div className="flex items-center gap-2 mb-4">
+            <h2 className="text-lg font-semibold">Connections</h2>
+            <div className="group relative ml-1">
+              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                Shows which outside accounts are linked. Green means connected, red means not connected.
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {(['Gmail', 'Calendar', 'Drive', 'Slack'] as const).map((svc) => {
+              const status = connectionStatus[svc];
+              const iconName = svc === 'Gmail' ? 'mail' : svc === 'Calendar' ? 'calendar_month' : svc === 'Drive' ? 'folder_shared' : 'forum';
+              return (
+                <div
+                  key={svc}
+                  data-testid={`connection-${svc.toLowerCase()}`}
+                  className="flex items-center gap-2 px-3 py-2.5 bg-slate-800/50 rounded-lg border border-slate-700/50"
+                >
+                  <Icon name={iconName} size={18} className="text-slate-300 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-200 font-medium truncate">{svc}</p>
+                    {status.label && (
+                      <p className="text-xs text-slate-500 truncate" title={status.label}>{status.label}</p>
+                    )}
+                  </div>
+                  <span
+                    data-testid={`connection-dot-${svc.toLowerCase()}`}
+                    data-connected={status.loading ? 'loading' : status.connected ? 'yes' : 'no'}
+                    className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                      status.loading
+                        ? 'bg-slate-600'
+                        : status.connected
+                        ? 'bg-emerald-400'
+                        : 'bg-red-500'
+                    }`}
+                    title={status.loading ? 'Checking' : status.connected ? 'Connected' : 'Not connected'}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Row 3: MCP Servers + Sync */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
         <div className={cardClass}>
@@ -1291,6 +1638,7 @@ export default function Settings() {
                 type="text"
                 value={newMcpName}
                 onChange={e => setNewMcpName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddMcpServer()}
                 placeholder="Server name (e.g. Stitch)"
                 className="w-36 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
               />
@@ -1306,6 +1654,7 @@ export default function Settings() {
                 type="password"
                 value={newMcpToken}
                 onChange={e => setNewMcpToken(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddMcpServer()}
                 placeholder="Auth token (optional)"
                 className="w-44 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
               />

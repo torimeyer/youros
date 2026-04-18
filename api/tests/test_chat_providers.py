@@ -8,6 +8,7 @@ These tests cover two things:
    inline image blocks.
 """
 
+import asyncio
 from typing import Optional
 
 import httpx
@@ -567,6 +568,156 @@ class TestAnthropicRetryOn5xx:
         assert len(done) == 1
 
 
+# --- WebSocket heartbeat during tool-use stall ---
+#
+# The bug. During ``agent_anthropic``'s tool-use loop, the non-streaming
+# call to ``client.messages.create`` can take 30+ seconds silently while
+# Claude plans which tool to call next. Browsers and the vite proxy
+# interpret that silence as an idle socket and close it, which surfaces
+# in the UI as "Connection dropped before the response finished" and
+# wipes the in-flight assistant bubble.
+#
+# The fix. Wrap the blocking call in ``_with_ws_heartbeat`` so a sibling
+# task sends a ``{"type": "heartbeat"}`` frame every 10 seconds while
+# the real work runs. The frontend ignores these frames. They exist
+# solely to keep bytes flowing across the socket so idle timers do not
+# fire.
+
+
+class TestAgentAnthropicHeartbeatDuringStall:
+    """Regression tests for the heartbeat keep-alive during tool-use stalls."""
+
+    @pytest.mark.asyncio
+    async def test_stream_anthropic_sends_heartbeat_during_tool_use_stall(self):
+        """A long messages.create must trigger at least one heartbeat frame.
+
+        The test simulates a slow Anthropic call by having
+        ``messages.create`` await an event that we deliberately hold for
+        longer than one heartbeat interval. During that window at least
+        one ``heartbeat`` frame must reach the WebSocket, or the fix is
+        not actually working.
+        """
+        from services.chat_providers import _ANTHROPIC_HEARTBEAT_INTERVAL_S
+
+        service = ChatService()
+        ws = FakeWebSocket()
+
+        # The stall window. Just over one heartbeat interval so we are
+        # guaranteed to see a beat, but short enough to keep the test fast
+        # by shrinking the interval via monkeypatch below.
+        released = asyncio.Event()
+
+        async def slow_create(**kwargs):
+            # Hold the call open so the heartbeat task has time to fire,
+            # then return a clean text response so the agent loop exits.
+            await released.wait()
+            return _fake_ok_response(text="finally done")
+
+        fake_client = MagicMock()
+        fake_client.messages.create = AsyncMock(side_effect=slow_create)
+        fake_client_factory = MagicMock(return_value=fake_client)
+
+        async def fake_match(messages, ws_, api_key):
+            return None
+
+        messages = [{"role": "user", "content": "anything"}]
+
+        with patch(
+            "services.chat_providers._ANTHROPIC_HEARTBEAT_INTERVAL_S",
+            new=0.05,
+        ), patch(
+            "services.chat_providers._resolve_chat_backend",
+            new=AsyncMock(return_value="anthropic_api"),
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="test-key"),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers.anthropic.AsyncAnthropic",
+            new=fake_client_factory,
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                [] if key == "mcp_servers" else default
+            )
+
+            # Release after enough time for a few beats to fire.
+            async def release_after_beats():
+                await asyncio.sleep(0.2)
+                released.set()
+
+            release_task = asyncio.create_task(release_after_beats())
+            try:
+                await service.agent_anthropic(messages, ws)
+            finally:
+                await release_task
+
+        # The heartbeat frames kept the socket alive during the stall.
+        heartbeats = ws.get_messages_of_type("heartbeat")
+        assert len(heartbeats) >= 1, (
+            f"Expected at least one heartbeat during the stall, got {len(heartbeats)}. "
+            f"Frames: {ws.messages}"
+        )
+        # Heartbeat interval constant exists (guards against rename).
+        assert _ANTHROPIC_HEARTBEAT_INTERVAL_S >= 1.0
+
+        # The turn still completed cleanly.
+        done = ws.get_messages_of_type("done")
+        assert len(done) == 1
+        errors = ws.get_messages_of_type("error")
+        assert errors == []
+
+    @pytest.mark.asyncio
+    async def test_fast_create_emits_no_heartbeats(self):
+        """If the call returns quickly, no heartbeats should be sent.
+
+        Heartbeats are a stall-only keep-alive. A healthy sub-second
+        response must not pollute the stream with extra frames.
+        """
+        service = ChatService()
+        ws = FakeWebSocket()
+
+        fake_messages_create = AsyncMock(return_value=_fake_ok_response(text="fast"))
+        fake_client = MagicMock()
+        fake_client.messages.create = fake_messages_create
+        fake_client_factory = MagicMock(return_value=fake_client)
+
+        async def fake_match(messages, ws_, api_key):
+            return None
+
+        messages = [{"role": "user", "content": "anything"}]
+
+        with patch(
+            # Keep the interval long so a fast call never triggers a beat.
+            "services.chat_providers._ANTHROPIC_HEARTBEAT_INTERVAL_S",
+            new=10.0,
+        ), patch(
+            "services.chat_providers._resolve_chat_backend",
+            new=AsyncMock(return_value="anthropic_api"),
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="test-key"),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers.anthropic.AsyncAnthropic",
+            new=fake_client_factory,
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                [] if key == "mcp_servers" else default
+            )
+            await service.agent_anthropic(messages, ws)
+
+        heartbeats = ws.get_messages_of_type("heartbeat")
+        assert heartbeats == []
+
+
 # --- Gemini finish_reason handling ---
 #
 # Regression tests for the "As a" orphan bubble bug. The old
@@ -702,7 +853,14 @@ async def _run_gemini_stream(websocket, fake_response: _FakeGeminiResponse):
     the ``generativeai`` attribute on the ``google`` package. The real
     module is restored at the end via try/finally so later tests still
     see the genuine SDK.
+
+    The Gemini client cache is cleared before each run so each test gets
+    a fresh ``GenerativeModel`` with its own fake response, not the
+    model instance cached by a previous test.
     """
+    from services.chat_providers import _clear_gemini_client_cache
+    _clear_gemini_client_cache()
+
     service = ChatService()
 
     fake_configure = MagicMock()
@@ -744,6 +902,7 @@ async def _run_gemini_stream(websocket, fake_response: _FakeGeminiResponse):
             google.generativeai = original_attr  # type: ignore[attr-defined]
         elif hasattr(google, "generativeai"):
             delattr(google, "generativeai")
+        _clear_gemini_client_cache()
 
 
 class TestGeminiFinishReasonHandling:
@@ -986,6 +1145,9 @@ class TestGeminiFinishReasonHandling:
         exceeded), the panel must see a friendly message, not raw API
         error text like '429 RESOURCE_EXHAUSTED'.
         """
+        from services.chat_providers import _clear_gemini_client_cache
+        _clear_gemini_client_cache()
+
         import google.generativeai as genai
         import google
         import sys
@@ -1036,6 +1198,7 @@ class TestGeminiFinishReasonHandling:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            _clear_gemini_client_cache()
 
         errors = gemini_websocket.get_messages_of_type("error")
         assert len(errors) == 1
@@ -1091,6 +1254,239 @@ class TestGeminiFinishReasonHandling:
 # round-robin: each model reads the running transcript and replies in
 # turn, one bubble per turn, with live "thinking" and "speaking" status
 # events so the user can watch the exchange unfold.
+
+
+class TestGeminiStallTimeouts:
+    """Gemini streaming must fail fast on a silent upstream.
+
+    Without these the frontend's 30s dead-backend timer would fire with
+    the generic "No response received" copy and give the user no hint
+    that Gemini itself went quiet. The server-side timeouts surface a
+    specific, actionable message while Gemini is still hung.
+    """
+
+    @pytest.mark.asyncio
+    async def test_gemini_send_message_hang_surfaces_timeout_error(
+        self, gemini_websocket, monkeypatch
+    ):
+        """send_message that blocks past the budget becomes a clear error."""
+        import services.chat_providers as cp
+
+        # Collapse the budget so the test does not actually wait 30s.
+        monkeypatch.setattr(cp, "_GEMINI_SEND_MESSAGE_TIMEOUT_S", 0.05)
+
+        from services.chat_providers import _clear_gemini_client_cache
+        _clear_gemini_client_cache()
+
+        import time
+        import google
+        import google.generativeai as real_genai
+        import sys
+
+        class _HangingChat:
+            def send_message(self, content, stream=False):
+                # Block the worker thread past the budget. The wait_for
+                # wrapper in production cancels and the function emits
+                # a friendly timeout error.
+                time.sleep(5)
+                raise AssertionError("unreachable: wait_for should have cancelled")
+
+        class _HangingModel:
+            def start_chat(self, history=None):
+                return _HangingChat()
+
+        fake_genai_module = MagicMock()
+        fake_genai_module.configure = MagicMock()
+        fake_genai_module.GenerativeModel = MagicMock(return_value=_HangingModel())
+        fake_genai_module.types = real_genai.types
+        fake_genai_module.protos = real_genai.protos
+
+        original_sys_module = sys.modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        sys.modules["google.generativeai"] = fake_genai_module
+        google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        try:
+            with patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value="test-key"),
+            ):
+                service = ChatService()
+                messages = [{"role": "user", "content": "hi gemini"}]
+                await service.stream_gemini(messages, gemini_websocket)
+        finally:
+            if original_sys_module is not None:
+                sys.modules["google.generativeai"] = original_sys_module
+            else:
+                sys.modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+            _clear_gemini_client_cache()
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        # Must name the stall in plain language, not the generic fallback.
+        assert "did not respond" in text.lower()
+        assert "seconds" in text.lower()
+        assert "try again" in text.lower()
+        # Never leak em-dashes or raw exception strings.
+        assert "\u2014" not in text
+        assert "\u2013" not in text
+
+        # Critically, no done event. The frontend must render the error
+        # bubble, not route through the zero-token done-grace path which
+        # would show the generic "No response received" message.
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
+
+    @pytest.mark.asyncio
+    async def test_gemini_first_chunk_hang_surfaces_timeout_error(
+        self, gemini_websocket, monkeypatch
+    ):
+        """A response iterator that never yields becomes a clear error."""
+        import services.chat_providers as cp
+
+        monkeypatch.setattr(cp, "_GEMINI_FIRST_CHUNK_TIMEOUT_S", 0.05)
+
+        from services.chat_providers import _clear_gemini_client_cache
+        _clear_gemini_client_cache()
+
+        import time
+        import google
+        import google.generativeai as real_genai
+        import sys
+
+        class _SilentResponse:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                time.sleep(5)
+                raise AssertionError("unreachable: wait_for should have cancelled")
+
+            prompt_feedback = None
+            candidates = []
+
+        class _SilentChat:
+            def send_message(self, content, stream=False):
+                return _SilentResponse()
+
+        class _SilentModel:
+            def start_chat(self, history=None):
+                return _SilentChat()
+
+        fake_genai_module = MagicMock()
+        fake_genai_module.configure = MagicMock()
+        fake_genai_module.GenerativeModel = MagicMock(return_value=_SilentModel())
+        fake_genai_module.types = real_genai.types
+        fake_genai_module.protos = real_genai.protos
+
+        original_sys_module = sys.modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        sys.modules["google.generativeai"] = fake_genai_module
+        google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        try:
+            with patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value="test-key"),
+            ):
+                service = ChatService()
+                messages = [{"role": "user", "content": "hi gemini"}]
+                await service.stream_gemini(messages, gemini_websocket)
+        finally:
+            if original_sys_module is not None:
+                sys.modules["google.generativeai"] = original_sys_module
+            else:
+                sys.modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+            _clear_gemini_client_cache()
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        assert "did not send" in text.lower()
+        assert "seconds" in text.lower()
+        assert "try again" in text.lower()
+
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
+
+
+class TestGeminiReturnsProviderErrorSurfacesToUser:
+    """Regression: when Gemini raises, the user must see the real error.
+
+    The earlier bug was a Gemini follow-up that silently produced
+    "No response received. Please try again." in the chat bubble with
+    no sign of why. Ensure every Gemini exception path surfaces copy
+    that tells the user what actually went wrong.
+    """
+
+    @pytest.mark.asyncio
+    async def test_gemini_raises_surfaces_real_error_text_not_generic_fallback(
+        self, gemini_websocket
+    ):
+        from services.chat_providers import _clear_gemini_client_cache
+        _clear_gemini_client_cache()
+
+        import google
+        import google.generativeai as real_genai
+        import sys
+
+        class _ErroringChat:
+            def send_message(self, content, stream=False):
+                raise RuntimeError("simulated upstream failure")
+
+        class _ErroringModel:
+            def start_chat(self, history=None):
+                return _ErroringChat()
+
+        fake_genai_module = MagicMock()
+        fake_genai_module.configure = MagicMock()
+        fake_genai_module.GenerativeModel = MagicMock(return_value=_ErroringModel())
+        fake_genai_module.types = real_genai.types
+        fake_genai_module.protos = real_genai.protos
+
+        original_sys_module = sys.modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        sys.modules["google.generativeai"] = fake_genai_module
+        google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        try:
+            with patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value="test-key"),
+            ):
+                service = ChatService()
+                messages = [{"role": "user", "content": "hi gemini"}]
+                await service.stream_gemini(messages, gemini_websocket)
+        finally:
+            if original_sys_module is not None:
+                sys.modules["google.generativeai"] = original_sys_module
+            else:
+                sys.modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+            _clear_gemini_client_cache()
+
+        errors = gemini_websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        text = errors[0]["data"]
+        # The message must not be the generic frontend fallback. The user
+        # must see something specific to Gemini, not a silence.
+        assert "no response received" not in text.lower()
+        # Must mention Gemini so the user knows which provider failed.
+        assert "gemini" in text.lower()
+        # Must be a non-empty, actionable string.
+        assert len(text.strip()) > 20
+
+        done = gemini_websocket.get_messages_of_type("done")
+        assert done == []
 
 
 class TestGeminiSystemInstruction:
@@ -1482,7 +1878,14 @@ async def _run_gemini_with_recorder(
     Mirrors ``_run_gemini_stream`` but uses the recording fakes above so
     the test can assert the exact shape of every value that would have
     reached the real SDK.
+
+    The Gemini client cache is cleared before and after each run for the
+    same reason as ``_run_gemini_stream``: each test needs a fresh model
+    instance, not one cached from a prior test.
     """
+    from services.chat_providers import _clear_gemini_client_cache
+    _clear_gemini_client_cache()
+
     send_log: list = []
     history_log: list = []
 
@@ -1527,6 +1930,7 @@ async def _run_gemini_with_recorder(
             google.generativeai = original_attr  # type: ignore[attr-defined]
         elif hasattr(google, "generativeai"):
             delattr(google, "generativeai")
+        _clear_gemini_client_cache()
 
     return send_log, history_log
 
@@ -1541,10 +1945,15 @@ class TestGeminiContentBlobRegression:
     """
 
     @pytest.mark.asyncio
-    async def test_stream_gemini_with_history_passes_strings_not_content_objects(self):
-        """Two prior turns plus a new user message. Every recorded arg
-        must be a plain string, never a Content proto, dict, or list.
+    async def test_stream_gemini_with_history_passes_valid_content_not_raw_objects(self):
+        """Two prior turns plus a new user message. send_message must receive
+        either a plain string or a list of SDK-native Parts. It must NEVER
+        receive a raw Content proto, an Anthropic-shaped dict, or a plain list
+        of dicts (which trips the SDK's 'Could not create Blob' error).
+        History entries must still use string parts only (as before).
         """
+        import google.generativeai as real_genai
+
         websocket = FakeWebSocket()
         messages = [
             {"role": "user", "content": "@gemini what's your favorite thing about @claude?"},
@@ -1554,11 +1963,25 @@ class TestGeminiContentBlobRegression:
 
         send_log, history_log = await _run_gemini_with_recorder(websocket, messages)
 
-        # send_message was called exactly once with the last user message
-        # as a plain string.
+        # send_message was called exactly once.
         assert len(send_log) == 1
-        assert isinstance(send_log[0], str)
-        assert send_log[0] == "thanks gemini, appreciated"
+        payload = send_log[0]
+
+        # The payload must be either a plain str or a list of protos.Part.
+        # It must NOT be a raw dict, a Content proto, or a list of dicts.
+        if isinstance(payload, str):
+            assert payload == "thanks gemini, appreciated"
+        else:
+            assert isinstance(payload, list), (
+                f"send_message payload must be str or list, got {type(payload).__name__}"
+            )
+            for p in payload:
+                assert isinstance(p, real_genai.protos.Part), (
+                    f"list elements must be protos.Part, got {type(p).__name__}: {p!r}"
+                )
+            # The text content must be preserved.
+            text = "".join(p.text for p in payload if p.text)
+            assert "thanks gemini, appreciated" in text
 
         # start_chat got a history list of dicts with string parts only.
         assert len(history_log) == 1
@@ -1604,23 +2027,38 @@ class TestGeminiContentBlobRegression:
 
         send_log, history_log = await _run_gemini_with_recorder(websocket, messages)
 
-        # Find the flattened GIF message in history parts. It should be a
-        # plain string with the text from the text block and a placeholder
-        # for the image, never a list or dict.
+        # Every history part must be a plain string. stream_gemini merges
+        # consecutive same-role entries to satisfy Gemini's alternation
+        # requirement, so the flattened GIF text may land inside a merged
+        # user entry instead of its own slot. The contract that matters
+        # is that no list/dict leaks to the SDK and that the flattened
+        # GIF text plus the image placeholder reach the model somewhere
+        # in history.
         history = history_log[0]
-        gif_entry = history[1]
-        parts = gif_entry["parts"]
-        assert len(parts) == 1
-        flattened = parts[0]
-        assert isinstance(flattened, str), (
-            f"image block list must be flattened to str, got {type(flattened).__name__}"
-        )
-        assert "look at this gif" in flattened
-        assert "[image attached]" in flattened
+        all_parts: list[str] = []
+        for entry in history:
+            for p in entry.get("parts", []):
+                assert isinstance(p, str), (
+                    f"image block list must be flattened to str, got {type(p).__name__}"
+                )
+                all_parts.append(p)
+        joined = "\n".join(all_parts)
+        assert "look at this gif" in joined
+        assert "[image attached]" in joined
 
-        # send_message still gets a plain string for the final turn.
-        assert isinstance(send_log[0], str)
-        assert send_log[0] == "thanks"
+        # send_message gets either a plain string or a list of Parts for
+        # the final text-only turn. Both are valid; the contract is that the
+        # text content is preserved and no raw dict/Content proto leaks through.
+        import google.generativeai as real_genai
+        payload = send_log[0]
+        if isinstance(payload, str):
+            assert payload == "thanks"
+        else:
+            assert isinstance(payload, list)
+            for p in payload:
+                assert isinstance(p, real_genai.protos.Part)
+            text = "".join(p.text for p in payload if p.text)
+            assert "thanks" in text
 
     @pytest.mark.asyncio
     async def test_stream_multi_ai_conversation_does_not_leak_content_objects_to_gemini(self):
@@ -1680,6 +2118,9 @@ class TestGeminiContentBlobRegression:
         regression contract for feedback_chat_response_silent.md: never
         silent failure, always a real user facing error.
         """
+        from services.chat_providers import _clear_gemini_client_cache
+        _clear_gemini_client_cache()
+
         websocket = FakeWebSocket()
         service = ChatService()
 
@@ -1735,6 +2176,7 @@ class TestGeminiContentBlobRegression:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            _clear_gemini_client_cache()
 
         errors = websocket.get_messages_of_type("error")
         assert len(errors) == 1
@@ -1771,6 +2213,9 @@ class TestGeminiDoesNotBlockEventLoop:
         progress during the stream. Without asyncio.to_thread this test
         times out because the sync iteration hogs the loop.
         """
+        from services.chat_providers import _clear_gemini_client_cache
+        _clear_gemini_client_cache()
+
         import asyncio
         import threading
         import time as _time
@@ -1858,6 +2303,7 @@ class TestGeminiDoesNotBlockEventLoop:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            _clear_gemini_client_cache()
 
         # The stream completed and we got our token.
         tokens = websocket.get_messages_of_type("token")
@@ -1913,3 +2359,858 @@ class TestGeminiContentToTextHelper:
         assert "[image attached]" in result
         # Two images, two placeholders on separate lines.
         assert result.count("[image attached]") == 2
+
+
+# --- Wire serializer: model field must never reach Anthropic ---
+#
+# Regression for: 400 - messages.1.model: Extra inputs are not permitted
+#
+# The frontend attaches a ``model`` field to assistant message dicts so
+# the chat panel can show "CLAUDE" or "GEMINI" labels. Anthropic's API
+# rejects any key other than ``role`` and ``content``. These tests lock in
+# the fix: ``_sanitize_messages_for_wire`` must strip all non-API keys.
+
+
+class TestSanitizeMessagesForWire:
+    """Unit tests for the ``_sanitize_messages_for_wire`` serializer."""
+
+    def _fn(self):
+        from services.chat_providers import _sanitize_messages_for_wire
+        return _sanitize_messages_for_wire
+
+    def test_strips_model_field_from_assistant_message(self):
+        sanitize = self._fn()
+        messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi", "model": "claude"},
+        ]
+        result = sanitize(messages)
+        for msg in result:
+            assert "model" not in msg, f"model key must not appear in wire payload: {msg}"
+
+    def test_strips_model_from_multi_ai_conversation(self):
+        """Multi-AI chat: both claude and gemini labels must be stripped."""
+        sanitize = self._fn()
+        messages = [
+            {"role": "user", "content": "what do you think?"},
+            {"role": "assistant", "content": "I think...", "model": "claude"},
+            {"role": "user", "content": "and you?"},
+            {"role": "assistant", "content": "Gemini says...", "model": "gemini"},
+            {"role": "user", "content": "Using: idea"},
+        ]
+        result = sanitize(messages)
+        assert len(result) == 5
+        for msg in result:
+            assert "model" not in msg
+        # role and content must be preserved
+        assert result[1]["content"] == "I think..."
+        assert result[3]["content"] == "Gemini says..."
+
+    def test_preserves_role_and_content(self):
+        sanitize = self._fn()
+        messages = [
+            {"role": "user", "content": "question", "model": "user-ui-label", "image": "data:image/png;base64,abc"},
+        ]
+        result = sanitize(messages)
+        assert result[0] == {"role": "user", "content": "question"}
+
+    def test_strips_image_field(self):
+        """The ``image`` key is also frontend-only and must be stripped."""
+        sanitize = self._fn()
+        messages = [
+            {"role": "user", "content": "look at this", "image": "data:image/png;base64,xxx"},
+        ]
+        result = sanitize(messages)
+        assert "image" not in result[0]
+
+    def test_returns_empty_list_for_empty_input(self):
+        sanitize = self._fn()
+        assert sanitize([]) == []
+
+    def test_does_not_mutate_original_list(self):
+        sanitize = self._fn()
+        orig = [{"role": "user", "content": "hi", "model": "claude"}]
+        result = sanitize(orig)
+        assert "model" in orig[0], "original must not be mutated"
+        assert "model" not in result[0]
+
+    def test_list_content_is_preserved_intact(self):
+        """When content is a list of blocks, it must pass through unchanged."""
+        sanitize = self._fn()
+        content_blocks = [
+            {"type": "text", "text": "hello"},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "abc"}},
+        ]
+        messages = [
+            {"role": "user", "content": content_blocks, "model": "should-be-stripped"},
+        ]
+        result = sanitize(messages)
+        assert result[0]["content"] == content_blocks
+        assert "model" not in result[0]
+
+
+class TestGeminiClientCache:
+    """Regression tests for the inline-reply latency fix.
+
+    Root cause: ``stream_gemini`` called ``genai.configure()`` and
+    ``genai.GenerativeModel()`` on every invocation, paying a 2-8 second
+    gRPC/HTTP transport re-initialization cost even when the same API key
+    and model name had already been used. The fix caches the prepared
+    client in ``_GEMINI_CLIENT_CACHE`` keyed by ``(api_key, model_name)``.
+
+    These tests verify:
+    1. ``configure`` and ``GenerativeModel`` are called exactly once across
+       two consecutive ``stream_gemini`` calls with the same key + model.
+    2. A different API key (key rotation) gets its own cache entry (both
+       ``configure`` calls fire).
+    3. The cache can be evicted via ``_clear_gemini_client_cache`` so tests
+       and key-rotation paths start clean.
+    """
+
+    @staticmethod
+    def _make_fake_genai(response, configure_calls: list, model_factory_calls: list):
+        """Return a fake genai module that records configure/GenerativeModel calls."""
+        import google.generativeai as real_genai
+
+        fake_module = MagicMock()
+        fake_module.types = real_genai.types
+        fake_module.protos = real_genai.protos
+
+        def _configure(**kwargs):
+            configure_calls.append(kwargs)
+
+        fake_module.configure.side_effect = _configure
+
+        def _model_factory(model_name, **kwargs):
+            model_factory_calls.append(model_name)
+            return _FakeGeminiModel(response)
+
+        fake_module.GenerativeModel.side_effect = _model_factory
+        return fake_module
+
+    @pytest.mark.asyncio
+    async def test_second_gemini_call_skips_configure_and_model_init(self):
+        """configure() and GenerativeModel() must be called exactly once
+        across two consecutive stream_gemini calls with the same key."""
+        from services.chat_providers import ChatService, _clear_gemini_client_cache
+
+        _clear_gemini_client_cache()
+
+        configure_calls: list = []
+        model_factory_calls: list = []
+
+        import google
+
+        response = _FakeGeminiResponse(
+            chunks=[_FakeGeminiChunk("hello")],
+            finish_reason_name="STOP",
+        )
+        fake_module = self._make_fake_genai(response, configure_calls, model_factory_calls)
+
+        original_sys_module = __import__("sys").modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        __import__("sys").modules["google.generativeai"] = fake_module
+        google.generativeai = fake_module  # type: ignore[attr-defined]
+        try:
+            with patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value="test-key-cache"),
+            ):
+                service = ChatService()
+                ws1 = FakeWebSocket()
+                ws2 = FakeWebSocket()
+                messages = [{"role": "user", "content": "hi gemini"}]
+                await service.stream_gemini(messages, ws1)
+                await service.stream_gemini(messages, ws2)
+        finally:
+            if original_sys_module is not None:
+                __import__("sys").modules["google.generativeai"] = original_sys_module
+            else:
+                __import__("sys").modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+            _clear_gemini_client_cache()
+
+        assert len(configure_calls) == 1, (
+            f"configure() must be called exactly once (got {len(configure_calls)}) "
+            "to avoid per-message gRPC transport re-init latency"
+        )
+        assert len(model_factory_calls) == 1, (
+            f"GenerativeModel() must be called exactly once (got {len(model_factory_calls)})"
+        )
+        # Both websockets must receive a token and done event.
+        for ws in (ws1, ws2):
+            assert ws.get_messages_of_type("token"), "Both calls must produce tokens"
+            assert ws.get_messages_of_type("done"), "Both calls must produce done"
+
+    @pytest.mark.asyncio
+    async def test_different_api_key_gets_separate_cache_entry(self):
+        """When the API key changes, configure() must fire again."""
+        from services.chat_providers import ChatService, _clear_gemini_client_cache
+
+        _clear_gemini_client_cache()
+
+        configure_calls: list = []
+        model_factory_calls: list = []
+
+        import google
+
+        response = _FakeGeminiResponse(
+            chunks=[_FakeGeminiChunk("ok")],
+            finish_reason_name="STOP",
+        )
+        fake_module = self._make_fake_genai(response, configure_calls, model_factory_calls)
+
+        original_sys_module = __import__("sys").modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        __import__("sys").modules["google.generativeai"] = fake_module
+        google.generativeai = fake_module  # type: ignore[attr-defined]
+
+        keys = ["key-alpha", "key-beta"]
+        try:
+            service = ChatService()
+            messages = [{"role": "user", "content": "hi"}]
+            for key in keys:
+                with patch(
+                    "services.chat_providers._resolve_api_key",
+                    new=AsyncMock(return_value=key),
+                ):
+                    ws = FakeWebSocket()
+                    await service.stream_gemini(messages, ws)
+        finally:
+            if original_sys_module is not None:
+                __import__("sys").modules["google.generativeai"] = original_sys_module
+            else:
+                __import__("sys").modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+            _clear_gemini_client_cache()
+
+        assert len(configure_calls) == 2, (
+            f"configure() must be called once per unique API key (got {len(configure_calls)})"
+        )
+        assert len(model_factory_calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_clear_cache_forces_reinit(self):
+        """After _clear_gemini_client_cache(), next call must reinitialize."""
+        from services.chat_providers import ChatService, _clear_gemini_client_cache
+
+        _clear_gemini_client_cache()
+
+        configure_calls: list = []
+        model_factory_calls: list = []
+
+        import google
+
+        response = _FakeGeminiResponse(
+            chunks=[_FakeGeminiChunk("hello")],
+            finish_reason_name="STOP",
+        )
+        fake_module = self._make_fake_genai(response, configure_calls, model_factory_calls)
+
+        original_sys_module = __import__("sys").modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        __import__("sys").modules["google.generativeai"] = fake_module
+        google.generativeai = fake_module  # type: ignore[attr-defined]
+        try:
+            service = ChatService()
+            messages = [{"role": "user", "content": "hi"}]
+            with patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value="test-key-clear"),
+            ):
+                ws1 = FakeWebSocket()
+                await service.stream_gemini(messages, ws1)
+                _clear_gemini_client_cache()
+                ws2 = FakeWebSocket()
+                await service.stream_gemini(messages, ws2)
+        finally:
+            if original_sys_module is not None:
+                __import__("sys").modules["google.generativeai"] = original_sys_module
+            else:
+                __import__("sys").modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+            _clear_gemini_client_cache()
+
+        assert len(configure_calls) == 2, (
+            "After cache clear, configure() must fire again on the next call"
+        )
+        assert len(model_factory_calls) == 2
+
+
+class TestAgentAnthropicStripsModelField:
+    """Integration test: agent_anthropic must never send model field to Anthropic.
+
+    This is the exact bug that produced:
+        400 - messages.1.model: Extra inputs are not permitted
+    when Tori referenced an 'idea' resource in message 1 of a multi-AI chat.
+    """
+
+    @pytest.mark.asyncio
+    async def test_model_field_stripped_before_api_call(self):
+        """Messages with model fields must not reach the Anthropic API."""
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+        ws = FakeWebSocket()
+
+        captured_calls: list[dict] = []
+
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "response text"
+
+        fake_response = MagicMock()
+        fake_response.content = [text_block]
+        fake_response.usage.input_tokens = 5
+        fake_response.usage.output_tokens = 7
+
+        async def capture_create(**kwargs):
+            captured_calls.append(kwargs)
+            return fake_response
+
+        fake_client = MagicMock()
+        fake_client.messages.create = capture_create
+        fake_client_factory = MagicMock(return_value=fake_client)
+
+        async def fake_match(messages, websocket, api_key):
+            return None
+
+        # Messages from a multi-AI session where the frontend tagged each
+        # assistant bubble with a ``model`` field (the "Using: idea" scenario).
+        messages = [
+            {"role": "user", "content": "first message"},
+            {"role": "assistant", "content": "first reply", "model": "claude"},
+            {"role": "user", "content": "Using: idea"},
+        ]
+
+        with patch(
+            "services.chat_providers._resolve_chat_backend",
+            new=AsyncMock(return_value="anthropic_api"),
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="test-key"),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            new=fake_match,
+        ), patch(
+            "services.chat_providers.anthropic.AsyncAnthropic",
+            new=fake_client_factory,
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                [] if key == "mcp_servers" else default
+            )
+            await service.agent_anthropic(messages, ws)
+
+        assert len(captured_calls) >= 1, "API must have been called"
+        for call in captured_calls:
+            wire_messages = call.get("messages", [])
+            for msg in wire_messages:
+                assert "model" not in msg, (
+                    f"model field must be stripped before sending to Anthropic: {msg}"
+                )
+
+
+# --- Gemini image vision: GIF and pasted image support ---
+#
+# When Tori pastes a GIF or image into torichat addressed to @gemini,
+# transform_image_messages produces Anthropic-shaped content blocks:
+#   [{"type": "image", "source": {"type": "base64",
+#                                  "media_type": "image/gif", "data": "..."}},
+#    {"type": "text", "text": "what is this?"}]
+#
+# The old _gemini_content_to_text() call dropped the image entirely and
+# sent only "[image attached]" placeholder text, so Gemini said it
+# could not see the image.
+#
+# The fix: _gemini_content_to_parts() converts the content blocks for
+# the current user turn into a list of protos.Part objects:
+#   - text blocks  -> Part(text=...)
+#   - image blocks -> Part(inline_data=Blob(mime_type=..., data=<bytes>))
+# stream_gemini now passes this list to send_message instead of a plain
+# string, so Gemini actually receives the pixel data.
+
+
+class TestGeminiContentToPartsHelper:
+    """Unit tests for ``_gemini_content_to_parts``."""
+
+    def test_plain_string_returns_single_text_part(self):
+        from services.chat_providers import _gemini_content_to_parts
+        import google.generativeai as genai
+
+        parts = _gemini_content_to_parts("hello world")
+        assert len(parts) == 1
+        assert isinstance(parts[0], genai.protos.Part)
+        assert parts[0].text == "hello world"
+
+    def test_empty_string_returns_empty_list(self):
+        from services.chat_providers import _gemini_content_to_parts
+
+        parts = _gemini_content_to_parts("")
+        assert parts == []
+
+    def test_none_returns_list_with_empty_text_part(self):
+        from services.chat_providers import _gemini_content_to_parts
+        import google.generativeai as genai
+
+        parts = _gemini_content_to_parts(None)
+        assert len(parts) == 1
+        assert isinstance(parts[0], genai.protos.Part)
+
+    def test_gif_block_becomes_inline_data_part(self):
+        """Core bug fix: a base64 GIF block must produce an inline_data Part."""
+        import base64
+        from services.chat_providers import _gemini_content_to_parts
+        import google.generativeai as genai
+
+        fake_gif = b"GIF89a" + b"\x00" * 10
+        b64 = base64.b64encode(fake_gif).decode()
+
+        content = [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/gif", "data": b64},
+            },
+            {"type": "text", "text": "what is this GIF?"},
+        ]
+
+        parts = _gemini_content_to_parts(content)
+
+        # Must have exactly two parts: one image, one text.
+        assert len(parts) == 2
+
+        # First part: inline_data blob with GIF bytes.
+        image_part = parts[0]
+        assert isinstance(image_part, genai.protos.Part)
+        assert image_part.inline_data is not None
+        assert image_part.inline_data.mime_type == "image/gif"
+        assert image_part.inline_data.data == fake_gif
+
+        # Second part: text.
+        text_part = parts[1]
+        assert isinstance(text_part, genai.protos.Part)
+        assert text_part.text == "what is this GIF?"
+
+    def test_pasted_png_block_becomes_inline_data_part(self):
+        """Pasted PNG (data:image/png;base64,...) must also produce inline_data."""
+        import base64
+        from services.chat_providers import _gemini_content_to_parts
+        import google.generativeai as genai
+
+        fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
+        b64 = base64.b64encode(fake_png).decode()
+
+        content = [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": b64},
+            },
+            {"type": "text", "text": "describe this"},
+        ]
+
+        parts = _gemini_content_to_parts(content)
+
+        assert len(parts) == 2
+        image_part = parts[0]
+        assert image_part.inline_data.mime_type == "image/png"
+        assert image_part.inline_data.data == fake_png
+
+    def test_jpeg_and_webp_are_supported(self):
+        """image/jpeg and image/webp must both produce inline_data Parts."""
+        import base64
+        from services.chat_providers import _gemini_content_to_parts
+        import google.generativeai as genai
+
+        for mime in ("image/jpeg", "image/webp"):
+            fake_data = b"fake-image-bytes-for-" + mime.encode()
+            b64 = base64.b64encode(fake_data).decode()
+            content = [
+                {"type": "image", "source": {"type": "base64",
+                                              "media_type": mime, "data": b64}},
+            ]
+            parts = _gemini_content_to_parts(content)
+            assert len(parts) == 1
+            assert parts[0].inline_data.mime_type == mime
+            assert parts[0].inline_data.data == fake_data
+
+    def test_unsupported_mime_type_falls_back_to_placeholder(self):
+        """An image block with an unsupported MIME type (e.g. image/tiff)
+        must produce a text placeholder, not raise or crash."""
+        import base64
+        from services.chat_providers import _gemini_content_to_parts
+        import google.generativeai as genai
+
+        content = [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/tiff",
+                           "data": base64.b64encode(b"fake").decode()},
+            },
+        ]
+
+        parts = _gemini_content_to_parts(content)
+        assert len(parts) == 1
+        assert isinstance(parts[0], genai.protos.Part)
+        assert parts[0].text == "[image attached]"
+
+    def test_url_source_image_falls_back_to_placeholder(self):
+        """URL-sourced images cannot be converted to inline_data (no download
+        here). They must fall back to a text placeholder."""
+        from services.chat_providers import _gemini_content_to_parts
+
+        content = [
+            {"type": "image", "source": {"type": "url", "url": "https://x/y.gif"}},
+            {"type": "text", "text": "check this out"},
+        ]
+
+        parts = _gemini_content_to_parts(content)
+        assert len(parts) == 2
+        assert parts[0].text == "[image attached]"
+        assert parts[1].text == "check this out"
+
+    def test_empty_list_returns_fallback_part(self):
+        """An empty block list must not produce an empty parts list (which
+        would cause send_message to raise a ValueError)."""
+        from services.chat_providers import _gemini_content_to_parts
+
+        parts = _gemini_content_to_parts([])
+        assert len(parts) == 1
+
+
+class TestGeminiStreamReceivesInlineDataForImages:
+    """Integration-level test: stream_gemini must pass inline_data Parts
+    to send_message when the last user message contains an image block.
+
+    This is the end-to-end regression lock for the GIF vision bug.
+    The _RecordingFakeGeminiChat already exists (used in
+    TestGeminiContentBlobRegression). We add a separate test that
+    specifically checks the send_message argument contains a protos.Part
+    with inline_data, not just a plain string.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_passes_inline_data_part_for_gif(self):
+        """When the last message has a base64 GIF image block, stream_gemini
+        must call send_message with a list that includes an inline_data Part."""
+        import base64
+        import google.generativeai as real_genai
+
+        fake_gif = b"GIF89a" + b"\x00" * 10
+        b64 = base64.b64encode(fake_gif).decode()
+
+        websocket = FakeWebSocket()
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/gif",
+                            "data": b64,
+                        },
+                    },
+                    {"type": "text", "text": "what is this GIF?"},
+                ],
+            }
+        ]
+
+        send_log, _ = await _run_gemini_with_recorder(websocket, messages)
+
+        assert len(send_log) == 1
+        payload = send_log[0]
+
+        # The payload must be a list of Parts, not a plain string.
+        assert isinstance(payload, list), (
+            f"send_message must receive a list of Parts for image messages, "
+            f"got {type(payload).__name__}: {payload!r}"
+        )
+
+        # There must be at least one inline_data Part carrying GIF bytes.
+        image_parts = [
+            p for p in payload
+            if isinstance(p, real_genai.protos.Part) and p.inline_data
+        ]
+        assert len(image_parts) >= 1, (
+            "No inline_data Part found in send_message payload. "
+            "Gemini cannot see the image."
+        )
+        assert image_parts[0].inline_data.mime_type == "image/gif"
+        assert image_parts[0].inline_data.data == fake_gif
+
+        # There must also be a text Part.
+        text_parts = [
+            p for p in payload
+            if isinstance(p, real_genai.protos.Part) and p.text
+        ]
+        assert len(text_parts) >= 1
+        assert text_parts[0].text == "what is this GIF?"
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_passes_plain_string_for_text_only_message(self):
+        """Regression guard: a text-only message must still work and the
+        existing plain-string path must not be broken by the image fix.
+        After the fix, _gemini_content_to_parts returns a list even for
+        strings, but a single-text-Part list is functionally equivalent."""
+        import google.generativeai as real_genai
+
+        websocket = FakeWebSocket()
+        messages = [{"role": "user", "content": "hello gemini"}]
+
+        send_log, _ = await _run_gemini_with_recorder(websocket, messages)
+
+        assert len(send_log) == 1
+        payload = send_log[0]
+
+        # Either a plain string or a list containing a single text Part is valid.
+        if isinstance(payload, str):
+            assert payload == "hello gemini"
+        else:
+            assert isinstance(payload, list)
+            assert len(payload) == 1
+            assert isinstance(payload[0], real_genai.protos.Part)
+            assert payload[0].text == "hello gemini"
+
+
+# --- Standing instructions injection ---
+
+
+class TestStandingInstructions:
+    """The user's standing instructions from Settings must flow into every
+    system prompt. Source: the cache-reuse hint on the Usage page tells
+    users saving standing instructions will raise their context reuse,
+    which only works if the instructions live at the top of the cached
+    system prompt on every chat turn.
+    """
+
+    def test_chat_prepends_standing_instructions_to_system_prompt(self):
+        """_compose_system_prompt prepends the saved standing instructions."""
+        from services import chat_providers
+
+        def _fake_setting(key, default=None):
+            if key == "standing_instructions":
+                return "Always reply in plain language. Prefer Google Calendar."
+            return default
+
+        with patch("services.chat_providers._get_boot_context", return_value=""), \
+             patch("services.chat_providers._recent_activity_context", return_value=""), \
+             patch("services.chat_providers.settings_store") as ms:
+            ms.get.side_effect = _fake_setting
+            result = chat_providers._compose_system_prompt(None)
+
+        assert "STANDING INSTRUCTIONS" in result
+        assert "Always reply in plain language." in result
+        # The standing block lives at the very top so caching picks it up
+        # before any other volatile context.
+        assert result.index("STANDING INSTRUCTIONS") < result.index("personal operating system")
+
+    def test_cached_blocks_include_standing_instructions_in_base(self):
+        """_build_cached_system_blocks puts standing instructions in the stable block."""
+        from services import chat_providers
+
+        def _fake_setting(key, default=None):
+            if key == "standing_instructions":
+                return "Keep replies short unless I ask for detail."
+            return default
+
+        with patch("services.chat_providers._get_boot_context", return_value=""), \
+             patch("services.chat_providers._recent_activity_context", return_value=""), \
+             patch("services.chat_providers.settings_store") as ms:
+            ms.get.side_effect = _fake_setting
+            blocks = chat_providers._build_cached_system_blocks(None)
+
+        assert blocks, "expected at least one system block"
+        stable_text = blocks[0]["text"]
+        assert "STANDING INSTRUCTIONS" in stable_text
+        assert "Keep replies short unless I ask for detail." in stable_text
+
+    def test_empty_standing_instructions_adds_no_block(self):
+        """Blank standing_instructions must not add a STANDING INSTRUCTIONS block."""
+        from services import chat_providers
+
+        with patch("services.chat_providers._get_boot_context", return_value=""), \
+             patch("services.chat_providers._recent_activity_context", return_value=""), \
+             patch("services.chat_providers.settings_store") as ms:
+            ms.get.side_effect = lambda k, d=None: "" if k == "standing_instructions" else d
+            result = chat_providers._compose_system_prompt(None)
+
+        assert "STANDING INSTRUCTIONS" not in result
+
+
+# ---------------------------------------------------------------------------
+# Latency reduction: cached helpers so back-to-back Claude turns do not
+# repeat the same expensive work.
+# ---------------------------------------------------------------------------
+
+
+class TestAnthropicClientCache:
+    """``_get_anthropic_client`` must return the SAME client per api_key.
+
+    Constructing ``AsyncAnthropic`` on every turn opens a fresh httpx
+    connection pool that has to resolve DNS and warm up TLS. Caching the
+    client keyed on the api_key means the second turn reuses the already
+    warm pool and drops around 50 to 200 ms off first-byte latency.
+    """
+
+    def test_returns_same_client_for_same_key(self):
+        from services.chat_providers import (
+            _get_anthropic_client,
+            _clear_anthropic_client_cache,
+        )
+
+        _clear_anthropic_client_cache()
+        a = _get_anthropic_client("sk-test-alpha")
+        b = _get_anthropic_client("sk-test-alpha")
+        assert a is b, "cache must return the same client on a hit"
+
+    def test_returns_different_clients_for_different_keys(self):
+        from services.chat_providers import (
+            _get_anthropic_client,
+            _clear_anthropic_client_cache,
+        )
+
+        _clear_anthropic_client_cache()
+        a = _get_anthropic_client("sk-alpha")
+        b = _get_anthropic_client("sk-beta")
+        assert a is not b, "different keys must yield different clients"
+
+    def test_clear_cache_wipes_entries(self):
+        from services.chat_providers import (
+            _get_anthropic_client,
+            _clear_anthropic_client_cache,
+        )
+
+        a = _get_anthropic_client("sk-clear")
+        _clear_anthropic_client_cache()
+        b = _get_anthropic_client("sk-clear")
+        assert a is not b, "clear must force a fresh client on next call"
+
+
+class TestRecentActivityCache:
+    """``_recent_activity_context`` must cache its result so back-to-back
+    chat turns do not re-read audit.jsonl (measured around 190 ms per call
+    on Tori's machine).
+    """
+
+    def test_second_call_within_ttl_skips_audit_read(self):
+        from services import chat_providers
+
+        chat_providers._clear_activity_context_cache()
+        call_count = {"n": 0}
+
+        def _fake_read():
+            call_count["n"] += 1
+            return [
+                {
+                    "event": "chat.completion",
+                    "name": "chat",
+                    "topic": "hello world",
+                    "timestamp": "2026-04-15T10:30:00Z",
+                }
+            ]
+
+        with patch("services.ostk.read_audit_entries", side_effect=_fake_read):
+            first = chat_providers._recent_activity_context()
+            second = chat_providers._recent_activity_context()
+
+        assert first == second
+        assert call_count["n"] == 1, (
+            "second call within TTL must be served from cache without re-reading audit.jsonl"
+        )
+
+    def test_clear_cache_forces_reread(self):
+        from services import chat_providers
+
+        chat_providers._clear_activity_context_cache()
+        call_count = {"n": 0}
+
+        def _fake_read():
+            call_count["n"] += 1
+            return [
+                {
+                    "event": "chat.completion",
+                    "name": "chat",
+                    "topic": "hello world",
+                    "timestamp": "2026-04-15T10:30:00Z",
+                }
+            ]
+
+        with patch("services.ostk.read_audit_entries", side_effect=_fake_read):
+            chat_providers._recent_activity_context()
+            chat_providers._clear_activity_context_cache()
+            chat_providers._recent_activity_context()
+
+        assert call_count["n"] == 2, "clear must force a fresh audit.jsonl read"
+
+
+class TestPhaseTimingLogs:
+    """``stream_anthropic`` must emit structured phase timing logs so we can
+    see where a slow turn spent its time (template match, payload build,
+    first token, stream complete). These logs are what diagnosed the
+    Claude vs Gemini latency gap in the first place.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_anthropic_emits_phase_logs(self, websocket, caplog):
+        import logging as _logging
+
+        from services import chat_providers
+
+        # Dummy Anthropic stream that yields one text chunk and a final message.
+        final_msg = MagicMock()
+        final_msg.usage = MagicMock(
+            input_tokens=3,
+            output_tokens=2,
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=0,
+        )
+
+        class _FakeStream:
+            def __init__(self):
+                async def _iter():
+                    yield "hi"
+                self.text_stream = _iter()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get_final_message(self):
+                return final_msg
+
+        fake_client = MagicMock()
+        fake_client.messages.stream = MagicMock(return_value=_FakeStream())
+
+        with patch("services.chat_providers._resolve_api_key", new=AsyncMock(return_value="sk-x")), \
+             patch("services.chat_providers._maybe_match_template", new=AsyncMock(return_value=None)), \
+             patch("services.chat_providers._resolve_chat_backend", new=AsyncMock(return_value="anthropic_api")), \
+             patch("services.chat_providers._get_anthropic_client", return_value=fake_client), \
+             patch("services.chat_providers._get_boot_context", return_value=""), \
+             patch("services.chat_providers._recent_activity_context", return_value=""), \
+             patch("services.chat_providers.safe_record_chat_turn"), \
+             patch("services.chat_providers._log_chat_completion"):
+            caplog.set_level(_logging.INFO, logger="myos.chat.anthropic")
+            service = chat_providers.ChatService()
+            await service.stream_anthropic(
+                [{"role": "user", "content": "hi"}], websocket
+            )
+
+        logged = [rec.getMessage() for rec in caplog.records if rec.name == "myos.chat.anthropic"]
+        joined = "\n".join(logged)
+        assert "anthropic_phase=template_matched" in joined
+        assert "anthropic_phase=payload_built" in joined
+        assert "anthropic_phase=first_token" in joined
+        assert "anthropic_phase=stream_complete" in joined

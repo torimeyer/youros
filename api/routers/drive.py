@@ -16,6 +16,7 @@ from typing import Optional
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
+from services import connections_cache, recent_deletes
 from services.google_auth import (
     CREDENTIALS_PATH,
     DRIVE_CACHE_DIR,
@@ -25,6 +26,7 @@ from services.google_auth import (
     get_auth_url,
     get_credentials,
     get_email,
+    has_full_drive_scope,
     has_write_scope,
     is_authenticated,
     revoke,
@@ -32,7 +34,10 @@ from services.google_auth import (
 
 router = APIRouter(tags=["drive"])
 
-# OAuth state map — persisted to disk so server restarts don't invalidate in-flight auth.
+# Cache key used by the in-memory TTL cache around /drive/auth/status.
+_DRIVE_STATUS_CACHE_KEY = "drive_auth_status"
+
+# OAuth state map, persisted to disk so server restarts don't invalidate in-flight auth.
 # Maps state token -> {return_to: str, expires: float}
 _OAUTH_STATES_PATH = Path.home() / ".myos" / "oauth_states.json"
 _STATE_TTL_SECONDS = 600  # 10 minutes
@@ -122,27 +127,44 @@ async def drive_upload_credentials(file: UploadFile = File(...)):
     MYOS_DIR = CREDENTIALS_PATH.parent
     MYOS_DIR.mkdir(parents=True, exist_ok=True)
     CREDENTIALS_PATH.write_bytes(content)
+    # Credentials file just appeared. Drop the cached status so the
+    # Settings page sees credentials_file_present=True on the next poll.
+    connections_cache.invalidate(_DRIVE_STATUS_CACHE_KEY)
     return {"ok": True}
 
 
-@router.get("/drive/auth/status")
-async def drive_auth_status():
-    """Return whether the user has connected their Google account.
-
-    Also surfaces needs_reauth=True when the account is connected but the
-    drive.file scope (required for uploads) is missing from the saved token.
-    The user must reconnect their Google account to grant the new permission.
-    """
+def _compute_drive_status() -> dict:
+    """Pure function that resolves the Drive status payload from disk."""
     authed = is_authenticated()
     email = get_email() if authed else None
     has_creds = credentials_file_exists()
-    needs_reauth = authed and not has_write_scope()
+    # needs_reauth when write scope is missing entirely, OR when the full
+    # drive scope is absent (required to delete files not created by this app).
+    needs_reauth = authed and (not has_write_scope() or not has_full_drive_scope())
     return {
         "authenticated": authed,
         "email": email,
         "credentials_file_present": has_creds,
         "needs_reauth": needs_reauth,
     }
+
+
+@router.get("/drive/auth/status")
+async def drive_auth_status():
+    """Return whether the user has connected their Google account.
+
+    Also surfaces needs_reauth=True when the account is connected but either
+    the drive.file scope (required for uploads) or the full drive scope
+    (required to delete any file) is missing from the saved token.
+    The user must reconnect their Google account to grant the new permission.
+
+    Payload is served from an in-memory TTL cache so repeat polls within
+    the same minute return in sub-millisecond time.
+    """
+    return connections_cache.get_or_compute(
+        _DRIVE_STATUS_CACHE_KEY,
+        _compute_drive_status,
+    )
 
 
 @router.get("/drive/auth/url")
@@ -273,6 +295,9 @@ async def drive_auth_callback(
 async def drive_auth_revoke():
     """Disconnect the Google account."""
     revoke()
+    # revoke() already invalidates google_* status caches, but call here
+    # too so the contract is explicit at the router seam.
+    connections_cache.invalidate(_DRIVE_STATUS_CACHE_KEY)
     return {"ok": True}
 
 
@@ -647,7 +672,10 @@ async def drive_create_folder(body: FolderCreateBody):
 async def drive_delete_file(file_id: str):
     """Move a file to the Drive trash.
 
-    Only works on files that myOS created (drive.file scope restriction).
+    Requires drive.file scope at minimum. The full drive scope is needed
+    to trash files that were not created by this app. If the token only
+    has drive.file and the file is not app-created, surfaces a clear
+    re-auth message instead of a generic error.
     Returns {ok: true} on success.
     """
     if not is_authenticated():
@@ -655,7 +683,10 @@ async def drive_delete_file(file_id: str):
     if not has_write_scope():
         raise HTTPException(
             status_code=403,
-            detail="Delete permission not granted. Please reconnect your Google account.",
+            detail={
+                "needs_reauth": True,
+                "message": "Delete permission not granted. Please reconnect your Google account.",
+            },
         )
 
     import asyncio
@@ -667,6 +698,22 @@ async def drive_delete_file(file_id: str):
     try:
         await asyncio.get_event_loop().run_in_executor(None, _call)
     except Exception as exc:
+        err_str = str(exc)
+        # appNotAuthorizedToFile means the token only has drive.file scope
+        # and the file was not created by this app. The fix is to reconnect
+        # with the full drive scope.
+        if "appNotAuthorizedToFile" in err_str:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "needs_reauth": True,
+                    "message": (
+                        "Your Google account connection needs to be updated to allow "
+                        "deleting files you did not create in myOS. Please reconnect "
+                        "your Google account to continue."
+                    ),
+                },
+            ) from exc
         raise HTTPException(
             status_code=500,
             detail=f"Could not move the file to trash: {exc}",
@@ -678,6 +725,8 @@ async def drive_delete_file(file_id: str):
     except Exception:
         pass
 
+    # Tombstone so a fast double-delete retry does not re-surface the row.
+    recent_deletes.record_id(f"drive-file:{file_id}")
     return {"ok": True}
 
 
@@ -919,3 +968,260 @@ async def _export_office_file_as_pdf(file_id: str, target_google_mime: str) -> b
                 pass
 
     return await asyncio.get_event_loop().run_in_executor(None, _call)
+
+
+# ---------------------------------------------------------------------------
+# Structured preview (kind-specific renderers)
+# ---------------------------------------------------------------------------
+
+
+# Cap preview payloads so the response stays small and fast.
+_SHEET_MAX_ROWS = 20
+_SHEET_MAX_COLS = 10
+_DOC_MAX_CHARS = 4000
+_SLIDES_MAX_THUMBS = 20
+
+
+def _classify_mime(mime: str) -> str:
+    """Map a mime type to a preview kind."""
+    if mime.startswith("image/"):
+        return "image"
+    if mime == "application/pdf":
+        return "pdf"
+    if mime == "application/vnd.google-apps.spreadsheet":
+        return "sheet"
+    if mime == "application/vnd.google-apps.presentation":
+        return "slides"
+    if mime == "application/vnd.google-apps.document":
+        return "doc"
+    return "other"
+
+
+def _enlarge_thumb(link: str | None) -> str | None:
+    """Rewrite a Drive thumbnail URL to request a larger size."""
+    if not link:
+        return None
+    if "=s" in link:
+        return link.rsplit("=s", 1)[0] + "=s800"
+    return link
+
+
+async def _export_sheet_csv(file_id: str) -> str:
+    """Export a Google Sheet as CSV text."""
+    import asyncio
+    import io
+
+    def _call():
+        from googleapiclient.http import MediaIoBaseDownload
+
+        service = _build_drive_service()
+        request = service.files().export_media(fileId=file_id, mimeType="text/csv")
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return buf.getvalue().decode("utf-8", errors="replace")
+
+    return await asyncio.get_event_loop().run_in_executor(None, _call)
+
+
+async def _export_doc_text(file_id: str) -> str:
+    """Export a Google Doc as plain text."""
+    import asyncio
+    import io
+
+    def _call():
+        from googleapiclient.http import MediaIoBaseDownload
+
+        service = _build_drive_service()
+        request = service.files().export_media(fileId=file_id, mimeType="text/plain")
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return buf.getvalue().decode("utf-8", errors="replace")
+
+    return await asyncio.get_event_loop().run_in_executor(None, _call)
+
+
+def _parse_csv_sample(csv_text: str) -> dict:
+    """Parse a CSV string into a small sample for table rendering.
+
+    Returns {"headers": [...], "rows": [[...], ...], "truncated": bool}.
+    """
+    import csv
+    import io
+
+    reader = csv.reader(io.StringIO(csv_text))
+    rows: list[list[str]] = []
+    total_cols = 0
+    total_rows = 0
+    for i, row in enumerate(reader):
+        total_rows += 1
+        total_cols = max(total_cols, len(row))
+        if i >= _SHEET_MAX_ROWS:
+            continue
+        rows.append([cell for cell in row[:_SHEET_MAX_COLS]])
+    if not rows:
+        return {"headers": [], "rows": [], "truncated": False}
+    headers = rows[0]
+    data_rows = rows[1:]
+    truncated = total_rows > _SHEET_MAX_ROWS or total_cols > _SHEET_MAX_COLS
+    return {"headers": headers, "rows": data_rows, "truncated": truncated}
+
+
+def _parse_doc_blocks(text: str) -> dict:
+    """Turn plain text into a lightweight block list for formatted rendering.
+
+    Each block is {"type": "heading"|"paragraph", "text": "..."}. A line
+    that looks like a heading (short, no trailing period, followed by a
+    blank line) becomes a heading. Everything else is a paragraph. The
+    result is capped to ``_DOC_MAX_CHARS`` characters total.
+    """
+    text = text[:_DOC_MAX_CHARS]
+    truncated = len(text) == _DOC_MAX_CHARS
+    blocks: list[dict] = []
+    # Split on blank lines into paragraphs.
+    for chunk in text.split("\n\n"):
+        line = chunk.strip()
+        if not line:
+            continue
+        # Heading heuristic: short single line, no trailing period.
+        is_single_line = "\n" not in line
+        is_short = len(line) <= 80
+        if is_single_line and is_short and not line.endswith("."):
+            blocks.append({"type": "heading", "text": line})
+        else:
+            blocks.append({"type": "paragraph", "text": line})
+    return {"blocks": blocks, "truncated": truncated}
+
+
+async def _fetch_slides_thumbnails(file_id: str) -> list[dict]:
+    """Return a list of {slide_id, thumbnail_url} for each slide.
+
+    Uses the Slides API if available. Falls back to a single-image list
+    built from the Drive thumbnailLink on any error.
+    """
+    import asyncio
+
+    def _call():
+        from googleapiclient.discovery import build
+        from google.oauth2.credentials import Credentials
+
+        tokens = get_credentials()
+        creds = Credentials(
+            token=tokens.get("access_token"),
+            refresh_token=tokens.get("refresh_token"),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=None,
+            client_secret=None,
+        )
+        slides = build("slides", "v1", credentials=creds)
+        pres = slides.presentations().get(presentationId=file_id).execute()
+        slide_list = pres.get("slides", [])[:_SLIDES_MAX_THUMBS]
+        out = []
+        for s in slide_list:
+            sid = s.get("objectId")
+            if not sid:
+                continue
+            thumb = (
+                slides.presentations()
+                .pages()
+                .getThumbnail(
+                    presentationId=file_id,
+                    pageObjectId=sid,
+                    thumbnailProperties_thumbnailSize="MEDIUM",
+                )
+                .execute()
+            )
+            out.append({"slide_id": sid, "thumbnail_url": thumb.get("contentUrl", "")})
+        return out
+
+    return await asyncio.get_event_loop().run_in_executor(None, _call)
+
+
+@router.get("/drive/preview/{file_id}")
+async def drive_file_structured_preview(file_id: str):
+    """Return a structured preview for a Drive file.
+
+    Response shape:
+      {
+        kind: "image"|"pdf"|"sheet"|"slides"|"doc"|"other",
+        name: str,
+        mime_type: str,
+        thumbnail_url: str | None,
+        export_url: str,       # always points to /api/drive/files/{id}/preview
+        web_view_link: str,
+        sample: dict | None,   # type-specific parsed preview (see below)
+      }
+
+    Sample payloads by kind:
+      - image:  null (thumbnail_url is the inline render)
+      - pdf:    null (use export_url in an iframe)
+      - sheet:  {headers: [...], rows: [[...]], truncated: bool}
+      - slides: {slides: [{slide_id, thumbnail_url}], truncated: bool}
+      - doc:    {blocks: [{type, text}], truncated: bool}
+      - other:  null
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Google Drive.")
+
+    try:
+        meta = await _get_file_meta(file_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not get file info from Drive: {exc}",
+        ) from exc
+
+    mime = meta.get("mimeType", "")
+    kind = _classify_mime(mime)
+    thumbnail_url = _enlarge_thumb(meta.get("thumbnailLink"))
+    export_url = f"/api/drive/files/{file_id}/preview"
+
+    sample: dict | None = None
+
+    if kind == "sheet":
+        try:
+            csv_text = await _export_sheet_csv(file_id)
+            sample = _parse_csv_sample(csv_text)
+        except Exception:
+            # Fall back to thumbnail only so the UI still shows something.
+            sample = None
+
+    elif kind == "doc":
+        try:
+            doc_text = await _export_doc_text(file_id)
+            sample = _parse_doc_blocks(doc_text)
+        except Exception:
+            sample = None
+
+    elif kind == "slides":
+        try:
+            slides = await _fetch_slides_thumbnails(file_id)
+            sample = {
+                "slides": slides,
+                "truncated": len(slides) >= _SLIDES_MAX_THUMBS,
+            }
+        except Exception:
+            # Fall back to the single-image Drive thumbnail.
+            sample = {
+                "slides": (
+                    [{"slide_id": "fallback", "thumbnail_url": thumbnail_url}]
+                    if thumbnail_url
+                    else []
+                ),
+                "truncated": False,
+            }
+
+    return {
+        "kind": kind,
+        "name": meta.get("name", ""),
+        "mime_type": mime,
+        "thumbnail_url": thumbnail_url,
+        "export_url": export_url,
+        "web_view_link": meta.get("webViewLink", ""),
+        "sample": sample,
+    }

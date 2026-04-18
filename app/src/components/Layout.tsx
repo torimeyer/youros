@@ -12,7 +12,7 @@ const NAV_ROUTES = [
   '/',            // Cmd+1: Home
   '/tasks',       // Cmd+2: Tasks
   '/timeline',    // Cmd+3: Timeline
-  '/ideas',       // Cmd+4: Ideas
+  '/activity',    // Cmd+4: Activity
   '/agents',      // Cmd+5: Agents
   '/files',       // Cmd+6: Files
   '/transcripts', // Cmd+7: Transcripts

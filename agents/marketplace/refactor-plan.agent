@@ -1,0 +1,9 @@
+NAME "Refactor Plan"
+DESC "Review messy code and propose a clean refactoring plan."
+FROM auto
+PROMPT "You are a refactoring expert. Review the pasted code and produce a step-by-step refactor plan that keeps behavior identical. Each step must be independently landable and have a one-line test plan."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

@@ -43,88 +43,30 @@ class TestSearchNear:
         assert result["query"] == "search"
 
     @pytest.mark.asyncio
-    async def test_returns_ideas_matching_query(self):
-        """Ideas from audit.jsonl that match the query should be returned."""
-        events = [
-            {"event": "hay.filed", "straw": "add a search bar to dashboard", "timestamp": "2026-04-04T20:00:00Z"},
-            {"event": "hay.filed", "straw": "buy groceries", "timestamp": "2026-04-04T20:01:00Z"},
-            {"event": "hay.filed", "straw": "search through old notes", "timestamp": "2026-04-04T20:02:00Z"},
-        ]
-        self.audit_path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
-
-        with patch.object(self.svc, "_run", new_callable=AsyncMock) as mock_run:
-            mock_run.side_effect = OstkError("no open needles matching")
-            result = await self.svc.search_near("search")
-
-        assert len(result["ideas"]) == 2
-        straws = [i["straw"] for i in result["ideas"]]
-        assert "add a search bar to dashboard" in straws
-        assert "search through old notes" in straws
-        assert "buy groceries" not in straws
-
-    @pytest.mark.asyncio
-    async def test_marks_converted_ideas(self):
-        """Ideas that have been turned into tasks should be marked as converted."""
-        events = [
-            {"event": "hay.filed", "straw": "add search feature", "timestamp": "2026-04-04T20:00:00Z"},
-            {"event": "hay.converted", "straw": "add search feature", "task_id": "→086", "timestamp": "2026-04-04T21:00:00Z"},
-        ]
-        self.audit_path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
-
-        with patch.object(self.svc, "_run", new_callable=AsyncMock) as mock_run:
-            mock_run.side_effect = OstkError("no match")
-            result = await self.svc.search_near("search")
-
-        assert len(result["ideas"]) == 1
-        assert result["ideas"][0]["converted"] is True
-
-    @pytest.mark.asyncio
     async def test_empty_results_when_no_matches(self):
-        """When nothing matches, both lists should be empty."""
-        self.audit_path.write_text("")
-
+        """When nothing matches, tasks list should be empty."""
         with patch.object(self.svc, "_run", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = OstkError("no open needles matching")
             result = await self.svc.search_near("xyznonexistent")
 
         assert result["tasks"] == []
-        assert result["ideas"] == []
         assert result["query"] == "xyznonexistent"
 
     @pytest.mark.asyncio
-    async def test_no_audit_file(self):
-        """When audit.jsonl does not exist, ideas list should be empty."""
-        if self.audit_path.exists():
-            self.audit_path.unlink()
-
-        with patch.object(self.svc, "_run", new_callable=AsyncMock) as mock_run:
-            mock_run.side_effect = OstkError("no match")
-            result = await self.svc.search_near("anything")
-
-        assert result["tasks"] == []
-        assert result["ideas"] == []
-
-    @pytest.mark.asyncio
-    async def test_both_tasks_and_ideas_returned(self):
-        """Should return both tasks and ideas when both match."""
+    async def test_multiple_tasks_returned(self):
+        """Should return multiple tasks when they match."""
         near_output = (
-            '── 2 open needles near "agents" ──\n'
+            '\u2500\u2500 2 open needles near "agents" \u2500\u2500\n'
             "\n"
-            "  SPHERE 2 (point: →095, 2 members):\n"
-            "    →098 [P2] Add delegation view for agents\n"
-            "    →095 [P1] Build agent monitor\n"
+            "  SPHERE 2 (point: \u2192095, 2 members):\n"
+            "    \u2192098 [P2] Add delegation view for agents\n"
+            "    \u2192095 [P1] Build agent monitor\n"
         )
-        events = [
-            {"event": "hay.filed", "straw": "agents should have a status page", "timestamp": "2026-04-04T20:00:00Z"},
-        ]
-        self.audit_path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
-
         with patch.object(self.svc, "_run", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = near_output
             result = await self.svc.search_near("agents")
 
         assert len(result["tasks"]) == 2
-        assert len(result["ideas"]) == 1
 
 
 class TestParseNearOutput:
@@ -188,7 +130,6 @@ class TestParseNearOutput:
 async def test_search_endpoint_returns_results(client):
     mock_results = {
         "tasks": [{"id": "→086", "priority": "P1", "title": "Add concept search"}],
-        "ideas": [{"straw": "search bar idea", "timestamp": "2026-04-04T20:00:00Z", "converted": False}],
         "query": "search",
     }
     with patch("routers.search.ostk") as mock_ostk:
@@ -199,8 +140,6 @@ async def test_search_endpoint_returns_results(client):
     data = resp.json()
     assert len(data["tasks"]) == 1
     assert data["tasks"][0]["id"] == "→086"
-    assert len(data["ideas"]) == 1
-    assert data["ideas"][0]["straw"] == "search bar idea"
     assert data["query"] == "search"
 
 
@@ -220,7 +159,7 @@ async def test_search_endpoint_missing_query_rejected(client):
 
 @pytest.mark.asyncio
 async def test_search_endpoint_no_results(client):
-    mock_results = {"tasks": [], "ideas": [], "query": "xyznonexistent"}
+    mock_results = {"tasks": [], "query": "xyznonexistent"}
     with patch("routers.search.ostk") as mock_ostk:
         mock_ostk.search_near = AsyncMock(return_value=mock_results)
         resp = await client.get("/api/search?q=xyznonexistent")
@@ -228,7 +167,6 @@ async def test_search_endpoint_no_results(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["tasks"] == []
-    assert data["ideas"] == []
 
 
 @pytest.mark.asyncio

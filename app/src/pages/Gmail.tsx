@@ -3,6 +3,9 @@ import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
 import GmailReplyComposer from '../components/GmailReplyComposer'
+import ConfirmModal from '../components/ConfirmModal'
+import { useConfirm } from '../hooks/useConfirm'
+import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
 
 interface GmailMessage {
@@ -101,6 +104,13 @@ export default function Gmail() {
   const [sentConfirmationId, setSentConfirmationId] = useState<string | null>(null)
   const [taskStatus, setTaskStatus] = useState<Record<string, 'loading' | 'done' | 'error'>>({})
   const [taskResult, setTaskResult] = useState<Record<string, { title: string }>>({})
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [trashing, setTrashing] = useState<Set<string>>(new Set())
+  const [bulkTrashing, setBulkTrashing] = useState(false)
+  const [trashError, setTrashError] = useState<string | null>(null)
+
+  // In-app confirm dialog (replaces window.confirm for bulk trash).
+  const { confirm, confirmProps } = useConfirm()
 
   const handleCreateTask = async (e: React.MouseEvent, messageId: string) => {
     e.stopPropagation()
@@ -238,6 +248,86 @@ export default function Gmail() {
     }
   }
 
+  const handleToggleSelect = (e: React.MouseEvent | React.ChangeEvent, messageId: string) => {
+    e.stopPropagation()
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(messageId)) {
+        next.delete(messageId)
+      } else {
+        next.add(messageId)
+      }
+      return next
+    })
+  }
+
+  const removeFromList = (ids: string[]) => {
+    setMessages((prev) => {
+      const next = prev.filter((m) => !ids.includes(m.id))
+      writeGmailCache(next)
+      return next
+    })
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      for (const id of ids) next.delete(id)
+      return next
+    })
+    if (ids.length && expandedId && ids.includes(expandedId)) {
+      setExpandedId(null)
+      setComposer(null)
+    }
+  }
+
+  const handleTrashMessage = async (e: React.MouseEvent, messageId: string) => {
+    e.stopPropagation()
+    setTrashError(null)
+    setTrashing((prev) => new Set(prev).add(messageId))
+    try {
+      await api.delete(`/gmail/messages/${messageId}`)
+      removeFromList([messageId])
+    } catch {
+      setTrashError('Could not move the message to Trash. Try again in a moment.')
+    } finally {
+      setTrashing((prev) => {
+        const next = new Set(prev)
+        next.delete(messageId)
+        return next
+      })
+    }
+  }
+
+  const handleBulkTrash = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const confirmed = await confirm({
+      title: `Move ${ids.length} ${ids.length === 1 ? 'message' : 'messages'} to Trash?`,
+      message: "You can still recover them from Gmail's Trash for 30 days.",
+      confirmLabel: 'Move to Trash',
+      cancelLabel: 'Cancel',
+      danger: true,
+    })
+    if (!confirmed) return
+    setTrashError(null)
+    setBulkTrashing(true)
+    try {
+      const res = await api.post<{ succeeded: string[]; failed: { id: string; error: string }[]; count: number }>(
+        '/gmail/messages/batch-delete',
+        { ids, permanent: false }
+      )
+      const succeeded = res.succeeded || []
+      removeFromList(succeeded)
+      if (res.failed && res.failed.length > 0) {
+        setTrashError(
+          `Moved ${succeeded.length} to Trash. ${res.failed.length} failed.`
+        )
+      }
+    } catch {
+      setTrashError('Could not move the selected messages to Trash. Try again.')
+    } finally {
+      setBulkTrashing(false)
+    }
+  }
+
   const handleOpenInGmail = (e: React.MouseEvent, messageId: string) => {
     e.stopPropagation()
     window.open(gmailUrl(messageId), '_blank', 'noopener,noreferrer')
@@ -269,9 +359,8 @@ export default function Gmail() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex items-center gap-2 text-slate-400">
-          <Icon name="progress_activity" size={20} className="animate-spin" />
-          Loading...
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <LoadingState variant="spinner" />
         </div>
       </div>
     )
@@ -281,46 +370,26 @@ export default function Gmail() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl">
-            <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mb-4">
-              <Icon name="mail" className="text-red-400" size={24} />
-            </div>
-            {authStatus?.needs_reauth ? (
-              <>
-                <h2 className="text-xl font-semibold mb-2">Gmail access needs to be updated</h2>
-                <p className="text-slate-400 mb-6">
-                  Reconnect your Google account to give myOS permission to read your Gmail.
-                  This uses the same account you already connected for Drive.
-                </p>
-                <button
-                  onClick={handleConnect}
-                  className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
-                >
-                  Reconnect
-                </button>
-              </>
-            ) : (
-              <>
-                <h2 className="text-xl font-semibold mb-2">Connect Gmail</h2>
-                <p className="text-slate-400 mb-6">
-                  See your unread emails without leaving myOS.
-                  This uses the same Google account as Drive and Calendar, so no extra credentials are needed.
-                </p>
-                <button
-                  onClick={handleConnect}
-                  className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
-                >
-                  Connect Google account
-                </button>
-              </>
-            )}
-            {connectError && (
-              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
-                {connectError}
-              </div>
-            )}
-          </div>
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <ConnectCard
+            icon="mail"
+            accentColor="#ef4444"
+            title={authStatus?.needs_reauth ? 'Gmail access needs to be updated' : 'Connect Gmail'}
+            description={
+              authStatus?.needs_reauth
+                ? 'Reconnect your Google account to give myOS permission to read your Gmail. This uses the same account you already connected for Drive.'
+                : 'See your unread emails without leaving myOS. This uses the same Google account as Drive and Calendar, so no extra credentials are needed.'
+            }
+            primaryAction={
+              <button
+                onClick={handleConnect}
+                className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
+              >
+                {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
+              </button>
+            }
+            error={connectError ?? undefined}
+          />
         </div>
       </div>
     )
@@ -330,33 +399,34 @@ export default function Gmail() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Gmail" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-amber-800/40 p-5 sm:p-8 rounded-2xl">
-            <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
-              <Icon name="warning" className="text-amber-400" size={24} />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">Gmail API not enabled</h2>
-            <p className="text-slate-400 mb-4">
-              Your Google Cloud project has the Gmail API disabled. You need to turn it on once. Reconnecting will not fix this.
-            </p>
-            <a
-              href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
-              target="_blank"
-              rel="noreferrer"
-              className="w-full block text-center py-3 mb-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
-            >
-              Enable Gmail API in Google Cloud
-            </a>
-            <p className="text-xs text-slate-500 mb-4">
-              After clicking Enable on Google's page, wait 1-2 minutes for the change to propagate, then come back and click Retry.
-            </p>
-            <button
-              onClick={() => { setApiNotEnabled(false); fetchMessages() }}
-              className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
-            >
-              Retry
-            </button>
-          </div>
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <ConnectCard
+            icon="warning"
+            accentColor="#f59e0b"
+            title="Gmail API not enabled"
+            description="Your Google Cloud project has the Gmail API disabled. You need to turn it on once. Reconnecting will not fix this."
+            primaryAction={
+              <div className="w-full space-y-3">
+                <a
+                  href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full block text-center py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
+                >
+                  Enable Gmail API in Google Cloud
+                </a>
+                <p className="text-xs text-slate-500 text-center">
+                  After clicking Enable on Google's page, wait 1-2 minutes, then click Retry.
+                </p>
+                <button
+                  onClick={() => { setApiNotEnabled(false); fetchMessages() }}
+                  className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            }
+          />
         </div>
       </div>
     )
@@ -400,34 +470,74 @@ export default function Gmail() {
 
         {/* Message list */}
         <div className={cardClass}>
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
             <Icon name="inbox" className="text-red-400" size={18} />
             <h2 className="text-base font-semibold">Inbox</h2>
+            {selectedIds.size > 0 && (
+              <>
+                <span className="ml-2 text-sm text-slate-400">
+                  {selectedIds.size} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={handleBulkTrash}
+                  disabled={bulkTrashing}
+                  aria-label="Trash selected messages"
+                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  <Icon name="delete" size={16} />
+                  {bulkTrashing ? 'Moving to Trash...' : 'Trash selected'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(new Set())}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-slate-200"
+                >
+                  Clear
+                </button>
+              </>
+            )}
           </div>
+          {trashError && (
+            <div className="mb-3 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
+              {trashError}
+            </div>
+          )}
 
           {syncing && messages.length === 0 ? (
-            <div className="text-center py-8 text-slate-500 flex items-center justify-center gap-2">
-              <Icon name="progress_activity" size={20} className="animate-spin" />
-              <p>Loading your inbox...</p>
-            </div>
+            <LoadingState variant="spinner" message="Loading your inbox..." />
           ) : messages.length === 0 ? (
-            <div className="text-center py-8 text-slate-500">
-              <Icon name="mark_email_read" size={36} className="mb-2 mx-auto opacity-40" />
-              <p>No messages in your inbox.</p>
-            </div>
+            <EmptyState
+              icon="mark_email_read"
+              title="No messages in your inbox"
+            />
           ) : (
             <div className="divide-y divide-slate-800/60">
               {messages.map((msg) => {
                 const isExpanded = expandedId === msg.id
                 const isComposing = composer?.messageId === msg.id
                 const canSend = sendCapability?.has_send_scope === true
+                const isSelected = selectedIds.has(msg.id)
                 return (
                   <div key={msg.id} className="py-1">
+                   <div className="flex items-start gap-2">
+                    <label
+                      className="pt-5 pl-1 shrink-0 cursor-pointer"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        aria-label={`Select message from ${msg.from_name || msg.from_email}`}
+                        checked={isSelected}
+                        onChange={(e) => handleToggleSelect(e, msg.id)}
+                        className="w-4 h-4 accent-red-500 cursor-pointer"
+                      />
+                    </label>
                     <button
                       onClick={() => handleMessageClick(msg)}
                       disabled={markingRead.has(msg.id)}
                       aria-expanded={isExpanded}
-                      className={`w-full text-left px-3 py-3 rounded-lg transition-colors hover:bg-slate-800/40 disabled:opacity-50 ${
+                      className={`flex-1 min-w-0 text-left px-3 py-3 rounded-lg transition-colors hover:bg-slate-800/40 disabled:opacity-50 ${
                         msg.is_unread ? '' : 'opacity-75'
                       }`}
                     >
@@ -462,16 +572,17 @@ export default function Gmail() {
                         </div>
                       </div>
                     </button>
+                   </div>
 
                     {isExpanded && (
                       <div className="px-3 pb-3">
                         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-                          <div className="flex items-center justify-between gap-2 mb-3">
-                            <div className="text-xs text-slate-500">
+                          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                            <div className="text-xs text-slate-500 min-w-0 truncate">
                               From {msg.from_name || msg.from_email}
                               {msg.from_name ? ` (${msg.from_email})` : ''}
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <button
                                 type="button"
                                 onClick={(e) => handleCreateTask(e, msg.id)}
@@ -490,6 +601,19 @@ export default function Gmail() {
                               </button>
                               <button
                                 type="button"
+                                onClick={(e) => handleTrashMessage(e, msg.id)}
+                                disabled={trashing.has(msg.id)}
+                                aria-label="Move to Trash"
+                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-400 disabled:opacity-50"
+                              >
+                                {trashing.has(msg.id) ? (
+                                  <><Icon name="progress_activity" size={14} className="animate-spin" /> Moving...</>
+                                ) : (
+                                  <><Icon name="delete" size={14} /> Move to Trash</>
+                                )}
+                              </button>
+                              <button
+                                type="button"
                                 onClick={(e) => handleOpenInGmail(e, msg.id)}
                                 className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
                               >
@@ -498,7 +622,7 @@ export default function Gmail() {
                               </button>
                             </div>
                           </div>
-                          <p className="text-sm text-slate-200 whitespace-pre-wrap">
+                          <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
                             {msg.snippet}
                           </p>
 
@@ -572,6 +696,7 @@ export default function Gmail() {
           )}
         </div>
       </div>
+      <ConfirmModal {...confirmProps} />
     </div>
   )
 }

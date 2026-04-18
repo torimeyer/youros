@@ -43,7 +43,7 @@ def settings_file_with_mcp(tmp_path):
         "dark_mode": True,
         "accent_color": "blue",
         "default_model": "@claude",
-        "features": {"Chat": True, "Tasks": True, "Hay/Ideas": True, "Agents": True, "Projects": True, "Docs": True, "Transcripts": False},
+        "features": {"Chat": True, "Tasks": True, "Agents": True, "Projects": True, "Specs": True, "Transcripts": False},
         "notifications": {"agent_complete": True, "agent_needs_input": True, "agent_failed": True, "approval_needed": True},
         "quiet_hours_enabled": True,
         "quiet_hours_start": "22:00",

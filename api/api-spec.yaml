@@ -1,0 +1,635 @@
+openapi: 3.0.3
+info:
+  title: myOS API
+  description: API for power users to interact with myOS programmatically
+  version: 1.0.0
+  contact:
+    name: myOS Support
+    email: support@myos.ai
+
+servers:
+  - url: https://api.myos.ai/v1
+    description: Production server
+  - url: https://staging-api.myos.ai/v1
+    description: Staging server
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /tasks:
+    get:
+      summary: List tasks
+      description: Retrieve all tasks with optional filtering
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, completed, all]
+          description: Filter by task status
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [P0, P1, P2, P3]
+          description: Filter by priority level
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Task'
+                  total:
+                    type: integer
+                  has_more:
+                    type: boolean
+    
+    post:
+      summary: Create a new task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                priority:
+                  type: string
+                  enum: [P0, P1, P2, P3]
+                  default: P2
+                description:
+                  type: string
+                  maxLength: 1000
+                due_date:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Task created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+
+  /tasks/{task_id}:
+    get:
+      summary: Get a specific task
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    
+    put:
+      summary: Update a task
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                priority:
+                  type: string
+                  enum: [P0, P1, P2, P3]
+                description:
+                  type: string
+                  maxLength: 1000
+                status:
+                  type: string
+                  enum: [open, completed]
+      responses:
+        '200':
+          description: Task updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+    
+    delete:
+      summary: Delete a task
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Task deleted successfully
+
+  /ideas:
+    get:
+      summary: List ideas
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, converted, all]
+            default: active
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: List of ideas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ideas:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Idea'
+    
+    post:
+      summary: Capture a new idea
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - thought
+              properties:
+                thought:
+                  type: string
+                  maxLength: 500
+      responses:
+        '201':
+          description: Idea captured successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Idea'
+
+  /ideas/{idea_id}:
+    delete:
+      summary: Delete an idea
+      parameters:
+        - name: idea_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Idea deleted successfully
+
+  /calendar/events:
+    get:
+      summary: Get calendar events
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Date to get events for (defaults to today)
+        - name: range
+          in: query
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: day
+      responses:
+        '200':
+          description: Calendar events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CalendarEvent'
+    
+    post:
+      summary: Create a calendar event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - start
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                start:
+                  type: string
+                  format: date-time
+                end:
+                  type: string
+                  format: date-time
+                all_day:
+                  type: boolean
+                  default: false
+                location:
+                  type: string
+                  maxLength: 200
+                description:
+                  type: string
+                  maxLength: 1000
+      responses:
+        '201':
+          description: Event created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarEvent'
+
+  /email/send:
+    post:
+      summary: Send an email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - to
+                - subject
+                - body
+              properties:
+                to:
+                  type: string
+                  format: email
+                subject:
+                  type: string
+                  maxLength: 200
+                body:
+                  type: string
+                  maxLength: 50000
+                cc:
+                  type: array
+                  items:
+                    type: string
+                    format: email
+                bcc:
+                  type: array
+                  items:
+                    type: string
+                    format: email
+      responses:
+        '200':
+          description: Email sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message_id:
+                    type: string
+                  sent_at:
+                    type: string
+                    format: date-time
+
+  /files:
+    get:
+      summary: List workspace files
+      parameters:
+        - name: path
+          in: query
+          schema:
+            type: string
+          description: Directory path (defaults to workspace root)
+        - name: recursive
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: File listing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FileInfo'
+
+  /files/{file_path}:
+    get:
+      summary: Read file content
+      parameters:
+        - name: file_path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File content
+          content:
+            text/plain:
+              schema:
+                type: string
+    
+    put:
+      summary: Write file content
+      parameters:
+        - name: file_path
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: File updated successfully
+
+  /agents:
+    get:
+      summary: List agents
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [running, completed, failed, stopped, all]
+            default: all
+      responses:
+        '200':
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Agent'
+    
+    post:
+      summary: Spawn a new agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - prompt
+              properties:
+                name:
+                  type: string
+                  maxLength: 50
+                prompt:
+                  type: string
+                  maxLength: 10000
+                model:
+                  type: string
+                  enum: [sonnet, opus, haiku]
+                  default: sonnet
+      responses:
+        '201':
+          description: Agent spawned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+
+  /agents/{agent_id}:
+    get:
+      summary: Get agent details
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+
+  /system/health:
+    get:
+      summary: System health check
+      responses:
+        '200':
+          description: System status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, degraded, down]
+                  version:
+                    type: string
+                  uptime:
+                    type: integer
+                  agents_running:
+                    type: integer
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  
+  schemas:
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        priority:
+          type: string
+          enum: [P0, P1, P2, P3]
+        status:
+          type: string
+          enum: [open, completed]
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        due_date:
+          type: string
+          format: date-time
+    
+    Idea:
+      type: object
+      properties:
+        id:
+          type: string
+        thought:
+          type: string
+        status:
+          type: string
+          enum: [active, converted]
+        created_at:
+          type: string
+          format: date-time
+        converted_to_task_id:
+          type: string
+    
+    CalendarEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        all_day:
+          type: boolean
+        location:
+          type: string
+        description:
+          type: string
+    
+    FileInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+          enum: [file, directory]
+        size:
+          type: integer
+        modified_at:
+          type: string
+          format: date-time
+    
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [running, completed, failed, stopped]
+        model:
+          type: string
+        prompt:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        result:
+          type: string
+    
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        code:
+          type: integer
+  
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

@@ -75,6 +75,71 @@ async def test_drive_auth_status_authenticated(client, tmp_path):
     assert resp.json()["authenticated"] is True
 
 
+@pytest.mark.asyncio
+async def test_drive_auth_status_cached_path_is_fast(client, tmp_path):
+    """Warm cache hits for /drive/auth/status must return under 50ms."""
+    import time as _time
+
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/drive",
+    }))
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text("{}")
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+    ):
+        first = await client.get("/api/drive/auth/status")
+        assert first.status_code == 200
+
+        start = _time.perf_counter()
+        second = await client.get("/api/drive/auth/status")
+        elapsed = _time.perf_counter() - start
+
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert elapsed < 0.050, f"cached path took {elapsed*1000:.1f}ms"
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_status_cache_invalidates_on_credentials_upload(client, tmp_path):
+    """Uploading credentials via /drive/credentials must invalidate the status cache."""
+    from services import connections_cache
+
+    token_path = tmp_path / "google_token.json"
+    creds_path = tmp_path / "google_credentials.json"
+
+    # Prime the cache with a no-creds result.
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+    ):
+        resp = await client.get("/api/drive/auth/status")
+    assert resp.json()["credentials_file_present"] is False
+    assert connections_cache.get("drive_auth_status") is not None
+
+    # Upload a valid credentials file via the real endpoint.
+    valid = json.dumps({
+        "installed": {
+            "client_id": "xyz.apps.googleusercontent.com",
+            "client_secret": "shh",
+            "redirect_uris": ["http://localhost"],
+        }
+    }).encode()
+    with patch("routers.drive.CREDENTIALS_PATH", creds_path):
+        upload = await client.post(
+            "/api/drive/credentials",
+            files={"file": ("creds.json", valid, "application/json")},
+        )
+    assert upload.status_code == 200
+    assert upload.json()["ok"] is True
+    # Cache must have been invalidated by the upload handler.
+    assert connections_cache.get("drive_auth_status") is None
+
+
 # ---------------------------------------------------------------------------
 # Auth URL
 # ---------------------------------------------------------------------------
@@ -142,7 +207,7 @@ async def test_drive_auth_url_contains_correct_redirect_uri(client, tmp_path):
 
     assert resp.status_code == 200
     url = resp.json()["url"]
-    assert "http%3A%2F%2Flocalhost%3A8000%2Fapi%2Fdrive%2Fauth%2Fcallback" in url
+    assert "https%3A%2F%2Flocalhost%3A8000%2Fapi%2Fdrive%2Fauth%2Fcallback" in url
 
 
 # ---------------------------------------------------------------------------
@@ -529,7 +594,7 @@ async def test_drive_credentials_upload_web_format(client, tmp_path):
             "web": {
                 "client_id": "web-id.apps.googleusercontent.com",
                 "client_secret": "web-secret",
-                "redirect_uris": ["http://localhost:8000/api/drive/auth/callback"],
+                "redirect_uris": ["https://localhost:8000/api/drive/auth/callback"],
             }
         }
     ).encode()
@@ -542,6 +607,21 @@ async def test_drive_credentials_upload_web_format(client, tmp_path):
 
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+
+
+def test_google_auth_redirect_uri_uses_https():
+    """REDIRECT_URI must use https:// so the OAuth callback reaches the TLS-only backend.
+
+    Regression guard: if someone changes the scheme back to http:// the backend
+    will have no listener on plain HTTP and Google will redirect to a dead URL,
+    producing ERR_EMPTY_RESPONSE in the browser.
+    """
+    from services.google_auth import REDIRECT_URI
+
+    assert REDIRECT_URI.startswith("https://"), (
+        f"REDIRECT_URI must start with https:// (got {REDIRECT_URI!r}). "
+        "The backend serves HTTPS only; an http:// redirect URI leads to ERR_EMPTY_RESPONSE."
+    )
 
 
 @pytest.mark.asyncio
@@ -601,6 +681,11 @@ async def test_drive_auth_status_includes_credentials_present_field(client, tmp_
 
     # Now write a creds file and check again.
     creds_path.write_text("{}")
+    # In production, the creds file is created via /drive/credentials
+    # which invalidates the cached status on write. Here the test writes
+    # directly to disk, so mirror that invalidation to force a recompute.
+    from services import connections_cache
+    connections_cache.invalidate_all()
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
         patch("services.google_auth.CREDENTIALS_PATH", creds_path),
@@ -639,13 +724,14 @@ async def test_drive_auth_status_needs_reauth_missing_scope(client, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_drive_auth_status_no_reauth_when_scope_present(client, tmp_path):
-    """When the token includes drive.file scope, needs_reauth should be False."""
+async def test_drive_auth_status_no_reauth_when_full_scope_present(client, tmp_path):
+    """When the token includes the full drive scope, needs_reauth should be False."""
     token_path = tmp_path / "google_token.json"
     token_path.write_text(
         json.dumps({
             "access_token": "ya29.test",
             "scope": (
+                "https://www.googleapis.com/auth/drive "
                 "https://www.googleapis.com/auth/drive.readonly "
                 "https://www.googleapis.com/auth/drive.file"
             ),
@@ -856,7 +942,10 @@ async def test_drive_delete_success(client, tmp_path):
     token_path.write_text(
         json.dumps({
             "access_token": "ya29.test",
-            "scope": "https://www.googleapis.com/auth/drive.file",
+            "scope": (
+                "https://www.googleapis.com/auth/drive "
+                "https://www.googleapis.com/auth/drive.file"
+            ),
         })
     )
 
@@ -873,6 +962,125 @@ async def test_drive_delete_success(client, tmp_path):
 
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_drive_delete_app_not_authorized_surfaces_reauth(client, tmp_path):
+    """When Google returns appNotAuthorizedToFile (drive.file scope, non-app file),
+    the endpoint must return 403 with needs_reauth=True and a plain-language message
+    instead of the raw API error string (regression guard for Bug B)."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({
+            "access_token": "ya29.test",
+            "scope": "https://www.googleapis.com/auth/drive.file",
+        })
+    )
+
+    class FakeHttpError(Exception):
+        pass
+
+    app_not_auth_error = FakeHttpError(
+        "<HttpError 403 when requesting ... returned "
+        "\"The user has not granted the app 12345 write access to the file abc.\". "
+        "Details: \"[{'reason': 'appNotAuthorizedToFile'}]\""
+    )
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._build_drive_service") as mock_svc,
+    ):
+        mock_files = MagicMock()
+        mock_files.update.return_value.execute.side_effect = app_not_auth_error
+        mock_svc.return_value.files.return_value = mock_files
+
+        resp = await client.delete("/api/drive/files/shared-file-id")
+
+    assert resp.status_code == 403
+    detail = resp.json()["detail"]
+    assert detail["needs_reauth"] is True
+    assert "reconnect" in detail["message"].lower()
+    # Must not be the raw googleapis URL error string.
+    assert "HttpError" not in detail["message"]
+
+
+@pytest.mark.asyncio
+async def test_drive_delete_full_scope_success(client, tmp_path):
+    """Delete with the full drive scope should succeed on any file."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({
+            "access_token": "ya29.test",
+            "scope": "https://www.googleapis.com/auth/drive",
+        })
+    )
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._sync_file_list", new=AsyncMock(return_value=[])),
+        patch("routers.drive._build_drive_service") as mock_svc,
+    ):
+        mock_files = MagicMock()
+        mock_files.update.return_value.execute.return_value = {}
+        mock_svc.return_value.files.return_value = mock_files
+
+        resp = await client.delete("/api/drive/files/any-file")
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_status_needs_reauth_without_full_drive_scope(client, tmp_path):
+    """needs_reauth should be True when the token has drive.file but not the full drive scope."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({
+            "access_token": "ya29.test",
+            "scope": (
+                "https://www.googleapis.com/auth/drive.readonly "
+                "https://www.googleapis.com/auth/drive.file"
+            ),
+        })
+    )
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text("{}")
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+    ):
+        resp = await client.get("/api/drive/auth/status")
+
+    assert resp.status_code == 200
+    assert resp.json()["needs_reauth"] is True
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_status_no_reauth_with_full_drive_scope(client, tmp_path):
+    """needs_reauth should be False when the token includes the full drive scope."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(
+        json.dumps({
+            "access_token": "ya29.test",
+            "scope": (
+                "https://www.googleapis.com/auth/drive "
+                "https://www.googleapis.com/auth/drive.readonly "
+                "https://www.googleapis.com/auth/drive.file"
+            ),
+        })
+    )
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text("{}")
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+    ):
+        resp = await client.get("/api/drive/auth/status")
+
+    assert resp.status_code == 200
+    assert resp.json()["needs_reauth"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -979,3 +1187,278 @@ async def test_drive_get_file_meta_includes_thumbnail_field(client, tmp_path):
 
     source = inspect.getsource(_get_file_meta)
     assert "thumbnailLink" in source
+
+
+# ---------------------------------------------------------------------------
+# Structured preview endpoint (kind-specific renderers)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drive_structured_preview_not_authenticated(client, tmp_path):
+    """Structured preview returns 401 when not authenticated."""
+    token_path = tmp_path / "google_token.json"  # does not exist
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.get("/api/drive/preview/file-xyz")
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_drive_structured_preview_image(client, tmp_path):
+    """Image files return kind=image with a thumbnail URL and no sample."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "img-1",
+        "name": "photo.png",
+        "mimeType": "image/png",
+        "webViewLink": "https://drive.google.com/file/d/img-1",
+        "size": "12345",
+        "thumbnailLink": "https://lh3.googleusercontent.com/img=s220",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+    ):
+        resp = await client.get("/api/drive/preview/img-1")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kind"] == "image"
+    assert data["thumbnail_url"] is not None
+    assert "=s800" in data["thumbnail_url"]
+    assert data["export_url"] == "/api/drive/files/img-1/preview"
+    assert data["sample"] is None
+
+
+@pytest.mark.asyncio
+async def test_drive_structured_preview_pdf(client, tmp_path):
+    """PDF files return kind=pdf with the export URL and no sample."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "pdf-1",
+        "name": "report.pdf",
+        "mimeType": "application/pdf",
+        "webViewLink": "https://drive.google.com/file/d/pdf-1",
+        "size": "50000",
+        "thumbnailLink": "https://lh3.googleusercontent.com/pdf=s220",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+    ):
+        resp = await client.get("/api/drive/preview/pdf-1")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kind"] == "pdf"
+    assert data["export_url"] == "/api/drive/files/pdf-1/preview"
+    assert data["sample"] is None
+
+
+@pytest.mark.asyncio
+async def test_drive_structured_preview_sheet_returns_parsed_table(client, tmp_path):
+    """Google Sheets export CSV is parsed into a headers+rows sample."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "sheet-1",
+        "name": "Budget",
+        "mimeType": "application/vnd.google-apps.spreadsheet",
+        "webViewLink": "https://docs.google.com/spreadsheets/d/sheet-1",
+        "size": None,
+        "thumbnailLink": None,
+    }
+    fake_csv = "Month,Revenue,Cost\nJan,100,50\nFeb,200,80\n"
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+        patch("routers.drive._export_sheet_csv", new=AsyncMock(return_value=fake_csv)),
+    ):
+        resp = await client.get("/api/drive/preview/sheet-1")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kind"] == "sheet"
+    assert data["sample"] is not None
+    assert data["sample"]["headers"] == ["Month", "Revenue", "Cost"]
+    assert data["sample"]["rows"] == [["Jan", "100", "50"], ["Feb", "200", "80"]]
+    assert data["sample"]["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_drive_structured_preview_doc_returns_blocks(client, tmp_path):
+    """Google Doc export text is parsed into heading + paragraph blocks."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "doc-1",
+        "name": "Plan",
+        "mimeType": "application/vnd.google-apps.document",
+        "webViewLink": "https://docs.google.com/document/d/doc-1",
+        "size": None,
+        "thumbnailLink": None,
+    }
+    fake_text = (
+        "Project Plan\n\n"
+        "This is the first paragraph of the plan.\n\n"
+        "Next Steps\n\n"
+        "We will review the draft and finalize it."
+    )
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+        patch("routers.drive._export_doc_text", new=AsyncMock(return_value=fake_text)),
+    ):
+        resp = await client.get("/api/drive/preview/doc-1")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kind"] == "doc"
+    assert data["sample"] is not None
+    blocks = data["sample"]["blocks"]
+    # First block is the heading.
+    assert blocks[0]["type"] == "heading"
+    assert blocks[0]["text"] == "Project Plan"
+    # Paragraph ends with a period so it is classified as paragraph.
+    assert any(b["type"] == "paragraph" for b in blocks)
+    assert any("Next Steps" in b["text"] and b["type"] == "heading" for b in blocks)
+
+
+@pytest.mark.asyncio
+async def test_drive_structured_preview_slides_returns_thumbnail_strip(client, tmp_path):
+    """Google Slides returns a list of per-slide thumbnail URLs."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "slides-1",
+        "name": "Deck",
+        "mimeType": "application/vnd.google-apps.presentation",
+        "webViewLink": "https://docs.google.com/presentation/d/slides-1",
+        "size": None,
+        "thumbnailLink": "https://lh3.googleusercontent.com/deck=s220",
+    }
+    fake_thumbs = [
+        {"slide_id": "p1", "thumbnail_url": "https://img/p1"},
+        {"slide_id": "p2", "thumbnail_url": "https://img/p2"},
+        {"slide_id": "p3", "thumbnail_url": "https://img/p3"},
+    ]
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+        patch(
+            "routers.drive._fetch_slides_thumbnails",
+            new=AsyncMock(return_value=fake_thumbs),
+        ),
+    ):
+        resp = await client.get("/api/drive/preview/slides-1")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kind"] == "slides"
+    assert data["sample"] is not None
+    assert len(data["sample"]["slides"]) == 3
+    assert data["sample"]["slides"][0]["thumbnail_url"] == "https://img/p1"
+
+
+@pytest.mark.asyncio
+async def test_drive_structured_preview_slides_fallback_on_api_error(client, tmp_path):
+    """When the Slides API fails, fall back to the Drive thumbnail as a single image."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "slides-2",
+        "name": "Deck",
+        "mimeType": "application/vnd.google-apps.presentation",
+        "webViewLink": "https://docs.google.com/presentation/d/slides-2",
+        "size": None,
+        "thumbnailLink": "https://lh3.googleusercontent.com/deck=s220",
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+        patch(
+            "routers.drive._fetch_slides_thumbnails",
+            new=AsyncMock(side_effect=RuntimeError("slides api down")),
+        ),
+    ):
+        resp = await client.get("/api/drive/preview/slides-2")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kind"] == "slides"
+    # Fallback: single slide entry using the enlarged Drive thumbnail.
+    assert len(data["sample"]["slides"]) == 1
+    assert "=s800" in data["sample"]["slides"][0]["thumbnail_url"]
+
+
+@pytest.mark.asyncio
+async def test_drive_structured_preview_other(client, tmp_path):
+    """Unknown mime types return kind=other with no sample."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "zip-1",
+        "name": "archive.zip",
+        "mimeType": "application/zip",
+        "webViewLink": "https://drive.google.com/file/d/zip-1",
+        "size": "1000",
+        "thumbnailLink": None,
+    }
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+    ):
+        resp = await client.get("/api/drive/preview/zip-1")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kind"] == "other"
+    assert data["sample"] is None
+
+
+@pytest.mark.asyncio
+async def test_drive_structured_preview_sheet_truncates_large_data(client, tmp_path):
+    """Sheets with more than 20 rows or 10 cols report truncated=True."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "sheet-big",
+        "name": "Big",
+        "mimeType": "application/vnd.google-apps.spreadsheet",
+        "webViewLink": "",
+        "size": None,
+        "thumbnailLink": None,
+    }
+    # 25 rows of 3 cols: more than the 20-row cap.
+    rows = ["a,b,c"] + [f"{i},{i+1},{i+2}" for i in range(25)]
+    fake_csv = "\n".join(rows)
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+        patch("routers.drive._export_sheet_csv", new=AsyncMock(return_value=fake_csv)),
+    ):
+        resp = await client.get("/api/drive/preview/sheet-big")
+
+    data = resp.json()
+    assert data["sample"]["truncated"] is True
+    assert len(data["sample"]["rows"]) <= 20

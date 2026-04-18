@@ -7,10 +7,9 @@ router = APIRouter(tags=["search"])
 
 @router.get("/search")
 async def search(q: str = Query(..., min_length=1, description="Search topic or keyword")):
-    """Search across tasks and ideas by topic.
+    """Search across tasks by topic.
 
-    Uses ostk concept search to find related tasks and scans
-    ideas for matching text. Results are grouped by type.
+    Uses ostk concept search to find related tasks. Results are grouped by type.
     """
     try:
         results = await ostk.search_near(q)

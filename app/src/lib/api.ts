@@ -1,3 +1,5 @@
+import { bumpAgents, bumpTasks } from './sidebarBus'
+
 const BASE = '/api'
 
 // Hard upper bound on how long any API call can hang before the UI
@@ -44,6 +46,26 @@ export class ApiTimeoutError extends Error {
   }
 }
 
+// Notify the sidebar bus after a successful write (POST / PUT / PATCH /
+// DELETE) that targeted an agent or task endpoint. This lets the Agents
+// and Tasks badges refetch within milliseconds of the change instead of
+// waiting for the next poll tick.
+function notifySidebarOnWrite(method: string, path: string): void {
+  if (method === 'GET') return
+  // Normalize: strip a leading slash and take the first path segment.
+  const seg = path.replace(/^\/+/, '').split(/[/?#]/)[0]
+  if (seg === 'agents') {
+    bumpAgents()
+    return
+  }
+  if (seg === 'tasks') {
+    bumpTasks()
+    // Some task mutations also spawn an agent (e.g. POST /tasks/:id/commit
+    // runs an agent). Bumping agents too is cheap and covers those cases.
+    bumpAgents()
+  }
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
@@ -59,7 +81,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       const text = await res.text()
       throw new ApiError(res.status, text)
     }
-    return await res.json()
+    const data = await res.json()
+    notifySidebarOnWrite(method, path)
+    return data
   } catch (err) {
     // AbortController.abort() causes fetch to reject with a DOMException
     // whose name is "AbortError". Convert it to our own typed error so

@@ -84,11 +84,8 @@ class TestShouldInjectContext:
     def test_focus_keyword(self):
         assert should_inject_context("what should I focus on") is True
 
-    def test_ideas_keyword(self):
-        assert should_inject_context("list my ideas") is True
-
     def test_hay_keyword(self):
-        assert should_inject_context("show me the hay") is True
+        assert should_inject_context("show me the hay") is False
 
     def test_agents_keyword(self):
         assert should_inject_context("how are my agents doing") is True
@@ -594,6 +591,199 @@ class TestGeminiModelSelection:
         call = mock_genai.GenerativeModel.call_args
         assert call.args == ("gemini-custom-test",)
         assert isinstance(call.kwargs.get("system_instruction"), str)
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_labels_claude_history(self, websocket):
+        """Regression: when the chat includes a prior assistant turn from
+        Claude, ``stream_gemini`` must label it as Claude's response in
+        the history it sends to the Gemini SDK. Otherwise Gemini replies
+        "I don't have access to Claude's previous responses".
+
+        The frontend tags each assistant bubble with ``model`` so the
+        backend can detect cross-model conversations. This test covers
+        the full path: messages carrying ``model="claude"`` must produce
+        history entries with the ``[Claude's response]: ...`` prefix.
+        """
+        from unittest.mock import MagicMock
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+
+        mock_genai = MagicMock()
+        mock_model = mock_genai.GenerativeModel.return_value
+        mock_chat = mock_model.start_chat.return_value
+        mock_chunk = type("Chunk", (), {"text": "ok"})()
+        mock_chat.send_message.return_value = [mock_chunk]
+
+        async def fake_resolve(key):
+            return "AIza-fake" if key == "gemini_api_key" else ""
+
+        messages = [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "assistant",
+                "content": "Sourdough needs a starter, flour, water, salt.",
+                "model": "claude",
+            },
+            {"role": "user", "content": "did claude miss anything?"},
+        ]
+
+        with patch(
+            "services.chat_providers._resolve_api_key",
+            new=fake_resolve,
+        ), _PatchGenai(mock_genai):
+            await service.stream_gemini(messages, websocket)
+
+        # start_chat must have been called with a history containing the
+        # Claude-labeled assistant turn so Gemini can see cross-model
+        # context.
+        mock_model.start_chat.assert_called_once()
+        history = mock_model.start_chat.call_args.kwargs.get("history")
+        assert history is not None, "stream_gemini must pass history=... to start_chat"
+        # The assistant entry (role="model") must carry the Claude prefix.
+        model_entries = [h for h in history if h.get("role") == "model"]
+        assert len(model_entries) == 1
+        parts = model_entries[0].get("parts", [])
+        assert parts, "model history entry must have parts"
+        assert "[Claude's response]" in parts[0]
+        assert "starter" in parts[0]
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_merges_consecutive_user_messages(self, websocket):
+        """Regression: when the chat router prepends a memory/context user
+        message before the real user turn, the history sent to Gemini
+        contains two consecutive ``role=user`` entries. The
+        google-generativeai SDK responds to non-alternating history by
+        falling back to a non-streaming single-shot call that takes 25
+        seconds to return, during which the chat panel shows "Thinking"
+        forever and the user assumes the model hung. This test feeds
+        stream_gemini a user/user/assistant/user message sequence (the
+        exact shape produced by ``build_memory_context`` plus a
+        cross-model Claude turn) and asserts the history passed to
+        ``start_chat`` has no consecutive same-role entries, the final
+        entry is a model turn, and a ``done`` event reaches the panel.
+        """
+        from unittest.mock import MagicMock
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+
+        mock_genai = MagicMock()
+        mock_model = mock_genai.GenerativeModel.return_value
+        mock_chat = mock_model.start_chat.return_value
+        # Three chunks so we exercise the real streaming loop.
+        chunk_a = type("Chunk", (), {"text": "Hello "})()
+        chunk_b = type("Chunk", (), {"text": "there"})()
+        chunk_c = type("Chunk", (), {"text": "."})()
+        mock_chat.send_message.return_value = [chunk_a, chunk_b, chunk_c]
+
+        async def fake_resolve(key):
+            return "AIza-fake" if key == "gemini_api_key" else ""
+
+        messages = [
+            # Memory context prepended by build_memory_context
+            {"role": "user", "content": "[Prior conversation for context]\nUser: hi"},
+            # The real user turn
+            {"role": "user", "content": "What makes bread rise?"},
+            # A Claude assistant turn
+            {
+                "role": "assistant",
+                "content": "Yeast fermentation produces CO2.",
+                "model": "claude",
+            },
+            # The current user question
+            {"role": "user", "content": "did claude miss anything?"},
+        ]
+
+        with patch(
+            "services.chat_providers._resolve_api_key", new=fake_resolve,
+        ), _PatchGenai(mock_genai):
+            await service.stream_gemini(messages, websocket)
+
+        # History must have alternating roles and must end with model
+        # so the next send_message (user) continues the pattern.
+        history = mock_model.start_chat.call_args.kwargs.get("history")
+        assert history is not None
+        roles = [h["role"] for h in history]
+        for i in range(1, len(roles)):
+            assert roles[i] != roles[i - 1], (
+                f"Gemini history must alternate roles, got {roles}"
+            )
+        assert roles[-1] == "model", (
+            f"Gemini history must end with model role, got {roles}"
+        )
+        # The prepended context must still be preserved, just merged.
+        merged_user_text = history[0]["parts"][0]
+        assert "Prior conversation" in merged_user_text
+        assert "bread rise" in merged_user_text
+        # All three streamed chunks must have reached the WebSocket AND
+        # the final done event must fire. This is the guard that would
+        # have caught the live hang.
+        sent = websocket.messages
+        token_texts = [m["data"] for m in sent if m.get("type") == "token"]
+        assert token_texts == ["Hello ", "there", "."]
+        assert any(m.get("type") == "done" for m in sent), (
+            "stream_gemini must emit a done event so the chat panel "
+            "clears its Thinking state"
+        )
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_memory_only_history_does_not_empty(self, websocket):
+        """Regression: when the only prior turn is a build_memory_context
+        user block (fresh Gemini tab, no prior Gemini turns), the old
+        trailing-user pop emptied merged_history entirely, leaving
+        history=[] plus a long last_content. The deprecated
+        google.generativeai SDK then blocked on send_message(stream=True)
+        with no history, and the chat panel stuck on Thinking forever.
+        Assert history is non-empty, alternates, ends with model, and a
+        done event reaches the socket.
+        """
+        from unittest.mock import MagicMock
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+
+        mock_genai = MagicMock()
+        mock_model = mock_genai.GenerativeModel.return_value
+        mock_chat = mock_model.start_chat.return_value
+        chunk = type("Chunk", (), {"text": "ok"})()
+        mock_chat.send_message.return_value = [chunk]
+
+        async def fake_resolve(key):
+            return "AIza-fake" if key == "gemini_api_key" else ""
+
+        # Exact shape the router produces when the user opens a fresh
+        # Gemini tab and types one message: memory context (user role)
+        # + the real user turn. No Claude/assistant turn yet.
+        messages = [
+            {"role": "user", "content": "[Prior conversation for context]\nUser: earlier stuff"},
+            {"role": "user", "content": "did claude miss anything?"},
+        ]
+
+        with patch(
+            "services.chat_providers._resolve_api_key", new=fake_resolve,
+        ), _PatchGenai(mock_genai):
+            await service.stream_gemini(messages, websocket)
+
+        history = mock_model.start_chat.call_args.kwargs.get("history")
+        assert history is not None and len(history) > 0, (
+            "history must be non-empty; empty history hangs the deprecated SDK"
+        )
+        roles = [h["role"] for h in history]
+        for i in range(1, len(roles)):
+            assert roles[i] != roles[i - 1], (
+                f"Gemini history must alternate roles, got {roles}"
+            )
+        assert roles[-1] == "model", (
+            f"Gemini history must end with model so the next user "
+            f"send_message alternates, got {roles}"
+        )
+        sent = websocket.messages
+        token_texts = [m["data"] for m in sent if m.get("type") == "token"]
+        assert token_texts == ["ok"]
+        assert any(m.get("type") == "done" for m in sent), (
+            "done event must fire so the chat panel clears Thinking"
+        )
 
     @pytest.mark.asyncio
     async def test_model_no_longer_available_translated(self, websocket):
@@ -1434,11 +1624,10 @@ class TestTransformImageMessagesGif:
         last = out["content"][-1]
         assert last["type"] == "text"
         assert "GIF" in last["text"]
-        assert "frames above" in last["text"]
-        assert "Describe what is happening" in last["text"]
-        # And we forwarded max_frames=4 as documented.
+        assert "playfully" in last["text"]
+        # Production code uses max_frames=1 for reaction GIFs to keep responses fast.
         assert captured["url"] == "http://example.com/dance.gif"
-        assert captured["max_frames"] == 4
+        assert captured["max_frames"] == 1
 
     def test_gif_with_surrounding_text_uses_user_text(self, monkeypatch):
         """If the user typed text alongside the [gif:...] marker, the
@@ -1482,6 +1671,25 @@ class TestTransformImageMessagesGif:
             {"role": "user", "content": "hello, no images here"},
             {"role": "assistant", "content": "hi back"},
         ]
+
+    def test_model_field_preserved_across_transform(self, monkeypatch):
+        """Regression: ``transform_image_messages`` must preserve the
+        ``model`` field on assistant messages so downstream providers
+        (Gemini) can label Claude's prior responses in history. Without
+        this preservation, a Gemini follow up in a multi-AI chat could
+        not see that earlier bubbles came from Claude and would reply
+        with "I don't have access to Claude's previous responses".
+        """
+        messages = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello from Claude", "model": "claude"},
+            {"role": "user", "content": "did claude miss anything?"},
+        ]
+        result = transform_image_messages(messages)
+        # Assistant message must still carry model="claude".
+        assert result[1]["role"] == "assistant"
+        assert result[1]["model"] == "claude"
+        assert result[1]["content"] == "hello from Claude"
 
     def test_multiple_gifs_in_one_message(self, monkeypatch):
         """Two [gif:...] markers in one message should produce blocks
@@ -1756,6 +1964,226 @@ class TestTwoMentionRouting:
         assert call_model_calls["count"] == 1
         # The first mention wins in the legacy path.
         assert call_model_calls["model"] == "claude"
+
+
+class TestConversationTargetIsUser:
+    """``conversation_target_is_user`` tells the router whether the
+    user is the other party in a phrase like ``chat with me about X``.
+    When True, the host-model fallback must be suppressed so the
+    router does not orchestrate a fake AI-to-AI back and forth when the
+    user wants a one-on-one chat.
+    """
+
+    def _fn(self, text: str) -> bool:
+        from routers.chat import conversation_target_is_user
+
+        return conversation_target_is_user(text)
+
+    def test_chat_with_me(self):
+        assert self._fn("@gemini chat with me about my day") is True
+
+    def test_talk_to_us(self):
+        assert self._fn("@claude talk to us about politics") is True
+
+    def test_chat_with_model_name(self):
+        assert self._fn("@gemini chat with claude about code") is False
+
+    def test_chat_with_mention(self):
+        # Target is @gemini, not a self-reference. Returns False so the
+        # caller's host fallback still runs.
+        assert self._fn("chat with @gemini about music") is False
+
+    def test_punctuation_after_pronoun(self):
+        assert self._fn("chat with me, please") is True
+
+    def test_empty_or_non_string(self):
+        assert self._fn("") is False
+        from routers.chat import conversation_target_is_user
+
+        assert conversation_target_is_user(None) is False  # type: ignore[arg-type]
+
+
+class TestHostFallbackForConversation:
+    """When the user @mentions one model and asks it to chat in a way
+    that implies a back and forth (``chat with @gemini about X``), the
+    other speaker is the host model the user is currently talking to
+    in the UI (the dropdown selection, sent as ``model`` in the
+    WebSocket payload). This test class pins that behavior so Tori's
+    exact bug (only one bubble, Claude silent) never regresses.
+    """
+
+    @pytest.mark.asyncio
+    async def test_multi_ai_chat_with_gemini_schedules_three_turns(self):
+        """Default host is Claude, user says ``chat with @gemini ...``.
+        Orchestration must fire with [gemini, claude] for 3 rounds so
+        the panel renders six alternating bubbles (G, C, G, C, G, C).
+        """
+        import routers.chat as chat_router
+
+        calls = {"count": 0, "models": None, "rounds": None}
+
+        async def fake_orchestration(*, websocket, models, user_message, rounds):
+            calls["count"] += 1
+            calls["models"] = list(models)
+            calls["rounds"] = rounds
+            await websocket.send_json({"type": "done"})
+
+        ws = FakeWebSocket()
+        ws._recv_queue = [
+            {
+                "model": "@claude",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": (
+                            "do something cool like chat with @gemini "
+                            "about something you wouldnt think a human "
+                            "would even think of"
+                        ),
+                    }
+                ],
+            }
+        ]
+
+        with patch.object(
+            chat_router, "stream_multi_ai_conversation", new=fake_orchestration
+        ):
+            try:
+                await chat_router.chat_websocket(ws)
+            except RuntimeError:
+                pass
+
+        from services.chat_providers import MULTI_AI_DEFAULT_ROUNDS
+
+        assert calls["count"] == 1
+        assert calls["models"] == ["gemini", "claude"]
+        assert calls["rounds"] == MULTI_AI_DEFAULT_ROUNDS
+
+    @pytest.mark.asyncio
+    async def test_multi_ai_alternates_claude_and_gemini(self):
+        """Default host is Gemini, user says ``chat with @claude ...``.
+        Orchestration must fire with [claude, gemini], flipping the
+        order so the @mentioned model speaks first each round.
+        """
+        import routers.chat as chat_router
+
+        calls = {"models": None}
+
+        async def fake_orchestration(*, websocket, models, user_message, rounds):
+            calls["models"] = list(models)
+            await websocket.send_json({"type": "done"})
+
+        ws = FakeWebSocket()
+        ws._recv_queue = [
+            {
+                "model": "@gemini",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "chat with @claude back and forth about space",
+                    }
+                ],
+            }
+        ]
+
+        with patch.object(
+            chat_router, "stream_multi_ai_conversation", new=fake_orchestration
+        ):
+            try:
+                await chat_router.chat_websocket(ws)
+            except RuntimeError:
+                pass
+
+        assert calls["models"] == ["claude", "gemini"]
+
+    @pytest.mark.asyncio
+    async def test_multi_ai_single_ai_does_not_alternate(self):
+        """No conversation phrasing means single-model path even if the
+        host differs from the @mentioned model. Example: ``@gemini what
+        is 2+2?`` while host is Claude must stay on Gemini alone.
+        """
+        import routers.chat as chat_router
+
+        orchestration_calls = {"count": 0}
+        call_model_calls = {"count": 0, "model": None}
+
+        async def fake_orchestration(**kwargs):
+            orchestration_calls["count"] += 1
+
+        async def fake_call_model(
+            provider, messages, websocket, label="", use_tools=False, tab_id=""
+        ):
+            call_model_calls["count"] += 1
+            call_model_calls["model"] = provider
+            await websocket.send_json({"type": "done"})
+
+        ws = FakeWebSocket()
+        ws._recv_queue = [
+            {
+                "model": "@claude",
+                "messages": [
+                    {"role": "user", "content": "@gemini what is 2+2?"}
+                ],
+            }
+        ]
+
+        with patch.object(
+            chat_router, "stream_multi_ai_conversation", new=fake_orchestration
+        ), patch.object(chat_router, "call_model", new=fake_call_model):
+            try:
+                await chat_router.chat_websocket(ws)
+            except RuntimeError:
+                pass
+
+        assert orchestration_calls["count"] == 0
+        assert call_model_calls["count"] == 1
+        assert call_model_calls["model"] == "gemini"
+
+    @pytest.mark.asyncio
+    async def test_host_not_added_when_same_as_mentioned(self):
+        """If the user @'s the same model they're talking to (host is
+        Gemini, user types ``chat with @gemini ...``), we must NOT add
+        Gemini twice. The single-model path wins.
+        """
+        import routers.chat as chat_router
+
+        orchestration_calls = {"count": 0}
+        call_model_calls = {"count": 0, "model": None}
+
+        async def fake_orchestration(**kwargs):
+            orchestration_calls["count"] += 1
+
+        async def fake_call_model(
+            provider, messages, websocket, label="", use_tools=False, tab_id=""
+        ):
+            call_model_calls["count"] += 1
+            call_model_calls["model"] = provider
+            await websocket.send_json({"type": "done"})
+
+        ws = FakeWebSocket()
+        ws._recv_queue = [
+            {
+                "model": "@gemini",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "chat with @gemini about astronomy",
+                    }
+                ],
+            }
+        ]
+
+        with patch.object(
+            chat_router, "stream_multi_ai_conversation", new=fake_orchestration
+        ), patch.object(chat_router, "call_model", new=fake_call_model):
+            try:
+                await chat_router.chat_websocket(ws)
+            except RuntimeError:
+                pass
+
+        assert orchestration_calls["count"] == 0
+        assert call_model_calls["count"] == 1
+        assert call_model_calls["model"] == "gemini"
 
 
 class TestInferSecondModel:
@@ -2261,7 +2689,6 @@ class TestSlashCommands:
         assert "/tasks" in texts[0]["data"]
         assert "/commit" in texts[0]["data"]
         assert "/agents" in texts[0]["data"]
-        assert "/ideas" in texts[0]["data"]
         assert "/mcp" in texts[0]["data"]
         done = ws.get_messages_of_type("done")
         assert len(done) == 1
@@ -2339,26 +2766,6 @@ class TestSlashCommands:
         assert handled is True
         texts = ws.get_messages_of_type("text")
         assert "Usage" in texts[0]["data"]
-
-    @pytest.mark.asyncio
-    async def test_ideas_command(self, ws):
-        from routers.chat import _handle_slash_command
-
-        fake_hay = {
-            "clusters": [
-                {"label": "Product", "items": ["idea A", "idea B"], "count": 2},
-            ],
-            "unclustered": ["idea C"],
-        }
-        with patch("routers.chat.ostk") as mock_ostk:
-            mock_ostk.list_hay = AsyncMock(return_value=fake_hay)
-            handled = await _handle_slash_command("/ideas", ws)
-
-        assert handled is True
-        texts = ws.get_messages_of_type("text")
-        assert "idea A" in texts[0]["data"]
-        assert "idea C" in texts[0]["data"]
-        assert "Product" in texts[0]["data"]
 
     @pytest.mark.asyncio
     async def test_unknown_command(self, ws):
@@ -2496,6 +2903,12 @@ class TestPromptCaching:
             "services.chat_providers.anthropic.AsyncAnthropic",
             return_value=FakeClient(),
         ), patch(
+            "services.chat_providers._get_boot_context",
+            return_value="",
+        ), patch(
+            "services.chat_providers._recent_activity_context",
+            return_value="",
+        ), patch(
             "services.chat_providers.settings_store",
         ) as mock_settings:
             mock_settings.get.side_effect = lambda key, default=None: default
@@ -2507,7 +2920,9 @@ class TestPromptCaching:
         # The system prompt should not be present (no template matched, so
         # _compose_system_prompt returns None in stream_anthropic when
         # matched_template is falsy). But if it IS present, it must be
-        # the cached list form.
+        # the cached list form. With no volatile context (boot/activity
+        # mocked to empty), _build_cached_system_blocks returns exactly
+        # one block containing the static instructions.
         if "system" in captured_kwargs:
             system_val = captured_kwargs["system"]
             assert isinstance(system_val, list), (

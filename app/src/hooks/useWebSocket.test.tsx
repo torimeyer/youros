@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { renderHook, render, act } from '@testing-library/react'
 import { useRef } from 'react'
-import { useWebSocket } from './useWebSocket'
+import { useWebSocket, RECONNECT_MAX_ATTEMPTS } from './useWebSocket'
 
 // A tiny in-memory WebSocket that lets tests drive the server side.
 // Captures listeners so the test can fire onopen, onmessage, onclose, etc.
@@ -112,7 +112,7 @@ describe('useWebSocket stream close handling', () => {
     expect(result.current.lastMessage?.type).toBe('error')
   })
 
-  it('clears the in-progress flag when the server sends an explicit error', () => {
+  it('does not emit a second event on close when the server already sent an error', () => {
     const { result } = renderHook(() => useWebSocket('/ws/chat'))
     act(() => result.current.connect())
     const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
@@ -120,11 +120,44 @@ describe('useWebSocket stream close handling', () => {
 
     act(() => result.current.send({ messages: [] }))
     act(() => ws.emit({ type: 'error', data: 'backend exploded' }))
+
+    // After the server error, lastMessage is the error.
+    expect(result.current.lastMessage?.type).toBe('error')
+    expect(result.current.lastMessage?.data).toBe('backend exploded')
+
     act(() => ws.triggerClose())
 
-    // The server already surfaced the error. A subsequent close should
-    // not stomp on it with a second error.
-    expect(result.current.lastMessage?.type).not.toBe('error')
+    // The server already surfaced the error. A subsequent close must
+    // not stomp on it with a done or a second error. The lastMessage
+    // stays as the server's original error.
+    expect(result.current.lastMessage?.type).toBe('error')
+    expect(result.current.lastMessage?.data).toBe('backend exploded')
+  })
+
+  it('does not emit a second done on close when the server already sent done', () => {
+    // Regression: the old code emitted {type:'done'} on EVERY close when
+    // streamEndedRef was true. After a real server done + socket close, the
+    // ChatPanel would see two done events, potentially re-triggering the
+    // grace-window timer and flashing "Done." on a bubble with content.
+    const { result } = renderHook(() => useWebSocket('/ws/chat'))
+    act(() => result.current.connect())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    act(() => ws.triggerOpen())
+
+    act(() => result.current.send({ messages: [] }))
+    act(() => ws.emit({ type: 'token', data: 'hello' }))
+    act(() => ws.emit({ type: 'done' }))
+
+    // After server done, lastMessage is done.
+    expect(result.current.lastMessage?.type).toBe('done')
+
+    // Record the reference so we can detect if it changes.
+    const doneRef = result.current.lastMessage
+
+    act(() => ws.triggerClose())
+
+    // lastMessage must NOT have changed. No second done emitted.
+    expect(result.current.lastMessage).toBe(doneRef)
   })
 })
 
@@ -291,5 +324,209 @@ describe('useWebSocket multi-event burst handling', () => {
     })
 
     expect(seenTypes).toEqual(['token', 'token', 'token', 'done'])
+  })
+})
+
+describe('useWebSocket send queue and reconnect backoff', () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('queues send() calls made before open and flushes them on onopen', () => {
+    const { result } = renderHook(() => useWebSocket('/ws/chat'))
+
+    act(() => result.current.connect())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    // Socket is still CONNECTING (readyState 0).
+    ws.readyState = FakeWebSocket.CONNECTING
+
+    // Calling send() before open must NOT throw and must NOT call ws.send() yet.
+    act(() => result.current.send({ msg: 'queued' }))
+    expect(ws.sent).toHaveLength(0)
+
+    // Once onopen fires the payload must be delivered immediately.
+    ws.readyState = FakeWebSocket.OPEN
+    act(() => ws.triggerOpen())
+    expect(ws.sent).toHaveLength(1)
+    expect(JSON.parse(ws.sent[0])).toEqual({ msg: 'queued' })
+  })
+
+  it('delivers multiple queued payloads in order on open', () => {
+    const { result } = renderHook(() => useWebSocket('/ws/chat'))
+
+    act(() => result.current.connect())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    ws.readyState = FakeWebSocket.CONNECTING
+
+    act(() => {
+      result.current.send({ seq: 1 })
+      result.current.send({ seq: 2 })
+      result.current.send({ seq: 3 })
+    })
+    expect(ws.sent).toHaveLength(0)
+
+    ws.readyState = FakeWebSocket.OPEN
+    act(() => ws.triggerOpen())
+    expect(ws.sent).toHaveLength(3)
+    expect(JSON.parse(ws.sent[0])).toEqual({ seq: 1 })
+    expect(JSON.parse(ws.sent[1])).toEqual({ seq: 2 })
+    expect(JSON.parse(ws.sent[2])).toEqual({ seq: 3 })
+  })
+
+  it('surfaces a visible error after RECONNECT_MAX_ATTEMPTS consecutive failures', () => {
+    const { result } = renderHook(() => useWebSocket('/ws/chat'))
+
+    act(() => result.current.connect())
+
+    // Simulate RECONNECT_MAX_ATTEMPTS consecutive onerror events.
+    // After each one the hook should schedule a backoff retry; we
+    // advance timers to fire it, then let the next attempt fail too.
+    for (let i = 0; i < RECONNECT_MAX_ATTEMPTS; i++) {
+      const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+      ws.readyState = FakeWebSocket.CONNECTING
+      act(() => {
+        if (ws.onerror) ws.onerror({})
+      })
+      // If not the last attempt, advance the timer to trigger reconnect.
+      if (i < RECONNECT_MAX_ATTEMPTS - 1) {
+        act(() => vi.runAllTimers())
+      }
+    }
+
+    // After the cap is reached the error message must tell the user to refresh.
+    expect(result.current.lastMessage?.type).toBe('error')
+    expect(String(result.current.lastMessage?.data || '')).toMatch(/refresh/i)
+  })
+
+  it('does NOT schedule another reconnect after RECONNECT_MAX_ATTEMPTS is reached', () => {
+    const { result } = renderHook(() => useWebSocket('/ws/chat'))
+
+    act(() => result.current.connect())
+    const instanceCountBefore = FakeWebSocket.instances.length
+
+    for (let i = 0; i < RECONNECT_MAX_ATTEMPTS; i++) {
+      const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+      ws.readyState = FakeWebSocket.CONNECTING
+      act(() => {
+        if (ws.onerror) ws.onerror({})
+      })
+      if (i < RECONNECT_MAX_ATTEMPTS - 1) {
+        act(() => vi.runAllTimers())
+      }
+    }
+
+    // Advance timers well past any backoff to confirm no new socket is created.
+    act(() => vi.advanceTimersByTime(60000))
+    // No extra WebSocket instances beyond the ones already created during attempts.
+    expect(FakeWebSocket.instances.length).toBe(instanceCountBefore + RECONNECT_MAX_ATTEMPTS - 1)
+  })
+})
+
+describe('useWebSocket non-JSON frame handling', () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+  })
+
+  // Regression for the red "handleMessage" error that fired on page load.
+  // The vite WS proxy can forward an HTTP-level error response as plain
+  // text ("Upstream unavailable") when the backend is down or restarting.
+  // JSON.parse throws on that input, crashing the onmessage callback with
+  // an unhandled exception that shows up as a red error in the browser
+  // console. The fix wraps JSON.parse in a try/catch and surfaces a
+  // user-visible error message instead.
+  it('emits an error message instead of throwing when the frame is not JSON', () => {
+    const { result } = renderHook(() => useWebSocket('/ws/chat'))
+
+    act(() => result.current.connect())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    act(() => ws.triggerOpen())
+
+    // Simulate the proxy sending a plain-text HTTP error frame.
+    expect(() => {
+      act(() => {
+        if (ws.onmessage) ws.onmessage({ data: 'Upstream unavailable' })
+      })
+    }).not.toThrow()
+
+    // The hook must surface an error event so the chat panel can render it.
+    expect(result.current.lastMessage?.type).toBe('error')
+    expect(String(result.current.lastMessage?.data || '')).toMatch(/unexpected response/i)
+  })
+
+  it('does not throw when the frame is an empty string', () => {
+    const { result } = renderHook(() => useWebSocket('/ws/chat'))
+
+    act(() => result.current.connect())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    act(() => ws.triggerOpen())
+
+    expect(() => {
+      act(() => {
+        if (ws.onmessage) ws.onmessage({ data: '' })
+      })
+    }).not.toThrow()
+
+    expect(result.current.lastMessage?.type).toBe('error')
+  })
+})
+
+describe('useWebSocket heartbeat frames', () => {
+  // The backend sends small {"type": "heartbeat"} frames during long
+  // tool-use / thinking phases so the browser and proxies do not close
+  // the idle socket. The frontend must drop these frames on the floor:
+  // they must not become lastMessage (or the consumer effect would
+  // re-run for every beat), and they must not flip the stream-ended
+  // tracking flag either way.
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+  })
+
+  it('ignores heartbeat frames without updating lastMessage', () => {
+    const { result } = renderHook(() => useWebSocket('/ws/chat'))
+
+    act(() => result.current.connect())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    act(() => ws.triggerOpen())
+
+    // First real event establishes a baseline lastMessage.
+    act(() => ws.emit({ type: 'token', data: 'streaming...' }))
+    expect(result.current.lastMessage?.type).toBe('token')
+
+    // Heartbeat arrives. It must NOT overwrite the last real event.
+    act(() => ws.emit({ type: 'heartbeat' }))
+    expect(result.current.lastMessage?.type).toBe('token')
+    expect(result.current.lastMessage?.data).toBe('streaming...')
+  })
+
+  it('does not mark the stream as ended when a heartbeat arrives mid-turn', () => {
+    // Regression guard. If the hook treated heartbeat as a terminal
+    // event, a subsequent socket close would look like a normal end of
+    // turn instead of a mid-turn drop, and the error message would
+    // disappear. This test sends a heartbeat during an active turn,
+    // then drops the socket, and expects the error path to fire.
+    const { result } = renderHook(() => useWebSocket('/ws/chat'))
+
+    act(() => result.current.connect())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    act(() => ws.triggerOpen())
+
+    act(() => result.current.send({ messages: [{ role: 'user', content: 'anything' }] }))
+    act(() => ws.emit({ type: 'token', data: 'starting...' }))
+    // Long stall window: server fires a heartbeat to keep the socket alive.
+    act(() => ws.emit({ type: 'heartbeat' }))
+    act(() => ws.emit({ type: 'heartbeat' }))
+    // Now the socket actually drops before the turn finished.
+    act(() => ws.triggerClose())
+
+    expect(result.current.lastMessage?.type).toBe('error')
+    expect(String(result.current.lastMessage?.data || '')).toMatch(/connection dropped/i)
   })
 })

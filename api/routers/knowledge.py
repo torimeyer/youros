@@ -14,6 +14,8 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from services import recent_deletes
+
 router = APIRouter(tags=["knowledge"])
 
 MYOS_DIR = Path.home() / ".myos"
@@ -73,6 +75,7 @@ async def delete_note(note_id: str):
     if len(notes) == original_len:
         raise HTTPException(status_code=404, detail="Note not found")
     _save_notes(notes)
+    recent_deletes.record_id(f"knowledge:{note_id}")
     return {"result": "ok"}
 
 

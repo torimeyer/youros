@@ -293,10 +293,16 @@ def get_conversations_sync(limit: int = 50) -> list[dict]:
             identifier = row["chat_identifier"] or ""
             display_name = row["display_name"] or ""
 
-            # Use cached contact name (never blocks on AppleScript)
+            # Use cached contact name (never blocks on AppleScript).
+            # For group chats (UUID identifiers), show "Group Chat" if no
+            # display_name is set. For direct chats, show the contact name
+            # or formatted phone number.
             if not display_name:
-                display_name = _get_contact_display_name_cached(identifier)
-                identifiers_to_lookup.append(identifier)
+                if _is_direct_identifier(identifier):
+                    display_name = _get_contact_display_name_cached(identifier)
+                    identifiers_to_lookup.append(identifier)
+                else:
+                    display_name = "Group Chat"
 
             last_date = _apple_epoch_to_unix(row["last_message_date"])
             last_text = row["last_message_text"] or ""
@@ -420,6 +426,35 @@ def get_messages_sync(chat_id: int, limit: int = 100) -> list[dict]:
             LIMIT ?
         """, (chat_id, limit)).fetchall()
 
+        # Build a set of message IDs to batch-fetch attachments
+        msg_ids = [r["message_id"] for r in rows]
+        attachments_by_msg: dict[int, list[dict]] = {}
+        if msg_ids:
+            placeholders = ",".join("?" * len(msg_ids))
+            att_rows = conn.execute(f"""
+                SELECT
+                    maj.message_id,
+                    a.filename,
+                    a.mime_type,
+                    a.transfer_name
+                FROM message_attachment_join maj
+                JOIN attachment a ON maj.attachment_id = a.ROWID
+                WHERE maj.message_id IN ({placeholders})
+            """, msg_ids).fetchall()
+            for ar in att_rows:
+                mid = ar["message_id"]
+                if mid not in attachments_by_msg:
+                    attachments_by_msg[mid] = []
+                fname = ar["filename"] or ""
+                # macOS stores paths with ~ prefix, expand it
+                if fname.startswith("~"):
+                    fname = str(Path.home() / fname[2:])
+                attachments_by_msg[mid].append({
+                    "filename": fname,
+                    "mime_type": ar["mime_type"] or "",
+                    "transfer_name": ar["transfer_name"] or "",
+                })
+
         messages = []
         for row in rows:
             msg_date = _apple_epoch_to_unix(row["message_date"])
@@ -430,14 +465,18 @@ def get_messages_sync(chat_id: int, limit: int = 100) -> list[dict]:
             else:
                 sender = row["sender_identifier"] or ""
 
-            messages.append({
+            msg: dict = {
                 "id": row["message_id"],
                 "text": text,
                 "date": _unix_to_iso(msg_date),
                 "is_from_me": bool(row["is_from_me"]),
                 "is_read": bool(row["is_read"]),
                 "sender": sender,
-            })
+            }
+            atts = attachments_by_msg.get(row["message_id"])
+            if atts:
+                msg["attachments"] = atts
+            messages.append(msg)
 
         # Reverse so messages are oldest-first (natural reading order)
         messages.reverse()
@@ -543,14 +582,21 @@ def send_message_sync(recipient: str, text: str) -> dict:
     safe_text = text.replace("\\", "\\\\").replace('"', '\\"')
     safe_recipient = recipient.replace("\\", "\\\\").replace('"', '\\"')
 
-    # Use the newer Messages app AppleScript approach
+    # send_message is for NEW messages to a phone number or email only.
+    # Replies to existing conversations go through reply_to_chat_sync.
+    if safe_recipient.startswith("chat"):
+        raise ValueError(
+            "Use the reply endpoint for existing conversations. "
+            "send_message is for new messages to a phone number or email."
+        )
+
     script = f'''
-        tell application "Messages"
-            set targetService to 1st account whose service type = iMessage
-            set targetBuddy to participant "{safe_recipient}" of targetService
-            send "{safe_text}" to targetBuddy
-        end tell
-    '''
+            tell application "Messages"
+                set targetService to 1st account whose service type = iMessage
+                set targetBuddy to participant "{safe_recipient}" of targetService
+                send "{safe_text}" to targetBuddy
+            end tell
+        '''
 
     try:
         result = subprocess.run(
@@ -577,6 +623,110 @@ async def send_message(recipient: str, text: str) -> dict:
     return await asyncio.wait_for(
         asyncio.get_event_loop().run_in_executor(
             None, lambda: send_message_sync(recipient, text)
+        ),
+        timeout=20.0,
+    )
+
+
+def _is_direct_identifier(identifier: str) -> bool:
+    """Return True if identifier looks like a phone number or email (direct chat).
+
+    Group chats use UUIDs like 'chat00000000-0000-0000-0000-000000000000'.
+    Direct chats use phone numbers ('+15551234567') or emails ('user@example.com').
+    """
+    if not identifier:
+        return False
+    if "@" in identifier:
+        return True
+    return bool(re.match(r"^\+?[\d\s\-().]+$", identifier.strip()))
+
+
+def reply_to_chat_sync(chat_id: int, text: str) -> dict:
+    """Reply to a specific conversation by its database row ID.
+
+    Works for both direct messages (phone/email identifiers) and group chats
+    (UUID identifiers). Looks up the chat type from chat.db and uses the
+    appropriate AppleScript approach for each.
+
+    Args:
+        chat_id: The chat.ROWID from chat.db.
+        text: The message body.
+
+    Returns a dict with ok=True on success, or raises RuntimeError on failure.
+    """
+    if not text:
+        raise ValueError("Message text is required.")
+
+    conn = _open_db()
+    try:
+        row = conn.execute(
+            "SELECT chat_identifier, service_name FROM chat WHERE ROWID = ?",
+            (chat_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        raise ValueError(f"Conversation {chat_id} not found.")
+
+    identifier = row["chat_identifier"] or ""
+    service_name = (row["service_name"] or "iMessage").lower()
+
+    if not identifier:
+        raise ValueError("Conversation has no identifier.")
+
+    safe_text = text.replace("\\", "\\\\").replace('"', '\\"')
+    safe_identifier = identifier.replace("\\", "\\\\").replace('"', '\\"')
+
+    if _is_direct_identifier(identifier):
+        service_type = "SMS" if "sms" in service_name else "iMessage"
+        script = f'''
+            tell application "Messages"
+                set targetService to 1st account whose service type = {service_type}
+                set targetBuddy to participant "{safe_identifier}" of targetService
+                send "{safe_text}" to targetBuddy
+            end tell
+        '''
+    else:
+        # Group chat: find by chat identifier. AppleScript chat IDs
+        # use the format "iMessage;+;chatNNNN" or "iMessage;-;chatNNNN"
+        # so we match with "contains" instead of exact equality.
+        script = f'''
+            tell application "Messages"
+                repeat with c in (every chat)
+                    if (id of c) contains "{safe_identifier}" then
+                        send "{safe_text}" to c
+                        return
+                    end if
+                end repeat
+                error "Chat not found: {safe_identifier}"
+            end tell
+        '''
+
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or "Unknown error sending reply"
+            raise RuntimeError(f"Failed to send reply: {error_msg}")
+        return {"ok": True}
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "Timed out trying to send the reply. "
+            "Make sure the Messages app is running."
+        )
+
+
+async def reply_to_chat(chat_id: int, text: str) -> dict:
+    """Reply to a chat asynchronously.
+
+    Runs the AppleScript send in a thread so the async event loop is not blocked.
+    """
+    return await asyncio.wait_for(
+        asyncio.get_event_loop().run_in_executor(
+            None, lambda: reply_to_chat_sync(chat_id, text)
         ),
         timeout=20.0,
     )

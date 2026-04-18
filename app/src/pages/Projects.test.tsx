@@ -111,7 +111,7 @@ describe('Projects page', () => {
     mockedApiGet.mockReturnValue(new Promise(() => {}))
     renderProjects()
 
-    expect(screen.getByText('Loading projects...')).toBeInTheDocument()
+    expect(screen.getByTestId('loading-state')).toBeInTheDocument()
   })
 
   it('shows project descriptions when available', async () => {
@@ -160,19 +160,32 @@ describe('Projects page', () => {
     renderProjects()
 
     await waitFor(() => {
-      expect(screen.getByText('No projects found.')).toBeInTheDocument()
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
     })
+    expect(screen.getByText('No projects yet')).toBeInTheDocument()
   })
 
-  it('shows error state on API failure', async () => {
+  it('shows error banner on API failure', async () => {
     mockedApiGet.mockRejectedValue(new Error('Network error'))
     renderProjects()
 
     await waitFor(() => {
-      expect(
-        screen.getByText('Could not load projects. Make sure the API is running.')
-      ).toBeInTheDocument()
+      expect(screen.getByTestId('error-banner')).toBeInTheDocument()
     })
+    expect(
+      screen.getByText('Could not load your projects. Check that myOS is running and try again.')
+    ).toBeInTheDocument()
+  })
+
+  it('empty state with icon renders when no projects', async () => {
+    mockedApiGet.mockResolvedValue({ projects: [] })
+    renderProjects()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
+    })
+    // The EmptyState description is present
+    expect(screen.getByText('Add a directory to your workspace and projects will appear here.')).toBeInTheDocument()
   })
 
   it('shows project count in footer', async () => {

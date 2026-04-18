@@ -5,14 +5,14 @@ import OnboardingWizard from './components/OnboardingWizard'
 import Dashboard from './pages/Dashboard'
 import Tasks from './pages/Tasks'
 import Timeline from './pages/Timeline'
-import Ideas from './pages/Ideas'
 import Agents from './pages/Agents'
 import Files from './pages/Files'
 import Settings from './pages/Settings'
 import Transcripts from './pages/Transcripts'
 import Activity from './pages/Activity'
 import CostTracking from './pages/CostTracking'
-import Docs from './pages/Docs'
+import Specs from './pages/Specs'
+import DocsRedirect from './pages/DocsRedirect'
 import Drive from './pages/Drive'
 import Calendar from './pages/Calendar'
 import Gmail from './pages/Gmail'
@@ -64,11 +64,16 @@ export default function App() {
           <Route path="tasks" element={<Tasks />} />
           <Route path="timeline" element={<Timeline />} />
           <Route path="activity" element={<Activity />} />
-          <Route path="ideas" element={<Ideas />} />
           <Route path="agents" element={<Agents />} />
           <Route path="files" element={<Files />} />
           <Route path="transcripts" element={<Transcripts />} />
-          <Route path="docs" element={<Docs />} />
+          <Route path="specs" element={<Specs />} />
+          {/* Backward compat: /docs redirects to /specs after the rename. */}
+          <Route path="docs" element={<DocsRedirect />} />
+          {/* /onboarding is not a real route: the wizard renders conditionally
+              at the app root when onboarded=false. Redirect here so deep-links
+              used in QA, support, and demos always land somewhere valid. */}
+          <Route path="onboarding" element={<Navigate to="/" replace />} />
           <Route path="drive" element={<Drive />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="gmail" element={<Gmail />} />

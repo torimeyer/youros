@@ -59,7 +59,7 @@ describe('CommandPalette', () => {
 
   it('renders all navigation commands', () => {
     renderPalette()
-    const pages = ['Home', 'Tasks', 'Ideas', 'Agents', 'Timeline', 'Files', 'Transcripts', 'Settings']
+    const pages = ['Home', 'Tasks', 'Agents', 'Timeline', 'Files', 'Transcripts', 'Settings']
     for (const page of pages) {
       expect(screen.getByText(`Go to ${page}`)).toBeInTheDocument()
     }
@@ -87,12 +87,12 @@ describe('CommandPalette', () => {
     expect(screen.getByText('Go to Tasks')).toBeInTheDocument()
     expect(screen.getByText('Create New Task')).toBeInTheDocument()
     expect(screen.queryByText('Go to Home')).not.toBeInTheDocument()
-    expect(screen.queryByText('Go to Ideas')).not.toBeInTheDocument()
+    expect(screen.queryByText('Go to Agents')).not.toBeInTheDocument()
   })
 
   it('shows empty state when no commands match and no search results', async () => {
     const user = userEvent.setup()
-    mockedApiGet.mockResolvedValue({ tasks: [], ideas: [], query: 'xyznonexistent' })
+    mockedApiGet.mockResolvedValue({ tasks: [], query: 'xyznonexistent' })
     renderPalette()
 
     const input = screen.getByTestId('command-palette-input')
@@ -210,8 +210,8 @@ describe('CommandPalette', () => {
     renderPalette(true, onClose)
 
     const input = screen.getByTestId('command-palette-input')
-    // 10 total commands. Pressing ArrowDown 10 times wraps back to index 0.
-    for (let i = 0; i < 10; i++) {
+    // 9 total commands. Pressing ArrowDown 9 times wraps back to index 0.
+    for (let i = 0; i < 9; i++) {
       fireEvent.keyDown(input, { key: 'ArrowDown' })
     }
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -261,7 +261,6 @@ describe('CommandPalette search', () => {
   it('shows search results for matching tasks', async () => {
     mockedApiGet.mockResolvedValue({
       tasks: [{ id: '→086', priority: 'P1', title: 'Add concept search' }],
-      ideas: [],
       query: 'search',
     })
 
@@ -280,47 +279,9 @@ describe('CommandPalette search', () => {
     })
   })
 
-  it('shows search results for matching ideas', async () => {
-    mockedApiGet.mockResolvedValue({
-      tasks: [],
-      ideas: [{ straw: 'add a search bar', timestamp: '2026-04-04T20:00:00Z', converted: false }],
-      query: 'search',
-    })
-
-    renderPalette()
-    const input = screen.getByTestId('command-palette-input')
-    fireEvent.change(input, { target: { value: 'search' } })
-
-    vi.advanceTimersByTime(400)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('search-ideas-section')).toBeInTheDocument()
-      expect(screen.getByText('add a search bar')).toBeInTheDocument()
-    })
-  })
-
-  it('marks converted ideas with a label', async () => {
-    mockedApiGet.mockResolvedValue({
-      tasks: [],
-      ideas: [{ straw: 'search feature idea', timestamp: '2026-04-04T20:00:00Z', converted: true }],
-      query: 'search',
-    })
-
-    renderPalette()
-    const input = screen.getByTestId('command-palette-input')
-    fireEvent.change(input, { target: { value: 'search' } })
-
-    vi.advanceTimersByTime(400)
-
-    await waitFor(() => {
-      expect(screen.getByText('(turned into a task)')).toBeInTheDocument()
-    })
-  })
-
   it('shows "no results" message when search returns empty', async () => {
     mockedApiGet.mockResolvedValue({
       tasks: [],
-      ideas: [],
       query: 'xyznonexistent',
     })
 
@@ -332,7 +293,7 @@ describe('CommandPalette search', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('search-no-results')).toBeInTheDocument()
-      expect(screen.getByText('No matching tasks or ideas found.')).toBeInTheDocument()
+      expect(screen.getByText('No matching tasks found.')).toBeInTheDocument()
     })
   })
 

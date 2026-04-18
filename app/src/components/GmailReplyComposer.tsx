@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import Icon from './Icon'
+import ConfirmModal from './ConfirmModal'
+import { useConfirm } from '../hooks/useConfirm'
 import { api, ApiError } from '../lib/api'
 
 interface GmailReplyComposerProps {
@@ -35,13 +37,19 @@ export default function GmailReplyComposer({
   const [sending, setSending] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [reauthUrl, setReauthUrl] = useState<string | null>(null)
+  const { confirm, confirmProps } = useConfirm()
 
   const busy = drafting || sending
 
   const handleDraftForMe = async () => {
     setErrorMessage(null)
     if (body.trim().length > 0) {
-      const confirmed = window.confirm('Replace your draft?')
+      const confirmed = await confirm({
+        title: 'Replace your draft?',
+        message: 'The text you typed will be replaced with an AI-generated reply.',
+        confirmLabel: 'Replace',
+        danger: false,
+      })
       if (!confirmed) return
     }
     setDrafting(true)
@@ -186,6 +194,7 @@ export default function GmailReplyComposer({
           </button>
         </div>
       </div>
+      <ConfirmModal {...confirmProps} />
     </div>
   )
 }

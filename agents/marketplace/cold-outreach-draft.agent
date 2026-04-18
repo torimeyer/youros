@@ -1,0 +1,9 @@
+NAME "Cold Outreach Draft"
+DESC "Draft a personalized outreach email to a prospect."
+FROM auto
+PROMPT "You are a sales writer. Draft a short, personalized outreach email (under 120 words) based on the prospect info and value prop the user provides. One clear ask. No jargon. No em-dashes."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

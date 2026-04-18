@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -49,21 +50,60 @@ def _build_calendar_service():
 
 
 def _load_cache() -> list[dict] | None:
-    """Return cached events if they exist and are less than 15 minutes old."""
+    """Return cached events if they exist, are less than 15 minutes old,
+    and were fetched for today's date.
+
+    The cache stores ``{"fetched_date": "YYYY-MM-DD", "events": [...]}``.
+    If the local calendar day has changed since the cache was written,
+    the events are stale (they cover a different 7-day window) and must
+    be re-fetched. This prevents the Calendar page from showing events
+    from a previous month when the server stays running across midnight.
+    """
     if not EVENTS_CACHE_PATH.exists():
         return None
     age = time.time() - EVENTS_CACHE_PATH.stat().st_mtime
     if age > _CACHE_TTL_SECONDS:
         return None
     try:
-        return json.loads(EVENTS_CACHE_PATH.read_text())
+        raw = json.loads(EVENTS_CACHE_PATH.read_text())
     except Exception:
         return None
+    # Support both old format (bare list) and new format (dict with date).
+    if isinstance(raw, list):
+        # Old format without date metadata. Treat as expired so we
+        # re-fetch with the current date range.
+        return None
+    if not isinstance(raw, dict):
+        return None
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    if raw.get("fetched_date") != today_str:
+        return None
+    events = raw.get("events")
+    # Defensive: if a previous version persisted an empty list, do not
+    # serve it. Force a re-fetch so a brief earlier-today blip cannot
+    # leave the Calendar page blank for the rest of the day.
+    if not events:
+        return None
+    return events
 
 
 def _save_cache(events: list[dict]) -> None:
-    """Persist events to the cache file."""
-    atomic_write_text(EVENTS_CACHE_PATH, json.dumps(events))
+    """Persist events with the fetch date so we can detect stale caches.
+
+    Skip persisting an EMPTY events list. A transient zero-result fetch
+    (network hiccup, momentary scope blip, or simply caught between two
+    real syncs) would otherwise be pinned for the 15-minute TTL and the
+    Calendar page would render blank even though the user has events.
+    Letting the next request hit the API fresh on a zero result is the
+    right tradeoff. If the calendar truly is empty, the next call still
+    returns [] in well under a second. Regression guard for the
+    "Calendar tab shows nothing" demo bug.
+    """
+    if not events:
+        return
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    payload = {"fetched_date": today_str, "events": events}
+    atomic_write_text(EVENTS_CACHE_PATH, json.dumps(payload))
 
 
 def _clear_cache() -> None:
@@ -210,16 +250,30 @@ async def create_event(
                 body["end"] = {"date": start}
     else:
         # Timed event: use dateTime fields.
-        body["start"] = {"dateTime": start}
+        # Always include timeZone so Google never rejects with
+        # "Missing time zone definition for start time."
+        import time as _time
+        local_tz = _time.tzname[0]
+        # Prefer IANA zone from the TZ env var or fall back to a
+        # fixed offset derived from the UTC offset right now.
+        iana_tz = os.environ.get("TZ", "")
+        if not iana_tz or "/" not in iana_tz:
+            try:
+                from datetime import timezone as _tz
+                offset = _dt.now(_tz.utc).astimezone().strftime("%z")
+                iana_tz = f"Etc/GMT{'+' if offset[0] == '-' else '-'}{int(offset[1:3])}" if offset else "America/Chicago"
+            except Exception:
+                iana_tz = "America/Chicago"
+        body["start"] = {"dateTime": start, "timeZone": iana_tz}
         if end:
-            body["end"] = {"dateTime": end}
+            body["end"] = {"dateTime": end, "timeZone": iana_tz}
         else:
             # Default end: one hour after start.
             try:
                 parsed = _dt.fromisoformat(start)
-                body["end"] = {"dateTime": (parsed + _td(hours=1)).isoformat()}
+                body["end"] = {"dateTime": (parsed + _td(hours=1)).isoformat(), "timeZone": iana_tz}
             except ValueError:
-                body["end"] = {"dateTime": start}
+                body["end"] = {"dateTime": start, "timeZone": iana_tz}
 
     def _insert_sync():
         service = _build_calendar_service()
@@ -235,6 +289,20 @@ async def create_event(
     _clear_cache()
 
     return event
+
+
+async def delete_event(event_id: str) -> None:
+    """Delete a single event from the user's primary Google Calendar.
+
+    Raises whatever the Google client raises (typically HttpError) so the
+    caller can map 404 to "already gone" and 403 to a reauth prompt.
+    """
+    def _delete_sync():
+        service = _build_calendar_service()
+        service.events().delete(calendarId="primary", eventId=event_id).execute()
+
+    await asyncio.get_event_loop().run_in_executor(None, _delete_sync)
+    _clear_cache()
 
 
 async def needs_reauth() -> bool:

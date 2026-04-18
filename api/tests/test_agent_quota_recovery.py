@@ -62,6 +62,8 @@ async def test_register_stores_token_limit(tmp_path):
                 "model": "sonnet",
                 "budget": 2.0,
                 "token_limit": 100000,
+                "task": "test token limit storage",
+                "source": "claude-code",
             })
 
     assert resp.status_code == 200
@@ -86,6 +88,8 @@ async def test_register_without_token_limit(tmp_path):
                 "name": "no-limit-agent",
                 "model": "sonnet",
                 "budget": 2.0,
+                "task": "test no token limit",
+                "source": "claude-code",
             })
 
     assert resp.status_code == 200

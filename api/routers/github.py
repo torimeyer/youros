@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services import github as github_service
+from services import recent_deletes
 from services.ostk import ostk
 
 router = APIRouter(tags=["github"])
@@ -37,7 +38,12 @@ async def github_connect(req: GitHubConnectRequest):
 
 @router.get("/github/status")
 async def github_status():
-    """Return GitHub connection status."""
+    """Return GitHub connection status.
+
+    This is a local-only check: it reads the cached token path and never
+    calls the GitHub API, so it should be fast enough to paint the page
+    within myOS's 300ms budget.
+    """
     connected = github_service.is_connected()
     repo = ""
     if connected:
@@ -150,4 +156,5 @@ async def github_push(task_id: str, req: GitHubPushRequest):
 async def github_disconnect():
     """Remove GitHub token and disconnect."""
     github_service.disconnect()
+    recent_deletes.record_id("github-connection")
     return {"ok": True}

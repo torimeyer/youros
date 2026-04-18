@@ -72,6 +72,7 @@ interface Props {
   entry: FileEntry | null;
   onClose: () => void;
   onOpenExternally?: (path: string) => void;
+  onDelete?: (path: string, name: string) => void;
 }
 
 // --- Extension classification ---
@@ -467,7 +468,7 @@ function SpreadsheetView({ preview }: { preview: SpreadsheetPreview }) {
 
 // --- Main component ---
 
-export default function FilePreviewPane({ entry, onClose, onOpenExternally }: Props) {
+export default function FilePreviewPane({ entry, onClose, onOpenExternally, onDelete }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [readData, setReadData] = useState<ReadResponse | null>(null);
@@ -567,6 +568,17 @@ export default function FilePreviewPane({ entry, onClose, onOpenExternally }: Pr
                 Open externally
               </button>
             )}
+            {onDelete && (
+              <button
+                onClick={() => { onDelete(entry.path, entry.name); onClose(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 rounded-lg text-xs text-red-400 hover:text-red-300 transition-colors border border-red-500/30"
+                title={`Delete ${entry.name}`}
+                data-testid="preview-delete-button"
+              >
+                <Icon name="delete" size={14} />
+                Delete
+              </button>
+            )}
             <button
               onClick={onClose}
               className="flex items-center justify-center w-8 h-8 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
@@ -618,6 +630,336 @@ export default function FilePreviewPane({ entry, onClose, onOpenExternally }: Pr
   );
 }
 
+// --- Roadmap detection and renderer ---
+
+// A roadmap preview shows each initiative with a plus button so the
+// user can spin up a plan without leaving the Files page. Detection:
+// the file has ``kind: roadmap`` in the front matter, OR the body
+// is a JSON array with the quarter/theme/initiatives shape that the
+// Roadmap agent template emits.
+export interface RoadmapQuarter {
+  quarter: string;
+  theme: string;
+  initiatives: string[];
+}
+
+interface ParsedRoadmap {
+  quarters: RoadmapQuarter[];
+  // Raw prose bullets (when the roadmap is markdown bullets instead of
+  // JSON). Each entry is the bullet text already stripped of the "-"
+  // or "*" prefix. Heuristic: line starts with "- " or "* " and has
+  // at least 3 words of content.
+  bullets: string[];
+}
+
+export function isRoadmapDoc(content: string): boolean {
+  // Front matter must contain ``kind: roadmap``. The writer in the
+  // backend always stamps this for Roadmap template runs, so a missing
+  // line means this is a different artifact.
+  const fm = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!fm) return false;
+  return /^\s*kind:\s*roadmap\s*$/m.test(fm[1]);
+}
+
+export function parseRoadmap(content: string): ParsedRoadmap {
+  // Strip front matter before we hunt for the payload.
+  const stripped = content.replace(/^---\n[\s\S]*?\n---\n?/, '');
+  // Also strip a leading "# Roadmap" heading (the writer adds one).
+  const body = stripped.replace(/^#\s+Roadmap\s*\n+/, '').trim();
+
+  // Try JSON first. The Roadmap template prompt asks for a bare JSON
+  // array, so we pull the first [...] substring and parse it.
+  const jsonMatch = body.match(/\[[\s\S]*\]/);
+  if (jsonMatch) {
+    try {
+      const parsed: unknown = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed)) {
+        const quarters: RoadmapQuarter[] = [];
+        for (const item of parsed) {
+          if (
+            item &&
+            typeof item === 'object' &&
+            typeof (item as { quarter?: unknown }).quarter === 'string' &&
+            Array.isArray((item as { initiatives?: unknown }).initiatives)
+          ) {
+            const q = item as {
+              quarter: string;
+              theme?: string;
+              initiatives: unknown[];
+            };
+            quarters.push({
+              quarter: q.quarter,
+              theme: typeof q.theme === 'string' ? q.theme : '',
+              initiatives: q.initiatives
+                .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+                .map((x) => x.trim()),
+            });
+          }
+        }
+        if (quarters.length > 0) return { quarters, bullets: [] };
+      }
+    } catch {
+      // Fall through to bullet parsing.
+    }
+  }
+
+  // Bullet fallback: any line that begins with "- " or "* " and has
+  // at least three words of content is treated as an initiative. This
+  // keeps prose roadmaps working while excluding short markers like
+  // "- " alone or "- tbd".
+  const bullets: string[] = [];
+  for (const rawLine of body.split(/\r?\n/)) {
+    const m = rawLine.match(/^\s*[-*]\s+(.+?)\s*$/);
+    if (!m) continue;
+    const text = m[1].trim();
+    if (text.split(/\s+/).length >= 3) bullets.push(text);
+  }
+  return { quarters: [], bullets };
+}
+
+// Render a prose-style roadmap (headings, paragraphs, bullet lists) while
+// injecting a "+ Make spec" button next to each bullet that looks like an
+// initiative (3+ words). Preserves the document's structure so the reader
+// sees Year/Theme/Goals/Milestones in context, not a flat list.
+function renderRoadmapStructured(
+  content: string,
+  onMakeSpec: (text: string) => void,
+  busy: string | null
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const lines = content.split(/\r?\n/);
+
+  // Skip YAML front matter if present.
+  let startIdx = 0;
+  if (lines[0]?.trim() === '---') {
+    for (let j = 1; j < lines.length; j++) {
+      if (lines[j]?.trim() === '---') {
+        startIdx = j + 1;
+        break;
+      }
+    }
+  }
+
+  let paraBuf: string[] = [];
+  let key = 0;
+
+  const flushPara = () => {
+    if (paraBuf.length === 0) return;
+    const text = paraBuf.join('\n');
+    nodes.push(
+      <div key={`rp-p-${key++}`} className="text-sm text-slate-300 leading-relaxed my-2">
+        {renderMarkdown(text)}
+      </div>
+    );
+    paraBuf = [];
+  };
+
+  for (let i = startIdx; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('### ')) {
+      flushPara();
+      nodes.push(
+        <h3 key={`rp-h3-${key++}`} className="text-base font-semibold text-slate-100 mt-4 mb-1">
+          {trimmed.slice(4)}
+        </h3>
+      );
+    } else if (trimmed.startsWith('## ')) {
+      flushPara();
+      nodes.push(
+        <h2 key={`rp-h2-${key++}`} className="text-lg font-bold text-white mt-5 mb-2">
+          {trimmed.slice(3)}
+        </h2>
+      );
+    } else if (trimmed.startsWith('# ')) {
+      flushPara();
+      nodes.push(
+        <h1 key={`rp-h1-${key++}`} className="text-xl font-bold text-white mt-4 mb-2">
+          {trimmed.slice(2)}
+        </h1>
+      );
+    } else if (trimmed === '---') {
+      flushPara();
+      nodes.push(<hr key={`rp-hr-${key++}`} className="border-slate-800 my-4" />);
+    } else if (/^[-*]\s+/.test(trimmed)) {
+      flushPara();
+      const bulletText = trimmed.replace(/^[-*]\s+/, '').trim();
+      const words = bulletText.split(/\s+/).length;
+      if (words >= 3) {
+        nodes.push(
+          <div
+            key={`rp-li-${key++}`}
+            className="flex items-start gap-2 py-1 pl-4"
+            data-testid="roadmap-initiative"
+          >
+            <span className="text-slate-500 mt-1 flex-shrink-0">•</span>
+            <span className="text-sm text-slate-300 flex-1">{bulletText}</span>
+            <button
+              type="button"
+              onClick={() => onMakeSpec(bulletText)}
+              disabled={busy !== null}
+              className="flex-shrink-0 text-xs px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-600/40 rounded text-blue-200 disabled:opacity-50"
+              title="Make a spec from this initiative"
+              data-testid="roadmap-make-spec-button"
+              aria-label={`Make a spec from "${bulletText}"`}
+            >
+              {busy === bulletText ? '...' : '+ Make spec'}
+            </button>
+          </div>
+        );
+      } else {
+        nodes.push(
+          <div key={`rp-li-${key++}`} className="flex items-start gap-2 py-1 pl-4">
+            <span className="text-slate-500 mt-1 flex-shrink-0">•</span>
+            <span className="text-sm text-slate-400">{bulletText}</span>
+          </div>
+        );
+      }
+    } else if (trimmed === '') {
+      flushPara();
+    } else {
+      paraBuf.push(line);
+    }
+  }
+  flushPara();
+
+  return nodes;
+}
+
+interface RoadmapPreviewProps {
+  content: string;
+  filePath: string;
+  onSpecCreated?: (result: { title: string; promotedPath: string | null }) => void;
+}
+
+export function RoadmapPreview({ content, filePath, onSpecCreated }: RoadmapPreviewProps) {
+  const parsed = useMemo(() => parseRoadmap(content), [content]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [toast, setToast] = useState<
+    { title: string; promotedPath: string | null } | null
+  >(null);
+
+  const handleMakeSpec = useCallback(
+    async (initiativeText: string) => {
+      setBusy(initiativeText);
+      try {
+        const res = await api.post<{
+          title: string;
+          promoted_path: string | null;
+          status: string;
+        }>('/specs/from-roadmap-line', {
+          roadmap_path: filePath,
+          initiative_text: initiativeText,
+        });
+        setToast({ title: res.title, promotedPath: res.promoted_path });
+        if (onSpecCreated) onSpecCreated({ title: res.title, promotedPath: res.promoted_path });
+      } catch {
+        setToast({ title: 'Could not create plan', promotedPath: null });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [filePath, onSpecCreated]
+  );
+
+  const goToSpec = useCallback(() => {
+    if (!toast) return;
+    // Navigate to the Specs page with a query param so the target
+    // spec can expand itself. Full page nav keeps this robust when
+    // used outside a router context (the FilePreviewPane is mounted
+    // from multiple surfaces).
+    const qp = toast.promotedPath
+      ? `?expand=${encodeURIComponent(toast.promotedPath)}`
+      : '';
+    window.location.href = `/specs${qp}`;
+  }, [toast]);
+
+  const renderInitiativeRow = (text: string, keyPrefix: string) => (
+    <li
+      key={`${keyPrefix}-${text}`}
+      className="flex items-start gap-2 group"
+      data-testid="roadmap-initiative"
+    >
+      <span className="text-slate-300 flex-1">{text}</span>
+      <button
+        type="button"
+        onClick={() => handleMakeSpec(text)}
+        disabled={busy !== null}
+        className="flex-shrink-0 text-xs px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-600/40 rounded text-blue-200 disabled:opacity-50"
+        title="Make a spec from this initiative"
+        data-testid="roadmap-make-spec-button"
+        aria-label={`Make a spec from "${text}"`}
+      >
+        {busy === text ? '...' : '+ Make spec'}
+      </button>
+    </li>
+  );
+
+  return (
+    <div className="space-y-4" data-testid="roadmap-preview">
+      {parsed.quarters.length > 0 &&
+        parsed.quarters.map((q) => (
+          <div
+            key={q.quarter}
+            className="bg-slate-900/60 border border-slate-800 rounded-lg p-4"
+          >
+            <p className="text-xs uppercase tracking-widest text-slate-500 mb-1">
+              {q.quarter}
+            </p>
+            {q.theme && (
+              <h3 className="text-base font-semibold text-slate-100 mb-3">
+                {q.theme}
+              </h3>
+            )}
+            <ul className="space-y-2 text-sm">
+              {q.initiatives.map((init) => renderInitiativeRow(init, q.quarter))}
+            </ul>
+          </div>
+        ))}
+
+      {parsed.quarters.length === 0 && parsed.bullets.length > 0 && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
+          {renderRoadmapStructured(content, handleMakeSpec, busy)}
+        </div>
+      )}
+
+      {parsed.quarters.length === 0 && parsed.bullets.length === 0 && (
+        <div className="prose-invert">{renderMarkdown(content)}</div>
+      )}
+
+      {toast && (
+        <div
+          className="fixed bottom-6 right-6 z-[60] bg-slate-800 border border-slate-600 rounded-lg shadow-xl px-4 py-3 flex items-center gap-3"
+          role="status"
+          data-testid="roadmap-spec-toast"
+        >
+          <div className="text-sm text-slate-100">
+            Spec created: <span className="font-medium">{toast.title}</span>
+          </div>
+          {toast.promotedPath && (
+            <button
+              type="button"
+              onClick={goToSpec}
+              className="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-white"
+            >
+              Go to spec
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="text-xs text-slate-400 hover:text-slate-200"
+            aria-label="Dismiss"
+          >
+            Close
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Body dispatcher ---
 
 function PreviewBody({
@@ -634,6 +976,14 @@ function PreviewBody({
   onOpenExternally?: (path: string) => void;
 }) {
   if (category === 'markdown' && readData && readData.content) {
+    if (isRoadmapDoc(readData.content)) {
+      return (
+        <RoadmapPreview
+          content={readData.content}
+          filePath={entry.path}
+        />
+      );
+    }
     return <div className="prose-invert">{renderMarkdown(readData.content)}</div>;
   }
 

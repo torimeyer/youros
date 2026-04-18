@@ -1,0 +1,9 @@
+NAME "Meal Planner"
+DESC "Plan a week of meals based on what is in the fridge."
+FROM auto
+PROMPT "You are a home cook. From the ingredients the user lists, plan 7 dinners for the week, reusing ingredients to reduce waste. One line per meal. Note any ingredients to buy."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

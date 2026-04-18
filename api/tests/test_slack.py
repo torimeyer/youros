@@ -32,6 +32,53 @@ async def test_slack_status_connected(client):
     assert data["team_name"] == "Acme"
 
 
+@pytest.mark.asyncio
+async def test_slack_status_cached_path_is_fast(client):
+    """Warm cache hits for /slack/status must return under 50ms."""
+    import time as _time
+
+    with patch("routers.slack.slack_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.get_team_info.return_value = {"team_name": "Acme", "team_id": "T1"}
+        first = await client.get("/api/slack/status")
+        assert first.status_code == 200
+
+        start = _time.perf_counter()
+        second = await client.get("/api/slack/status")
+        elapsed = _time.perf_counter() - start
+
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert elapsed < 0.050, f"cached path took {elapsed*1000:.1f}ms"
+
+
+@pytest.mark.asyncio
+async def test_slack_status_cache_invalidates_on_connect_and_disconnect():
+    """save_tokens must invalidate the status cache; disconnect must too."""
+    from services import connections_cache, slack as slack_service
+
+    # Seed the cache.
+    connections_cache.set("slack_status", {"connected": False, "team_name": "", "team_id": "", "configured": False})
+    assert connections_cache.get("slack_status") is not None
+
+    # save_tokens is the connect path. It writes to TOKEN_PATH and drops
+    # the cached status so the next poll is fresh.
+    with patch("services.slack.TOKEN_PATH") as mock_path:
+        mock_path.exists.return_value = False
+        with patch("services.slack.atomic_write_json"):
+            slack_service.save_tokens({"access_token": "xoxb-abc"})
+    assert connections_cache.get("slack_status") is None
+
+    # Seed again and exercise the disconnect path.
+    connections_cache.set("slack_status", {"connected": True, "team_name": "x", "team_id": "y", "configured": True})
+    assert connections_cache.get("slack_status") is not None
+
+    with patch("services.slack.TOKEN_PATH") as mock_path:
+        mock_path.exists.return_value = False
+        slack_service.disconnect()
+    assert connections_cache.get("slack_status") is None
+
+
 # --- GET /api/slack/channels ---
 
 @pytest.mark.asyncio

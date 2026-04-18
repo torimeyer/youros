@@ -646,3 +646,84 @@ async def test_promote_endpoint_rejects_unknown_template(patched_paths, monkeypa
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post("/api/agent-patterns/promote/NonexistentTemplate")
     assert resp.status_code == 400
+
+
+def test_analyze_runs_excludes_deleted_agents(patched_paths, tmp_path, monkeypatch):
+    """analyze_runs must not include agents listed in deleted_agents.json.
+
+    Regression: before this fix, deleted agents remained in agent_state.json
+    and were still counted by analyze_runs(), causing the Insights
+    'X agents registered but never ran' card to persist even after clicking
+    Clean up.
+    """
+    state = {
+        "kept-agent": {
+            "spawned_at": _ts(300),
+            "abandoned_at": _ts(290),
+            "budget": "1.0",
+            "model": "sonnet",
+            "status": "abandoned",
+        },
+        "deleted-agent": {
+            "spawned_at": _ts(200),
+            "abandoned_at": _ts(190),
+            "budget": "1.0",
+            "model": "sonnet",
+            "status": "abandoned",
+        },
+    }
+    patched_paths["state"].write_text(json.dumps(state))
+
+    deleted_path = tmp_path / "deleted_agents.json"
+    deleted_path.write_text(json.dumps(["deleted-agent"]))
+    monkeypatch.setattr(ap, "DELETED_AGENTS_PATH", deleted_path)
+
+    runs = ap.analyze_runs()
+    names = [r["name"] for r in runs]
+    assert "kept-agent" in names, "kept-agent should appear in analyze_runs"
+    assert "deleted-agent" not in names, (
+        "deleted-agent is in deleted_agents.json and must be excluded from "
+        "analyze_runs so it does not count toward recommendations."
+    )
+
+
+def test_recommendations_abandoned_infra_excludes_deleted(patched_paths, tmp_path, monkeypatch):
+    """The abandoned_infra recommendation must not count agents in deleted_agents.json.
+
+    Regression: the Insights 'Clean up' button deleted agents from the live
+    list view but analyze_runs still read them from agent_state.json, so the
+    recommendation count never dropped to zero after cleanup.
+    """
+    # Two abandoned agents with short durations and no cost (matches 'never ran')
+    state = {
+        "active-infra-fail": {
+            "spawned_at": _ts(30),
+            "abandoned_at": _ts(20),
+            "budget": "1.0",
+            "model": "sonnet",
+            "status": "abandoned",
+        },
+        "deleted-infra-fail": {
+            "spawned_at": _ts(25),
+            "abandoned_at": _ts(15),
+            "budget": "1.0",
+            "model": "sonnet",
+            "status": "abandoned",
+        },
+    }
+    patched_paths["state"].write_text(json.dumps(state))
+
+    deleted_path = tmp_path / "deleted_agents.json"
+    deleted_path.write_text(json.dumps(["deleted-infra-fail"]))
+    monkeypatch.setattr(ap, "DELETED_AGENTS_PATH", deleted_path)
+
+    recs = ap.recommendations()
+    infra_recs = [r for r in recs if r["type"] == "abandoned_infra"]
+
+    assert len(infra_recs) == 1, (
+        f"Expected exactly 1 abandoned_infra recommendation (only the non-deleted agent), "
+        f"got {len(infra_recs)}. Deleted agents must not inflate the count."
+    )
+    assert "deleted-infra-fail" not in infra_recs[0]["message"], (
+        "The deleted agent's name must not appear in the recommendation message."
+    )

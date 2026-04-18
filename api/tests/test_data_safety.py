@@ -44,8 +44,9 @@ STORE_PATH_CONSTANTS = {
     "routers.indexing": "INDEX_PATH",
     "routers.knowledge": "KNOWLEDGE_PATH",
     "routers.growth": "GROWTH_PATH",
-    "services.recordings": "RECORDINGS_DIR",
     "services.imessage": "IMESSAGE_CACHE_DIR",
+    "services.dogwalk_store": "DOGWALK_LEADS_PATH",
+    "services.prototypes_store": "PROTOTYPES_PATH",
 }
 
 

@@ -26,6 +26,34 @@ _BREAKER_COOLDOWN = 300
 _breaker_failures: int = 0
 _breaker_tripped_at: float = 0.0
 
+# In-process response cache for read endpoints.
+# Key: (method, path, frozen_params). Value: (expires_at, data).
+_CACHE_TTL_SECONDS = 60.0
+_response_cache: dict[tuple, tuple[float, object]] = {}
+
+# Config cache: avoid re-reading the token JSON on every request.
+_config_cache: dict | None = None
+_config_cache_mtime: float = 0.0
+
+
+def _cache_get(key: tuple):
+    entry = _response_cache.get(key)
+    if not entry:
+        return None
+    expires_at, data = entry
+    if time.time() >= expires_at:
+        _response_cache.pop(key, None)
+        return None
+    return data
+
+
+def _cache_set(key: tuple, data: object, ttl: float = _CACHE_TTL_SECONDS) -> None:
+    _response_cache[key] = (time.time() + ttl, data)
+
+
+def _cache_clear() -> None:
+    _response_cache.clear()
+
 
 def _breaker_is_open() -> bool:
     if _breaker_failures < _BREAKER_THRESHOLD:
@@ -58,22 +86,44 @@ def is_connected() -> bool:
 
 
 def get_config() -> dict:
-    """Return saved config (token, repo). Raises RuntimeError if not connected."""
+    """Return saved config (token, repo). Raises RuntimeError if not connected.
+
+    Reads token JSON once and reuses it across requests. Reloads only when
+    the file's mtime changes, so rotating the token still takes effect.
+    """
+    global _config_cache, _config_cache_mtime
     if not TOKEN_PATH.exists():
+        _config_cache = None
+        _config_cache_mtime = 0.0
         raise RuntimeError("Not connected to GitHub.")
-    return json.loads(TOKEN_PATH.read_text())
+    try:
+        mtime = TOKEN_PATH.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    if _config_cache is None or mtime != _config_cache_mtime:
+        _config_cache = json.loads(TOKEN_PATH.read_text())
+        _config_cache_mtime = mtime
+    return _config_cache
 
 
 def save_config(token: str, repo: str) -> None:
     """Persist PAT and repo to disk."""
+    global _config_cache, _config_cache_mtime
     _ensure_dirs()
     atomic_write_json(TOKEN_PATH, {"token": token, "repo": repo})
+    _config_cache = None
+    _config_cache_mtime = 0.0
+    _cache_clear()
 
 
 def disconnect() -> None:
     """Remove saved token."""
+    global _config_cache, _config_cache_mtime
     if TOKEN_PATH.exists():
         TOKEN_PATH.unlink(missing_ok=True)
+    _config_cache = None
+    _config_cache_mtime = 0.0
+    _cache_clear()
 
 
 def _headers() -> dict:
@@ -148,9 +198,19 @@ async def verify_token() -> dict:
     return {}
 
 
-async def list_issues(state: str = "open", per_page: int = 50) -> list[dict]:
-    """Fetch issues from the connected repo."""
+async def list_issues(state: str = "open", per_page: int = 50, use_cache: bool = True) -> list[dict]:
+    """Fetch issues from the connected repo.
+
+    Results are cached in-process for 60 seconds keyed by (repo, state, per_page).
+    Pass use_cache=False to force a refresh.
+    """
     repo = _repo()
+    cache_key = ("list_issues", repo, state, per_page)
+    if use_cache:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
     data = await _github_get(f"/repos/{repo}/issues", {
         "state": state,
         "per_page": str(per_page),
@@ -158,22 +218,25 @@ async def list_issues(state: str = "open", per_page: int = 50) -> list[dict]:
         "direction": "desc",
     })
     if not isinstance(data, list):
-        return []
-    return [
-        {
-            "number": issue["number"],
-            "title": issue.get("title", ""),
-            "state": issue.get("state", ""),
-            "body": issue.get("body", "") or "",
-            "labels": [l.get("name", "") for l in issue.get("labels", [])],
-            "assignee": (issue.get("assignee") or {}).get("login", ""),
-            "created_at": issue.get("created_at", ""),
-            "updated_at": issue.get("updated_at", ""),
-            "html_url": issue.get("html_url", ""),
-        }
-        for issue in data
-        if "pull_request" not in issue  # Exclude PRs
-    ]
+        result: list[dict] = []
+    else:
+        result = [
+            {
+                "number": issue["number"],
+                "title": issue.get("title", ""),
+                "state": issue.get("state", ""),
+                "body": issue.get("body", "") or "",
+                "labels": [l.get("name", "") for l in issue.get("labels", [])],
+                "assignee": (issue.get("assignee") or {}).get("login", ""),
+                "created_at": issue.get("created_at", ""),
+                "updated_at": issue.get("updated_at", ""),
+                "html_url": issue.get("html_url", ""),
+            }
+            for issue in data
+            if "pull_request" not in issue  # Exclude PRs
+        ]
+    _cache_set(cache_key, result)
+    return result
 
 
 async def create_issue(title: str, body: str = "", labels: Optional[list[str]] = None) -> dict:

@@ -99,7 +99,6 @@ function PersistentNotificationItem({
           : n.type === 'agent' ? 'check_circle'
           : n.type === 'sync' ? 'sync'
           : n.type === 'task_overdue' ? 'schedule'
-          : n.type === 'idea' ? 'lightbulb'
           : 'info'
         }
         size={18}
@@ -108,7 +107,6 @@ function PersistentNotificationItem({
           : n.type === 'agent' ? 'text-green-400'
           : n.type === 'sync' ? 'text-purple-400'
           : n.type === 'task_overdue' ? 'text-orange-400'
-          : n.type === 'idea' ? 'text-yellow-400'
           : 'text-slate-400') + ' mt-0.5 shrink-0'
         }
       />

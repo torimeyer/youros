@@ -8,6 +8,7 @@ vi.mock('../lib/api', () => ({
   api: {
     get: vi.fn(),
     post: vi.fn(),
+    delete: vi.fn(),
   },
 }))
 
@@ -31,6 +32,7 @@ import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)
+const mockedApiDelete = vi.mocked(api.delete)
 
 const mockProjectsResponse = {
   projects: [
@@ -110,6 +112,7 @@ describe('Files page', () => {
     useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true })
     mockedApiGet.mockResolvedValue(mockProjectsResponse)
     mockedApiPost.mockResolvedValue({})
+    mockedApiDelete.mockResolvedValue({ ok: true, path: '' })
   })
 
   // --- Root view: project list ---
@@ -698,5 +701,150 @@ describe('Files page', () => {
     await waitFor(() => {
       expect(screen.getByText('main.ts')).toBeInTheDocument()
     })
+  })
+
+  // --- Recent Documents delete button ---
+
+  const mockRecentDocsResponse = {
+    files: [
+      {
+        name: 'roadmap-2026-04-16T10-00.md',
+        path: '/home/user/.myos/files/roadmap-2026-04-16T10-00.md',
+        size: 512,
+        size_display: '512 B',
+        last_modified: new Date().toISOString(),
+        snippet: 'Plan for Q2',
+      },
+    ],
+  }
+
+  it('shows a delete button on each Recent Documents row', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/projects') return mockProjectsResponse
+      if (path.startsWith('/docs/recent')) return mockRecentDocsResponse
+      return {}
+    })
+
+    renderFiles()
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId(`recent-doc-delete-${mockRecentDocsResponse.files[0].path}`)
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('clicking the delete button opens the in-app confirm modal (not window.confirm)', async () => {
+    // Spy on window.confirm to prove the app never calls it.
+    const confirmSpy = vi.spyOn(window, 'confirm')
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/projects') return mockProjectsResponse
+      if (path.startsWith('/docs/recent')) return mockRecentDocsResponse
+      return {}
+    })
+
+    renderFiles()
+
+    const doc = mockRecentDocsResponse.files[0]
+    await waitFor(() => {
+      expect(screen.getByTestId(`recent-doc-delete-${doc.path}`)).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId(`recent-doc-delete-${doc.path}`))
+
+    // The in-app modal should appear.
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toBeInTheDocument()
+    expect(screen.getByText(`Delete ${doc.name}?`)).toBeInTheDocument()
+
+    // The browser-native confirm must NOT have been called.
+    expect(confirmSpy).not.toHaveBeenCalled()
+
+    // The DELETE endpoint must not fire until the user confirms.
+    expect(mockedApiDelete).not.toHaveBeenCalled()
+
+    confirmSpy.mockRestore()
+  })
+
+  it('clicking Confirm in the modal performs the delete', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/projects') return mockProjectsResponse
+      if (path.startsWith('/docs/recent')) return mockRecentDocsResponse
+      return {}
+    })
+
+    renderFiles()
+
+    const doc = mockRecentDocsResponse.files[0]
+    await waitFor(() => {
+      expect(screen.getByTestId(`recent-doc-delete-${doc.path}`)).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId(`recent-doc-delete-${doc.path}`))
+
+    const confirmBtn = await screen.findByTestId('confirm-modal-confirm')
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(mockedApiDelete).toHaveBeenCalledWith(
+        `/docs/recent?path=${encodeURIComponent(doc.path)}`
+      )
+    })
+
+    // Success toast should appear with the file name.
+    await waitFor(() => {
+      expect(screen.getByTestId('files-delete-success-toast')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking Cancel in the modal does not perform the delete', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/projects') return mockProjectsResponse
+      if (path.startsWith('/docs/recent')) return mockRecentDocsResponse
+      return {}
+    })
+
+    renderFiles()
+
+    const doc = mockRecentDocsResponse.files[0]
+    await waitFor(() => {
+      expect(screen.getByTestId(`recent-doc-delete-${doc.path}`)).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId(`recent-doc-delete-${doc.path}`))
+
+    const cancelBtn = await screen.findByTestId('confirm-modal-cancel')
+    fireEvent.click(cancelBtn)
+
+    expect(mockedApiDelete).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('surfaces an in-app error toast when delete fails', async () => {
+    const alertSpy = vi.spyOn(window, 'alert')
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/projects') return mockProjectsResponse
+      if (path.startsWith('/docs/recent')) return mockRecentDocsResponse
+      return {}
+    })
+    mockedApiDelete.mockRejectedValueOnce(new Error('boom'))
+
+    renderFiles()
+
+    const doc = mockRecentDocsResponse.files[0]
+    await waitFor(() => {
+      expect(screen.getByTestId(`recent-doc-delete-${doc.path}`)).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId(`recent-doc-delete-${doc.path}`))
+    fireEvent.click(await screen.findByTestId('confirm-modal-confirm'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('files-delete-error-toast')).toBeInTheDocument()
+    })
+    // The app must NOT fall back to window.alert.
+    expect(alertSpy).not.toHaveBeenCalled()
+
+    alertSpy.mockRestore()
   })
 })

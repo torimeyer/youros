@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from services import claude_code_provider
 from services.ostk import ostk
 from services.settings_store import settings_store
+from services.standing_instructions_generator import suggest_standing_instructions
 
 router = APIRouter(tags=["settings"])
 
@@ -97,6 +98,22 @@ async def chat_backend_status():
         "claude_code_available": available,
         "preference": preference,
     }
+
+
+@router.post("/settings/standing-instructions/suggest")
+async def suggest_standing_instructions_endpoint():
+    """Return 5 to 10 auto-drafted standing instructions for the user.
+
+    The Settings page shows a "Suggest for me" button so the user does
+    not have to write their instructions from a blank textarea. The
+    Usage page's "Save standing instructions to raise this" link also
+    calls this endpoint so one click gets the user a checklist they
+    can edit. Suggestions are drawn from the user's real patterns
+    (chat history, feedback memory, connected apps). Safe fallback
+    when no API key is configured so the UI is never empty.
+    """
+    suggestions = await suggest_standing_instructions()
+    return {"suggestions": suggestions}
 
 
 @router.get("/settings/mcp-servers")

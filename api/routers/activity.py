@@ -1,8 +1,12 @@
+import json
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Query
 
-from services.ostk import ostk
+from config import OSTK_DIR
+from services.ostk import ostk, invalidate_audit_cache
 
 router = APIRouter(tags=["activity"])
 
@@ -17,8 +21,6 @@ EVENT_LABELS = {
     "agent.completed": "Agent finished",
     "agent.failed": "Agent failed",
     "agent.killed": "Agent stopped",
-    "hay.filed": "Idea saved",
-    "hay.converted": "Idea turned into task",
     "session.shutdown": "Session ended",
     "decision.recorded": "Decision recorded",
     "tack.unknown": "Unrecognized command",
@@ -40,8 +42,6 @@ EVENT_CATEGORIES = {
     "agent.completed": "agent",
     "agent.failed": "agent",
     "agent.killed": "agent",
-    "hay.filed": "idea",
-    "hay.converted": "idea",
     "session.shutdown": "system",
     "decision.recorded": "decision",
     "tack.unknown": "system",
@@ -98,3 +98,94 @@ async def get_activity(
     events.reverse()
 
     return {"events": events, "count": len(events)}
+
+
+@router.post("/activity/dedupe-audit")
+async def dedupe_audit_log(window_seconds: int = 60):
+    """Collapse duplicate ``agent.completed`` (and ``agent.failed``) rows in
+    `.ostk/audit.jsonl` down to one per ``(name, window_seconds)`` bucket.
+
+    Intended as a one-shot cleanup for audit logs that accumulated duplicates
+    before the in-process dedup guard was added. Returns the number of rows
+    removed.
+
+    Parameters
+    ----------
+    window_seconds:
+        Any two events with the same event type and agent name whose
+        timestamps fall within this many seconds of each other are
+        considered duplicates; all but the first are removed.
+        Default: 60.
+    """
+    audit_path = OSTK_DIR / "audit.jsonl"
+    if not audit_path.exists():
+        return {"removed": 0, "message": "audit.jsonl not found"}
+
+    try:
+        lines = audit_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        return {"removed": 0, "error": str(exc)}
+
+    kept: list[str] = []
+    removed = 0
+    # last_seen[(event_type, agent_name)] -> datetime of the last kept event
+    last_seen: dict[tuple[str, str], datetime] = {}
+    dedupe_events = {"agent.completed", "agent.failed"}
+
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            kept.append(raw)
+            continue
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            kept.append(raw)
+            continue
+
+        event_type = entry.get("event", "")
+        name = entry.get("name", "")
+
+        if event_type not in dedupe_events or not name:
+            kept.append(raw)
+            continue
+
+        ts_raw = entry.get("timestamp", "")
+        try:
+            ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            kept.append(raw)
+            continue
+
+        key = (event_type, name)
+        prev = last_seen.get(key)
+        if prev is not None and (ts - prev).total_seconds() < window_seconds:
+            # Duplicate within the window: drop it.
+            removed += 1
+            continue
+
+        last_seen[key] = ts
+        kept.append(raw)
+
+    if removed == 0:
+        return {"removed": 0, "message": "No duplicates found"}
+
+    # Write the cleaned file atomically.
+    tmp_path = audit_path.with_suffix(".jsonl.dedup_tmp")
+    try:
+        tmp_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        tmp_path.replace(audit_path)
+    except OSError as exc:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return {"removed": 0, "error": f"Failed to write cleaned file: {exc}"}
+
+    # Invalidate the ostk audit cache so the next read picks up the cleaned file.
+    try:
+        invalidate_audit_cache(audit_path)
+    except Exception:
+        pass
+
+    return {"removed": removed, "message": f"Removed {removed} duplicate rows"}

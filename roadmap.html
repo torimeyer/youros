@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>myOS — 3-Year Roadmap</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --border: #1e1e2e;
+    --accent1: #7c6af7;
+    --accent2: #4fa3e0;
+    --accent3: #3dd68c;
+    --text: #e2e2f0;
+    --muted: #6e6e8a;
+    --now: #f7c86a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1.6;
+    min-height: 100vh;
+    padding: 48px 24px 80px;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 64px;
+  }
+
+  .header .label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  .header h1 {
+    font-size: 40px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    margin-bottom: 12px;
+  }
+
+  .header h1 span {
+    background: linear-gradient(90deg, var(--accent1), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .header p {
+    font-size: 16px;
+    color: var(--muted);
+    max-width: 520px;
+    margin: 0 auto;
+  }
+
+  .timeline {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    position: relative;
+  }
+
+  .year-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px 28px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .year-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .year-card.y1::before { background: var(--accent1); }
+  .year-card.y2::before { background: var(--accent2); }
+  .year-card.y3::before { background: var(--accent3); }
+
+  .year-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 20px;
+    margin-bottom: 16px;
+  }
+
+  .y1 .year-badge { background: rgba(124, 106, 247, 0.15); color: var(--accent1); }
+  .y2 .year-badge { background: rgba(79, 163, 224, 0.15); color: var(--accent2); }
+  .y3 .year-badge { background: rgba(61, 214, 140, 0.15); color: var(--accent3); }
+
+  .year-title {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+
+  .year-theme {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 28px;
+    font-style: italic;
+  }
+
+  .section-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+    margin-top: 24px;
+  }
+
+  .section-label:first-of-type { margin-top: 0; }
+
+  .feature-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .feature-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 14px;
+    color: var(--text);
+  }
+
+  .feature-list li .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+
+  .y1 .feature-list li .dot { background: var(--accent1); }
+  .y2 .feature-list li .dot { background: var(--accent2); }
+  .y3 .feature-list li .dot { background: var(--accent3); }
+
+  .north-star {
+    margin-top: 28px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-style: italic;
+    line-height: 1.5;
+  }
+
+  .y1 .north-star { background: rgba(124, 106, 247, 0.08); color: #a99ff7; border-left: 3px solid var(--accent1); }
+  .y2 .north-star { background: rgba(79, 163, 224, 0.08); color: #89c8ef; border-left: 3px solid var(--accent2); }
+  .y3 .north-star { background: rgba(61, 214, 140, 0.08); color: #7de8b5; border-left: 3px solid var(--accent3); }
+
+  .tradeoffs {
+    max-width: 1100px;
+    margin: 40px auto 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px 28px;
+  }
+
+  .tradeoffs h2 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 11px;
+  }
+
+  .tradeoffs-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  .tradeoff-item {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  .tradeoff-item strong {
+    display: block;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+
+  .footer-note {
+    text-align: center;
+    margin-top: 48px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  @media (max-width: 768px) {
+    .timeline { grid-template-columns: 1fr; }
+    .tradeoffs-grid { grid-template-columns: 1fr; }
+    .header h1 { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="label">Product Roadmap</div>
+  <h1>myOS <span>2026 — 2028</span></h1>
+  <p>From personal assistant to autonomous operating system. Three years, three bets.</p>
+</div>
+
+<div class="timeline">
+
+  <!-- Year 1 -->
+  <div class="year-card y1">
+    <div class="year-badge">2026 · Year 1</div>
+    <div class="year-title">Foundation</div>
+    <div class="year-theme">Make it reliable, fast, and available everywhere</div>
+
+    <div class="section-label">Memory & Context</div>
+    <ul class="feature-list">
+      <li><span class="dot"></span>Long-term memory that persists across sessions and learns over time</li>
+      <li><span class="dot"></span>Full conversation search — find anything said or done, ever</li>
+      <li><span class="dot"></span>Auto-summary of decisions and next steps after every session</li>
+    </ul>
+
+    <div class="section-label">Everywhere You Are</div>
+    <ul class="feature-list">
+      <li><span class="dot"></span>Mobile-first PWA with push notifications for nudges and task updates</li>
+      <li><span class="dot"></span>Offline mode — queue tasks locally, sync when back online</li>
+      <li><span class="dot"></span>Voice input on mobile for hands-free task capture</li>
+    </ul>
+
+    <div class="section-label">Automation</div>
+    <ul class="feature-list">
+      <li><span class="dot"></span>Email-to-task: forward anything and it lands in your task list</li>
+      <li><span class="dot"></span>Calendar intelligence — block time for deep work automatically</li>
+      <li><span class="dot"></span>Recurring agent schedules (daily standups, weekly reviews)</li>
+    </ul>
+
+    <div class="north-star">"myOS knows what I told it last month and acts on it today without me reminding it."</div>
+  </div>
+
+  <!-- Year 2 -->
+  <div class="year-card y2">
+    <div class="year-badge">2027 · Year 2</div>
+    <div class="year-title">Teams</div>
+    <div class="year-theme">Multiply your leverage by bringing others in</div>
+
+    <div class="section-label">Collaboration</div>
+    <ul class="feature-list">
+      <li><span class="dot"></span>Shared workspaces — give teammates a view into your agents and tasks</li>
+      <li><span class="dot"></span>Delegate to colleagues: assign tasks with full context attached</li>
+      <li><span class="dot"></span>Async handoff summaries so nothing falls through on transitions</li>
+    </ul>
+
+    <div class="section-label">Agent Marketplace</div>
+    <ul class="feature-list">
+      <li><span class="dot"></span>Install third-party agents (legal review, financial modeling, code audit)</li>
+      <li><span class="dot"></span>Publish your own agents and share them privately or publicly</li>
+      <li><span class="dot"></span>Composable agent pipelines — chain specialists for complex workflows</li>
+    </ul>
+
+    <div class="section-label">Enterprise</div>
+    <ul class="feature-list">
+      <li><span class="dot"></span>SSO and directory sync (Okta, Azure AD)</li>
+      <li><span class="dot"></span>Admin controls: usage visibility, cost allocation, permission policies</li>
+      <li><span class="dot"></span>Audit logs for every agent action (compliance-ready)</li>
+    </ul>
+
+    <div class="north-star">"I spun up an agent, handed it to my team, and everyone sees the same real-time picture."</div>
+  </div>
+
+  <!-- Year 3 -->
+  <div class="year-card y3">
+    <div class="year-badge">2028 · Year 3</div>
+    <div class="year-title">Autonomy</div>
+    <div class="year-theme">myOS that acts on your behalf, not just on command</div>
+
+    <div class="section-label">Proactive Intelligence</div>
+    <ul class="feature-list">
+      <li><span class="dot"></span>Autonomous fleet agents that monitor, decide, and act without a prompt</li>
+      <li><span class="dot"></span>Proactive alerts: "You haven't reviewed this in 30 days and a deadline is near"</li>
+      <li><span class="dot"></span>Pattern-based suggestions drawn from your actual history, not generic AI</li>
+    </ul>
+
+    <div class="section-label">Data Sovereignty</div>
+    <ul class="feature-list">
+      <li><span class="dot"></span>Self-hosted edition: run everything on your own infrastructure</li>
+      <li><span class="dot"></span>Bring-your-own model: connect any LLM backend, not just Anthropic</li>
+      <li><span class="dot"></span>Local-first option: memory and tasks stored entirely on-device</li>
+    </ul>
+
+    <div class="section-label">Ecosystem</div>
+    <ul class="feature-list">
+      <li><span class="dot"></span>Federation: multiple myOS instances that share context with consent</li>
+      <li><span class="dot"></span>Open API for deep integration into any tool stack</li>
+      <li><span class="dot"></span>Developer SDK for building myOS-native applications</li>
+    </ul>
+
+    <div class="north-star">"myOS noticed a problem I hadn't seen yet and fixed it before I woke up."</div>
+  </div>
+
+</div>
+
+<div class="tradeoffs">
+  <h2>Three bets worth being explicit about</h2>
+  <div class="tradeoffs-grid">
+    <div class="tradeoff-item">
+      <strong>Memory before features</strong>
+      Year 1 invests heavily in context and memory instead of adding surface-area. A myOS that remembers everything is worth more than one with ten more integrations that forgets every session.
+    </div>
+    <div class="tradeoff-item">
+      <strong>Depth before breadth on teams</strong>
+      Year 2 builds real collaboration for small, high-trust teams rather than generic "share" buttons. Enterprise follows once the model is proven, not the other way around.
+    </div>
+    <div class="tradeoff-item">
+      <strong>Sovereignty before scale</strong>
+      Year 3 prioritizes user control over viral growth. A self-hostable, model-agnostic system you fully own is the long-term moat, even if it is harder to monetize quickly.
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">
+  Generated April 15, 2026 &nbsp;·&nbsp; myOS internal roadmap &nbsp;·&nbsp; subject to change
+</div>
+
+</body>
+</html>

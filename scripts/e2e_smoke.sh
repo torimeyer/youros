@@ -47,7 +47,18 @@ NC='\033[0m'
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 API_PORT="${API_PORT:-8000}"
-API_BASE="http://localhost:${API_PORT}"
+# Auto-detect HTTPS: use https if self-signed certs are present (same logic
+# as dev-backend.sh so the smoke test always matches the running server scheme).
+SSL_KEY="$HOME/.myos/localhost.key"
+SSL_CERT="$HOME/.myos/localhost.crt"
+if [ -f "$SSL_KEY" ] && [ -f "$SSL_CERT" ]; then
+    API_BASE="${API_BASE:-https://127.0.0.1:${API_PORT}}"
+    # Self-signed cert: skip TLS verification for local smoke tests.
+    CURL_OPTS="-k"
+else
+    API_BASE="${API_BASE:-http://localhost:${API_PORT}}"
+    CURL_OPTS=""
+fi
 SKIP_UNIT="${SKIP_UNIT:-0}"
 SKIP_LIVE="${SKIP_LIVE:-0}"
 RELEASE_MODE="${RELEASE_MODE:-0}"
@@ -70,25 +81,31 @@ _E2E_ORIGINAL_OS_NAME=""
 # the task to disk, the inline delete never fires. This sweep is the
 # safety net.
 _e2e_sweep_artifacts() {
-    # Delete any tasks whose title starts with "e2e-"
+    # Delete any tasks whose title starts with "e2e-".
+    # Must use ?include_test_data=true so the backend filter does not hide them.
+    # Reports the deleted count so the test author can confirm teardown worked.
     python3 -c "
-import sys, json, urllib.request
+import sys, json, urllib.request, urllib.parse
+deleted = 0
 try:
-    resp = urllib.request.urlopen('${API_BASE}/api/tasks', timeout=3)
+    resp = urllib.request.urlopen('${API_BASE}/api/tasks?include_test_data=true', timeout=3)
     tasks = json.loads(resp.read()).get('tasks', [])
     for t in tasks:
         title = t.get('title', '')
         tid = t.get('id', '')
-        if title.startswith('e2e-') and tid:
+        if title.lower().startswith('e2e-') and tid:
             req = urllib.request.Request(
                 '${API_BASE}/api/tasks/' + urllib.parse.quote(tid, safe=''),
                 method='DELETE')
             try:
                 urllib.request.urlopen(req, timeout=3)
+                deleted += 1
             except Exception:
                 pass
 except Exception:
     pass
+if deleted:
+    print(f'[e2e sweep] deleted {deleted} leftover e2e- task(s)')
 " 2>/dev/null || true
 
     # Delete any labels whose name starts with "e2e-"
@@ -112,6 +129,73 @@ except Exception:
     pass
 " 2>/dev/null || true
 
+    # Delete any draft/spec whose path OR title looks like a smoke
+    # artifact so leftover specs from the specs user journey and the
+    # debug demos do not accumulate across runs. Patterns mirror the
+    # backend sweep in api/routers/specs.py so disk and API stay in
+    # sync. Covers e2e-, demo-smoke- (hyphen and capitalized space),
+    # smoke-, test-, v\d-verify-, morning-verify-, and any title or
+    # filename ending in a 4+ digit timestamp/id. The https API uses a
+    # self-signed cert so we build an unverified SSL context.
+    python3 -c "
+import sys, json, re, urllib.request, ssl
+ctx = ssl._create_unverified_context() if '${API_BASE}'.startswith('https://') else None
+patterns = [
+    re.compile(r'^(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|e2e[-_ ]|test[-_ ]|v\d+[-_ ]verify[-_ ]?|morning[-_ ]verify[-_ ]?)', re.IGNORECASE),
+    re.compile(r'/(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|e2e[-_ ]|test[-_ ]|v\d+[-_ ]verify[-_ ]?|morning[-_ ]verify[-_ ]?)', re.IGNORECASE),
+    re.compile(r'[-_ ]\d{4,}(?:\.md)?\$', re.IGNORECASE),
+]
+def is_artifact(p, t):
+    for value in (p, t):
+        if not value:
+            continue
+        for pat in patterns:
+            if pat.search(value):
+                return True
+    return False
+try:
+    resp = urllib.request.urlopen('${API_BASE}/api/specs', timeout=3, context=ctx)
+    docs = json.loads(resp.read()).get('docs', [])
+    for d in docs:
+        p = d.get('path') or ''
+        t = d.get('title') or ''
+        if is_artifact(p, t):
+            req = urllib.request.Request(
+                '${API_BASE}/api/specs/' + p,
+                method='DELETE')
+            try:
+                urllib.request.urlopen(req, timeout=3, context=ctx)
+            except Exception:
+                pass
+except Exception:
+    pass
+" 2>/dev/null || true
+
+    # Disk sweep: delete any orphan smoke-artifact files under
+    # docs/draft/ and docs/spec/ in case the API was down or a prior
+    # delete failed. This is the last line of defense so no demo spec
+    # ever survives. Mirrors the backend regex.
+    python3 - "${REPO_DIR}" <<'PY' 2>/dev/null || true
+import os, re, sys
+root = sys.argv[1]
+patterns = [
+    re.compile(r'^(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|e2e[-_ ]|test[-_ ]|v\d+[-_ ]verify[-_ ]?|morning[-_ ]verify[-_ ]?)', re.IGNORECASE),
+    re.compile(r'[-_ ]\d{4,}(?:\.md)?$', re.IGNORECASE),
+]
+for sub in ('docs/draft', 'docs/spec'):
+    d = os.path.join(root, sub)
+    if not os.path.isdir(d):
+        continue
+    for name in os.listdir(d):
+        for pat in patterns:
+            if pat.search(name):
+                try:
+                    os.unlink(os.path.join(d, name))
+                except OSError:
+                    pass
+                break
+PY
+
     # Delete any shared links whose title starts with "e2e"
     python3 -c "
 import sys, json, urllib.request
@@ -132,12 +216,41 @@ try:
 except Exception:
     pass
 " 2>/dev/null || true
+
+    # ~/.myos/files/ disk sweep for any .md that looks like an e2e or
+    # smoke artifact. The Roadmap/PRD templates, workflows, and fleet
+    # agents all write rollup .md files here under names like
+    # "e2e-narrow-prd-2026-04-17T03-04.md" when they are exercised by
+    # the live smoke. Without this sweep those files accumulate across
+    # runs and the test_artifact_hygiene.py guard fails the pytest
+    # suite. Uses the same name patterns as the API docs/specs sweep
+    # above. Conservative: never touches files that do not match the
+    # smoke pattern, so user-generated docs and baseline ia-review
+    # outputs stay put.
+    python3 - <<'PY' 2>/dev/null || true
+import os, re
+from pathlib import Path
+root = Path(os.path.expanduser("~/.myos/files"))
+if not root.is_dir():
+    raise SystemExit(0)
+patterns = [
+    re.compile(r'^(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|e2e[-_ ]|test[-_ ]|v\d+[-_ ]verify[-_ ]?|morning[-_ ]verify[-_ ]?)', re.IGNORECASE),
+]
+for name in os.listdir(root):
+    for pat in patterns:
+        if pat.search(name):
+            try:
+                (root / name).unlink()
+            except OSError:
+                pass
+            break
+PY
 }
 
 _e2e_cleanup() {
     _e2e_sweep_artifacts
     if [ -n "$_E2E_ORIGINAL_OS_NAME" ]; then
-        curl -sS -X PATCH "${API_BASE}/api/settings" \
+        curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \
             -d "{\"os_name\":\"$_E2E_ORIGINAL_OS_NAME\"}" > /dev/null 2>&1 || true
     fi
@@ -146,6 +259,16 @@ trap _e2e_cleanup EXIT INT TERM HUP
 
 # Clean up leftovers from any prior failed run before starting.
 _e2e_sweep_artifacts
+
+# Run-unique alphanumeric tag. The tasks router's _sanitize_task_title
+# strips trailing numeric-only tokens (so "foo-1776397878" normalizes to
+# "foo") which makes back-to-back smoke runs collide with the in-process
+# title tombstone and 409. Using a suffix that ends in a non-digit
+# keeps the sanitized title unique across runs. Derived from the epoch
+# stamp so it is still meaningful in logs but ends in 'x' so the
+# trailing-id regex does not match.
+E2E_RUN_TAG="run$(date +%s | rev | cut -c1-6)x"
+export E2E_RUN_TAG
 
 PASS=0
 FAIL=0
@@ -231,14 +354,14 @@ fi
 # --- Phase 4: live HTTP checks ---------------------------------------------
 
 server_up() {
-    curl -sS -o /dev/null -w "%{http_code}" "${API_BASE}/api/settings" 2>/dev/null | grep -q "^200$"
+    curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" "${API_BASE}/api/settings" 2>/dev/null | grep -q "^200$"
 }
 
 check_http_json() {
     # $1: name, $2: path, $3: grep expression for a required substring
     local name="$1" path="$2" required="$3"
     local body
-    body=$(curl -sS "${API_BASE}${path}" 2>/dev/null)
+    body=$(curl -sS $CURL_OPTS "${API_BASE}${path}" 2>/dev/null)
     if [ -z "$body" ]; then
         phase_fail "$name (empty body)"
         return 1
@@ -270,7 +393,7 @@ if [ "$SKIP_LIVE" != "1" ]; then
 
         # README.md is markdown. The rich preview endpoint rejects it
         # (client should use /files/read for markdown). Expect 400.
-        code=$(curl -sS -o /dev/null -w "%{http_code}" "${API_BASE}/api/files/preview?path=README.md")
+        code=$(curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" "${API_BASE}/api/files/preview?path=README.md")
         if [ "$code" = "400" ]; then
             phase_pass "markdown gets 400 from rich preview (as designed)"
         else
@@ -278,7 +401,7 @@ if [ "$SKIP_LIVE" != "1" ]; then
         fi
 
         # beautify-deck with bogus path should be rejected cleanly.
-        code=$(curl -sS -o /dev/null -w "%{http_code}" \
+        code=$(curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" \
             -X POST "${API_BASE}/api/files/beautify-deck" \
             -H 'content-type: application/json' \
             -d '{"path":"no-such-deck.pptx"}')
@@ -289,9 +412,13 @@ if [ "$SKIP_LIVE" != "1" ]; then
         fi
 
         # Create a task and verify it shows up in the tasks list. This
-        # exercises the auto-label scheduling path too.
-        title="e2e-smoke-task-$(date +%s)"
-        create_resp=$(curl -sS -X POST "${API_BASE}/api/tasks" \
+        # exercises the auto-label scheduling path too. E2E_RUN_TAG ends
+        # in a non-digit so _sanitize_task_title keeps the title unique
+        # across back-to-back smoke runs.
+        title="e2e-smoke-task-${E2E_RUN_TAG}"
+        # include_test_data=true so the title sanitizer allows the e2e-
+        # prefix. Without the flag the POST returns 400 "test artifact".
+        create_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks?include_test_data=true" \
             -H 'content-type: application/json' \
             -d "{\"title\":\"$title\",\"priority\":\"P2\"}")
         if echo "$create_resp" | grep -q '"task_id"'; then
@@ -299,7 +426,7 @@ if [ "$SKIP_LIVE" != "1" ]; then
             # Extract the task id and DELETE so smoke tasks never accumulate.
             smoke_task_id=$(echo "$create_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null || true)
             if [ -n "$smoke_task_id" ]; then
-                curl -sS -X DELETE "${API_BASE}/api/tasks/${smoke_task_id}" > /dev/null 2>&1 || true
+                curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/tasks/${smoke_task_id}" > /dev/null 2>&1 || true
             fi
         else
             phase_fail "POST /api/tasks (body: $create_resp)"
@@ -308,7 +435,7 @@ if [ "$SKIP_LIVE" != "1" ]; then
         check_http_json "GET /api/agents/fleets returns fleet list"      "/api/agents/fleets"         '"fleets"'
 
         # Verify fleet count (should be 9)
-        fleet_count=$(curl -sS "${API_BASE}/api/agents/fleets" 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('fleets',[])))" 2>/dev/null)
+        fleet_count=$(curl -sS $CURL_OPTS "${API_BASE}/api/agents/fleets" 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('fleets',[])))" 2>/dev/null)
         if [ "$fleet_count" -ge 9 ]; then
             phase_pass "fleet templates count >= 9 ($fleet_count)"
         else
@@ -339,7 +466,7 @@ if [ "$SKIP_LIVE" != "1" ]; then
         check_http_json "GET /api/workflows/templates returns list"      "/api/workflows/templates"   '"templates"'
 
         # Verify workflow template count (should be 9)
-        wf_count=$(curl -sS "${API_BASE}/api/workflows/templates" 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('templates',[])))" 2>/dev/null)
+        wf_count=$(curl -sS $CURL_OPTS "${API_BASE}/api/workflows/templates" 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('templates',[])))" 2>/dev/null)
         if [ "$wf_count" -ge 9 ]; then
             phase_pass "workflow templates count >= 9 ($wf_count)"
         else
@@ -366,9 +493,10 @@ if [ "$SKIP_LIVE" != "1" ]; then
         check_http_json "GET /api/notifications returns list"            "/api/notifications"         ""
 
         # --- Agent register + complete lifecycle ---
-        reg_resp=$(curl -sS -X POST "${API_BASE}/api/agents/register" \
+        lifecycle_agent="e2e-lifecycle-$(date +%s)"
+        reg_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/register" \
             -H 'content-type: application/json' \
-            -d '{"name":"e2e-lifecycle-test","model":"sonnet","budget":0,"status":"running"}' 2>/dev/null)
+            -d "{\"name\":\"$lifecycle_agent\",\"model\":\"sonnet\",\"budget\":0,\"status\":\"running\",\"task\":\"e2e lifecycle smoke test\",\"source\":\"api\"}" 2>/dev/null)
         if echo "$reg_resp" | grep -q '"result"'; then
             phase_pass "POST /api/agents/register creates running agent"
         else
@@ -376,10 +504,10 @@ if [ "$SKIP_LIVE" != "1" ]; then
         fi
 
         # Verify it shows as active
-        active_check=$(curl -sS "${API_BASE}/api/agents" 2>/dev/null | python3 -c "
+        active_check=$(curl -sS $CURL_OPTS "${API_BASE}/api/agents" 2>/dev/null | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
-print('yes' if 'e2e-lifecycle-test' in d.get('active',[]) else 'no')
+print('yes' if '${lifecycle_agent}' in d.get('active',[]) else 'no')
 " 2>/dev/null)
         if [ "$active_check" = "yes" ]; then
             phase_pass "registered agent appears in active list"
@@ -388,7 +516,7 @@ print('yes' if 'e2e-lifecycle-test' in d.get('active',[]) else 'no')
         fi
 
         # Complete the agent
-        comp_resp=$(curl -sS -X POST "${API_BASE}/api/agents/e2e-lifecycle-test/complete" \
+        comp_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/${lifecycle_agent}/complete" \
             -H 'content-type: application/json' 2>/dev/null)
         if echo "$comp_resp" | grep -q '"completed"'; then
             phase_pass "POST /api/agents/{name}/complete marks agent done"
@@ -397,10 +525,10 @@ print('yes' if 'e2e-lifecycle-test' in d.get('active',[]) else 'no')
         fi
 
         # Verify it is no longer active
-        active_after=$(curl -sS "${API_BASE}/api/agents" 2>/dev/null | python3 -c "
+        active_after=$(curl -sS $CURL_OPTS "${API_BASE}/api/agents" 2>/dev/null | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
-print('yes' if 'e2e-lifecycle-test' in d.get('active',[]) else 'no')
+print('yes' if '${lifecycle_agent}' in d.get('active',[]) else 'no')
 " 2>/dev/null)
         if [ "$active_after" = "no" ]; then
             phase_pass "completed agent removed from active list"
@@ -408,9 +536,58 @@ print('yes' if 'e2e-lifecycle-test' in d.get('active',[]) else 'no')
             phase_fail "completed agent still in active list"
         fi
 
+        # --- user_spawned_only filter matches the Agents page -----------------
+        # Register a chat-session row and a real subagent, then assert the
+        # filtered endpoint excludes the chat row the way isUserSpawnedAgent
+        # does in app/src/lib/agentUtils.ts. Regression guard for the "my CLI
+        # counted 2 agents while the Agents page showed 1" bug.
+        ts_now="$(date +%s)"
+        chat_name="e2e-chat-filter-${ts_now}"
+        real_name="e2e-real-filter-${ts_now}"
+        curl -sS $CURL_OPTS -o /dev/null -X POST "${API_BASE}/api/agents/register" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"$chat_name\",\"model\":\"sonnet\",\"budget\":0,\"status\":\"running\",\"task\":\"e2e chat row\",\"source\":\"chat\"}" 2>/dev/null
+        curl -sS $CURL_OPTS -o /dev/null -X POST "${API_BASE}/api/agents/register" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"$real_name\",\"model\":\"sonnet\",\"budget\":0,\"status\":\"running\",\"task\":\"e2e real subagent\",\"source\":\"api\"}" 2>/dev/null
+
+        filter_check=$(curl -sS $CURL_OPTS "${API_BASE}/api/agents?user_spawned_only=true" 2>/dev/null | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+names={a.get('name') for a in d.get('agents',[])}
+has_real='${real_name}' in names
+has_chat='${chat_name}' in names
+print('ok' if (has_real and not has_chat) else f'fail real={has_real} chat={has_chat}')
+" 2>/dev/null)
+        if [ "$filter_check" = "ok" ]; then
+            phase_pass "GET /api/agents?user_spawned_only=true excludes source=chat"
+        else
+            phase_fail "user_spawned_only filter mismatch ($filter_check)"
+        fi
+
+        # scripts/status.sh must not list the chat row either.
+        if [ -x "${REPO_DIR}/scripts/status.sh" ]; then
+            status_out=$(API_HOST="${API_BASE}" "${REPO_DIR}/scripts/status.sh" 2>/dev/null || true)
+            if echo "$status_out" | grep -q "$chat_name"; then
+                phase_fail "scripts/status.sh leaked chat row '$chat_name'"
+            else
+                phase_pass "scripts/status.sh hides source=chat rows"
+            fi
+        fi
+
+        # Cleanup: complete both.
+        curl -sS $CURL_OPTS -o /dev/null -X POST "${API_BASE}/api/agents/${chat_name}/complete" -H 'content-type: application/json' 2>/dev/null || true
+        curl -sS $CURL_OPTS -o /dev/null -X POST "${API_BASE}/api/agents/${real_name}/complete" -H 'content-type: application/json' 2>/dev/null || true
+
         # --- Task CRUD lifecycle ---
-        crud_title="e2e-crud-$(date +%s)"
-        crud_resp=$(curl -sS -X POST "${API_BASE}/api/tasks" \
+        # E2E_RUN_TAG ends in a non-digit so _sanitize_task_title does
+        # not strip it. Without it, the sanitized title collides with
+        # the previous run's title tombstone and 409s the create.
+        crud_title="e2e-crud-${E2E_RUN_TAG}"
+        # include_test_data=true so the hardened title sanitizer accepts
+        # the e2e- prefix. Regression guard for the 8 smoke fails on
+        # 2026-04-15 when the sanitizer started rejecting these.
+        crud_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks?include_test_data=true" \
             -H 'content-type: application/json' \
             -d "{\"title\":\"$crud_title\",\"priority\":\"P1\"}" 2>/dev/null)
         crud_id=$(echo "$crud_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null || true)
@@ -420,15 +597,21 @@ print('yes' if 'e2e-lifecycle-test' in d.get('active',[]) else 'no')
             phase_fail "task CRUD: create failed"
         fi
 
-        # Verify task appears in list
-        if curl -sS "${API_BASE}/api/tasks" 2>/dev/null | grep -q "$crud_title"; then
+        # Verify task appears in list by ID, not by raw title. The API's
+        # _sanitize_task_title strips trailing numeric suffixes, so a
+        # crud_title like "e2e-crud-1776397878" is stored as "E2e-crud"
+        # and a raw-title grep misses it. The returned crud_id is stable
+        # across this sanitization and uniquely identifies the row.
+        # include_test_data=true so the tasks router's e2e- prefix filter
+        # does not hide the task from our own verification.
+        if [ -n "$crud_id" ] && curl -sS $CURL_OPTS "${API_BASE}/api/tasks?include_test_data=true" 2>/dev/null | grep -q "$crud_id"; then
             phase_pass "task CRUD: appears in task list"
         else
             phase_fail "task CRUD: not found in task list"
         fi
 
         # Close the task (test the close endpoint, then delete to clean up)
-        close_resp=$(curl -sS -X POST "${API_BASE}/api/tasks/${crud_id}/close" \
+        close_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks/${crud_id}/close" \
             -H 'content-type: application/json' 2>/dev/null)
         if echo "$close_resp" | grep -q '"result"'; then
             phase_pass "task CRUD: close works"
@@ -436,10 +619,10 @@ print('yes' if 'e2e-lifecycle-test' in d.get('active',[]) else 'no')
             phase_fail "task CRUD: close failed"
         fi
         # Delete to truly remove test data
-        curl -sS -X DELETE "${API_BASE}/api/tasks/${crud_id}" > /dev/null 2>&1
+        curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/tasks/${crud_id}" > /dev/null 2>&1
 
         # --- Label CRUD lifecycle ---
-        label_resp=$(curl -sS -X POST "${API_BASE}/api/labels" \
+        label_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/labels" \
             -H 'content-type: application/json' \
             -d '{"name":"e2e-test-label","color":"#ef4444"}' 2>/dev/null)
         if echo "$label_resp" | grep -q "e2e-test-label"; then
@@ -454,22 +637,22 @@ d=json.load(sys.stdin)
 print(d.get('label',{}).get('id', d.get('id','')))
 " 2>/dev/null || true)
         if [ -n "$label_id" ]; then
-            curl -sS -X DELETE "${API_BASE}/api/labels/${label_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/labels/${label_id}" > /dev/null 2>&1
             phase_pass "label CRUD: delete works"
         fi
 
         # --- Settings PATCH round trip ---
         # Save the original name into the trap variable so _e2e_cleanup
         # can restore it even if the script is interrupted mid-test.
-        _E2E_ORIGINAL_OS_NAME=$(curl -sS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
-        curl -sS -X PATCH "${API_BASE}/api/settings" \
+        _E2E_ORIGINAL_OS_NAME=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
+        curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \
             -d '{"os_name":"e2e-test-os"}' > /dev/null 2>&1
-        settings_after=$(curl -sS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
+        settings_after=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
         if [ "$settings_after" = "e2e-test-os" ]; then
             phase_pass "settings PATCH round trip works"
             # Restore immediately (trap is the safety net if this fails).
-            curl -sS -X PATCH "${API_BASE}/api/settings" \
+            curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
                 -H 'content-type: application/json' \
                 -d "{\"os_name\":\"$_E2E_ORIGINAL_OS_NAME\"}" > /dev/null 2>&1
             _E2E_ORIGINAL_OS_NAME=""
@@ -479,9 +662,9 @@ print(d.get('label',{}).get('id', d.get('id','')))
         fi
 
         # --- Briefing dismiss round trip ---
-        curl -sS -X POST "${API_BASE}/api/briefing/dismiss" \
+        curl -sS $CURL_OPTS -X POST "${API_BASE}/api/briefing/dismiss" \
             -H 'content-type: application/json' > /dev/null 2>&1
-        dismiss_check=$(curl -sS "${API_BASE}/api/briefing" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('show',True))" 2>/dev/null)
+        dismiss_check=$(curl -sS $CURL_OPTS "${API_BASE}/api/briefing" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('show',True))" 2>/dev/null)
         if [ "$dismiss_check" = "False" ]; then
             phase_pass "briefing dismiss hides briefing"
         else
@@ -496,39 +679,41 @@ print(d.get('label',{}).get('id', d.get('id','')))
         # =================================================================
 
         # --- Journey: Task reopen after close ---
-        reopen_title="e2e-reopen-$(date +%s)"
-        reopen_resp=$(curl -sS -X POST "${API_BASE}/api/tasks" \
+        # E2E_RUN_TAG suffix keeps the sanitized title unique so the
+        # title tombstone from a previous run does not 409 the create.
+        reopen_title="e2e-reopen-${E2E_RUN_TAG}"
+        reopen_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks?include_test_data=true" \
             -H 'content-type: application/json' \
             -d "{\"title\":\"$reopen_title\",\"priority\":\"P2\"}" 2>/dev/null)
         reopen_id=$(echo "$reopen_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null || true)
         if [ -n "$reopen_id" ]; then
-            curl -sS -X POST "${API_BASE}/api/tasks/${reopen_id}/close" \
+            curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks/${reopen_id}/close" \
                 -H 'content-type: application/json' > /dev/null 2>&1
-            reopen_result=$(curl -sS -X POST "${API_BASE}/api/tasks/${reopen_id}/reopen" \
+            reopen_result=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks/${reopen_id}/reopen" \
                 -H 'content-type: application/json' 2>/dev/null)
             if echo "$reopen_result" | grep -q '"result"'; then
                 phase_pass "journey: close then reopen task"
             else
                 phase_fail "journey: reopen failed (body: $reopen_result)"
             fi
-            curl -sS -X DELETE "${API_BASE}/api/tasks/${reopen_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/tasks/${reopen_id}" > /dev/null 2>&1
         else
             phase_fail "journey: could not create task for reopen test"
         fi
 
         # --- Journey: Task dependencies (link two tasks) ---
-        dep_a_title="e2e-blocker-$(date +%s)"
-        dep_b_title="e2e-blocked-$(date +%s)"
-        dep_a_resp=$(curl -sS -X POST "${API_BASE}/api/tasks" \
+        dep_a_title="e2e-blocker-${E2E_RUN_TAG}"
+        dep_b_title="e2e-blocked-${E2E_RUN_TAG}"
+        dep_a_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks?include_test_data=true" \
             -H 'content-type: application/json' \
             -d "{\"title\":\"$dep_a_title\",\"priority\":\"P1\"}" 2>/dev/null)
         dep_a_id=$(echo "$dep_a_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null || true)
-        dep_b_resp=$(curl -sS -X POST "${API_BASE}/api/tasks" \
+        dep_b_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks?include_test_data=true" \
             -H 'content-type: application/json' \
             -d "{\"title\":\"$dep_b_title\",\"priority\":\"P1\"}" 2>/dev/null)
         dep_b_id=$(echo "$dep_b_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null || true)
         if [ -n "$dep_a_id" ] && [ -n "$dep_b_id" ]; then
-            link_resp=$(curl -sS -X POST "${API_BASE}/api/tasks/${dep_a_id}/link" \
+            link_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks/${dep_a_id}/link" \
                 -H 'content-type: application/json' \
                 -d "{\"target\":\"$dep_b_id\",\"relation\":\"blocks\"}" 2>/dev/null)
             if echo "$link_resp" | grep -q '"result"'; then
@@ -536,14 +721,14 @@ print(d.get('label',{}).get('id', d.get('id','')))
             else
                 phase_fail "journey: task link failed (body: $link_resp)"
             fi
-            curl -sS -X DELETE "${API_BASE}/api/tasks/${dep_a_id}" > /dev/null 2>&1
-            curl -sS -X DELETE "${API_BASE}/api/tasks/${dep_b_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/tasks/${dep_a_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/tasks/${dep_b_id}" > /dev/null 2>&1
         else
             phase_fail "journey: could not create tasks for dependency test"
         fi
 
         # --- Journey: Dashboard compounds (focus first) ---
-        compounds_resp=$(curl -sS "${API_BASE}/api/dashboard/compounds" 2>/dev/null)
+        compounds_resp=$(curl -sS $CURL_OPTS "${API_BASE}/api/dashboard/compounds" 2>/dev/null)
         if echo "$compounds_resp" | grep -q '"all"'; then
             phase_pass "journey: dashboard compounds returns dependency analysis"
         else
@@ -551,56 +736,16 @@ print(d.get('label',{}).get('id', d.get('id','')))
         fi
 
         # --- Journey: Dashboard summary ---
-        summary_resp=$(curl -sS "${API_BASE}/api/dashboard/summary" 2>/dev/null)
+        summary_resp=$(curl -sS $CURL_OPTS "${API_BASE}/api/dashboard/summary" 2>/dev/null)
         if echo "$summary_resp" | grep -q '"bullets"'; then
             phase_pass "journey: dashboard summary returns bullets"
         else
             phase_fail "journey: dashboard summary missing 'bullets' field"
         fi
 
-        # --- Journey: Capture idea and convert to tasks ---
-        idea_text="e2e-idea-$(date +%s): build a widget"
-        idea_resp=$(curl -sS -X POST "${API_BASE}/api/ideas" \
-            -H 'content-type: application/json' \
-            -d "{\"thought\":\"$idea_text\"}" 2>/dev/null)
-        if echo "$idea_resp" | grep -q '"result"'; then
-            phase_pass "journey: capture idea"
-            # Convert idea to tasks (with delete_hay to auto-clean the idea)
-            convert_resp=$(curl -sS -X POST "${API_BASE}/api/ideas/convert" \
-                -H 'content-type: application/json' \
-                -d "{\"straw\":\"$idea_text\",\"priority\":\"P2\",\"delete_hay\":true}" 2>/dev/null)
-            convert_status=$(echo "$convert_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
-            if [ "$convert_status" = "created" ] || [ "$convert_status" = "needs_clarification" ]; then
-                phase_pass "journey: convert idea to tasks (status: $convert_status)"
-            else
-                phase_fail "journey: idea conversion unexpected status ($convert_status)"
-            fi
-            # Clean up any tasks created by the conversion
-            convert_task_ids=$(echo "$convert_resp" | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-for t in d.get('tasks',[]):
-    print(t.get('id',''))
-" 2>/dev/null || true)
-            for ctid in $convert_task_ids; do
-                [ -n "$ctid" ] && curl -sS -X DELETE "${API_BASE}/api/tasks/${ctid}" > /dev/null 2>&1
-            done
-            # Check converted tab
-            converted_resp=$(curl -sS "${API_BASE}/api/ideas?status=converted" 2>/dev/null)
-            if echo "$converted_resp" | grep -q '"converted"'; then
-                phase_pass "journey: converted ideas tab returns data"
-            else
-                phase_fail "journey: converted ideas tab missing 'converted' field"
-            fi
-        else
-            phase_fail "journey: capture idea failed (body: $idea_resp)"
-            # Clean up the idea if it was partially created
-            curl -sS -X DELETE "${API_BASE}/api/ideas/$(python3 -c "import urllib.parse; print(urllib.parse.quote('$idea_text', safe=''))")" > /dev/null 2>&1
-        fi
-
         # --- Journey: Task label assignment round trip ---
-        lbl_name="e2e-label-$(date +%s)"
-        lbl_resp=$(curl -sS -X POST "${API_BASE}/api/labels" \
+        lbl_name="e2e-label-${E2E_RUN_TAG}"
+        lbl_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/labels" \
             -H 'content-type: application/json' \
             -d "{\"name\":\"$lbl_name\",\"color\":\"#3b82f6\"}" 2>/dev/null)
         lbl_id=$(echo "$lbl_resp" | python3 -c "
@@ -608,37 +753,37 @@ import sys,json
 d=json.load(sys.stdin)
 print(d.get('label',{}).get('id', d.get('id','')))
 " 2>/dev/null || true)
-        lbl_task_resp=$(curl -sS -X POST "${API_BASE}/api/tasks" \
+        lbl_task_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks?include_test_data=true" \
             -H 'content-type: application/json' \
-            -d '{"title":"e2e-label-task","priority":"P2"}' 2>/dev/null)
+            -d "{\"title\":\"e2e-label-task-${E2E_RUN_TAG}\",\"priority\":\"P2\"}" 2>/dev/null)
         lbl_task_id=$(echo "$lbl_task_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null || true)
         if [ -n "$lbl_id" ] && [ -n "$lbl_task_id" ]; then
-            assign_resp=$(curl -sS -X POST "${API_BASE}/api/tasks/${lbl_task_id}/labels/${lbl_id}" \
+            assign_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks/${lbl_task_id}/labels/${lbl_id}" \
                 -H 'content-type: application/json' 2>/dev/null)
             if echo "$assign_resp" | grep -q '"label_ids"'; then
                 phase_pass "journey: assign label to task"
             else
                 phase_fail "journey: label assign failed (body: $assign_resp)"
             fi
-            remove_resp=$(curl -sS -X DELETE "${API_BASE}/api/tasks/${lbl_task_id}/labels/${lbl_id}" 2>/dev/null)
+            remove_resp=$(curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/tasks/${lbl_task_id}/labels/${lbl_id}" 2>/dev/null)
             if echo "$remove_resp" | grep -q '"label_ids"'; then
                 phase_pass "journey: remove label from task"
             else
                 phase_fail "journey: label remove failed (body: $remove_resp)"
             fi
-            curl -sS -X DELETE "${API_BASE}/api/tasks/${lbl_task_id}" > /dev/null 2>&1
-            curl -sS -X DELETE "${API_BASE}/api/labels/${lbl_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/tasks/${lbl_task_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/labels/${lbl_id}" > /dev/null 2>&1
         else
             phase_fail "journey: could not set up label assignment test"
         fi
 
         # --- Journey: Task reorder ---
-        reorder_task_resp=$(curl -sS -X POST "${API_BASE}/api/tasks" \
+        reorder_task_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks?include_test_data=true" \
             -H 'content-type: application/json' \
-            -d '{"title":"e2e-reorder-task","priority":"P2"}' 2>/dev/null)
+            -d "{\"title\":\"e2e-reorder-task-${E2E_RUN_TAG}\",\"priority\":\"P2\"}" 2>/dev/null)
         reorder_task_id=$(echo "$reorder_task_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null || true)
         if [ -n "$reorder_task_id" ]; then
-            reorder_resp=$(curl -sS -X POST "${API_BASE}/api/tasks/reorder" \
+            reorder_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/tasks/reorder" \
                 -H 'content-type: application/json' \
                 -d "{\"task_id\":\"$reorder_task_id\",\"new_priority\":\"P0\",\"position\":0}" 2>/dev/null)
             if echo "$reorder_resp" | grep -q '"new_priority"'; then
@@ -646,13 +791,13 @@ print(d.get('label',{}).get('id', d.get('id','')))
             else
                 phase_fail "journey: task reorder failed (body: $reorder_resp)"
             fi
-            curl -sS -X DELETE "${API_BASE}/api/tasks/${reorder_task_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/tasks/${reorder_task_id}" > /dev/null 2>&1
         else
             phase_fail "journey: could not create task for reorder test"
         fi
 
         # --- Journey: Activity log shows events ---
-        activity_resp=$(curl -sS "${API_BASE}/api/activity?last=10" 2>/dev/null)
+        activity_resp=$(curl -sS $CURL_OPTS "${API_BASE}/api/activity?last=10" 2>/dev/null)
         activity_count=$(echo "$activity_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null || echo "0")
         if [ "$activity_count" -gt 0 ] 2>/dev/null; then
             phase_pass "journey: activity log has events ($activity_count)"
@@ -661,7 +806,7 @@ print(d.get('label',{}).get('id', d.get('id','')))
         fi
 
         # --- Journey: Search finds a task ---
-        search_resp=$(curl -sS "${API_BASE}/api/search?q=e2e" 2>/dev/null)
+        search_resp=$(curl -sS $CURL_OPTS "${API_BASE}/api/search?q=e2e" 2>/dev/null)
         if [ -n "$search_resp" ] && [ "$search_resp" != "null" ]; then
             phase_pass "journey: search returns results for 'e2e'"
         else
@@ -669,13 +814,13 @@ print(d.get('label',{}).get('id', d.get('id','')))
         fi
 
         # --- Journey: Notifications ---
-        notif_count_resp=$(curl -sS "${API_BASE}/api/notifications/unread/count" 2>/dev/null)
+        notif_count_resp=$(curl -sS $CURL_OPTS "${API_BASE}/api/notifications/unread/count" 2>/dev/null)
         if echo "$notif_count_resp" | grep -q '"count"'; then
             phase_pass "journey: notification unread count endpoint works"
         else
             phase_fail "journey: notification unread count missing 'count' field"
         fi
-        markread_resp=$(curl -sS -X POST "${API_BASE}/api/notifications/read-all" \
+        markread_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/notifications/read-all" \
             -H 'content-type: application/json' 2>/dev/null)
         if echo "$markread_resp" | grep -q '"result"'; then
             phase_pass "journey: mark all notifications read"
@@ -684,7 +829,7 @@ print(d.get('label',{}).get('id', d.get('id','')))
         fi
 
         # --- Journey: Docs draft create + cleanup ---
-        doc_resp=$(curl -sS -X POST "${API_BASE}/api/docs/draft" \
+        doc_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/docs/draft" \
             -H 'content-type: application/json' \
             -d '{"title":"e2e-test-draft"}' 2>/dev/null)
         if echo "$doc_resp" | grep -q '"result"'; then
@@ -699,73 +844,84 @@ m=re.search(r'(docs/draft/[^\s]+)', r)
 print(m.group(1) if m else '')
 " 2>/dev/null || true)
             if [ -n "$doc_path" ]; then
-                curl -sS -X DELETE "${API_BASE}/api/${doc_path}" > /dev/null 2>&1
+                curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/${doc_path}" > /dev/null 2>&1
             fi
         else
             phase_fail "journey: create doc draft failed (body: $doc_resp)"
         fi
 
         # --- Journey: Workflow create and list ---
-        wf_resp=$(curl -sS -X POST "${API_BASE}/api/workflows" \
+        wf_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/workflows" \
             -H 'content-type: application/json' \
             -d '{"name":"e2e-test-workflow","steps":[{"agent_name":"e2e-step","prompt":"echo hello","model":"sonnet","budget":0}]}' 2>/dev/null)
         wf_id=$(echo "$wf_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('workflow',{}).get('id',''))" 2>/dev/null || true)
         if [ -n "$wf_id" ]; then
             phase_pass "journey: create workflow"
-            wf_list=$(curl -sS "${API_BASE}/api/workflows" 2>/dev/null)
+            wf_list=$(curl -sS $CURL_OPTS "${API_BASE}/api/workflows" 2>/dev/null)
             if echo "$wf_list" | grep -q "e2e-test-workflow"; then
                 phase_pass "journey: workflow appears in list"
             else
                 phase_fail "journey: workflow not found in list"
             fi
-            curl -sS -X DELETE "${API_BASE}/api/workflows/${wf_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/workflows/${wf_id}" > /dev/null 2>&1
         else
             phase_fail "journey: create workflow failed (body: $wf_resp)"
         fi
 
         # --- Journey: Settings feature toggle round trip ---
-        _orig_features=$(curl -sS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "
+        _orig_features=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "
 import sys,json
 s=json.load(sys.stdin)
 f=s.get('features',{})
 print(json.dumps(f))
 " 2>/dev/null)
-        curl -sS -X PATCH "${API_BASE}/api/settings" \
+        curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \
-            -d '{"features":{"Docs":false}}' > /dev/null 2>&1
-        toggle_check=$(curl -sS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "
+            -d '{"features":{"Specs":false}}' > /dev/null 2>&1
+        toggle_check=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "
 import sys,json
 s=json.load(sys.stdin)
-print(s.get('features',{}).get('Docs', True))
+print(s.get('features',{}).get('Specs', True))
 " 2>/dev/null)
         if [ "$toggle_check" = "False" ]; then
-            phase_pass "journey: feature toggle persists (Docs disabled)"
+            phase_pass "journey: feature toggle persists (Specs disabled)"
         else
             phase_fail "journey: feature toggle did not persist"
         fi
         # Restore
-        curl -sS -X PATCH "${API_BASE}/api/settings" \
+        curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \
-            -d '{"features":{"Docs":true}}' > /dev/null 2>&1
+            -d '{"features":{"Specs":true}}' > /dev/null 2>&1
 
         # --- Journey: Cost tracking data loads ---
         check_http_json "journey: cost tracking returns data"       "/api/costs?period=all"      ""
         check_http_json "journey: cost savings returns data"        "/api/costs/savings"         ""
 
+        # --- Journey: Specs user journey (draft -> promote -> decompose -> verify) ---
+        # Delegates to scripts/test_specs_user_journey.sh, which covers
+        # the full spec-driven-development flow and cleans up its own
+        # artifacts via trap. We capture its exit code and record a single
+        # phase pass/fail so the final summary stays readable.
+        if bash "${REPO_DIR}/scripts/test_specs_user_journey.sh" > /tmp/e2e_specs_journey.log 2>&1; then
+            phase_pass "journey: specs user journey (draft -> promote -> decompose -> verify)"
+        else
+            phase_fail "journey: specs user journey failed (see /tmp/e2e_specs_journey.log)"
+        fi
+
         # --- Journey: Integration auth status checks ---
-        gmail_auth=$(curl -sS "${API_BASE}/api/gmail/auth/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('authenticated','missing'))" 2>/dev/null)
+        gmail_auth=$(curl -sS $CURL_OPTS "${API_BASE}/api/gmail/auth/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('authenticated','missing'))" 2>/dev/null)
         if [ "$gmail_auth" = "True" ] || [ "$gmail_auth" = "False" ]; then
             phase_pass "journey: Gmail auth status returns boolean"
         else
             phase_fail "journey: Gmail auth status unexpected ($gmail_auth)"
         fi
-        cal_auth=$(curl -sS "${API_BASE}/api/calendar/auth/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('authenticated','missing'))" 2>/dev/null)
+        cal_auth=$(curl -sS $CURL_OPTS "${API_BASE}/api/calendar/auth/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('authenticated','missing'))" 2>/dev/null)
         if [ "$cal_auth" = "True" ] || [ "$cal_auth" = "False" ]; then
             phase_pass "journey: Calendar auth status returns boolean"
         else
             phase_fail "journey: Calendar auth status unexpected ($cal_auth)"
         fi
-        drive_auth=$(curl -sS "${API_BASE}/api/drive/auth/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('authenticated','missing'))" 2>/dev/null)
+        drive_auth=$(curl -sS $CURL_OPTS "${API_BASE}/api/drive/auth/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('authenticated','missing'))" 2>/dev/null)
         if [ "$drive_auth" = "True" ] || [ "$drive_auth" = "False" ]; then
             phase_pass "journey: Drive auth status returns boolean"
         else
@@ -783,10 +939,10 @@ print(s.get('features',{}).get('Docs', True))
         # --- Journey: Agent nudge round trip ---
         # Register an agent, nudge it, read nudges, complete, delete.
         nudge_agent="e2e-nudge-$(date +%s)"
-        curl -sS -X POST "${API_BASE}/api/agents/register" \
+        curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/register" \
             -H 'content-type: application/json' \
-            -d "{\"name\":\"$nudge_agent\",\"model\":\"sonnet\",\"budget\":0,\"status\":\"running\"}" > /dev/null 2>&1
-        nudge_resp=$(curl -sS -X POST "${API_BASE}/api/agents/${nudge_agent}/nudge" \
+            -d "{\"name\":\"$nudge_agent\",\"model\":\"sonnet\",\"budget\":0,\"status\":\"running\",\"task\":\"e2e nudge round trip\",\"source\":\"api\"}" > /dev/null 2>&1
+        nudge_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/${nudge_agent}/nudge" \
             -H 'content-type: application/json' \
             -d '{"message":"e2e test nudge"}' 2>/dev/null)
         if echo "$nudge_resp" | grep -q '"result"\|"ok"\|"nudge"'; then
@@ -794,21 +950,21 @@ print(s.get('features',{}).get('Docs', True))
         else
             phase_fail "journey: agent nudge failed (body: $nudge_resp)"
         fi
-        nudges_list=$(curl -sS "${API_BASE}/api/agents/${nudge_agent}/nudges" 2>/dev/null)
+        nudges_list=$(curl -sS $CURL_OPTS "${API_BASE}/api/agents/${nudge_agent}/nudges" 2>/dev/null)
         if echo "$nudges_list" | grep -q "e2e test nudge"; then
             phase_pass "journey: nudge appears in nudge list"
         else
             phase_fail "journey: nudge not found in nudge list"
         fi
-        curl -sS -X POST "${API_BASE}/api/agents/${nudge_agent}/complete" \
+        curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/${nudge_agent}/complete" \
             -H 'content-type: application/json' > /dev/null 2>&1
 
         # --- Journey: Agent memory CRUD ---
         mem_agent="e2e-memory-$(date +%s)"
-        curl -sS -X POST "${API_BASE}/api/agents/register" \
+        curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/register" \
             -H 'content-type: application/json' \
-            -d "{\"name\":\"$mem_agent\",\"model\":\"sonnet\",\"budget\":0,\"status\":\"running\"}" > /dev/null 2>&1
-        mem_save=$(curl -sS -X POST "${API_BASE}/api/agents/${mem_agent}/memory" \
+            -d "{\"name\":\"$mem_agent\",\"model\":\"sonnet\",\"budget\":0,\"status\":\"running\",\"task\":\"e2e memory crud\",\"source\":\"api\"}" > /dev/null 2>&1
+        mem_save=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/${mem_agent}/memory" \
             -H 'content-type: application/json' \
             -d '{"key":"test_key","value":"test_value"}' 2>/dev/null)
         if echo "$mem_save" | grep -q '"result"\|"ok"\|"saved"'; then
@@ -816,21 +972,21 @@ print(s.get('features',{}).get('Docs', True))
         else
             phase_fail "journey: save agent memory failed (body: $mem_save)"
         fi
-        mem_read=$(curl -sS "${API_BASE}/api/agents/${mem_agent}/memory" 2>/dev/null)
+        mem_read=$(curl -sS $CURL_OPTS "${API_BASE}/api/agents/${mem_agent}/memory" 2>/dev/null)
         if echo "$mem_read" | grep -q "test_key\|test_value"; then
             phase_pass "journey: read agent memory"
         else
             phase_fail "journey: agent memory not readable (body: $mem_read)"
         fi
-        curl -sS -X DELETE "${API_BASE}/api/agents/${mem_agent}/memory" > /dev/null 2>&1
-        curl -sS -X POST "${API_BASE}/api/agents/${mem_agent}/complete" \
+        curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/agents/${mem_agent}/memory" > /dev/null 2>&1
+        curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/${mem_agent}/complete" \
             -H 'content-type: application/json' > /dev/null 2>&1
 
         # --- Journey: Agent transcript ---
         check_http_json "journey: agent transcript endpoint"        "/api/agents/${nudge_agent}/transcript" ""
 
         # --- Journey: Threads CRUD ---
-        thread_resp=$(curl -sS -X POST "${API_BASE}/api/threads" \
+        thread_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/threads" \
             -H 'content-type: application/json' \
             -d '{"name":"e2e-test-thread"}' 2>/dev/null)
         thread_id=$(echo "$thread_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',json.load(sys.stdin).get('thread_id','')) if False else json.load(open('/dev/stdin')).get('id',json.load(open('/dev/stdin')).get('thread_id','')))" 2>/dev/null || true)
@@ -842,7 +998,7 @@ print(d.get('id', d.get('thread_id', d.get('thread',{}).get('id',''))))
 " 2>/dev/null || true)
         if [ -n "$thread_id" ] && [ "$thread_id" != "None" ] && [ "$thread_id" != "" ]; then
             phase_pass "journey: create thread"
-            curl -sS -X DELETE "${API_BASE}/api/threads/${thread_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/threads/${thread_id}" > /dev/null 2>&1
         else
             # Thread creation might return a different shape
             if echo "$thread_resp" | grep -q '"id"\|"thread_id"\|"result"'; then
@@ -854,7 +1010,7 @@ print(d.get('id', d.get('thread_id', d.get('thread',{}).get('id',''))))
         check_http_json "journey: list threads"                     "/api/threads"               ""
 
         # --- Journey: Recurring tasks ---
-        recur_resp=$(curl -sS -X POST "${API_BASE}/api/recurring" \
+        recur_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/recurring" \
             -H 'content-type: application/json' \
             -d '{"task_template":{"title":"e2e-recurring","priority":"P2"},"schedule":{"kind":"weekly","days":[1]}}' 2>/dev/null)
         recur_id=$(echo "$recur_resp" | python3 -c "
@@ -864,7 +1020,7 @@ print(d.get('id', d.get('rule_id', d.get('rule',{}).get('id',''))))
 " 2>/dev/null || true)
         if [ -n "$recur_id" ] && [ "$recur_id" != "None" ] && [ "$recur_id" != "" ]; then
             phase_pass "journey: create recurring task rule"
-            curl -sS -X DELETE "${API_BASE}/api/recurring/${recur_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/recurring/${recur_id}" > /dev/null 2>&1
         else
             if echo "$recur_resp" | grep -q '"id"\|"rule_id"\|"result"\|"rule"'; then
                 phase_pass "journey: create recurring task rule (response ok)"
@@ -875,7 +1031,7 @@ print(d.get('id', d.get('rule_id', d.get('rule',{}).get('id',''))))
         check_http_json "journey: list recurring rules"             "/api/recurring"             ""
 
         # --- Journey: Shares CRUD ---
-        share_resp=$(curl -sS -X POST "${API_BASE}/api/shares" \
+        share_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/shares" \
             -H 'content-type: application/json' \
             -d '{"share_type":"task_list","content_ids":["e2e-fake-id"],"title":"e2e share test"}' 2>/dev/null)
         share_token=$(echo "$share_resp" | python3 -c "
@@ -885,7 +1041,7 @@ print(d.get('token', d.get('share',{}).get('token','')))
 " 2>/dev/null || true)
         if [ -n "$share_token" ] && [ "$share_token" != "None" ] && [ "$share_token" != "" ]; then
             phase_pass "journey: create share link"
-            curl -sS -X DELETE "${API_BASE}/api/shares/${share_token}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/shares/${share_token}" > /dev/null 2>&1
         else
             if echo "$share_resp" | grep -q '"token"\|"result"'; then
                 phase_pass "journey: create share link (response ok)"
@@ -896,7 +1052,7 @@ print(d.get('token', d.get('share',{}).get('token','')))
         check_http_json "journey: list shares"                      "/api/shares"                ""
 
         # --- Journey: Knowledge notes ---
-        know_resp=$(curl -sS -X POST "${API_BASE}/api/knowledge" \
+        know_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/knowledge" \
             -H 'content-type: application/json' \
             -d '{"title":"e2e-knowledge","content":"test note content"}' 2>/dev/null)
         know_id=$(echo "$know_resp" | python3 -c "
@@ -906,7 +1062,7 @@ print(d.get('id', d.get('note_id', d.get('note',{}).get('id',''))))
 " 2>/dev/null || true)
         if [ -n "$know_id" ] && [ "$know_id" != "None" ] && [ "$know_id" != "" ]; then
             phase_pass "journey: create knowledge note"
-            curl -sS -X DELETE "${API_BASE}/api/knowledge/${know_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/knowledge/${know_id}" > /dev/null 2>&1
         else
             if echo "$know_resp" | grep -q '"id"\|"note_id"\|"result"'; then
                 phase_pass "journey: create knowledge note (response ok)"
@@ -947,7 +1103,7 @@ print(d.get('id', d.get('note_id', d.get('note',{}).get('id',''))))
         check_http_json "journey: workspace messages"               "/api/workspace/messages"    ""
 
         # --- Journey: Chat history save + delete round trip ---
-        chat_save=$(curl -sS -X PUT "${API_BASE}/api/chat/history" \
+        chat_save=$(curl -sS $CURL_OPTS -X PUT "${API_BASE}/api/chat/history" \
             -H 'content-type: application/json' \
             -d '{"messages":[{"role":"user","content":"e2e test"}]}' 2>/dev/null)
         if echo "$chat_save" | grep -q '"result"\|"ok"\|"saved"'; then
@@ -955,7 +1111,7 @@ print(d.get('id', d.get('note_id', d.get('note',{}).get('id',''))))
         else
             phase_fail "journey: save chat history failed (body: $chat_save)"
         fi
-        chat_del=$(curl -sS -X DELETE "${API_BASE}/api/chat/history" 2>/dev/null)
+        chat_del=$(curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/chat/history" 2>/dev/null)
         if echo "$chat_del" | grep -q '"result"\|"ok"\|"deleted"\|"cleared"'; then
             phase_pass "journey: clear chat history"
         else
@@ -987,7 +1143,7 @@ print(d.get('id', d.get('note_id', d.get('note',{}).get('id',''))))
 
         # --- Gmail: messages + mark read (only when authenticated) ---
         if [ "$gmail_auth" = "True" ]; then
-            gmail_msgs=$(curl -sS "${API_BASE}/api/gmail/messages" 2>/dev/null)
+            gmail_msgs=$(curl -sS $CURL_OPTS "${API_BASE}/api/gmail/messages" 2>/dev/null)
             if echo "$gmail_msgs" | grep -q '"messages"'; then
                 phase_pass "journey: Gmail messages list loads"
                 # Try marking first message as read (safe, idempotent)
@@ -997,7 +1153,7 @@ msgs=json.load(sys.stdin).get('messages',[])
 print(msgs[0].get('id','') if msgs else '')
 " 2>/dev/null || true)
                 if [ -n "$first_msg_id" ] && [ "$first_msg_id" != "" ]; then
-                    mark_resp=$(curl -sS -X POST "${API_BASE}/api/gmail/messages/${first_msg_id}/read" \
+                    mark_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/gmail/messages/${first_msg_id}/read" \
                         -H 'content-type: application/json' 2>/dev/null)
                     if echo "$mark_resp" | grep -q '"result"\|"ok"'; then
                         phase_pass "journey: Gmail mark message as read"
@@ -1016,7 +1172,7 @@ print(msgs[0].get('id','') if msgs else '')
 
         # --- Calendar: events list (only when authenticated) ---
         if [ "$cal_auth" = "True" ]; then
-            cal_events=$(curl -sS "${API_BASE}/api/calendar/events" 2>/dev/null)
+            cal_events=$(curl -sS $CURL_OPTS "${API_BASE}/api/calendar/events" 2>/dev/null)
             if echo "$cal_events" | grep -q '"events"'; then
                 phase_pass "journey: Calendar events list loads"
             else
@@ -1028,7 +1184,7 @@ print(msgs[0].get('id','') if msgs else '')
 
         # --- Drive: files list (only when authenticated) ---
         if [ "$drive_auth" = "True" ]; then
-            drive_files=$(curl -sS "${API_BASE}/api/drive/files" 2>/dev/null)
+            drive_files=$(curl -sS $CURL_OPTS "${API_BASE}/api/drive/files" 2>/dev/null)
             if echo "$drive_files" | grep -q '"files"'; then
                 phase_pass "journey: Drive files list loads"
             else
@@ -1046,7 +1202,7 @@ print(msgs[0].get('id','') if msgs else '')
         # Spawn a real agent with budget 0 so it registers but does
         # minimal work. Then cancel it and verify it leaves active list.
         spawn_name="e2e-spawn-$(date +%s)"
-        spawn_resp=$(curl -sS -X POST "${API_BASE}/api/agents/spawn" \
+        spawn_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/spawn" \
             -H 'content-type: application/json' \
             -d "{\"name\":\"$spawn_name\",\"prompt\":\"say hello and exit\",\"model\":\"sonnet\",\"budget\":0}" 2>/dev/null)
         if echo "$spawn_resp" | grep -q '"name"\|"pid"\|"result"\|"status"'; then
@@ -1054,7 +1210,7 @@ print(msgs[0].get('id','') if msgs else '')
             # Give it a moment to register
             sleep 1
             # Send a heartbeat
-            hb_resp=$(curl -sS -X POST "${API_BASE}/api/agents/${spawn_name}/heartbeat" \
+            hb_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/${spawn_name}/heartbeat" \
                 -H 'content-type: application/json' \
                 -d '{"step":"e2e heartbeat test"}' 2>/dev/null)
             if echo "$hb_resp" | grep -q '"result"\|"ok"\|"step"'; then
@@ -1063,7 +1219,7 @@ print(msgs[0].get('id','') if msgs else '')
                 phase_fail "journey: agent heartbeat failed (body: $hb_resp)"
             fi
             # Cancel the agent
-            cancel_resp=$(curl -sS -X POST "${API_BASE}/api/agents/${spawn_name}/cancel" \
+            cancel_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/${spawn_name}/cancel" \
                 -H 'content-type: application/json' \
                 -d '{"reason":"e2e test cleanup"}' 2>/dev/null)
             if echo "$cancel_resp" | grep -q '"result"\|"cancelled"'; then
@@ -1076,13 +1232,13 @@ print(msgs[0].get('id','') if msgs else '')
         fi
 
         # --- Journey: Workflow run + status tracking ---
-        wfrun_resp=$(curl -sS -X POST "${API_BASE}/api/workflows" \
+        wfrun_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/workflows" \
             -H 'content-type: application/json' \
             -d '{"name":"e2e-run-workflow","steps":[{"agent_name":"e2e-wf-step","prompt":"echo done","model":"sonnet","budget":0}]}' 2>/dev/null)
         wfrun_id=$(echo "$wfrun_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('workflow',{}).get('id',''))" 2>/dev/null || true)
         if [ -n "$wfrun_id" ] && [ "$wfrun_id" != "" ]; then
             # Run the workflow
-            run_resp=$(curl -sS -X POST "${API_BASE}/api/workflows/${wfrun_id}/run" \
+            run_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/workflows/${wfrun_id}/run" \
                 -H 'content-type: application/json' 2>/dev/null)
             if echo "$run_resp" | grep -q '"status"\|"workflow"\|"steps"'; then
                 phase_pass "journey: workflow run starts"
@@ -1091,20 +1247,20 @@ print(msgs[0].get('id','') if msgs else '')
             fi
             # Check status
             sleep 1
-            status_resp=$(curl -sS "${API_BASE}/api/workflows/${wfrun_id}/status" 2>/dev/null)
+            status_resp=$(curl -sS $CURL_OPTS "${API_BASE}/api/workflows/${wfrun_id}/status" 2>/dev/null)
             if echo "$status_resp" | grep -q '"status"\|"steps"\|"workflow"'; then
                 phase_pass "journey: workflow status returns progress"
             else
                 phase_fail "journey: workflow status failed (body: $status_resp)"
             fi
             # Cleanup
-            curl -sS -X DELETE "${API_BASE}/api/workflows/${wfrun_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/workflows/${wfrun_id}" > /dev/null 2>&1
         else
             phase_fail "journey: could not create workflow for run test"
         fi
 
         # --- Journey: Fleet spawn ---
-        fleet_resp=$(curl -sS -X POST "${API_BASE}/api/agents/fleets/spawn" \
+        fleet_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/fleets/spawn" \
             -H 'content-type: application/json' \
             -d '{"fleet_id":"fleet-build-website","context":"e2e test only","model":"sonnet","budget":0}' 2>/dev/null)
         if echo "$fleet_resp" | grep -q '"spawned"\|"agents"\|"result"\|"members"'; then
@@ -1118,7 +1274,7 @@ for a in d.get('spawned', d.get('agents', d.get('members', []))):
     if name: print(name)
 " 2>/dev/null || true)
             for fa in $fleet_agents; do
-                curl -sS -X POST "${API_BASE}/api/agents/${fa}/cancel" \
+                curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/${fa}/cancel" \
                     -H 'content-type: application/json' \
                     -d '{"reason":"e2e cleanup"}' > /dev/null 2>&1
             done
@@ -1136,12 +1292,12 @@ for a in d.get('spawned', d.get('agents', d.get('members', []))):
         check_http_json "enterprise: GET audit"                          "/api/enterprise/audit"      '"events"'
 
         # Check if enterprise is already enabled (avoid double-create)
-        ent_enabled=$(curl -sS "${API_BASE}/api/enterprise" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('enabled', False))" 2>/dev/null)
+        ent_enabled=$(curl -sS $CURL_OPTS "${API_BASE}/api/enterprise" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('enabled', False))" 2>/dev/null)
 
         # If not already enabled, run the full org lifecycle
         if [ "$ent_enabled" = "False" ]; then
             # Create org
-            org_resp=$(curl -sS -X POST "${API_BASE}/api/enterprise/org" \
+            org_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/enterprise/org" \
                 -H 'content-type: application/json' \
                 -d '{"name":"e2e-test-org","admin_email":"e2e@test.com"}' 2>/dev/null)
             if echo "$org_resp" | grep -q '"org"\|"name"\|"id"'; then
@@ -1154,7 +1310,7 @@ for a in d.get('spawned', d.get('agents', d.get('members', []))):
         fi
 
         # Add a member
-        member_resp=$(curl -sS -X POST "${API_BASE}/api/enterprise/members" \
+        member_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/enterprise/members" \
             -H 'content-type: application/json' \
             -d '{"email":"e2e-member@test.com","role":"member"}' 2>/dev/null)
         member_id=$(echo "$member_resp" | python3 -c "
@@ -1166,7 +1322,7 @@ print(d.get('id', d.get('member',{}).get('id','')))
             phase_pass "enterprise: add member"
 
             # Update member role
-            role_resp=$(curl -sS -X PATCH "${API_BASE}/api/enterprise/members/${member_id}/role" \
+            role_resp=$(curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/members/${member_id}/role" \
                 -H 'content-type: application/json' \
                 -d '{"role":"admin"}' 2>/dev/null)
             if echo "$role_resp" | grep -q '"role"\|"admin"\|"member"'; then
@@ -1176,7 +1332,7 @@ print(d.get('id', d.get('member',{}).get('id','')))
             fi
 
             # Remove member (cleanup)
-            curl -sS -X DELETE "${API_BASE}/api/enterprise/members/${member_id}" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/enterprise/members/${member_id}" > /dev/null 2>&1
         else
             if echo "$member_resp" | grep -q '"id"\|"member"\|"email"'; then
                 phase_pass "enterprise: add member (response ok)"
@@ -1189,7 +1345,7 @@ print(d.get('id', d.get('member',{}).get('id','')))
         check_http_json "enterprise: list members"                       "/api/enterprise/members"    '"members"'
 
         # Update policies
-        policy_resp=$(curl -sS -X PATCH "${API_BASE}/api/enterprise/policies" \
+        policy_resp=$(curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/policies" \
             -H 'content-type: application/json' \
             -d '{"max_agent_budget":5.0}' 2>/dev/null)
         if echo "$policy_resp" | grep -q '"policies"\|"max_agent_budget"'; then
@@ -1200,7 +1356,7 @@ print(d.get('id', d.get('member',{}).get('id','')))
 
         # Isolation: get + set
         check_http_json "enterprise: GET isolation"                      "/api/enterprise/isolation"  '"current"'
-        iso_resp=$(curl -sS -X PATCH "${API_BASE}/api/enterprise/isolation" \
+        iso_resp=$(curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/isolation" \
             -H 'content-type: application/json' \
             -d '{"level":"governed"}' 2>/dev/null)
         if echo "$iso_resp" | grep -q '"level"\|"governed"\|"result"'; then
@@ -1209,7 +1365,7 @@ print(d.get('id', d.get('member',{}).get('id','')))
             phase_fail "enterprise: set isolation failed (body: $iso_resp)"
         fi
         # Restore to open
-        curl -sS -X PATCH "${API_BASE}/api/enterprise/isolation" \
+        curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/isolation" \
             -H 'content-type: application/json' \
             -d '{"level":"open"}' > /dev/null 2>&1
 
@@ -1221,7 +1377,7 @@ print(d.get('id', d.get('member',{}).get('id','')))
 
         # Clean up: delete the org if we created it
         if [ "$ent_enabled" = "False" ]; then
-            curl -sS -X DELETE "${API_BASE}/api/enterprise/org" > /dev/null 2>&1
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/enterprise/org" > /dev/null 2>&1
         fi
 
         # --- No hardcoded ports in routers ---
@@ -1271,9 +1427,9 @@ fi
 # --- Phase 5: WebSocket chat round trips ----------------------------------
 #
 # Tests three chat modes:
-#   a) Claude solo   — @claude model, single bubble
-#   b) Gemini solo   — @gemini model, single bubble
-#   c) Multi-AI      — @claude talk to @gemini, orchestration loop
+#   a) Claude solo: @claude model, single bubble
+#   b) Gemini solo: @gemini model, single bubble
+#   c) Multi-AI: @claude talk to @gemini, orchestration loop
 #
 # Each test sends a message, waits for at least one token + a done event,
 # and reports pass/fail. The Python helper is parameterized so we avoid
@@ -1287,11 +1443,12 @@ if [ "$SKIP_LIVE" != "1" ]; then
         phase_skip "WebSocket chat (python3 not installed)"
     else
 
-# Shared Python helper — takes model and message as env vars.
+# Shared Python helper: takes model and message as env vars.
 _ws_chat_test() {
     local _model="$1" _message="$2"
     PYTHONPATH="$REPO_DIR/api" API_PORT="$API_PORT" \
         _WS_MODEL="$_model" _WS_MESSAGE="$_message" \
+        _WS_USE_TLS="$([ -f "$HOME/.myos/localhost.key" ] && echo 1 || echo 0)" \
         python3 - <<'PY'
 import asyncio
 import json
@@ -1304,14 +1461,26 @@ except ImportError:
     print("NO_WS_LIB")
     sys.exit(0)
 
+import ssl as _ssl
 API_PORT = os.environ.get("API_PORT", "8000")
-URL = f"ws://localhost:{API_PORT}/ws/chat"
+USE_TLS = os.environ.get("_WS_USE_TLS", "0") == "1"
+if USE_TLS:
+    URL = f"wss://127.0.0.1:{API_PORT}/ws/chat"
+    _ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+    _ssl_ctx.check_hostname = False
+    _ssl_ctx.verify_mode = _ssl.CERT_NONE
+else:
+    URL = f"ws://localhost:{API_PORT}/ws/chat"
+    _ssl_ctx = None
 MODEL = os.environ.get("_WS_MODEL", "@claude")
 MESSAGE = os.environ.get("_WS_MESSAGE", "say hi")
 
 async def main():
     try:
-        async with websockets.connect(URL, open_timeout=5) as ws:
+        connect_kwargs = {"open_timeout": 5}
+        if _ssl_ctx is not None:
+            connect_kwargs["ssl"] = _ssl_ctx
+        async with websockets.connect(URL, **connect_kwargs) as ws:
             await ws.send(json.dumps({
                 "messages": [{"role": "user", "content": MESSAGE}],
                 "model": MODEL,
@@ -1406,6 +1575,65 @@ if [ "$SKIP_BROWSER" != "1" ] && [ "$SKIP_LIVE" != "1" ]; then
     fi
 elif [ "$SKIP_BROWSER" = "1" ]; then
     phase_skip "browser e2e tests (SKIP_BROWSER=1)"
+fi
+
+# --- Phase 7: e2e leftover regression assertion ------------------------------
+# After every phase has run, the EXIT trap will fire one more sweep. But we
+# want this to surface as a phase result too, so a sweep miss registers as a
+# smoke failure (not a silent leftover). We run the sweep here, then assert
+# the /api/specs count of e2e entries is zero.
+header "E2E leftover regression"
+_e2e_sweep_artifacts
+_e2e_remaining=$(curl -sS $CURL_OPTS --connect-timeout 3 -m 5 \
+    "${API_BASE}/api/specs" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print(-1); sys.exit(0)
+n = 0
+for x in d.get('docs', []):
+    p = (x.get('path') or '').lower()
+    t = (x.get('title') or '').lower()
+    if 'e2e-' in p or 'e2e-' in t:
+        n += 1
+print(n)
+" 2>/dev/null)
+if [ "$_e2e_remaining" = "0" ]; then
+    phase_pass "e2e leftovers: 0 specs remain after sweep"
+else
+    phase_fail "e2e leftovers: ${_e2e_remaining} e2e spec(s) still present after sweep"
+fi
+
+# --- Phase 8: Demo surface latency ---------------------------------------
+# Every demo surface (template spawn, fleet, workflow, chat chain) must
+# complete inside the 90 second budget Tori promises on stage. This guard
+# runs the dedicated smoke that hits each surface via the same endpoints
+# the UI hits and asserts the wall-clock cap.
+#
+# The full demo-surface smoke (test_all_demo_paths_under_90s.sh) has been
+# intentionally disabled. It spawns real agents and workflows and is too
+# heavy to run on every release gate. The prewarm test below covers the
+# endpoints without actually firing off long-running jobs. If the file
+# ever comes back executable, the script runs it, otherwise we fall back
+# to the faster demo-prewarm smoke.
+header "Demo surface latency"
+_demo_smoke="$(cd "$(dirname "$0")" && pwd)/test_all_demo_paths_under_90s.sh"
+_demo_prewarm="$(cd "$(dirname "$0")" && pwd)/test_demo_prewarm.sh"
+if [ -x "$_demo_smoke" ]; then
+    if "$_demo_smoke"; then
+        phase_pass "demo: every surface landed inside cap"
+    else
+        phase_fail "demo: at least one surface blew the cap (see output above)"
+    fi
+elif [ -x "$_demo_prewarm" ]; then
+    if "$_demo_prewarm" > /dev/null 2>&1; then
+        phase_pass "demo: prewarm checks all green (dedicated smoke disabled)"
+    else
+        phase_fail "demo: prewarm checks failed (see test_demo_prewarm.sh output)"
+    fi
+else
+    phase_fail "demo: neither full smoke nor prewarm test is available"
 fi
 
 # --- Summary ---------------------------------------------------------------

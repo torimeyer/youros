@@ -1,13 +1,54 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
-import { Link } from "react-router-dom";
+import TemplateCard from "../components/TemplateCard";
 import { AgentChatThread } from "../components/AgentChatThread";
+import ConfirmModal from "../components/ConfirmModal";
+import { useConfirm } from "../hooks/useConfirm";
 import { api, ApiError, ApiTimeoutError } from "../lib/api";
+import { onAgentsChange } from "../lib/sidebarBus";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
+import { AGENT_MARKETPLACE } from "../data/agentMarketplace";
+import { type AgentInfo, agentTitleParts, isAgentActive, isUserSpawnedAgent } from "../lib/agentUtils";
+import { renderMarkdown } from "../lib/markdown";
+import { hasSpeakerPrefixes, parseTranscript } from "../lib/transcript";
+import { Button, EmptyState, Card } from "../components/ui";
 
-const BASE_TABS = ["Active", "Recent", "Insights", "Templates"];
+// Re-export so tests can still import these from './Agents'
+export { friendlyAgentName, isMainSession, isUserSpawnedAgent } from "../lib/agentUtils";
+
+const BASE_TABS = ["Active", "Recent", "Templates"];
+
+// Every backend status that means "this agent is no longer running".
+// Keep this in sync with ``_TERMINAL_FROM_META`` in api/routers/agents.py.
+// The Recent tab and the Active-to-Recent transition both read from this
+// list, so missing entries make finished agents disappear from both tabs
+// (the "flash and vanish" bug).
+export const TERMINAL_AGENT_STATUSES = [
+  "completed",
+  "completed_timeout",
+  "cancelled",
+  "failed",
+  "terminated_stale",
+  "stopped",
+  "abandoned",
+  "killed",
+] as const;
+
+// Statuses the "Hiding cancelled" chip hides by default. ``failed`` and
+// ``completed`` are intentionally NOT in this list: a genuine failure or
+// success should always be visible in Recent even when the user has the
+// chip set to hide cancellations. Keeping the other cancellation-synonyms
+// in place preserves existing behavior where a cancel-all flood does not
+// drown out the completed rows the user actually cares about.
+export const CANCELLED_SYNONYM_STATUSES = [
+  "cancelled",
+  "terminated_stale",
+  "killed",
+  "abandoned",
+  "stopped",
+] as const;
 
 /* ---------- Icon Picker ---------- */
 const ICON_PICKER_ICONS = [
@@ -118,80 +159,6 @@ function IconPicker({
   );
 }
 
-interface AutoTemplate { id: string; name: string; description: string; icon: string; steps: { name: string; prompt: string }[] }
-
-function AutomationTemplatesList() {
-  const [templates, setTemplates] = useState<AutoTemplate[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [running, setRunning] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.get<{ templates: AutoTemplate[] }>('/workflows/templates')
-      .then((res) => setTemplates(res.templates ?? []))
-      .catch(() => {});
-  }, []);
-
-  const runTemplate = async (t: AutoTemplate) => {
-    setRunning(t.id);
-    try {
-      await api.post('/workflows', {
-        name: t.name,
-        steps: t.steps.map((s, i) => ({
-          id: `step-${i}`,
-          agent_name: s.name.toLowerCase().replace(/\s+/g, '-'),
-          prompt: s.prompt,
-          model: 'sonnet',
-          budget: 2.0,
-          depends_on: i > 0 ? [`step-${i - 1}`] : [],
-        })),
-      });
-    } catch (e) {
-      console.error('Failed to run workflow:', e);
-    } finally {
-      setRunning(null);
-    }
-  };
-
-  if (templates.length === 0) return <p className="text-sm text-slate-500">Loading templates...</p>;
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {templates.map((t) => {
-        const isExpanded = expanded === t.id;
-        return (
-          <div key={t.id} className="bg-slate-900/40 border border-slate-800 rounded-xl p-4">
-            <div className="flex items-start gap-3 cursor-pointer" onClick={() => setExpanded(isExpanded ? null : t.id)}>
-              <Icon name={t.icon} className="text-2xl text-blue-400 mt-0.5 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-white text-sm font-medium">{t.name}</p>
-                <p className="text-slate-400 text-xs mt-0.5">{t.description}</p>
-                <p className="text-slate-500 text-[10px] mt-1">{t.steps.length} steps</p>
-              </div>
-              <Icon name={isExpanded ? 'expand_less' : 'expand_more'} className="text-slate-500 shrink-0" size={20} />
-            </div>
-            {isExpanded && (
-              <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-2">
-                {t.steps.map((s, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs text-slate-400">
-                    <span className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-[10px] text-slate-300 shrink-0">{i + 1}</span>
-                    {s.name}
-                  </div>
-                ))}
-                <button
-                  onClick={() => runTemplate(t)}
-                  disabled={running === t.id}
-                  className="w-full mt-2 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-                >
-                  {running === t.id ? 'Running...' : 'Run this workflow'}
-                </button>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 /* ---------- Agentfiles Tab ---------- */
 
 interface AgentfileInfo {
@@ -279,13 +246,13 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
     }
   };
 
-  if (loading) return <p className="text-sm text-slate-500">Loading agent configs...</p>;
+  if (loading) return <p className="text-sm text-slate-500">Loading agent setups...</p>;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-white font-semibold">Agent Configurations</h3>
+          <h3 className="text-white font-semibold">Agent Setups</h3>
           <p className="text-xs text-slate-500 mt-1">Ready-made agent setups you can start with one click</p>
         </div>
         <button
@@ -293,7 +260,7 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
           className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
         >
           <Icon name={showCreate ? "close" : "add"} className="text-base" />
-          {showCreate ? "Cancel" : "New Config"}
+          {showCreate ? "Cancel" : "New Setup"}
         </button>
       </div>
 
@@ -307,6 +274,7 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                 type="text"
                 value={createForm.name}
                 onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
                 placeholder="e.g. deploy-checker"
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
@@ -331,17 +299,19 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
               type="text"
               value={createForm.description}
               onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
               placeholder="What does this agent do?"
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
           </div>
           <div className="mb-4">
-            <label className="block text-sm text-slate-400 mb-1">Prompt</label>
+            <label className="block text-sm text-slate-400 mb-1">Instructions</label>
             <textarea
               value={createForm.prompt}
               onChange={(e) => setCreateForm({ ...createForm, prompt: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleCreate(); } }}
               rows={3}
-              placeholder="The instructions this agent follows when it runs..."
+              placeholder="What should this agent do? (Enter to create, Shift+Enter for newline)"
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
             />
           </div>
@@ -350,25 +320,25 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
             disabled={creating || !createForm.name.trim() || !createForm.prompt.trim()}
             className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
           >
-            {creating ? "Creating..." : "Create Config"}
+            {creating ? "Creating..." : "Create Setup"}
           </button>
         </div>
       )}
 
       {/* Agentfile cards */}
       {agentfiles.length === 0 ? (
-        <div className="text-center py-12">
-          <Icon name="description" className="text-4xl text-slate-600 mb-3" />
-          <p className="text-slate-400 text-sm">No agent configurations found</p>
-          <p className="text-slate-500 text-xs mt-1">Create one above to get started.</p>
-        </div>
+        <EmptyState
+          icon="description"
+          title="No agent setups yet"
+          description="Create one above to get started."
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {agentfiles.map((af) => {
             const isExpanded = expanded === af.name;
             const icon = AGENTFILE_ICONS[af.name] || "smart_toy";
             return (
-              <div key={af.name} className="bg-slate-900/40 border border-slate-800 rounded-xl p-4">
+              <Card key={af.name} variant="default" padding="sm">
                 <div
                   className="flex items-start gap-3 cursor-pointer"
                   onClick={() => setExpanded(isExpanded ? null : af.name)}
@@ -385,12 +355,12 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                         {af.source === "builtin" ? "built-in" : "custom"}
                       </span>
                     </div>
-                    <p className="text-slate-400 text-xs mt-0.5 line-clamp-3">{af.description || "No description added yet"}</p>
+                    <p className="text-slate-400 text-xs mt-0.5 line-clamp-3">{af.description || "No description yet"}</p>
                     <div className="flex gap-3 mt-1.5">
-                      <span className="text-[10px] text-slate-500">model: {af.model}</span>
-                      <span className="text-[10px] text-slate-500">capabilities: {af.tools.length}</span>
+                      <span className="text-[10px] text-slate-500">{af.model}</span>
+                      <span className="text-[10px] text-slate-500">{af.tools.length} tools</span>
                       {af.token_limit > 0 && (
-                        <span className="text-[10px] text-slate-500">{(af.token_limit / 1000).toFixed(0)}k tokens</span>
+                        <span className="text-[10px] text-slate-500">{(af.token_limit / 1000).toFixed(0)}k limit</span>
                       )}
                     </div>
                   </div>
@@ -400,8 +370,8 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                 {isExpanded && (
                   <div className="mt-3 pt-3 border-t border-slate-700/50">
                     <div className="mb-3">
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Prompt</p>
-                      <p className="text-xs text-slate-300 leading-relaxed">{af.prompt || "No instructions set"}</p>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Instructions</p>
+                      <p className="text-xs text-slate-300 leading-relaxed">{af.prompt || "No instructions yet"}</p>
                     </div>
                     {af.tools.length > 0 && (
                       <div className="mb-3">
@@ -415,16 +385,20 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                         </div>
                       </div>
                     )}
-                    <button
+                    <Button
+                      variant="primary"
+                      size="md"
+                      fullWidth
                       onClick={() => handleLaunch(af.name)}
                       disabled={launching === af.name}
-                      className="w-full mt-2 py-2 bg-pink-500 hover:bg-pink-600 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                      loading={launching === af.name}
+                      className="mt-2"
                     >
                       {launching === af.name ? "Launching..." : "Launch Agent"}
-                    </button>
+                    </Button>
                   </div>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>
@@ -437,100 +411,355 @@ const POWER_USER_TABS = ["Delegate", "Workspace"];
 
 type CustomTemplate = CustomAgentTemplate;
 
-const marketplaceCategories: { category: string; templates: CustomTemplate[] }[] = [
-  {
-    category: "For everyone",
-    templates: [
-      { name: "Summarizer", description: "Summarize documents, articles, or meeting notes into key points.", icon: "summarize", model: "sonnet", budget: 2.0 },
-      { name: "Daily Planner", description: "Review your tasks and create a focused plan for today.", icon: "today", model: "sonnet", budget: 2.0 },
-      { name: "Email Drafter", description: "Draft a clear, friendly email based on your instructions.", icon: "mail", model: "sonnet", budget: 2.0 },
-      { name: "Brainstorm", description: "Generate ideas for any topic or problem you are stuck on.", icon: "psychology", model: "sonnet", budget: 2.0 },
-      { name: "Research", description: "Search the web, read multiple sources, and write a short summary.", icon: "search", model: "sonnet", budget: 2.0 },
-    ],
-  },
-  {
-    category: "Product managers",
-    templates: [
-      { name: "Competitive Scan", description: "Research what competitors are shipping in a product area.", icon: "monitor_heart", model: "sonnet", budget: 3.0 },
-      { name: "PRD Draft", description: "Turn a rough idea into a product requirements doc.", icon: "article", model: "sonnet", budget: 3.0 },
-      { name: "Customer Interview Notes", description: "Turn raw interview notes into themes and insights.", icon: "record_voice_over", model: "sonnet", budget: 2.0 },
-      { name: "Launch Checklist", description: "Generate a launch checklist for a new feature.", icon: "checklist", model: "sonnet", budget: 2.0 },
-      { name: "Stakeholder Update", description: "Write a weekly update for your leadership team.", icon: "campaign", model: "sonnet", budget: 2.0 },
-    ],
-  },
-  {
-    category: "Engineers",
-    templates: [
-      { name: "Code Review", description: "Review code for issues, bugs, and improvements.", icon: "code", model: "sonnet", budget: 2.0 },
-      { name: "Write Tests", description: "Generate test cases for your code.", icon: "bug_report", model: "sonnet", budget: 2.0 },
-      { name: "Bug Finder", description: "Analyze code for potential bugs and security issues.", icon: "pest_control", model: "sonnet", budget: 2.0 },
-      { name: "Debug Helper", description: "Read an error log, find the root cause, and suggest a fix.", icon: "bug_report", model: "sonnet", budget: 2.0 },
-      { name: "Refactor Plan", description: "Review messy code and propose a clean refactoring plan.", icon: "auto_fix_high", model: "sonnet", budget: 3.0 },
-    ],
-  },
-  {
-    category: "Sales and customer success",
-    templates: [
-      { name: "Prospect Research", description: "Dig into a company and decision maker before an outreach call.", icon: "business", model: "sonnet", budget: 3.0 },
-      { name: "Cold Outreach Draft", description: "Draft a personalized outreach email to a prospect.", icon: "outgoing_mail", model: "sonnet", budget: 2.0 },
-      { name: "Call Prep", description: "Build a 1-page call brief for an upcoming customer meeting.", icon: "support_agent", model: "sonnet", budget: 2.0 },
-      { name: "Follow Up", description: "Turn a call into a recap email and next steps.", icon: "forward_to_inbox", model: "sonnet", budget: 2.0 },
-      { name: "Objection Handling", description: "Help you prep answers to common customer objections.", icon: "question_answer", model: "sonnet", budget: 2.0 },
-    ],
-  },
-  {
-    category: "Writers and creators",
-    templates: [
-      { name: "Blog Post", description: "Write a draft blog post from an outline or rough idea.", icon: "edit_note", model: "sonnet", budget: 3.0 },
-      { name: "Social Post", description: "Turn a long post into short, punchy social versions.", icon: "share", model: "sonnet", budget: 2.0 },
-      { name: "Headline Generator", description: "Write 10 headline options for the same piece of content.", icon: "title", model: "sonnet", budget: 2.0 },
-      { name: "Proofreader", description: "Catch typos, grammar issues, and awkward phrasing.", icon: "spellcheck", model: "sonnet", budget: 2.0 },
-      { name: "Name Generator", description: "Come up with names for projects, features, or products.", icon: "label", model: "sonnet", budget: 2.0 },
-    ],
-  },
-  {
-    category: "Home and family",
-    templates: [
-      { name: "Meal Planner", description: "Plan a week of meals based on what is in the fridge.", icon: "restaurant", model: "sonnet", budget: 2.0 },
-      { name: "Grocery List", description: "Turn a meal plan into an organized shopping list.", icon: "shopping_cart", model: "sonnet", budget: 2.0 },
-      { name: "Trip Planner", description: "Plan a day trip or vacation with budget and time constraints.", icon: "flight_takeoff", model: "sonnet", budget: 3.0 },
-      { name: "Gift Finder", description: "Suggest gift ideas for a specific person, budget, and occasion.", icon: "redeem", model: "sonnet", budget: 2.0 },
-      { name: "Homework Helper", description: "Walk a kid through a tricky homework problem step by step.", icon: "school", model: "sonnet", budget: 2.0 },
-    ],
-  },
-  {
-    category: "Students",
-    templates: [
-      { name: "Study Guide", description: "Turn class notes into a study guide with key concepts and example questions.", icon: "menu_book", model: "sonnet", budget: 2.0 },
-      { name: "Essay Outline", description: "Build an outline for a paper based on a prompt or topic.", icon: "format_list_numbered", model: "sonnet", budget: 2.0 },
-      { name: "Flash Cards", description: "Turn a reading into a set of flash-card style Q&A pairs.", icon: "quiz", model: "sonnet", budget: 2.0 },
-      { name: "Citation Helper", description: "Format sources in APA, MLA, or Chicago style.", icon: "format_quote", model: "sonnet", budget: 2.0 },
-    ],
-  },
-];
-
 /* ---------- Template Editor Modal ---------- */
+// prompt_template is the system prompt shown read-only in detail view.
+// userMessage is what the user types before spawning.
 function TemplateEditorModal({
   initial,
   isNew,
+  promptTemplate,
+  templateId,
+  source,
+  aliases,
+  capabilities,
   onSpawn,
   onSave,
   onCancel,
+  onDescriptionSaved,
 }: {
   initial: CustomTemplate | null;
   isNew: boolean;
-  onSpawn: (t: CustomTemplate) => void;
+  promptTemplate?: string;
+  templateId?: string;
+  source?: string;
+  aliases?: string[];
+  capabilities?: { writes_to: string; cannot_touch: string; budget: string; time_limit: string; sandbox: string } | null;
+  onSpawn: (t: CustomTemplate, userMessage: string) => void;
   onSave: (t: CustomTemplate) => void;
   onCancel: () => void;
+  onDescriptionSaved?: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [icon, setIcon] = useState(initial?.icon ?? "smart_toy");
   const [model, setModel] = useState(initial?.model ?? "sonnet");
   const [budget, setBudget] = useState(initial?.budget ?? 2.0);
+  // The initial user message typed before spawning
+  const [userMessage, setUserMessage] = useState("");
+
+  // Alias editing state
+  const [aliasValue, setAliasValue] = useState("");
+  const [aliasLoading, setAliasLoading] = useState(false);
+  const [aliasError, setAliasError] = useState("");
+  const [aliasSaved, setAliasSaved] = useState(false);
+  const [promptExpanded, setPromptExpanded] = useState(false);
+
+  // Description editing state (detail view only). ``descriptionBaseline``
+  // is the last saved value so Save only lights up when the user has
+  // actually typed something new.
+  const [descriptionLoading, setDescriptionLoading] = useState(false);
+  const [descriptionError, setDescriptionError] = useState("");
+  const [descriptionSaved, setDescriptionSaved] = useState(false);
+  const [descriptionBaseline, setDescriptionBaseline] = useState(initial?.description ?? "");
+  const descriptionDirty = description.trim() !== descriptionBaseline.trim();
+
+  // Fetch existing alias when opening detail view
+  useEffect(() => {
+    if (!isNew && templateId) {
+      api.get<{ alias: string | null }>(`/agents/templates/${templateId}/alias`)
+        .then((data) => {
+          if (data.alias) setAliasValue(data.alias);
+        })
+        .catch(() => { /* non-fatal */ });
+    }
+  }, [isNew, templateId]);
+
+  const handleSaveAlias = async () => {
+    if (!templateId) return;
+    setAliasLoading(true);
+    setAliasError("");
+    setAliasSaved(false);
+    try {
+      await api.patch(`/agents/templates/${templateId}/alias`, {
+        alias: aliasValue.trim() || null,
+      });
+      setAliasSaved(true);
+      setTimeout(() => setAliasSaved(false), 2000);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : (err instanceof Error ? err.message : String(err));
+      setAliasError(msg);
+    } finally {
+      setAliasLoading(false);
+    }
+  };
+
+  const handleClearAlias = async () => {
+    if (!templateId) return;
+    setAliasLoading(true);
+    setAliasError("");
+    try {
+      await api.patch(`/agents/templates/${templateId}/alias`, { alias: null });
+      setAliasValue("");
+      setAliasSaved(true);
+      setTimeout(() => setAliasSaved(false), 2000);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : (err instanceof Error ? err.message : String(err));
+      setAliasError(msg);
+    } finally {
+      setAliasLoading(false);
+    }
+  };
+
+  const handleSaveDescription = async () => {
+    if (!templateId) return;
+    const trimmed = description.trim();
+    if (!trimmed) {
+      setDescriptionError("Description cannot be empty.");
+      return;
+    }
+    setDescriptionLoading(true);
+    setDescriptionError("");
+    setDescriptionSaved(false);
+    try {
+      const res = await api.patch<{ template: { description?: string } }>(
+        `/agents/templates/${templateId}/description`,
+        { description: trimmed },
+      );
+      const saved = res?.template?.description ?? trimmed;
+      setDescription(saved);
+      setDescriptionBaseline(saved);
+      setDescriptionSaved(true);
+      setTimeout(() => setDescriptionSaved(false), 2000);
+      // Notify the parent so it can refresh the template list so the card
+      // under the modal reflects the new description the next time it paints.
+      if (onDescriptionSaved) onDescriptionSaved();
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : (err instanceof Error ? err.message : String(err));
+      setDescriptionError(msg);
+    } finally {
+      setDescriptionLoading(false);
+    }
+  };
 
   const current: CustomTemplate = { name, description, icon, model, budget };
 
+  // Detail view (existing template): show prompt + user message input
+  if (!isNew && promptTemplate) {
+    const promptPreview = promptTemplate.length > 500 && !promptExpanded
+      ? promptTemplate.slice(0, 500) + "..."
+      : promptTemplate;
+    const sourceBadge = source === "builtin"
+      ? { label: "built-in", cls: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400" }
+      : source === "custom"
+        ? { label: "custom", cls: "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400" }
+        : source === "marketplace"
+          ? { label: "marketplace", cls: "bg-slate-200 text-slate-700 dark:bg-slate-700/60 dark:text-slate-400" }
+          : null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+        <div
+          className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden max-h-[90vh] flex flex-col"
+          data-testid="template-detail-modal"
+        >
+          {/* Header */}
+          <div className="flex items-center gap-3 p-6 border-b border-slate-800 shrink-0">
+            <Icon name={icon} className="text-blue-400 text-2xl" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-lg font-semibold text-white">{name}</h3>
+                {sourceBadge && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${sourceBadge.cls}`}>
+                    {sourceBadge.label}
+                  </span>
+                )}
+                {(aliases || []).map((a) => (
+                  <span key={a} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 font-mono">
+                    alias: {a}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5 line-clamp-2" data-testid="template-detail-description-preview">
+                {description}
+              </p>
+            </div>
+            <button
+              onClick={onCancel}
+              className="ml-auto text-slate-500 hover:text-white transition-colors shrink-0"
+              aria-label="Close"
+            >
+              <Icon name="close" size={20} />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-5 overflow-y-auto flex-1">
+            {/* Description section (editable) */}
+            {templateId && (
+              <div data-testid="template-description-section">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  Description
+                </p>
+                <p className="text-[10px] text-slate-500 mb-2">
+                  Edit the short summary that shows on the template card.
+                </p>
+                <textarea
+                  value={description}
+                  onChange={(e) => { setDescription(e.target.value); setDescriptionError(""); }}
+                  rows={3}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y"
+                  data-testid="template-description-input"
+                  maxLength={2000}
+                  placeholder="Short summary shown on the template card"
+                />
+                <div className="flex items-center justify-end gap-2 mt-1">
+                  {descriptionError && (
+                    <p className="text-xs text-red-400 mr-auto" data-testid="template-description-error">{descriptionError}</p>
+                  )}
+                  {descriptionSaved && (
+                    <p className="text-xs text-green-400 mr-auto" data-testid="template-description-saved">Description saved.</p>
+                  )}
+                  <button
+                    onClick={handleSaveDescription}
+                    disabled={descriptionLoading || !descriptionDirty || !description.trim()}
+                    className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-3 py-1.5 text-xs transition-colors"
+                    data-testid="template-description-save"
+                  >
+                    {descriptionLoading ? "Saving..." : "Save description"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Prompt section */}
+            <div data-testid="template-prompt-section">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Prompt</p>
+              <div className="bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-xs text-slate-300 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap">
+                {promptPreview}
+              </div>
+              {promptTemplate.length > 500 && (
+                <button
+                  onClick={() => setPromptExpanded(!promptExpanded)}
+                  className="text-[10px] text-blue-400 hover:text-blue-300 mt-1 transition-colors"
+                  data-testid="template-prompt-expand"
+                >
+                  {promptExpanded ? "Show less" : "Show full prompt"}
+                </button>
+              )}
+            </div>
+
+            {/* Capabilities section */}
+            {capabilities && (
+              <div data-testid="template-capabilities-section">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Capabilities</p>
+                <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
+                  <div className="bg-slate-800/60 rounded-lg px-3 py-2">
+                    <span className="text-slate-500 block text-[10px]">Writes to</span>
+                    {capabilities.writes_to}
+                  </div>
+                  <div className="bg-slate-800/60 rounded-lg px-3 py-2">
+                    <span className="text-slate-500 block text-[10px]">Budget</span>
+                    {capabilities.budget}
+                  </div>
+                  <div className="bg-slate-800/60 rounded-lg px-3 py-2">
+                    <span className="text-slate-500 block text-[10px]">Time limit</span>
+                    {capabilities.time_limit}
+                  </div>
+                  <div className="bg-slate-800/60 rounded-lg px-3 py-2">
+                    <span className="text-slate-500 block text-[10px]">Sandbox</span>
+                    {capabilities.sandbox}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Alias section */}
+            {templateId && (
+              <div data-testid="template-alias-section">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  Custom alias
+                </p>
+                <p className="text-[10px] text-slate-500 mb-2">
+                  Set a shortcut name you can type in chat or use when spawning agents.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={aliasValue}
+                    onChange={(e) => { setAliasValue(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")); setAliasError(""); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" && aliasValue.trim()) handleSaveAlias(); }}
+                    placeholder="e.g. my-builder"
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    data-testid="template-alias-input"
+                    maxLength={30}
+                  />
+                  <button
+                    onClick={handleSaveAlias}
+                    disabled={aliasLoading || !aliasValue.trim()}
+                    className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-3 py-1.5 text-sm transition-colors"
+                    data-testid="template-alias-save"
+                  >
+                    {aliasLoading ? "Saving..." : "Save"}
+                  </button>
+                  {aliasValue && (
+                    <button
+                      onClick={handleClearAlias}
+                      disabled={aliasLoading}
+                      className="text-slate-500 hover:text-red-400 transition-colors"
+                      title="Remove alias"
+                      data-testid="template-alias-delete"
+                    >
+                      <Icon name="delete" size={18} />
+                    </button>
+                  )}
+                </div>
+                {aliasError && (
+                  <p className="text-xs text-red-400 mt-1" data-testid="template-alias-error">{aliasError}</p>
+                )}
+                {aliasSaved && (
+                  <p className="text-xs text-green-400 mt-1" data-testid="template-alias-saved">Alias saved.</p>
+                )}
+              </div>
+            )}
+
+            {/* User message input */}
+            <div data-testid="template-user-input-section">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                What do you want to tell this agent?
+              </label>
+              <textarea
+                value={userMessage}
+                onChange={(e) => setUserMessage(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSpawn(current, userMessage); } }}
+                rows={3}
+                placeholder="Describe the specific task, provide context, or paste content for the agent to work with... (Enter to spawn, Shift+Enter for newline)"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                data-testid="template-user-message-input"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-1">
+              <button
+                onClick={onCancel}
+                className="text-slate-400 hover:text-white text-sm transition-colors px-4 py-2"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { onSpawn(current, userMessage); }}
+                className="bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-5 py-2 text-sm font-medium transition-colors"
+                data-testid="template-spawn-button"
+              >
+                Spawn agent
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // New template creation form
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-xl">
@@ -544,17 +773,26 @@ function TemplateEditorModal({
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && name.trim()) onSpawn(current, userMessage);
+          }}
           placeholder="e.g. Research Agent"
           className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
         />
 
         {/* Description / Prompt */}
-        <label className="block text-sm text-slate-400 mb-1">Description / Prompt</label>
+        <label className="block text-sm text-slate-400 mb-1">Description</label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && name.trim()) {
+              e.preventDefault();
+              onSpawn(current, userMessage);
+            }
+          }}
           rows={3}
-          placeholder="What should this agent do?"
+          placeholder="What should this agent do? (Enter to spawn, Shift+Enter for newline)"
           className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4 resize-none"
         />
 
@@ -606,7 +844,7 @@ function TemplateEditorModal({
             </button>
           )}
           <button
-            onClick={() => { if (name.trim()) onSpawn(current); }}
+            onClick={() => { if (name.trim()) onSpawn(current, userMessage); }}
             disabled={!name.trim()}
             className="bg-pink-500 hover:bg-pink-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
           >
@@ -618,24 +856,6 @@ function TemplateEditorModal({
   );
 }
 
-interface AgentInfo {
-  name: string;
-  status: string;
-  source: string;
-  model?: string;
-  budget?: string;
-  timestamp?: string;
-  spawned_at?: string;
-  transcript_bytes?: number;
-  transcript_lines?: number;
-  tokens_used?: number;
-  token_limit?: number | null;
-  token_usage_pct?: number | null;
-  cost_estimate?: number;
-  recovery_count?: number;
-  max_recoveries?: number;
-}
-
 // First-paint cache (needle 299).
 //
 // See the matching block in Tasks.tsx for the full rationale. Short
@@ -644,6 +864,82 @@ interface AgentInfo {
 // good /agents response stashed in localStorage. The live poll still
 // runs and overwrites the cache as soon as fresh data arrives.
 const AGENTS_CACHE_KEY = "myos.agentsCache.v1";
+
+// Cache keys for the three template lists shown on the Templates tab.
+// Templates parse rarely (only when the user adds or removes one) but
+// the first paint otherwise waits on three parallel fetches. Seeding
+// state from localStorage lets the cards appear instantly, then the
+// background fetch reconciles any drift.
+const TEMPLATES_CACHE_KEY = "myos.templatesCache.v1";
+const PM_TEMPLATES_CACHE_KEY = "myos.pmTemplatesCache.v1";
+const USER_TEMPLATES_CACHE_KEY = "myos.userTemplatesCache.v1";
+
+// Persistence key for the Recent tab's "show cancelled" toggle. Default
+// is hidden. When the user clicks the chip to reveal cancelled rows we
+// store "1" here so a page refresh keeps their choice.
+const RECENT_SHOW_CANCELLED_KEY = "myos.recentShowCancelled.v1";
+
+function readShowCancelledPref(): boolean {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return false;
+    return window.localStorage.getItem(RECENT_SHOW_CANCELLED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeShowCancelledPref(show: boolean) {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    if (show) {
+      window.localStorage.setItem(RECENT_SHOW_CANCELLED_KEY, "1");
+    } else {
+      window.localStorage.removeItem(RECENT_SHOW_CANCELLED_KEY);
+    }
+  } catch {
+    // Quota or serialization errors are not fatal.
+  }
+}
+
+// Active-session card expanded state lives in sessionStorage so
+// navigating away and back in the same tab keeps what the user chose.
+// A fresh tab starts with every card collapsed. Each agent gets its
+// own entry keyed by name so multiple cards can be expanded
+// independently of each other.
+const ACTIVE_EXPANDED_KEY = "myos.agents.activeExpanded.v1";
+
+function readActiveExpandedMap(): Record<string, boolean> {
+  try {
+    if (typeof window === "undefined" || !window.sessionStorage) return {};
+    const raw = window.sessionStorage.getItem(ACTIVE_EXPANDED_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const out: Record<string, boolean> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === "boolean") out[k] = v;
+      }
+      return out;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+function writeActiveExpandedMap(map: Record<string, boolean>) {
+  try {
+    if (typeof window === "undefined" || !window.sessionStorage) return;
+    // Drop false entries so the blob does not grow forever.
+    const pruned: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(map)) {
+      if (v) pruned[k] = true;
+    }
+    window.sessionStorage.setItem(ACTIVE_EXPANDED_KEY, JSON.stringify(pruned));
+  } catch {
+    // Quota or privacy mode: skip persistence.
+  }
+}
 
 function readAgentsCache(): AgentInfo[] {
   try {
@@ -666,50 +962,126 @@ function writeAgentsCache(agents: AgentInfo[]) {
   }
 }
 
-// Pattern recognition (Insights tab)
-interface PatternRecommendation {
-  type: string;
-  severity: "info" | "tip" | "warning";
-  message: string;
-  related_template_id?: string | null;
-  suggested_value?: number | string | null;
+// Generic reader for template list caches. Returns [] on any error so
+// a corrupt cache never blocks the page.
+function readTemplatesCache<T>(key: string): T[] {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return [];
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
 }
 
-interface PatternTemplateStat {
-  template_id: string;
-  template_name: string;
-  spawn_count: number;
-  completed_count: number;
-  success_rate: number;
-  median_duration_sec: number | null;
-  median_cost: number | null;
-  best_model: string | null;
+function writeTemplatesCache<T>(key: string, list: T[]): void {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    window.localStorage.setItem(key, JSON.stringify(list));
+  } catch {
+    // Quota or serialization errors are not fatal.
+  }
 }
 
-interface ProvenTemplate {
-  template_name: string;
-  template_id: string;
+// Hardcoded seed for the persona-templates list. Used on the very first
+// cold visit when localStorage has no cache yet. Without this, cards like
+// ``Roadmap`` would not appear until the /settings + /persona-templates
+// fetch chain resolved (about 1s on a slow connection). The seed mirrors
+// the PM persona built-ins shipped in
+// ``api/services/agent_templates_store.py`` so the user sees real cards
+// instantly. The background fetch reconciles any drift on the same paint.
+const DEFAULT_PERSONA_TEMPLATES_SEED: PMAgentTemplateSeed[] = [
+  {
+    id: "builtin-pm-competitive-scan",
+    name: "Competitive Scan",
+    description: "Research what competitors are shipping in a product area.",
+    icon: "monitor_heart",
+    prompt_template: "",
+    model: "sonnet",
+    budget: 3.0,
+    builtin: true,
+    source: "marketplace",
+  },
+  {
+    id: "builtin-pm-prd",
+    name: "PRD",
+    description: "Turn a rough idea into a product requirements doc.",
+    icon: "article",
+    prompt_template: "",
+    model: "sonnet",
+    budget: 3.0,
+    builtin: true,
+    source: "marketplace",
+  },
+  {
+    id: "builtin-pm-customer-interviews",
+    name: "Customer Interview Notes",
+    description: "Turn raw interview notes into themes and insights.",
+    icon: "record_voice_over",
+    prompt_template: "",
+    model: "sonnet",
+    budget: 2.0,
+    builtin: true,
+    source: "marketplace",
+  },
+  {
+    id: "builtin-pm-launch-checklist",
+    name: "Launch Checklist",
+    description: "Generate a launch checklist for a new feature.",
+    icon: "checklist",
+    prompt_template: "",
+    model: "sonnet",
+    budget: 2.0,
+    builtin: true,
+    source: "marketplace",
+  },
+  {
+    id: "builtin-pm-roadmap",
+    name: "Roadmap",
+    description: "Draft a multi-year quarterly roadmap from a set of initiatives.",
+    icon: "timeline",
+    prompt_template: "",
+    model: "sonnet",
+    budget: 3.0,
+    builtin: true,
+    source: "marketplace",
+  },
+  {
+    id: "builtin-pm-stakeholder-update",
+    name: "Stakeholder Update",
+    description: "Write a weekly update for your leadership team.",
+    icon: "campaign",
+    prompt_template: "",
+    model: "sonnet",
+    budget: 2.0,
+    builtin: true,
+    source: "marketplace",
+  },
+];
+
+// Read the persona-templates cache, falling back to the hardcoded PM seed
+// so the very first cold visit never paints an empty Templates tab. The
+// background fetch overwrites this with the real backend data within
+// milliseconds.
+function readPersonaTemplatesCacheOrSeed<T>(key: string): T[] {
+  const cached = readTemplatesCache<T>(key);
+  if (cached.length > 0) return cached;
+  return (DEFAULT_PERSONA_TEMPLATES_SEED as unknown) as T[];
+}
+
+interface PMAgentTemplateSeed {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  prompt_template: string;
   model: string;
   budget: number;
-  success_rate: number;
-  spawn_count: number;
-  promoted_at: string;
+  builtin: boolean;
+  source: "marketplace" | "builtin" | "custom";
 }
-
-interface SuggestedAdjustment {
-  template_name: string;
-  template_id: string;
-  consecutive_failures: number;
-  suggestions: { type: string; value?: string | number; reason: string }[];
-}
-
-// Default estimates (used when no historical data exists)
-const DEFAULT_MIN_PER_DOLLAR: Record<string, number> = {
-  "claude-sonnet-4-6": 3,
-  "claude-sonnet-4-5-20250929": 3,
-  "claude-opus-4-6": 5,
-  "claude-haiku-4-5": 2,
-};
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
@@ -718,20 +1090,62 @@ function formatBytes(bytes: number): string {
 }
 
 function formatModelShort(model?: string): string {
-  if (!model) return "---";
+  if (!model) return "auto";
   if (model.includes("sonnet")) return "sonnet";
   if (model.includes("opus")) return "opus";
   if (model.includes("haiku")) return "haiku";
   return model.split("-")[0] || model;
 }
 
-function AgentStatusBar({ spawnedAt, budget, model, learnedRates, transcriptBytes, transcriptLines }: {
+const ROLE_LABEL: Record<string, string> = {
+  User: "User",
+  Assistant: "Assistant",
+  Tool: "Tool",
+  "Tool result": "Tool result",
+  System: "System",
+};
+
+const ROLE_COLORS: Record<string, string> = {
+  User: "text-blue-400",
+  Assistant: "text-emerald-400",
+  Tool: "text-amber-400",
+  "Tool result": "text-amber-300",
+  System: "text-slate-400",
+};
+
+function TranscriptContent({ content }: { content: string }) {
+  if (hasSpeakerPrefixes(content)) {
+    const blocks = parseTranscript(content);
+    return (
+      <div className="space-y-3">
+        {blocks.map((block, idx) => (
+          <Card key={idx} variant="outlined" padding="sm">
+            <div className={`text-xs font-semibold uppercase tracking-wide mb-1 ${ROLE_COLORS[block.role] ?? "text-slate-400"}`}>
+              {ROLE_LABEL[block.role] ?? block.role}
+            </div>
+            <div className="chat-bubble-content text-sm text-slate-300 space-y-1">
+              {renderMarkdown(block.body)}
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+  // Fallback: no speaker prefixes, render full content as markdown
+  return (
+    <div className="chat-bubble-content text-sm text-slate-300 space-y-1">
+      {renderMarkdown(content)}
+    </div>
+  );
+}
+
+function AgentStatusBar({ spawnedAt, budget, model, transcriptBytes, transcriptLines, durationStats }: {
   spawnedAt: string;
   budget?: string;
   model?: string;
-  learnedRates?: Record<string, number>;
   transcriptBytes?: number;
   transcriptLines?: number;
+  durationStats?: { median_seconds: number; sample_count: number } | null;
 }) {
   const [now, setNow] = useState(Date.now());
 
@@ -745,17 +1159,33 @@ function AgentStatusBar({ spawnedAt, budget, model, learnedRates, transcriptByte
   const elapsedMin = Math.floor(elapsedSec / 60);
   const elapsedRemSec = elapsedSec % 60;
 
-  // Estimate ETA from budget and model
+  // Remaining time comes from a rolling median of recently completed
+  // agents (api/services/agent_duration_stats.py). We subtract elapsed
+  // from that median while the agent is within the typical window. Once
+  // elapsed exceeds the median the "left" estimate is a lie, so we
+  // switch to an honest "running Nm, typical ~Mm" readout that keeps
+  // growing with real time rather than freezing at "<1m left". When we
+  // do not yet have any samples, show "calculating" instead of a
+  // guessed number.
   let etaText = "";
-  if (budget && model) {
-    const rate = learnedRates?.[model] ?? DEFAULT_MIN_PER_DOLLAR[model] ?? 3;
-    const estimatedTotalMin = parseFloat(budget) * rate;
-    const remainingMin = Math.max(0, Math.round(estimatedTotalMin - elapsedSec / 60));
-    if (remainingMin > 0) {
-      etaText = `~${remainingMin}m left`;
+  if (durationStats && durationStats.sample_count > 0 && durationStats.median_seconds > 0) {
+    const medianSec = durationStats.median_seconds;
+    const typicalMin = Math.max(1, Math.round(medianSec / 60));
+    if (elapsedSec >= medianSec) {
+      // Past typical: no more fake countdown. Show honest "over typical".
+      const overMin = Math.max(1, Math.round((elapsedSec - medianSec) / 60));
+      etaText = `${overMin}m over typical ~${typicalMin}m`;
     } else {
-      etaText = "wrapping up";
+      const remainingSec = medianSec - elapsedSec;
+      if (remainingSec < 60) {
+        etaText = "<1m left";
+      } else {
+        const remainingMin = Math.round(remainingSec / 60);
+        etaText = `~${remainingMin}m left`;
+      }
     }
+  } else if (durationStats && durationStats.sample_count === 0) {
+    etaText = "calculating";
   }
 
   const segments = [
@@ -784,6 +1214,87 @@ function AgentStatusBar({ spawnedAt, budget, model, learnedRates, transcriptByte
   );
 }
 
+// One-line condensed view shown when an active agent card is collapsed.
+// Mirrors the AgentStatusBar but in a single inline row so the card stays
+// tiny. Tori asked for this so the Active Sessions list is scannable by
+// default and the full chat + controls only appear on demand.
+function AgentCompactSummary({ spawnedAt, budget, model, costEstimate, durationStats }: {
+  spawnedAt?: string;
+  budget?: string;
+  model?: string;
+  costEstimate?: number;
+  durationStats?: { median_seconds: number; sample_count: number } | null;
+}) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const segments: string[] = [];
+  if (spawnedAt) {
+    const startMs = new Date(spawnedAt).getTime();
+    const elapsedSec = Math.max(0, Math.floor((now - startMs) / 1000));
+    if (elapsedSec < 60) {
+      segments.push(`${elapsedSec}s`);
+    } else {
+      const m = Math.floor(elapsedSec / 60);
+      const s = elapsedSec % 60;
+      segments.push(`${m}:${s.toString().padStart(2, "0")}`);
+    }
+  }
+  segments.push(formatModelShort(model));
+  if (costEstimate !== undefined && costEstimate > 0 && budget) {
+    segments.push(`$${costEstimate.toFixed(2)}/${budget}`);
+  } else if (budget) {
+    segments.push(`$${budget} cap`);
+  }
+
+  // See AgentStatusBar above for the rationale. Once elapsed exceeds
+  // the rolling median, showing a countdown lies. Switch to an honest
+  // "running Nm over typical" readout that keeps growing with real time.
+  let etaText = "";
+  if (spawnedAt && durationStats && durationStats.sample_count > 0 && durationStats.median_seconds > 0) {
+    const startMs = new Date(spawnedAt).getTime();
+    const elapsedSec = Math.max(0, Math.floor((now - startMs) / 1000));
+    const medianSec = durationStats.median_seconds;
+    const typicalMin = Math.max(1, Math.round(medianSec / 60));
+    if (elapsedSec >= medianSec) {
+      const overMin = Math.max(1, Math.round((elapsedSec - medianSec) / 60));
+      etaText = `${overMin}m over typical ~${typicalMin}m`;
+    } else {
+      const remainingSec = medianSec - elapsedSec;
+      if (remainingSec < 60) {
+        etaText = "<1m left";
+      } else {
+        const remainingMin = Math.round(remainingSec / 60);
+        etaText = `${remainingMin}m left`;
+      }
+    }
+  }
+
+  return (
+    <div
+      className="font-mono text-xs text-slate-400 flex items-center gap-1 flex-wrap"
+      data-testid="agent-compact-summary"
+    >
+      {segments.map((seg, i) => (
+        <span key={i} className="flex items-center gap-1">
+          {i > 0 && <span className="text-slate-700 mx-0.5">|</span>}
+          <span className={i === 0 ? "text-green-400" : "text-slate-400"}>{seg}</span>
+        </span>
+      ))}
+      {etaText && (
+        <>
+          <span className="text-slate-700 mx-0.5">|</span>
+          <span className="text-blue-400">{etaText}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 function BudgetProgressBar({ tokensUsed, tokenLimit, costEstimate }: {
   tokensUsed: number;
   tokenLimit: number | null | undefined;
@@ -794,7 +1305,7 @@ function BudgetProgressBar({ tokensUsed, tokenLimit, costEstimate }: {
     if (tokensUsed <= 0) return null;
     return (
       <div className="flex items-center gap-2 text-xs" data-testid="budget-bar">
-        <span className="text-slate-400">{(tokensUsed / 1000).toFixed(1)}k tokens used</span>
+        <span className="text-slate-400">{(tokensUsed / 1000).toFixed(1)}k used</span>
         {costEstimate !== undefined && costEstimate > 0 && (
           <span className="text-slate-500">(~${costEstimate.toFixed(4)})</span>
         )}
@@ -810,7 +1321,7 @@ function BudgetProgressBar({ tokensUsed, tokenLimit, costEstimate }: {
     <div className="mt-2" data-testid="budget-bar">
       <div className="flex items-center justify-between text-xs mb-1">
         <span className={textColor}>
-          {(tokensUsed / 1000).toFixed(1)}k / {(tokenLimit / 1000).toFixed(0)}k tokens ({pct}%)
+          {(tokensUsed / 1000).toFixed(1)}k / {(tokenLimit / 1000).toFixed(0)}k ({pct}%)
         </span>
         {costEstimate !== undefined && costEstimate > 0 && (
           <span className="text-slate-500">~${costEstimate.toFixed(4)}</span>
@@ -931,6 +1442,11 @@ interface AgentfileTemplate {
   description?: string;
   capabilities: TemplateCapabilities | null;
   parse_error: string | null;
+  // Aliases folded in from alias-only .agent files (e.g. ``saa`` on
+  // ``builder``, ``elit`` on ``explain-plain``). The server filters the
+  // alias stubs out and attaches their stems here so the UI can render
+  // them as chips under the card title.
+  aliases?: string[];
 }
 
 interface TemplatesResponse {
@@ -946,6 +1462,7 @@ interface PMAgentTemplate {
   model: string;
   budget: number;
   builtin: boolean;
+  source?: 'builtin' | 'marketplace' | 'custom' | string;
 }
 
 interface PMTemplatesResponse {
@@ -962,6 +1479,10 @@ interface NudgeRecord {
   // optional and falls back to a neutral status line.
   delivery?: "stdin" | "file_only" | "unavailable";
   delivery_message?: string;
+  // "user_message" for the default chat send, "correction" for the
+  // structured course-change channel. Optional for back compat with
+  // older records that predate the field.
+  kind?: "user_message" | "correction" | string;
 }
 
 interface NudgeReplyRecord {
@@ -969,6 +1490,10 @@ interface NudgeReplyRecord {
   timestamp: string;
   source: string;
   in_reply_to?: string | null;
+  // "ack" tags the warm canned reply from chat_ack_bot. "real" tags
+  // the substantive reply from the live subagent. Older records may
+  // have neither field, in which case the UI treats them as "real".
+  kind?: "ack" | "real" | string;
 }
 
 interface NudgeResponse {
@@ -1135,6 +1660,12 @@ function PMTemplateEditorForm({
   const [model, setModel] = useState(initial?.model ?? "sonnet");
   const [budget, setBudget] = useState(initial?.budget ?? 2.0);
 
+  const handleSave = () => {
+    if (name.trim()) {
+      onSave({ name, description, prompt_template: promptTemplate, icon, model, budget });
+    }
+  };
+
   return (
     <>
       <label className="block text-sm text-slate-400 mb-1">Name</label>
@@ -1142,6 +1673,7 @@ function PMTemplateEditorForm({
         type="text"
         value={name}
         onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
         placeholder="e.g. Competitive analysis"
         className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
       />
@@ -1151,16 +1683,18 @@ function PMTemplateEditorForm({
         type="text"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
         placeholder="One line summary of what this template does"
         className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-4"
       />
 
-      <label className="block text-sm text-slate-400 mb-1">Prompt template</label>
+      <label className="block text-sm text-slate-400 mb-1">Instructions template</label>
       <textarea
         value={promptTemplate}
         onChange={(e) => setPromptTemplate(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSave(); } }}
         rows={4}
-        placeholder="Use [placeholders] for parts you will fill in before spawning"
+        placeholder="Use [placeholders] for parts you will fill in before spawning (Enter to save, Shift+Enter for newline)"
         className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-1 resize-none"
       />
       <p className="text-xs text-slate-500 mb-4">Use [square brackets] for parts the user fills in. Example: Research [topic] and write a summary.</p>
@@ -1201,11 +1735,7 @@ function PMTemplateEditorForm({
           Cancel
         </button>
         <button
-          onClick={() => {
-            if (name.trim()) {
-              onSave({ name, description, prompt_template: promptTemplate, icon, model, budget });
-            }
-          }}
+          onClick={handleSave}
           disabled={!name.trim() || saving}
           className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg px-4 py-2 text-sm transition-colors"
         >
@@ -1218,6 +1748,12 @@ function PMTemplateEditorForm({
 
 export default function Agents() {
   const [activeTab, setActiveTab] = useState("Active");
+  // Ref so fetchAgents can read the current tab without a stale closure.
+  const activeTabRef = useRef("Active");
+  const setActiveTabWithRef = (tab: string) => {
+    activeTabRef.current = tab;
+    setActiveTab(tab);
+  };
   // Seed from the localStorage cache so the first paint shows the last
   // known list of agents instead of the empty "Loading..." state.
   // Needle 299. The daemon-filter matches the runtime filter in
@@ -1225,6 +1761,9 @@ export default function Agents() {
   const [allAgents, setAllAgents] = useState<AgentInfo[]>(() =>
     readAgentsCache().filter((a) => a.name !== 'daemon'),
   );
+  // Agents the user locally dismissed (cancelled or deleted). The poll
+  // must not re-add these until the page is fully reloaded.
+  const dismissedAgentsRef = useRef<Set<string>>(new Set());
   // Tracks whether the first /agents fetch has resolved. We use this to show
   // a loading state on first paint instead of flashing the empty state.
   // Subsequent polling refreshes do not reset this flag, so the spinner never
@@ -1237,32 +1776,92 @@ export default function Agents() {
   const [, setActiveAgents] = useState<string[]>([]);
   const [, setConnectionStatus] = useState("Connecting...");
   const [, setDaemonRunning] = useState(false);
-  const [learnedRates, setLearnedRates] = useState<Record<string, number>>({});
-  const [templates, setTemplates] = useState<TemplatesResponse["templates"]>([]);
-  const [pmTemplates, setPmTemplates] = useState<PMAgentTemplate[]>([]);
-  const [pmTemplateSearch, setPmTemplateSearch] = useState("");
+  // Rolling median of recent agent durations, used by AgentStatusBar
+  // to compute "~Nm left". Fetched from /api/agents/duration-stats on
+  // mount and refreshed every 5 minutes. Null until first response.
+  const [durationStats, setDurationStats] = useState<{
+    median_seconds: number;
+    p75_seconds: number;
+    sample_count: number;
+    window_days: number;
+  } | null>(null);
+  // Seed template state from localStorage so the Templates tab paints
+  // cards immediately instead of flashing the empty state while the
+  // three fetches run. The background fetch reconciles any drift.
+  const [templates, setTemplates] = useState<TemplatesResponse["templates"]>(
+    () => readTemplatesCache<TemplatesResponse["templates"][number]>(TEMPLATES_CACHE_KEY),
+  );
+  // Seed from cache OR a hardcoded PM persona default so the first cold
+  // visit (no localStorage) still paints Roadmap and the other PM cards
+  // synchronously. The fetch overwrites this once it returns.
+  const [pmTemplates, setPmTemplates] = useState<PMAgentTemplate[]>(
+    () => readPersonaTemplatesCacheOrSeed<PMAgentTemplate>(PM_TEMPLATES_CACHE_KEY),
+  );
+  // persona-aware: persona built-ins come from /agents/persona-templates,
+  // user custom templates come from /agents/user-templates (persona-agnostic).
+  const [currentPersona, setCurrentPersona] = useState<string>("");
+  const [userTemplates, setUserTemplates] = useState<PMAgentTemplate[]>(
+    () => readTemplatesCache<PMAgentTemplate>(USER_TEMPLATES_CACHE_KEY),
+  );
   const [pmTemplateEditor, setPmTemplateEditor] = useState<{
     open: boolean;
     template: PMAgentTemplate | null;
     isNew: boolean;
   }>({ open: false, template: null, isNew: false });
   const [pmTemplateSaving, setPmTemplateSaving] = useState(false);
-  const [orgTemplates, setOrgTemplates] = useState<PMAgentTemplate[]>([]);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
   const [newAgentTokenLimit, setNewAgentTokenLimit] = useState<string>("");
   const [recoveringAgents, setRecoveringAgents] = useState<Record<string, boolean>>({});
   const [, setLastUpdate] = useState<Date | null>(null);
-  const [transcriptModal, setTranscriptModal] = useState<{name: string; content: string; loading: boolean} | null>(null);
+  const [transcriptModal, setTranscriptModal] = useState<{name: string; content: string; loading: boolean; error?: string; retryable?: boolean} | null>(null);
+  const { confirm, confirmProps } = useConfirm();
 
   const openTranscript = async (name: string) => {
-    setTranscriptModal({name, content: "", loading: true});
+    setTranscriptModal({name, content: "", loading: true, error: undefined});
     try {
-      const data = await api.get<{content: string}>(`/agents/${encodeURIComponent(name)}/transcript`);
-      setTranscriptModal({name, content: data.content, loading: false});
-    } catch {
-      setTranscriptModal({name, content: "No transcript available for this agent yet.", loading: false});
+      const data = await api.get<{content: string; empty?: boolean; reason?: string}>(`/agents/${encodeURIComponent(name)}/transcript`);
+      if (data.empty) {
+        // Backend explicitly signalled no transcript. Show its reason
+        // and do NOT offer a retry. This is not an error, just absence.
+        setTranscriptModal({
+          name,
+          content: "",
+          loading: false,
+          error: data.reason ?? "No transcript available for this agent yet.",
+          retryable: false,
+        });
+      } else {
+        // 200 with content. Render it, clear any prior error state.
+        setTranscriptModal({name, content: data.content ?? "", loading: false, error: undefined, retryable: false});
+      }
+    } catch (err) {
+      // Distinguish real failures so the user sees an actionable
+      // message with the HTTP status and a hint, not a generic
+      // "Upstream unavailable" catch-all from the vite proxy.
+      let msg: string;
+      if (err instanceof ApiTimeoutError) {
+        msg = "Transcript request timed out. The backend may be slow or stuck. Try again or check backend logs.";
+      } else if (err instanceof ApiError) {
+        if (err.status === 502 || err.status === 503 || err.status === 504) {
+          msg = `Transcript endpoint returned ${err.status} (backend unreachable via proxy). Try again or check backend logs.`;
+        } else if (err.status >= 500) {
+          msg = `Transcript endpoint returned ${err.status}. Try again or check backend logs.`;
+        } else {
+          msg = `Transcript endpoint returned ${err.status}: ${err.message}`;
+        }
+      } else {
+        const raw = err instanceof Error ? err.message : String(err);
+        msg = `Could not load transcript (${raw}). Try again or check backend logs.`;
+      }
+      setTranscriptModal({
+        name,
+        content: "",
+        loading: false,
+        error: msg,
+        retryable: true,
+      });
     }
   };
 
@@ -1291,14 +1890,6 @@ export default function Agents() {
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceClearing, setWorkspaceClearing] = useState(false);
 
-  // Insights (pattern recognition) state
-  const [insightsRecs, setInsightsRecs] = useState<PatternRecommendation[]>([]);
-  const [insightsStats, setInsightsStats] = useState<PatternTemplateStat[]>([]);
-  const [insightsLoading, setInsightsLoading] = useState(false);
-  const [insightsError, setInsightsError] = useState<string>("");
-  const [provenTemplates, setProvenTemplates] = useState<ProvenTemplate[]>([]);
-  const [adjustments, setAdjustments] = useState<SuggestedAdjustment[]>([]);
-
   // Nudge state: per-agent input text and message history
   const [nudgeInputs, setNudgeInputs] = useState<Record<string, string>>({});
   const [nudgeHistory, setNudgeHistory] = useState<Record<string, NudgeRecord[]>>({});
@@ -1309,6 +1900,34 @@ export default function Agents() {
   // never silent (feedback_chat_response_silent.md).
   const [nudgeErrors, setNudgeErrors] = useState<Record<string, string>>({});
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  // Active Sessions cards start collapsed so the list is scannable at a
+  // glance. Clicking Expand on a card reveals the metrics bar, chat
+  // thread, message input, and transcript controls. Each agent has its
+  // own entry so multiple cards can be expanded independently. The map
+  // is persisted in sessionStorage so an in-tab navigation preserves
+  // what the user chose, but a fresh tab starts every card collapsed.
+  const [activeExpandedMap, setActiveExpandedMap] = useState<Record<string, boolean>>(
+    () => readActiveExpandedMap(),
+  );
+  const toggleActiveExpanded = useCallback((agentName: string) => {
+    setActiveExpandedMap((prev) => {
+      const next = { ...prev, [agentName]: !prev[agentName] };
+      writeActiveExpandedMap(next);
+      return next;
+    });
+  }, []);
+  // Recent tab hides cancelled, terminated_stale, killed, abandoned,
+  // stopped, and failed rows by default. Clicking the chip flips this
+  // flag to show them. Persisted to localStorage so a page refresh
+  // keeps the user's choice.
+  const [showInactive, setShowInactive] = useState<boolean>(() => readShowCancelledPref());
+  const toggleShowInactive = () => {
+    setShowInactive((prev) => {
+      const next = !prev;
+      writeShowCancelledPref(next);
+      return next;
+    });
+  };
 
   // Coordination locks (needle 338)
   const [locks, setLocks] = useState<{ name: string; holder?: string; created_at?: string }[]>([]);
@@ -1327,6 +1946,24 @@ export default function Agents() {
       return () => clearInterval(interval);
     }
   }, [expandedAgent]);
+
+  // Active Sessions cards hide the chat thread until expanded. When any
+  // card opens for the first time, pull the nudge history and memory so
+  // the thread shows existing messages immediately rather than an empty
+  // box that only fills in after the next poll tick.
+  const expandedActiveNames = Object.keys(activeExpandedMap)
+    .filter((n) => activeExpandedMap[n])
+    .sort()
+    .join("|");
+  useEffect(() => {
+    if (!expandedActiveNames) return;
+    for (const name of expandedActiveNames.split("|")) {
+      if (!name) continue;
+      fetchNudges(name);
+      fetchMemory(name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedActiveNames]);
 
   // Regression for needle 235: Tori sent an inline nudge to a running
   // agent and saw no reply because polling only fired while the card
@@ -1354,6 +1991,13 @@ export default function Agents() {
   const [editorInitial, setEditorInitial] = useState<CustomTemplate | null>(null);
   const [editorIsNew, setEditorIsNew] = useState(false);
   const [editorBuiltInName, setEditorBuiltInName] = useState<string | null>(null);
+  // The system prompt shown in the template detail view (read-only)
+  const [editorPromptTemplate, setEditorPromptTemplate] = useState<string | undefined>(undefined);
+  // Detail view metadata
+  const [editorTemplateId, setEditorTemplateId] = useState<string | undefined>(undefined);
+  const [editorSource, setEditorSource] = useState<string | undefined>(undefined);
+  const [editorAliases, setEditorAliases] = useState<string[] | undefined>(undefined);
+  const [editorCapabilities, setEditorCapabilities] = useState<{ writes_to: string; cannot_touch: string; budget: string; time_limit: string; sandbox: string } | null>(null);
 
   // Custom templates live on the server via the app store. localStorage
   // is only a first paint cache.
@@ -1362,41 +2006,9 @@ export default function Agents() {
   const powerUserMode = useAppStore((s) => s.powerUserMode);
   const tabs = powerUserMode ? [...BASE_TABS, ...POWER_USER_TABS] : BASE_TABS;
 
-  // Marketplace
-  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
-
-  // Fleets
-  interface FleetMember { role: string; icon: string; prompt: string }
-  interface FleetTemplate { id: string; name: string; description: string; icon: string; members: FleetMember[] }
-  const [fleets, setFleets] = useState<FleetTemplate[]>([]);
-  const [fleetSpawning, setFleetSpawning] = useState<string | null>(null);
-  const [fleetContext, setFleetContext] = useState('');
-  const [fleetExpandedId, setFleetExpandedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.get<{ fleets: FleetTemplate[] }>('/agents/fleets')
-      .then((res) => setFleets(res.fleets ?? []))
-      .catch(() => {});
-  }, []);
-
-  const spawnFleet = async (fleetId: string) => {
-    setFleetSpawning(fleetId);
-    try {
-      await api.post('/agents/fleets/spawn', {
-        fleet_id: fleetId,
-        context: fleetContext,
-        model: 'sonnet',
-        budget: 2.0,
-      });
-      setFleetContext('');
-      setFleetExpandedId(null);
-      fetchAgents();
-    } catch (e) {
-      console.error('Failed to spawn fleet:', e);
-    } finally {
-      setFleetSpawning(null);
-    }
-  };
+  // Fleets panel removed. The backend /agents/fleets/* endpoints stay
+  // alive for backwards compatibility, but the Plans page template grid
+  // is the new home for team-style starter templates.
 
   const addCustomTemplate = useCallback(
     (t: CustomTemplate) => {
@@ -1417,8 +2029,22 @@ export default function Agents() {
     [customTemplates]
   );
 
+  // Icon map for agentfile-backed templates. Keys are lowercase stems
+  // (from the .agent filename) AND Title Case display names.
   const templateIcons: Record<string, string> = {
+    // Agentfile stems (lowercase from API)
+    builder: "engineering",
+    diagnose: "bug_report",
+    research: "search",
+    review: "rate_review",
+    test: "science",
+    // Title Case variants
+    Builder: "engineering",
+    Diagnose: "bug_report",
     Research: "search",
+    Review: "rate_review",
+    Test: "science",
+    // Marketplace templates
     "Code Review": "code",
     "Write Tests": "bug_report",
     Deploy: "rocket_launch",
@@ -1429,6 +2055,44 @@ export default function Agents() {
     Brainstorm: "psychology",
     Writer: "edit_note",
     "Name Generator": "label",
+    PRD: "article",
+  };
+
+  // Aliases shown on agentfile cards (from the store's alias lists).
+  // Keyed by Title Case template name.
+  const AGENTFILE_ALIASES: Record<string, string[]> = {
+    Builder: ["saa"],
+  };
+
+  // Map agentfile template names to their pm-templates store IDs for the alias feature
+  const AGENTFILE_TEMPLATE_IDS: Record<string, string> = {
+    Builder: "builtin-builder",
+    Diagnose: "builtin-diagnose",
+    Research: "builtin-research",
+    Review: "builtin-review",
+    Test: "builtin-test",
+  };
+
+  // Convert an agentfile stem name to Title Case.
+  // Hyphens in stems become spaces so ``explain-plain`` becomes
+  // ``Explain Plain`` and collapses with the pm-templates entry of the
+  // same name (fixes the duplicate-card bug where ``Explain-plain`` and
+  // ``Explain Plain`` both rendered).
+  const toTitleCase = (name: string): string => {
+    const map: Record<string, string> = {
+      builder: "Builder",
+      diagnose: "Diagnose",
+      research: "Research",
+      review: "Review",
+      test: "Test",
+    };
+    const mapped = map[name.toLowerCase()];
+    if (mapped) return mapped;
+    return name
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
   };
 
   const fetchAgents = async () => {
@@ -1439,24 +2103,34 @@ export default function Agents() {
       // Detect status changes and fire notifications
       const prev = prevStatusRef.current;
       for (const agent of newAgents) {
+        // Skip notifications for agents the user explicitly dismissed
+        if (dismissedAgentsRef.current.has(agent.name)) continue;
         const prevStatus = prev[agent.name];
         const newStatus = agent.status;
         if (prevStatus !== undefined && prevStatus !== newStatus) {
           const wasActive = prevStatus === "running" || prevStatus === "spawned";
-          const isDone =
-            newStatus === "completed" ||
-            newStatus === "failed" ||
-            newStatus === "killed" ||
-            newStatus === "stopped";
+          const isDone = (TERMINAL_AGENT_STATUSES as readonly string[]).includes(newStatus);
           if (wasActive && isDone) {
-            addNotification(agent.name, prevStatus, newStatus);
+            // Pass the full agent so the store can filter out chat/audit/
+            // hook/subscription rows via isUserSpawnedAgent. This stops the
+            // "chat-default Agent finished" toast from firing (bug 1) and
+            // the store dedupes on (name, status) so the same terminal
+            // transition cannot fire twice (bug 2).
+            addNotification(agent, prevStatus, newStatus);
             tryBrowserNotification(agent.name, newStatus);
+            // Auto-switch from Active to Recent so the row moves without
+            // requiring a manual tab click or page reload.
+            if (activeTabRef.current === "Active") {
+              setActiveTabWithRef("Recent");
+            }
           }
         }
       }
       prevStatusRef.current = Object.fromEntries(newAgents.map((a) => [a.name, a.status]));
 
-      const filtered = newAgents.filter((a) => a.name !== 'daemon');
+      const filtered = newAgents.filter(
+        (a) => a.name !== 'daemon' && !dismissedAgentsRef.current.has(a.name)
+      );
       setAllAgents(filtered);
       // Persist the last good response so the next cold visit paints
       // real rows from the first render. Needle 299.
@@ -1464,7 +2138,6 @@ export default function Agents() {
       setActiveAgents(data.active || []);
       setDaemonRunning(data.daemon_running ?? false);
       setConnectionStatus(data.daemon_running ? "Connected" : "Standby");
-      if (data.avg_min_per_dollar) setLearnedRates(data.avg_min_per_dollar);
       setLastUpdate(new Date());
     } catch {
       setConnectionStatus("Disconnected");
@@ -1479,46 +2152,91 @@ export default function Agents() {
   const fetchTemplates = async () => {
     try {
       const data = await api.get<TemplatesResponse>("/agents/templates");
-      setTemplates(data.templates || []);
+      const list = data.templates || [];
+      setTemplates(list);
+      // Persist the fresh list so the next cold visit to the Templates
+      // tab paints real cards on first render instead of empty state.
+      writeTemplatesCache(TEMPLATES_CACHE_KEY, list);
     } catch {
       // keep empty
     }
   };
 
-  const fetchPmTemplates = async () => {
+  // Fetch persona from settings, then load persona-specific built-ins.
+  // Falls back to "pm" when persona is not set so the section is never empty.
+  const fetchPersonaTemplates = async () => {
+    let persona = "";
     try {
-      const data = await api.get<PMTemplatesResponse>("/agents/pm-templates");
-      setPmTemplates(data.templates || []);
+      const settings = await api.get<{ persona?: string }>("/settings");
+      persona = (settings.persona || "").trim();
+    } catch {
+      // keep empty persona, will default to pm
+    }
+    setCurrentPersona(persona);
+    try {
+      const effectivePersona = persona || "pm";
+      const data = await api.get<PMTemplatesResponse & { persona: string }>(
+        `/agents/persona-templates?persona=${encodeURIComponent(effectivePersona)}`
+      );
+      const list = data.templates || [];
+      setPmTemplates(list);
+      writeTemplatesCache(PM_TEMPLATES_CACHE_KEY, list);
     } catch {
       // keep empty
     }
   };
 
-  const fetchOrgTemplates = async () => {
+  const fetchUserTemplates = async () => {
     try {
-      const data = await api.get<{ templates: Array<{ id: string; name: string; description: string; icon: string; prompt_template: string; model: string; budget: number }> }>("/enterprise/templates");
-      setOrgTemplates((data.templates || []).map((t) => ({ ...t, builtin: false })));
+      const data = await api.get<PMTemplatesResponse>("/agents/user-templates");
+      const list = data.templates || [];
+      setUserTemplates(list);
+      writeTemplatesCache(USER_TEMPLATES_CACHE_KEY, list);
     } catch {
-      // Not in enterprise mode or no templates, keep empty
+      // keep empty
     }
   };
+
 
   const handleUsePmTemplate = (tpl: PMAgentTemplate) => {
-    setNewAgentName(tpl.name.toLowerCase().replace(/\s+/g, "-"));
-    setNewAgentPrompt(tpl.prompt_template);
-    setShowNewForm(true);
-    setActiveTab("Active");
+    // Open the template detail modal so the user can type a prompt (or
+    // accept the template's default prompt) and then spawn. The prior
+    // fast-path skipped the modal and appended a random suffix to the
+    // agent name; both of those were wrong. The modal gives the user the
+    // intended "type what you want, click spawn" flow, and its spawn
+    // callback calls handleSpawn() which already does optimistic insert +
+    // Active tab switch, so the row still appears instantly on click.
+    setEditorInitial({
+      name: tpl.name,
+      description: tpl.description,
+      icon: tpl.icon,
+      model: tpl.model,
+      budget: tpl.budget,
+    });
+    setEditorIsNew(false);
+    // Pass the template name through so the modal spawn path tags the
+    // resulting agent row with its template. Without this, the POST body
+    // drops the `template` field entirely and backend demo_mode detection
+    // (which looks up the agentfile by template name) stops working, so
+    // Roadmap loses its prewarm-replay path and its Haiku coercion.
+    setEditorBuiltInName(tpl.builtin ? tpl.name : null);
+    setEditorPromptTemplate(tpl.prompt_template);
+    setEditorTemplateId(tpl.id);
+    setEditorSource(tpl.source ?? (tpl.builtin ? "builtin" : "marketplace"));
+    setEditorAliases(undefined);
+    setEditorCapabilities(null);
+    setEditorOpen(true);
   };
 
   const handleSavePmTemplate = async (d: Partial<PMAgentTemplate>) => {
     setPmTemplateSaving(true);
     try {
       if (pmTemplateEditor.isNew) {
-        await api.post("/agents/pm-templates", d);
+        await api.post("/agents/user-templates", d);
       } else if (pmTemplateEditor.template) {
-        await api.put(`/agents/pm-templates/${pmTemplateEditor.template.id}`, d);
+        await api.put(`/agents/user-templates/${pmTemplateEditor.template.id}`, d);
       }
-      await fetchPmTemplates();
+      await fetchUserTemplates();
       setPmTemplateEditor({ open: false, template: null, isNew: false });
     } catch {
       // keep
@@ -1529,8 +2247,8 @@ export default function Agents() {
 
   const handleDeletePmTemplate = async (templateId: string) => {
     try {
-      await api.delete(`/agents/pm-templates/${templateId}`);
-      await fetchPmTemplates();
+      await api.delete(`/agents/user-templates/${templateId}`);
+      await fetchUserTemplates();
     } catch {
       // keep
     }
@@ -1571,7 +2289,7 @@ export default function Agents() {
         budget: 2.0,
       });
       await fetchAgents();
-      setActiveTab("Active");
+      setActiveTabWithRef("Active");
     } catch {
       // handle silently
     } finally {
@@ -1862,12 +2580,61 @@ export default function Agents() {
   useEffect(() => {
     fetchAgents();
     fetchTemplates();
-    fetchPmTemplates();
-    fetchOrgTemplates();
+    fetchPersonaTemplates();
+    fetchUserTemplates();
 
-    // Poll for agent updates every 5 seconds
-    const interval = setInterval(fetchAgents, 5000);
+    // Poll for agent updates every 2 seconds so status changes
+    // (running -> completed) propagate quickly without a page reload.
+    const interval = setInterval(fetchAgents, 2000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Clean up stale customAgentTemplates entries. Older onboarding builds
+  // stuffed persona marketplace templates into this list, which made the
+  // Templates page render them twice (once here with a "custom" badge,
+  // once again from /agents/persona-templates). After the backend has
+  // finished loading, drop any localStorage entry whose name matches a
+  // backend-owned template so "custom" only ever means user-created.
+  useEffect(() => {
+    if (customTemplates.length === 0) return;
+    const backendNames = new Set<string>();
+    for (const t of templates) backendNames.add(toTitleCase(t.name).toLowerCase().trim());
+    for (const t of pmTemplates) backendNames.add(t.name.toLowerCase().trim());
+    for (const t of userTemplates) backendNames.add(t.name.toLowerCase().trim());
+    if (backendNames.size === 0) return; // nothing loaded yet, keep cache
+    const cleaned = customTemplates.filter(
+      (ct) => !backendNames.has(ct.name.toLowerCase().trim())
+    );
+    if (cleaned.length !== customTemplates.length) {
+      setCustomTemplates(cleaned);
+    }
+  }, [templates, pmTemplates, userTemplates, customTemplates, setCustomTemplates]);
+
+  // Fetch rolling duration stats for the "~Nm left" pill. The backend
+  // caches the computation for 60s, so refreshing every 5 minutes is
+  // plenty while still picking up new samples as agents complete.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await api.get<{
+          median_seconds: number;
+          p75_seconds: number;
+          sample_count: number;
+          window_days: number;
+        }>("/agents/duration-stats");
+        if (!cancelled) setDurationStats(data);
+      } catch {
+        // Leave the previous value in place so we do not flicker back
+        // to "calculating" during a transient network blip.
+      }
+    };
+    load();
+    const interval = setInterval(load, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   // Fetch delegation suggestions when the Delegate tab is selected
@@ -1901,16 +2668,12 @@ export default function Agents() {
   // Fetch context pressure for running agents (needle 337)
   useEffect(() => {
     if (activeTab === "Active") {
-      const running = allAgents.filter(
-        (a) => a.status === "running" || a.status === "spawned"
-      );
+      const running = allAgents.filter((a) => isAgentActive(a));
       for (const agent of running) {
         fetchContextPressure(agent.name);
       }
       const interval = setInterval(() => {
-        const current = allAgents.filter(
-          (a) => a.status === "running" || a.status === "spawned"
-        );
+        const current = allAgents.filter((a) => isAgentActive(a));
         for (const agent of current) {
           fetchContextPressure(agent.name);
         }
@@ -1929,55 +2692,75 @@ export default function Agents() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  // Fetch insights (recommendations + per-template stats + proven + adjustments) when the Insights tab is selected
-  useEffect(() => {
-    if (activeTab !== "Insights") return;
-    let cancelled = false;
-    const fetchInsights = async () => {
-      setInsightsLoading(true);
-      setInsightsError("");
-      try {
-        const [recsResp, statsResp, provenResp, adjResp] = await Promise.all([
-          api.get<{ recommendations: PatternRecommendation[] }>("/agent-patterns/recommendations"),
-          api.get<{ stats: PatternTemplateStat[] }>("/agent-patterns/template-stats"),
-          api.get<{ proven: ProvenTemplate[] }>("/agent-patterns/proven").catch(() => ({ proven: [] })),
-          api.get<{ adjustments: SuggestedAdjustment[] }>("/agent-patterns/adjustments").catch(() => ({ adjustments: [] })),
-        ]);
-        if (cancelled) return;
-        setInsightsRecs(recsResp.recommendations || []);
-        setInsightsStats(statsResp.stats || []);
-        setProvenTemplates(provenResp.proven || []);
-        setAdjustments(adjResp.adjustments || []);
-      } catch {
-        if (cancelled) return;
-        setInsightsError("Could not load insights. Try again in a moment.");
-      } finally {
-        if (!cancelled) setInsightsLoading(false);
-      }
-    };
-    fetchInsights();
-    return () => { cancelled = true; };
-  }, [activeTab]);
-
   // Listen for the dashboard "Spawn Agent" quick launch so the form
   // opens the moment the user lands on this page.
   useEffect(() => {
     const handler = () => {
-      setActiveTab("Active");
+      setActiveTabWithRef("Active");
       setShowNewForm(true);
     };
     window.addEventListener('myos-quick-spawn-agent', handler);
     return () => window.removeEventListener('myos-quick-spawn-agent', handler);
   }, []);
 
-  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number, tokenLimit?: number | null, template?: string) => {
+  // When ANY surface in the app spawns an agent (template card, chat
+  // tool call, dashboard quick-spawn, sidebar shortcut), the api
+  // wrapper bumps the agents bus. Subscribe here so the Active list
+  // refreshes within milliseconds instead of waiting up to 2 seconds
+  // for the next poll. Without this, "spawn roadmap" from chat would
+  // not show the new row until the poll caught up. Also covers the
+  // case where Tori switches away from the Agents tab and a chat-driven
+  // spawn happens in the background.
+  useEffect(() => {
+    const unsubscribe = onAgentsChange(() => {
+      fetchAgents();
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number, tokenLimit?: number | null, template?: string, honorExplicitModel?: boolean) => {
     if (!name.trim()) return;
+    const cleanName = name.trim();
+    const cleanModel = model || "sonnet";
+    // Optimistic insert: the row appears the moment the user clicks,
+    // before the spawn POST returns. The next fetchAgents call
+    // reconciles by replacing the placeholder with the server row
+    // (matched by name). This keeps the Active tab visually instant
+    // even when the spawn POST takes 100-300ms and the next poll tick
+    // is 2 seconds away.
+    const placeholder: AgentInfo = {
+      name: cleanName,
+      status: "spawned",
+      source: "ui",
+      model: cleanModel,
+      budget: String(budget ?? 2.0),
+      spawned_at: new Date().toISOString(),
+      transcript_bytes: 0,
+      transcript_lines: 0,
+    };
+    // Make sure the placeholder is not blocked by a stale dismissal.
+    dismissedAgentsRef.current.delete(cleanName);
+    setAllAgents((prev) => {
+      // If a row with this name is already in the list (rare race),
+      // do not insert a duplicate.
+      if (prev.some((a) => a.name === cleanName)) return prev;
+      return [placeholder, ...prev];
+    });
+    // Switch to the Active tab so the user sees the new row immediately
+    // even if they clicked from the Templates tab.
+    setActiveTabWithRef("Active");
     try {
       const spawnPayload: Record<string, unknown> = {
-        name: name.trim(),
-        prompt: prompt || `You are a ${name.trim()} agent. Do your job well.`,
-        model: model || "sonnet",
+        name: cleanName,
+        prompt: prompt || `You are a ${cleanName} agent. Do your job well.`,
+        model: cleanModel,
         budget: budget ?? 2.0,
+        // Every spawn initiated from the Agents UI (template Run button,
+        // manual form, retry) carries source="ui". Without this the
+        // backend falls back to "api", which still shows up in the Recent
+        // tab, but "ui" is more precise and lets the filter keep the
+        // row visible even if list_agents logic changes in the future.
+        source: "ui",
       };
       if (tokenLimit && tokenLimit > 0) {
         spawnPayload.token_limit = tokenLimit;
@@ -1985,17 +2768,73 @@ export default function Agents() {
       if (template) {
         spawnPayload.template = template;
       }
+      // When the user explicitly picks a model in the template detail
+      // modal, the backend must respect that choice even if the
+      // matching agentfile has ``LIMIT demo_mode true``. Without this
+      // flag, demo_mode silently downgrades the model to Haiku and the
+      // badge in the Agents list lies about which model actually ran.
+      if (honorExplicitModel) {
+        spawnPayload.honor_explicit_model = true;
+      }
       await api.post("/agents/spawn", spawnPayload);
       setShowNewForm(false);
       setNewAgentName("");
       setEditorOpen(false);
       await fetchAgents();
     } catch {
-      // handle error silently
+      // Spawn failed: drop the placeholder so the user is not lied to.
+      setAllAgents((prev) => prev.filter((a) => a.name !== cleanName));
     }
   };
 
   const [killingAgents, setKillingAgents] = useState<Record<string, boolean>>({});
+  const [cancelAllPending, setCancelAllPending] = useState(false);
+
+  const handleCancelAll = async () => {
+    // Count agents eligible for bulk cancel: same filter as Active Sessions list.
+    const eligible = allAgents.filter(
+      (a) => isAgentActive(a) && isUserSpawnedAgent(a)
+    );
+    if (eligible.length === 0) return;
+    const confirmed = await confirm({
+      title: `Cancel all ${eligible.length} running agent${eligible.length === 1 ? "" : "s"}?`,
+      message: "This cannot be undone.",
+      confirmLabel: `Cancel all`,
+      danger: true,
+    });
+    if (!confirmed) return;
+    setCancelAllPending(true);
+    try {
+      const data = await api.post<{ cancelled: number; names: string[] }>("/agents/cancel-all", {});
+      const count = data.cancelled ?? 0;
+      // cancel-all is a user-initiated one-shot, not a real agent. Use a
+      // unique synthetic name per click so the store's dedupe Set never
+      // blocks a repeat Cancel-All.
+      addNotification(
+        { name: `cancel-all-${Date.now()}` },
+        "running",
+        count > 0
+          ? `Cancelled ${count} agent${count === 1 ? "" : "s"}`
+          : "No agents were running"
+      );
+      // Remove cancelled agents from the local list immediately.
+      if (data.names && data.names.length > 0) {
+        const cancelledSet = new Set(data.names);
+        cancelledSet.forEach((n) => dismissedAgentsRef.current.add(n));
+        setAllAgents((prev) => prev.filter((a) => !cancelledSet.has(a.name)));
+      }
+      // Refresh the full agent list so the UI reflects the updated statuses.
+      await fetchAgents();
+    } catch {
+      addNotification(
+        { name: `cancel-all-${Date.now()}` },
+        "running",
+        "Could not cancel agents. Try again."
+      );
+    } finally {
+      setCancelAllPending(false);
+    }
+  };
 
   const handleKill = async (name: string) => {
     setKillingAgents((prev) => ({ ...prev, [name]: true }));
@@ -2014,9 +2853,9 @@ export default function Agents() {
       // Agent may already be gone, that is fine
     } finally {
       setKillingAgents((prev) => ({ ...prev, [name]: false }));
-      // Refresh immediately so the user sees the change without waiting
-      // for the 5-second polling tick.
-      await fetchAgents();
+      // Dismiss so the poll never brings it back
+      dismissedAgentsRef.current.add(name);
+      setAllAgents((prev) => prev.filter((a) => a.name !== name));
     }
   };
 
@@ -2046,38 +2885,77 @@ export default function Agents() {
     model: string;
     budget: number;
     isBuiltIn: boolean;
+    aliases: string[];
     capabilities: TemplateCapabilities | null;
     parseError: string | null;
+    templateId?: string;
   };
 
   const builtInTemplates: DisplayTemplate[] =
     templates.length > 0
-      ? templates.map((t) => ({
-          icon: getTemplateIcon(t.name),
-          name: t.name,
-          description: t.description || (t.content ? t.content.slice(0, 50) : "Agent template"),
-          model: "sonnet",
-          budget: 2.0,
-          isBuiltIn: true,
-          capabilities: t.capabilities ?? null,
-          parseError: t.parse_error ?? null,
-        }))
+      ? templates
+          // The server filters alias-only agentfiles (saa.agent,
+          // elit.agent) and fleet-member files already. Keep this guard
+          // so older backends still work: strip alias stems by name and
+          // strip fleet member stems that slip through.
+          .filter((t) => {
+            const stem = t.name.toLowerCase();
+            if (stem === "saa" || stem === "elit") return false;
+            // Fleet member stems look like ``fleet-<parent>-<role>``.
+            // The parent card itself (``fleet-build-website``) is shown
+            // in the Fleets panel, not the templates grid, so drop any
+            // ``fleet-*`` stem here.
+            if (stem.startsWith("fleet-")) return false;
+            return true;
+          })
+          .map((t) => {
+            const titleName = toTitleCase(t.name);
+            // Prefer the server-provided aliases list (folded in from
+            // alias-only .agent files). Fall back to the static map for
+            // backward compatibility.
+            const aliases = (t.aliases && t.aliases.length > 0)
+              ? t.aliases
+              : (AGENTFILE_ALIASES[titleName] ?? []);
+            return {
+              icon: getTemplateIcon(t.name),
+              name: titleName,
+              // Never fall back to the raw agentfile body: it starts with a
+              // "#" comment header and a char-count slice truncates mid-word.
+              // Use the structured DESC field, or a friendly placeholder
+              // when the agentfile does not set one. The card itself uses
+              // CSS line-clamp-2 with a hover tooltip for long descriptions.
+              description: t.description || "No description provided",
+              model: "sonnet",
+              budget: 2.0,
+              isBuiltIn: true,
+              aliases,
+              capabilities: t.capabilities ?? null,
+              parseError: t.parse_error ?? null,
+              templateId: AGENTFILE_TEMPLATE_IDS[titleName],
+            };
+          })
       : [
-          { icon: "search", name: "Research", description: "Search and summarize information", model: "sonnet", budget: 2.0, isBuiltIn: true, capabilities: null, parseError: null },
-          { icon: "code", name: "Code Review", description: "Review code for issues and improvements", model: "sonnet", budget: 2.0, isBuiltIn: true, capabilities: null, parseError: null },
-          { icon: "bug_report", name: "Write Tests", description: "Generate test cases for your code", model: "sonnet", budget: 2.0, isBuiltIn: true, capabilities: null, parseError: null },
-          { icon: "rocket_launch", name: "Deploy", description: "Automate deployment pipelines", model: "sonnet", budget: 2.0, isBuiltIn: true, capabilities: null, parseError: null },
+          { icon: "search", name: "Research", description: "Search and summarize information", model: "sonnet", budget: 2.0, isBuiltIn: true, aliases: [], capabilities: null, parseError: null, templateId: "builtin-research" },
+          { icon: "engineering", name: "Builder", description: "Build solutions end to end", model: "sonnet", budget: 3.0, isBuiltIn: true, aliases: ["saa"], capabilities: null, parseError: null, templateId: "builtin-builder" },
+          { icon: "bug_report", name: "Diagnose", description: "Find root causes and fix bugs", model: "sonnet", budget: 2.0, isBuiltIn: true, aliases: [], capabilities: null, parseError: null, templateId: "builtin-diagnose" },
+          { icon: "rate_review", name: "Review", description: "Review code for issues and improvements", model: "sonnet", budget: 2.0, isBuiltIn: true, aliases: [], capabilities: null, parseError: null, templateId: "builtin-review" },
+          { icon: "science", name: "Test", description: "Run tests and report results", model: "sonnet", budget: 2.0, isBuiltIn: true, aliases: [], capabilities: null, parseError: null, templateId: "builtin-test" },
         ];
 
-  // Merge built-in + custom templates
+  // Merge built-in + custom templates. De-duplicate by normalized name
+  // so a marketplace entry that matches a builtin doesn't appear twice.
+  const builtInNames = new Set(builtInTemplates.map((b) => b.name.toLowerCase().trim()));
   const displayTemplates: DisplayTemplate[] = [
     ...builtInTemplates,
-    ...customTemplates.map((ct) => ({
-      ...ct,
-      isBuiltIn: false,
-      capabilities: null,
-      parseError: null,
-    })),
+    ...customTemplates
+      .filter((ct) => !builtInNames.has(ct.name.toLowerCase().trim()))
+      .map((ct) => ({
+        ...ct,
+        isBuiltIn: false,
+        aliases: [],
+        capabilities: null,
+        parseError: null,
+      })),
   ];
 
   return (
@@ -2092,7 +2970,8 @@ export default function Agents() {
               {tabs.map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => setActiveTabWithRef(tab)}
+                  data-testid={`tab-${tab.toLowerCase()}`}
                   className={`text-sm pb-1 transition-colors ${
                     activeTab === tab
                       ? "text-blue-400 border-b-2 border-blue-400"
@@ -2104,13 +2983,15 @@ export default function Agents() {
               ))}
             </div>
           </div>
-          <button
+          <Button
+            variant="primary"
+            size="md"
             onClick={() => setShowNewForm(!showNewForm)}
-            className="bg-pink-500 text-white rounded-lg px-4 py-2 min-h-[44px] flex items-center gap-2 hover:bg-pink-600 transition-colors"
+            data-testid="spawn-agent-btn"
           >
             <Icon name="add" className="text-lg" />
             New Agent
-          </button>
+          </Button>
         </div>
 
         {/* New Agent Form */}
@@ -2123,7 +3004,7 @@ export default function Agents() {
                 value={newAgentName}
                 onChange={(e) => setNewAgentName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !newAgentPrompt) handleSpawn(newAgentName, newAgentPrompt || undefined, undefined, undefined, newAgentTokenLimit ? parseInt(newAgentTokenLimit, 10) : null);
+                  if (e.key === "Enter") handleSpawn(newAgentName, newAgentPrompt || undefined, undefined, undefined, newAgentTokenLimit ? parseInt(newAgentTokenLimit, 10) : null);
                 }}
                 className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
@@ -2150,8 +3031,9 @@ export default function Agents() {
               <textarea
                 value={newAgentPrompt}
                 onChange={(e) => setNewAgentPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSpawn(newAgentName, newAgentPrompt || undefined, undefined, undefined, newAgentTokenLimit ? parseInt(newAgentTokenLimit, 10) : null); } }}
                 rows={3}
-                placeholder="What should this agent do? (Pre-filled from template. Edit the [placeholders] before spawning.)"
+                placeholder="What should this agent do? (Enter to spawn, Shift+Enter for newline)"
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm resize-none"
               />
               {newAgentPrompt && /\[.+?\]/.test(newAgentPrompt) && (
@@ -2162,7 +3044,7 @@ export default function Agents() {
             </div>
             {/* Token budget limit */}
             <div className="flex items-center gap-3 mt-3">
-              <label className="text-sm text-slate-400 whitespace-nowrap">Token usage</label>
+              <label className="text-sm text-slate-400 whitespace-nowrap">Usage limit</label>
               <input
                 type="number"
                 min={0}
@@ -2215,9 +3097,29 @@ export default function Agents() {
             )}
 
             {/* Active Sessions */}
-            <h2 className="text-lg font-semibold text-white mb-4">
-              Active Sessions
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">
+                Active Sessions
+              </h2>
+              {(() => {
+                // Same filter as Active Sessions list and handleCancelAll.
+                const runningCount = allAgents.filter(
+                  (a) => isAgentActive(a) && isUserSpawnedAgent(a)
+                ).length;
+                return (
+                  <button
+                    data-testid="cancel-all-agents-btn"
+                    onClick={handleCancelAll}
+                    disabled={runningCount === 0 || cancelAllPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-red-900/30 border border-red-700/50 text-red-400 hover:bg-red-900/50 hover:text-red-300"
+                    title={runningCount === 0 ? "No background agents running" : `Cancel all ${runningCount} running agent${runningCount === 1 ? "" : "s"}`}
+                  >
+                    <Icon name="cancel" size={14} />
+                    {cancelAllPending ? "Cancelling..." : `Cancel all${runningCount > 0 ? ` (${runningCount})` : ""}`}
+                  </button>
+                );
+              })()}
+            </div>
             {!agentsLoaded ? (
               <div
                 data-testid="active-agents-loading"
@@ -2225,22 +3127,41 @@ export default function Agents() {
               >
                 Loading...
               </div>
-            ) : allAgents.filter((a) => a.status === "running" || a.status === "spawned").length === 0 ? (
-              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center mb-8">
-                <Icon name="smart_toy" className="text-4xl text-slate-700 mb-2" />
-                <p className="text-sm text-slate-400 mb-1">No agents running right now.</p>
-                <p className="text-xs text-slate-600">Click a template below, launch a fleet, or use the New Agent button to get started.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-6 mb-8">
-                {allAgents
-                  .filter((a) => a.status === "running" || a.status === "spawned")
-                  // Extra belt: keep terminated_stale and cancelled out of
-                  // Active Sessions even if an upstream join ever puts them
-                  // in with a stale "running" label.
-                  .filter((a) => a.status !== "terminated_stale" && a.status !== "cancelled")
-                  .map((agent) => {
-                    const isExpanded = expandedAgent === agent.name;
+            ) : (() => {
+              // Only show agents that Tori or a subagent explicitly spawned.
+              // Filter uses the shared isUserSpawnedAgent + isAgentActive
+              // helpers from agentUtils so the Active list, sidebar badge,
+              // and Cancel-all button all count identically.
+              //
+              // isAgentActive treats running, spawned, and starting as
+              // active, AND keeps terminated_stale rows visible if their
+              // last heartbeat is fresher than 2 minutes (covers the race
+              // where the stale-sweep flips the row moments before the
+              // agent's next heartbeat lands). cancelled stays hidden.
+              const isVisibleActive = (a: typeof allAgents[number]) =>
+                isUserSpawnedAgent(a) && isAgentActive(a);
+
+              const visibleAgents = allAgents.filter(isVisibleActive);
+
+              // Nothing running: show the spawn CTA empty state
+              if (visibleAgents.length === 0) {
+                return (
+                  <div className="mb-8">
+                    <EmptyState
+                      icon="smart_toy"
+                      title="No agents running right now"
+                      description="Click a template below or use the New Agent button to get started."
+                      action={{ label: "Spawn your first agent", onClick: () => setShowNewForm(true) }}
+                    />
+                  </div>
+                );
+              }
+
+              return (
+                <>
+                      <div className="grid grid-cols-1 gap-6 mb-8" data-testid="background-agents-list">
+                        {visibleAgents.map((agent) => {
+                    const isActiveExpanded = !!activeExpandedMap[agent.name];
                     const agentNudges = nudgeHistory[agent.name] || [];
                     const agentReplies = nudgeReplies[agent.name] || [];
                     const isSending = nudgeSending[agent.name] || false;
@@ -2250,13 +3171,22 @@ export default function Agents() {
                     );
 
                     return (
-                  <div
+                  <Card
                     key={agent.name}
-                    className="bg-slate-900/40 border border-slate-800 rounded-xl p-5"
+                    variant="default"
+                    padding="md"
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <span className="text-white font-semibold">{agent.name}</span>
+                    <div className={`flex items-center justify-between${isActiveExpanded ? " mb-3" : ""}`}>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span
+                          className="flex flex-col"
+                          title={agentTitleParts(agent).secondary ? `${agentTitleParts(agent).primary} (${agent.name})` : agent.name}
+                        >
+                          <span className="text-white font-semibold leading-tight">{agentTitleParts(agent).primary}</span>
+                          {agentTitleParts(agent).secondary && (
+                            <span className="text-slate-400 text-xs leading-tight">{agentTitleParts(agent).secondary}</span>
+                          )}
+                        </span>
                         <span className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}>
                           {statusLabel(agent.status)}
                         </span>
@@ -2284,146 +3214,176 @@ export default function Agents() {
                             Context: {contextPressure[agent.name]?.pressure_pct}%
                           </span>
                         )}
+                        {/* One-line compact summary shown inline with the title
+                            row when the card is collapsed. See
+                            AgentCompactSummary for the format. */}
+                        {!isActiveExpanded && (
+                          <AgentCompactSummary
+                            spawnedAt={agent.spawned_at || agent.timestamp}
+                            budget={agent.budget}
+                            model={agent.model}
+                            costEstimate={agent.cost_estimate}
+                            durationStats={durationStats}
+                          />
+                        )}
                       </div>
                       <button
-                        onClick={() => setExpandedAgent(isExpanded ? null : agent.name)}
-                        className="text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-sm"
-                        title={isExpanded ? "Collapse session" : "Expand session"}
+                        onClick={() => toggleActiveExpanded(agent.name)}
+                        className="text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-sm shrink-0"
+                        title={isActiveExpanded ? "Collapse session" : "Expand session"}
+                        data-testid={`active-agent-toggle-${agent.name}`}
                       >
-                        <Icon name={isExpanded ? "expand_less" : "expand_more"} size={20} />
-                        {isExpanded ? "Collapse" : "Expand"}
+                        <Icon name={isActiveExpanded ? "expand_less" : "expand_more"} size={20} />
+                        {isActiveExpanded ? "Collapse" : "Expand"}
                       </button>
                     </div>
-                    {(agent.spawned_at || agent.timestamp) && (
-                      <AgentStatusBar
-                        spawnedAt={agent.spawned_at || agent.timestamp!}
-                        budget={agent.budget}
-                        model={agent.model}
-                        learnedRates={learnedRates}
-                        transcriptBytes={agent.transcript_bytes}
-                        transcriptLines={agent.transcript_lines}
-                      />
-                    )}
-                    <BudgetProgressBar
-                      tokensUsed={agent.tokens_used ?? 0}
-                      tokenLimit={agent.token_limit}
-                      costEstimate={agent.cost_estimate}
-                    />
 
-                    {/* Inline pending permission requests for this agent */}
-                    {pendingGrants.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        {pendingGrants.map((grant) => (
-                          <div
-                            key={grant.id}
-                            className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-start justify-between gap-3"
-                          >
-                            <div className="flex items-start gap-2 flex-1 min-w-0">
-                              <Icon name="lock_open" className="text-yellow-400 mt-0.5" size={18} />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm text-white">
-                                  Wants to {grant.type === "secret" ? "access a stored password" : grant.type === "file_access" ? "read a file" : grant.type === "tool" ? "use a tool" : grant.type === "budget" ? "increase its spending limit" : grant.type === "model_upgrade" ? "use a more powerful AI model" : grant.type}: <span className="font-mono text-yellow-300">{grant.target}</span>
-                                </p>
-                                {grant.detail && (
-                                  <p className="text-xs text-slate-400 mt-1 break-words">{grant.detail}</p>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex gap-1 shrink-0">
-                              <button
-                                onClick={() => handleApproveGrant(grant.id)}
-                                disabled={grantActioning[grant.id]}
-                                className="bg-green-600 hover:bg-green-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-xs rounded px-2.5 py-1 transition-colors"
-                              >
-                                {grantActioning[grant.id] ? "..." : "Approve"}
-                              </button>
-                              <button
-                                onClick={() => handleDenyGrant(grant.id)}
-                                disabled={grantActioning[grant.id]}
-                                className="border border-slate-700 text-slate-300 text-xs rounded px-2.5 py-1 hover:border-red-500 hover:text-red-400 disabled:opacity-50 transition-colors"
-                              >
-                                Deny
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Real chat thread for this agent. Renders nudges as
-                        right aligned user bubbles and replies as left
-                        aligned assistant bubbles with markdown, using the
-                        same look as the main ChatPanel. Replaces the old
-                        custom monospace "You:" text lines. See needle 244. */}
-                    <AgentChatThread
-                      agentName={agent.name}
-                      nudges={agentNudges.map((n) => ({
-                        message: n.message,
-                        timestamp: n.timestamp,
-                        delivery_message:
-                          n.delivery_message ||
-                          (n.stdin_delivered ? "Delivered to agent stdin" : undefined),
-                      }))}
-                      replies={agentReplies.map((r) => ({
-                        message: r.message,
-                        timestamp: r.timestamp,
-                      }))}
-                      onSend={(message) => handleNudge(agent.name, message)}
-                      onCorrect={(message) => handleCorrection(agent.name, message)}
-                      isSending={isSending}
-                      errorMessage={nudgeError || null}
-                      agentRegisteredAt={agent.spawned_at || agent.timestamp}
-                    />
-
-                    {/* Expanded view with additional details and memory */}
-                    {isExpanded && (
-                      <div className="mt-4 pt-4 border-t border-slate-800">
-                        <div className="grid grid-cols-3 gap-4 text-xs mb-4">
-                          <div>
-                            <span className="text-slate-500">Source</span>
-                            <p className="text-white mt-1">{agent.source}</p>
-                          </div>
-                          {agent.budget && (
-                            <div>
-                              <span className="text-slate-500">Budget</span>
-                              <p className="text-white mt-1">${agent.budget}</p>
-                            </div>
-                          )}
-                          <div>
-                            <span className="text-slate-500">Messages sent</span>
-                            <p className="text-white mt-1">{agentNudges.length}</p>
-                          </div>
-                        </div>
-                        <AgentMemorySection
-                          agentName={agent.name}
-                          memory={agentMemory[agent.name]}
-                          clearing={memoryClearing[agent.name] || false}
-                          onClear={() => handleClearMemory(agent.name)}
+                    {/* Everything below the title row only renders when the
+                        card is expanded. Collapsed cards show just the title
+                        row and the inline compact summary above. This keeps
+                        the Active Sessions list scannable by default. */}
+                    {isActiveExpanded && (
+                      <>
+                        {(agent.spawned_at || agent.timestamp) && (
+                          <AgentStatusBar
+                            spawnedAt={agent.spawned_at || agent.timestamp!}
+                            budget={agent.budget}
+                            model={agent.model}
+                            transcriptBytes={agent.transcript_bytes}
+                            transcriptLines={agent.transcript_lines}
+                            durationStats={durationStats}
+                          />
+                        )}
+                        <BudgetProgressBar
+                          tokensUsed={agent.tokens_used ?? 0}
+                          tokenLimit={agent.token_limit}
+                          costEstimate={agent.cost_estimate}
                         />
-                      </div>
-                    )}
 
-                    <div className="flex items-center justify-between mt-4">
-                      <button
-                        onClick={() => openTranscript(agent.name)}
-                        className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
-                      >
-                        <Icon name="description" size={16} />
-                        View Transcript
-                      </button>
-                      <button
-                        onClick={() => handleKill(agent.name)}
-                        disabled={killingAgents[agent.name]}
-                        className="border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-1 hover:border-red-500 hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {killingAgents[agent.name] ? "Cancelling..." : "Cancel"}
-                      </button>
-                    </div>
-                  </div>
+                        {/* Inline pending permission requests for this agent */}
+                        {pendingGrants.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {pendingGrants.map((grant) => (
+                              <div
+                                key={grant.id}
+                                className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-start justify-between gap-3"
+                              >
+                                <div className="flex items-start gap-2 flex-1 min-w-0">
+                                  <Icon name="lock_open" className="text-yellow-400 mt-0.5" size={18} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-white">
+                                      Wants to {grant.type === "secret" ? "access a stored password" : grant.type === "file_access" ? "read a file" : grant.type === "tool" ? "use a tool" : grant.type === "budget" ? "increase its spending limit" : grant.type === "model_upgrade" ? "use a more powerful AI model" : grant.type}: <span className="font-mono text-yellow-300">{grant.target}</span>
+                                    </p>
+                                    {grant.detail && (
+                                      <p className="text-xs text-slate-400 mt-1 break-words">{grant.detail}</p>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex gap-1 shrink-0">
+                                  <button
+                                    onClick={() => handleApproveGrant(grant.id)}
+                                    disabled={grantActioning[grant.id]}
+                                    className="bg-green-600 hover:bg-green-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-xs rounded px-2.5 py-1 transition-colors"
+                                  >
+                                    {grantActioning[grant.id] ? "..." : "Approve"}
+                                  </button>
+                                  <button
+                                    onClick={() => handleDenyGrant(grant.id)}
+                                    disabled={grantActioning[grant.id]}
+                                    className="border border-slate-700 text-slate-300 text-xs rounded px-2.5 py-1 hover:border-red-500 hover:text-red-400 disabled:opacity-50 transition-colors"
+                                  >
+                                    Deny
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Real chat thread for this agent. Renders nudges as
+                            right aligned user bubbles and replies as left
+                            aligned assistant bubbles with markdown, using the
+                            same look as the main ChatPanel. Replaces the old
+                            custom monospace "You:" text lines. See needle 244. */}
+                        <AgentChatThread
+                          agentName={agent.name}
+                          nudges={agentNudges.map((n) => ({
+                            message: n.message,
+                            timestamp: n.timestamp,
+                            delivery: n.delivery,
+                            delivery_message:
+                              n.delivery_message ||
+                              (n.stdin_delivered ? "Delivered to agent stdin" : undefined),
+                          }))}
+                          replies={agentReplies.map((r) => ({
+                            message: r.message,
+                            timestamp: r.timestamp,
+                          }))}
+                          onSend={(message) => handleNudge(agent.name, message)}
+                          onCorrect={(message) => handleCorrection(agent.name, message)}
+                          isSending={isSending}
+                          errorMessage={nudgeError || null}
+                          agentRegisteredAt={agent.spawned_at || agent.timestamp}
+                        />
+
+                        {/* Extra details and memory live inside the expanded
+                            card. They were previously gated behind a second
+                            "expandedAgent" toggle, but that UX is gone now
+                            that the whole detail view is collapsible. */}
+                        <div className="mt-4 pt-4 border-t border-slate-800">
+                          <div className="grid grid-cols-3 gap-4 text-xs mb-4">
+                            <div>
+                              <span className="text-slate-500">Source</span>
+                              <p className="text-white mt-1">{agent.source}</p>
+                            </div>
+                            {agent.budget && (
+                              <div>
+                                <span className="text-slate-500">Budget</span>
+                                <p className="text-white mt-1">${agent.budget}</p>
+                              </div>
+                            )}
+                            <div>
+                              <span className="text-slate-500">Messages sent</span>
+                              <p className="text-white mt-1">{agentNudges.length}</p>
+                            </div>
+                          </div>
+                          <AgentMemorySection
+                            agentName={agent.name}
+                            memory={agentMemory[agent.name]}
+                            clearing={memoryClearing[agent.name] || false}
+                            onClear={() => handleClearMemory(agent.name)}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between mt-4">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openTranscript(agent.name)}
+                            className="text-blue-400 hover:text-blue-300"
+                          >
+                            <Icon name="description" size={16} />
+                            View Transcript
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => handleKill(agent.name)}
+                            disabled={killingAgents[agent.name]}
+                            className="hover:border-red-500 hover:text-red-400"
+                          >
+                            {killingAgents[agent.name] ? "Cancelling..." : "Cancel"}
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </Card>
                     );
                   })}
-              </div>
-            )}
+                      </div>
+                </>
+              );
+            })()}
           </>
         )}
 
@@ -2643,23 +3603,57 @@ export default function Agents() {
         )}
 
         {activeTab === "Recent" && (() => {
-          const terminalStatuses = ["completed", "failed", "terminated_stale", "abandoned", "cancelled", "killed", "stopped"];
-          const recentAgents = allAgents
-            .filter((a) => terminalStatuses.includes(a.status))
+          const terminalStatuses = TERMINAL_AGENT_STATUSES as readonly string[];
+          // Statuses the "Hiding cancelled" chip hides from the Recent
+          // tab by default. ``failed`` and ``completed`` are intentionally
+          // NOT here so genuine successes and failures are always
+          // visible, even when the chip is set to hide cancellations.
+          // The chip toggles cancellation-synonyms only.
+          const inactiveStatuses = CANCELLED_SYNONYM_STATUSES as readonly string[];
+          const allRecent = allAgents
+            .filter((a) => terminalStatuses.includes(a.status) && isUserSpawnedAgent(a))
             .sort((a, b) => {
               const ta = a.spawned_at || a.timestamp || "";
               const tb = b.spawned_at || b.timestamp || "";
               return tb.localeCompare(ta);
             })
             .slice(0, 20);
+          const recentAgents = showInactive
+            ? allRecent
+            : allRecent.filter((a) => !inactiveStatuses.includes(a.status));
+          const hiddenCount = allRecent.length - allRecent.filter((a) => !inactiveStatuses.includes(a.status)).length;
           const canRecover = (a: AgentInfo) =>
             ["failed", "terminated_stale", "abandoned", "cancelled", "stopped"].includes(a.status)
             && (a.recovery_count ?? 0) < (a.max_recoveries ?? 3);
           return (
             <>
-              <h2 className="text-lg font-semibold text-white mb-4">
-                Recent Agents
-              </h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-white">
+                  Recent Agents
+                </h2>
+                {(hiddenCount > 0 || showInactive) && (
+                  <button
+                    type="button"
+                    onClick={toggleShowInactive}
+                    data-testid="recent-cancelled-toggle"
+                    className="inline-flex items-center gap-2 text-xs text-slate-300 bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700 rounded-full px-3 py-1 transition-colors"
+                  >
+                    {showInactive ? (
+                      <>
+                        <span>Showing cancelled</span>
+                        <span className="text-slate-500">.</span>
+                        <span className="text-sky-400">hide</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Hiding cancelled</span>
+                        <span className="text-slate-500">.</span>
+                        <span className="text-sky-400">show</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
               {!agentsLoaded ? (
                 <div
                   data-testid="recent-agents-loading"
@@ -2668,23 +3662,34 @@ export default function Agents() {
                   Loading...
                 </div>
               ) : recentAgents.length === 0 ? (
-                <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center mb-8">
-                  <Icon name="smart_toy" className="text-4xl text-slate-700 mb-2" />
-                  <p className="text-sm text-slate-400 mb-1">No agents have run yet.</p>
-                  <p className="text-xs text-slate-600">Try asking myOS in chat to do something, like "help me plan my week" or "write a status update."</p>
+                <div className="mb-8">
+                  <EmptyState
+                    icon="smart_toy"
+                    title="No agents have run yet"
+                    description='Try asking myOS in chat to do something, like "help me plan my week" or "write a status update."'
+                  />
                 </div>
               ) : (
                 <div className="flex flex-col gap-2 mb-8">
                   {recentAgents.map((agent) => {
                     const isRecentExpanded = expandedAgent === agent.name;
+                    const isInactive = inactiveStatuses.includes(agent.status);
                     return (
                       <div
                         key={agent.name}
-                        className="bg-slate-900/40 border border-slate-800 rounded-xl px-5 py-3"
+                        className={`bg-slate-900/40 border border-slate-800 rounded-xl px-5 py-3${showInactive && isInactive ? " opacity-50" : ""}`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <span className="text-white font-medium">{agent.name}</span>
+                            <span
+                              className="flex flex-col"
+                              title={agentTitleParts(agent).secondary ? `${agentTitleParts(agent).primary} (${agent.name})` : agent.name}
+                            >
+                              <span className="text-white font-medium leading-tight">{agentTitleParts(agent).primary}</span>
+                              {agentTitleParts(agent).secondary && (
+                                <span className="text-slate-400 text-xs leading-tight">{agentTitleParts(agent).secondary}</span>
+                              )}
+                            </span>
                             <span
                               className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}
                             >
@@ -2715,6 +3720,21 @@ export default function Agents() {
                               </button>
                             )}
                             <button
+                              onClick={async () => {
+                                try {
+                                  await api.delete(`/agents/${agent.name}`);
+                                } catch {
+                                  // may fail if agent is still running
+                                }
+                                dismissedAgentsRef.current.add(agent.name);
+                                setAllAgents((prev) => prev.filter((a) => a.name !== agent.name));
+                              }}
+                              className="text-slate-600 hover:text-red-400 transition-colors text-xs flex items-center gap-1"
+                              title="Remove from history"
+                            >
+                              <Icon name="close" size={14} />
+                            </button>
+                            <button
                               onClick={() => {
                                 if (!isRecentExpanded) fetchMemory(agent.name);
                                 setExpandedAgent(isRecentExpanded ? null : agent.name);
@@ -2744,519 +3764,6 @@ export default function Agents() {
             </>
           );
         })()}
-
-        {activeTab === "Insights" && (() => {
-          const warnings = insightsRecs.filter((r) => r.severity === "warning");
-          const tips = insightsRecs.filter((r) => r.severity === "tip");
-          const infos = insightsRecs.filter((r) => r.severity === "info");
-
-          const highSuccessTemplates = [...insightsStats]
-            .filter((s) => s.spawn_count >= 2)
-            .sort((a, b) => {
-              if (b.success_rate !== a.success_rate) return b.success_rate - a.success_rate;
-              return b.spawn_count - a.spawn_count;
-            })
-            .slice(0, 3);
-
-          const severityStyles = (sev: string) => {
-            if (sev === "warning") {
-              return {
-                wrapper: "bg-amber-500/10 border-amber-500/40",
-                icon: "warning",
-                iconColor: "text-amber-400",
-                label: "Needs attention",
-                labelColor: "text-amber-300",
-              };
-            }
-            if (sev === "tip") {
-              return {
-                wrapper: "bg-blue-500/10 border-blue-500/40",
-                icon: "lightbulb",
-                iconColor: "text-blue-400",
-                label: "Tip",
-                labelColor: "text-blue-300",
-              };
-            }
-            return {
-              wrapper: "bg-slate-800/40 border-slate-700",
-              icon: "info",
-              iconColor: "text-slate-400",
-              label: "Good to know",
-              labelColor: "text-slate-300",
-            };
-          };
-
-          const goToTemplate = (tid?: string | null) => {
-            if (!tid) return;
-            setActiveTab("Templates");
-          };
-
-          const applySuggestedBudget = async (tid: string | null | undefined, value: number | string | null | undefined) => {
-            if (!tid || typeof value !== "number") return;
-            const tmpl = pmTemplates.find((t) => t.id === tid);
-            if (!tmpl) {
-              setInsightsError("That template was not found. It may have been deleted.");
-              return;
-            }
-            try {
-              await api.put(`/agents/pm-templates/${tid}`, {
-                name: tmpl.name,
-                description: tmpl.description,
-                icon: tmpl.icon,
-                prompt_template: tmpl.prompt_template,
-                model: tmpl.model,
-                budget: value,
-              });
-              setInsightsError("");
-              // Refresh templates so the UI reflects the new budget
-              const data = await api.get<{ templates: PMAgentTemplate[] }>("/agents/pm-templates");
-              setPmTemplates(data.templates || []);
-            } catch {
-              setInsightsError("Could not update the template budget. Try again.");
-            }
-          };
-
-          const applySuggestedModel = async (tid: string | null | undefined, value: number | string | null | undefined) => {
-            if (!tid || typeof value !== "string") return;
-            const tmpl = pmTemplates.find((t) => t.id === tid);
-            if (!tmpl) {
-              setInsightsError("That template was not found. It may have been deleted.");
-              return;
-            }
-            try {
-              await api.put(`/agents/pm-templates/${tid}`, {
-                name: tmpl.name,
-                description: tmpl.description,
-                icon: tmpl.icon,
-                prompt_template: tmpl.prompt_template,
-                model: value,
-                budget: tmpl.budget,
-              });
-              setInsightsError("");
-              const data = await api.get<{ templates: PMAgentTemplate[] }>("/agents/pm-templates");
-              setPmTemplates(data.templates || []);
-            } catch {
-              setInsightsError("Could not update the template model. Try again.");
-            }
-          };
-
-          const renderRec = (rec: PatternRecommendation, idx: number) => {
-            const style = severityStyles(rec.severity);
-            const actionable =
-              (rec.type === "underbudgeted" || rec.type === "overbudgeted") && typeof rec.suggested_value === "number";
-            const modelAction = rec.type === "wrong_model" && typeof rec.suggested_value === "string";
-            return (
-              <div
-                key={`${rec.type}-${idx}`}
-                className={`rounded-xl border p-4 mb-3 ${style.wrapper}`}
-                data-testid={`insight-rec-${rec.severity}`}
-              >
-                <div className="flex items-start gap-3">
-                  <Icon name={style.icon} size={20} className={style.iconColor} />
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-xs uppercase tracking-wider font-semibold mb-1 ${style.labelColor}`}>
-                      {style.label}
-                    </p>
-                    <p className="text-sm text-slate-100">{rec.message}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {rec.related_template_id && (
-                        <button
-                          onClick={() => goToTemplate(rec.related_template_id)}
-                          className="text-xs text-slate-300 hover:text-white underline underline-offset-2"
-                        >
-                          View template
-                        </button>
-                      )}
-                      {actionable && (
-                        <button
-                          onClick={() => applySuggestedBudget(rec.related_template_id, rec.suggested_value)}
-                          className="text-xs bg-blue-500 hover:bg-blue-600 text-white rounded px-3 py-1"
-                        >
-                          Apply suggested budget
-                        </button>
-                      )}
-                      {modelAction && (
-                        <button
-                          onClick={() => applySuggestedModel(rec.related_template_id, rec.suggested_value)}
-                          className="text-xs bg-blue-500 hover:bg-blue-600 text-white rounded px-3 py-1"
-                        >
-                          Switch to {String(rec.suggested_value)}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          };
-
-          return (
-            <div>
-              <h2 className="text-lg font-semibold text-white mb-1">Insights</h2>
-              <p className="text-slate-400 text-sm mb-6">
-                What is working, what is not, and how to get more out of your agents.
-              </p>
-
-              {insightsLoading && (
-                <div className="text-slate-400 text-sm mb-4">Loading insights...</div>
-              )}
-              {insightsError && (
-                <div className="bg-red-500/10 border border-red-500/40 text-red-300 text-sm rounded-xl p-3 mb-4">
-                  {insightsError}
-                </div>
-              )}
-
-              {/* Top section: high-success template cards */}
-              {highSuccessTemplates.length > 0 && (
-                <div className="mb-8">
-                  <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-3">What is working</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {highSuccessTemplates.map((s) => (
-                      <div
-                        key={s.template_id}
-                        className="bg-slate-900/40 border border-slate-800 rounded-xl p-4"
-                        data-testid="insight-high-success-card"
-                      >
-                        <p className="text-white font-medium mb-1">{s.template_name}</p>
-                        <p className="text-emerald-400 text-2xl font-bold">
-                          {Math.round(s.success_rate * 100)}%
-                        </p>
-                        <p className="text-slate-500 text-xs mt-1">
-                          succeeds across {s.spawn_count} {s.spawn_count === 1 ? "run" : "runs"}
-                          {s.best_model ? ` - best on ${s.best_model}` : ""}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Middle section: recommendations grouped by severity */}
-              <div className="mb-8">
-                <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-3">Recommendations</h3>
-                {insightsRecs.length === 0 && !insightsLoading ? (
-                  <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-6 text-center text-slate-400 text-sm">
-                    No recommendations yet. Run a few agents and check back.
-                  </div>
-                ) : (
-                  <>
-                    {warnings.length > 0 && (
-                      <div className="mb-4" data-testid="insight-warnings">
-                        {warnings.map((rec, idx) => renderRec(rec, idx))}
-                      </div>
-                    )}
-                    {tips.length > 0 && (
-                      <div className="mb-4" data-testid="insight-tips">
-                        {tips.map((rec, idx) => renderRec(rec, idx + warnings.length))}
-                      </div>
-                    )}
-                    {infos.length > 0 && (
-                      <div className="mb-4" data-testid="insight-infos">
-                        {infos.map((rec, idx) => renderRec(rec, idx + warnings.length + tips.length))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* Proven templates section */}
-              {provenTemplates.length > 0 && (
-                <div className="mb-8">
-                  <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-3">Proven templates</h3>
-                  <p className="text-slate-500 text-xs mb-3">
-                    These templates have a strong track record. Use them with confidence.
-                  </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {provenTemplates.map((pt) => (
-                      <div
-                        key={pt.template_id}
-                        className="bg-slate-900/40 border border-emerald-500/30 rounded-xl p-4"
-                        data-testid="proven-template-card"
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <Icon name="verified" className="text-emerald-400" size={18} />
-                          <p className="text-white font-medium">{pt.template_name}</p>
-                        </div>
-                        <div className="flex items-center gap-4 text-xs text-slate-400">
-                          <span>{Math.round(pt.success_rate * 100)}% success</span>
-                          <span>{pt.spawn_count} runs</span>
-                          <span>Best on {pt.model}</span>
-                          <span>${pt.budget.toFixed(2)} spending limit</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Suggested adjustments section */}
-              {adjustments.length > 0 && (
-                <div className="mb-8">
-                  <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-3">Needs attention</h3>
-                  <p className="text-slate-500 text-xs mb-3">
-                    These templates keep failing. Here is what to try.
-                  </p>
-                  <div className="space-y-4">
-                    {adjustments.map((adj) => (
-                      <div
-                        key={adj.template_id}
-                        className="bg-slate-900/40 border border-amber-500/30 rounded-xl p-4"
-                        data-testid="adjustment-card"
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <Icon name="warning" className="text-amber-400" size={18} />
-                          <p className="text-white font-medium">{adj.template_name}</p>
-                          <span className="text-xs text-amber-400 ml-auto">
-                            {adj.consecutive_failures} failures in a row
-                          </span>
-                        </div>
-                        <div className="space-y-2">
-                          {adj.suggestions.map((sug, i) => (
-                            <div key={i} className="flex items-start gap-2 text-sm">
-                              <Icon
-                                name={
-                                  sug.type === "switch_model" ? "swap_horiz"
-                                    : sug.type === "increase_budget" ? "trending_up"
-                                    : "edit_note"
-                                }
-                                className="text-slate-400 mt-0.5"
-                                size={14}
-                              />
-                              <span className="text-slate-300">{sug.reason}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Bottom section: per-template runtime and success rate */}
-              {insightsStats.length > 0 && (
-                <div className="mb-8">
-                  <h3 className="text-sm text-slate-400 uppercase tracking-wider mb-3">Per template</h3>
-                  <div className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-800">
-                          <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Template</th>
-                          <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Runs</th>
-                          <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Success</th>
-                          <th className="text-left text-slate-400 text-xs uppercase tracking-wider px-5 py-3">Median time</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {insightsStats.map((s) => {
-                          const pct = Math.round(s.success_rate * 100);
-                          const mins = s.median_duration_sec != null ? (s.median_duration_sec / 60).toFixed(1) : null;
-                          return (
-                            <tr key={s.template_id} className="border-b border-slate-800/50 last:border-b-0">
-                              <td className="px-5 py-3 text-white font-medium">{s.template_name}</td>
-                              <td className="px-5 py-3 text-slate-300">{s.spawn_count}</td>
-                              <td className="px-5 py-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="flex-1 bg-slate-800 rounded h-2 overflow-hidden max-w-[120px]">
-                                    <div
-                                      className="bg-emerald-500 h-full"
-                                      style={{ width: `${pct}%` }}
-                                    />
-                                  </div>
-                                  <span className="text-slate-300 text-xs tabular-nums">{pct}%</span>
-                                </div>
-                              </td>
-                              <td className="px-5 py-3 text-slate-300">
-                                {mins ? `${mins} min` : "-"}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
-
-
-        {activeTab === "Templates" && (
-          <>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-white">PM Templates</h2>
-                <p className="text-sm text-slate-400 mt-1">
-                  Ready-made prompts for common PM tasks. Click "Use" to pre-fill the spawn form.
-                </p>
-              </div>
-              <input
-                type="text"
-                value={pmTemplateSearch}
-                onChange={(e) => setPmTemplateSearch(e.target.value)}
-                placeholder="Find a template..."
-                className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 w-48"
-              />
-            </div>
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Built-in</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8" data-testid="pm-builtin-templates">
-              {pmTemplates
-                .filter((t) => t.builtin)
-                .filter(
-                  (t) =>
-                    !pmTemplateSearch ||
-                    t.name.toLowerCase().includes(pmTemplateSearch.toLowerCase()) ||
-                    t.description.toLowerCase().includes(pmTemplateSearch.toLowerCase()),
-                )
-                .map((tpl) => (
-                  <div
-                    key={tpl.id}
-                    className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 flex items-start gap-4 hover:border-slate-700 transition-colors"
-                  >
-                    <div className="w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
-                      <Icon name={tpl.icon} className="text-blue-400" size={22} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white font-medium">{tpl.name}</p>
-                      <p className="text-slate-400 text-xs mt-0.5">{tpl.description}</p>
-                      <div className="mt-2 bg-slate-950 border border-slate-800 rounded px-2 py-2 font-mono text-xs text-slate-100 whitespace-pre-wrap break-words">
-                        {tpl.prompt_template}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleUsePmTemplate(tpl)}
-                      className="shrink-0 bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-3 py-1.5 text-sm transition-colors"
-                      data-testid="use-pm-template"
-                    >
-                      Use
-                    </button>
-                  </div>
-                ))}
-            </div>
-            {/* Team (org) templates */}
-            {orgTemplates.length > 0 && (
-              <>
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Team</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8" data-testid="org-templates">
-                  {orgTemplates
-                    .filter(
-                      (t) =>
-                        !pmTemplateSearch ||
-                        t.name.toLowerCase().includes(pmTemplateSearch.toLowerCase()) ||
-                        t.description.toLowerCase().includes(pmTemplateSearch.toLowerCase()),
-                    )
-                    .map((tpl) => (
-                      <div
-                        key={tpl.id}
-                        className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 flex items-start gap-4 hover:border-slate-700 transition-colors"
-                      >
-                        <div className="w-10 h-10 rounded-lg bg-teal-500/10 border border-teal-500/20 flex items-center justify-center shrink-0">
-                          <Icon name={tpl.icon} className="text-teal-400" size={22} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-white font-medium">{tpl.name}</p>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-400">
-                              Team
-                            </span>
-                          </div>
-                          <p className="text-slate-400 text-xs mt-0.5">{tpl.description}</p>
-                          <div className="mt-2 bg-slate-950 border border-slate-800 rounded px-2 py-2 font-mono text-xs text-slate-100 whitespace-pre-wrap break-words">
-                            {tpl.prompt_template}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleUsePmTemplate(tpl)}
-                          className="shrink-0 bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-3 py-1.5 text-sm transition-colors"
-                        >
-                          Use
-                        </button>
-                      </div>
-                    ))}
-                </div>
-              </>
-            )}
-
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Your templates</h3>
-              <button
-                onClick={() => setPmTemplateEditor({ open: true, template: null, isNew: true })}
-                className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
-              >
-                <Icon name="add" size={18} />
-                New template
-              </button>
-            </div>
-            {pmTemplates.filter((t) => !t.builtin).length === 0 ? (
-              <div className="border border-dashed border-slate-700 rounded-xl p-8 text-center text-slate-500 mb-8">
-                No custom templates yet. Click "New template" to create one.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                {pmTemplates
-                  .filter((t) => !t.builtin)
-                  .filter(
-                    (t) =>
-                      !pmTemplateSearch ||
-                      t.name.toLowerCase().includes(pmTemplateSearch.toLowerCase()) ||
-                      t.description.toLowerCase().includes(pmTemplateSearch.toLowerCase()),
-                  )
-                  .map((tpl) => (
-                    <div
-                      key={tpl.id}
-                      className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 flex items-start gap-4 hover:border-slate-700 transition-colors"
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0">
-                        <Icon name={tpl.icon} className="text-purple-400" size={22} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white font-medium">{tpl.name}</p>
-                        <p className="text-slate-400 text-xs mt-0.5">{tpl.description}</p>
-                        <div className="mt-2 bg-slate-950 border border-slate-800 rounded px-2 py-2 font-mono text-xs text-slate-100 whitespace-pre-wrap break-words">
-                          {tpl.prompt_template}
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-1 shrink-0">
-                        <button
-                          onClick={() => handleUsePmTemplate(tpl)}
-                          className="bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-3 py-1.5 text-sm transition-colors"
-                        >
-                          Use
-                        </button>
-                        <button
-                          onClick={() => setPmTemplateEditor({ open: true, template: tpl, isNew: false })}
-                          className="text-slate-400 hover:text-white rounded-lg px-3 py-1.5 text-sm transition-colors border border-slate-700"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeletePmTemplate(tpl.id)}
-                          className="text-slate-500 hover:text-red-400 rounded-lg px-3 py-1.5 text-sm transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
-            {pmTemplateEditor.open && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-                <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-xl">
-                  <h3 className="text-lg font-semibold text-white mb-4">
-                    {pmTemplateEditor.isNew ? "New Template" : "Edit Template"}
-                  </h3>
-                  <PMTemplateEditorForm
-                    initial={pmTemplateEditor.template}
-                    saving={pmTemplateSaving}
-                    onSave={handleSavePmTemplate}
-                    onCancel={() => setPmTemplateEditor({ open: false, template: null, isNew: false })}
-                  />
-                </div>
-              </div>
-            )}
-          </>
-        )}
 
         {activeTab === "Workspace" && (
           <>
@@ -3359,245 +3866,179 @@ export default function Agents() {
 
         {activeTab === "Templates" && <div className="mt-8 border-t border-slate-800 pt-8">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-white">
+          <h2 className="text-lg font-semibold text-white" data-testid="agent-templates-heading">
             Agent Templates
           </h2>
           <button
-            onClick={() => setMarketplaceOpen(!marketplaceOpen)}
-            className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
-          >
-            <Icon name="storefront" size={18} />
-            {marketplaceOpen ? "Hide Marketplace" : "Browse Marketplace"}
-          </button>
-        </div>
-        <div className="grid grid-cols-4 gap-4">
-          {displayTemplates.map((tpl) => {
-            const hasParseError = tpl.parseError != null;
-            const caps = tpl.capabilities;
-            return (
-              <div
-                key={tpl.name}
-                data-testid={`template-card-${tpl.name}`}
-                onClick={() => {
-                  if (hasParseError) return;
-                  setEditorInitial({ name: tpl.name, description: tpl.description, icon: tpl.icon, model: tpl.model, budget: tpl.budget });
-                  setEditorIsNew(false);
-                  setEditorBuiltInName(tpl.isBuiltIn ? tpl.name : null);
-                  setEditorOpen(true);
-                }}
-                className={`group relative bg-slate-900/40 border rounded-xl p-4 text-left transition-colors ${
-                  hasParseError
-                    ? "border-amber-500/40 cursor-not-allowed"
-                    : "border-slate-800 hover:border-blue-500 cursor-pointer"
-                }`}
-              >
-                {/* Delete button for custom templates */}
-                {!tpl.isBuiltIn && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteCustomTemplate(tpl.name);
-                    }}
-                    className="absolute top-2 right-2 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Remove template"
-                  >
-                    <Icon name="delete" size={16} />
-                  </button>
-                )}
-                <div className="text-center">
-                  <Icon
-                    name={tpl.icon}
-                    className="text-3xl text-slate-400 mb-2 mx-auto"
-                  />
-                  <p className="text-white font-medium mb-1">{tpl.name}</p>
-                  <p className="text-slate-400 text-xs line-clamp-2">{tpl.description}</p>
-                </div>
-
-                {/* Capabilities panel */}
-                {hasParseError ? (
-                  <div
-                    data-testid={`template-capabilities-error-${tpl.name}`}
-                    className="mt-3 pt-3 border-t border-slate-700/50"
-                  >
-                    <p className="text-xs text-amber-400">
-                      Could not read capabilities for this template. Fix the .agent file.
-                    </p>
-                    <button
-                      type="button"
-                      disabled
-                      data-testid={`template-spawn-${tpl.name}`}
-                      className="w-full mt-2 py-1.5 bg-slate-800 text-slate-500 rounded-lg text-xs cursor-not-allowed"
-                    >
-                      Spawn
-                    </button>
-                  </div>
-                ) : caps ? (
-                  <div
-                    data-testid={`template-capabilities-${tpl.name}`}
-                    className="mt-3 pt-3 border-t border-slate-700/50 space-y-1 text-left"
-                  >
-                    <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Capabilities</p>
-                    <div className="text-[11px] text-slate-300">
-                      <span className="text-slate-500">Writes to: </span>
-                      <span>{caps.writes_to}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-300">
-                      <span className="text-slate-500">Cannot touch: </span>
-                      <span>{caps.cannot_touch}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-300">
-                      <span className="text-slate-500">Budget: </span>
-                      <span>{caps.budget}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-300">
-                      <span className="text-slate-500">Time limit: </span>
-                      <span>{caps.time_limit}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-300">
-                      <span className="text-slate-500">Sandbox: </span>
-                      <span>{caps.sandbox}</span>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-
-          {/* + New Template card */}
-          <div
             onClick={() => {
               setEditorInitial(null);
               setEditorIsNew(true);
               setEditorBuiltInName(null);
+              setEditorPromptTemplate(undefined);
+              setEditorTemplateId(undefined);
+              setEditorSource(undefined);
+              setEditorAliases(undefined);
+              setEditorCapabilities(null);
               setEditorOpen(true);
             }}
-            className="bg-slate-900/20 border-2 border-dashed border-slate-700 rounded-xl p-4 text-center hover:border-blue-500 transition-colors cursor-pointer flex flex-col items-center justify-center"
+            className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
           >
-            <Icon name="add" className="text-3xl text-slate-500 mb-2" />
-            <p className="text-slate-400 font-medium">New Template</p>
-          </div>
+            <Icon name="add" size={18} />
+            New template
+          </button>
         </div>
-
-        {/* Fleet templates */}
-        {fleets.length > 0 && (
-          <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-xl p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Icon name="groups" className="text-blue-400" size={20} />
-              <h3 className="text-white font-semibold">Fleets</h3>
-              <span className="text-xs text-slate-500">Spawn a team of agents with different roles</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {fleets.map((fleet) => {
-                const isExpanded = fleetExpandedId === fleet.id;
-                const isSpawning = fleetSpawning === fleet.id;
-                return (
-                  <div
-                    key={fleet.id}
-                    className="bg-slate-800/60 border border-slate-700 rounded-lg p-4"
-                  >
-                    <div
-                      className="flex items-start gap-3 cursor-pointer"
-                      onClick={() => setFleetExpandedId(isExpanded ? null : fleet.id)}
-                    >
-                      <Icon name={fleet.icon} className="text-2xl text-blue-400 mt-0.5 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm font-medium">{fleet.name}</p>
-                        <p className="text-slate-400 text-xs mt-0.5">{fleet.description}</p>
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {fleet.members.map((m) => (
-                            <span key={m.role} className="inline-flex items-center gap-1 text-[10px] text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
-                              <Icon name={m.icon} className="text-[10px]" />
-                              {m.role}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                      <Icon name={isExpanded ? 'expand_less' : 'expand_more'} className="text-slate-500 shrink-0" size={20} />
-                    </div>
-                    {isExpanded && (
-                      <div className="mt-3 pt-3 border-t border-slate-700/50">
-                        <input
-                          type="text"
-                          value={fleetContext}
-                          onChange={(e) => setFleetContext(e.target.value)}
-                          placeholder="What should this team work on?"
-                          className="w-full bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 placeholder-slate-600 focus:outline-none focus:border-blue-500 mb-3"
-                        />
-                        <button
-                          onClick={() => spawnFleet(fleet.id)}
-                          disabled={isSpawning || !fleetContext.trim()}
-                          className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          {isSpawning ? 'Launching team...' : `Launch ${fleet.members.length} agents`}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+        {/* Unified installed templates: agentfile builtins + persona built-ins + user custom */}
+        {!currentPersona && (
+          <p className="text-slate-500 text-xs mb-3" data-testid="persona-hint">
+            Set your role in Settings to see tailored templates.
+          </p>
         )}
-
-        {/* Marketplace section (collapsible) */}
-        {marketplaceOpen && (
-          <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-xl p-6">
-            <h3 className="text-white font-semibold mb-4">Template Marketplace</h3>
-            {marketplaceCategories.map((cat) => (
-              <div key={cat.category} className="mb-6 last:mb-0">
-                <h4 className="text-sm text-slate-400 font-medium mb-3 uppercase tracking-wider">{cat.category}</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {cat.templates.map((mt) => {
-                    const alreadyAdded = isCustomTemplate(mt.name) || builtInTemplates.some((b) => b.name === mt.name);
-                    return (
-                      <div
-                        key={mt.name}
-                        className="bg-slate-800/60 border border-slate-700 rounded-lg p-3 flex items-start gap-3"
-                      >
-                        <Icon name={mt.icon} className="text-2xl text-slate-400 mt-0.5 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-white text-sm font-medium">{mt.name}</p>
-                          <p className="text-slate-400 text-xs mt-0.5 line-clamp-3">{mt.description}</p>
-                        </div>
-                        {alreadyAdded ? (
-                          <span className="text-green-400 shrink-0 mt-0.5" title="Already added">
-                            <Icon name="check_circle" size={20} />
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => addCustomTemplate(mt)}
-                            className="text-blue-400 hover:text-blue-300 shrink-0 mt-0.5 transition-colors"
-                            title="Add to your templates"
-                          >
-                            <Icon name="add_circle" size={20} />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+        {displayTemplates.length === 0 && pmTemplates.length === 0 && userTemplates.length === 0 ? (
+          <div className="border border-dashed border-slate-700 rounded-xl p-10 text-center mb-8" data-testid="agent-templates-empty">
+            <Icon name="storefront" className="text-4xl text-slate-600 mb-3" />
+            <p className="text-slate-400 text-sm font-medium">You have no templates yet</p>
+            <p className="text-slate-500 text-xs mt-1">Browse the Marketplace below to add your first template.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-8" data-testid="installed-templates-grid">
+            {displayTemplates.map((tpl) => (
+              <TemplateCard
+                key={tpl.name}
+                name={tpl.name}
+                description={tpl.description}
+                icon={tpl.icon}
+                aliases={tpl.aliases}
+                source={tpl.isBuiltIn ? "builtin" : "custom"}
+                installed={true}
+                onAction={tpl.parseError == null ? () => {
+                  const rawContent = tpl.isBuiltIn
+                    ? (templates.find(
+                        (t) => toTitleCase(t.name) === tpl.name || t.name === tpl.name
+                      )?.content ?? "")
+                    : "";
+                  const promptMatch = rawContent.match(/^PROMPT\s+"(.+)"/m);
+                  const extractedPrompt = promptMatch ? promptMatch[1] : tpl.description;
+                  setEditorInitial({ name: tpl.name, description: tpl.description, icon: tpl.icon, model: tpl.model, budget: tpl.budget });
+                  setEditorIsNew(false);
+                  setEditorBuiltInName(tpl.isBuiltIn ? tpl.name : null);
+                  setEditorPromptTemplate(extractedPrompt || undefined);
+                  setEditorTemplateId(tpl.templateId);
+                  setEditorSource(tpl.isBuiltIn ? "builtin" : "custom");
+                  setEditorAliases(tpl.aliases);
+                  setEditorCapabilities(tpl.capabilities ?? null);
+                  setEditorOpen(true);
+                } : undefined}
+                actionLabel="Use"
+                onDelete={!tpl.isBuiltIn ? () => deleteCustomTemplate(tpl.name) : undefined}
+                capabilities={tpl.capabilities ?? null}
+                parseError={tpl.parseError ?? null}
+                testId={`template-card-${tpl.name}`}
+              />
             ))}
+            {/* Persona-specific built-ins from /agents/persona-templates
+                De-dup: skip any template whose name already appears in displayTemplates */}
+            {pmTemplates
+              .filter((tpl) => !builtInNames.has(tpl.name.toLowerCase().trim()))
+              .map((tpl) => (
+                <TemplateCard
+                  key={`persona-builtin-${tpl.id}`}
+                  name={tpl.name}
+                  description={tpl.description}
+                  icon={tpl.icon}
+                  // /agents/persona-templates only returns builtin or
+                  // marketplace entries. Never label them "custom" even
+                  // if the backend forgets to set source.
+                  source={tpl.source ?? (tpl.builtin ? "builtin" : "marketplace")}
+                  installed={true}
+                  onAction={() => handleUsePmTemplate(tpl)}
+                  actionLabel="Use"
+                  onDelete={!tpl.builtin ? () => handleDeletePmTemplate(tpl.id) : undefined}
+                  testId={`pm-template-card-${tpl.id}`}
+                />
+              ))}
+            {/* User-created templates from /agents/user-templates (persona-agnostic)
+                De-dup: skip any template whose name already appears in displayTemplates or pmTemplates */}
+            {userTemplates
+              .filter((tpl) => {
+                const key = tpl.name.toLowerCase().trim();
+                return (
+                  !builtInNames.has(key) &&
+                  !pmTemplates.some((p) => p.name.toLowerCase().trim() === key)
+                );
+              })
+              .map((tpl) => (
+                <TemplateCard
+                  key={`user-${tpl.id}`}
+                  name={tpl.name}
+                  description={tpl.description}
+                  icon={tpl.icon}
+                  source="custom"
+                  installed={true}
+                  onAction={() => handleUsePmTemplate(tpl)}
+                  actionLabel="Use"
+                  onDelete={() => handleDeletePmTemplate(tpl.id)}
+                  testId={`user-template-card-${tpl.id}`}
+                />
+              ))}
           </div>
         )}
 
-        {/* Workflows section within Templates */}
-        <div className="mt-8 border-t border-slate-800 pt-8">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-white font-semibold">Workflows</h3>
-              <p className="text-xs text-slate-500 mt-1">Multi-step agent pipelines you can run with one click</p>
+        {/* PM template editor modal */}
+        {pmTemplateEditor.open && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-xl">
+              <h3 className="text-lg font-semibold text-white mb-4">
+                {pmTemplateEditor.isNew ? "New Template" : "Edit Template"}
+              </h3>
+              <PMTemplateEditorForm
+                initial={pmTemplateEditor.template}
+                saving={pmTemplateSaving}
+                onSave={handleSavePmTemplate}
+                onCancel={() => setPmTemplateEditor({ open: false, template: null, isNew: false })}
+              />
             </div>
-            <Link
-              to="/workflows/builder"
-              className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
-            >
-              <Icon name="add" className="text-base" />
-              Build custom workflow
-            </Link>
           </div>
-          <AutomationTemplatesList />
+        )}
+
+        {/* Fleets panel removed: fleet launching has been folded into the
+            Plans page template grid. The backend /agents/fleets/spawn
+            endpoint stays alive for backwards compatibility. */}
+
+        {/* Marketplace section (always visible) */}
+        <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-xl p-6" data-testid="marketplace-section">
+          <h2 className="text-lg font-semibold text-white mb-4" data-testid="marketplace-heading">Marketplace</h2>
+          {AGENT_MARKETPLACE.map((cat) => (
+            <div key={cat.id} className="mb-6 last:mb-0">
+              <h4 className="text-sm text-slate-400 font-medium mb-3 uppercase tracking-wider">{cat.category}</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {cat.templates.flatMap((mt) => {
+                  const alreadyAdded = isCustomTemplate(mt.name) || builtInTemplates.some(
+                    (b) => b.name.toLowerCase().trim() === mt.name.toLowerCase().trim()
+                  ) || pmTemplates.some(
+                    (p) => p.name.toLowerCase().trim() === mt.name.toLowerCase().trim()
+                  ) || userTemplates.some(
+                    (u) => u.name.toLowerCase().trim() === mt.name.toLowerCase().trim()
+                  );
+                  // Skip templates already shown in the installed grid above.
+                  if (alreadyAdded) return [];
+                  return [
+                    <TemplateCard
+                      key={mt.name}
+                      name={mt.name}
+                      description={mt.description}
+                      icon={mt.icon}
+                      source="marketplace"
+                      installed={false}
+                      onAction={() => addCustomTemplate(mt)}
+                      testId={`marketplace-card-${mt.name}`}
+                    />
+                  ];
+                })}
+              </div>
+            </div>
+          ))}
         </div>
+
         </div>}
 
         {/* Agent Configurations tab */}
@@ -3610,14 +4051,28 @@ export default function Agents() {
           <TemplateEditorModal
             initial={editorInitial}
             isNew={editorIsNew}
-            onSpawn={(t) => {
+            promptTemplate={editorPromptTemplate}
+            templateId={editorTemplateId}
+            source={editorSource}
+            aliases={editorAliases}
+            capabilities={editorCapabilities}
+            onSpawn={(t, userMessage) => {
+              // If the user typed a message, use it as the prompt. Otherwise
+              // fall back to the template description so the agent has context.
+              const prompt = userMessage.trim() || t.description;
+              // The detail modal is the only path where the user has
+              // seen the model picker and confirmed it. Pass the
+              // honor_explicit_model flag so demo_mode templates
+              // (Roadmap, etc.) respect the chosen model instead of
+              // silently reverting to Haiku.
               handleSpawn(
                 t.name.toLowerCase().replace(/\s+/g, "-"),
-                t.description,
+                prompt,
                 t.model,
                 t.budget,
                 null,
-                editorBuiltInName || undefined
+                editorBuiltInName || undefined,
+                true,
               );
               setEditorOpen(false);
             }}
@@ -3626,6 +4081,14 @@ export default function Agents() {
               setEditorOpen(false);
             }}
             onCancel={() => setEditorOpen(false)}
+            onDescriptionSaved={() => {
+              // Refresh both persona-backed and user-created template lists so
+              // the card under the modal picks up the new description. Custom
+              // templates come from fetchUserTemplates, shipped ones from
+              // fetchPersonaTemplates, so we run both to be safe.
+              fetchPersonaTemplates();
+              fetchUserTemplates();
+            }}
           />
         )}
       </div>
@@ -3653,14 +4116,30 @@ export default function Agents() {
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {transcriptModal.loading ? (
-                <div className="text-slate-400 text-sm">Loading...</div>
+                <div className="flex items-center gap-2 text-slate-400 text-sm" role="status" aria-label="Loading transcript">
+                  <div className="w-4 h-4 border-2 border-slate-600 border-t-blue-400 rounded-full animate-spin" />
+                  Loading transcript...
+                </div>
+              ) : transcriptModal.error ? (
+                <div className="space-y-3" data-testid="transcript-error">
+                  <p className="text-slate-400 text-sm">{transcriptModal.error}</p>
+                  {transcriptModal.retryable && (
+                    <button
+                      onClick={() => openTranscript(transcriptModal.name)}
+                      className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
               ) : (
-                <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words">{transcriptModal.content}</pre>
+                <TranscriptContent content={transcriptModal.content} />
               )}
             </div>
           </div>
         </div>
       )}
+      <ConfirmModal {...confirmProps} />
     </>
   );
 }

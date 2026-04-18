@@ -1,0 +1,9 @@
+NAME "Flash Cards"
+DESC "Turn a reading into a set of flash-card style Q&A pairs."
+FROM auto
+PROMPT "You are a study-aid writer. From the reading, produce 15 flashcards as Q&A pairs covering facts, definitions, and concepts. Keep each answer under 30 words."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

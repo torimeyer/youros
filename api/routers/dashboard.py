@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re as _re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
@@ -8,8 +9,39 @@ from config import OSTK_DIR
 from services.ostk import ostk, OstkError
 from services.labels_store import labels_store
 from services.task_labels_store import task_labels_store
+from services.task_visibility import (
+    is_e2e_task,
+    is_session_task,
+    is_visible_task,
+)
 
 router = APIRouter(tags=["dashboard"])
+
+
+def _is_local_today(ts_str: str, today_str: str) -> bool:
+    """Return True if the ISO timestamp falls on the local calendar date.
+
+    Timestamps in the audit log are UTC. A naive ``ts.startswith(today_str)``
+    comparison uses the UTC date embedded in the string, which drifts from
+    the local date when the user's timezone is behind UTC (e.g. CDT is UTC-5,
+    so after 7 PM local the UTC date is already tomorrow). This helper
+    converts the timestamp to local time before comparing the date string.
+    """
+    if not ts_str:
+        return False
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%Y-%m-%d") == today_str
+    except (ValueError, TypeError):
+        # Fall back to prefix match for malformed timestamps.
+        return ts_str[:10] == today_str
+
+
+# Back-compat alias for tests and any callers that imported the private
+# helper from this module. The canonical implementation now lives in
+# services.task_visibility.
+def _is_session_task(t: dict) -> bool:
+    return is_session_task(t)
 
 
 @router.get("/dashboard")
@@ -20,7 +52,16 @@ async def get_dashboard():
         all_tasks = []
 
     # Active tasks include both open and in_progress (needle 277+280+283).
-    open_tasks = [t for t in all_tasks if t.get("status") != "closed"]
+    # Session tasks (auto-filed by the SessionStart hook) and e2e smoke
+    # leftovers (titles starting with "e2e-") are excluded from user-facing
+    # counts and focus so the Dashboard agrees with the Tasks page default
+    # view. Everything runs through the shared is_visible_task helper.
+    open_tasks = [
+        t for t in all_tasks
+        if t.get("status") != "closed"
+        and not is_session_task(t)
+        and not is_e2e_task(t)
+    ]
     closed_tasks = [t for t in all_tasks if t.get("status") == "closed"]
 
     p0 = [t for t in open_tasks if t.get("priority") == "P0"]
@@ -44,7 +85,7 @@ async def get_dashboard():
     if isinstance(hay_result, Exception):
         hay_result = {"clusters": [], "unclustered": []}
 
-    # Build focus list from P0 + P1 tasks
+    # Build focus list from P0 + P1 tasks (session tasks already excluded above)
     focus = []
     for t in (p0 + p1)[:4]:
         focus.append({
@@ -98,7 +139,10 @@ async def get_dashboard_compounds():
 @router.get("/dashboard/summary")
 async def get_dashboard_summary():
     """Generate a plain-text day summary from today's activity."""
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Use local time so "today" matches the user's calendar day, not UTC.
+    # When it is evening in the US, UTC has already rolled to the next
+    # day, which would exclude the entire local morning and afternoon.
+    today_str = datetime.now().strftime("%Y-%m-%d")
     bullets: list[str] = []
 
     # 1. Gather tasks
@@ -112,7 +156,7 @@ async def get_dashboard_summary():
     closed_today = [
         t for t in all_tasks
         if t.get("status") == "closed"
-        and (t.get("closed_at", "") or "").startswith(today_str)
+        and _is_local_today(t.get("closed_at", ""), today_str)
     ]
 
     # 2. Read agent activity from audit.jsonl through the shared
@@ -123,23 +167,13 @@ async def get_dashboard_summary():
     agents_completed_today = 0
     for entry in read_audit_entries(OSTK_DIR / "audit.jsonl"):
         ts = entry.get("timestamp", "")
-        if not ts.startswith(today_str):
+        if not _is_local_today(ts, today_str):
             continue
         ev = entry.get("event", "")
         if ev == "agent.spawned":
             agents_spawned_today += 1
         elif ev in ("agent.completed", "agent.failed"):
             agents_completed_today += 1
-
-    # 3. Count open needles (ideas not yet converted)
-    open_needle_count = 0
-    try:
-        hay = await ostk.list_hay()
-        open_needle_count = len(hay.get("unclustered", [])) + sum(
-            c.get("count", 0) for c in hay.get("clusters", [])
-        )
-    except (OstkError, Exception):
-        pass
 
     # Build bullets
     if closed_today:
@@ -162,9 +196,6 @@ async def get_dashboard_summary():
         bullets.append(f"Agents today: {', '.join(parts)}.")
     else:
         bullets.append("No agents were used today.")
-
-    if open_needle_count > 0:
-        bullets.append(f"{open_needle_count} idea{'s' if open_needle_count != 1 else ''} saved and waiting for review.")
 
     return {"bullets": bullets[:5]}
 

@@ -8,11 +8,13 @@ export type AccentColor = 'blue' | 'pink' | 'purple' | 'cyan' | 'orange'
 export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'briefing',
   'focus_first',
+  'adventure',
   'todays_focus',
   'quick_launch',
   'next_meeting',
   'day_summary',
   'live_sessions',
+  'recent_specs',
 ]
 
 // Human readable labels for each dashboard widget id. Keep this in sync
@@ -20,11 +22,13 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
 export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   briefing: 'Briefing',
   focus_first: 'Focus on this first',
+  adventure: 'Try an Adventure',
   todays_focus: "Today's Focus",
   quick_launch: 'Quick Launch',
   next_meeting: 'Next Meeting',
   day_summary: 'Day Summary',
   live_sessions: 'Live Sessions',
+  recent_specs: 'Recent Specs',
 }
 
 export interface FeatureToggle {
@@ -49,7 +53,6 @@ export const PROVIDER_TO_MODEL: Record<string, string> = {
 // Standard terminology (always used)
 const TERMS = {
   task: 'Task', tasks: 'Tasks',
-  idea: 'Idea', ideas: 'Ideas',
   note: 'Note', notes: 'Notes',
 } as const
 
@@ -139,6 +142,8 @@ interface AppState {
   setStatusDotStyle: (v: StatusDotStyle) => void
   greetingStyle: GreetingStyle
   setGreetingStyle: (v: GreetingStyle) => void
+  showBudgetCaps: boolean
+  setShowBudgetCaps: (v: boolean) => void
 }
 
 // Keys used to cache user state in localStorage for fast first paint.
@@ -165,6 +170,7 @@ const LS_KEYS = {
   dashboardLayout: 'myos-dashboard-layout',
   statusDotStyle: 'myos-status-dot-style',
   greetingStyle: 'myos-greeting-style',
+  showBudgetCaps: 'myos-show-budget-caps',
   instanceMode: 'myos-instance-mode',
   orgName: 'myos-org-name',
   teamAccentColor: 'myos-team-accent-color',
@@ -246,6 +252,7 @@ const initialCardStyle = (lsGet(LS_KEYS.cardStyle) as CardStyle) || 'glass'
 const initialDashboardLayout = (lsGet(LS_KEYS.dashboardLayout) as DashboardLayout) || 'full'
 const initialStatusDotStyle = (lsGet(LS_KEYS.statusDotStyle) as StatusDotStyle) || 'dots'
 const initialGreetingStyle = (lsGet(LS_KEYS.greetingStyle) as GreetingStyle) || 'time'
+const initialShowBudgetCaps = lsGet(LS_KEYS.showBudgetCaps) === 'true'
 const initialInstanceMode = (lsGet(LS_KEYS.instanceMode) as InstanceMode) || 'personal'
 const initialOrgName = lsGet(LS_KEYS.orgName) || ''
 const initialTeamAccentColor = lsGet(LS_KEYS.teamAccentColor) || '#6366f1'
@@ -354,7 +361,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   features: applyFeatureOrder([
     { label: 'Chat', enabled: true },
     { label: 'Tasks', enabled: true },
-    { label: 'Ideas', enabled: false },
     { label: 'Agents', enabled: true },
     { label: 'Activity', enabled: true },
     { label: 'Projects', enabled: true },
@@ -363,8 +369,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     { label: 'Gmail', enabled: true },
     { label: 'Slack', enabled: true },
     { label: 'GitHub', enabled: true },
-    { label: 'Docs', enabled: true },
-    { label: 'Automations', enabled: false },
+    { label: 'Specs', enabled: true },
+    { label: 'Automations', enabled: true },
     { label: 'Cost Tracking', enabled: true },
   ]),
   setFeatures: (features) => {
@@ -470,6 +476,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     lsSet(LS_KEYS.greetingStyle, greetingStyle)
     set({ greetingStyle })
     patchServer({ greeting_style: greetingStyle })
+  },
+  showBudgetCaps: initialShowBudgetCaps,
+  setShowBudgetCaps: (showBudgetCaps) => {
+    lsSet(LS_KEYS.showBudgetCaps, String(showBudgetCaps))
+    set({ showBudgetCaps })
+    patchServer({ show_budget_caps: showBudgetCaps })
   },
   enterpriseUser: null,
   instanceMode: initialInstanceMode,

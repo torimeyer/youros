@@ -1,0 +1,10 @@
+# Demo-fast member of the "Build a Website" fleet.
+# Haiku + 90s hard cap + no CLAUDE.md + no MCP, for live stage demos.
+DESC "Fast security agent: short checklist under 200 words, optimized for stage demos."
+FROM haiku
+PROMPT "You are the Security Engineer. Produce a short security checklist under 200 words: top 5 risks, one-line mitigations, single most important launch check. Save as security.md and stop."
+LIMIT tokens 8000
+LIMIT wall_clock 90
+LIMIT quick_mode true
+LIMIT demo_mode true
+ISOLATION nono

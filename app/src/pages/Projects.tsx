@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
+import { Card, EmptyState, ErrorBanner, LoadingState } from '../components/ui';
 import { api } from '../lib/api';
 
 interface Project {
@@ -51,7 +52,7 @@ export default function Projects() {
       setProjects(res.projects);
     } catch (e) {
       console.error('Failed to fetch projects:', e);
-      setError('Could not load projects. Make sure the API is running.');
+      setError('Could not load your projects. Check that myOS is running and try again.');
     } finally {
       setLoading(false);
     }
@@ -60,9 +61,6 @@ export default function Projects() {
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
-
-  const cardClass =
-    'bg-slate-900/40 border border-slate-800 rounded-xl hover:border-slate-700 transition-colors';
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -88,28 +86,26 @@ export default function Projects() {
 
         {/* Loading state */}
         {loading && projects.length === 0 && (
-          <div className="flex items-center justify-center py-20">
-            <div className="text-slate-500 flex items-center gap-3">
-              <Icon name="hourglass_empty" size={24} className="animate-spin" />
-              <span>Loading projects...</span>
-            </div>
-          </div>
+          <LoadingState variant="spinner" message="Loading projects..." />
         )}
 
         {/* Error state */}
         {error && (
-          <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 mb-6">
-            <Icon name="error" size={20} />
-            <span>{error}</span>
+          <div className="mb-6">
+            <ErrorBanner
+              message={error}
+              action={{ label: 'Try again', onClick: fetchProjects }}
+            />
           </div>
         )}
 
         {/* Empty state */}
         {!loading && !error && projects.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-500">
-            <Icon name="folder_off" size={48} className="mb-4" />
-            <p className="text-lg">No projects found.</p>
-          </div>
+          <EmptyState
+            icon="folder_open"
+            title="No projects yet"
+            description="Add a directory to your workspace and projects will appear here."
+          />
         )}
 
         {/* Project cards */}
@@ -118,7 +114,7 @@ export default function Projects() {
             {projects.map((project) => {
               const cfg = typeConfig[project.project_type] || typeConfig.folder;
               return (
-                <div key={project.name} className={`${cardClass} p-6`}>
+                <Card key={project.name} hover padding="lg">
                   {/* Top row: icon + name */}
                   <div className="flex items-start gap-4 mb-4">
                     <div
@@ -167,7 +163,7 @@ export default function Projects() {
                       <span className="ml-auto">{timeAgo(project.last_modified)}</span>
                     )}
                   </div>
-                </div>
+                </Card>
               );
             })}
           </div>

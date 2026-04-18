@@ -17,7 +17,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
@@ -65,6 +65,7 @@ async def test_register_persists_status_to_disk(tmp_path):
                 "budget": 2.0,
                 "status": "running",
                 "description": "test agent",
+                "source": "claude-code",
             })
 
     assert resp.status_code == 200
@@ -99,6 +100,7 @@ async def test_complete_persists_status_to_disk(tmp_path):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         with patch("routers.agents.AGENT_STATE_PATH", state_path), \
              patch("routers.agents.agent_metadata", dict(initial_state)), \
+             patch("routers.agents._load_deleted_agents", return_value=set()), \
              patch("routers.agents.ostk") as mock_ostk:
             mock_ostk._run = AsyncMock(return_value="ok")
 
@@ -126,11 +128,15 @@ def test_recovery_marks_stale_running_as_abandoned(tmp_path):
     /complete.
     """
     state_path = _make_state_path(tmp_path)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
+    # Use a timestamp well beyond STALE_AGENT_TIMEOUT_SECONDS (900s) so the
+    # recovery sweep treats these agents as stale and marks them abandoned.
+    stale_ts = (now - timedelta(seconds=1800)).isoformat()
+    now_str = now.isoformat()
 
     initial_state = {
         "ghost-agent": {
-            "spawned_at": now,
+            "spawned_at": stale_ts,
             "budget": "2.0",
             "model": "claude-sonnet-4-6",
             "source": "local",
@@ -138,7 +144,7 @@ def test_recovery_marks_stale_running_as_abandoned(tmp_path):
             # No PID recorded.
         },
         "cc-agent": {
-            "spawned_at": now,
+            "spawned_at": stale_ts,
             "budget": "2.0",
             "model": "claude-sonnet-4-6",
             "source": "claude-code",
@@ -146,12 +152,12 @@ def test_recovery_marks_stale_running_as_abandoned(tmp_path):
             # claude-code agents with no PID must also be recovered.
         },
         "done-agent": {
-            "spawned_at": now,
+            "spawned_at": stale_ts,
             "budget": "2.0",
             "model": "claude-sonnet-4-6",
             "source": "claude-code",
             "status": "completed",
-            "completed_at": now,
+            "completed_at": now_str,
         },
     }
 

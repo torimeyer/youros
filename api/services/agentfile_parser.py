@@ -37,6 +37,42 @@ from typing import Optional
 from config import PROJECT_ROOT
 
 AGENTS_DIR = PROJECT_ROOT / "agents"
+# Marketplace and custom agentfiles live outside the built-in dir so the
+# resolver has to look in all three. Without this, agentfile flags like
+# ``LIMIT quick_mode true`` set on a marketplace template (e.g. Roadmap)
+# would be silently ignored because ``get_agent_config_by_template`` only
+# checked ``agents/``. See regression test
+# ``test_roadmap_template_uses_quick_mode``.
+MARKETPLACE_DIR = PROJECT_ROOT / "agents" / "marketplace"
+try:
+    CUSTOM_DIR = Path.home() / ".myos" / "agents" / "custom"
+except Exception:
+    CUSTOM_DIR = None  # type: ignore[assignment]
+
+
+def _candidate_agentfile_paths(stem: str) -> list[Path]:
+    """Return every directory path where an agentfile named ``<stem>.agent``
+    might live, in priority order: built-in, marketplace, then user custom.
+
+    Built-in wins on collision because shipped agents must be deterministic.
+    """
+    paths: list[Path] = [
+        AGENTS_DIR / f"{stem}.agent",
+        MARKETPLACE_DIR / f"{stem}.agent",
+    ]
+    if CUSTOM_DIR is not None:
+        paths.append(CUSTOM_DIR / f"{stem}.agent")
+    return paths
+
+
+def _find_any_agentfile(stem: str) -> Optional[Path]:
+    """Return the first existing agentfile for ``stem`` across all known
+    agent directories, or ``None`` when no file matches.
+    """
+    for candidate in _candidate_agentfile_paths(stem):
+        if candidate.exists():
+            return candidate
+    return None
 
 
 class AgentfileParseError(ValueError):
@@ -151,6 +187,22 @@ class AgentfileConfig:
     # target config, not an empty shell.
     alias: str = ""
 
+    # Quick mode flag. When true, the spawn path uses the compact mailbox
+    # block (under 800 chars) instead of the full verbose block and skips
+    # any other warm up that adds first-byte latency. Parsed from
+    # ``LIMIT quick_mode true``. Safe default False so existing agents are
+    # unchanged.
+    quick_mode: bool = False
+
+    # Demo mode flag. Stacks on top of quick_mode for live demos where the
+    # whole fleet must finish in under 3 minutes. When true, the spawn path
+    # forces model=haiku, caps output tokens to 800, skips CLAUDE.md and
+    # MCP tool registration, and schedules a hard 90 second wall-clock
+    # timeout that force-completes any agent still running with a short
+    # "Completed quickly for demo." summary. Parsed from
+    # ``LIMIT demo_mode true``. Safe default False.
+    demo_mode: bool = False
+
 
 # Template alias map for the Tasks page "Comprehensive build" flow.
 # This is a plain dict today so the spawn endpoint can resolve muscle
@@ -161,21 +213,40 @@ class AgentfileConfig:
 # needle; do not build it here, just leave the shape stable. See
 # needle 295 for context.
 _BUILTIN_TEMPLATE_ALIASES: dict[str, str] = {
-    # "saa" is a muscle-memory shortcut Tori types for the comprehensive
-    # build pattern. Resolve it to the real template file so scripts and
-    # old memory notes keep working.
-    "saa": "comprehensive",
+    # "saa" is Tori's muscle-memory shortcut for the Builder pattern.
+    # "comprehensive" is the old name, kept for backwards compat so
+    # scripts and memory notes that still say "comprehensive" resolve.
+    "saa": "builder",
+    "comprehensive": "builder",
+    # "elit" is Tori's muscle-memory shortcut for the plain-language
+    # explainer. "explain-plain" is the generic, user-agnostic name.
+    "elit": "explain-plain",
 }
 
 
 def get_template_aliases() -> dict[str, str]:
     """Return the current template alias map.
 
-    Returns a shallow copy so callers cannot mutate the builtin. A
-    future Settings UI will merge user-provided aliases on top of the
-    builtins before returning.
+    Merges built-in aliases with user-set aliases from the Settings
+    page. User aliases win on collision, so a user can override a
+    built-in shortcut without touching code.
     """
-    return dict(_BUILTIN_TEMPLATE_ALIASES)
+    merged = dict(_BUILTIN_TEMPLATE_ALIASES)
+    try:
+        from services.agent_templates_store import agent_templates_store
+        user_aliases = agent_templates_store.get_all_user_aliases()
+        # user_aliases maps alias -> template_id (e.g. "my-builder" -> "builtin-builder").
+        # We need alias -> agentfile stem. Resolve via the store.
+        for alias, tid in user_aliases.items():
+            tpl = agent_templates_store.get_by_id(tid)
+            if tpl:
+                # Use the template name lowercased with spaces as hyphens as the stem
+                import re as _re
+                stem = _re.sub(r"[^a-z0-9]+", "-", tpl["name"].strip().lower()).strip("-")
+                merged[alias] = stem
+    except Exception:
+        pass  # Non-fatal: fall back to builtins only
+    return merged
 
 
 def _strip_quotes(value: str) -> str:
@@ -268,6 +339,16 @@ def _parse_limit(
         parsed = _parse_int(val, "LIMIT test_coverage", line_number, path)
         config.limits.test_coverage = parsed
         config.test_coverage_min = parsed  # legacy mirror
+    elif key == "quick_mode":
+        # myOS extension. Accept any truthy string (true/1/yes) as True,
+        # everything else as False. Keeps config round-trip stable when
+        # the UI later surfaces a toggle.
+        config.quick_mode = val.strip().lower() in {"true", "1", "yes"}
+    elif key == "demo_mode":
+        # myOS extension for live demos. Same truthy rules as quick_mode.
+        # When true, the spawn path forces Haiku, skips CLAUDE.md and MCP
+        # registration, and enforces a 90 second hard wall-clock timeout.
+        config.demo_mode = val.strip().lower() in {"true", "1", "yes"}
     # Unknown LIMIT keys: ignored silently. Forward-compat with new ostk keys.
 
 
@@ -422,26 +503,27 @@ def parse_agentfile(path: Path) -> AgentfileConfig:
 def find_agentfile(agent_name: str) -> Optional[Path]:
     """Find the Agentfile for a given agent name.
 
-    Checks agents/<name>.agent, then falls back to agents/saa.agent
-    as the default.
+    Checks agents/<name>.agent, then looks for a prefix-based match
+    (e.g. "saa-my-task" -> saa.agent). Does NOT fall back to a
+    default for completely unknown agent names: applying the builder
+    AC gate (pytest + tsc) to every unrecognised agent would cause any
+    external /complete call to block for up to 30s and could re-emit
+    duplicate audit events on each timeout cycle.
     """
-    # Direct match
-    direct = AGENTS_DIR / f"{agent_name}.agent"
-    if direct.exists():
+    # Direct match across built-in, marketplace, and custom dirs.
+    direct = _find_any_agentfile(agent_name)
+    if direct:
         return direct
 
-    # Try matching prefix (e.g. "fix-login-bug" matches "saa" pattern)
+    # Prefix match: "saa-my-task" -> saa.agent, "diagnose-foo" -> diagnose.agent
+    # Use startswith so "research-widget" matches but "summarizer-bot" does not.
     for pattern in ["saa", "diagnose", "review", "test", "research"]:
-        if pattern in agent_name:
-            match = AGENTS_DIR / f"{pattern}.agent"
-            if match.exists():
+        if agent_name.startswith(pattern + "-") or agent_name == pattern:
+            match = _find_any_agentfile(pattern)
+            if match:
                 return match
 
-    # Default to saa
-    default = AGENTS_DIR / "saa.agent"
-    if default.exists():
-        return default
-
+    # No match: return None so callers skip the AC gate entirely.
     return None
 
 
@@ -465,8 +547,8 @@ def get_agent_config(agent_name: str) -> AgentfileConfig:
         if target in seen:
             return config
         seen.add(target)
-        next_path = AGENTS_DIR / f"{target}.agent"
-        if not next_path.exists():
+        next_path = _find_any_agentfile(target)
+        if not next_path:
             return config
         config = parse_agentfile(next_path)
     return config
@@ -480,9 +562,17 @@ def list_available_templates() -> list[str]:
     every name that will actually resolve, not just the file stems.
     """
     names: set[str] = set()
-    if AGENTS_DIR.exists():
-        for f in AGENTS_DIR.glob("*.agent"):
-            names.add(f.stem)
+    for root in (AGENTS_DIR, MARKETPLACE_DIR, CUSTOM_DIR):
+        if root is None:
+            continue
+        try:
+            if root.exists():
+                for f in root.glob("*.agent"):
+                    names.add(f.stem)
+        except Exception:
+            # Non-fatal: if a dir is unreadable we just omit it from the
+            # suggestion set rather than failing the whole listing.
+            continue
     names.update(_BUILTIN_TEMPLATE_ALIASES.keys())
     return sorted(names)
 
@@ -513,8 +603,8 @@ def get_agent_config_by_template(template_name: str) -> Optional[AgentfileConfig
         if resolved in seen:
             return None
         seen.add(resolved)
-        direct = AGENTS_DIR / f"{resolved}.agent"
-        if not direct.exists():
+        direct = _find_any_agentfile(resolved)
+        if direct is None:
             return None
         config = parse_agentfile(direct)
         if config.alias:
@@ -657,6 +747,119 @@ def _format_isolation(value: str) -> str:
         "firecracker": "firecracker VM",
     }
     return mapping.get(value, value or "none")
+
+
+def serialize_agentfile(config: AgentfileConfig) -> str:
+    """Serialize an AgentfileConfig back to Agentfile text.
+
+    Produces a deterministic, parseable string. Round-tripping through
+    parse_agentfile(tmp) -> serialize -> parse produces the same config.
+    Only non-empty / non-default fields are emitted so the output stays
+    readable. Comments are not preserved (they are not in AgentfileConfig).
+    """
+    lines: list[str] = []
+
+    def _q(value: str) -> str:
+        """Wrap value in double quotes if it contains whitespace."""
+        if " " in value or "\t" in value:
+            escaped = value.replace('"', '\\"')
+            return f'"{escaped}"'
+        return value
+
+    if config.name:
+        lines.append(f"NAME {_q(config.name)}")
+    if config.description:
+        lines.append(f"DESC {_q(config.description)}")
+
+    model = config.model or "auto"
+    lines.append(f"FROM {model}")
+
+    if config.prompt:
+        lines.append(f"PROMPT {_q(config.prompt)}")
+
+    for tool in config.tools:
+        lines.append(f"TOOL {tool}")
+
+    for skill in config.skills:
+        lines.append(f"SKILL {skill}")
+
+    if config.work:
+        lines.append(f"WORK {config.work}")
+
+    for interrupt in config.interrupts:
+        lines.append(f"INTERRUPT {interrupt}")
+
+    # LIMIT directives (only non-None / non-default)
+    if config.limits.budget_usd is not None:
+        lines.append(f"LIMIT budget_usd {config.limits.budget_usd:g}")
+    if config.limits.tokens is not None:
+        lines.append(f"LIMIT tokens {config.limits.tokens}")
+    elif config.token_limit and config.token_limit != 200000:
+        # legacy field: emit only when non-default and limits.tokens absent
+        lines.append(f"LIMIT tokens {config.token_limit}")
+    if config.limits.turns is not None:
+        lines.append(f"LIMIT turns {config.limits.turns}")
+    if config.limits.wall_clock is not None:
+        lines.append(f"LIMIT wall_clock {config.limits.wall_clock}")
+    if config.limits.context_pct is not None:
+        lines.append(f"LIMIT context_pct {config.limits.context_pct}")
+    if config.limits.permissions is not None:
+        lines.append(f"LIMIT permissions {config.limits.permissions}")
+    if config.limits.revival_policy is not None:
+        lines.append(f"LIMIT revival_policy {config.limits.revival_policy}")
+    if config.limits.destructive_ops is not None:
+        lines.append(f"LIMIT destructive_ops {config.limits.destructive_ops}")
+    if config.limits.test_coverage is not None:
+        lines.append(f"LIMIT test_coverage {config.limits.test_coverage}")
+    elif config.test_coverage_min is not None and config.limits.test_coverage is None:
+        lines.append(f"LIMIT test_coverage {config.test_coverage_min}")
+    if config.quick_mode:
+        lines.append("LIMIT quick_mode true")
+    if config.demo_mode:
+        lines.append("LIMIT demo_mode true")
+
+    if config.boot:
+        lines.append(f"BOOT {config.boot}")
+
+    # PIN
+    if config.pin_policy.name:
+        lines.append(f"PIN {config.pin_policy.name}")
+    if config.pin_policy.read:
+        lines.append(f"PIN read: {' '.join(config.pin_policy.read)}")
+    if config.pin_policy.write:
+        lines.append(f"PIN write: {' '.join(config.pin_policy.write)}")
+    if config.pin_policy.execute:
+        lines.append(f"PIN execute: {' '.join(config.pin_policy.execute)}")
+    if config.pin_policy.deny:
+        lines.append(f"PIN deny: {' '.join(config.pin_policy.deny)}")
+    if config.pin_policy.deny_verb:
+        lines.append(f"PIN deny-verb: {' '.join(config.pin_policy.deny_verb)}")
+
+    # Legacy flat pin (only when pin_policy.name absent, avoid duplication)
+    if config.pin and not config.pin_policy.name:
+        lines.append(f"PIN {config.pin}")
+
+    if config.isolation and config.isolation != "none":
+        lines.append(f"ISOLATION {config.isolation}")
+
+    if config.attest:
+        lines.append(f"ATTEST {config.attest}")
+
+    for flag in config.beta:
+        lines.append(f"BETA {flag}")
+
+    if config.alias:
+        lines.append(f"ALIAS {config.alias}")
+
+    # Quality gates
+    for ac in config.acceptance_criteria:
+        lines.append(f"AC {ac}")
+    if config.review_checklists:
+        lines.append(f"REVIEW {','.join(config.review_checklists)}")
+    if config.standards_path:
+        lines.append(f"STANDARDS {config.standards_path}")
+
+    return "\n".join(lines) + "\n" if lines else ""
 
 
 def build_capabilities_summary(config: AgentfileConfig) -> dict:

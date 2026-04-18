@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   DndContext,
   PointerSensor,
@@ -20,6 +20,10 @@ import WhatsNew from './WhatsNew'
 import { useAppStore } from '../stores/app'
 import AdminSection from './AdminSection'
 import { api } from '../lib/api'
+import { onAgentsChange, onTasksChange } from '../lib/sidebarBus'
+import { isAgentActive, isUserSpawnedAgent } from '../lib/agentUtils'
+
+// ------------- types -------------
 
 interface NavItem {
   to: string
@@ -28,13 +32,91 @@ interface NavItem {
   featureLabel: string | null
   badge?: boolean
   gmailBadge?: boolean
+  tasksBadge?: boolean
 }
 
-function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, onNavigate, iconFilled }: {
+interface NavGroup {
+  id: string
+  label: string
+  icon: string
+  items: NavItem[]
+}
+
+// ------------- constants -------------
+
+// localStorage key for per-group collapsed state.
+// Value is a JSON object: { [groupId]: boolean }
+const COLLAPSED_KEY = 'sidebar-group-collapsed'
+
+const TOP_LEVEL_ROUTES = new Set(['/', '/tasks', '/agents', '/activity'])
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    id: 'files',
+    label: 'Files & Docs',
+    icon: 'folder_open',
+    items: [
+      { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
+      { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
+      { to: '/specs', icon: 'description', label: 'Specs', featureLabel: 'Specs' },
+    ],
+  },
+  {
+    id: 'comms',
+    label: 'Comms',
+    icon: 'forum',
+    items: [
+      { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true },
+      { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: 'Calendar' },
+      { to: '/imessage', icon: 'chat_bubble', label: 'iMessage', featureLabel: 'iMessage' },
+      { to: '/slack', icon: 'chat', label: 'Slack', featureLabel: 'Slack' },
+      { to: '/github', icon: 'code', label: 'GitHub', featureLabel: 'GitHub' },
+    ],
+  },
+]
+
+// All items for route-based lookups (preserves featureLabel for feature filtering)
+const ALL_NAV_ITEMS: NavItem[] = [
+  { to: '/', icon: 'home', label: 'Home', featureLabel: null },
+  { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true },
+  { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
+  { to: '/activity', icon: 'history', label: 'Activity', featureLabel: 'Activity' },
+  ...NAV_GROUPS.flatMap((g) => g.items),
+]
+
+// Usage sits at the bottom next to Settings, not inside a group
+const USAGE_NAV_ITEM: NavItem = { to: '/costs', icon: 'payments', label: 'Usage', featureLabel: 'Cost Tracking' }
+
+// ------------- helpers -------------
+
+function loadCollapsedState(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '{}')
+  } catch {
+    return {}
+  }
+}
+
+function saveCollapsedState(state: Record<string, boolean>) {
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify(state))
+}
+
+/** Returns the group id that contains the given pathname, or null. */
+function groupForPath(pathname: string): string | null {
+  for (const group of NAV_GROUPS) {
+    if (group.items.some((item) => item.to === pathname)) return group.id
+  }
+  return null
+}
+
+// ------------- SortableNavItem (unchanged logic) -------------
+
+function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, openTasksCount, onNavigate, iconFilled }: {
   item: NavItem
   linkClass: (isActive: boolean) => string
   activeAgents: number
   gmailUnread: number
+  openTasksCount: number
   onNavigate?: () => void
   iconFilled: 'filled' | 'outlined'
 }) {
@@ -76,12 +158,141 @@ function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, onNavigat
                 {gmailUnread}
               </span>
             )}
+            {item.tasksBadge && openTasksCount > 0 && (
+              <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                {openTasksCount}
+              </span>
+            )}
           </>
         )}
       </NavLink>
     </div>
   )
 }
+
+// ------------- SidebarGroup -------------
+
+interface SidebarGroupProps {
+  group: NavGroup
+  visibleItems: NavItem[]
+  collapsed: boolean
+  onToggle: () => void
+  linkClass: (isActive: boolean) => string
+  activeAgents: number
+  gmailUnread: number
+  openTasksCount: number
+  onNavigate?: () => void
+  iconFilled: 'filled' | 'outlined'
+  features: { label: string; enabled: boolean }[]
+  setFeatures: (f: { label: string; enabled: boolean }[]) => void
+}
+
+function SidebarGroup({
+  group,
+  visibleItems,
+  collapsed,
+  onToggle,
+  linkClass,
+  activeAgents,
+  gmailUnread,
+  openTasksCount,
+  onNavigate,
+  iconFilled,
+  features,
+  setFeatures,
+}: SidebarGroupProps) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+  // Rolled-up badge: sum of badges from sub-items when collapsed
+  const rolledBadge = collapsed ? (() => {
+    let total = 0
+    for (const item of visibleItems) {
+      if (item.gmailBadge && gmailUnread > 0) total += gmailUnread
+    }
+    return total
+  })() : 0
+
+  const rolledAgents = collapsed && group.items.some((i) => i.badge) && activeAgents > 0 ? activeAgents : 0
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = visibleItems.findIndex((item) => item.to === active.id)
+    const newIndex = visibleItems.findIndex((item) => item.to === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    const reordered = arrayMove(visibleItems, oldIndex, newIndex)
+    // Rebuild features array preserving items outside this group
+    const reorderedLabels = reordered.map((i) => i.featureLabel).filter(Boolean) as string[]
+    const seen = new Set(reorderedLabels)
+    const newFeatures: { label: string; enabled: boolean }[] = [
+      ...reorderedLabels.map((l) => features.find((f) => f.label === l)!).filter(Boolean),
+      ...features.filter((f) => !seen.has(f.label)),
+    ]
+    setFeatures(newFeatures)
+  }
+
+  return (
+    <div data-testid={`group-${group.id}`}>
+      {/* Group header */}
+      <button
+        type="button"
+        data-testid={`group-header-${group.id}`}
+        onClick={onToggle}
+        className="flex items-center gap-3 w-full px-4 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800/30 transition-colors duration-150 cursor-pointer select-none"
+      >
+        <Icon name={group.icon} className="text-base" />
+        <span className="text-xs font-semibold uppercase tracking-wider flex-1 text-left">{group.label}</span>
+        {(rolledBadge > 0) && (
+          <span className="bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+            {rolledBadge}
+          </span>
+        )}
+        {(rolledAgents > 0) && (
+          <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            {rolledAgents}
+          </span>
+        )}
+        <Icon
+          name="chevron_right"
+          className={`text-base transition-transform duration-200 ${collapsed ? '' : 'rotate-90'}`}
+        />
+      </button>
+
+      {/* Group items */}
+      {!collapsed && (
+        <div data-testid={`group-items-${group.id}`} className="ml-2">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={visibleItems.map((item) => item.to)}
+              strategy={verticalListSortingStrategy}
+            >
+              {visibleItems.map((item) => (
+                <SortableNavItem
+                  key={item.to}
+                  item={item}
+                  linkClass={linkClass}
+                  activeAgents={activeAgents}
+                  gmailUnread={gmailUnread}
+                  openTasksCount={openTasksCount}
+                  onNavigate={onNavigate}
+                  iconFilled={iconFilled}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ------------- Sidebar -------------
 
 export function Sidebar() {
   const displayOsName = useAppStore((s) => s.displayOsName())
@@ -92,26 +303,13 @@ export function Sidebar() {
   const sidebarPosition = useAppStore((s) => s.sidebarPosition)
   const iconStyle = useAppStore((s) => s.iconStyle)
   const statusDotStyle = useAppStore((s) => s.statusDotStyle)
+  const darkMode = useAppStore((s) => s.darkMode)
+  const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const location = useLocation()
 
-  const allNavItems = [
-    { to: '/', icon: 'home', label: 'Home', featureLabel: null },
-    { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks' },
-    { to: '/ideas', icon: 'lightbulb', label: 'Ideas', featureLabel: 'Ideas' },
-    { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
-    { to: '/activity', icon: 'history', label: 'Activity', featureLabel: 'Activity' },
-    { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
-    { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
-    { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: 'Calendar' },
-    { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true },
-    { to: '/imessage', icon: 'chat_bubble', label: 'iMessage', featureLabel: 'iMessage' },
-    { to: '/slack', icon: 'chat', label: 'Slack', featureLabel: 'Slack' },
-    { to: '/github', icon: 'code', label: 'GitHub', featureLabel: 'GitHub' },
-    { to: '/costs', icon: 'payments', label: 'Cost Tracking', featureLabel: 'Cost Tracking' },
-    { to: '/docs', icon: 'description', label: 'Docs', featureLabel: 'Docs' },
-    { to: '/workflows', icon: 'account_tree', label: 'Automations', featureLabel: 'Automations' },
-  ]
   const [activeAgents, setActiveAgents] = useState(0)
+  const [openTasksCount, setOpenTasksCount] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
   const [version, setVersion] = useState('')
   const [backendUp, setBackendUp] = useState<boolean | null>(null)
@@ -119,19 +317,84 @@ export function Sidebar() {
   const [ostkKernel, setOstkKernel] = useState('')
   const [sessionCount, setSessionCount] = useState(0)
 
+  // Collapsed state per group. Initialized from localStorage; active group
+  // is forced open if it would otherwise be collapsed.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    const saved = loadCollapsedState()
+    const activeGroup = groupForPath(location.pathname)
+    if (activeGroup && saved[activeGroup]) {
+      // Ensure active group starts expanded
+      return { ...saved, [activeGroup]: false }
+    }
+    return saved
+  })
+
+  // When the route changes, auto-expand the group that owns the new route
+  useEffect(() => {
+    const activeGroup = groupForPath(location.pathname)
+    if (activeGroup) {
+      setCollapsed((prev) => {
+        if (prev[activeGroup] === false) return prev
+        const next = { ...prev, [activeGroup]: false }
+        saveCollapsedState(next)
+        return next
+      })
+    }
+  }, [location.pathname])
+
+  function toggleGroup(groupId: string) {
+    setCollapsed((prev) => {
+      const next = { ...prev, [groupId]: !prev[groupId] }
+      saveCollapsedState(next)
+      return next
+    })
+  }
+
   useEffect(() => {
     const fetchAgents = async () => {
       try {
-        interface AgentInfo { name: string; status: string; spawned_at?: string; completed_at?: string }
+        interface AgentInfo { name: string; status: string; source?: string; model?: string; description?: string; spawned_at?: string; completed_at?: string; last_heartbeat_at?: string }
         const res = await api.get<{ active: string[]; agents: AgentInfo[] }>('/agents')
-        setActiveAgents(res.active?.length ?? 0)
+        const userSpawnedRunning = (res.agents || []).filter(
+          (a) => isAgentActive(a) && isUserSpawnedAgent(a)
+        )
+        setActiveAgents(userSpawnedRunning.length)
       } catch {
         // ignore
       }
     }
     fetchAgents()
-    const interval = setInterval(fetchAgents, 5000)
-    return () => clearInterval(interval)
+    // Poll every 2 seconds as a safety net so background changes (another
+    // tab, a subagent completing on its own) are still reflected within
+    // two seconds even when nothing in this tab triggered a bump.
+    const interval = setInterval(fetchAgents, 2000)
+    // Any write to /agents/* from this tab refetches immediately so the
+    // badge updates within milliseconds of the user's action.
+    const unsubscribe = onAgentsChange(() => { fetchAgents() })
+    return () => {
+      clearInterval(interval)
+      unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    const fetchTaskCounts = async () => {
+      try {
+        const res = await api.get<{ open: number }>('/tasks/counts')
+        setOpenTasksCount(res.open ?? 0)
+      } catch {
+        // ignore
+      }
+    }
+    fetchTaskCounts()
+    // Poll every 2 seconds as a safety net. Any write to /tasks/* in this
+    // tab also triggers an immediate refetch via the sidebar bus.
+    const interval = setInterval(fetchTaskCounts, 2000)
+    const unsubscribe = onTasksChange(() => { fetchTaskCounts() })
+    return () => {
+      clearInterval(interval)
+      unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
@@ -171,25 +434,6 @@ export function Sidebar() {
   }, [])
 
   useEffect(() => {
-    // Adaptive poll interval with failure debouncing.
-    //
-    // History:
-    //   Needle 286: a single failed poll during a restart window used
-    //     to pin both dots red for a full 15 second interval. Fixed by
-    //     shortening the retry interval to 2 seconds on failure.
-    //   Needle 287: a backend restart stranded keep alive sockets in
-    //     the vite proxy pool, so every /api/* request hung for 30s.
-    //     Fixed by forcing Connection: close in vite.config.ts.
-    //   Needle 293: even with the 2s retry, a single failed poll still
-    //     flipped the dot red for up to 2 seconds during a fast
-    //     restart. Tori asks for zero red frames when the servers come
-    //     back in under 3 seconds. Fix: require two consecutive
-    //     failures before flipping the dot red. A single transient
-    //     failure just schedules a faster retry and keeps the previous
-    //     state. With FAILURE_INTERVAL at 2s and FAILURE_THRESHOLD at
-    //     2, a genuinely down backend is reported red within 2 seconds
-    //     (first fail at t=0 is tolerated, second fail at t=2 flips
-    //     red), which is comfortably under the 5 second bar.
     let timer: ReturnType<typeof setTimeout> | null = null
     let cancelled = false
     let consecutiveFailures = 0
@@ -222,9 +466,6 @@ export function Sidebar() {
           setOstkUp(false)
           setOstkKernel('')
         }
-        // Keep retrying on the short failure interval until we either
-        // recover (consecutive resets to 0) or confirm the backend is
-        // really gone (already red).
         scheduleNext(FAILURE_INTERVAL)
       }
     }
@@ -235,22 +476,32 @@ export function Sidebar() {
     }
   }, [])
 
-  // Filter and sort nav items based on feature toggles.
-  // Home is always first, then items follow the order in the features array.
+  // Build feature-filtered view of all nav items
   const featureOrder = new Map(features.map((f, i) => [f.label, i]))
-  const navItems = allNavItems
-    .filter((item) => {
-      if (!item.featureLabel) return true
-      const feature = features.find((f) => f.label === item.featureLabel)
-      return feature ? feature.enabled : true
-    })
-    .sort((a, b) => {
-      if (!a.featureLabel) return -1
-      if (!b.featureLabel) return 1
-      const orderA = featureOrder.get(a.featureLabel) ?? 999
-      const orderB = featureOrder.get(b.featureLabel) ?? 999
-      return orderA - orderB
-    })
+
+  function isEnabled(item: NavItem): boolean {
+    if (!item.featureLabel) return true
+    const feature = features.find((f) => f.label === item.featureLabel)
+    return feature ? feature.enabled : true
+  }
+
+  function sortedItems(items: NavItem[]): NavItem[] {
+    return items
+      .filter(isEnabled)
+      .sort((a, b) => {
+        if (!a.featureLabel) return -1
+        if (!b.featureLabel) return 1
+        return (featureOrder.get(a.featureLabel) ?? 999) - (featureOrder.get(b.featureLabel) ?? 999)
+      })
+  }
+
+  // Top-level items (Home + Tasks + Agents + Activity) that are not in any group
+  const topLevelItems = ALL_NAV_ITEMS.filter((i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i)).sort((a, b) => {
+    const order = ['/', '/tasks', '/agents', '/activity']
+    return order.indexOf(a.to) - order.indexOf(b.to)
+  })
+
+  const usageEnabled = isEnabled(USAGE_NAV_ITEM)
 
   const linkClass = (isActive: boolean) =>
     `group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer active:scale-[0.98] ${
@@ -289,9 +540,9 @@ export function Sidebar() {
         )}
       </div>
 
-      <nav className="flex flex-col gap-1 px-3 flex-1 overflow-y-auto">
-        {/* Home is always first and not draggable */}
-        {navItems.filter((item) => !item.featureLabel).map((item) => (
+      <nav className="flex flex-col gap-0.5 px-3 flex-1 overflow-y-auto">
+        {/* Top-level items: Home, Tasks, Agents, Activity */}
+        {topLevelItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -303,51 +554,48 @@ export function Sidebar() {
               <>
                 <Icon name={item.icon} filled={iconStyle === 'filled' ? true : isActive} className="text-xl" />
                 <span className="text-sm font-medium">{item.label}</span>
+                {item.badge && activeAgents > 0 && (
+                  <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                    {activeAgents}
+                  </span>
+                )}
+                {item.tasksBadge && openTasksCount > 0 && (
+                  <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                    {openTasksCount}
+                  </span>
+                )}
               </>
             )}
           </NavLink>
         ))}
-        {/* Draggable nav items */}
-        <DndContext
-          sensors={useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))}
-          collisionDetection={closestCenter}
-          onDragEnd={(event: DragEndEvent) => {
-            const { active, over } = event
-            if (!over || active.id === over.id) return
-            const draggableItems = navItems.filter((item) => item.featureLabel)
-            const oldIndex = draggableItems.findIndex((item) => item.to === active.id)
-            const newIndex = draggableItems.findIndex((item) => item.to === over.id)
-            if (oldIndex === -1 || newIndex === -1) return
-            const reordered = arrayMove(draggableItems, oldIndex, newIndex)
-            // Update features array to match new order
-            const newFeatures = reordered
-              .map((item) => features.find((f) => f.label === item.featureLabel))
-              .filter((f): f is { label: string; enabled: boolean } => f != null)
-            // Add any features not in the nav (like Chat, Docs)
-            const seen = new Set(newFeatures.map((f) => f.label))
-            for (const f of features) {
-              if (!seen.has(f.label)) newFeatures.push(f)
-            }
-            setFeatures(newFeatures)
-          }}
-        >
-          <SortableContext
-            items={navItems.filter((item) => item.featureLabel).map((item) => item.to)}
-            strategy={verticalListSortingStrategy}
-          >
-            {navItems.filter((item) => item.featureLabel).map((item) => (
-              <SortableNavItem
-                key={item.to}
-                item={item}
-                linkClass={linkClass}
-                activeAgents={activeAgents}
-                gmailUnread={gmailUnread}
-                onNavigate={() => setMobileOpen(false)}
-                iconFilled={iconStyle}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
+
+        {/* Divider */}
+        <div className="my-1.5 border-t border-slate-800/60" />
+
+        {/* Collapsible groups */}
+        {NAV_GROUPS.map((group) => {
+          const visibleItems = sortedItems(group.items)
+          if (visibleItems.length === 0) return null
+          return (
+            <SidebarGroup
+              key={group.id}
+              group={group}
+              visibleItems={visibleItems}
+              collapsed={!!collapsed[group.id]}
+              onToggle={() => toggleGroup(group.id)}
+              linkClass={linkClass}
+              activeAgents={activeAgents}
+              gmailUnread={gmailUnread}
+              openTasksCount={openTasksCount}
+              onNavigate={() => setMobileOpen(false)}
+              iconFilled={iconStyle}
+              features={features}
+              setFeatures={setFeatures}
+            />
+          )
+        })}
       </nav>
 
       <div className="px-3 flex flex-col gap-1">
@@ -381,6 +629,21 @@ export function Sidebar() {
             )}
           </NavLink>
         )}
+        {usageEnabled && (
+          <NavLink
+            data-testid="usage-nav-link"
+            to={USAGE_NAV_ITEM.to}
+            onClick={() => setMobileOpen(false)}
+            className={({ isActive }) => linkClass(isActive)}
+          >
+            {({ isActive }) => (
+              <>
+                <Icon name={USAGE_NAV_ITEM.icon} filled={iconStyle === 'filled' ? true : isActive} className="text-xl" />
+                <span className="text-sm font-medium">{USAGE_NAV_ITEM.label}</span>
+              </>
+            )}
+          </NavLink>
+        )}
         <NavLink
           to="/settings"
           onClick={() => setMobileOpen(false)}
@@ -393,6 +656,30 @@ export function Sidebar() {
             </>
           )}
         </NavLink>
+      </div>
+
+      {/* Theme toggle */}
+      <div className="px-4 pt-3 pb-2 mt-3 border-t border-slate-800" data-testid="theme-toggle-container">
+        <button
+          data-testid="theme-toggle"
+          aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          onClick={toggleDarkMode}
+          className="relative flex items-center w-full h-10 rounded-full bg-slate-800 hover:bg-slate-700 transition-colors duration-200 cursor-pointer border border-slate-700 p-1"
+        >
+          {/* Sun icon (light) */}
+          <span className={`w-1/2 flex items-center justify-center z-10 transition-colors duration-200 ${!darkMode ? 'text-amber-400' : 'text-slate-500 hover:text-slate-400'}`}>
+            <Icon name="light_mode" size={20} />
+          </span>
+          {/* Moon icon (dark) */}
+          <span className={`w-1/2 flex items-center justify-center z-10 transition-colors duration-200 ${darkMode ? 'text-blue-400' : 'text-slate-500 hover:text-slate-400'}`}>
+            <Icon name="dark_mode" size={20} />
+          </span>
+          {/* Sliding indicator */}
+          <span
+            data-testid="theme-toggle-indicator"
+            className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-full bg-slate-600 transition-transform duration-200 ${darkMode ? 'translate-x-[100%]' : 'translate-x-0'}`}
+          />
+        </button>
       </div>
 
       {/* System status indicators */}

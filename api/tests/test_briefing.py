@@ -275,6 +275,43 @@ async def test_briefing_endpoint_returns_cached_briefing(client):
 
 
 @pytest.mark.asyncio
+async def test_briefing_endpoint_does_not_await_task_count(client):
+    """The GET /api/briefing handler must return the cached briefing
+    without awaiting ``_task_count_changed`` on the hot path. Staleness
+    is checked in a background task so the handler stays under a few
+    milliseconds even when ostk list_tasks is slow.
+
+    Regression guard: if someone re-adds ``await _task_count_changed()``
+    to the handler's synchronous path, this test will see the slow mock
+    block the response and fail.
+    """
+    import asyncio
+
+    call_count = {"n": 0}
+
+    async def slow_task_count_changed():
+        call_count["n"] += 1
+        await asyncio.sleep(2.0)
+        return False
+
+    with (
+        patch("routers.briefing.should_show_briefing", return_value=True),
+        patch("routers.briefing.get_cached_briefing", return_value="Cached text."),
+        patch("routers.briefing._task_count_changed", new=slow_task_count_changed),
+    ):
+        # A 500ms timeout on the outer call would expire if the handler
+        # awaited the 2s slow function. asyncio.wait_for enforces that.
+        resp = await asyncio.wait_for(client.get("/api/briefing"), timeout=0.5)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["briefing"] == "Cached text."
+    # Give the background task a moment to settle so it does not leak
+    # into the next test. It still runs; we just do not block on it.
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
 async def test_briefing_endpoint_generates_when_no_cache(client):
     """When no cache exists, return show=True with briefing=None (background generation)."""
     with (
@@ -445,6 +482,23 @@ def test_briefing_prompt_prioritizes_blocking_tasks():
     assert "unblock" in src.lower()
 
 
+def test_briefing_prompt_forbids_api_paths_in_user_copy():
+    """Regression guard: the briefing once said 'review them at /api/agents'
+    in the user-facing morning briefing because nothing in the prompt
+    forbade raw API paths. The prompt must instruct the model to refer to
+    features by their visible page name (the Agents page, the Tasks page,
+    the Plans page, etc.) instead of API routes or localhost URLs.
+    """
+    import services.briefing as bf
+    import inspect
+
+    src = inspect.getsource(bf.generate_briefing)
+    # The prompt MUST forbid raw API paths and localhost URLs.
+    assert "Never mention API paths" in src or "api paths" in src.lower()
+    # And it should call out the Agents page by its visible name.
+    assert "Agents page" in src
+
+
 # ---------------------------------------------------------------------------
 # Active task filter (needle 280)
 # ---------------------------------------------------------------------------
@@ -569,6 +623,54 @@ async def test_generate_action_items_returns_list(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_generate_action_items_fans_out_in_parallel(tmp_path):
+    """The four upstream fetches (tasks, unread email, calendar, agent
+    runs) must be awaited together with asyncio.gather so the total
+    latency is bounded by the slowest call instead of the sum of all
+    four. Concretely: four helpers that each sleep 200ms should finish
+    in ~200ms total, not ~800ms.
+    """
+    import asyncio
+    import services.briefing as bf
+
+    SLEEP = 0.2
+
+    async def slow_tasks():
+        await asyncio.sleep(SLEEP)
+        return []
+
+    async def slow_emails():
+        await asyncio.sleep(SLEEP)
+        return []
+
+    async def slow_events():
+        await asyncio.sleep(SLEEP)
+        return []
+
+    async def slow_runs():
+        await asyncio.sleep(SLEEP)
+        return []
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", tmp_path / "state.json"), \
+         patch("services.briefing._fetch_tasks_for_action_items", new=slow_tasks), \
+         patch("services.briefing._fetch_unread_emails_for_action_items", new=slow_emails), \
+         patch("services.briefing._fetch_events_for_action_items", new=slow_events), \
+         patch("services.briefing._fetch_agent_runs_for_action_items", new=slow_runs):
+        start = asyncio.get_event_loop().time()
+        items = await bf.generate_action_items()
+        elapsed = asyncio.get_event_loop().time() - start
+
+    assert isinstance(items, list)
+    # Parallel: ~0.2s. Serial would be ~0.8s. Allow a generous 0.5s
+    # threshold so this is not flaky on a loaded CI runner but still
+    # catches a regression to serial awaits.
+    assert elapsed < 0.5, (
+        f"generate_action_items ran in {elapsed:.3f}s. "
+        "Expected parallel gather (~0.2s). Serial awaits would be ~0.8s."
+    )
+
+
+@pytest.mark.asyncio
 async def test_action_items_cached(tmp_path):
     """Once generated, action items should be cached in state."""
     import services.briefing as bf
@@ -654,3 +756,677 @@ async def test_task_count_changed_counts_in_progress(tmp_path):
     # return True on every call because the filtered count was 1 and the stored
     # count was 3.
     assert changed is False
+
+
+# ---------------------------------------------------------------------------
+# Visible task filter (briefing must match the Tasks page default view)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_briefing_action_items_use_visible_task_filter(tmp_path):
+    """generate_briefing must route every candidate top-task through
+    ``is_visible_task`` so session tasks the SessionStart hook files and
+    e2e smoke leftovers never bubble up as the narrated top open task.
+
+    Regression guard. The briefing used to print 'The top open task is
+    Session in torios (P1)' even though the Tasks page, the sidebar
+    badge, and ``/api/tasks/counts`` all hid that row. The three
+    surfaces must agree.
+    """
+    import services.briefing as bf
+    import services.ostk as ostk_module
+
+    mixed_tasks = [
+        # A session task the SessionStart hook filed. Must be hidden.
+        {
+            "id": "\u2192565",
+            "title": "Session in torios",
+            "priority": "P1",
+            "status": "open",
+            "description": "session-task: Work happening in /Users/torimeyer/claude/torios.",
+            "created_at": "2026-04-15T00:00:00Z",
+        },
+        # An e2e smoke task. Must be hidden.
+        {
+            "id": "\u2192999",
+            "title": "e2e-smoke-run",
+            "priority": "P0",
+            "status": "open",
+            "created_at": "2026-04-14T00:00:00Z",
+        },
+        # A real user-facing task. Must be included.
+        {
+            "id": "\u2192300",
+            "title": "Real user work",
+            "priority": "P1",
+            "status": "open",
+            "created_at": "2026-04-10T00:00:00Z",
+        },
+    ]
+
+    captured_prompt = {"text": ""}
+
+    async def fake_list_tasks(status=None, priority=None):
+        return list(mixed_tasks)
+
+    async def fake_get_compounds():
+        return []
+
+    async def fake_call_claude(prompt: str) -> str:
+        captured_prompt["text"] = prompt
+        return "briefing text"
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", tmp_path / "state.json"), \
+         patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks), \
+         patch.object(ostk_module.ostk, "get_compounds", new=fake_get_compounds), \
+         patch("services.briefing._call_claude", new=fake_call_claude):
+        await bf.generate_briefing()
+
+    prompt = captured_prompt["text"]
+    # The real task MUST be in the top-tasks context.
+    assert "Real user work" in prompt, (
+        "generate_briefing must surface user-facing tasks in the prompt. "
+        "Full prompt was:\n" + prompt
+    )
+    # The session task MUST NOT appear anywhere in the prompt. This is
+    # the whole point of the fix.
+    assert "Session in torios" not in prompt, (
+        "generate_briefing must filter out session tasks. "
+        "Full prompt was:\n" + prompt
+    )
+    # The e2e smoke task MUST NOT appear either.
+    assert "e2e-smoke-run" not in prompt, (
+        "generate_briefing must filter out e2e tasks. "
+        "Full prompt was:\n" + prompt
+    )
+
+
+@pytest.mark.asyncio
+async def test_briefing_regen_after_all_tasks_closed_shows_no_top_task(tmp_path):
+    """When every user-visible task has been closed, ``_task_count_changed``
+    must return True so the cached briefing (which still remembers the
+    old top task) is regenerated. The fresh briefing must say no
+    high-priority tasks remain instead of naming a stale task.
+
+    Locks in the pairing of ``_task_count_changed`` and
+    ``generate_briefing`` on the shared ``_is_briefing_task`` filter. If
+    either side counts a different population they'll flap: the cached
+    count and the regenerated count will never agree, or the regen will
+    see tasks the counter doesn't.
+    """
+    import services.briefing as bf
+    import services.ostk as ostk_module
+
+    # Cache was built when the user had 1 P1 task open. Since then every
+    # user-visible task was closed; only a session task remains.
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({
+        "last_shown": "2026-04-16",
+        "briefing": "Stale briefing naming the old top task.",
+        "task_count": 1,
+    }))
+
+    remaining_tasks = [
+        # The only active row is a session task, which is hidden from
+        # the user everywhere else. The briefing counter must ignore it.
+        {
+            "id": "\u2192565",
+            "title": "Session in torios",
+            "priority": "P1",
+            "status": "open",
+            "description": "session-task: Work happening in /Users/torimeyer/claude/torios.",
+            "created_at": "2026-04-15T00:00:00Z",
+        },
+        # A previously closed task.
+        {
+            "id": "\u2192300",
+            "title": "Real user work",
+            "priority": "P1",
+            "status": "closed",
+            "closed_at": "2026-04-16T12:00:00Z",
+            "created_at": "2026-04-10T00:00:00Z",
+        },
+    ]
+
+    async def fake_list_tasks(status=None, priority=None):
+        assert status is None
+        return list(remaining_tasks)
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", state_path), \
+         patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks):
+        changed = await bf._task_count_changed()
+
+    # Cached count was 1 (the real P1 task). After filtering out the
+    # session task, current visible count is 0. The counts differ, so
+    # regeneration must be triggered.
+    assert changed is True, (
+        "_task_count_changed must detect that every visible P0/P1 task "
+        "has been closed and trigger a regen. Otherwise the briefing "
+        "sits on stale text naming a closed task as 'top open'."
+    )
+
+    # Now run the regeneration and confirm the new prompt names no
+    # top task instead of pulling the session task forward.
+    captured_prompt = {"text": ""}
+
+    async def fake_get_compounds():
+        return []
+
+    async def fake_call_claude(prompt: str) -> str:
+        captured_prompt["text"] = prompt
+        return "fresh briefing text"
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", state_path), \
+         patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks), \
+         patch.object(ostk_module.ostk, "get_compounds", new=fake_get_compounds), \
+         patch("services.briefing._call_claude", new=fake_call_claude):
+        await bf.generate_briefing()
+
+    prompt = captured_prompt["text"]
+    # No mention of the session task.
+    assert "Session in torios" not in prompt, (
+        "Regenerated briefing must not name a session task as top open. "
+        "Full prompt was:\n" + prompt
+    )
+    # The prompt must say there are no high-priority tasks.
+    assert "No high-priority tasks open right now" in prompt, (
+        "Regenerated briefing must explicitly tell the model that no "
+        "high-priority tasks are open. Full prompt was:\n" + prompt
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review failed agent cards: never surfaced in the brief
+# ---------------------------------------------------------------------------
+#
+# History: the briefing used to emit "Review failed: <agent>" cards for
+# any user-spawned failure that did not match an infra filter. Even after
+# heavy filtering those cards were noisy and not actionable inside the
+# briefing context (reconcile-stale agents, zero-output runs, etc.).
+# The brief now never emits review_agent items. Agent triage lives on
+# the Agents page.
+
+
+def _reviewable_run(**overrides) -> dict:
+    """Shape-compatible agent-run fixture.
+
+    Mirrors what services.agent_patterns.analyze_runs emits.
+    """
+    base = {
+        "name": "real-user-agent",
+        "status": "failed",
+        "raw_status": "failed",
+        "source": "api",
+        "summary": "Task failed because the test file did not exist.",
+        "model": "sonnet",
+        "raw_model": "claude-sonnet-4-6",
+        "budget": 5.0,
+        "cost": 0.12,
+        "duration_sec": 42.0,
+        "spawned_at": "2026-04-15T10:00:00+00:00",
+        "template_id": None,
+        "template_name": None,
+    }
+    base.update(overrides)
+    return base
+
+
+async def _run_generate_with_runs(tmp_path, runs: list[dict]) -> list[dict]:
+    """Run generate_action_items with a stubbed agent-runs fetch.
+
+    The agent-runs fetch is still patched defensively so a future
+    regression that re-wires the brief back to agent runs is caught.
+    """
+    import services.briefing as bf
+
+    async def fake_tasks():
+        return []
+
+    async def fake_emails():
+        return []
+
+    async def fake_events():
+        return []
+
+    async def fake_runs():
+        return list(runs)
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", tmp_path / "state.json"), \
+         patch("services.briefing._fetch_tasks_for_action_items", new=fake_tasks), \
+         patch("services.briefing._fetch_unread_emails_for_action_items", new=fake_emails), \
+         patch("services.briefing._fetch_events_for_action_items", new=fake_events), \
+         patch("services.briefing._fetch_agent_runs_for_action_items", new=fake_runs):
+        return await bf.generate_action_items()
+
+
+@pytest.mark.asyncio
+async def test_briefing_never_emits_review_agent_cards_for_any_failure(tmp_path):
+    """No failed agent, regardless of source, name, or summary, should
+    produce a Review failed card in the brief. This is the top-level
+    guarantee: the brief does not surface agent failures. Agent triage
+    is the Agents page's job.
+    """
+    runs = [
+        # A user-spawned API agent that really did fail. Previously this
+        # was the one case that DID get surfaced. Now it must not.
+        _reviewable_run(
+            name="weekly-report-generator",
+            status="failed",
+            raw_status="failed",
+            source="api",
+            summary="Script raised FileNotFoundError on /reports/week.csv.",
+        ),
+        # Subagent failure (already excluded by old rule, still excluded).
+        _reviewable_run(name="overnight-demo-ready", source="subagent",
+                        summary="Subagent crashed after 3 retries."),
+        # Demo-mode supervisor shutdown.
+        _reviewable_run(
+            name="demo-smoke-roadmap-76800",
+            raw_status="completed_timeout",
+            source="api",
+        ),
+        # Anthropic infra blip.
+        _reviewable_run(
+            name="copy-writer-01",
+            source="api",
+            summary="Anthropic API returned 529 Overloaded after 5 retries.",
+        ),
+        # Infra-named agents.
+        _reviewable_run(name="build-42", source="api", summary="Build failed."),
+        _reviewable_run(name="overnight-demo-ready", source="api", summary="Overnight failed."),
+        # A user-launched template run that the old rule DID surface.
+        _reviewable_run(name="Roadmap", source="api", summary="Template crashed."),
+        # The specific regression case: plain-user-agent terminated by
+        # reconcile with zero-byte transcript. The old rule let this
+        # slip through as a Review failed card.
+        _reviewable_run(
+            name="plain-user-agent",
+            status="failed",
+            raw_status="terminated_stale",
+            source="api",
+            summary="reconcile: no live process or recent heartbeat",
+        ),
+    ]
+    items = await _run_generate_with_runs(tmp_path, runs)
+
+    review_items = [i for i in items if i["type"] == "review_agent"]
+    assert review_items == [], (
+        "The brief must never emit review_agent cards, regardless of "
+        "agent source, name, or summary. Agent triage lives on the "
+        "Agents page, not in the brief. Leaked items: " + repr(review_items)
+    )
+
+
+@pytest.mark.asyncio
+async def test_briefing_never_emits_review_agent_cards_when_no_runs(tmp_path):
+    """With zero agent runs, obviously no review_agent cards. This is a
+    belt-and-braces guard that the code path truly never emits this
+    type, even when the upstream list is empty.
+    """
+    items = await _run_generate_with_runs(tmp_path, [])
+    review_items = [i for i in items if i["type"] == "review_agent"]
+    assert review_items == [], (
+        "Empty agent-runs input must still produce zero review_agent "
+        "cards. Leaked items: " + repr(review_items)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stale cache: review_agent cards written by older code must be scrubbed
+# on read, not just on next regeneration
+# ---------------------------------------------------------------------------
+#
+# History: removing review_agent cards from generate_action_items() was
+# not enough on its own. The briefing endpoint reads from the cached
+# action_items list in ~/.myos/briefing_state.json and only regenerates
+# when the task count changes. After the code fix landed, Tori still saw
+# "Review failed: plain-user-agent" on the dashboard because the cache
+# from the previous run still carried the deprecated entry. The fix is
+# a defensive filter in get_cached_action_items so the stale cache is
+# scrubbed on the very next read.
+
+
+def test_get_cached_action_items_strips_legacy_review_agent_entries(tmp_path):
+    """A cache written by older code can carry review_agent items. The
+    read path must scrub them so deprecated card types never reach the
+    dashboard, even before the next full regeneration cycle.
+    """
+    import services.briefing as bf
+
+    state_path = tmp_path / "briefing_state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "action_items": [
+                    {
+                        "type": "reply_email",
+                        "label": "Reply to: Final receipt for Tori from Kroger",
+                        "action_url": "/gmail?thread=abc",
+                        "context": "From Unknown sender.",
+                    },
+                    {
+                        "type": "review_agent",
+                        "label": "Review failed: plain-user-agent",
+                        "action_url": "/agents",
+                        "context": "Agent plain-user-agent failed.",
+                    },
+                ]
+            }
+        )
+    )
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", state_path):
+        items = bf.get_cached_action_items()
+
+    assert items is not None
+    types = [i["type"] for i in items]
+    assert "review_agent" not in types, (
+        "Legacy review_agent cache entries must be stripped on read so "
+        "the dashboard never renders 'Review failed: ...' cards after "
+        "the server-side removal. Leaked items: " + repr(items)
+    )
+    assert len(items) == 1
+    assert items[0]["type"] == "reply_email"
+
+
+def test_get_cached_action_items_scrub_persists_to_disk(tmp_path):
+    """When get_cached_action_items has to strip legacy entries, the
+    scrubbed list should be persisted so subsequent reads see clean
+    state and the file itself stops carrying deprecated data. This
+    also avoids paying the filter cost on every request forever.
+    """
+    import services.briefing as bf
+
+    state_path = tmp_path / "briefing_state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "action_items": [
+                    {
+                        "type": "review_agent",
+                        "label": "Review failed: plain-user-agent",
+                        "action_url": "/agents",
+                        "context": "failed",
+                    },
+                    {
+                        "type": "close_task",
+                        "label": "Review: Old task",
+                        "action_url": "/api/tasks/T123",
+                        "context": "open 30 days.",
+                    },
+                ]
+            }
+        )
+    )
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", state_path):
+        bf.get_cached_action_items()
+        # Re-read the file off disk directly to confirm the scrub was
+        # written through, not just returned in-memory.
+        on_disk = json.loads(state_path.read_text())
+
+    persisted_types = [i["type"] for i in on_disk.get("action_items", [])]
+    assert persisted_types == ["close_task"], (
+        "Scrubbed cache must be persisted. Found on disk: "
+        + repr(on_disk.get("action_items"))
+    )
+
+
+def test_get_cached_action_items_returns_none_when_cache_missing(tmp_path):
+    """Edge case: when the cache has never been written, the read path
+    must still return None and not crash inside the scrub branch.
+    """
+    import services.briefing as bf
+
+    state_path = tmp_path / "briefing_state.json"
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", state_path):
+        assert bf.get_cached_action_items() is None
+
+
+def test_get_cached_action_items_leaves_clean_cache_alone(tmp_path):
+    """A cache that never had review_agent entries must not be rewritten
+    on read. This keeps the read path cheap on the happy path.
+    """
+    import services.briefing as bf
+
+    state_path = tmp_path / "briefing_state.json"
+    payload = {
+        "action_items": [
+            {
+                "type": "reply_email",
+                "label": "Reply to: Foo",
+                "action_url": "/gmail?thread=1",
+                "context": "From X.",
+            }
+        ]
+    }
+    state_path.write_text(json.dumps(payload))
+    before_mtime = state_path.stat().st_mtime_ns
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", state_path):
+        items = bf.get_cached_action_items()
+
+    after_mtime = state_path.stat().st_mtime_ns
+    assert items == payload["action_items"]
+    assert before_mtime == after_mtime, (
+        "Clean caches must not be rewritten by the read path."
+    )
+
+
+# ---------------------------------------------------------------------------
+# is_actionable_for_reply filter and generate_action_items integration
+# ---------------------------------------------------------------------------
+# History: the real-world brief was surfacing "Reply to: Final receipt for
+# Tori from Kroger" from a DoorDash no-reply address. A grocery receipt
+# is not something the user replies to. is_actionable_for_reply must skip
+# no-reply senders, transactional subjects, and known transactional
+# domains, while keeping real email (Re:/Fwd:, questions, action phrases).
+
+
+def test_is_actionable_for_reply_skips_kroger_doordash_receipt():
+    """The specific regression case: Kroger receipt via DoorDash
+    no-reply must not surface as a Reply-to card."""
+    import services.briefing as bf
+
+    msg = {
+        "id": "19d996fc1c7eb2a8",
+        "thread_id": "19d996fc1c7eb2a8",
+        "subject": "Final receipt for Tori from Kroger",
+        "from_name": "DoorDash Order",
+        "from_email": "no-reply@doordash.com",
+        "snippet": "",
+    }
+    assert bf.is_actionable_for_reply(msg) is False
+
+
+def test_is_actionable_for_reply_skips_amazon_order_confirmation():
+    import services.briefing as bf
+
+    msg = {
+        "subject": "Your order of 'Thing X' has shipped",
+        "from_name": "Amazon.com",
+        "from_email": "ship-confirm@amazon.com",
+        "snippet": "Your order #123-456 has shipped.",
+    }
+    assert bf.is_actionable_for_reply(msg) is False
+
+
+def test_is_actionable_for_reply_skips_no_reply_senders():
+    import services.briefing as bf
+
+    for addr in (
+        "noreply@example.com",
+        "no-reply@example.com",
+        "donotreply@example.com",
+        "do-not-reply@example.com",
+        "do.not.reply@school.org",
+        "mailer-daemon@googlemail.com",
+        "notifications@github.com",
+    ):
+        msg = {
+            "subject": "Some update",
+            "from_name": "Some service",
+            "from_email": addr,
+            "snippet": "Update for you.",
+        }
+        assert bf.is_actionable_for_reply(msg) is False, (
+            f"{addr} should be filtered out"
+        )
+
+
+def test_is_actionable_for_reply_keeps_human_question():
+    import services.briefing as bf
+
+    msg = {
+        "subject": "Lunch Thursday?",
+        "from_name": "Jane Doe",
+        "from_email": "jane@personal.example",
+        "snippet": "Want to grab lunch on Thursday?",
+    }
+    assert bf.is_actionable_for_reply(msg) is True
+
+
+def test_is_actionable_for_reply_keeps_re_proposal():
+    import services.briefing as bf
+
+    msg = {
+        "subject": "Re: proposal",
+        "from_name": "Known Contact",
+        "from_email": "contact@realcompany.example",
+        "snippet": "Thanks for sending over the proposal.",
+    }
+    assert bf.is_actionable_for_reply(msg) is True
+
+
+def test_is_actionable_for_reply_skips_list_unsubscribe_newsletter():
+    import services.briefing as bf
+
+    msg = {
+        "subject": "This Week's Deals",
+        "from_name": "Newsletter",
+        "from_email": "deals@retailer.example",
+        "snippet": "Check out this week's deals.",
+        "headers": {"List-Unsubscribe": "<mailto:unsub@retailer.example>"},
+    }
+    assert bf.is_actionable_for_reply(msg) is False
+
+
+def test_is_actionable_for_reply_skips_known_transactional_domain():
+    import services.briefing as bf
+
+    # Even without a no-reply token, a known transactional domain wins.
+    msg = {
+        "subject": "Your trip with UberEats",
+        "from_name": "Uber Eats",
+        "from_email": "help@ubereats.com",
+        "snippet": "Here is a summary.",
+    }
+    assert bf.is_actionable_for_reply(msg) is False
+
+
+def test_is_actionable_for_reply_action_phrase_keeps_even_if_transactional_subject():
+    """If a sender with a transactional-looking subject actually asks a
+    question, keep the card. The user asking "can you confirm ..." in
+    the body is a strong KEEP signal.
+    """
+    import services.briefing as bf
+
+    msg = {
+        "subject": "Your order",
+        "from_name": "Real Person",
+        "from_email": "person@personal.example",
+        "snippet": "Hi, can you confirm the address for your order?",
+    }
+    assert bf.is_actionable_for_reply(msg) is True
+
+
+def test_is_actionable_for_reply_tolerates_old_from_string_shape():
+    """Older callers pass a single "from" string. The helper must handle
+    that and still extract the address for the no-reply check.
+    """
+    import services.briefing as bf
+
+    msg = {
+        "subject": "Final receipt",
+        "from": "DoorDash Order <no-reply@doordash.com>",
+        "snippet": "",
+    }
+    assert bf.is_actionable_for_reply(msg) is False
+
+
+@pytest.mark.asyncio
+async def test_generate_action_items_filters_transactional_reply_cards(tmp_path):
+    """generate_action_items must only emit reply_email cards for emails
+    that pass is_actionable_for_reply. Mix of transactional mail (Kroger
+    receipt, no-reply newsletter, grading notification) and a real human
+    question should yield exactly one reply_email card, for the real
+    one.
+    """
+    import services.briefing as bf
+
+    unread = [
+        {
+            "id": "t1",
+            "subject": "Final receipt for Tori from Kroger",
+            "from_name": "DoorDash Order",
+            "from_email": "no-reply@doordash.com",
+            "snippet": "",
+        },
+        {
+            "id": "t2",
+            "subject": "Jackson's Grading Notification",
+            "from_name": "Allen ISD",
+            "from_email": "do.not.reply@allenisd.org",
+            "snippet": "No missing assignments.",
+        },
+        {
+            "id": "t3",
+            "subject": "Lunch Thursday?",
+            "from_name": "Jane Doe",
+            "from_email": "jane@personal.example",
+            "snippet": "Want to grab lunch on Thursday?",
+        },
+        {
+            "id": "t4",
+            "subject": "Your receipt from Geode Health",
+            "from_name": "Geode Health",
+            "from_email": "noreply@patient-message.com",
+            "snippet": "Keep this receipt for your records.",
+        },
+    ]
+
+    async def fake_tasks():
+        return []
+
+    async def fake_emails():
+        return list(unread)
+
+    async def fake_events():
+        return []
+
+    async def fake_runs():
+        return []
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", tmp_path / "state.json"), \
+         patch("services.briefing._fetch_tasks_for_action_items", new=fake_tasks), \
+         patch("services.briefing._fetch_unread_emails_for_action_items", new=fake_emails), \
+         patch("services.briefing._fetch_events_for_action_items", new=fake_events), \
+         patch("services.briefing._fetch_agent_runs_for_action_items", new=fake_runs):
+        items = await bf.generate_action_items()
+
+    reply_cards = [i for i in items if i["type"] == "reply_email"]
+    assert len(reply_cards) == 1, (
+        f"Expected exactly one reply_email card (the lunch question), "
+        f"got {len(reply_cards)}: {reply_cards}"
+    )
+    assert "Lunch Thursday" in reply_cards[0]["label"]
+    # The Kroger receipt must NOT appear anywhere in the action items.
+    for item in items:
+        assert "Kroger" not in item.get("label", ""), (
+            f"Kroger receipt leaked into action items: {item}"
+        )
+        assert "receipt" not in item.get("label", "").lower(), (
+            f"A receipt leaked into action items: {item}"
+        )

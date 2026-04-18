@@ -66,6 +66,10 @@ def _parse_agentfile(path: Path) -> dict:
         "pin": "",
         "description": "",
         "source": "builtin" if str(path).startswith(str(AGENTS_DIR)) else "user",
+        # Empty string means not an alias. When non-empty, this file is
+        # a pointer to another agentfile and should be shown as an alias
+        # chip on that target, not as its own card.
+        "alias_target": "",
     }
 
     if not path.exists():
@@ -78,8 +82,9 @@ def _parse_agentfile(path: Path) -> dict:
         # Extract description from first comment line that looks like a subtitle
         if stripped.startswith("# Agentfile"):
             # Title line, extract the part after the dash
-            if " — " in stripped:
-                result["description"] = stripped.split(" — ", 1)[1]
+            _EM_DASH = " " + chr(0x2014) + " "
+            if _EM_DASH in stripped:
+                result["description"] = stripped.split(_EM_DASH, 1)[1]
             elif " - " in stripped:
                 result["description"] = stripped.split(" - ", 1)[1]
             continue
@@ -114,6 +119,8 @@ def _parse_agentfile(path: Path) -> dict:
             result["boot"] = stripped[5:].strip()
         elif stripped.startswith("PIN "):
             result["pin"] = stripped[4:].strip()
+        elif stripped.startswith("ALIAS "):
+            result["alias_target"] = stripped[6:].strip()
 
     # Clean up internal flag
     result.pop("_desc_set", None)
@@ -121,15 +128,21 @@ def _parse_agentfile(path: Path) -> dict:
 
 
 def _list_agentfiles() -> list[dict]:
-    """List all Agentfiles from both built-in and user directories."""
-    files: list[dict] = []
+    """List all Agentfiles from both built-in and user directories.
+
+    Alias files (``ALIAS <target>``) are folded into their target's
+    ``aliases`` array and not returned as standalone cards. That way
+    ``saa`` shows up as a chip on the ``comprehensive`` card instead of
+    duplicating the card with blank capabilities.
+    """
+    parsed_files: list[dict] = []
     seen_names: set[str] = set()
 
     # Built-in templates from the repo
     if AGENTS_DIR.is_dir():
         for p in sorted(AGENTS_DIR.glob("*.agent")):
             parsed = _parse_agentfile(p)
-            files.append(parsed)
+            parsed_files.append(parsed)
             seen_names.add(parsed["name"])
 
     # User-created Agentfiles
@@ -137,8 +150,23 @@ def _list_agentfiles() -> list[dict]:
         for p in sorted(USER_AGENTFILES_DIR.glob("*.agent")):
             parsed = _parse_agentfile(p)
             if parsed["name"] not in seen_names:
-                files.append(parsed)
+                parsed_files.append(parsed)
                 seen_names.add(parsed["name"])
+
+    # First pass: collect alias_target -> [alias_name, ...]
+    alias_map: dict[str, list[str]] = {}
+    for f in parsed_files:
+        target = f.get("alias_target") or ""
+        if target:
+            alias_map.setdefault(target, []).append(f["name"])
+
+    # Second pass: drop alias-only files, attach aliases to the target.
+    files: list[dict] = []
+    for f in parsed_files:
+        if f.get("alias_target"):
+            continue
+        f["aliases"] = sorted(alias_map.get(f["name"], []))
+        files.append(f)
 
     return files
 
@@ -148,7 +176,7 @@ def _agentfile_to_text(data: AgentfileCreate) -> str:
     lines: list[str] = []
     safe_name = data.name.lower().replace(" ", "-")
     safe_name = re.sub(r"[^a-z0-9\-]", "", safe_name)
-    lines.append(f"# Agentfile — {data.name}")
+    lines.append(f"# Agentfile - {data.name}")
     if data.description:
         lines.append(f"# {data.description}")
     lines.append("")

@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 // Needle 287 (round 3): when the backend restarts, vite's default
 // proxy agent keeps dead keep-alive sockets in its pool and routes
@@ -15,10 +18,24 @@ import tailwindcss from '@tailwindcss/vite'
 // socket after the response and prevents the proxy from ever
 // parking it in a keep-alive pool. Zero-byte overhead per request.
 
+// Chrome caches HSTS for localhost whenever ANY localhost origin has
+// served HTTPS (and the backend on :8000 does). After that, typing
+// http://localhost:3010 silently upgrades to https and fails with
+// ERR_SSL_PROTOCOL_ERROR if vite is plain HTTP. Serve HTTPS here too
+// using the same self-signed cert the backend uses, so the browser
+// never has to pick between http/https and there is only one scheme.
+const myosDir = path.join(os.homedir(), '.myos')
+const keyPath = path.join(myosDir, 'localhost.key')
+const certPath = path.join(myosDir, 'localhost.crt')
+const httpsConfig = fs.existsSync(keyPath) && fs.existsSync(certPath)
+  ? { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) }
+  : undefined
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 3010,
+    https: httpsConfig,
     // Fail hard instead of silently falling back to 3011 when 3010 is
     // already taken. A silent fallback + a browser tab pointed at 3010
     // is exactly the zombie scenario needle 287 documents. If 3010 is
@@ -31,7 +48,8 @@ export default defineConfig({
         // Uvicorn binds IPv4 only, so every proxy request starts with
         // a refused IPv6 attempt that poisons the connection pool and
         // causes intermittent ETIMEDOUT on the IPv4 fallback. Needle 315.
-        target: 'http://127.0.0.1:8000',
+        target: 'https://127.0.0.1:8000',
+        secure: false,  // accept self-signed cert
         changeOrigin: true,
         configure: (proxy) => {
           // Force no keep-alive on every proxied HTTP request so a
@@ -59,7 +77,7 @@ export default defineConfig({
           })
         },
       },
-      '/ws': { target: 'http://127.0.0.1:8000', ws: true },
+      '/ws': { target: 'https://127.0.0.1:8000', ws: true, secure: false },
     },
   },
 })

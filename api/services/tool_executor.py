@@ -148,7 +148,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "create_task",
-        "description": "Create a new task in the workspace task tracker.",
+        "description": (
+            "Create a new task in the workspace task tracker. "
+            "Use this when the user asks to add a task, create a needle, or track a to-do item. "
+            "When the user says 'create tasks for all of it', 'break this down into tasks', "
+            "or 'turn this into tasks', call this tool once per task rather than just describing them."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -156,13 +161,83 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "The task title.",
                 },
+                "description": {
+                    "type": "string",
+                    "description": "Optional plain-language description of what needs to be done.",
+                },
                 "priority": {
                     "type": "string",
                     "description": "Priority level: P0 (urgent), P1 (high), P2 (normal), or P3 (low).",
                     "enum": ["P0", "P1", "P2", "P3"],
                 },
+                "labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of label strings to attach to the task.",
+                },
             },
             "required": ["title"],
+        },
+    },
+    {
+        "name": "create_tasks_from_spec",
+        "description": (
+            "Break a spec document into individual tasks and create them all at once. "
+            "Use this when the user says 'create tasks for all of it', 'break this spec into tasks', "
+            "'turn this into tasks', or 'decompose this spec'. "
+            "Pass the spec's file path (e.g. 'docs/spec/my-feature.md' or 'docs/draft/my-draft.md'). "
+            "Returns the list of created task IDs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "spec_path": {
+                    "type": "string",
+                    "description": "Path to the spec file under docs/draft/ or docs/spec/ (e.g. 'docs/spec/my-feature.md').",
+                },
+            },
+            "required": ["spec_path"],
+        },
+    },
+    {
+        "name": "build_tasks_from_file",
+        "description": (
+            "Read a plain-language file (like roadmap.md) and turn its "
+            "contents into individual tracked tasks. Use this when the "
+            "user says 'build tasks from <filename>', 'break <file> into "
+            "tasks', or points at a markdown file and asks for a task "
+            "list. The file can be a workspace-relative path (e.g. "
+            "'roadmap.md') or an absolute path (e.g. "
+            "'~/.myos/files/roadmap.md'). Returns the number of tasks "
+            "created and their IDs. After this tool runs, the same batch "
+            "can be turned into live agents by calling "
+            "build_from_recent_tasks."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to decompose into tasks.",
+                },
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
+        "name": "build_from_recent_tasks",
+        "description": (
+            "Spawn a Builder background agent for every task created by "
+            "the most recent build_tasks_from_file call. Use this when "
+            "the user says 'build it', 'ship it', 'start building', or "
+            "asks to execute the tasks that were just decomposed. Each "
+            "agent runs in quick mode so the spawn is fast. Returns the "
+            "list of agent names."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
         },
     },
     {
@@ -254,67 +329,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
-        "name": "capture_idea",
-        "description": (
-            "Silently file a stray thought, aside, or rough idea as 'hay' in the workspace. "
-            "Use this when the user mentions an idea in passing that is not a question or a "
-            "direct action request: things like 'random thought, we should...', 'idea: ...', "
-            "'btw it would be cool if...', 'note to self...', or any musing they want captured "
-            "but not acted on. Do NOT announce that you captured it unless the user asks. Do "
-            "NOT use this for questions, commands, or things the user wants done now."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "thought": {
-                    "type": "string",
-                    "description": "The exact idea text to file as hay. Keep it short, one sentence.",
-                },
-            },
-            "required": ["thought"],
-        },
-    },
-    {
-        "name": "list_ideas",
-        "description": (
-            "List all active ideas (not yet converted to tasks). "
-            "Use this when the user asks to see their ideas, brainstorms, or hay."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
-        "name": "list_converted_ideas",
-        "description": (
-            "List ideas that have been converted into tasks. "
-            "Use this when the user asks about ideas they already turned into tasks."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
-        "name": "delete_idea",
-        "description": (
-            "Delete an idea by its text or a recognizable fragment. "
-            "Works for both active ideas and converted ideas. "
-            "Use this when the user asks to remove, delete, or clean up an idea."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "straw": {
-                    "type": "string",
-                    "description": "The idea text or a recognizable fragment to match against.",
-                },
-            },
-            "required": ["straw"],
-        },
-    },
-    {
         "name": "get_calendar_events",
         "description": "Get today's events from the user's Google Calendar. Returns a formatted list of today's meetings and events.",
         "input_schema": {
@@ -390,6 +404,48 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "delete_emails",
+        "description": (
+            "Move Gmail messages to Trash (or permanently delete them). "
+            "Use this when the user says 'delete the <X> emails', 'trash the emails from <Y>', "
+            "'delete marketing emails', or similar. "
+            "Default behavior is Trash, which matches Gmail's own Delete button: the messages "
+            "leave the inbox and Gmail auto purges them after 30 days. "
+            "Two-step flow: first call with just a ``query`` to preview matching messages. "
+            "The tool returns a list plus the count. Show the user that list and ask for confirmation. "
+            "Only after the user confirms, call again with ``confirm: true`` and the matched ``ids`` "
+            "to actually move the messages. "
+            "Set ``permanent: true`` ONLY when the user explicitly asks for a permanent or "
+            "forever delete. There is no undo for that path."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Gmail search string (e.g. 'from:amazon marketing', 'subject:newsletter'). "
+                        "Provide this on the first call to preview matches."
+                    ),
+                },
+                "ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of Gmail message ids to move to Trash. Use on the confirm call.",
+                },
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Must be true to actually move messages. False or omitted returns a preview.",
+                },
+                "permanent": {
+                    "type": "boolean",
+                    "description": "Set to true only if the user explicitly asked for a forever delete. No undo.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "upload_to_drive",
         "description": (
             "Create a text file and upload it to the user's Google Drive (myOS folder). "
@@ -456,7 +512,18 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
         elif name == "list_tasks":
             return await _list_tasks()
         elif name == "create_task":
-            return await _create_task(input_data["title"], input_data.get("priority", "P1"))
+            return await _create_task(
+                input_data["title"],
+                priority=input_data.get("priority", "P1"),
+                description=input_data.get("description", ""),
+                labels=input_data.get("labels"),
+            )
+        elif name == "create_tasks_from_spec":
+            return await _create_tasks_from_spec(input_data["spec_path"])
+        elif name == "build_tasks_from_file":
+            return await _build_tasks_from_file(input_data["file_path"])
+        elif name == "build_from_recent_tasks":
+            return await _build_from_recent_tasks()
         elif name == "close_task":
             return await _close_task(input_data["task_id"])
         elif name == "web_search":
@@ -471,14 +538,6 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
             return await _git_commit(input_data["message"])
         elif name == "check_agents":
             return await _check_agents()
-        elif name == "capture_idea":
-            return await _capture_idea(input_data["thought"])
-        elif name == "list_ideas":
-            return await _list_ideas()
-        elif name == "list_converted_ideas":
-            return await _list_converted_ideas()
-        elif name == "delete_idea":
-            return await _delete_idea(input_data["straw"])
         elif name == "get_calendar_events":
             return await _get_calendar_events()
         elif name == "create_calendar_event":
@@ -496,6 +555,13 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
                 subject=input_data["subject"],
                 body=input_data["body"],
             )
+        elif name == "delete_emails":
+            return await _delete_emails(
+                query=input_data.get("query"),
+                ids=input_data.get("ids"),
+                confirm=input_data.get("confirm", False),
+                permanent=input_data.get("permanent", False),
+            )
         elif name == "upload_to_drive":
             return await _upload_to_drive(
                 filename=input_data["filename"],
@@ -510,7 +576,29 @@ async def execute_tool(name: str, input_data: dict[str, Any]) -> str:
 
 
 async def _read_file(path: str) -> str:
-    safe = _safe_path(path)
+    # Bug 2 fix: strip file:// prefix so drag-and-drop paths work directly.
+    # The user explicitly provided this path, so we honor it even if it falls
+    # outside the workspace boundary (user-supplied absolute paths are trusted).
+    stripped = path.strip()
+    if stripped.startswith("file://"):
+        stripped = stripped[len("file://"):]
+    # Try user-supplied path first (absolute or file:// converted)
+    if stripped.startswith("/") or stripped.startswith("~"):
+        direct = Path(stripped).expanduser().resolve()
+        if direct.exists() and direct.is_file():
+            content = direct.read_text(errors="replace")
+            if len(content) > 50_000:
+                return content[:50_000] + f"\n\n... (truncated, file is {len(content)} characters)"
+            return content
+        # Path was given explicitly but not found - return informative error
+        # rather than silently trying workspace-relative fallback.
+        if stripped.startswith("/"):
+            return f"File not found: {stripped}"
+    # Fall back to workspace-scoped path resolution
+    try:
+        safe = _safe_path(path)
+    except ValueError as e:
+        return str(e)
     if not safe.exists():
         return f"File not found: {path}"
     if not safe.is_file():
@@ -628,14 +716,448 @@ async def _list_tasks() -> str:
     return "\n".join(lines)
 
 
-async def _create_task(title: str, priority: str = "P1") -> str:
+async def _create_task(
+    title: str,
+    priority: str = "P1",
+    description: str = "",
+    labels: Optional[list[str]] = None,
+) -> str:
     result = await ostk.add_task(title, priority)
     # Fire-and-forget auto label suggestion. Never blocks task creation.
     # Imported lazily to avoid a circular import via chat_providers.
     from services.task_labeling import extract_task_id, schedule_auto_labels
     new_id = extract_task_id(result)
-    schedule_auto_labels(new_id, title, "")
+    schedule_auto_labels(new_id, title, description or "")
     return result
+
+
+async def _create_tasks_from_spec(spec_path: str) -> str:
+    """Break a spec document into tasks via the /api/specs/decompose endpoint.
+
+    Returns a summary of the created task IDs on success, or an actionable
+    error message if the spec path is invalid or the decompose call fails.
+    """
+    # Validate that the path is under docs/draft/ or docs/spec/ before
+    # hitting the network so the error message is more informative.
+    from pathlib import PurePosixPath
+    p = PurePosixPath(spec_path)
+    if ".." in p.parts:
+        return "Cannot decompose spec: path traversal not allowed."
+    if not (str(p).startswith("docs/draft/") or str(p).startswith("docs/spec/")):
+        return (
+            f"Cannot decompose spec: path must be under docs/draft/ or docs/spec/. "
+            f"Got: {spec_path}"
+        )
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30) as client:
+            resp = await client.post(
+                "https://127.0.0.1:8000/api/specs/decompose",
+                json={"path": spec_path},
+            )
+            if resp.status_code != 200:
+                try:
+                    detail = resp.json().get("detail", resp.text)
+                except Exception:
+                    detail = resp.text
+                return (
+                    f"Could not decompose spec (HTTP {resp.status_code}): {detail}. "
+                    "Make sure the spec file exists and has a title."
+                )
+            data = resp.json()
+            task_ids = data.get("task_ids", [])
+            raw_result = data.get("result", "")
+            if not task_ids:
+                return (
+                    f"Spec decomposed but no tasks were created. "
+                    f"ostk output: {raw_result}"
+                )
+            id_list = ", ".join(str(t) for t in task_ids)
+            return f"Created {len(task_ids)} task(s) from spec: {id_list}"
+    except Exception as e:
+        return (
+            f"Could not decompose spec: {e}. "
+            "The backend may be restarting. Wait a few seconds and try again."
+        )
+
+
+# Path where the most recent "build tasks from <file>" batch is recorded.
+# Used by build_from_recent_tasks to find the right set of tasks to
+# hand to Builder agents. Kept in ~/.myos so a repo checkout wipe does
+# not lose pending batches mid-demo.
+_LAST_BATCH_PATH = Path.home() / ".myos" / "last_task_batch.json"
+
+
+def _save_last_task_batch(file_path: str, task_ids: list[str]) -> None:
+    """Persist the most recent decomposition batch to disk.
+
+    Writing is best-effort: a failure logs nothing and returns silently
+    so the tool still reports success to the chat. The build_from_recent
+    tool falls back to "no recent batch" messaging when the file is
+    missing.
+    """
+    try:
+        _LAST_BATCH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "file_path": file_path,
+            "task_ids": list(task_ids),
+            "created_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+        }
+        _LAST_BATCH_PATH.write_text(json.dumps(payload, indent=2))
+    except Exception:
+        pass
+
+
+def _load_last_task_batch() -> Optional[dict[str, Any]]:
+    """Return the most recent batch record or None if no batch exists."""
+    try:
+        if not _LAST_BATCH_PATH.exists():
+            return None
+        return json.loads(_LAST_BATCH_PATH.read_text())
+    except Exception:
+        return None
+
+
+def _resolve_tasks_file(raw: str) -> Optional[Path]:
+    """Resolve a user-supplied file path to an absolute Path, or None.
+
+    Accepts three forms in priority order:
+      1. Absolute paths (``/tmp/x.md`` or ``~/.myos/files/roadmap.md``).
+      2. Bare filenames of files living in ``~/.myos/files/``, so the
+         demo phrasing "build tasks from the roadmap.md" works without
+         the user ever typing a path.
+      3. Workspace-relative paths resolved against the project root.
+    Returns None if nothing matches so the caller can surface a helpful
+    error instead of silently reading the wrong file.
+    """
+    if not raw or not raw.strip():
+        return None
+    stripped = raw.strip()
+    if stripped.startswith("file://"):
+        stripped = stripped[len("file://"):]
+
+    # Absolute or tilde paths take precedence.
+    if stripped.startswith("/") or stripped.startswith("~"):
+        direct = Path(stripped).expanduser().resolve()
+        if direct.exists() and direct.is_file():
+            return direct
+        return None
+
+    # Bare filename in ~/.myos/files (e.g. "roadmap.md" or "the roadmap.md").
+    filename_only = stripped.split("/")[-1]
+    myos_candidate = (Path.home() / ".myos" / "files" / filename_only).resolve()
+    if myos_candidate.exists() and myos_candidate.is_file():
+        return myos_candidate
+
+    # Workspace-relative fallback.
+    try:
+        workspace_candidate = (WORKSPACE / stripped).resolve()
+        if workspace_candidate.exists() and workspace_candidate.is_file():
+            return workspace_candidate
+    except Exception:
+        pass
+    return None
+
+
+async def _build_tasks_from_file(file_path: str) -> str:
+    """Read a markdown file and break it into tracked tasks.
+
+    Strategy: ask the model to split the document into one bullet per
+    task, then create each as a standalone ostk task. This avoids the
+    docs/spec/ path constraint of create_tasks_from_spec so files like
+    ~/.myos/files/roadmap.md work directly.
+
+    Returns a plain-language summary with the count and IDs. The same
+    IDs are stashed in ~/.myos/last_task_batch.json so
+    build_from_recent_tasks can pick them up on the next turn.
+    """
+    resolved = _resolve_tasks_file(file_path)
+    if resolved is None:
+        return (
+            f"Could not find a file at '{file_path}'. Try an absolute "
+            "path or drop the file into ~/.myos/files/ and reference it "
+            "by name."
+        )
+
+    try:
+        text = resolved.read_text(errors="replace")
+    except OSError as exc:
+        return f"Could not read {resolved}: {exc}"
+    if not text.strip():
+        return f"{resolved.name} is empty, nothing to break into tasks."
+
+    # Truncate very large files so the extraction call stays cheap.
+    if len(text) > 30_000:
+        text = text[:30_000] + "\n... (truncated)"
+
+    # Ask Claude to produce a JSON list of task titles. Falls back to
+    # a simple line-based parse if the API call fails so the demo
+    # still produces tasks.
+    titles: list[str] = []
+    try:
+        from services.chat_providers import _resolve_api_key
+        import anthropic
+        api_key = await _resolve_api_key("anthropic_api_key")
+        if api_key:
+            client = anthropic.AsyncAnthropic(api_key=api_key)
+            prompt = (
+                "You are a PM turning a plan into concrete trackable "
+                "tasks. Read the document and output ONLY a JSON array "
+                "of short task titles. Each title should be one action "
+                "(e.g. 'Build onboarding wizard'). No numbering, no "
+                "preamble, no markdown fences. Aim for 5 to 15 titles "
+                "depending on document size.\n\n"
+                f"Document:\n{text}"
+            )
+            resp = await client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1500,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = ""
+            for block in resp.content:
+                if getattr(block, "type", "") == "text":
+                    raw = block.text.strip()
+                    break
+            # Trim fences if the model added them despite instructions.
+            if raw.startswith("```"):
+                raw = raw.strip("`")
+                # Drop leading language tag like "json\n"
+                if "\n" in raw:
+                    raw = raw.split("\n", 1)[1]
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    titles = [str(t).strip() for t in parsed if str(t).strip()]
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Fallback: pull bullet/numbered lines as tasks.
+    if not titles:
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Strip bullet markers and numbering.
+            for marker in ("- ", "* ", "• "):
+                if stripped.startswith(marker):
+                    stripped = stripped[len(marker):].strip()
+                    break
+            # Strip "1. ", "2. ", etc.
+            import re as _re
+            stripped = _re.sub(r"^\d+[\.)]\s+", "", stripped)
+            # Skip headings, front matter, and code fences.
+            if not stripped or stripped.startswith("#") or stripped.startswith("```") or stripped.startswith("---"):
+                continue
+            if len(stripped) < 5 or len(stripped) > 200:
+                continue
+            titles.append(stripped)
+            if len(titles) >= 15:
+                break
+
+    # Run every extracted title through the same sanitizer the tasks
+    # router uses so trailing machine IDs, UUIDs, and pure-test
+    # patterns never leak into the user-facing list even when they
+    # were baked into the source markdown.
+    from routers.tasks import _sanitize_task_title, _reject_bad_title
+    cleaned_titles: list[str] = []
+    for raw in titles:
+        sanitized = _sanitize_task_title(raw)
+        if _reject_bad_title(sanitized):
+            continue
+        cleaned_titles.append(sanitized)
+    titles = cleaned_titles
+
+    if not titles:
+        return f"Could not extract any tasks from {resolved.name}."
+
+    # Idempotency: load current open tasks once and skip any title the
+    # user already has. Paired with the recent-delete tombstone cache so
+    # a spec-build retry loop (smoke test, Builder re-run, workflow
+    # step) cannot create duplicates OR resurrect tasks the user just
+    # deleted. Matches on normalized title so casing and whitespace do
+    # not defeat the guard.
+    from services import recent_deletes
+
+    def _norm(s: str) -> str:
+        import re as _re
+        return _re.sub(r"\s+", " ", (s or "").strip().lower())
+
+    existing_titles: set[str] = set()
+    existing_id_by_title: dict[str, str] = {}
+    try:
+        current = await ostk.list_tasks(status="open")
+        for t in current:
+            key = _norm(t.get("title") or "")
+            if key:
+                existing_titles.add(key)
+                existing_id_by_title.setdefault(key, str(t.get("id") or ""))
+    except Exception:
+        pass
+
+    created_ids: list[str] = []
+    reused_ids: list[str] = []
+    skipped_deleted: list[str] = []
+    for title in titles:
+        key = _norm(title)
+        # Skip titles the user just deleted. This closes the race
+        # where a smoke loop reads the same roadmap.md right after
+        # the user wiped the tasks from the UI.
+        if recent_deletes.is_recent(title):
+            skipped_deleted.append(title)
+            continue
+        # Reuse an existing open task with the same title. Same file,
+        # same headings, same tasks: we do not duplicate.
+        if key in existing_titles:
+            tid = existing_id_by_title.get(key)
+            if tid:
+                reused_ids.append(tid)
+            continue
+        try:
+            result = await ostk.add_task(title, "P1")
+            # ostk output format: "Added task →NNN: <title>" or similar.
+            from services.task_labeling import extract_task_id, schedule_auto_labels
+            tid = extract_task_id(result)
+            # If ostk just handed us back a task ID the user recently
+            # deleted (for example because issues.jsonl got rewritten
+            # from a backup or an older counter value got restored),
+            # roll the create back so we never resurrect a deleted id.
+            if tid and recent_deletes.is_id_recent(tid):
+                try:
+                    await ostk.delete_task(tid)
+                except Exception:
+                    pass
+                skipped_deleted.append(title)
+                continue
+            if tid:
+                created_ids.append(tid)
+                existing_titles.add(key)
+                existing_id_by_title[key] = tid
+                schedule_auto_labels(tid, title, "")
+        except Exception:
+            continue
+
+    # Store both newly-created and reused IDs so "build it" covers the
+    # full set of tasks from this file, not just the fresh ones.
+    batch_ids = created_ids + reused_ids
+    _save_last_task_batch(str(resolved), batch_ids)
+
+    parts: list[str] = []
+    if created_ids:
+        parts.append(f"Created {len(created_ids)} tasks ({', '.join(created_ids)})")
+    if reused_ids:
+        parts.append(f"reused {len(reused_ids)} existing ({', '.join(reused_ids)})")
+    if skipped_deleted:
+        parts.append(f"skipped {len(skipped_deleted)} recently deleted")
+    if not parts:
+        return f"No tasks created from {resolved.name} (all titles were either duplicates or recently deleted)."
+    summary = "; ".join(parts)
+    return (
+        f"{summary} from {resolved.name}. "
+        "Say 'build it' to spawn a Builder agent for each one."
+    )
+
+
+async def _build_from_recent_tasks() -> str:
+    """Spawn a Builder agent for every task in the last decomposition batch.
+
+    Uses the same Builder template that the spec Build flow uses so
+    quick-mode kicks in. Each agent is named ``build-<task_id>``.
+    Returns a plain summary with the count and agent names.
+    """
+    batch = _load_last_task_batch()
+    if not batch:
+        return (
+            "No recent task batch to build. Say 'build tasks from "
+            "<filename>' first, then 'build it' to execute them."
+        )
+
+    task_ids = list(batch.get("task_ids") or [])
+    if not task_ids:
+        return (
+            "The most recent batch has no task IDs. Re-run 'build tasks "
+            "from <filename>' to create tasks, then try 'build it' again."
+        )
+
+    # Pull current task titles so each agent gets a real instruction.
+    try:
+        tasks = await ostk.list_tasks()
+    except Exception:
+        tasks = []
+    title_by_id: dict[str, str] = {}
+    for t in tasks:
+        tid = str(t.get("id", "")).lstrip("\u2192")
+        if tid:
+            title_by_id[tid] = t.get("title", "") or ""
+
+    spawned: list[str] = []
+    failures: list[str] = []
+
+    import httpx
+    async with httpx.AsyncClient(verify=False, timeout=10) as client:
+        for raw_id in task_ids:
+            tid_stripped = str(raw_id).lstrip("\u2192")
+            title = title_by_id.get(tid_stripped) or str(raw_id)
+            agent_name = f"build-{tid_stripped}".lower().replace(" ", "-")
+            # Reuse the Builder template so it inherits quick_mode and
+            # the close-task instruction pattern.
+            prompt = (
+                f"Build task {raw_id}: {title}. When the work is done, "
+                f"close the task via "
+                f"curl -sSk --connect-timeout 3 -m 5 -X POST "
+                f"https://127.0.0.1:8000/api/tasks/{tid_stripped}/close"
+            )
+            try:
+                resp = await client.post(
+                    "https://127.0.0.1:8000/api/agents/spawn",
+                    json={
+                        "name": agent_name,
+                        "prompt": prompt,
+                        "model": "sonnet",
+                        "budget": 2.0,
+                        "template": "builder",
+                        "source": "chat-build-it",
+                        # Include the task title so the Agents page shows
+                        # what each build-<id> agent is actually working on
+                        # instead of the opaque internal name. The UI's
+                        # agentTitleParts helper uses this as the primary
+                        # row label.
+                        "task": (
+                            f"Build task {raw_id}: {title}"
+                            if title and title != str(raw_id)
+                            else f"Build task {raw_id}"
+                        ),
+                        # Demo cap: each Builder spawned by the chat
+                        # "build it" chain force-completes after 90
+                        # seconds so a multi-task batch lands inside the
+                        # demo window. Builder.agent already runs in
+                        # quick mode for the compact mailbox block.
+                        "demo_mode": True,
+                    },
+                )
+                if resp.status_code == 200:
+                    spawned.append(agent_name)
+                else:
+                    try:
+                        detail = resp.json().get("detail", resp.text)
+                    except Exception:
+                        detail = resp.text
+                    failures.append(f"{agent_name}: {detail}")
+            except Exception as exc:
+                failures.append(f"{agent_name}: {exc}")
+
+    if not spawned:
+        return (
+            f"Could not spawn any Builder agents. {'; '.join(failures)}"
+            if failures else "No agents were spawned."
+        )
+
+    msg = f"Started {len(spawned)} Builder agents: {', '.join(spawned)}."
+    if failures:
+        msg += f" {len(failures)} failed: {'; '.join(failures)}"
+    msg += " Watch progress on the Agents page."
+    return msg
 
 
 async def _close_task(task_id: str) -> str:
@@ -750,113 +1272,54 @@ async def _git_commit(message: str) -> str:
         return f"Git commit failed: {e}"
 
 
-async def _capture_idea(thought: str) -> str:
-    """File a stray thought as hay via ostk."""
-    cleaned = (thought or "").strip()
-    if not cleaned:
-        return "Error: empty idea text"
-    try:
-        result = await ostk.add_hay(cleaned)
-        return result or f"captured: {cleaned}"
-    except Exception as e:
-        return f"Failed to capture idea: {e}"
-
-
-async def _list_ideas() -> str:
-    """List all active ideas."""
-    try:
-        result = await ostk.list_hay(exclude_converted=True)
-        items = []
-        for cluster in result.get("clusters", []):
-            items.extend(cluster.get("items", []))
-        items.extend(result.get("unclustered", []))
-        if not items:
-            return "No active ideas."
-        return "Active ideas:\n" + "\n".join(f"- {item}" for item in items)
-    except Exception as e:
-        return f"Failed to list ideas: {e}"
-
-
-async def _list_converted_ideas() -> str:
-    """List ideas that have been converted to tasks."""
-    try:
-        converted = await ostk.list_converted_hay()
-        if not converted:
-            return "No converted ideas."
-        lines = []
-        for c in converted:
-            lines.append(f"- {c['straw']} (became task {c.get('task_id', '?')})")
-        return "Converted ideas:\n" + "\n".join(lines)
-    except Exception as e:
-        return f"Failed to list converted ideas: {e}"
-
-
-async def _delete_idea(straw: str) -> str:
-    """Delete an idea by exact text or partial match."""
-    cleaned = (straw or "").strip()
-    if not cleaned:
-        return "Error: empty idea text"
-    # Try exact match first
-    try:
-        result = await ostk.delete_hay(cleaned, include_converted=True)
-        return result
-    except Exception:
-        pass
-    # Try partial match against active ideas
-    try:
-        hay = await ostk.list_hay(exclude_converted=False)
-        all_items = []
-        for cluster in hay.get("clusters", []):
-            all_items.extend(cluster.get("items", []))
-        all_items.extend(hay.get("unclustered", []))
-        needle = cleaned.lower()
-        for item in all_items:
-            if needle in item.lower():
-                result = await ostk.delete_hay(item, include_converted=True)
-                return result
-    except Exception:
-        pass
-    # Try partial match against converted ideas
-    try:
-        converted = await ostk.list_converted_hay()
-        for c in converted:
-            if needle in c["straw"].lower():
-                result = await ostk.delete_converted_hay(c["straw"])
-                return result
-    except Exception:
-        pass
-    return f"Could not find an idea matching: {cleaned}"
-
-
 async def _check_agents() -> str:
-    """Check agent status via the API endpoint for consistency."""
-    try:
-        import httpx
-        async with httpx.AsyncClient() as client:
-            resp = await client.get("http://127.0.0.1:8000/api/agents", timeout=5)
-            data = resp.json()
+    """Check agent status via the API endpoint with retry on transient errors.
 
-        agents = data.get("agents", [])
-        if not agents:
-            return "No agents have been spawned yet."
+    Bug 3 fix: retries twice (100 ms then 300 ms back-off) so a server
+    reload window or TLS handshake reset does not surface as a user-visible
+    failure.
+    """
+    _RETRY_DELAYS = [0.1, 0.3]
+    last_exc: Optional[Exception] = None
+    for attempt, delay in enumerate([-1] + _RETRY_DELAYS):
+        if delay >= 0:
+            await asyncio.sleep(delay)
+        try:
+            import httpx
+            async with httpx.AsyncClient(verify=False) as client:
+                resp = await client.get(
+                    "https://127.0.0.1:8000/api/agents",
+                    timeout=5,
+                )
+                data = resp.json()
 
-        lines = []
-        for a in agents:
-            name = a.get("name", "unknown")
-            status = a.get("status", "unknown").upper()
-            model = a.get("model", "")
-            source = a.get("source", "")
-            lines.append(f"{name}: {status} (model: {model}, source: {source})")
+            agents = data.get("agents", [])
+            if not agents:
+                return "No agents have been spawned yet."
 
-        active = data.get("active", [])
-        if active:
-            lines.append(f"\nCurrently running: {', '.join(active)}")
-        else:
-            lines.append("\nNo agents currently running.")
+            lines = []
+            for a in agents:
+                name = a.get("name", "unknown")
+                status = a.get("status", "unknown").upper()
+                model = a.get("model", "")
+                source = a.get("source", "")
+                lines.append(f"{name}: {status} (model: {model}, source: {source})")
 
-        return "\n".join(lines)
-    except Exception as e:
-        return f"Failed to check agents: {e}"
+            active = data.get("active", [])
+            if active:
+                lines.append(f"\nCurrently running: {', '.join(active)}")
+            else:
+                lines.append("\nNo agents currently running.")
+
+            return "\n".join(lines)
+        except Exception as e:
+            last_exc = e
+            continue
+
+    return (
+        f"Could not reach the agents service after {len(_RETRY_DELAYS) + 1} tries: {last_exc}. "
+        "The backend may be restarting. Wait a few seconds and try again."
+    )
 
 
 async def _get_calendar_events() -> str:
@@ -1003,6 +1466,95 @@ async def _send_email(to: str, subject: str, body: str) -> str:
         return f"Could not send email: {exc}"
 
 
+async def _delete_emails(
+    query: Optional[str] = None,
+    ids: Optional[list[str]] = None,
+    confirm: bool = False,
+    permanent: bool = False,
+) -> str:
+    """Preview or execute a Gmail delete by query or id list.
+
+    Two step by design:
+      - If ``confirm`` is False, treat this as a preview: run the search,
+        return the matching message summaries plus a count, and do NOT
+        touch Gmail state.
+      - If ``confirm`` is True, move each id to Trash (or permanent delete
+        when ``permanent`` is True). Requires ``ids`` to be provided. This
+        forces the caller to echo back the ids it just showed the user, so
+        we cannot accidentally delete something the user did not see.
+    """
+    try:
+        from services.google_auth import is_authenticated
+        from services import gmail as gmail_service
+
+        if not is_authenticated():
+            return (
+                "Gmail is not connected. "
+                "Connect your Google account in Settings to delete emails."
+            )
+
+        # Preview path: return the list of matches with count. No writes.
+        if not confirm:
+            if not query:
+                return (
+                    "Cannot preview: provide a 'query' string (for example "
+                    "'from:amazon marketing') or pass confirm=true with an "
+                    "explicit list of ids."
+                )
+            try:
+                matches = await gmail_service.search_messages(query)
+            except Exception as exc:
+                return f"Could not search Gmail: {exc}"
+
+            if not matches:
+                return f"No messages matched '{query}'."
+
+            action = "permanently delete" if permanent else "move to Trash"
+            lines = [f"Found {len(matches)} messages matching '{query}'. Reply 'delete them' to {action}:"]
+            for msg in matches[:25]:
+                sender = msg.get("from_name") or msg.get("from_email") or "(unknown)"
+                subject = msg.get("subject") or "(no subject)"
+                lines.append(f"- [{msg.get('id')}] {sender}: {subject}")
+            if len(matches) > 25:
+                lines.append(f"... and {len(matches) - 25} more")
+            lines.append("")
+            lines.append(
+                "To confirm, call delete_emails again with confirm=true and ids=" +
+                str([m.get("id") for m in matches])
+            )
+            return "\n".join(lines)
+
+        # Confirm path: require explicit ids. No query fallback so we
+        # never expand a preview into a different set under the user.
+        if not ids:
+            return (
+                "Cannot delete: confirm=true requires an explicit list of "
+                "message ids. Run a preview first."
+            )
+
+        succeeded: list[str] = []
+        failed: list[tuple[str, str]] = []
+        for message_id in ids:
+            try:
+                if permanent:
+                    await gmail_service.permanent_delete_message(message_id)
+                else:
+                    await gmail_service.trash_message(message_id)
+                succeeded.append(message_id)
+            except Exception as exc:
+                failed.append((message_id, str(exc)))
+
+        verb = "permanently deleted" if permanent else "moved to Trash"
+        parts = [f"{len(succeeded)} messages {verb}."]
+        if failed:
+            parts.append(f"{len(failed)} failed:")
+            for message_id, reason in failed:
+                parts.append(f"- {message_id}: {reason}")
+        return "\n".join(parts)
+    except Exception as exc:
+        return f"Could not delete emails: {exc}"
+
+
 async def _upload_to_drive(filename: str, content: str) -> str:
     """Create a text file and upload it to the user's myOS Drive folder."""
     try:
@@ -1042,20 +1594,57 @@ async def _upload_to_drive(filename: str, content: str) -> str:
 
 
 async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
-    """Spawn a Claude Code subprocess as a background agent."""
+    """Spawn a Claude Code subprocess as a background agent.
+
+    Bug 3 fix: validates that name is non-empty (hyphens are allowed and
+    the API accepts them), validates that prompt is non-empty, and returns
+    a specific actionable error for each failure mode instead of the raw
+    exception message.
+    """
+    import re as _re
+
+    if not name or not name.strip():
+        return (
+            "Cannot spawn agent: 'name' is empty. "
+            "Provide a short identifier like 'api-spec' or 'roadmap-tasks'."
+        )
+    if not prompt or not prompt.strip():
+        return (
+            f"Cannot spawn agent '{name}': prompt is empty. "
+            "Provide a non-empty prompt describing what the agent should do."
+        )
+    # Names with spaces or special chars (other than hyphens and underscores)
+    # cause issues in the transcript filename and ostk tracking.
+    clean_name = name.strip()
+    if _re.search(r"[^a-zA-Z0-9_\-]", clean_name):
+        return (
+            f"Cannot spawn agent '{clean_name}': name must contain only letters, "
+            "numbers, hyphens, and underscores (e.g. 'api-spec' or 'roadmap_tasks')."
+        )
+
     try:
         # Use the API endpoint so it's tracked consistently
         import httpx
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False) as client:
             resp = await client.post(
-                "http://127.0.0.1:8000/api/agents/spawn",
-                json={"name": name, "prompt": prompt, "model": model, "budget": 2.0},
+                "https://127.0.0.1:8000/api/agents/spawn",
+                json={"name": clean_name, "prompt": prompt, "model": model, "budget": 2.0},
                 timeout=10,
             )
             if resp.status_code == 200:
                 data = resp.json()
-                return f"Agent '{name}' spawned and running (PID {data.get('pid', '?')}). Check the Agents page to monitor it."
+                return f"Agent '{clean_name}' spawned and running (PID {data.get('pid', '?')}). Check the Agents page to monitor it."
             else:
-                return f"Failed to spawn agent '{name}': {resp.text}"
+                try:
+                    detail = resp.json().get("detail", resp.text)
+                except Exception:
+                    detail = resp.text
+                return (
+                    f"Failed to spawn agent '{clean_name}' (HTTP {resp.status_code}): {detail}. "
+                    "Check the Agents page for details or try a different agent name."
+                )
     except Exception as e:
-        return f"Failed to spawn agent '{name}': {e}"
+        return (
+            f"Failed to spawn agent '{clean_name}': {e}. "
+            "The backend may be restarting. Wait a few seconds and try again."
+        )

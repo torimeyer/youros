@@ -12,18 +12,11 @@
   --color-team: #6366f1;
 }
 
-/* Dark theme (default) */
+/* Light theme (default). Dark only activates when data-theme="dark"
+   is explicitly set on the document element by Layout.tsx or the
+   OnboardingWizard. This prevents a dark flash during onboarding
+   when the user has not yet chosen a theme. */
 :root,
-[data-theme="dark"] {
-  --theme-bg: #020617;
-  --theme-text: #e2e8f0;
-  --theme-surface: rgba(15, 23, 42, 0.4);
-  --theme-surface-hover: #1e293b;
-  --theme-border: #1e293b;
-  --theme-text-muted: #94a3b8;
-  --theme-sidebar-bg: #020617;
-}
-
 [data-theme="light"] {
   --theme-bg: #f8fafc;
   --theme-text: #1e293b;
@@ -32,6 +25,16 @@
   --theme-border: #cbd5e1;
   --theme-text-muted: #64748b;
   --theme-sidebar-bg: #f1f5f9;
+}
+
+[data-theme="dark"] {
+  --theme-bg: #020617;
+  --theme-text: #e2e8f0;
+  --theme-surface: rgba(15, 23, 42, 0.4);
+  --theme-surface-hover: #1e293b;
+  --theme-border: #1e293b;
+  --theme-text-muted: #94a3b8;
+  --theme-sidebar-bg: #020617;
 }
 
 html, body {
@@ -167,6 +170,16 @@ body {
 
 .team-border {
   border-color: var(--color-team);
+}
+
+/* Chat bubble content: strip the top margin from the first rendered markdown
+   element (headings use mt-3) and the bottom margin from the last, so the
+   bubble padding is the only spacing at the edges. */
+.chat-bubble-content > :first-child {
+  margin-top: 0;
+}
+.chat-bubble-content > :last-child {
+  margin-bottom: 0;
 }
 
 /* Hide icon text until the Material Symbols font has loaded.

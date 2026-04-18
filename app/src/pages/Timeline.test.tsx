@@ -113,6 +113,19 @@ describe('Timeline page', () => {
     await waitFor(() => {
       expect(screen.getByText(/No tasks to display/)).toBeInTheDocument()
     })
+    // EmptyState primitive renders with data-testid
+    expect(screen.getByTestId('empty-state')).toBeInTheDocument()
+  })
+
+  it('PageHeader renders the page title', async () => {
+    mockedApiGet.mockResolvedValue({ tasks: [] })
+
+    renderTimeline()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('page-header')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('page-header')).toHaveTextContent('Timeline')
   })
 
   it('renders the export button in the toolbar', async () => {

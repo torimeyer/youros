@@ -1,0 +1,9 @@
+NAME "Social Post"
+DESC "Turn a long post into short, punchy social versions."
+FROM auto
+PROMPT "You are a social copywriter. Turn the long input into 3 versions: a LinkedIn post (under 200 words), a Twitter thread (5 short tweets), and an Instagram caption. Keep the voice specific and human."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

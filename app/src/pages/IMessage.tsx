@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
+import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
 import { api } from '../lib/api'
 
 interface Conversation {
@@ -14,6 +15,12 @@ interface Conversation {
   unread_count: number
 }
 
+interface Attachment {
+  filename: string
+  mime_type: string
+  transfer_name: string
+}
+
 interface Message {
   id: number
   text: string
@@ -21,6 +28,7 @@ interface Message {
   is_from_me: boolean
   is_read: boolean
   sender: string
+  attachments?: Attachment[]
 }
 
 interface SearchResult {
@@ -41,6 +49,9 @@ interface StatusResponse {
 
 // Seed from localStorage so the page paints immediately
 const IMESSAGE_CACHE_KEY = 'myos.imessageCache.v1'
+const IMESSAGE_CONNECTION_KEY = 'myos.imessageConnection.v1'
+
+type ConnectionState = 'loading' | 'connected' | 'not_connected'
 
 function readCache(): Conversation[] {
   try {
@@ -58,6 +69,26 @@ function writeCache(conversations: Conversation[]) {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return
     window.localStorage.setItem(IMESSAGE_CACHE_KEY, JSON.stringify(conversations))
+  } catch {
+    // Quota or serialization errors are not fatal.
+  }
+}
+
+function readConnectionCache(): ConnectionState {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return 'loading'
+    const raw = window.localStorage.getItem(IMESSAGE_CONNECTION_KEY)
+    if (raw === 'connected' || raw === 'not_connected') return raw
+    return 'loading'
+  } catch {
+    return 'loading'
+  }
+}
+
+function writeConnectionCache(state: 'connected' | 'not_connected') {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    window.localStorage.setItem(IMESSAGE_CONNECTION_KEY, state)
   } catch {
     // Quota or serialization errors are not fatal.
   }
@@ -84,12 +115,26 @@ function formatDate(dateStr: string): string {
 }
 
 export default function IMessage() {
-  const [status, setStatus] = useState<StatusResponse | null>(null)
+  const [connectionState, setConnectionState] = useState<ConnectionState>(() => readConnectionCache())
+  const [statusReason, setStatusReason] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>(() => readCache())
   const [loading, setLoading] = useState<boolean>(() => readCache().length === 0)
   const [selectedChat, setSelectedChat] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null)
+
+  // When a conversation opens or new messages load, jump to the bottom
+  // so the user sees the latest message first (iMessage native behavior).
+  useEffect(() => {
+    if (messagesLoading) return
+    const el = messagesScrollRef.current
+    if (!el) return
+    // Next frame so the message list is mounted before we scroll.
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight
+    })
+  }, [selectedChat, messages, messagesLoading])
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
@@ -99,6 +144,9 @@ export default function IMessage() {
   const [sendError, setSendError] = useState<string | null>(null)
   const [sendSuccess, setSendSuccess] = useState(false)
   const [replyText, setReplyText] = useState('')
+  const [replySending, setReplySending] = useState(false)
+  const [replyError, setReplyError] = useState<string | null>(null)
+  const [replySuccess, setReplySuccess] = useState(false)
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -129,12 +177,19 @@ export default function IMessage() {
     ;(async () => {
       try {
         const s = await api.get<StatusResponse>('/imessage/status')
-        setStatus(s)
         if (s.available) {
+          setConnectionState('connected')
+          writeConnectionCache('connected')
           await fetchConversations()
+        } else {
+          setStatusReason(s.reason ?? null)
+          setConnectionState('not_connected')
+          writeConnectionCache('not_connected')
         }
       } catch {
-        setStatus({ available: false, reason: 'Could not connect to the myOS backend. Make sure the backend is running, then refresh this page.' })
+        setStatusReason('Could not connect to the myOS backend. Make sure the backend is running, then refresh this page.')
+        setConnectionState('not_connected')
+        writeConnectionCache('not_connected')
       }
       setLoading(false)
     })()
@@ -148,7 +203,28 @@ export default function IMessage() {
     }
     setSelectedChat(chatId)
     setReplyText('')
+    setReplyError(null)
+    setReplySuccess(false)
     fetchMessages(chatId)
+  }
+
+  const handleReply = async (chatId: number, text: string) => {
+    if (!text) return
+    setReplySending(true)
+    setReplyError(null)
+    setReplySuccess(false)
+    try {
+      await api.post(`/imessage/conversations/${chatId}/reply`, { text })
+      setReplySuccess(true)
+      setReplyText('')
+      await fetchConversations()
+      await fetchMessages(chatId)
+      setTimeout(() => setReplySuccess(false), 3000)
+    } catch (err: unknown) {
+      setReplyError((err as Error)?.message || 'Failed to send the reply.')
+    } finally {
+      setReplySending(false)
+    }
   }
 
   const handleSearch = async () => {
@@ -198,51 +274,47 @@ export default function IMessage() {
 
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-3 sm:p-4 rounded-xl'
 
-  if (loading) {
+  if (connectionState === 'loading') {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="iMessage" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex items-center gap-2 text-slate-400">
-          <Icon name="progress_activity" size={20} className="animate-spin" />
-          Loading...
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <LoadingState variant="spinner" />
         </div>
       </div>
     )
   }
 
-  if (!status?.available) {
+  if (connectionState === 'not_connected') {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="iMessage" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl">
-            <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center mb-4">
-              <Icon name="chat_bubble" className="text-blue-400" size={24} />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">iMessage not available</h2>
-            <p className="text-slate-400 mb-4">
-              {status?.reason || 'iMessage integration requires macOS with Full Disk Access enabled.'}
-            </p>
-            {status?.reason?.includes('Full Disk Access') && (
-              <div className="bg-slate-800/50 p-4 rounded-lg text-sm text-slate-300">
-                <p className="font-medium mb-2">How to enable:</p>
-                <ol className="list-decimal list-inside space-y-1 text-slate-400">
-                  <li>Open System Settings</li>
-                  <li>Go to Privacy & Security</li>
-                  <li>Click Full Disk Access</li>
-                  <li>Enable access for your terminal app (Terminal, iTerm2, etc.)</li>
-                  <li>Restart the terminal and try again</li>
-                </ol>
-              </div>
-            )}
-          </div>
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <ConnectCard
+            icon="chat_bubble"
+            accentColor="#22c55e"
+            title="iMessage not available"
+            description={statusReason || 'iMessage integration requires macOS with Full Disk Access enabled.'}
+            primaryAction={
+              statusReason?.includes('Full Disk Access') ? (
+                <div className="bg-slate-800/50 p-4 rounded-xl text-sm text-slate-300 text-left w-full">
+                  <p className="font-medium mb-2">How to enable:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                    <li>Open System Settings</li>
+                    <li>Go to Privacy &amp; Security</li>
+                    <li>Click Full Disk Access</li>
+                    <li>Enable access for your terminal app (Terminal, iTerm2, etc.)</li>
+                    <li>Restart the terminal and try again</li>
+                  </ol>
+                </div>
+              ) : null
+            }
+          />
         </div>
       </div>
     )
   }
 
-  // Selected conversation detail view
-  const selectedConvo = conversations.find((c) => c.id === selectedChat)
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -301,7 +373,7 @@ export default function IMessage() {
               </h2>
             </div>
             {searchResults.length === 0 ? (
-              <p className="text-sm text-slate-500 py-4 text-center">No messages found.</p>
+              <p className="text-sm text-slate-500 py-4 text-center">No messages found</p>
             ) : (
               <div className="divide-y divide-slate-800/60">
                 {searchResults.map((r) => (
@@ -367,7 +439,7 @@ export default function IMessage() {
               </button>
             </div>
             {sendError && (
-              <p className="text-sm text-red-400">{sendError}</p>
+              <ErrorBanner message={sendError} />
             )}
             {sendSuccess && (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
@@ -385,11 +457,10 @@ export default function IMessage() {
             <h2 className="text-base font-semibold">Conversations</h2>
           </div>
 
-          {conversations.length === 0 ? (
-            <div className="text-center py-8 text-slate-500">
-              <Icon name="chat_bubble_outline" size={36} className="mb-2 mx-auto opacity-40" />
-              <p>No conversations found.</p>
-            </div>
+          {loading ? (
+            <LoadingState variant="spinner" message="Loading conversations..." />
+          ) : conversations.length === 0 ? (
+            <EmptyState icon="chat_bubble_outline" title="No conversations here yet." />
           ) : (
             <div className="divide-y divide-slate-800/60">
               {conversations.map((convo) => {
@@ -439,14 +510,14 @@ export default function IMessage() {
 
                     {isSelected && (
                       <div className="px-3 pb-3">
-                        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 max-h-96 overflow-y-auto">
+                        <div
+                          ref={messagesScrollRef}
+                          className="bg-slate-900 border border-slate-800 rounded-xl p-4 max-h-96 overflow-y-auto"
+                        >
                           {messagesLoading ? (
-                            <div className="flex items-center gap-2 text-slate-400 py-4 justify-center">
-                              <Icon name="progress_activity" size={16} className="animate-spin" />
-                              Loading messages...
-                            </div>
+                            <LoadingState variant="spinner" message="Loading messages..." />
                           ) : messages.length === 0 ? (
-                            <p className="text-sm text-slate-500 text-center py-4">No messages.</p>
+                            <p className="text-sm text-slate-500 text-center py-4">No messages yet</p>
                           ) : (
                             <div className="space-y-2">
                               {messages.map((msg) => (
@@ -461,7 +532,16 @@ export default function IMessage() {
                                         : 'bg-slate-800 text-slate-200'
                                     }`}
                                   >
-                                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                                    {msg.attachments?.filter(a => a.mime_type?.startsWith('image/')).map((att, i) => (
+                                      <img
+                                        key={i}
+                                        src={`/api/imessage/attachment?path=${encodeURIComponent(att.filename)}`}
+                                        alt={att.transfer_name || 'image'}
+                                        className="max-w-full rounded-lg mb-1"
+                                        loading="lazy"
+                                      />
+                                    ))}
+                                    {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
                                     <p className={`text-[10px] mt-1 ${msg.is_from_me ? 'text-blue-200' : 'text-slate-500'}`}>
                                       {formatDate(msg.date)}
                                     </p>
@@ -471,29 +551,46 @@ export default function IMessage() {
                             </div>
                           )}
 
-                          {/* Quick reply within conversation */}
-                          {selectedConvo && (
-                            <div className="mt-3 flex gap-2">
-                              <input
-                                type="text"
-                                placeholder="Reply..."
-                                value={replyText}
-                                onChange={(e) => setReplyText(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && !e.shiftKey && selectedConvo) {
-                                    e.preventDefault()
-                                    handleSend(selectedConvo.identifier, replyText)
-                                  }
-                                }}
-                                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                              />
-                              <button
-                                onClick={() => handleSend(selectedConvo.identifier, replyText)}
-                                disabled={sending || !replyText}
-                                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-colors disabled:opacity-50"
-                              >
+                        </div>
+
+                        {/* Reply form kept outside the scroll area so it stays visible */}
+                        <div className="mt-2 px-1">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Reply..."
+                              value={replyText}
+                              onChange={(e) => setReplyText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault()
+                                  handleReply(convo.id, replyText)
+                                }
+                              }}
+                              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                            />
+                            <button
+                              aria-label="Send reply"
+                              onClick={() => handleReply(convo.id, replyText)}
+                              disabled={replySending || !replyText}
+                              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-colors disabled:opacity-50"
+                            >
+                              {replySending ? (
+                                <Icon name="progress_activity" size={16} className="animate-spin" />
+                              ) : (
                                 <Icon name="send" size={16} />
-                              </button>
+                              )}
+                            </button>
+                          </div>
+                          {replyError && (
+                            <div className="mt-1">
+                              <ErrorBanner message={replyError} />
+                            </div>
+                          )}
+                          {replySuccess && (
+                            <div className="flex items-center gap-1 text-xs text-emerald-400 mt-1">
+                              <Icon name="check_circle" size={13} />
+                              Sent
                             </div>
                           )}
                         </div>

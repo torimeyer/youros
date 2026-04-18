@@ -19,14 +19,18 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import Icon from "../components/Icon";
 import TopBar from "../components/TopBar";
+import { LoadingState, EmptyState } from "../components/ui";
 import LabelsView from "../components/LabelsView";
 import HealthCheckView from "../components/HealthCheckView";
 import type { Label } from "../components/LabelsView";
 import { api } from "../lib/api";
+import { isSessionTask } from "../lib/tasks";
 import SharePopover from "../components/SharePopover";
 import ExportButton from "../components/ExportButton";
 import TasksAuditModal from "../components/TasksAuditModal";
 import RecurringTasksSection from "../components/RecurringTasksSection";
+import { FilterDrawer, type StatusFilter } from "./tasks/FilterDrawer";
+import ConfirmModal from "../components/ConfirmModal";
 
 interface Task {
   id: string;
@@ -44,6 +48,15 @@ interface Task {
   thread_id?: string | null;
   unblocks?: number;
   closed_reason?: "completed" | "duplicate" | "archived" | null;
+  // Claude Code session UUID this task is linked to. Populated by the
+  // backend for auto-filed session tasks (the session's own row) and
+  // for child tasks that were created during that session. null for
+  // tasks with no session link.
+  session_id?: string | null;
+  // How many tasks were created during this session. Only meaningful
+  // for the session's own row (session_id AND description starts with
+  // 'session-task:'). Always 0 for child tasks.
+  child_task_count?: number;
 }
 
 // A task is "active" (shown under the Open tab and counted in the
@@ -55,6 +68,7 @@ interface Task {
 function isActiveTask(t: { status: string }): boolean {
   return t.status !== "closed" && t.status !== "shelved";
 }
+
 
 interface Thread {
   id: string;
@@ -137,8 +151,6 @@ const priorityDotColors: Record<string, string> = {
 };
 
 const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
-
-type StatusFilter = "open" | "closed" | "week" | "recurring" | "shelved";
 
 // First-paint cache (needle 299).
 //
@@ -258,6 +270,38 @@ export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  // Session tasks (auto-filed by the SessionStart hook) are hidden by default.
+  // The user can toggle this to show them when needed, but the preference
+  // lives in sessionStorage so reloading the page (or opening a new tab)
+  // resets back to hidden. Tori asked for this so background sessions never
+  // pile up as visible duplicates after a reload. See needle for
+  // hide-session-tasks-hard.
+  const [hideSessionTasks, setHideSessionTasks] = useState<boolean>(() => {
+    try {
+      if (typeof window === "undefined" || !window.sessionStorage) return true;
+      const raw = window.sessionStorage.getItem("myos.tasks.showSessionTasks");
+      // Stored value "1" means user explicitly flipped sessions ON during
+      // THIS browser tab session. Anything else (missing, "0", malformed)
+      // means hide.
+      return raw !== "1";
+    } catch {
+      return true;
+    }
+  });
+  // Persist the toggle in sessionStorage so a deliberate flip survives an
+  // in-tab navigation. A full reload clears sessionStorage and the
+  // useState initializer above resets hidden to true.
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined" || !window.sessionStorage) return;
+      window.sessionStorage.setItem(
+        "myos.tasks.showSessionTasks",
+        hideSessionTasks ? "0" : "1",
+      );
+    } catch {
+      // Quota or privacy mode failure: skip persistence, keep behavior.
+    }
+  }, [hideSessionTasks]);
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [banner, setBanner] = useState<string | null>(null);
   const [openPriorityDropdown, setOpenPriorityDropdown] = useState<string | null>(null);
@@ -301,6 +345,11 @@ export default function Tasks() {
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<{ ok: boolean; created: number; errors: string[] } | null>(null);
   const [importFields, setImportFields] = useState<Record<string, string>>({});
+  const [showFilters, setShowFilters] = useState(false);
+  const [showOverflowMenu, setShowOverflowMenu] = useState(false);
+  const overflowMenuRef = useRef<HTMLDivElement | null>(null);
+  const [deleteAllConfirmOpen, setDeleteAllConfirmOpen] = useState(false);
+  const [deleteAllLoading, setDeleteAllLoading] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
@@ -480,12 +529,15 @@ export default function Tasks() {
 
     // Make sure the task is visible under the current status filter. If the
     // focused task is closed or shelved but the current filter hides it, switch.
-    if (match.status === "closed" && statusFilter !== "closed") {
-      setStatusFilter("closed");
-    } else if (match.status === "shelved" && statusFilter !== "shelved") {
-      setStatusFilter("shelved");
-    } else if (isActiveTask(match) && statusFilter === "closed") {
-      setStatusFilter("open");
+    // "all" shows everything, so no switch needed.
+    if (statusFilter !== "all") {
+      if (match.status === "closed" && statusFilter !== "closed") {
+        setStatusFilter("closed");
+      } else if (match.status === "shelved" && statusFilter !== "shelved") {
+        setStatusFilter("shelved");
+      } else if (isActiveTask(match) && statusFilter === "closed") {
+        setStatusFilter("open");
+      }
     }
 
     // Clear any priority / label / thread filter that would hide the task.
@@ -543,6 +595,18 @@ export default function Tasks() {
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
   }, [openPriorityDropdown, openLabelDropdown, openLinkDropdown, openThreadDropdown, openActionMenu]);
+
+  // Overflow menu closes on outside click.
+  useEffect(() => {
+    if (!showOverflowMenu) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      if (overflowMenuRef.current && !overflowMenuRef.current.contains(e.target as Node)) {
+        setShowOverflowMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [showOverflowMenu]);
 
   // "What is comprehensive build?" help popover closes on outside click
   // and on Escape. Uses a ref so clicks inside the popover itself do
@@ -863,24 +927,6 @@ export default function Tasks() {
     }
   };
 
-  const breakIntoTasks = async (taskId: string) => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    setActionLoading(taskId);
-    try {
-      await api.post("/ideas/convert", { straw: task.title });
-      setBanner(`"${task.title}" broken into tasks.`);
-      setTimeout(() => setBanner(null), 4000);
-      await fetchTasks();
-    } catch (e) {
-      console.error("Failed to break into tasks:", e);
-      setBanner("Could not break this task down. Please try again.");
-      setTimeout(() => setBanner(null), 4000);
-    } finally {
-      setActionLoading(null);
-      setOpenActionMenu(null);
-    }
-  };
 
   const toggleTaskSelection = (taskId: string) => {
     setSelectedTaskIds((prev) => {
@@ -896,7 +942,7 @@ export default function Tasks() {
 
   // Bulk Implement all defaults to the comprehensive build pattern.
   // One button, not two, matches the per-row menu default. See needle 295.
-  const bulkAction = async (mode: "plan" | "implement" | "break") => {
+  const bulkAction = async (mode: "plan" | "implement") => {
     const ids = Array.from(selectedTaskIds);
     if (ids.length === 0) return;
     setActionLoading("bulk");
@@ -906,8 +952,6 @@ export default function Tasks() {
           await spawnAgentForTask(id, "plan");
         } else if (mode === "implement") {
           await spawnAgentForTask(id, "comprehensive");
-        } else {
-          await breakIntoTasks(id);
         }
       }
       setSelectedTaskIds(new Set());
@@ -1020,6 +1064,49 @@ export default function Tasks() {
     navigator.clipboard.writeText(text).catch(console.error);
   };
 
+  const executeDeleteAll = async () => {
+    setDeleteAllLoading(true);
+    setDeleteAllConfirmOpen(false);
+
+    // Build the filter body matching what is currently visible on screen.
+    const body: {
+      status: string;
+      priority?: string[];
+      labels?: string[];
+    } = { status: "all" };
+
+    if (statusFilter === "open") {
+      body.status = "open";
+    } else if (statusFilter === "closed") {
+      body.status = "closed";
+    }
+    // "week" and "shelved" are client-side sub-filters of open; pass "open"
+    // so the backend deletes only open tasks and let the count speak for itself.
+    else if (statusFilter === "week" || statusFilter === "shelved") {
+      body.status = "open";
+    }
+
+    if (priorityFilter) {
+      body.priority = [priorityFilter];
+    }
+    if (labelFilter) {
+      body.labels = [labelFilter];
+    }
+
+    // Optimistically clear the visible list immediately.
+    setTasks((prev) => prev.filter((t) => !filteredTasks.some((ft) => ft.id === t.id)));
+
+    try {
+      await api.post("/tasks/delete-all", body);
+    } catch (e) {
+      console.error("Failed to delete all tasks:", e);
+    } finally {
+      setDeleteAllLoading(false);
+      // Refetch to reconcile any divergence.
+      fetchTasks();
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       addTask();
@@ -1069,7 +1156,14 @@ export default function Tasks() {
     filteredTasks = filteredTasks.filter((t) => t.thread_id === threadFilter);
   }
 
-  const openCount = tasks.filter(isActiveTask).length;
+  if (hideSessionTasks) {
+    filteredTasks = filteredTasks.filter((t) => !isSessionTask(t));
+  }
+
+  // Unfiltered counts used by the FilterDrawer status badge pills so the
+  // user can see how many tasks live in each status bucket before choosing
+  // one. These deliberately ignore priority/label/thread filters.
+  const openCount = tasks.filter((t) => isActiveTask(t) && (hideSessionTasks ? !isSessionTask(t) : true)).length;
   const closedCount = tasks.filter((t) => t.status === "closed").length;
   const shelvedCount = tasks.filter((t) => t.status === "shelved").length;
   const weekCount = tasks.filter((t) => isActiveTask(t) && isThisWeek(t.created_at)).length;
@@ -1085,6 +1179,40 @@ export default function Tasks() {
     week: weekCount,
   };
 
+  // The footer counter must match what is VISIBLE in the list. filteredTasks
+  // already has every active filter applied (status, priority, label, thread,
+  // session hide). Use it as the source of truth for the displayed count.
+  const visibleCount = filteredTasks.length;
+
+  // Whether any secondary filter (priority / label / thread) is narrowing the
+  // result further. Used to show "0 match · Clear filters" when the user has
+  // filters set but nothing is visible.
+  const hasSecondaryFilter = Boolean(priorityFilter || labelFilter || threadFilter);
+  const filtersHidingAllTasks =
+    statusFilter === "open" &&
+    hasSecondaryFilter &&
+    visibleCount === 0 &&
+    openCount > 0;
+
+  // How many open tasks are session tasks (hidden by default). Used to show an
+  // inline nudge when session-hiding is the only reason the list is empty.
+  const hiddenSessionCount = tasks.filter(
+    (t) => isActiveTask(t) && isSessionTask(t)
+  ).length;
+  // True when the open tab is showing and sessions are the only reason there are
+  // no visible tasks. Fires regardless of secondary filters.
+  const sessionHidingAllTasks =
+    statusFilter === "open" &&
+    visibleCount === 0 &&
+    hiddenSessionCount > 0 &&
+    hideSessionTasks;
+
+  const clearAllFilters = () => {
+    setPriorityFilter(null);
+    setLabelFilter(null);
+    setThreadFilter(null);
+  };
+
   const priorityCounts: Record<string, number> = {
     P0: p0Count,
     P1: p1Count,
@@ -1092,10 +1220,14 @@ export default function Tasks() {
     P3: p3Count,
   };
 
-  const statusFilterClass = (f: StatusFilter) =>
-    statusFilter === f
-      ? "px-3 py-1 rounded-md bg-slate-800 text-white font-medium flex items-center gap-1.5"
-      : "px-3 py-1 rounded-md text-slate-400 hover:text-slate-300 flex items-center gap-1.5";
+  // Count how many non-default filters are active for the "Filters" pill badge.
+  // statusFilter "open" is the default, so only non-open status counts.
+  const activeFilterCount =
+    (statusFilter !== "open" ? 1 : 0) +
+    (priorityFilter ? 1 : 0) +
+    (labelFilter ? 1 : 0) +
+    (threadFilter ? 1 : 0) +
+    (!hideSessionTasks ? 1 : 0);
 
   /** Render dependency pills showing what blocks/depends-on this task */
   const renderDependencyPills = (task: Task) => {
@@ -1344,112 +1476,148 @@ export default function Tasks() {
           </div>
         )}
 
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl sm:text-2xl font-bold">Tasks</h1>
-              <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
-                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                LIVE
-              </span>
-            </div>
-            <div className="flex items-center gap-4 text-sm">
-              <button
-                onClick={() => setActiveTab("tasks")}
-                className={activeTab === "tasks"
-                  ? "text-blue-400 border-b-2 border-blue-400 pb-1 font-medium"
-                  : "text-slate-400 pb-1 hover:text-slate-300"}
-              >
-                Tasks
-              </button>
-              <button
-                onClick={() => setActiveTab("labels")}
-                className={activeTab === "labels"
-                  ? "text-blue-400 border-b-2 border-blue-400 pb-1 font-medium"
-                  : "text-slate-400 pb-1 hover:text-slate-300"}
-              >
-                Labels
-              </button>
-              <button
-                onClick={() => setActiveTab("health")}
-                className={activeTab === "health"
-                  ? "text-blue-400 border-b-2 border-blue-400 pb-1 font-medium"
-                  : "text-slate-400 pb-1 hover:text-slate-300"}
-              >
-                Health
-              </button>
-            </div>
+        {/* Primary toolbar: one tight row */}
+        <div className="flex items-center gap-2 mb-3 flex-wrap" data-testid="primary-toolbar">
+          {/* Title + LIVE */}
+          <h1 data-testid="page-header" className="text-xl sm:text-2xl font-bold">Tasks</h1>
+          <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full" data-testid="live-badge">
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            LIVE
+          </span>
+
+          {/* View tabs */}
+          <div className="flex items-center gap-3 text-sm ml-2 mr-auto">
+            <button onClick={() => setActiveTab("tasks")} className={activeTab === "tasks" ? "text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-400 pb-0.5 hover:text-slate-300"}>Tasks</button>
+            <button onClick={() => setActiveTab("labels")} className={activeTab === "labels" ? "text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-400 pb-0.5 hover:text-slate-300"}>Labels</button>
+            <button onClick={() => setActiveTab("health")} className={activeTab === "health" ? "text-blue-400 border-b-2 border-blue-400 pb-0.5 font-medium" : "text-slate-400 pb-0.5 hover:text-slate-300"}>Health</button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleNext}
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700 min-h-[44px]"
-            >
-              <Icon name="auto_awesome" className="text-amber-400 text-base" />
-              <span className="hidden sm:inline">What should I do next?</span>
-              <span className="sm:hidden">Next?</span>
-            </button>
-            <button
-              data-testid="label-all-btn"
-              onClick={labelAllTasks}
-              disabled={labelAllLoading}
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm px-3 py-1.5 rounded-lg border border-slate-700 min-h-[44px]"
-              title="Auto-label all unlabeled tasks"
-            >
-              {labelAllLoading ? (
-                <Icon name="hourglass_empty" className="text-purple-400 text-base animate-spin" />
-              ) : (
-                <Icon name="label" className="text-purple-400 text-base" />
-              )}
-              <span className="hidden sm:inline">{labelAllLoading ? "Labeling..." : "Label all"}</span>
-            </button>
-            {labelAllResult && (
-              <span className="text-xs text-purple-300 bg-purple-500/10 px-2 py-1 rounded-md border border-purple-500/30">
-                {labelAllResult}
+          {/* Primary AI action */}
+          <button
+            onClick={handleNext}
+            data-testid="what-should-i-do-next"
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sm px-3 py-1.5 rounded-lg border border-slate-700 shrink-0"
+          >
+            <Icon name="auto_awesome" className="text-amber-400 text-base" />
+            <span className="hidden sm:inline">What should I do next?</span>
+            <span className="sm:hidden">Next?</span>
+          </button>
+
+          {/* Filters pill */}
+          <button
+            onClick={() => setShowFilters((v) => !v)}
+            data-testid="filters-pill"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors shrink-0 ${
+              showFilters || activeFilterCount > 0
+                ? "bg-blue-500/20 border-blue-500/40 text-blue-300"
+                : "bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-300"
+            }`}
+          >
+            <Icon name="filter_list" className="text-sm" />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="bg-blue-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-medium">
+                {activeFilterCount}
               </span>
             )}
+          </button>
+
+          {/* Overflow menu */}
+          <div className="relative" ref={overflowMenuRef}>
             <button
-              onClick={copyTaskList}
-              className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700"
-              title="Copy task list"
+              onClick={() => setShowOverflowMenu((v) => !v)}
+              data-testid="overflow-menu-trigger"
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 text-slate-400"
+              title="More actions"
             >
-              <Icon name="content_copy" className="text-slate-400 text-base" />
+              <Icon name="more_horiz" className="text-base" />
             </button>
-            <div className="relative">
-              <button
-                onClick={() => setShowTaskSharePopover((v) => !v)}
-                className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700"
-                title="Share this view"
+            {showOverflowMenu && (
+              <div
+                data-testid="overflow-menu"
+                className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-1 min-w-[180px]"
+                onClick={(e) => e.stopPropagation()}
               >
-                <Icon name="share" className="text-slate-400 text-base" />
-              </button>
-              {showTaskSharePopover && (
-                <SharePopover
-                  shareType="task_list"
-                  contentIds={filteredTasks.map((t) => t.id)}
-                  title={statusFilter === "open" ? "Open tasks" : statusFilter === "closed" ? "Closed tasks" : statusFilter === "shelved" ? "Paused tasks" : "Tasks this week"}
-                  onClose={() => setShowTaskSharePopover(false)}
-                />
-              )}
-            </div>
-            <ExportButton
-              contentLabel="tasks"
-              buildUrl={(format) => {
-                const exportStatus = statusFilter === "closed" ? "closed" : "open";
-                return `/api/export/tasks?format=${format}&status=${exportStatus}`;
-              }}
-            />
-            <button
-              onClick={() => { setImportModalOpen(true); setImportResult(null); setImportFields({}); }}
-              className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700"
-              title="Import from Linear or Jira"
-            >
-              <Icon name="download" className="text-slate-400 text-base" />
-            </button>
+                <button
+                  data-testid="label-all-btn"
+                  onClick={() => { setShowOverflowMenu(false); labelAllTasks(); }}
+                  disabled={labelAllLoading}
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300 disabled:opacity-50"
+                >
+                  {labelAllLoading ? <Icon name="hourglass_empty" className="text-purple-400 text-sm animate-spin" /> : <Icon name="label" className="text-purple-400 text-sm" />}
+                  {labelAllLoading ? "Labeling..." : "Label all"}
+                </button>
+                <button
+                  onClick={() => { setShowOverflowMenu(false); setImportModalOpen(true); setImportResult(null); setImportFields({}); }}
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                  data-testid="overflow-import"
+                >
+                  <Icon name="download" className="text-slate-400 text-sm" />
+                  Import
+                </button>
+                <button
+                  onClick={() => { setShowOverflowMenu(false); setShowTaskSharePopover((v) => !v); }}
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                  data-testid="overflow-share"
+                >
+                  <Icon name="share" className="text-slate-400 text-sm" />
+                  Share
+                </button>
+                <div className="px-3 py-1">
+                  <ExportButton
+                    contentLabel="tasks"
+                    buildUrl={(format) => {
+                      const exportStatus = statusFilter === "closed" ? "closed" : "open";
+                      return `/api/export/tasks?format=${format}&status=${exportStatus}`;
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={() => { setShowOverflowMenu(false); copyTaskList(); }}
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
+                  data-testid="overflow-copy"
+                >
+                  <Icon name="content_copy" className="text-slate-400 text-sm" />
+                  Copy list
+                </button>
+                <div className="border-t border-slate-700 my-1" />
+                <button
+                  onClick={() => { setShowOverflowMenu(false); setAuditModalOpen(true); }}
+                  data-testid="tasks-audit-button"
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-700 transition-colors text-blue-300"
+                >
+                  <Icon name="fact_check" className="text-blue-400 text-sm" />
+                  Audit for review
+                </button>
+                <div className="border-t border-slate-700 my-1" />
+                <button
+                  onClick={() => { setShowOverflowMenu(false); setDeleteAllConfirmOpen(true); }}
+                  data-testid="overflow-delete-all"
+                  disabled={deleteAllLoading || filteredTasks.length === 0}
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-red-900/40 transition-colors text-red-400 disabled:opacity-40"
+                >
+                  <Icon name="delete_sweep" className="text-red-400 text-sm" />
+                  {deleteAllLoading ? "Deleting..." : "Delete all"}
+                </button>
+              </div>
+            )}
+            {showTaskSharePopover && (
+              <SharePopover
+                shareType="task_list"
+                contentIds={filteredTasks.map((t) => t.id)}
+                title={statusFilter === "open" ? "Open tasks" : statusFilter === "all" ? "All tasks" : statusFilter === "closed" ? "Closed tasks" : statusFilter === "shelved" ? "Paused tasks" : "Tasks this week"}
+                onClose={() => setShowTaskSharePopover(false)}
+              />
+            )}
           </div>
         </div>
+
+        {/* Label all result toast */}
+        {labelAllResult && (
+          <div className="mb-2 text-xs text-purple-300 bg-purple-500/10 px-3 py-1.5 rounded-md border border-purple-500/30 inline-block">
+            {labelAllResult}
+          </div>
+        )}
 
         {activeTab === "health" ? (
           <HealthCheckView />
@@ -1594,140 +1762,101 @@ export default function Tasks() {
               </button>
             </div>
 
-            {/* Filters */}
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-              <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
-                <div className="flex items-center gap-1 text-sm">
-                  {(["open", "closed", "shelved", "week"] as StatusFilter[]).map((f) => (
-                    <button key={f} className={statusFilterClass(f)} onClick={() => setStatusFilter(f)}>
-                      {f === "week" ? "This week" : f === "shelved" ? "Paused" : f.charAt(0).toUpperCase() + f.slice(1)}
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                        statusFilter === f ? "bg-blue-500/30 text-blue-300" : "bg-slate-700 text-slate-500"
-                      }`}>
-                        {filterCounts[f]}
-                      </span>
-                    </button>
-                  ))}
-                  <button className={statusFilterClass("recurring")} onClick={() => setStatusFilter("recurring")}>
-                    Recurring
-                  </button>
-                </div>
+            {/* Collapsible filter drawer */}
+            <FilterDrawer
+              open={showFilters}
+              statusFilter={statusFilter}
+              priorityFilter={priorityFilter}
+              labelFilter={labelFilter}
+              threadFilter={threadFilter}
+              hideSessionTasks={hideSessionTasks}
+              viewMode={viewMode}
+              labels={labels}
+              threads={threads}
+              filterCounts={filterCounts}
+              priorityCounts={priorityCounts}
+              onStatusChange={setStatusFilter}
+              onPriorityChange={setPriorityFilter}
+              onLabelChange={setLabelFilter}
+              onThreadChange={setThreadFilter}
+              onSessionToggle={() => setHideSessionTasks((v) => !v)}
+              onViewModeChange={setViewMode}
+              onClose={() => setShowFilters(false)}
+            />
 
-                <div className="hidden sm:block w-px h-5 bg-slate-800" />
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  {PRIORITIES.map((p) => (
+            {/* Active filter chips (visible when drawer is closed) */}
+            {!showFilters && (activeFilterCount > 0 || statusFilter === "open" || statusFilter === "all") && (
+              <div className="flex items-center gap-2 mb-3 flex-wrap" data-testid="active-filter-chips">
+                {statusFilter === "open" && (
+                  <span
+                    data-testid="status-chip-open"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                  >
+                    Open only
                     <button
-                      key={p}
-                      onClick={() => setPriorityFilter(priorityFilter === p ? null : p)}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                        priorityFilter === p
-                          ? `${priorityStyles[p]} ring-1 ring-white/30`
-                          : `${priorityStyles[p]} opacity-60 hover:opacity-100`
-                      }`}
+                      onClick={() => setStatusFilter("all")}
+                      className="hover:text-white ml-0.5"
+                      aria-label="Show all tasks"
+                      data-testid="status-chip-clear"
                     >
-                      <span className={`w-2 h-2 rounded-full ${priorityDotColors[p]}`} />
-                      {p} <span className="opacity-70">{priorityCounts[p]}</span>
+                      <Icon name="close" className="text-[10px]" />
                     </button>
-                  ))}
-                </div>
-
-                {/* Label filter chips */}
-                {labels.length > 0 && (
-                  <>
-                    <div className="hidden sm:block w-px h-5 bg-slate-800" />
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {labels.map((label) => (
-                        <button
-                          key={label.id}
-                          onClick={() => setLabelFilter(labelFilter === label.id ? null : label.id)}
-                          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all ${
-                            labelFilter === label.id
-                              ? "ring-1 ring-white/30"
-                              : "opacity-60 hover:opacity-100"
-                          }`}
-                          style={{
-                            backgroundColor: label.color + "20",
-                            color: label.color,
-                          }}
-                        >
-                          <span
-                            className="w-2 h-2 rounded-full"
-                            style={{ backgroundColor: label.color }}
-                          />
-                          {label.name}
-                        </button>
-                      ))}
-                      {labelFilter && (
-                        <button
-                          onClick={() => setLabelFilter(null)}
-                          className="text-xs text-slate-500 hover:text-slate-300 px-1"
-                          title="Clear label filter"
-                        >
-                          <Icon name="close" className="text-sm" />
-                        </button>
-                      )}
-                    </div>
-                  </>
+                  </span>
                 )}
-
-                {/* Thread (group) filter chips */}
-                {threads.length > 0 && (
-                  <>
-                    <div className="w-px h-5 bg-slate-800" />
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {threads.map((thread) => (
-                        <button
-                          key={thread.id}
-                          onClick={() => setThreadFilter(threadFilter === thread.id ? null : thread.id)}
-                          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all bg-teal-500/20 text-teal-400 ${
-                            threadFilter === thread.id
-                              ? "ring-1 ring-white/30"
-                              : "opacity-60 hover:opacity-100"
-                          }`}
-                        >
-                          <Icon name="folder" className="text-[10px]" />
-                          {thread.name}
-                        </button>
-                      ))}
-                      {threadFilter && (
-                        <button
-                          onClick={() => setThreadFilter(null)}
-                          className="text-xs text-slate-500 hover:text-slate-300 px-1"
-                          title="Clear group filter"
-                        >
-                          <Icon name="close" className="text-sm" />
-                        </button>
-                      )}
-                    </div>
-                  </>
+                {statusFilter === "all" && (
+                  <span
+                    data-testid="status-chip-all"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-slate-700 text-slate-200 border border-slate-600"
+                  >
+                    All tasks
+                    <button
+                      onClick={() => setStatusFilter("open")}
+                      className="hover:text-white ml-0.5"
+                      aria-label="Show open tasks only"
+                      data-testid="status-chip-reset-open"
+                    >
+                      <Icon name="close" className="text-[10px]" />
+                    </button>
+                  </span>
+                )}
+                {statusFilter !== "open" && statusFilter !== "all" && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                    {statusFilter === "week" ? "This week" : statusFilter === "shelved" ? "Paused" : statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
+                    <button onClick={() => setStatusFilter("open")} className="hover:text-white ml-0.5" aria-label="Clear status filter"><Icon name="close" className="text-[10px]" /></button>
+                  </span>
+                )}
+                {priorityFilter && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-slate-800 border border-slate-700 text-slate-300">
+                    {priorityFilter}
+                    <button onClick={() => setPriorityFilter(null)} className="hover:text-white ml-0.5" aria-label="Clear priority filter"><Icon name="close" className="text-[10px]" /></button>
+                  </span>
+                )}
+                {labelFilter && (() => {
+                  const lbl = labels.find((l) => l.id === labelFilter);
+                  return lbl ? (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border" style={{ backgroundColor: lbl.color + "20", color: lbl.color, borderColor: lbl.color + "40" }}>
+                      {lbl.name}
+                      <button onClick={() => setLabelFilter(null)} className="hover:opacity-70 ml-0.5" aria-label="Clear label filter"><Icon name="close" className="text-[10px]" /></button>
+                    </span>
+                  ) : null;
+                })()}
+                {threadFilter && (() => {
+                  const th = threads.find((t) => t.id === threadFilter);
+                  return th ? (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                      <Icon name="folder" className="text-[10px]" />{th.name}
+                      <button onClick={() => setThreadFilter(null)} className="hover:text-white ml-0.5" aria-label="Clear group filter"><Icon name="close" className="text-[10px]" /></button>
+                    </span>
+                  ) : null;
+                })()}
+                {!hideSessionTasks && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-slate-700 text-slate-300 border border-slate-600">
+                    Sessions shown
+                    <button onClick={() => setHideSessionTasks(true)} className="hover:text-white ml-0.5" aria-label="Clear sessions filter"><Icon name="close" className="text-[10px]" /></button>
+                  </span>
                 )}
               </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setAuditModalOpen(true)}
-                  data-testid="tasks-audit-button"
-                  className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 text-xs rounded-lg border border-blue-500/30"
-                  title="Review every open task. Nothing closes until you say so."
-                >
-                  <Icon name="fact_check" className="text-sm" />
-                  Audit for review
-                </button>
-                <button
-                  onClick={() => setViewMode("list")}
-                  className={`p-1.5 ${viewMode === "list" ? "text-slate-400" : "text-slate-600"} hover:text-white`}
-                >
-                  <Icon name="view_list" className="text-lg" />
-                </button>
-                <button
-                  onClick={() => setViewMode("grid")}
-                  className={`p-1.5 ${viewMode === "grid" ? "text-slate-400" : "text-slate-600"} hover:text-white`}
-                >
-                  <Icon name="grid_view" className="text-lg" />
-                </button>
-              </div>
-            </div>
+            )}
 
             {/* Bulk action bar */}
             {selectedTaskIds.size > 0 && (
@@ -1751,14 +1880,6 @@ export default function Tasks() {
                   >
                     <Icon name="code" className="text-sm" />
                     Implement all
-                  </button>
-                  <button
-                    onClick={() => bulkAction("break")}
-                    disabled={actionLoading === "bulk"}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs rounded-lg border border-amber-500/30 disabled:opacity-50"
-                  >
-                    <Icon name="call_split" className="text-sm" />
-                    Break all into tasks
                   </button>
                   <button
                     onClick={() => setSelectedTaskIds(new Set())}
@@ -1785,20 +1906,42 @@ export default function Tasks() {
             >
             <div className={viewMode === "grid" ? "grid grid-cols-2 lg:grid-cols-3 gap-2" : "flex flex-col gap-2"}>
               {loading && tasks.length === 0 && (
-                <p className="text-sm text-slate-500 py-4">Loading tasks...</p>
+                <LoadingState variant="skeleton-list" />
               )}
               {!loading && filteredTasks.length === 0 && tasks.length === 0 && (
-                <div className="text-center py-8">
-                  <Icon name="checklist" className="text-4xl text-slate-700 mb-2" />
-                  <p className="text-sm text-slate-400 mb-1">No tasks yet.</p>
-                  <p className="text-xs text-slate-600">Type a task above, or tell myOS an idea in chat and it will create tasks for you.</p>
-                </div>
+                <EmptyState
+                  icon="checklist"
+                  title="No tasks yet."
+                  description="Type a task above, or tell myOS an idea in chat and it will create tasks for you."
+                />
               )}
-              {!loading && filteredTasks.length === 0 && tasks.length > 0 && (
+              {!loading && filteredTasks.length === 0 && tasks.length > 0 && !sessionHidingAllTasks && (
                 <p className="text-sm text-slate-500 py-4">No tasks match this filter.</p>
               )}
+              {!loading && sessionHidingAllTasks && (
+                <div className="py-6 text-center" data-testid="session-hiding-empty-state">
+                  <p className="text-sm text-slate-400 mb-3">
+                    Your open tasks are all auto-filed Claude Code sessions.
+                  </p>
+                  <button
+                    onClick={() => setHideSessionTasks(false)}
+                    className="text-xs text-blue-400 hover:text-blue-300 underline"
+                    data-testid="show-sessions-btn"
+                  >
+                    Show sessions ({hiddenSessionCount})
+                  </button>
+                </div>
+              )}
               {PRIORITIES.map((priority) => {
-                const groupTasks = filteredTasks.filter((t) => t.priority === priority);
+                // Tasks with a null/undefined priority fall into the P3 (lowest) bucket
+                // so they always appear. Without this, tasks created without a priority
+                // are silently dropped from rendering while still being counted in the
+                // footer (visibleCount), causing the "6 Open" / empty-list mismatch.
+                const groupTasks = filteredTasks.filter((t) =>
+                  priority === "P3"
+                    ? t.priority === "P3" || !t.priority
+                    : t.priority === priority
+                );
                 if (groupTasks.length === 0) return null;
                 return (
                   <SortableContext
@@ -1920,6 +2063,37 @@ export default function Tasks() {
                           {task.description}
                         </p>
                       )}
+                      {task.session_id && (
+                        <div
+                          data-testid={`task-session-row-${task.id}`}
+                          className="flex items-center gap-2 mt-1 text-[11px] text-slate-400"
+                        >
+                          <button
+                            data-testid={`view-transcript-${task.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/transcripts?session=${task.session_id}`);
+                            }}
+                            className="inline-flex items-center gap-1 hover:text-blue-300 transition-colors"
+                            title="Open the Claude Code transcript for this session"
+                          >
+                            <Icon name="chat" className="text-[11px]" />
+                            View transcript
+                          </button>
+                          {typeof task.child_task_count === "number" && task.child_task_count > 0 && (
+                            <span
+                              data-testid={`child-task-count-${task.id}`}
+                              className="inline-flex items-center gap-1 text-slate-500"
+                              title="Tasks created during this Claude Code session"
+                            >
+                              <Icon name="add_task" className="text-[11px]" />
+                              {task.child_task_count === 1
+                                ? "1 task created in this session"
+                                : `${task.child_task_count} tasks created in this session`}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     {renderLinkDropdown(task)}
                     {renderLabelDropdown(task)}
@@ -2032,12 +2206,20 @@ export default function Tasks() {
                             </div>
                           )}
                           <button
-                            onClick={() => breakIntoTasks(task.id)}
-                            disabled={actionLoading === task.id}
+                            onClick={async () => {
+                              setOpenActionMenu(null);
+                              try {
+                                await api.post('/specs/from-task', { task_id: task.id });
+                                // Navigate to specs page to see the new draft
+                                navigate('/specs');
+                              } catch {
+                                // silently fail if specs endpoint isn't ready
+                              }
+                            }}
                             className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
                           >
-                            <Icon name="call_split" className="text-sm text-amber-400" />
-                            Break into tasks
+                            <Icon name="article" className="text-sm text-blue-400" />
+                            Create Spec
                           </button>
                           <div className="border-t border-slate-700 my-1" />
                           {task.status === "shelved" ? (
@@ -2644,14 +2826,38 @@ export default function Tasks() {
             </DndContext>}
 
             {/* Footer */}
-            <div className="flex items-center justify-between mt-6 text-sm">
-              <div className="flex items-center gap-4">
-                <span className="text-slate-400">
-                  <span className="text-white font-medium">{openCount}</span> Open
+            <div className="flex items-center justify-between mt-6 text-sm" data-testid="tasks-footer">
+              <div className="flex items-center gap-4 flex-wrap">
+                <span className="text-slate-400" data-testid="footer-open-count">
+                  <span className="text-white font-medium">{visibleCount}</span> Open
                 </span>
-                <span className="text-slate-400">
+                <span className="text-slate-400" data-testid="footer-closed-count">
                   <span className="text-white font-medium">{closedCount}</span> Closed
                 </span>
+                {filtersHidingAllTasks && (
+                  <span className="text-slate-500 text-xs" data-testid="filters-hiding-hint">
+                    {openCount} open total &middot; 0 match your filters &middot;{" "}
+                    <button
+                      onClick={clearAllFilters}
+                      className="text-blue-400 hover:text-blue-300 underline"
+                      data-testid="clear-filters-btn"
+                    >
+                      Clear filters
+                    </button>
+                  </span>
+                )}
+                {sessionHidingAllTasks && (
+                  <span className="text-slate-500 text-xs" data-testid="session-hiding-hint">
+                    {hiddenSessionCount} session {hiddenSessionCount === 1 ? "task" : "tasks"} hidden &middot;{" "}
+                    <button
+                      onClick={() => setHideSessionTasks(false)}
+                      className="text-blue-400 hover:text-blue-300 underline"
+                      data-testid="show-sessions-footer-btn"
+                    >
+                      Show sessions
+                    </button>
+                  </span>
+                )}
               </div>
               <span className="text-slate-600 text-xs">
                 Press <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">/</kbd> for new task
@@ -2667,6 +2873,16 @@ export default function Tasks() {
         onTasksChanged={() => {
           fetchTasks();
         }}
+      />
+
+      <ConfirmModal
+        open={deleteAllConfirmOpen}
+        title={`Delete all ${filteredTasks.length} task${filteredTasks.length === 1 ? "" : "s"}?`}
+        message="This removes every task currently visible with your filters. It cannot be undone."
+        confirmLabel="Delete all"
+        danger
+        onConfirm={executeDeleteAll}
+        onCancel={() => setDeleteAllConfirmOpen(false)}
       />
 
       {/* Import modal */}
@@ -2712,6 +2928,7 @@ export default function Tasks() {
                     type="text"
                     value={importFields.linear_team || ''}
                     onChange={(e) => setImportFields({ ...importFields, linear_team: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter") (document.querySelector("[data-import-submit]") as HTMLButtonElement)?.click(); }}
                     placeholder="e.g. abc123"
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                   />
@@ -2755,6 +2972,7 @@ export default function Tasks() {
                     type="text"
                     value={importFields.jira_project || ''}
                     onChange={(e) => setImportFields({ ...importFields, jira_project: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter") (document.querySelector("[data-import-submit]") as HTMLButtonElement)?.click(); }}
                     placeholder="e.g. PROJ"
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
                   />
@@ -2798,6 +3016,7 @@ export default function Tasks() {
                 }
               }}
               disabled={importLoading}
+              data-import-submit
               className="mt-4 w-full py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium text-sm transition-colors disabled:opacity-50"
             >
               {importLoading ? 'Importing...' : `Import from ${importSource === 'linear' ? 'Linear' : 'Jira'}`}

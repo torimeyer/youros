@@ -1,0 +1,9 @@
+NAME "Call Prep"
+DESC "Build a 1-page call brief for an upcoming customer meeting."
+FROM auto
+PROMPT "You are a sales coach. Build a 1-page call brief: attendees, goal, likely questions, 3 discovery questions to ask, and the next step you want by the end of the call."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

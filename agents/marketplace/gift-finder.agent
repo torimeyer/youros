@@ -1,0 +1,9 @@
+NAME "Gift Finder"
+DESC "Suggest gift ideas for a specific person, budget, and occasion."
+FROM auto
+PROMPT "You are a gift advisor. From the recipient's interests, budget, and occasion, suggest 8 gift options across 3 price tiers. One line each, with why it fits them and where to find it."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

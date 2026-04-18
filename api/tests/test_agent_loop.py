@@ -194,7 +194,7 @@ class TestAgentLoop:
                         websocket,
                     )
 
-        assert "max turns" in result
+        assert "Stopped after" in result or "max turns" in result
         assert mock_client.messages.create.await_count == MAX_AGENT_TURNS
         done = websocket.get_messages_of_type("done")
         assert len(done) == 1
@@ -379,9 +379,8 @@ class TestAgentLoop:
             b["text"] for b in raw_system if isinstance(b, dict) and "text" in b
         )
         assert "personal operating system" in system_text
-        # And should instruct the model to silently capture stray ideas as hay
-        assert "capture_idea" in system_text
-        assert "IDEA MANAGEMENT" in system_text
+        # Should include tool guidance for calendar and task management
+        assert "get_calendar_events" in system_text
 
     @pytest.mark.asyncio
     async def test_tools_included_in_api_call(self, websocket):

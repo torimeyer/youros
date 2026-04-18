@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
+import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
 
 export interface CalendarEvent {
@@ -35,18 +36,133 @@ function formatTime(dtStr?: string): string {
   }
 }
 
-function formatDuration(start?: string, end?: string): string {
-  if (!start || !end) return ''
+// Build the user-facing countdown subtitle for an event card.
+//
+// The old subtitle rendered the event's raw duration as "1h", which
+// reads as random noise under the start time. A countdown makes it
+// immediately useful: it tells you how soon the event is, and what to
+// do right now.
+//
+// Returns an empty string when the event is already over, so callers
+// can hide the subtitle entirely.
+//
+// ``now`` is injected so tests can freeze time without monkey-patching
+// Date.now.
+export function formatCountdown(
+  start?: string,
+  end?: string,
+  now: number = Date.now(),
+): string {
+  if (!start) return ''
   try {
-    const diffMs = new Date(end).getTime() - new Date(start).getTime()
-    const mins = Math.round(diffMs / 60000)
-    if (mins < 60) return `${mins}m`
-    const h = Math.floor(mins / 60)
-    const m = mins % 60
-    return m > 0 ? `${h}h ${m}m` : `${h}h`
+    const startMs = new Date(start).getTime()
+    const endMs = end ? new Date(end).getTime() : startMs
+    if (Number.isNaN(startMs) || Number.isNaN(endMs)) return ''
+    // Already over: hide the subtitle.
+    if (now >= endMs) return ''
+    // In progress.
+    if (now >= startMs) return 'Happening now'
+    const msToStart = startMs - now
+    const minsToStart = Math.round(msToStart / 60000)
+    // Under 5 minutes reads as "right now" to the user. Keep it short.
+    if (minsToStart < 5) return 'Starts soon'
+    // 5 to 30 minutes out: show the minute count so the user can plan.
+    if (minsToStart <= 30) return `Starts in ${minsToStart} minutes`
+    // 31 to 60 minutes out: round up to the 1 hour callout.
+    if (minsToStart <= 60) return 'Coming up in 1 hour'
+    // Over an hour out: show hours. Round to the nearest hour so 1h 20m
+    // reads as "1 hour" and 1h 40m reads as "2 hours", matching how a
+    // person would describe it.
+    const hours = Math.max(1, Math.round(minsToStart / 60))
+    if (hours === 1) return 'Coming up in 1 hour'
+    return `Coming up in ${hours} hours`
   } catch {
     return ''
   }
+}
+
+// Pick the right color and shape for the countdown badge based on how
+// close the event is. Returns null when the subtitle should be hidden
+// entirely (after the event ends, or when there is no start).
+//
+// Colors mirror the rest of myOS chips:
+//   red   = under 5 minutes, you have to leave now
+//   amber = in 5 to 30 minutes, time to wrap up
+//   blue  = in 30 to 60 minutes, keep an eye on the clock
+//   slate = more than an hour out, informational only
+//   green = happening now, with a pulsing dot
+//
+// ``pulse`` asks the caller to render a pulsing dot in place of the
+// clock icon so the in-progress badge reads as live.
+export function countdownBadgeStyle(
+  start?: string,
+  end?: string,
+  now: number = Date.now(),
+): { className: string; pulse: boolean } | null {
+  if (!start) return null
+  try {
+    const startMs = new Date(start).getTime()
+    const endMs = end ? new Date(end).getTime() : startMs
+    if (Number.isNaN(startMs) || Number.isNaN(endMs)) return null
+    // Already over: hide entirely.
+    if (now >= endMs) return null
+    // In progress.
+    if (now >= startMs) {
+      return {
+        className: 'bg-green-500/20 text-green-400 border border-green-500/40',
+        pulse: true,
+      }
+    }
+    const minsToStart = Math.round((startMs - now) / 60000)
+    if (minsToStart < 5) {
+      return {
+        className: 'bg-red-500/20 text-red-400 border border-red-500/40',
+        pulse: false,
+      }
+    }
+    if (minsToStart <= 30) {
+      return {
+        className: 'bg-amber-500/20 text-amber-400 border border-amber-500/40',
+        pulse: false,
+      }
+    }
+    if (minsToStart <= 60) {
+      return {
+        className: 'bg-blue-500/20 text-blue-400 border border-blue-500/40',
+        pulse: false,
+      }
+    }
+    return {
+      className: 'bg-slate-500/20 text-slate-400 border border-slate-500/40',
+      pulse: false,
+    }
+  } catch {
+    return null
+  }
+}
+
+// Small inline SVG clock glyph for the countdown badge. Inline SVG
+// avoids pulling the material icon font's text glyph into
+// ``textContent``, which would break assertions that expect the
+// badge to read exactly "Coming up in 1 hour".
+function CountdownClockIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      data-testid="countdown-clock-icon"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <polyline points="12 7 12 12 15 14" />
+    </svg>
+  )
 }
 
 function dayLabel(dateStr: string): string {
@@ -126,6 +242,49 @@ export default function Calendar() {
   const [connectError, setConnectError] = useState<string | null>(null)
   const [briefingTaskStatus, setBriefingTaskStatus] = useState<Record<string, 'loading' | 'done' | 'error'>>({})
   const [briefingTaskCount, setBriefingTaskCount] = useState<Record<string, number>>({})
+  const [undoDelete, setUndoDelete] = useState<{
+    event: CalendarEvent;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null)
+  // Ticker that forces the countdown subtitle to refresh once a minute.
+  // A minute is fine grained enough for "Starts in 12 minutes" to stay
+  // accurate without causing noisy re-renders.
+  const [nowMs, setNowMs] = useState<number>(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60000)
+    return () => clearInterval(id)
+  }, [])
+
+  const deleteEvent = (ev: CalendarEvent) => {
+    if (undoDelete) {
+      clearTimeout(undoDelete.timer)
+      api.delete(`/calendar/events/${encodeURIComponent(undoDelete.event.id)}`).catch(() => {})
+    }
+    // Optimistically remove from the list.
+    setEvents((prev) => prev.filter((e) => e.id !== ev.id))
+    const timer = setTimeout(async () => {
+      try {
+        await api.delete(`/calendar/events/${encodeURIComponent(ev.id)}`)
+      } catch (e) {
+        console.error('Failed to delete calendar event:', e)
+        // Re-fetch so the failed delete reappears.
+        await fetchEvents()
+      }
+      setUndoDelete(null)
+    }, 5000)
+    setUndoDelete({ event: ev, timer })
+  }
+
+  const handleUndoDeleteEvent = () => {
+    if (!undoDelete) return
+    clearTimeout(undoDelete.timer)
+    setEvents((prev) => [...prev, undoDelete.event].sort((a, b) => {
+      const aTime = a.start?.dateTime || a.start?.date || ''
+      const bTime = b.start?.dateTime || b.start?.date || ''
+      return aTime.localeCompare(bTime)
+    }))
+    setUndoDelete(null)
+  }
 
   const handleCreateTasksFromBriefing = async (eventId: string) => {
     setBriefingTaskStatus((prev) => ({ ...prev, [eventId]: 'loading' }))
@@ -153,7 +312,23 @@ export default function Calendar() {
   const fetchEvents = useCallback(async () => {
     try {
       const res = await api.get<{ events: CalendarEvent[] }>('/calendar/events')
-      setEvents(res.events || [])
+      let evs = res.events || []
+      // If the cache hands back an empty list, force a sync once to
+      // bust any stale empty cache from a previous transient blip.
+      // Without this, a single bad fetch earlier in the day would
+      // leave the Calendar tab blank for the next 15 minutes even
+      // though the user has real events. Regression guard for the
+      // "Calendar tab shows nothing" demo bug.
+      if (evs.length === 0) {
+        try {
+          await api.post('/calendar/sync', {})
+          const retry = await api.get<{ events: CalendarEvent[] }>('/calendar/events')
+          evs = retry.events || []
+        } catch {
+          // Keep evs as the original empty list.
+        }
+      }
+      setEvents(evs)
       setLastSynced(new Date())
       setApiNotEnabled(false)
     } catch (err: unknown) {
@@ -265,9 +440,8 @@ export default function Calendar() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex items-center gap-2 text-slate-400">
-          <Icon name="progress_activity" size={20} className="animate-spin" />
-          Loading...
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <LoadingState variant="spinner" />
         </div>
       </div>
     )
@@ -277,46 +451,26 @@ export default function Calendar() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl">
-            <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center mb-4">
-              <Icon name="calendar_month" className="text-blue-400" size={24} />
-            </div>
-            {authStatus?.needs_reauth ? (
-              <>
-                <h2 className="text-xl font-semibold mb-2">Calendar access needs to be updated</h2>
-                <p className="text-slate-400 mb-6">
-                  Reconnect your Google account to give myOS permission to read your calendar.
-                  This uses the same account you already connected for Drive.
-                </p>
-                <button
-                  onClick={handleConnect}
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
-                >
-                  Reconnect
-                </button>
-              </>
-            ) : (
-              <>
-                <h2 className="text-xl font-semibold mb-2">Connect Google Calendar</h2>
-                <p className="text-slate-400 mb-6">
-                  See your upcoming meetings and create tasks from events.
-                  This uses the same Google account as Drive, so no extra credentials are needed.
-                </p>
-                <button
-                  onClick={handleConnect}
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
-                >
-                  Connect Google account
-                </button>
-              </>
-            )}
-            {connectError && (
-              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
-                {connectError}
-              </div>
-            )}
-          </div>
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <ConnectCard
+            icon="calendar_month"
+            accentColor="#3b82f6"
+            title={authStatus?.needs_reauth ? 'Calendar access needs to be updated' : 'Connect Google Calendar'}
+            description={
+              authStatus?.needs_reauth
+                ? 'Reconnect your Google account to give myOS permission to read your calendar. This uses the same account you already connected for Drive.'
+                : 'See your upcoming meetings and create tasks from events. This uses the same Google account as Drive, so no extra credentials are needed.'
+            }
+            primaryAction={
+              <button
+                onClick={handleConnect}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
+              >
+                {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
+              </button>
+            }
+            error={connectError ?? undefined}
+          />
         </div>
       </div>
     )
@@ -326,33 +480,34 @@ export default function Calendar() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Calendar" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-amber-800/40 p-5 sm:p-8 rounded-2xl">
-            <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
-              <Icon name="warning" className="text-amber-400" size={24} />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">Calendar API not enabled</h2>
-            <p className="text-slate-400 mb-4">
-              Your Google Cloud project has Google Calendar API disabled. You need to enable it once. It only takes a minute.
-            </p>
-            <a
-              href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com"
-              target="_blank"
-              rel="noreferrer"
-              className="w-full block text-center py-3 mb-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
-            >
-              Enable Calendar API in Google Cloud
-            </a>
-            <p className="text-xs text-slate-500 mb-4">
-              After clicking Enable on Google's page, wait 1-2 minutes for the change to propagate, then come back and click Retry.
-            </p>
-            <button
-              onClick={() => { setApiNotEnabled(false); fetchEvents() }}
-              className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
-            >
-              Retry
-            </button>
-          </div>
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <ConnectCard
+            icon="warning"
+            accentColor="#f59e0b"
+            title="Calendar API not enabled"
+            description="Your Google Cloud project has Google Calendar API disabled. You need to enable it once. It only takes a minute."
+            primaryAction={
+              <div className="w-full space-y-3">
+                <a
+                  href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full block text-center py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
+                >
+                  Enable Calendar API in Google Cloud
+                </a>
+                <p className="text-xs text-slate-500 text-center">
+                  After clicking Enable on Google's page, wait 1-2 minutes, then click Retry.
+                </p>
+                <button
+                  onClick={() => { setApiNotEnabled(false); fetchEvents() }}
+                  className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            }
+          />
         </div>
       </div>
     )
@@ -399,7 +554,8 @@ export default function Calendar() {
             <div className="space-y-3">
               {todayEvents.map((ev) => {
                 const startTime = formatTime(ev.start?.dateTime)
-                const duration = formatDuration(ev.start?.dateTime, ev.end?.dateTime)
+                const countdown = formatCountdown(ev.start?.dateTime, ev.end?.dateTime, nowMs)
+                const badge = countdownBadgeStyle(ev.start?.dateTime, ev.end?.dateTime, nowMs)
                 const inProgress = isNowInEvent(ev)
                 const taskState = createTaskStatus[ev.id]
                 const within24h = isWithin24Hours(ev) || inProgress
@@ -414,13 +570,14 @@ export default function Calendar() {
                           ? 'border-blue-500/50 bg-blue-500/10'
                           : 'border-slate-800 bg-slate-900/30'
                       }`}
+                      data-testid={`event-card-${ev.id}`}
                     >
-                      <div className="min-w-[72px] text-right shrink-0">
-                        <p className="text-sm font-medium text-slate-200">{startTime}</p>
-                        {duration && <p className="text-xs text-slate-500">{duration}</p>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                      <div
+                        className="flex-1 min-w-0 space-y-1"
+                        data-testid={`event-body-${ev.id}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <p className="text-sm font-medium text-slate-200 shrink-0">{startTime}</p>
                           <p className="font-medium text-sm truncate">{ev.summary || 'Untitled'}</p>
                           {inProgress && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded-full shrink-0">
@@ -428,8 +585,25 @@ export default function Calendar() {
                             </span>
                           )}
                         </div>
+                        {countdown && badge && (
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
+                            data-testid={`countdown-badge-${ev.id}`}
+                          >
+                            {badge.pulse ? (
+                              <span
+                                className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse"
+                                aria-hidden="true"
+                                data-testid={`countdown-pulse-${ev.id}`}
+                              />
+                            ) : (
+                              <CountdownClockIcon />
+                            )}
+                            <span data-testid={`countdown-${ev.id}`}>{countdown}</span>
+                          </span>
+                        )}
                         {ev.location && (
-                          <p className="text-xs text-slate-400 truncate mt-0.5">{ev.location}</p>
+                          <p className="text-xs text-slate-400 truncate">{ev.location}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
@@ -476,10 +650,18 @@ export default function Calendar() {
                             <><Icon name="add_task" size={14} /> Task</>
                           )}
                         </button>
+                        <button
+                          onClick={() => deleteEvent(ev)}
+                          className="flex items-center gap-1 px-2 py-1 text-slate-500 hover:text-red-400 rounded-lg text-xs transition-colors"
+                          title="Delete this event"
+                          data-testid={`delete-event-${ev.id}`}
+                        >
+                          <Icon name="delete" size={14} />
+                        </button>
                       </div>
                     </div>
                     {briefing && expanded && (
-                      <div className="ml-[88px] bg-violet-500/10 border border-violet-500/20 rounded-xl p-3 space-y-2">
+                      <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-3 space-y-2">
                         <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
                         <div className="flex items-center gap-3">
                           <button
@@ -526,7 +708,8 @@ export default function Calendar() {
                   <div className="space-y-2">
                     {dayEvents.map((ev) => {
                       const startTime = formatTime(ev.start?.dateTime)
-                      const duration = formatDuration(ev.start?.dateTime, ev.end?.dateTime)
+                      const countdown = formatCountdown(ev.start?.dateTime, ev.end?.dateTime, nowMs)
+                      const badge = countdownBadgeStyle(ev.start?.dateTime, ev.end?.dateTime, nowMs)
                       const taskState = createTaskStatus[ev.id]
                       const within24h = isWithin24Hours(ev)
                       const pStatus = prepStatus[ev.id]
@@ -536,13 +719,33 @@ export default function Calendar() {
                         <div key={ev.id} className="space-y-1.5">
                           <div
                             className="flex items-start gap-3 p-2.5 rounded-lg border border-slate-800/50 bg-slate-900/20"
+                            data-testid={`event-card-${ev.id}`}
                           >
-                            <div className="min-w-[64px] text-right shrink-0">
-                              <p className="text-xs font-medium text-slate-300">{startTime}</p>
-                              {duration && <p className="text-[10px] text-slate-500">{duration}</p>}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm truncate">{ev.summary || 'Untitled'}</p>
+                            <div
+                              className="flex-1 min-w-0 space-y-1"
+                              data-testid={`event-body-${ev.id}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <p className="text-xs font-medium text-slate-300 shrink-0">{startTime}</p>
+                                <p className="text-sm truncate">{ev.summary || 'Untitled'}</p>
+                              </div>
+                              {countdown && badge && (
+                                <span
+                                  className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${badge.className}`}
+                                  data-testid={`countdown-badge-${ev.id}`}
+                                >
+                                  {badge.pulse ? (
+                                    <span
+                                      className="h-1 w-1 rounded-full bg-green-400 animate-pulse"
+                                      aria-hidden="true"
+                                      data-testid={`countdown-pulse-${ev.id}`}
+                                    />
+                                  ) : (
+                                    <CountdownClockIcon />
+                                  )}
+                                  <span data-testid={`countdown-${ev.id}`}>{countdown}</span>
+                                </span>
+                              )}
                               {ev.location && (
                                 <p className="text-xs text-slate-500 truncate">{ev.location}</p>
                               )}
@@ -589,10 +792,18 @@ export default function Calendar() {
                                 )}
                                 <span>Task</span>
                               </button>
+                              <button
+                                onClick={() => deleteEvent(ev)}
+                                className="flex items-center gap-1 px-1.5 py-0.5 text-slate-500 hover:text-red-400 rounded text-xs transition-colors"
+                                title="Delete this event"
+                                data-testid={`delete-event-${ev.id}`}
+                              >
+                                <Icon name="delete" size={12} />
+                              </button>
                             </div>
                           </div>
                           {briefing && expanded && (
-                            <div className="ml-[79px] bg-violet-500/10 border border-violet-500/20 rounded-lg p-2.5 space-y-1.5">
+                            <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-2.5 space-y-1.5">
                               <p className="text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap">{briefing}</p>
                               <div className="flex items-center gap-3">
                                 <button
@@ -631,13 +842,29 @@ export default function Calendar() {
         )}
 
         {events.length === 0 && todayEvents.length === 0 && (
-          <div className="text-center py-12 text-slate-500">
-            <Icon name="event_busy" size={40} className="mb-3 mx-auto opacity-40" />
-            <p className="text-sm text-slate-400 mb-1">No events in the next 7 days.</p>
-            <p className="text-xs text-slate-600">Your calendar is clear. A good time to focus on your top tasks.</p>
-          </div>
+          <EmptyState
+            icon="event_busy"
+            title="No events in the next 7 days"
+            description="Your calendar is clear. A good time to focus on your top tasks."
+          />
         )}
       </div>
+
+      {undoDelete && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg"
+          data-testid="undo-delete-event-toast"
+        >
+          <span>Event deleted.</span>
+          <button
+            onClick={handleUndoDeleteEvent}
+            className="font-medium text-blue-400 hover:text-blue-300"
+            data-testid="undo-delete-event-button"
+          >
+            Undo
+          </button>
+        </div>
+      )}
     </div>
   )
 }

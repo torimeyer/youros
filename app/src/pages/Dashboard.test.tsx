@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Dashboard from './Dashboard'
 import { useAppStore, DEFAULT_DASHBOARD_WIDGETS } from '../stores/app'
+import { ADVENTURE_DISMISSED_KEY } from '../lib/adventures'
 
 const mockNavigate = vi.fn()
 
@@ -62,7 +64,6 @@ const mockSummaryData = {
     '5 tasks still open.',
     'Top priority: Fix login flow',
     'Agents today: 2 started, 1 finished.',
-    '3 ideas saved and waiting for review.',
   ],
 }
 
@@ -132,7 +133,6 @@ describe('Dashboard Day Summary', () => {
       expect(screen.getByText('5 tasks still open.')).toBeInTheDocument()
       expect(screen.getByText('Top priority: Fix login flow')).toBeInTheDocument()
       expect(screen.getByText('Agents today: 2 started, 1 finished.')).toBeInTheDocument()
-      expect(screen.getByText('3 ideas saved and waiting for review.')).toBeInTheDocument()
     })
   })
 
@@ -192,6 +192,26 @@ describe('Dashboard Day Summary', () => {
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalledWith('/dashboard/summary')
     })
+  })
+
+  it('renders skeleton blocks while briefing is loading', () => {
+    // Keep briefing in loading state by never resolving the /briefing call
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      // /briefing never resolves so briefingLoading stays true
+      return new Promise(() => {})
+    })
+
+    renderDashboard()
+
+    // The skeleton lines should be visible while briefing loads
+    const skeletonLines = document.querySelectorAll('[data-testid="skeleton-line"]')
+    expect(skeletonLines.length).toBeGreaterThan(0)
   })
 })
 
@@ -254,6 +274,10 @@ describe('Quick Launch inline modals', () => {
       if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
       if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
       if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/adventures/templates') return Promise.resolve({ adventures: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      if (path === '/sessions/active') return Promise.resolve({ sessions: [], count: 0, active_count: 0, idle_count: 0 })
       return Promise.reject(new Error(`unmocked path: ${path}`))
     })
   })
@@ -275,28 +299,19 @@ describe('Quick Launch inline modals', () => {
   it('clicking the Spawn Agent tile opens the QuickSpawnAgentModal inline', async () => {
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByText('Quick Launch')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-quick-launch')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /Spawn Agent/i }))
+    // Use within to scope to the Quick Launch widget and avoid
+    // matching the "Spawn agent" button in the Adventure card.
+    const quickLaunch = screen.getByTestId('widget-quick-launch')
+    fireEvent.click(within(quickLaunch).getByRole('button', { name: /Spawn Agent/i }))
 
     expect(screen.getByRole('dialog', { name: /Spawn a new agent/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Spawn agent' })).toBeInTheDocument()
     expect(mockNavigate).not.toHaveBeenCalledWith('/agents')
   })
 
-  it('clicking the Capture Idea tile opens the QuickCaptureIdeaModal inline', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByText('Quick Launch')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: /Capture Idea/i }))
-
-    expect(screen.getByRole('dialog', { name: /Capture a new idea/i })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Capture idea' })).toBeInTheDocument()
-    expect(mockNavigate).not.toHaveBeenCalledWith('/ideas')
-  })
 })
 
 describe('Briefing startup retry (needle 315)', () => {
@@ -585,6 +600,454 @@ describe('Dashboard widget customization', () => {
       expect(screen.getByTestId('widget-focus-first')).toBeInTheDocument()
     })
     expect(screen.getByText(/Nothing blocking others right now/i)).toBeInTheDocument()
+  })
+})
+
+describe("Today's Focus session task filter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    useAppStore.setState({
+      chatOpen: false,
+      osName: 'ToriOS',
+      darkMode: true,
+      showTour: false,
+      dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS],
+    })
+    localStorage.setItem('myos-tour-complete', 'true')
+  })
+
+  it('shows only non-session tasks in Today\'s Focus and reflects correct open count', async () => {
+    // The backend now filters session tasks before returning counts and focus.
+    // This test verifies the frontend renders what the backend sends correctly:
+    // 3 session tasks excluded, 2 real tasks shown, open count = 2.
+    const filteredDashboardData = {
+      counts: { open: 2, closed: 0, p0: 1, p1: 1, p2: 0 },
+      focus: [
+        { title: 'Fix the onboarding flow', id: '\u2192200', priority: 'P0' },
+        { title: 'Update cost tracking UI', id: '\u2192201', priority: 'P1' },
+      ],
+      recent_tasks: [
+        { id: '\u2192200', title: 'Fix the onboarding flow', priority: 'P0' },
+        { id: '\u2192201', title: 'Update cost tracking UI', priority: 'P1' },
+      ],
+      hay_count: 0,
+      ostk_status: 'no daemon running',
+    }
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(filteredDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve({ bullets: [] })
+      if (path === '/dashboard/compounds') return Promise.resolve({ top: null, all: [] })
+      if (path === '/dashboard/diff') return Promise.resolve({ files_changed: [], needles_filed: [], audit_events: [], audit_total: 0 })
+      if (path.startsWith('/costs')) return Promise.resolve({ total_budget: 0, agent_count: 0 })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+
+    useAppStore.setState({ dashboardWidgets: ['todays_focus'] })
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-todays-focus')).toBeInTheDocument()
+    })
+
+    // The two real tasks appear
+    expect(screen.getByText('Fix the onboarding flow')).toBeInTheDocument()
+    expect(screen.getByText('Update cost tracking UI')).toBeInTheDocument()
+
+    // Session task titles must NOT appear
+    expect(screen.queryByText(/Claude Code session claude-code-/i)).toBeNull()
+
+    // Open count badge shows 2, not 17
+    const focusWidget = screen.getByTestId('widget-todays-focus')
+    expect(within(focusWidget).getByText('2 open')).toBeInTheDocument()
+  })
+})
+
+const MOCK_ADVENTURES = {
+  adventures: [
+    { id: 'build_website', title: 'Build a website', tagline: 'From idea to live site.', icon: 'language', placeholder: 'e.g. A recipe site' },
+    { id: 'plan_project', title: 'Plan a project', tagline: 'Turn a fuzzy idea into a plan.', icon: 'bolt', placeholder: 'e.g. Launch a newsletter' },
+    { id: 'learn_skill', title: 'Learn something new', tagline: 'A starter path.', icon: 'school', placeholder: 'e.g. Learn Spanish' },
+    { id: 'off_plate', title: 'Get something off your plate', tagline: 'Break it into steps.', icon: 'task_alt', placeholder: 'e.g. Do my taxes' },
+  ],
+}
+
+describe('Dashboard - Adventure card', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    localStorage.removeItem(ADVENTURE_DISMISSED_KEY)
+    useAppStore.setState({
+      chatOpen: false,
+      osName: 'ToriOS',
+      darkMode: true,
+      showTour: false,
+      dashboardWidgets: ['adventure', 'todays_focus'],
+      setDashboardWidgets: vi.fn(),
+    })
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/adventures/templates') return Promise.resolve(MOCK_ADVENTURES)
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      if (path === '/sessions/active') return Promise.resolve({ sessions: [], count: 0, active_count: 0, idle_count: 0 })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  })
+
+  it('renders the adventure card when widget is in dashboardWidgets', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-adventure')).toBeInTheDocument()
+    })
+  })
+
+  it('fetches adventure templates from /adventures/templates', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/adventures/templates')
+    })
+  })
+
+  it('shows all four sample adventure cards after loading', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('adventure-card-plan_project')).toBeInTheDocument()
+    expect(screen.getByTestId('adventure-card-learn_skill')).toBeInTheDocument()
+    expect(screen.getByTestId('adventure-card-off_plate')).toBeInTheDocument()
+  })
+
+  it('selecting a card highlights it', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    const card = screen.getByTestId('adventure-card-build_website')
+    fireEvent.click(card)
+    expect(screen.getByTestId('adventure-card-build_website').className).toContain('border-indigo-500')
+  })
+
+  it('clicking the same card twice deselects it', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    const card = screen.getByTestId('adventure-card-build_website')
+    fireEvent.click(card)
+    expect(card.className).toContain('border-indigo-500')
+    fireEvent.click(card)
+    expect(screen.getByTestId('adventure-card-build_website').className).not.toContain('border-indigo-500')
+  })
+
+  it('spawn button is disabled when nothing is selected and description is empty', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-spawn-button')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('adventure-spawn-button')).toBeDisabled()
+  })
+
+  it('spawn button is enabled when a card is selected', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
+    expect(screen.getByTestId('adventure-spawn-button')).not.toBeDisabled()
+  })
+
+  it('spawn button is enabled when description text is entered', async () => {
+    const user = userEvent.setup()
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-description-input')).toBeInTheDocument()
+    })
+    await user.type(screen.getByTestId('adventure-description-input'), 'Build a thing')
+    expect(screen.getByTestId('adventure-spawn-button')).not.toBeDisabled()
+  })
+
+  it('clicking Spawn calls /adventures/start and shows the confirmation banner', async () => {
+    vi.mocked(api.post).mockResolvedValue({})
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
+    fireEvent.click(screen.getByTestId('adventure-spawn-button'))
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/adventures/start', expect.objectContaining({ adventure_id: 'build_website' }))
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-spawned-banner')).toBeInTheDocument()
+    })
+  })
+
+  it('spawned banner contains a link to the Agents page', async () => {
+    vi.mocked(api.post).mockResolvedValue({})
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
+    fireEvent.click(screen.getByTestId('adventure-spawn-button'))
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-agents-link')).toBeInTheDocument()
+    })
+  })
+
+  it('dismissing the card hides it and persists to localStorage', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-adventure')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-dismiss'))
+    expect(screen.queryByTestId('widget-adventure')).not.toBeInTheDocument()
+    expect(localStorage.getItem(ADVENTURE_DISMISSED_KEY)).toBe('true')
+  })
+
+  it('card does not render when localStorage flag is already set', async () => {
+    localStorage.setItem(ADVENTURE_DISMISSED_KEY, 'true')
+    renderDashboard()
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/dashboard')
+    })
+    expect(screen.queryByTestId('widget-adventure')).not.toBeInTheDocument()
+  })
+
+  it('does not fetch adventure templates when already dismissed', async () => {
+    localStorage.setItem(ADVENTURE_DISMISSED_KEY, 'true')
+    renderDashboard()
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/dashboard')
+    })
+    expect(mockedApiGet).not.toHaveBeenCalledWith('/adventures/templates')
+  })
+})
+
+describe('Briefing hard-refresh reload (un-dismiss on reload)', () => {
+  const originalGetEntriesByType = performance.getEntriesByType.bind(performance)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    useAppStore.setState({
+      chatOpen: false,
+      osName: 'ToriOS',
+      darkMode: true,
+      showTour: false,
+      dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS],
+    })
+    localStorage.setItem('myos-tour-complete', 'true')
+    vi.mocked(api.post).mockResolvedValue({})
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      if (path === '/sessions/active') return Promise.resolve({ sessions: [], count: 0, active_count: 0, idle_count: 0 })
+      if (path === '/adventures/templates') return Promise.resolve({ adventures: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  })
+
+  afterEach(() => {
+    performance.getEntriesByType = originalGetEntriesByType
+  })
+
+  function stubNavigationType(type: 'navigate' | 'reload' | 'back_forward' | 'prerender') {
+    performance.getEntriesByType = ((entryType: string) => {
+      if (entryType === 'navigation') {
+        return [{ type } as unknown as PerformanceNavigationTiming]
+      }
+      return originalGetEntriesByType(entryType)
+    }) as typeof performance.getEntriesByType
+  }
+
+  it('does NOT call /briefing/undismiss on a fresh navigation load', async () => {
+    stubNavigationType('navigate')
+    renderDashboard()
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/briefing')
+    })
+    expect(api.post).not.toHaveBeenCalledWith('/briefing/undismiss', expect.anything())
+  })
+
+  it('calls /briefing/undismiss on a browser reload so dismissed briefings come back', async () => {
+    stubNavigationType('reload')
+    renderDashboard()
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/briefing/undismiss', {})
+    })
+    // And still fetches the briefing afterwards.
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/briefing')
+    })
+  })
+
+  it('still fetches the briefing if /briefing/undismiss fails on reload', async () => {
+    stubNavigationType('reload')
+    vi.mocked(api.post).mockImplementation((path: string) => {
+      if (path === '/briefing/undismiss') return Promise.reject(new Error('network'))
+      return Promise.resolve({})
+    })
+    renderDashboard()
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/briefing')
+    })
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// localStorage seed for briefing (primary rows paint within 300ms rule)
+// ---------------------------------------------------------------------------
+
+describe('Briefing localStorage seed', () => {
+  const BRIEFING_SEED_KEY = 'myos.briefing.last'
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve({ top: null, all: [] })
+      if (path === '/dashboard/diff') return Promise.resolve({
+        files_changed: [], needles_filed: [], audit_events: [], audit_total: 0,
+      })
+      if (path === '/costs/summary') return Promise.resolve(mockCostData)
+      if (path === '/clock') return Promise.resolve(mockClockData)
+      if (path === '/sessions/active') return Promise.resolve({
+        sessions: [], count: 0, active_count: 0, idle_count: 0,
+      })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      return Promise.resolve({})
+    })
+  })
+
+  afterEach(() => {
+    localStorage.clear()
+  })
+
+  const renderDashboard = () => render(
+    <MemoryRouter>
+      <Dashboard />
+    </MemoryRouter>
+  )
+
+  it('paints the seeded briefing immediately from localStorage before the network fetch completes', () => {
+    const seededBriefing = {
+      show: true,
+      briefing: 'Yesterday you closed 3 tasks. Today focus on bug fixes.',
+      action_items: [],
+    }
+    localStorage.setItem(BRIEFING_SEED_KEY, JSON.stringify({
+      ts: Date.now(),
+      data: seededBriefing,
+    }))
+
+    // /briefing never resolves so the only way the briefing text can
+    // show up is via the localStorage seed.
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/briefing') return new Promise(() => {})
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      return Promise.resolve({})
+    })
+
+    renderDashboard()
+
+    // Seeded briefing text is on screen synchronously after render.
+    expect(screen.getByText(/Yesterday you closed 3 tasks/)).toBeInTheDocument()
+  })
+
+  it('shows a Refreshing hint while the fresh fetch is in flight on top of a seed', () => {
+    const seededBriefing = {
+      show: true,
+      briefing: 'Seeded briefing text.',
+      action_items: [],
+    }
+    localStorage.setItem(BRIEFING_SEED_KEY, JSON.stringify({
+      ts: Date.now(),
+      data: seededBriefing,
+    }))
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/briefing') return new Promise(() => {})  // never resolves
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      return Promise.resolve({})
+    })
+
+    renderDashboard()
+
+    expect(screen.getByTestId('briefing-refreshing')).toBeInTheDocument()
+  })
+
+  it('writes the briefing to localStorage when the fresh fetch succeeds', async () => {
+    const freshBriefing = {
+      show: true,
+      briefing: 'Fresh briefing text from the server.',
+      action_items: [],
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/briefing') return Promise.resolve(freshBriefing)
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      return Promise.resolve({})
+    })
+
+    renderDashboard()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Fresh briefing text from the server/)).toBeInTheDocument()
+    })
+
+    const raw = localStorage.getItem(BRIEFING_SEED_KEY)
+    expect(raw).not.toBeNull()
+    const parsed = JSON.parse(raw as string)
+    expect(parsed.data.briefing).toBe('Fresh briefing text from the server.')
+    expect(typeof parsed.ts).toBe('number')
+  })
+
+  it('ignores a seed older than 24 hours', () => {
+    const staleBriefing = {
+      show: true,
+      briefing: 'Old stale briefing text.',
+      action_items: [],
+    }
+    // 25 hours ago.
+    localStorage.setItem(BRIEFING_SEED_KEY, JSON.stringify({
+      ts: Date.now() - (25 * 60 * 60 * 1000),
+      data: staleBriefing,
+    }))
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/briefing') return new Promise(() => {})
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      return Promise.resolve({})
+    })
+
+    renderDashboard()
+
+    // Stale seed was not painted, we should see the loading skeleton instead.
+    expect(screen.queryByText(/Old stale briefing text/)).not.toBeInTheDocument()
   })
 })
 

@@ -3,6 +3,7 @@ import Icon from "../components/Icon";
 import TopBar from "../components/TopBar";
 import ExportButton from "../components/ExportButton";
 import { api } from "../lib/api";
+import { EmptyState } from "../components/ui";
 
 interface Task {
   id: string;
@@ -98,7 +99,7 @@ export default function Timeline() {
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-            <h1 className="text-xl sm:text-2xl font-bold">Timeline</h1>
+            <h1 data-testid="page-header" className="text-xl sm:text-2xl font-bold">Timeline</h1>
             <div className="flex items-center gap-1 text-sm">
               {(["week", "month", "quarter"] as ViewMode[]).map((v) => (
                 <button key={v} className={viewModeClass(v)} onClick={() => setViewMode(v)}>
@@ -190,9 +191,11 @@ export default function Timeline() {
             />
 
             {goalNames.length === 0 && (
-              <div className="px-4 py-8 text-center text-slate-500 text-sm">
-                No tasks to display. Add tags to your tasks to organize them.
-              </div>
+              <EmptyState
+                icon="calendar_today"
+                title="No tasks to display."
+                description="Add tags to your tasks to organize them."
+              />
             )}
 
             {goalNames.map((goalName, gi) => {

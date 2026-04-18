@@ -11,6 +11,7 @@ vi.mock('../lib/api', async () => {
     api: {
       get: vi.fn(),
       post: vi.fn(),
+      delete: vi.fn(),
     },
   }
 })
@@ -35,6 +36,7 @@ import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)
+const mockedApiDelete = vi.mocked(api.delete)
 
 const NOT_AUTHENTICATED = {
   authenticated: false,
@@ -92,7 +94,7 @@ describe('Drive page', () => {
     // Never resolves so the spinner stays.
     mockedApiGet.mockReturnValue(new Promise(() => {}))
     renderDrive()
-    expect(screen.getByRole('status')).toBeInTheDocument()
+    expect(screen.getByTestId('loading-state')).toBeInTheDocument()
   })
 
   it('shows the connect screen when not authenticated without credentials', async () => {
@@ -164,12 +166,20 @@ describe('Drive page', () => {
       return Promise.resolve({})
     })
 
-    // Mock fetch for the preview endpoint.
+    // Mock fetch for the structured preview endpoint.
     global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
+      ok: true,
+      status: 200,
       headers: { get: () => 'application/json' },
-      json: async () => ({ previewable: false, webViewLink: 'https://drive.google.com', mimeType: 'application/vnd.google-apps.document' }),
+      json: async () => ({
+        kind: 'doc',
+        name: 'Q1 Report',
+        mime_type: 'application/vnd.google-apps.document',
+        thumbnail_url: null,
+        export_url: '/api/drive/files/file-1/preview',
+        web_view_link: 'https://drive.google.com',
+        sample: { blocks: [{ type: 'heading', text: 'Q1 Report' }], truncated: false },
+      }),
     } as unknown as Response)
 
     renderDrive()
@@ -191,10 +201,18 @@ describe('Drive page', () => {
     })
 
     global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
+      ok: true,
+      status: 200,
       headers: { get: () => 'application/json' },
-      json: async () => ({ previewable: false, webViewLink: '', mimeType: 'application/zip' }),
+      json: async () => ({
+        kind: 'other',
+        name: 'Q1 Report',
+        mime_type: 'application/vnd.google-apps.document',
+        thumbnail_url: null,
+        export_url: '/api/drive/files/file-1/preview',
+        web_view_link: '',
+        sample: null,
+      }),
     } as unknown as Response)
 
     renderDrive()
@@ -316,6 +334,290 @@ describe('Drive page', () => {
     renderDrive()
     await waitFor(() => {
       expect(screen.getByText(/No files found/i)).toBeInTheDocument()
+    })
+  })
+
+  // --- Delete / undo toast ---
+
+  it('shows a delete button on each file row', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    const deleteBtn = screen.getByTitle('Delete Q1 Report')
+    expect(deleteBtn).toBeInTheDocument()
+  })
+
+  it('clicking delete removes the file from the list and shows the undo toast', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+    mockedApiDelete.mockResolvedValue({ ok: true })
+
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    fireEvent.click(screen.getByTitle('Delete Q1 Report'))
+
+    // File disappears optimistically.
+    await waitFor(() => {
+      expect(screen.queryByText('Q1 Report')).not.toBeInTheDocument()
+    })
+    // Undo toast appears.
+    expect(screen.getByTestId('undo-delete-drive-toast')).toBeInTheDocument()
+  })
+
+  it(
+    'shows an in-app error toast when trash fails (not window.alert)',
+    async () => {
+      const alertSpy = vi.spyOn(window, 'alert')
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+        if (path.includes('/drive/files'))
+          return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+        return Promise.resolve({})
+      })
+      // The DELETE call fails so the app must surface an error toast.
+      mockedApiDelete.mockRejectedValue(
+        new ApiError(500, JSON.stringify({ detail: 'The file is protected.' }))
+      )
+
+      renderDrive()
+      await waitFor(() => screen.getByText('Q1 Report'))
+
+      fireEvent.click(screen.getByTitle('Delete Q1 Report'))
+
+      // The app has a 5-second undo grace window before it calls DELETE.
+      // Wait for the error toast with a generous real-time timeout.
+      await waitFor(
+        () => {
+          expect(screen.getByTestId('drive-trash-error-toast')).toBeInTheDocument()
+        },
+        { timeout: 8000 }
+      )
+      // Error text should include the file name.
+      expect(screen.getByTestId('drive-trash-error-toast').textContent).toContain('Q1 Report')
+      // The browser-native alert must NOT have been called.
+      expect(alertSpy).not.toHaveBeenCalled()
+
+      alertSpy.mockRestore()
+    },
+    15000
+  )
+
+  it('clicking Undo restores the file list and does not call DELETE', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+    mockedApiDelete.mockResolvedValue({ ok: true })
+
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    fireEvent.click(screen.getByTitle('Delete Q1 Report'))
+    await waitFor(() => screen.getByTestId('undo-delete-drive-toast'))
+
+    // Undo before the timer fires.
+    fireEvent.click(screen.getByTestId('undo-delete-drive-button'))
+
+    // Toast disappears.
+    await waitFor(() => {
+      expect(screen.queryByTestId('undo-delete-drive-toast')).not.toBeInTheDocument()
+    })
+    // No DELETE call should have been made (undo cancelled the timer).
+    expect(mockedApiDelete).not.toHaveBeenCalled()
+  })
+
+  // --- webViewLink fallback for non-previewable file types ---
+
+  it('clicking a non-previewable file row opens webViewLink in a new tab instead of the preview panel', async () => {
+    const NON_PREVIEWABLE_FILES = [
+      {
+        id: 'pptx-1',
+        name: 'Pitch Deck.pptx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        modifiedTime: new Date().toISOString(),
+        iconLink: '',
+        webViewLink: 'https://drive.google.com/file/d/pptx-1/view',
+        size: null,
+      },
+    ]
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: NON_PREVIEWABLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    renderDrive()
+    await waitFor(() => screen.getByText('Pitch Deck.pptx'))
+
+    fireEvent.click(screen.getByText('Pitch Deck.pptx'))
+
+    // Preview panel must NOT open.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    // webViewLink must open in a new tab.
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://drive.google.com/file/d/pptx-1/view',
+      '_blank',
+      'noopener,noreferrer'
+    )
+
+    openSpy.mockRestore()
+  })
+
+  it('clicking a .xlsx file row opens webViewLink in a new tab', async () => {
+    const XLSX_FILE = [
+      {
+        id: 'xlsx-1',
+        name: 'Budget.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        modifiedTime: new Date().toISOString(),
+        iconLink: '',
+        webViewLink: 'https://drive.google.com/file/d/xlsx-1/view',
+        size: null,
+      },
+    ]
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: XLSX_FILE, cached: false })
+      return Promise.resolve({})
+    })
+
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    renderDrive()
+    await waitFor(() => screen.getByText('Budget.xlsx'))
+
+    fireEvent.click(screen.getByText('Budget.xlsx'))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://drive.google.com/file/d/xlsx-1/view',
+      '_blank',
+      'noopener,noreferrer'
+    )
+
+    openSpy.mockRestore()
+  })
+
+  it('clicking a .zip file row opens webViewLink in a new tab', async () => {
+    const ZIP_FILE = [
+      {
+        id: 'zip-1',
+        name: 'Archive.zip',
+        mimeType: 'application/zip',
+        modifiedTime: new Date().toISOString(),
+        iconLink: '',
+        webViewLink: 'https://drive.google.com/file/d/zip-1/view',
+        size: null,
+      },
+    ]
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: ZIP_FILE, cached: false })
+      return Promise.resolve({})
+    })
+
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    renderDrive()
+    await waitFor(() => screen.getByText('Archive.zip'))
+
+    fireEvent.click(screen.getByText('Archive.zip'))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://drive.google.com/file/d/zip-1/view',
+      '_blank',
+      'noopener,noreferrer'
+    )
+
+    openSpy.mockRestore()
+  })
+
+  it('clicking a Google Doc row still opens the preview panel (inline renderer intact)', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files')) return Promise.resolve({ files: SAMPLE_FILES, cached: false })
+      return Promise.resolve({})
+    })
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ previewable: false, webViewLink: 'https://drive.google.com', mimeType: 'application/vnd.google-apps.document' }),
+    } as unknown as Response)
+
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    renderDrive()
+    await waitFor(() => screen.getByText('Q1 Report'))
+
+    fireEvent.click(screen.getByText('Q1 Report'))
+
+    // Preview panel must open (not a new tab).
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+    expect(openSpy).not.toHaveBeenCalled()
+
+    openSpy.mockRestore()
+  })
+
+  // --- redirect_uri_mismatch banner ---
+
+  it('shows the redirect_uri_mismatch banner with the exact URL and a GCP link when error=redirect_uri_mismatch is in the URL', async () => {
+    // Simulate returning to /drive?error=redirect_uri_mismatch after Google
+    // rejects the auth request because the redirect URI is not registered.
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      value: { ...window.location, search: '?error=redirect_uri_mismatch', pathname: '/drive' },
+    })
+
+    mockedApiGet.mockResolvedValue({
+      authenticated: false,
+      email: null,
+      credentials_file_present: true,
+      needs_reauth: false,
+    })
+
+    renderDrive()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Google refused the connection because this URL is not registered/i)).toBeInTheDocument()
+    })
+
+    // The exact URI the app sends must be shown in the banner.
+    expect(screen.getByText('https://localhost:8000/api/drive/auth/callback')).toBeInTheDocument()
+
+    // "Add it to Authorized redirect URIs" instruction must appear.
+    expect(screen.getByText(/Authorized redirect URIs/i)).toBeInTheDocument()
+
+    // A link to GCP credentials must be present.
+    const gcpLink = screen.getByRole('link', { name: /Open Google Cloud Console credentials/i })
+    expect(gcpLink).toBeInTheDocument()
+    expect(gcpLink.getAttribute('href')).toBe('https://console.cloud.google.com/apis/credentials')
+    expect(gcpLink.getAttribute('target')).toBe('_blank')
+
+    // Reset location for subsequent tests.
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      value: { ...window.location, search: '', pathname: '/drive' },
     })
   })
 })

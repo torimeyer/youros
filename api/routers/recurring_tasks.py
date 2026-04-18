@@ -19,7 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from services import recurring_tasks
+from services import recent_deletes, recurring_tasks
 
 router = APIRouter(tags=["recurring"])
 
@@ -69,6 +69,7 @@ async def delete_recurring(rule_id: str):
     ok = recurring_tasks.remove_rule(rule_id)
     if not ok:
         raise HTTPException(status_code=404, detail="rule not found")
+    recent_deletes.record_id(f"recurring-rule:{rule_id}")
     return {"ok": True}
 
 

@@ -32,6 +32,7 @@ AGENT_STATE_PATH = OSTK_DIR / "agent_state.json"
 AGENT_DURATIONS_PATH = OSTK_DIR / "agent_durations.json"
 AGENT_TEMPLATES_PATH = Path.home() / ".myos" / "agent_templates.json"
 PROVEN_TEMPLATES_PATH = Path.home() / ".myos" / "proven_templates.json"
+DELETED_AGENTS_PATH = OSTK_DIR / "deleted_agents.json"
 
 
 # ---------- low level loaders ----------
@@ -51,6 +52,14 @@ def _load_json(path: Path, default: Any) -> Any:
 def _load_agent_state() -> dict:
     data = _load_json(AGENT_STATE_PATH, {})
     return data if isinstance(data, dict) else {}
+
+
+def _load_deleted_agents() -> set:
+    """Return the set of agent names that have been explicitly deleted."""
+    data = _load_json(DELETED_AGENTS_PATH, [])
+    if isinstance(data, list):
+        return set(data)
+    return set()
 
 
 def _load_duration_stats() -> list[dict]:
@@ -240,6 +249,9 @@ def analyze_runs() -> list[dict]:
         {
             "name": str,
             "status": "completed" | "failed" | "abandoned" | "running",
+            "raw_status": str,              # unbucketed status, e.g. "completed_timeout"
+            "source": str,                  # "api", "claude-code", "subagent", "chat", etc.
+            "summary": str,                 # completion/failure summary, possibly empty
             "model": str,                   # short label (sonnet / haiku / opus)
             "raw_model": str,
             "budget": float,                # dollars, 0 if unknown
@@ -253,11 +265,14 @@ def analyze_runs() -> list[dict]:
     Rows are sorted newest-first by spawn time.
     """
     state = _load_agent_state()
+    deleted = _load_deleted_agents()
     templates = _load_custom_templates()
 
     rows: list[dict] = []
     for name, meta in state.items():
         if not isinstance(meta, dict):
+            continue
+        if name in deleted:
             continue
         classified = _classify_status(meta)
         duration = _duration_seconds(meta)
@@ -272,6 +287,9 @@ def analyze_runs() -> list[dict]:
         rows.append({
             "name": name,
             "status": classified,
+            "raw_status": str(meta.get("status") or ""),
+            "source": str(meta.get("source") or ""),
+            "summary": str(meta.get("summary") or ""),
             "model": _model_short(meta.get("model")),
             "raw_model": meta.get("model") or "",
             "budget": budget_val,

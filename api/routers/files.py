@@ -5,8 +5,10 @@ converting them server-side into a renderable representation (HTML, JSON,
 or extracted text). Plain text and images are handled by the existing
 `/files/read` endpoint in the projects router.
 
-All paths are resolved through the same safe-path helper used by the
-projects router so previews cannot escape the workspace.
+All paths are resolved through the same readable-path helper used by the
+projects router so previews stay scoped to the two roots that Recent
+Documents walks (the workspace and ``~/.myos/files/``) and cannot
+escape them.
 """
 
 from __future__ import annotations
@@ -19,7 +21,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
-from routers.projects import _resolve_safe_path
+from routers.projects import _resolve_readable_path
+from services import recent_deletes
 
 router = APIRouter(tags=["files"])
 
@@ -256,7 +259,7 @@ async def preview_file(path: str = Query(..., description="Relative path to the 
     Text and image files are better served by `/files/read` (existing endpoint)
     and `/files/raw` respectively.
     """
-    resolved = _resolve_safe_path(path)
+    resolved = _resolve_readable_path(path)
     if not resolved.is_file():
         raise HTTPException(status_code=400, detail="Path is not a file.")
 
@@ -293,7 +296,7 @@ async def raw_file(path: str = Query(..., description="Relative path to the file
 
     Used by the frontend for images and for client-side PDF rendering.
     """
-    resolved = _resolve_safe_path(path)
+    resolved = _resolve_readable_path(path)
     if not resolved.is_file():
         raise HTTPException(status_code=400, detail="Path is not a file.")
 
@@ -311,3 +314,28 @@ async def raw_file(path: str = Query(..., description="Relative path to the file
 # Small helper exposed for tests: encode bytes to a data URL.
 def _to_data_url(mime: str, data: bytes) -> str:
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+@router.delete("/files/delete")
+async def delete_file(path: str = Query(..., description="Relative path to the file to delete")):
+    """Delete a file from the workspace.
+
+    Uses the same safe-path resolution as other file endpoints, so path
+    traversal outside the project root is blocked.
+    """
+    resolved = _resolve_readable_path(path)
+
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file.")
+
+    try:
+        resolved.unlink()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not delete file: {exc}",
+        )
+
+    # Tombstone so a racing re-upload or preview does not resurrect the row.
+    recent_deletes.record_id(f"file:{path}")
+    return {"ok": True, "deleted": str(resolved.name)}

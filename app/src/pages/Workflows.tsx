@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import Icon from '../components/Icon'
 import { api } from '../lib/api'
+import { Button, EmptyState, Card, ErrorBanner } from '../components/ui'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +29,24 @@ interface Workflow {
   status: 'pending' | 'running' | 'done' | 'failed'
   created_at: string
   completed_at?: string
+}
+
+interface RunStep {
+  id: string
+  agent_name: string
+  status: string
+  started_at?: string
+  finished_at?: string
+  error?: string
+}
+
+interface WorkflowRun {
+  run_id: string
+  status: 'done' | 'failed' | 'running' | string
+  started_at?: string
+  completed_at?: string
+  duration_seconds?: number | null
+  steps: RunStep[]
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +79,160 @@ function StepIcon({ status }: { status: string }) {
   if (status === 'failed') return <Icon name="cancel" className="text-red-400 text-lg" />
   if (status === 'skipped') return <Icon name="remove_circle" className="text-yellow-400 text-lg" />
   return <Icon name="radio_button_unchecked" className="text-slate-600 text-lg" />
+}
+
+// ---------------------------------------------------------------------------
+// Run history drawer (inline per workflow row)
+// ---------------------------------------------------------------------------
+
+function formatDuration(seconds: number | null | undefined): string {
+  if (seconds == null) return ''
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
+function RunsDrawer({ workflowId }: { workflowId: string }) {
+  const [runs, setRuns] = useState<WorkflowRun[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [expandedRun, setExpandedRun] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await api.get<{ runs: WorkflowRun[] }>(`/workflows/${workflowId}/runs`)
+        if (!cancelled) setRuns(res.runs)
+      } catch {
+        if (!cancelled) setRuns([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [workflowId])
+
+  if (loading) {
+    return (
+      <div className="px-4 pb-3 text-xs text-slate-500">Loading run history...</div>
+    )
+  }
+
+  if (!runs || runs.length === 0) {
+    return (
+      <div className="px-4 pb-3 text-xs text-slate-500">
+        No runs yet. Click Run to execute this automation.
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-4 pb-3 space-y-2">
+      <p className="text-xs font-semibold text-slate-400 mb-1">Recent runs</p>
+      {runs.map((run) => {
+        const isExpanded = expandedRun === run.run_id
+        const statusColors: Record<string, string> = {
+          done: 'text-green-400 bg-green-500/10',
+          failed: 'text-red-400 bg-red-500/10',
+          running: 'text-blue-400 bg-blue-500/10',
+        }
+        const statusColor = statusColors[run.status] ?? 'text-slate-400 bg-slate-800'
+        const startedLabel = run.started_at
+          ? new Date(run.started_at).toLocaleString()
+          : 'Unknown start'
+
+        return (
+          <div
+            key={run.run_id}
+            className="rounded-lg border border-slate-700/50 bg-slate-800/40 overflow-hidden"
+          >
+            {/* Run summary row */}
+            <button
+              className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-slate-800/60 transition-colors"
+              onClick={() => setExpandedRun(isExpanded ? null : run.run_id)}
+            >
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${statusColor}`}>
+                {run.status === 'done' ? 'Success' : run.status === 'failed' ? 'Failed' : run.status}
+              </span>
+              <span className="text-xs text-slate-300 flex-1">{startedLabel}</span>
+              {run.duration_seconds != null && (
+                <span className="text-xs text-slate-500 shrink-0">
+                  {formatDuration(run.duration_seconds)}
+                </span>
+              )}
+              <Icon
+                name={isExpanded ? 'expand_less' : 'expand_more'}
+                className="text-slate-500 text-base shrink-0"
+              />
+            </button>
+
+            {/* Expanded step breakdown */}
+            {isExpanded && (
+              <div className="border-t border-slate-700/50 px-3 py-2 space-y-1.5">
+                {run.steps.map((step) => {
+                  const stepColors: Record<string, string> = {
+                    done: 'text-green-400',
+                    failed: 'text-red-400',
+                    skipped: 'text-yellow-400',
+                    running: 'text-blue-400',
+                  }
+                  const stepColor = stepColors[step.status] ?? 'text-slate-500'
+                  const stepDuration =
+                    step.started_at && step.finished_at
+                      ? formatDuration(
+                          Math.round(
+                            (new Date(step.finished_at).getTime() -
+                              new Date(step.started_at).getTime()) /
+                              1000
+                          )
+                        )
+                      : null
+
+                  return (
+                    <div key={step.id} className="flex items-start gap-2">
+                      <Icon
+                        name={
+                          step.status === 'done'
+                            ? 'check_circle'
+                            : step.status === 'failed'
+                            ? 'cancel'
+                            : step.status === 'skipped'
+                            ? 'remove_circle'
+                            : 'radio_button_unchecked'
+                        }
+                        className={`text-sm shrink-0 mt-0.5 ${stepColor}`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          {/* Link to agent row on the Agents page */}
+                          <Link
+                            to={`/agents?highlight=${encodeURIComponent(step.agent_name)}`}
+                            className="text-xs text-slate-300 hover:text-white hover:underline transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {step.agent_name}
+                          </Link>
+                          <span className={`text-[10px] ${stepColor}`}>{step.status}</span>
+                          {stepDuration && (
+                            <span className="text-[10px] text-slate-600">{stepDuration}</span>
+                          )}
+                        </div>
+                        {step.error && (
+                          <p className="text-[11px] text-red-400 mt-0.5">{step.error}</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +542,9 @@ export default function Workflows() {
   const [selected, setSelected] = useState<Workflow | null>(null)
   const [showNew, setShowNew] = useState(false)
   const [error, setError] = useState('')
+  const [status, setStatus] = useState('')
   const [templates, setTemplates] = useState<AutomationTemplate[]>([])
+  const [expandedRunsId, setExpandedRunsId] = useState<string | null>(null)
 
   const fetchWorkflows = useCallback(async () => {
     try {
@@ -423,11 +598,22 @@ export default function Workflows() {
 
   const handleRun = async (id: string) => {
     setError('')
+    setStatus('')
+    // Optimistic update so the user sees immediate feedback instead of a
+    // silent click. The 3 second polling loop will overwrite this with the
+    // real state as soon as the backend reports it.
+    setWorkflows((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, status: 'running' as const } : w)),
+    )
     try {
       await api.post(`/workflows/${id}/run`)
+      setStatus('Automation started. Steps will update as they finish.')
+      setTimeout(() => setStatus(''), 5000)
       await fetchWorkflows()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to start workflow')
+      // Revert the optimistic update so the card does not appear stuck.
+      await fetchWorkflows()
     }
   }
 
@@ -443,11 +629,15 @@ export default function Workflows() {
   }
 
   const handleUseTemplate = (tpl: AutomationTemplate) => {
-    // Pre-fill the builder via localStorage and navigate to it
+    // Pre-fill the builder via localStorage and navigate to it.
+    // Slugify the step name so the spawned agent gets a clean identifier
+    // like "closed-this-week" instead of the display label "Closed this week".
+    const slugify = (s: string) =>
+      s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
     const prefill = {
       name: tpl.name,
       steps: tpl.steps.map((s) => ({
-        agent_name: s.name,
+        agent_name: slugify(s.name),
         prompt: s.prompt,
         model: 'sonnet',
         budget: 2.0,
@@ -475,18 +665,28 @@ export default function Workflows() {
               Chain agents together. Steps run at the same time unless you set dependencies.
             </p>
           </div>
-          <button
+          <Button
+            variant="primary"
+            size="md"
             onClick={() => navigate('/workflows/builder')}
-            className="flex items-center gap-2 bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-4 py-2 text-sm transition-colors"
           >
             <Icon name="add" className="text-base" />
             New automation
-          </button>
+          </Button>
         </div>
 
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-            {error}
+          <div className="mb-4">
+            <ErrorBanner message={error} />
+          </div>
+        )}
+
+        {status && (
+          <div
+            role="status"
+            className="mb-4 p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm"
+          >
+            {status}
           </div>
         )}
 
@@ -529,91 +729,119 @@ export default function Workflows() {
         {loading ? (
           <div className="text-slate-500 text-sm">Loading...</div>
         ) : workflows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <Icon name="account_tree" className="text-5xl text-slate-700 mb-4" />
-            <p className="text-slate-400 text-lg font-medium">No automations yet</p>
-            <p className="text-slate-600 text-sm mt-1">
-              Create an automation to run multiple agents in a sequence or at the same time.
-            </p>
-          </div>
+          <EmptyState
+            icon="account_tree"
+            title="No automations yet"
+            description="Create an automation to run multiple agents in a sequence or at the same time."
+            action={{ label: "New automation", onClick: () => navigate('/workflows/builder') }}
+          />
         ) : (
           <div className="space-y-3">
-            {workflows.map((wf) => (
-              <div
-                key={wf.id}
-                onClick={() => setSelected(wf)}
-                className="flex items-center gap-4 p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-600 cursor-pointer transition-colors"
-              >
-                <Icon
-                  name="account_tree"
-                  className={`text-2xl shrink-0 ${
-                    wf.status === 'running'
-                      ? 'text-blue-400'
-                      : wf.status === 'done'
-                      ? 'text-green-400'
-                      : wf.status === 'failed'
-                      ? 'text-red-400'
-                      : 'text-slate-600'
-                  }`}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-white">{wf.name}</span>
-                    <StatusBadge status={wf.status} />
-                  </div>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {wf.steps.length} {wf.steps.length === 1 ? 'step' : 'steps'} &middot;{' '}
-                    {new Date(wf.created_at).toLocaleString()}
-                  </p>
-                </div>
-
-                {/* Step progress dots */}
-                <div className="flex gap-1 shrink-0">
-                  {wf.steps.map((s) => (
-                    <span
-                      key={s.id}
-                      title={`${s.agent_name}: ${s.status}`}
-                      className={`w-2 h-2 rounded-full ${
-                        s.status === 'done'
-                          ? 'bg-green-400'
-                          : s.status === 'running'
-                          ? 'bg-blue-400 animate-pulse'
-                          : s.status === 'failed'
-                          ? 'bg-red-400'
-                          : s.status === 'skipped'
-                          ? 'bg-yellow-400'
-                          : 'bg-slate-700'
+            {workflows.map((wf) => {
+              const runsOpen = expandedRunsId === wf.id
+              return (
+                <Card
+                  key={wf.id}
+                  variant="elevated"
+                  padding="sm"
+                  hover
+                  className="overflow-hidden"
+                >
+                  {/* Main row */}
+                  <div
+                    onClick={() => setSelected(wf)}
+                    className="flex items-center gap-4 p-4 cursor-pointer"
+                  >
+                    <Icon
+                      name="account_tree"
+                      className={`text-2xl shrink-0 ${
+                        wf.status === 'running'
+                          ? 'text-blue-400'
+                          : wf.status === 'done'
+                          ? 'text-green-400'
+                          : wf.status === 'failed'
+                          ? 'text-red-400'
+                          : 'text-slate-600'
                       }`}
                     />
-                  ))}
-                </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-white">{wf.name}</span>
+                        <StatusBadge status={wf.status} />
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {wf.steps.length} {wf.steps.length === 1 ? 'step' : 'steps'} &middot;{' '}
+                        {new Date(wf.created_at).toLocaleString()}
+                      </p>
+                    </div>
 
-                <div className="flex gap-2 shrink-0">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleRun(wf.id) }}
-                    disabled={wf.status === 'running'}
-                    title="Run automation"
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:text-slate-700 transition-colors"
-                  >
-                    <Icon name="play_arrow" className="text-base" />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); navigate(`/workflows/builder/${wf.id}`) }}
-                    title="Edit automation"
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                  >
-                    <Icon name="edit" className="text-base" />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDelete(wf.id) }}
-                    title="Delete automation"
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors"
-                  >
-                    <Icon name="delete" className="text-base" />
-                  </button>
-                </div>
-              </div>
-            ))}
+                    {/* Step progress dots */}
+                    <div className="flex gap-1 shrink-0">
+                      {wf.steps.map((s) => (
+                        <span
+                          key={s.id}
+                          title={`${s.agent_name}: ${s.status}`}
+                          className={`w-2 h-2 rounded-full ${
+                            s.status === 'done'
+                              ? 'bg-green-400'
+                              : s.status === 'running'
+                              ? 'bg-blue-400 animate-pulse'
+                              : s.status === 'failed'
+                              ? 'bg-red-400'
+                              : s.status === 'skipped'
+                              ? 'bg-yellow-400'
+                              : 'bg-slate-700'
+                          }`}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRun(wf.id) }}
+                        disabled={wf.status === 'running'}
+                        title="Run automation"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:text-slate-700 transition-colors"
+                      >
+                        <Icon name="play_arrow" className="text-base" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setExpandedRunsId(runsOpen ? null : wf.id) }}
+                        title="Show run history"
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          runsOpen
+                            ? 'text-indigo-400 bg-indigo-500/10'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <Icon name="history" className="text-base" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigate(`/workflows/builder/${wf.id}`) }}
+                        title="Edit automation"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                      >
+                        <Icon name="edit" className="text-base" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDelete(wf.id) }}
+                        title="Delete automation"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors"
+                      >
+                        <Icon name="delete" className="text-base" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Run history panel */}
+                  {runsOpen && (
+                    <div className="border-t border-slate-800">
+                      <RunsDrawer workflowId={wf.id} />
+                    </div>
+                  )}
+                </Card>
+              )
+            })}
           </div>
         )}
       </div>

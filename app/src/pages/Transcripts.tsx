@@ -1,8 +1,12 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
+import TimeFilter, { type TimePeriod } from "../components/TimeFilter";
 import { api } from "../lib/api";
 import SharePopover from "../components/SharePopover";
+import { renderMarkdown } from "../lib/markdown";
+import { EmptyState, LoadingState, ErrorBanner } from "../components/ui";
 
 interface MessageCounts {
   user: number;
@@ -46,14 +50,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-type DateRange = "all" | "today" | "week" | "month";
-
-const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
-  { value: "all", label: "All time" },
-  { value: "today", label: "Today" },
-  { value: "week", label: "This week" },
-  { value: "month", label: "This month" },
-];
+type DateRange = TimePeriod;
 
 interface TranscriptListResponse {
   transcripts: TranscriptSummary[];
@@ -61,17 +58,27 @@ interface TranscriptListResponse {
 }
 
 export default function Transcripts({ embedded }: { embedded?: boolean }) {
+  const [searchParams] = useSearchParams();
   const [transcripts, setTranscripts] = useState<TranscriptSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // If a session query param is present (e.g. from the Tasks page
+  // "View transcript" button), pre-select it so the viewer opens
+  // directly on that transcript.
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    const sid = searchParams.get("session");
+    return sid && sid.trim() ? sid : null;
+  });
   const [detail, setDetail] = useState<TranscriptDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [showTranscriptShare, setShowTranscriptShare] = useState(false);
 
   // Search and filter state
   const [searchQuery, setSearchQuery] = useState("");
-  const [dateRange, setDateRange] = useState<DateRange>("all");
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
+    const saved = localStorage.getItem("myos_transcripts_period") as DateRange | null;
+    return saved === "today" || saved === "week" || saved === "month" || saved === "all" ? saved : "all";
+  });
   const [kindFilter, setKindFilter] = useState<string>("all");
   const [searchInput, setSearchInput] = useState("");
   const [resultCount, setResultCount] = useState(0);
@@ -101,20 +108,21 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
         setAllKnownKinds(kinds);
       }
     } catch {
-      setError("Could not load transcripts.");
+      setError("Could not load conversations. Check that the backend is running and try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Initial load (no filters)
-  useEffect(() => {
-    fetchTranscripts();
-  }, []);
-
-  // Re-fetch when date range or kind filter changes
+  // Load on mount and whenever date range or kind filter changes.
+  // A single effect avoids two simultaneous fetches on mount (one with no args,
+  // one with defaults) that could race and leave a stale error if one fails.
   useEffect(() => {
     fetchTranscripts(searchQuery, dateRange, kindFilter);
+    // searchQuery intentionally excluded: user must press Search to trigger
+    // a content-scan fetch (it can be slow). dateRange and kindFilter are
+    // cheap server-side filters and should re-run automatically.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange, kindFilter]);
 
   const handleSearch = () => {
@@ -148,6 +156,18 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
     }
   };
 
+  // Auto-load the detail when a session id was supplied in the URL
+  // (so linking from the Tasks page opens the viewer directly).
+  useEffect(() => {
+    const sid = searchParams.get("session");
+    if (sid && sid.trim() && !detail && !detailLoading) {
+      openTranscript(sid);
+    }
+    // Only react to the URL param on mount/change; openTranscript is
+    // stable enough for this limited trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const goBack = () => {
     setSelectedId(null);
     setDetail(null);
@@ -158,7 +178,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
     const summary = transcripts.find((t) => t.session_id === selectedId);
     return (
       <>
-        {!embedded && <TopBar title="History" />}
+        {!embedded && <TopBar title="Conversations" />}
         <div className={embedded ? "" : "pt-16 px-4 pb-4 sm:pt-20 sm:p-8"}>
           {/* Back button and header */}
           <div className="flex items-center gap-4 mb-6">
@@ -205,7 +225,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
           </div>
 
           {detailLoading && (
-            <div className="text-slate-400 text-center py-12">Loading conversation...</div>
+            <LoadingState variant="spinner" message="Loading conversation..." />
           )}
 
           {!detailLoading && detail && detail.messages.length === 0 && (
@@ -244,8 +264,8 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
                   </div>
 
                   {msg.text && (
-                    <div className="text-slate-200 text-sm whitespace-pre-wrap leading-relaxed">
-                      {msg.text}
+                    <div className="chat-bubble-content text-slate-200 text-sm leading-relaxed">
+                      {renderMarkdown(msg.text)}
                     </div>
                   )}
 
@@ -281,7 +301,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
 
   return (
     <>
-      {!embedded && <TopBar title="History" />}
+      {!embedded && <TopBar title="Conversations" />}
       <div className={embedded ? "" : "pt-16 px-4 pb-4 sm:pt-20 sm:p-8"}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
@@ -334,17 +354,10 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
           </button>
 
           {/* Date range filter */}
-          <select
+          <TimeFilter
             value={dateRange}
-            onChange={(e) => setDateRange(e.target.value as DateRange)}
-            className="bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-colors appearance-none cursor-pointer"
-          >
-            {DATE_RANGE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            onChange={(r) => { setDateRange(r); localStorage.setItem("myos_transcripts_period", r); }}
+          />
 
           {/* Kind filter */}
           {allKnownKinds.length > 1 && (
@@ -369,6 +382,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
                 setSearchInput("");
                 setSearchQuery("");
                 setDateRange("all");
+                localStorage.setItem("myos_transcripts_period", "all");
                 setKindFilter("all");
                 fetchTranscripts("", "all", "all");
               }}
@@ -381,21 +395,29 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
         </div>
 
         {loading && (
-          <div className="text-slate-400 text-center py-12">Loading transcripts...</div>
+          <LoadingState variant="spinner" message="Loading transcripts..." />
         )}
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-red-400 text-sm">
-            {error}
+          <div className="mb-4">
+            <ErrorBanner message={error} />
           </div>
         )}
 
         {!loading && !error && transcripts.length === 0 && (
-          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-8 text-center text-slate-400">
-            {hasActiveFilters
-              ? "No transcripts match your search. Try different terms or clear the filters."
-              : "No transcripts found. Conversations you have with AI will appear here."}
-          </div>
+          hasActiveFilters ? (
+            <EmptyState
+              icon="search"
+              title="No results"
+              description="No conversations match your search. Try different terms or clear the filters."
+            />
+          ) : (
+            <EmptyState
+              icon="description"
+              title="No conversations yet"
+              description="Conversations you have with AI will appear here."
+            />
+          )
         )}
 
         {!loading && !error && transcripts.length > 0 && (

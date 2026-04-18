@@ -214,6 +214,51 @@ def test_parse_history_line_invalid():
     assert OstkService._parse_history_line("---") is None
 
 
+def test_parse_history_line_new_timestamp_format():
+    """Parser must handle the current ostk format: microseconds + +00:00 timezone."""
+    from services.ostk import OstkService
+
+    # Current format from `ostk os history`
+    line = '[2026-04-14T22:30:45.665455+00:00] agent.spawned     name="fix-activity-insights" model="claude-sonnet-4-6" budget="2.0"'
+    result = OstkService._parse_history_line(line)
+
+    assert result is not None, "Parser returned None for new timestamp format (Bug 1)"
+    assert result["timestamp"] == "2026-04-14T22:30:45.665455+00:00"
+    assert result["event"] == "agent.spawned"
+    assert "fix-activity-insights" in result["detail"]
+
+
+def test_parse_history_line_completed_event():
+    """Parser must handle agent.completed events which have no trailing detail."""
+    from services.ostk import OstkService
+
+    line = '[2026-04-14T22:30:51.915896+00:00] agent.completed   name="summarizer-bot"'
+    result = OstkService._parse_history_line(line)
+
+    assert result is not None
+    assert result["event"] == "agent.completed"
+    assert "summarizer-bot" in result["detail"]
+
+
+@pytest.mark.asyncio
+async def test_get_history_parses_new_timestamp_format():
+    """get_history must return rows for the current ostk output format (Bug 1 regression)."""
+    from services.ostk import OstkService
+
+    service = OstkService()
+    sample_output = (
+        '[2026-04-14T22:30:45.665455+00:00] agent.spawned     name="fix-activity-insights" model="claude-sonnet-4-6" budget="2.0"\n'
+        '[2026-04-14T22:30:51.915896+00:00] agent.completed   name="summarizer-bot"\n'
+    )
+    with patch.object(service, "_run", new_callable=AsyncMock, return_value=sample_output):
+        result = await service.get_history(last=10)
+
+    # Before the fix this returned [] because the regex didn't match +00:00 format
+    assert len(result) == 2, f"Expected 2 events, got {len(result)} (Bug 1: regex mismatch)"
+    assert result[0]["event"] == "agent.spawned"
+    assert result[1]["event"] == "agent.completed"
+
+
 @pytest.mark.asyncio
 async def test_get_history_calls_ostk_cli():
     """get_history should call ostk os history with the right args."""
@@ -254,3 +299,69 @@ async def test_get_history_handles_error():
         result = await service.get_history(last=10)
 
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Regression: dedupe_audit_log cleanup endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dedupe_audit_log_removes_duplicates(tmp_path):
+    """POST /api/activity/dedupe-audit must collapse duplicate agent.completed
+    rows within the default 60-second window, leaving one per agent."""
+    import json
+    from pathlib import Path
+
+    audit_path = tmp_path / "audit.jsonl"
+    # Write 4 agent.completed rows for "summarizer-bot" within 60 seconds,
+    # plus one for a different agent and one non-terminal event.
+    rows = [
+        {"event": "task.added", "detail": "→001 something", "timestamp": "2026-04-14T17:50:00+00:00"},
+        {"event": "agent.completed", "name": "summarizer-bot", "timestamp": "2026-04-14T17:54:00.143908+00:00"},
+        {"event": "agent.completed", "name": "summarizer-bot", "timestamp": "2026-04-14T17:54:01.433174+00:00"},
+        {"event": "agent.completed", "name": "summarizer-bot", "timestamp": "2026-04-14T17:54:10.769528+00:00"},
+        {"event": "agent.completed", "name": "summarizer-bot", "timestamp": "2026-04-14T17:54:12.179658+00:00"},
+        {"event": "agent.completed", "name": "other-bot", "timestamp": "2026-04-14T17:54:05+00:00"},
+    ]
+    audit_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+    with patch("routers.activity.OSTK_DIR", tmp_path), \
+         patch("routers.activity.invalidate_audit_cache"):
+        from routers.activity import dedupe_audit_log
+        result = await dedupe_audit_log(window_seconds=60)
+
+    assert result["removed"] == 3, f"Expected 3 removed, got {result}"
+
+    cleaned = [json.loads(l) for l in audit_path.read_text().splitlines() if l.strip()]
+    summarizer_rows = [r for r in cleaned if r.get("name") == "summarizer-bot" and r.get("event") == "agent.completed"]
+    other_rows = [r for r in cleaned if r.get("name") == "other-bot"]
+    task_rows = [r for r in cleaned if r.get("event") == "task.added"]
+
+    assert len(summarizer_rows) == 1, f"Expected 1 summarizer-bot row, got {len(summarizer_rows)}"
+    assert len(other_rows) == 1, "other-bot row must be kept"
+    assert len(task_rows) == 1, "non-terminal event must be kept"
+
+
+@pytest.mark.asyncio
+async def test_dedupe_audit_log_no_duplicates_no_change(tmp_path):
+    """POST /api/activity/dedupe-audit returns removed=0 when there are
+    no duplicates in the window."""
+    import json
+
+    audit_path = tmp_path / "audit.jsonl"
+    rows = [
+        {"event": "agent.completed", "name": "bot-a", "timestamp": "2026-04-14T17:54:00+00:00"},
+        {"event": "agent.completed", "name": "bot-a", "timestamp": "2026-04-14T17:55:05+00:00"},  # >60s later
+        {"event": "agent.completed", "name": "bot-b", "timestamp": "2026-04-14T17:54:30+00:00"},
+    ]
+    original_content = "\n".join(json.dumps(r) for r in rows) + "\n"
+    audit_path.write_text(original_content)
+
+    with patch("routers.activity.OSTK_DIR", tmp_path), \
+         patch("routers.activity.invalidate_audit_cache"):
+        from routers.activity import dedupe_audit_log
+        result = await dedupe_audit_log(window_seconds=60)
+
+    assert result["removed"] == 0
+    assert audit_path.read_text() == original_content

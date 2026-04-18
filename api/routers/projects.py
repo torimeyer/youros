@@ -1,10 +1,13 @@
 import base64
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
+
+from services import recent_deletes
 
 router = APIRouter(tags=["projects"])
 
@@ -27,6 +30,49 @@ def _resolve_safe_path(relative_path: str) -> Path:
     resolved = (TORIOS_DIR / relative_path).resolve()
     if not str(resolved).startswith(str(workspace_root)):
         raise HTTPException(status_code=403, detail="Path is outside the workspace.")
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="Path not found.")
+    return resolved
+
+
+def _resolve_readable_path(path_str: str) -> Path:
+    """Resolve a path for read-only preview endpoints.
+
+    Accepts the same two roots that ``GET /docs/recent`` emits:
+
+    * Workspace-relative paths anchored under ``TORIOS_DIR``.
+    * Absolute paths under ``~/.myos/files/``.
+
+    This is intentionally broader than ``_resolve_safe_path`` because
+    Recent Documents legitimately lists .md files from both locations,
+    and every path that endpoint emits must be previewable.
+
+    Raises HTTPException 403 if the resolved path escapes both roots
+    (traversal via ``..`` still trips this check because we resolve
+    before comparing). Raises 404 if the path does not exist.
+    """
+    if not path_str:
+        raise HTTPException(status_code=400, detail="Path is required.")
+
+    workspace_root = TORIOS_DIR.resolve()
+    myos_files_root = (Path.home() / ".myos" / "files").resolve()
+
+    incoming = Path(path_str)
+    if incoming.is_absolute():
+        resolved = incoming.resolve()
+    else:
+        resolved = (TORIOS_DIR / incoming).resolve()
+
+    allowed_roots = [workspace_root, myos_files_root]
+    in_allowed_root = any(
+        resolved == root or str(resolved).startswith(str(root) + os.sep)
+        for root in allowed_roots
+    )
+    if not in_allowed_root:
+        raise HTTPException(
+            status_code=403,
+            detail="Path must live inside the workspace or ~/.myos/files.",
+        )
     if not resolved.exists():
         raise HTTPException(status_code=404, detail="Path not found.")
     return resolved
@@ -245,8 +291,12 @@ async def read_file(path: str = Query(..., description="Relative path to the fil
 
     Returns the file content (as text or base64-encoded data for images),
     its detected type, and its size in bytes.
+
+    Accepts both workspace-relative paths and absolute paths under
+    ``~/.myos/files/``, matching every path that ``GET /docs/recent``
+    returns. Any other location is rejected as out of scope.
     """
-    resolved = _resolve_safe_path(path)
+    resolved = _resolve_readable_path(path)
 
     if not resolved.is_file():
         raise HTTPException(status_code=400, detail="Path is not a file.")
@@ -301,3 +351,162 @@ async def read_file(path: str = Query(..., description="Relative path to the fil
 
     # Unknown / binary file type
     return {"content": None, "type": "binary", "size": size}
+
+
+@router.get("/docs/recent")
+async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files to return")):
+    """Return the most recently modified .md files across the workspace.
+
+    Walks the workspace recursively, skipping hidden dirs and known clutter.
+    Also includes .md files living under ``~/.myos/files/`` so outputs
+    from marketplace templates (e.g. the Roadmap template writing
+    roadmap.md) appear alongside repo docs. Returns files sorted
+    newest-first with a short preview snippet.
+    """
+    workspace = TORIOS_DIR.resolve()
+    md_files = []
+
+    skip_dirs = {".git", ".ostk", ".vite", ".claude", "node_modules", "__pycache__", ".DS_Store", "transcripts", "e2e-screenshots", "tools"}
+
+    def _collect(base: Path, path_builder) -> None:
+        """Walk ``base`` and append .md file entries to ``md_files``.
+
+        ``path_builder`` turns the absolute Path into the string the
+        frontend will use for /files/read and preview links. For the
+        workspace that is relative to TORIOS_DIR; for ~/.myos/files
+        we emit the absolute path so the frontend is unambiguous.
+        """
+        if not base.exists() or not base.is_dir():
+            return
+        for root_str, dirs, files in os.walk(str(base)):
+            dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
+            for fname in files:
+                if not fname.endswith(".md"):
+                    continue
+                fpath = Path(root_str) / fname
+                try:
+                    stat = fpath.stat()
+                    mtime = stat.st_mtime
+                    size = stat.st_size
+                except OSError:
+                    continue
+                snippet = ""
+                try:
+                    text = fpath.read_text(errors="replace")
+                    lines = []
+                    raw_lines = text.splitlines()
+                    # Skip YAML front matter so agent-output files don't
+                    # surface "source: foo / template: bar" in previews.
+                    # A front matter block opens with a literal "---" on
+                    # its own line and closes with another "---".
+                    start = 0
+                    if raw_lines and raw_lines[0].strip() == "---":
+                        for i in range(1, len(raw_lines)):
+                            if raw_lines[i].strip() == "---":
+                                start = i + 1
+                                break
+                    for line in raw_lines[start:]:
+                        stripped = line.strip()
+                        if stripped and not stripped.startswith("#") and not stripped.startswith("---"):
+                            lines.append(stripped)
+                            if len(lines) >= 3:
+                                break
+                    snippet = " ".join(lines)[:200]
+                except OSError:
+                    pass
+                md_files.append({
+                    "name": fname,
+                    "path": path_builder(fpath),
+                    "size": size,
+                    "size_display": _format_size(size),
+                    "last_modified": datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(),
+                    "mtime": mtime,
+                    "snippet": snippet,
+                })
+
+    # Primary source: workspace repo. Paths are relative so the Files
+    # page can render them with its existing tree navigation.
+    _collect(workspace, lambda p: str(p.relative_to(workspace)))
+
+    # Secondary source: ~/.myos/files. Template-generated docs live
+    # here so a `git pull` can never clobber them. Paths are absolute
+    # so the frontend knows to read them via the raw endpoint.
+    myos_files = (Path.home() / ".myos" / "files").resolve()
+    if myos_files.exists() and myos_files != workspace:
+        _collect(myos_files, lambda p: str(p))
+
+    md_files.sort(key=lambda f: f["mtime"], reverse=True)
+    for f in md_files[:limit]:
+        del f["mtime"]
+
+    return {"files": md_files[:limit]}
+
+
+@router.delete("/docs/recent")
+async def delete_recent_doc(path: str = Query(..., description="Path of the .md file to delete")):
+    """Delete a single .md file from Recent Documents.
+
+    Only .md files living inside the workspace (``TORIOS_DIR``) or
+    ``~/.myos/files/`` are deletable. Any other path, or any attempt to
+    traverse out of those roots via ``..``, is rejected with 400.
+    Paths for workspace files are expected relative to ``TORIOS_DIR``.
+    Paths for ``~/.myos/files`` files are expected as absolute paths,
+    matching how ``GET /docs/recent`` emits them.
+    """
+    if not path:
+        raise HTTPException(status_code=400, detail="Path is required.")
+
+    workspace_root = TORIOS_DIR.resolve()
+    myos_files_root = (Path.home() / ".myos" / "files").resolve()
+
+    incoming = Path(path)
+    # Accept either an absolute path (~/.myos/files/...) or a path
+    # relative to the workspace. Anchor relative paths to the workspace
+    # before resolving so "../" tricks still land outside the root and
+    # trip the safety check below.
+    if incoming.is_absolute():
+        resolved = incoming.resolve()
+    else:
+        resolved = (TORIOS_DIR / incoming).resolve()
+
+    # Path must live under one of the two allowed roots. Using
+    # Path.is_relative_to keeps the check symlink-aware via the
+    # earlier resolve() call.
+    allowed_roots = [workspace_root, myos_files_root]
+    in_allowed_root = any(
+        resolved == root or str(resolved).startswith(str(root) + os.sep)
+        for root in allowed_roots
+    )
+    if not in_allowed_root:
+        raise HTTPException(
+            status_code=400,
+            detail="Path must live inside the workspace or ~/.myos/files.",
+        )
+
+    # Only .md files are deletable through this endpoint. This keeps
+    # the surface area small and matches what /docs/recent returns.
+    if resolved.suffix.lower() != ".md":
+        raise HTTPException(
+            status_code=400,
+            detail="Only .md files can be deleted through this endpoint.",
+        )
+
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="File not found.")
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file.")
+
+    try:
+        resolved.unlink()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not delete file: {exc}")
+
+    # Tombstone the deleted doc so any agent or automation that tries to
+    # re-write the same file in the next five minutes gets blocked at the
+    # tasks layer. Matches the pattern used by every other DELETE endpoint
+    # (files, tasks, workflows, drive, shares, etc). Without this record,
+    # a fleet that just finished can immediately recreate the artifact the
+    # user just deleted, causing "ghost row" resurrection on Recent Docs.
+    recent_deletes.record_id(f"doc:{resolved}")
+
+    return {"ok": True, "path": str(resolved)}

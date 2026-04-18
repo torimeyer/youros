@@ -139,7 +139,14 @@ def _fetch_ostk_savings_raw() -> Optional[dict]:
     cache_savings = _as_float(prompt_cache.get("cache_savings_usd"))
     compression_savings = _as_float(squash.get("est_saved_usd"))
 
-    # Compute conversation-level cache stats from our own metrics.jsonl
+    # Compute conversation-level cache stats from our own metrics.jsonl.
+    # SOURCE NOTE: cache_read_input_tokens in chat_turn events is the value
+    # Anthropic returns in the API response (provider-native prompt caching).
+    # It is NOT ostk's coordination-layer savings. The conversation_cache_*
+    # fields below reflect how much of each prompt Claude's KV-cache served
+    # from its server-side store, which ostk keeps warm via consistent
+    # system-prompt injection. A future iteration should replace this with
+    # ostk's needle-recall count to surface purely ostk-layer savings.
     conv_cache_read = 0
     conv_cache_creation = 0
     conv_total_input = 0

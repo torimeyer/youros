@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useAppStore } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
@@ -13,23 +13,9 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Persona', 'Theme', 'Connect', 'Adventure', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Theme', 'Connect', 'Ready'] as const
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
-
-interface AdventureTemplate {
-  id: string
-  title: string
-  tagline: string
-  icon: string
-  placeholder: string
-}
-
-interface AdventurePlan {
-  adventure_id: string
-  goal: { title: string; description: string }
-  tasks: { title: string; priority: string }[]
-}
 
 const PROVIDER_SECRET_NAME: Record<string, string> = {
   'Anthropic': 'ANTHROPIC_API_KEY',
@@ -59,19 +45,12 @@ export default function OnboardingWizard() {
   const [apiKey, setApiKey] = useState('')
   const [keySaved, setKeySaved] = useState(false)
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
+  const [otherSelected, setOtherSelected] = useState(false)
 
   // Profile (HUMANFILE) step state
   const [profileRole, setProfileRole] = useState('')
   const [profileGoals, setProfileGoals] = useState('')
   const [profileStyle, setProfileStyle] = useState<'brief' | 'detailed' | ''>('')
-
-  // Adventure step state
-  const [adventures, setAdventures] = useState<AdventureTemplate[]>([])
-  const [selectedAdventure, setSelectedAdventure] = useState<AdventureTemplate | null>(null)
-  const [adventureDescription, setAdventureDescription] = useState('')
-  const [adventureResult, setAdventureResult] = useState<AdventurePlan | null>(null)
-  const [adventureLoading, setAdventureLoading] = useState(false)
-  const [adventurePhase, setAdventurePhase] = useState<'pick' | 'describe' | 'show'>('pick')
 
   // Team onboarding state
   const [teamOrgName, setTeamOrgName] = useState('')
@@ -93,17 +72,40 @@ export default function OnboardingWizard() {
 
   const handlePersonaPick = (category: MarketplaceCategory) => {
     setSelectedPersonaId(category.id)
-    // Pre-populate the user's custom agent templates from the marketplace
-    // category they picked. They can add or remove templates later in the
-    // Agents page.
-    const templates = category.templates.map((t) => ({
-      name: t.name,
-      description: t.description,
-      icon: t.icon,
-      model: t.model,
-      budget: t.budget,
-    }))
-    setCustomAgentTemplates(templates)
+    setProfileRole(category.category)
+    setOtherSelected(false)
+    // Install only the templates for the persona the user picked.
+    // Other persona templates stay in the marketplace and are not installed.
+    // The backend install-persona endpoint updates the disk store so these
+    // show up as installed=true. The Templates tab reads them back via
+    // /agents/persona-templates so we do NOT seed customAgentTemplates here.
+    // customAgentTemplates is reserved for user-created templates only, so
+    // marketplace picks never show up with a "custom" badge.
+    api.post('/agents/pm-templates/install-persona', { persona_id: category.id }).catch(() => {})
+    // Clear any leftover marketplace entries that older builds saved into
+    // customAgentTemplates so existing users stop seeing duplicate cards.
+    setCustomAgentTemplates([])
+  }
+
+  const handleOtherPick = () => {
+    setSelectedPersonaId(null)
+    setOtherSelected(true)
+    setProfileRole('')
+  }
+
+  // Always land the user on the homepage ("/") after onboarding, regardless
+  // of the URL they arrived at (deep-link, /settings, /onboarding, etc.).
+  // The wizard renders outside of BrowserRouter (see App.tsx), so we cannot
+  // use useNavigate here. Rewrite the URL via history API before flipping
+  // onboarded=true so when App.tsx swaps the wizard out for BrowserRouter,
+  // the Router reads "/" and mounts the Dashboard.
+  const goHome = () => {
+    try {
+      window.history.replaceState({}, '', '/')
+    } catch {
+      // history API unavailable (non-browser test env). Tests assert
+      // onboarded=true directly, so swallow and move on.
+    }
   }
 
   const finish = async () => {
@@ -119,11 +121,16 @@ export default function OnboardingWizard() {
       setOrgName(teamOrgName)
       setInstanceMode('team')
       const settings: Record<string, unknown> = {
-        dark_mode: darkMode,
+        dark_mode: pickedDarkRef.current,
         provider: selectedProvider,
         instance_mode: 'team',
       }
+      // Sync the store with what the user picked in the wizard
+      if (pickedDarkRef.current !== darkMode) toggleDarkMode()
       api.patch('/settings', settings).catch(() => {})
+      // Navigate home BEFORE flipping onboarded. Once onboarded=true the
+      // wizard unmounts and BrowserRouter mounts at whatever URL is current.
+      goHome()
       setOnboarded(true)
       return
     }
@@ -131,7 +138,7 @@ export default function OnboardingWizard() {
     const settings: Record<string, unknown> = {
       os_name: osName,
       user_name: userName,
-      dark_mode: darkMode,
+      dark_mode: pickedDarkRef.current,
       provider: selectedProvider,
       instance_mode: 'personal',
     }
@@ -139,7 +146,11 @@ export default function OnboardingWizard() {
     if (profileRole) settings.user_role = profileRole
     if (profileGoals) settings.user_goals = profileGoals
     if (profileStyle) settings.communication_style = profileStyle
+    // Sync the store with what the user picked in the wizard
+    if (pickedDarkRef.current !== darkMode) toggleDarkMode()
     api.patch('/settings', settings).catch(() => {})
+    // Navigate home BEFORE flipping onboarded (see goHome comment above).
+    goHome()
     setOnboarded(true)
   }
 
@@ -162,63 +173,36 @@ export default function OnboardingWizard() {
 
   const skip = () => next()
 
-  // Load adventure templates when reaching the Adventure step
-  useEffect(() => {
-    if (step !== 'Adventure' || adventures.length > 0) return
-    api.get<{ adventures: AdventureTemplate[] }>('/adventures/templates')
-      .then((data) => setAdventures(data.adventures || []))
-      .catch(() => {})
-  }, [step, adventures.length])
-
-  const handlePickAdventure = (adv: AdventureTemplate) => {
-    setSelectedAdventure(adv)
-    setAdventureDescription('')
-    setAdventureResult(null)
-    setAdventurePhase('describe')
+  // Global Enter handler: advance (or finish) when Enter is pressed on any non-input element.
+  // Input/textarea elements handle Enter themselves so we skip them here to avoid double-fires.
+  const handleGlobalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Enter') return
+    const tag = (e.target as HTMLElement).tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON') return
+    // Fork step: no action (user must click a card)
+    if (step === 'Fork') return
+    // Ready / TeamReady: trigger finish
+    if (step === 'Ready' || step === 'TeamReady') { finish(); return }
+    next()
   }
 
-  const handleStartAdventure = async () => {
-    if (!selectedAdventure || !adventureDescription.trim()) return
-    setAdventureLoading(true)
-    try {
-      const result = await api.post<AdventurePlan>('/adventures/start', {
-        adventure_id: selectedAdventure.id,
-        description: adventureDescription,
-      })
-      setAdventureResult(result)
-      setAdventurePhase('show')
-    } catch {
-      // If the API fails, just move on
-      next()
-    } finally {
-      setAdventureLoading(false)
-    }
-  }
-
-  const handleBackToPicker = () => {
-    setSelectedAdventure(null)
-    setAdventureDescription('')
-    setAdventurePhase('pick')
-  }
+  // Theme: purely local state. Zero store interaction during the wizard.
+  // The store is synced ONLY when the user finishes onboarding.
+  const themeIdx = (STEPS as readonly string[]).indexOf('Theme')
+  const [pickedDark, setPickedDark] = useState(darkMode)
+  const effectiveDark = themeIdx >= 0 && stepIndex >= themeIdx ? pickedDark : false
+  const pickedDarkRef = useRef(false)
 
   const handleDarkModeChoice = (wantDark: boolean) => {
-    if (wantDark !== darkMode) {
-      toggleDarkMode()
-    }
+    setPickedDark(wantDark)
+    pickedDarkRef.current = wantDark
   }
 
-  // Force light mode for all steps before the user picks a theme.
-  // darkMode defaults to true in the store, but the user hasn't chosen yet,
-  // so pre-theme steps should always look light.
-  const themeIdx = (STEPS as readonly string[]).indexOf('Theme')
-  const effectiveDark = themeIdx >= 0 && stepIndex >= themeIdx ? darkMode : false
-
-  // Sync the document data-theme attribute so global CSS variables and
-  // Tailwind's dark variant match the effective mode. Without this,
-  // data-theme stays "dark" from a prior session (via localStorage)
-  // and dark-variant styles override our explicit light-mode classes.
-  useEffect(() => {
+  // Keep DOM in sync with the wizard's theme choice
+  useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', effectiveDark ? 'dark' : 'light')
+    document.body.style.backgroundColor = effectiveDark ? '#020617' : '#f9fafb'
+    return () => { document.body.style.backgroundColor = '' }
   }, [effectiveDark])
 
   // Dark-mode-aware style helpers (use effectiveDark, not darkMode)
@@ -236,10 +220,14 @@ export default function OnboardingWizard() {
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center transition-colors duration-300 ${
-        effectiveDark ? 'bg-slate-950 text-white' : 'bg-gray-50 text-slate-900'
-      }`}
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{
+        backgroundColor: effectiveDark ? '#020617' : '#f9fafb',
+        color: effectiveDark ? '#ffffff' : '#0f172a',
+        transition: 'background-color 0.3s, color 0.3s',
+      }}
       data-testid="onboarding-wizard"
+      onKeyDown={handleGlobalKeyDown}
     >
       <div className="w-full max-w-lg px-8">
         {/* Progress dots */}
@@ -262,6 +250,7 @@ export default function OnboardingWizard() {
             <YouStep
               userName={userName}
               setUserName={setUserName}
+              onNext={next}
               inputCls={inputCls}
               subtextCls={subtextCls}
             />
@@ -270,6 +259,7 @@ export default function OnboardingWizard() {
             <NameStep
               osName={osName}
               setOsName={setOsName}
+              onNext={next}
               userName={userName}
               inputCls={inputCls}
               subtextCls={subtextCls}
@@ -286,14 +276,61 @@ export default function OnboardingWizard() {
               </p>
               <div className="space-y-4">
                 <div>
-                  <label className={`block text-sm font-medium mb-1 ${subtextCls}`}>What do you do?</label>
-                  <input
-                    type="text"
-                    value={profileRole}
-                    onChange={(e) => setProfileRole(e.target.value)}
-                    placeholder="e.g. Product manager, Engineer, Student, Founder"
-                    className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-                  />
+                  <label className={`block text-sm font-medium mb-2 ${subtextCls}`}>What best describes you?</label>
+                  <div className="space-y-1.5">
+                    {AGENT_MARKETPLACE.map((cat) => {
+                      const isPicked = selectedPersonaId === cat.id
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => handlePersonaPick(cat)}
+                          data-testid={`persona-card-${cat.id}`}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
+                            isPicked
+                              ? 'bg-blue-500/20 border-blue-500'
+                              : `${cardCls} ${effectiveDark ? 'hover:border-slate-600' : 'hover:border-gray-400'}`
+                          }`}
+                        >
+                          <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
+                            isPicked ? 'bg-blue-500/30 text-blue-300' : effectiveDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
+                          }`}>
+                            <Icon name={PERSONA_ICONS[cat.id] || 'person'} size={16} />
+                          </div>
+                          <span className="text-sm font-medium">{cat.category}</span>
+                          {isPicked && <Icon name="check_circle" className="text-blue-400 ml-auto" size={16} />}
+                        </button>
+                      )
+                    })}
+                    <button
+                      onClick={handleOtherPick}
+                      data-testid="persona-card-other"
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
+                        otherSelected
+                          ? 'bg-blue-500/20 border-blue-500'
+                          : `${cardCls} ${effectiveDark ? 'hover:border-slate-600' : 'hover:border-gray-400'}`
+                      }`}
+                    >
+                      <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
+                        otherSelected ? 'bg-blue-500/30 text-blue-300' : effectiveDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
+                      }`}>
+                        <Icon name="edit" size={16} />
+                      </div>
+                      <span className="text-sm font-medium">Other</span>
+                      {otherSelected && <Icon name="check_circle" className="text-blue-400 ml-auto" size={16} />}
+                    </button>
+                    {otherSelected && (
+                      <input
+                        type="text"
+                        value={profileRole}
+                        onChange={(e) => setProfileRole(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') next() }}
+                        placeholder="e.g. Founder, Student, Designer"
+                        data-testid="other-role-input"
+                        className={`w-full border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+                        autoFocus
+                      />
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className={`block text-sm font-medium mb-1 ${subtextCls}`}>What do you want to get done with {osName}?</label>
@@ -301,6 +338,7 @@ export default function OnboardingWizard() {
                     type="text"
                     value={profileGoals}
                     onChange={(e) => setProfileGoals(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") next(); }}
                     placeholder="e.g. Manage my tasks, prep for meetings, stay on top of email"
                     className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
                   />
@@ -330,47 +368,8 @@ export default function OnboardingWizard() {
               </div>
             </div>
           )}
-          {step === 'Persona' && (
-            <div>
-              <h2 className="text-2xl font-bold mb-2">How will you use myOS?</h2>
-              <p className={`mb-6 ${subtextCls}`}>
-                Pick the option that fits best. We'll start you with a handful of useful agent templates for that. You can change these later.
-              </p>
-              <div className="grid grid-cols-1 gap-3">
-                {AGENT_MARKETPLACE.map((cat) => {
-                  const isPicked = selectedPersonaId === cat.id
-                  return (
-                    <button
-                      key={cat.id}
-                      onClick={() => handlePersonaPick(cat)}
-                      className={`flex items-center gap-4 p-4 rounded-xl border text-left transition-colors ${
-                        isPicked
-                          ? 'bg-blue-500/20 border-blue-500'
-                          : `${cardCls} ${effectiveDark ? 'hover:border-slate-700' : 'hover:border-gray-400'}`
-                      }`}
-                    >
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                        isPicked ? 'bg-blue-500/30 text-blue-300' : effectiveDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
-                      }`}>
-                        <Icon name={PERSONA_ICONS[cat.id] || 'person'} size={22} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`font-medium ${effectiveDark ? 'text-white' : 'text-slate-900'}`}>{cat.category}</p>
-                        <p className={`text-sm ${subtextCls}`}>{cat.tagline}</p>
-                      </div>
-                      {isPicked && <Icon name="check_circle" className="text-blue-400" size={20} />}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
           {step === 'Theme' && (
-            <ThemeStep
-              darkMode={darkMode}
-              onChoose={handleDarkModeChoice}
-              subtextCls={subtextCls}
-            />
+            <ThemeStep darkMode={pickedDark} onChoose={handleDarkModeChoice} subtextCls={subtextCls} />
           )}
           {step === 'Connect' && (
             <ConnectStep
@@ -379,36 +378,18 @@ export default function OnboardingWizard() {
               apiKey={apiKey}
               onApiKeyChange={setApiKey}
               onSaveKey={handleSaveKey}
+              onNext={next}
               keySaved={keySaved}
-              darkMode={darkMode}
+              darkMode={effectiveDark}
               inputCls={inputCls}
               subtextCls={subtextCls}
-            />
-          )}
-          {step === 'Adventure' && (
-            <AdventureStep
-              osName={osName}
-              adventures={adventures}
-              selected={selectedAdventure}
-              description={adventureDescription}
-              setDescription={setAdventureDescription}
-              result={adventureResult}
-              loading={adventureLoading}
-              phase={adventurePhase}
-              onPick={handlePickAdventure}
-              onStart={handleStartAdventure}
-              onBack={handleBackToPicker}
-              darkMode={darkMode}
-              inputCls={inputCls}
-              subtextCls={subtextCls}
-              cardCls={cardCls}
             />
           )}
           {step === 'Ready' && (
             <ReadyStep
               userName={userName}
               osName={osName}
-              darkMode={darkMode}
+              darkMode={effectiveDark}
               provider={selectedProvider}
               subtextCls={subtextCls}
               cardCls={cardCls}
@@ -558,11 +539,13 @@ function WelcomeStep({ subtextCls }: { subtextCls: string }) {
 function YouStep({
   userName,
   setUserName,
+  onNext,
   inputCls,
   subtextCls,
 }: {
   userName: string
   setUserName: (name: string) => void
+  onNext: () => void
   inputCls: string
   subtextCls: string
 }) {
@@ -576,6 +559,7 @@ function YouStep({
         type="text"
         value={userName}
         onChange={(e) => setUserName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") onNext(); }}
         placeholder="Your name"
         className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
         data-testid="user-name-input"
@@ -588,12 +572,14 @@ function YouStep({
 function NameStep({
   osName,
   setOsName,
+  onNext,
   userName,
   inputCls,
   subtextCls,
 }: {
   osName: string
   setOsName: (name: string) => void
+  onNext: () => void
   userName: string
   inputCls: string
   subtextCls: string
@@ -609,6 +595,7 @@ function NameStep({
         type="text"
         value={osName}
         onChange={(e) => setOsName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") onNext(); }}
         placeholder={`e.g. ${example}`}
         className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
         data-testid="os-name-input"
@@ -636,11 +623,11 @@ function ThemeStep({
       <div className="grid grid-cols-2 gap-4">
         <button
           onClick={() => onChoose(false)}
-          className={`p-4 rounded-xl border-2 transition-all ${
-            !darkMode
-              ? 'border-blue-500 bg-blue-500/10'
-              : 'border-slate-700 bg-slate-800/30 hover:border-slate-600'
-          }`}
+          className="p-4 rounded-xl border-2 transition-all"
+          style={{
+            borderColor: !darkMode ? '#3b82f6' : '#334155',
+            backgroundColor: !darkMode ? 'rgba(59,130,246,0.1)' : 'rgba(30,41,59,0.3)',
+          }}
           data-testid="theme-light"
         >
           {/* Mini dashboard preview - light */}
@@ -670,32 +657,37 @@ function ThemeStep({
         </button>
         <button
           onClick={() => onChoose(true)}
-          className={`p-4 rounded-xl border-2 transition-all ${
-            darkMode
-              ? 'border-blue-500 bg-blue-500/10'
-              : 'border-slate-700 bg-slate-800/30 hover:border-slate-600'
-          }`}
+          className="p-4 rounded-xl border-2 transition-all"
+          style={{
+            borderColor: darkMode ? '#3b82f6' : '#334155',
+            backgroundColor: darkMode ? 'rgba(59,130,246,0.1)' : 'rgba(30,41,59,0.3)',
+          }}
           data-testid="theme-dark"
         >
-          {/* Mini dashboard preview - dark */}
-          <div className="w-full rounded-lg bg-slate-950 p-3 mb-3 overflow-hidden">
+          {/* Mini dashboard preview - dark. Inline hex so the [data-theme="light"]
+              overrides in index.css never force these swatches to light colors. */}
+          <div
+            className="w-full rounded-lg p-3 mb-3 overflow-hidden"
+            style={{ backgroundColor: '#020617' }}
+            data-testid="theme-dark-preview"
+          >
             <div className="flex gap-2">
-              <div className="w-10 bg-slate-900 rounded p-1.5 flex flex-col gap-1">
-                <div className="w-full h-1 bg-slate-700 rounded" />
-                <div className="w-full h-1 bg-slate-700 rounded" />
-                <div className="w-full h-1 bg-slate-700 rounded" />
-                <div className="w-full h-1 bg-slate-700 rounded" />
+              <div className="w-10 rounded p-1.5 flex flex-col gap-1" style={{ backgroundColor: '#0f172a' }}>
+                <div className="w-full h-1 rounded" style={{ backgroundColor: '#334155' }} />
+                <div className="w-full h-1 rounded" style={{ backgroundColor: '#334155' }} />
+                <div className="w-full h-1 rounded" style={{ backgroundColor: '#334155' }} />
+                <div className="w-full h-1 rounded" style={{ backgroundColor: '#334155' }} />
               </div>
               <div className="flex-1 flex flex-col gap-1.5">
-                <div className="h-2 bg-slate-500 rounded w-3/4" />
+                <div className="h-2 rounded w-3/4" style={{ backgroundColor: '#64748b' }} />
                 <div className="flex gap-1.5">
-                  <div className="flex-1 h-8 bg-slate-800 rounded border border-slate-700" />
-                  <div className="flex-1 h-8 bg-slate-800 rounded border border-slate-700" />
+                  <div className="flex-1 h-8 rounded border" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                  <div className="flex-1 h-8 rounded border" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
                 </div>
                 <div className="flex gap-1.5">
-                  <div className="flex-1 h-6 bg-slate-800 rounded border border-slate-700" />
-                  <div className="flex-1 h-6 bg-slate-800 rounded border border-slate-700" />
-                  <div className="flex-1 h-6 bg-slate-800 rounded border border-slate-700" />
+                  <div className="flex-1 h-6 rounded border" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                  <div className="flex-1 h-6 rounded border" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                  <div className="flex-1 h-6 rounded border" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
                 </div>
               </div>
             </div>
@@ -713,6 +705,7 @@ function ConnectStep({
   apiKey,
   onApiKeyChange,
   onSaveKey,
+  onNext,
   keySaved,
   darkMode,
   inputCls,
@@ -723,6 +716,7 @@ function ConnectStep({
   apiKey: string
   onApiKeyChange: (key: string) => void
   onSaveKey: () => void
+  onNext: () => void
   keySaved: boolean
   darkMode: boolean
   inputCls: string
@@ -871,7 +865,7 @@ function ConnectStep({
           type="password"
           value={apiKey}
           onChange={(e) => onApiKeyChange(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onSaveKey()}
+          onKeyDown={(e) => { if (e.key === 'Enter') { onSaveKey(); onNext(); } }}
           placeholder={selectedProvider === 'Anthropic' ? 'Paste API key (sk-ant-xxxx...)' : 'Paste API key (AIzaSy...)'}
           className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
           data-testid="api-key-input"
@@ -890,215 +884,6 @@ function ConnectStep({
       </p>
     </div>
   )
-}
-
-function AdventureStep({
-  osName,
-  adventures,
-  selected,
-  description,
-  setDescription,
-  result,
-  loading,
-  phase,
-  onPick,
-  onStart,
-  onBack,
-  darkMode,
-  inputCls,
-  subtextCls,
-  cardCls,
-}: {
-  osName: string
-  adventures: AdventureTemplate[]
-  selected: AdventureTemplate | null
-  description: string
-  setDescription: (v: string) => void
-  result: AdventurePlan | null
-  loading: boolean
-  phase: 'pick' | 'describe' | 'show'
-  onPick: (a: AdventureTemplate) => void
-  onStart: () => void
-  onBack: () => void
-  darkMode: boolean
-  inputCls: string
-  subtextCls: string
-  cardCls: string
-}) {
-  const [visibleCount, setVisibleCount] = useState(0)
-
-  useEffect(() => {
-    if (phase !== 'show' || !result) return
-    setVisibleCount(0)
-    const total = result.tasks.length
-    let current = 0
-    const timer = setInterval(() => {
-      current++
-      setVisibleCount(current)
-      if (current >= total) clearInterval(timer)
-    }, 200)
-    return () => clearInterval(timer)
-  }, [phase, result])
-
-  // --- Phase: pick ---
-  if (phase === 'pick') {
-    return (
-      <div data-testid="step-adventure">
-        <div data-testid="adventure-phase-pick">
-          <h2 className="text-2xl font-bold mb-2">Where do you want to start?</h2>
-          <p className={`${subtextCls} mb-6`}>
-            Pick a starting point. {osName} will turn it into a real plan.
-            You can change direction anytime.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {adventures.map((adv) => (
-              <button
-                key={adv.id}
-                onClick={() => onPick(adv)}
-                className={`text-left p-4 rounded-xl border transition-all hover:border-blue-500 ${
-                  darkMode
-                    ? 'bg-slate-900/60 border-slate-800 hover:bg-slate-900/80'
-                    : 'bg-white border-gray-200 hover:bg-gray-50 shadow-sm'
-                }`}
-                data-testid={`adventure-card-${adv.id}`}
-              >
-                <div className="flex items-start gap-3">
-                  <Icon
-                    name={adv.icon}
-                    size={20}
-                    className={darkMode ? 'text-blue-400 mt-0.5' : 'text-blue-600 mt-0.5'}
-                  />
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold mb-1">{adv.title}</p>
-                    <p className={`text-xs leading-relaxed ${subtextCls}`}>
-                      {adv.tagline}
-                    </p>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          {adventures.length === 0 && (
-            <p className={`text-sm text-center py-8 ${subtextCls}`}>
-              Loading starting points...
-            </p>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  // --- Phase: describe ---
-  if (phase === 'describe' && selected) {
-    return (
-      <div data-testid="step-adventure">
-        <div data-testid="adventure-phase-describe">
-          <button
-            onClick={onBack}
-            className={`text-xs mb-4 ${subtextCls} hover:underline`}
-            data-testid="adventure-back-to-pick"
-          >
-            Pick a different starting point
-          </button>
-
-          <div className="flex items-start gap-3 mb-4">
-            <Icon
-              name={selected.icon}
-              size={24}
-              className={darkMode ? 'text-blue-400 mt-1' : 'text-blue-600 mt-1'}
-            />
-            <div>
-              <h2 className="text-2xl font-bold">{selected.title}</h2>
-              <p className={`text-sm ${subtextCls}`}>{selected.tagline}</p>
-            </div>
-          </div>
-
-          <label className={`block text-sm mb-2 ${subtextCls}`}>
-            Tell {osName} what you have in mind. The more specific, the better the plan.
-          </label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={selected.placeholder}
-            className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors resize-none ${inputCls}`}
-            rows={4}
-            data-testid="adventure-description-input"
-            autoFocus
-          />
-
-          <button
-            onClick={onStart}
-            disabled={!description.trim() || loading}
-            className={`mt-6 w-full px-6 py-2.5 rounded-lg text-sm font-medium text-white transition-colors ${
-              !description.trim() || loading
-                ? 'bg-blue-600/50 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-500'
-            }`}
-            data-testid="adventure-submit"
-          >
-            {loading ? 'Building your plan...' : 'Make me a plan'}
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  // --- Phase: show ---
-  if (phase === 'show' && result) {
-    const priorityColor = (p: string) => {
-      switch (p) {
-        case 'P1': return 'bg-red-500/20 text-red-400'
-        case 'P2': return 'bg-yellow-500/20 text-yellow-400'
-        case 'P3': return 'bg-blue-500/20 text-blue-400'
-        default: return 'bg-slate-500/20 text-slate-400'
-      }
-    }
-
-    return (
-      <div data-testid="step-adventure">
-        <div data-testid="adventure-phase-show">
-          <h2 className="text-2xl font-bold mb-2" data-testid="adventure-goal-title">
-            {result.goal.title}
-          </h2>
-          <p className={`${subtextCls} mb-6`} data-testid="adventure-goal-description">
-            {result.goal.description}
-          </p>
-
-          <div className={`border rounded-xl p-4 space-y-2 ${cardCls}`} data-testid="adventure-tasks">
-            {result.tasks.map((task, i) => (
-              <div
-                key={i}
-                className={`flex items-center gap-3 py-2 transition-all duration-300 ${
-                  i < visibleCount ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
-                }`}
-                data-testid="adventure-task"
-              >
-                <div
-                  className={`w-4 h-4 rounded border-2 flex-shrink-0 ${
-                    darkMode ? 'border-slate-600' : 'border-gray-300'
-                  }`}
-                />
-                <span className="text-sm flex-1">{task.title}</span>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColor(task.priority)}`}
-                >
-                  {task.priority}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <p className={`text-sm mt-4 ${subtextCls}`}>
-            These are waiting for you on your dashboard.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  return null
 }
 
 function ReadyStep({

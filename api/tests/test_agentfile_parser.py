@@ -10,6 +10,7 @@ from services.agentfile_parser import (
     build_capabilities_summary,
     build_quality_gate_instructions,
     parse_agentfile,
+    serialize_agentfile,
 )
 
 
@@ -627,3 +628,196 @@ def test_build_capabilities_summary_budget_decimal():
     config = AgentfileConfig()
     config.limits.budget_usd = 2.5
     assert build_capabilities_summary(config)["budget"] == "$2.5"
+
+
+# ---- serialize_agentfile (write direction) ----------------------------------
+
+
+def test_serialize_then_parse_round_trip(tmp_path):
+    """parse -> serialize -> parse produces the same config (round-trip).
+
+    This is the contract every downstream system relies on: a config
+    loaded from disk can be serialized and reloaded without data loss.
+    """
+    original_text = (
+        'NAME "my-agent"\n'
+        'DESC "Does useful things."\n'
+        'FROM sonnet\n'
+        'PROMPT "You are a helpful agent."\n'
+        'TOOL shell\n'
+        'TOOL file:read\n'
+        'LIMIT tokens 100000\n'
+        'LIMIT test_coverage 0\n'
+        'BOOT ostk boot\n'
+        'PIN default\n'
+        'AC python3 -m pytest -x -q\n'
+        'REVIEW security\n'
+        'STANDARDS .standards.md\n'
+    )
+    first = tmp_path / "first.agent"
+    first.write_text(original_text)
+    config1 = parse_agentfile(first)
+
+    serialized = serialize_agentfile(config1)
+    assert "FROM sonnet" in serialized
+    assert "TOOL shell" in serialized
+    assert "TOOL file:read" in serialized
+    assert "LIMIT tokens 100000" in serialized
+    assert "AC python3" in serialized
+
+    second = tmp_path / "second.agent"
+    second.write_text(serialized)
+    config2 = parse_agentfile(second)
+
+    assert config2.model == config1.model
+    assert config2.prompt == config1.prompt
+    assert config2.tools == config1.tools
+    assert config2.limits.tokens == config1.limits.tokens
+    assert config2.limits.test_coverage == config1.limits.test_coverage
+    assert config2.acceptance_criteria == config1.acceptance_criteria
+    assert config2.review_checklists == config1.review_checklists
+    assert config2.standards_path == config1.standards_path
+    assert config2.boot == config1.boot
+    assert config2.pin_policy.name == config1.pin_policy.name
+
+
+def test_serialize_minimal_config():
+    """A config with only FROM and PROMPT serializes to two lines."""
+    cfg = AgentfileConfig()
+    cfg.model = "auto"
+    cfg.prompt = "Do stuff"
+    text = serialize_agentfile(cfg)
+    assert "FROM auto" in text
+    assert 'PROMPT "Do stuff"' in text
+
+
+def test_serialize_quotes_values_with_spaces():
+    """Values containing spaces are wrapped in double quotes."""
+    cfg = AgentfileConfig()
+    cfg.model = "auto"
+    cfg.prompt = "You are a helpful agent."
+    text = serialize_agentfile(cfg)
+    assert '"You are a helpful agent."' in text
+
+
+def test_serialize_tools_each_on_own_line():
+    """Each TOOL gets its own line."""
+    cfg = AgentfileConfig()
+    cfg.model = "auto"
+    cfg.tools = ["shell", "file:read", "file:write"]
+    text = serialize_agentfile(cfg)
+    assert text.count("TOOL ") == 3
+
+
+def test_serialize_isolation_omitted_when_none():
+    """ISOLATION=none is not emitted (it is the default)."""
+    cfg = AgentfileConfig()
+    cfg.model = "auto"
+    cfg.isolation = "none"
+    text = serialize_agentfile(cfg)
+    assert "ISOLATION" not in text
+
+
+def test_serialize_isolation_emitted_when_nono():
+    """ISOLATION=nono (light sandbox) is emitted."""
+    cfg = AgentfileConfig()
+    cfg.model = "auto"
+    cfg.isolation = "nono"
+    text = serialize_agentfile(cfg)
+    assert "ISOLATION nono" in text
+
+
+def test_serialize_pin_subkeys():
+    """PIN read/write/deny subkeys are each emitted as their own line."""
+    cfg = AgentfileConfig()
+    cfg.model = "auto"
+    cfg.pin_policy.read = ["src/", "tests/"]
+    cfg.pin_policy.deny = [".env"]
+    text = serialize_agentfile(cfg)
+    assert "PIN read: src/ tests/" in text
+    assert "PIN deny: .env" in text
+
+
+def test_serialize_limit_budget_usd():
+    """LIMIT budget_usd is serialized without trailing zeros."""
+    cfg = AgentfileConfig()
+    cfg.model = "auto"
+    cfg.limits.budget_usd = 3.0
+    text = serialize_agentfile(cfg)
+    assert "LIMIT budget_usd 3" in text
+
+
+def test_serialize_all_builtin_agents_round_trip():
+    """Every built-in agents/*.agent can be serialized and re-parsed cleanly."""
+    from config import PROJECT_ROOT
+    agents_dir = PROJECT_ROOT / "agents"
+    if not agents_dir.exists():
+        pytest.skip("agents/ directory not present")
+
+    import tempfile
+    for path in sorted(agents_dir.glob("*.agent")):
+        config = parse_agentfile(path)
+        if config.alias:
+            continue  # alias stubs have no directives to round-trip
+        serialized = serialize_agentfile(config)
+        with tempfile.NamedTemporaryFile(suffix=".agent", mode="w", delete=False) as f:
+            f.write(serialized)
+            tmp = f.name
+        from pathlib import Path
+        config2 = parse_agentfile(Path(tmp))
+        assert config2.model == config.model, f"{path.name}: model mismatch after round-trip"
+        assert config2.tools == config.tools, f"{path.name}: tools mismatch after round-trip"
+
+
+# ---- Demo mode directive ---------------------------------------------------
+
+# Background: live demos need the whole fleet done in under 3 minutes. The
+# `LIMIT demo_mode true` directive opts in to the demo fast path: Haiku,
+# --bare, no MCP, 90 second hard wall-clock cap. These tests lock in the
+# parse/serialize/default behavior so a future edit cannot silently drop
+# the flag and blow the stage budget again.
+
+
+def test_demo_mode_agentfile_parses(tmp_path):
+    """LIMIT demo_mode true parses into AgentfileConfig.demo_mode = True.
+
+    The spawn path keys off this field to pick Haiku, skip CLAUDE.md, skip
+    MCP, and schedule the 90s force-complete. If parse_agentfile silently
+    drops the directive, every demo member falls back to the multi-minute
+    default path.
+    """
+    af = tmp_path / "demo.agent"
+    af.write_text(
+        'FROM haiku\n'
+        'PROMPT "Say hi"\n'
+        'LIMIT quick_mode true\n'
+        'LIMIT demo_mode true\n'
+    )
+    cfg = parse_agentfile(af)
+    assert cfg.demo_mode is True
+    assert cfg.quick_mode is True  # demo mode stacks on top of quick mode
+    assert cfg.model == "haiku"
+
+
+def test_demo_mode_absent_defaults_to_false(tmp_path):
+    """Agentfiles without the directive keep demo_mode False by default."""
+    af = tmp_path / "plain.agent"
+    af.write_text('FROM auto\nPROMPT "hi"\n')
+    cfg = parse_agentfile(af)
+    assert cfg.demo_mode is False
+
+
+def test_demo_mode_serialize_round_trip():
+    """serialize_agentfile emits LIMIT demo_mode true when the flag is set.
+
+    Round-trip stability matters: the Agentfile editor in Settings will
+    parse + edit + re-serialize + save, and dropping the flag on save
+    would silently regress every demo spawn for that agentfile.
+    """
+    cfg = AgentfileConfig()
+    cfg.model = "haiku"
+    cfg.demo_mode = True
+    cfg.quick_mode = True
+    text = serialize_agentfile(cfg)
+    assert "LIMIT demo_mode true" in text
+    assert "LIMIT quick_mode true" in text

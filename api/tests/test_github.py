@@ -199,3 +199,108 @@ class TestGitHubService:
         from services.github import map_github_labels
         result = map_github_labels(["bug", "enhancement", "custom-label"])
         assert result == ["Bug", "Feature", "custom-label"]
+
+
+# --- Response cache and config cache ---
+
+class TestGitHubCache:
+    """The issues list is cached in-process for 60 seconds so the GitHub tab
+    can paint quickly without hitting the GitHub API on every navigation."""
+
+    @pytest.mark.asyncio
+    async def test_list_issues_memoizes_result(self, tmp_path):
+        token_path = tmp_path / "github_token.json"
+        token_path.write_text('{"token": "ghp_test", "repo": "owner/repo"}')
+        with patch("services.github.TOKEN_PATH", token_path):
+            from services import github as svc
+            svc._cache_clear()
+            svc._config_cache = None
+            svc._config_cache_mtime = 0.0
+
+            call_count = {"n": 0}
+
+            async def fake_get(path, params=None):
+                call_count["n"] += 1
+                return [{"number": 1, "title": "t", "pull_request": None}]
+
+            # Pass 1: first call populates the cache.
+            with patch("services.github._github_get", side_effect=fake_get):
+                first = await svc.list_issues(state="open")
+                second = await svc.list_issues(state="open")
+            assert first == second
+            assert call_count["n"] == 1, "second call should be served from cache"
+
+    @pytest.mark.asyncio
+    async def test_list_issues_cache_expires(self, tmp_path):
+        import time as _time
+        token_path = tmp_path / "github_token.json"
+        token_path.write_text('{"token": "ghp_test", "repo": "owner/repo"}')
+        with patch("services.github.TOKEN_PATH", token_path):
+            from services import github as svc
+            svc._cache_clear()
+            svc._config_cache = None
+            svc._config_cache_mtime = 0.0
+
+            async def fake_get(path, params=None):
+                return []
+
+            with patch("services.github._github_get", side_effect=fake_get):
+                await svc.list_issues(state="open")
+                # Manually age the cache entry past the TTL.
+                key = ("list_issues", "owner/repo", "open", 50)
+                _expires, data = svc._response_cache[key]
+                svc._response_cache[key] = (_time.time() - 1.0, data)
+                # After expiry, a new call should hit the wrapped function again.
+                with patch("services.github._github_get", side_effect=fake_get) as m:
+                    await svc.list_issues(state="open")
+                    assert m.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_list_issues_bypass_cache(self, tmp_path):
+        token_path = tmp_path / "github_token.json"
+        token_path.write_text('{"token": "ghp_test", "repo": "owner/repo"}')
+        with patch("services.github.TOKEN_PATH", token_path):
+            from services import github as svc
+            svc._cache_clear()
+            svc._config_cache = None
+            svc._config_cache_mtime = 0.0
+
+            async def fake_get(path, params=None):
+                return []
+
+            with patch("services.github._github_get", side_effect=fake_get) as m:
+                await svc.list_issues(state="open")
+                await svc.list_issues(state="open", use_cache=False)
+                assert m.await_count == 2, "use_cache=False must force a refresh"
+
+    def test_get_config_is_memoized(self, tmp_path):
+        token_path = tmp_path / "github_token.json"
+        token_path.write_text('{"token": "ghp_test", "repo": "owner/repo"}')
+        with patch("services.github.TOKEN_PATH", token_path):
+            from services import github as svc
+            svc._config_cache = None
+            svc._config_cache_mtime = 0.0
+            # First call reads from disk, subsequent calls reuse the memoized dict.
+            cfg1 = svc.get_config()
+            cfg2 = svc.get_config()
+            assert cfg1 is cfg2
+
+    def test_save_config_clears_cache(self, tmp_path):
+        token_path = tmp_path / "github_token.json"
+        with patch("services.github.TOKEN_PATH", token_path), \
+             patch("services.github.MYOS_DIR", tmp_path):
+            from services import github as svc
+            svc._response_cache[("marker",)] = (9e12, "x")
+            svc.save_config("ghp_new", "owner/repo")
+            assert ("marker",) not in svc._response_cache
+
+    def test_disconnect_clears_cache(self, tmp_path):
+        token_path = tmp_path / "github_token.json"
+        token_path.write_text('{"token": "t", "repo": "o/r"}')
+        with patch("services.github.TOKEN_PATH", token_path):
+            from services import github as svc
+            svc._response_cache[("marker",)] = (9e12, "x")
+            svc._config_cache = {"token": "t", "repo": "o/r"}
+            svc.disconnect()
+            assert ("marker",) not in svc._response_cache
+            assert svc._config_cache is None

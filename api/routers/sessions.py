@@ -130,10 +130,116 @@ def _get_sessions() -> list[dict]:
     return results
 
 
+def _claude_code_transcript_sessions() -> list[dict]:
+    """Infer live Claude Code sessions from transcript file mtimes.
+
+    Claude Code writes every session's events to a JSONL file under
+    ``~/.claude/projects/<repo>/<session-id>.jsonl``. A file whose
+    mtime is within the idle window means that session is alive right
+    now, even if it never ran our SessionStart hook (which only fires
+    for sessions started AFTER the hook was wired up in
+    ``.claude/settings.json``). Without this fallback, existing tabs
+    that were open before the wiring stayed invisible to the sidebar
+    "sessions" counter.
+    """
+    from pathlib import Path as _P
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+
+    projects_root = _P.home() / ".claude" / "projects"
+    if not projects_root.is_dir():
+        return []
+
+    # Match the current repo's cwd so we only report sessions that are
+    # actually editing this project. Claude Code encodes cwd as "-" for
+    # each path separator.
+    from config import PROJECT_ROOT
+    cwd_tag = str(PROJECT_ROOT).replace("/", "-")
+    project_dir = projects_root / cwd_tag
+    if not project_dir.is_dir():
+        return []
+
+    now = _dt.now(_tz.utc)
+    idle_cutoff = now - _td(minutes=IDLE_CUTOFF_MINUTES)
+    active_cutoff = now - _td(minutes=ACTIVE_CUTOFF_MINUTES)
+    results: list[dict] = []
+    for jsonl in project_dir.glob("*.jsonl"):
+        try:
+            mtime = _dt.fromtimestamp(jsonl.stat().st_mtime, tz=_tz.utc)
+        except OSError:
+            continue
+        if mtime < idle_cutoff:
+            continue
+        status = "active" if mtime >= active_cutoff else "idle"
+        sid = jsonl.stem[:10]
+        results.append({
+            "session_id": f"claude-code-{sid}",
+            "last_active": mtime.isoformat(),
+            "status": status,
+            "recent_events": [],
+        })
+    return results
+
+
+def _agent_sessions() -> list[dict]:
+    """Synthesize session records from the live agent registry.
+
+    The ``.ostk/sessions/`` directory only reflects sessions that wrote
+    ostk events. External Claude Code tabs and torichat turns never
+    touch that directory, so they were invisible to the sidebar's
+    "sessions" counter even when they were clearly open. Using the
+    agent registry as a secondary source fixes that: every registered
+    agent with a recent heartbeat counts as a live session.
+    """
+    from routers.agents import agent_metadata, STALE_AGENT_TIMEOUT_SECONDS
+
+    now = datetime.now(timezone.utc)
+    active_window = timedelta(minutes=ACTIVE_CUTOFF_MINUTES)
+    idle_window = timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS)
+    results: list[dict] = []
+    for name, meta in agent_metadata.items():
+        if meta.get("status") != "running":
+            continue
+        heartbeat_raw = meta.get("last_heartbeat_at") or meta.get("spawned_at")
+        if not isinstance(heartbeat_raw, str):
+            continue
+        try:
+            heartbeat = datetime.fromisoformat(heartbeat_raw.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        age = now - heartbeat
+        if age > idle_window:
+            continue
+        status = "active" if age <= active_window else "idle"
+        results.append({
+            "session_id": name,
+            "last_active": heartbeat_raw,
+            "status": status,
+            "recent_events": [],
+        })
+    return results
+
+
 @router.get("/sessions/active")
 async def get_active_sessions():
-    """Return all sessions that have written events in the last 30 minutes."""
+    """Return all sessions that have written events in the last 30 minutes,
+    merged with every live agent record (Claude Code tabs, torichat turns,
+    spawned fleet members). Without the merge the counter was always zero
+    for tabs that never ran an ostk command.
+    """
     sessions = _get_sessions()
+    seen = {s["session_id"] for s in sessions}
+    for extra in _agent_sessions():
+        if extra["session_id"] not in seen:
+            sessions.append(extra)
+            seen.add(extra["session_id"])
+    # Also pick up every Claude Code session that is writing its
+    # transcript right now, even if it never called /register.
+    for extra in _claude_code_transcript_sessions():
+        if extra["session_id"] not in seen:
+            sessions.append(extra)
+            seen.add(extra["session_id"])
+    # Re-sort newest first after the merge.
+    sessions.sort(key=lambda s: s["last_active"], reverse=True)
     return {
         "sessions": sessions,
         "count": len(sessions),

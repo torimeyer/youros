@@ -83,16 +83,17 @@ def test_solo_mode_returns_none(tmp_path):
 
 
 def test_enterprise_no_cookie_raises_401(tmp_path):
-    """Enterprise mode with no session cookie should raise 401."""
+    """Enterprise mode with no session cookie and no admin fallback should raise 401."""
     import json
     from fastapi import HTTPException
     from services.auth import get_current_user
     from unittest.mock import MagicMock
 
+    # No admin member means the auto-auth fallback cannot succeed, so 401 is raised.
     ent_path = tmp_path / "enterprise.json"
     ent_path.write_text(json.dumps({
         "org": {"id": "o1", "name": "Acme"},
-        "members": [{"id": "m1", "email": "admin@acme.com", "role": "admin"}],
+        "members": [{"id": "m1", "email": "member@acme.com", "role": "member"}],
     }))
 
     with patch("services.enterprise_store.ENTERPRISE_PATH", ent_path):

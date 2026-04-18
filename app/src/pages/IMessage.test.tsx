@@ -63,6 +63,7 @@ describe('iMessage page', () => {
     vi.clearAllMocks()
     // Clear localStorage cache
     window.localStorage.removeItem('myos.imessageCache.v1')
+    window.localStorage.removeItem('myos.imessageConnection.v1')
   })
 
   it('shows loading spinner initially', async () => {
@@ -79,7 +80,7 @@ describe('iMessage page', () => {
 
     renderIMessage()
 
-    expect(screen.getByText('Loading...')).toBeInTheDocument()
+    expect(screen.getByTestId('loading-state')).toBeInTheDocument()
 
     resolveStatus(AVAILABLE_STATUS)
   })
@@ -145,7 +146,7 @@ describe('iMessage page', () => {
     renderIMessage()
 
     await waitFor(() => {
-      expect(screen.getByText('No conversations found.')).toBeInTheDocument()
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
     })
   })
 
@@ -242,5 +243,117 @@ describe('iMessage page', () => {
       expect(screen.getByText('Found this message')).toBeInTheDocument()
     })
     expect(screen.getByText('Alice')).toBeInTheDocument()
+  })
+})
+
+describe('IMessage ConnectCard (chunk-d migration)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.imessageCache.v1')
+    window.localStorage.removeItem('myos.imessageConnection.v1')
+  })
+
+  it('renders ConnectCard with green accent when permissions are missing', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) {
+        return Promise.resolve({ available: false, reason: 'iMessage database not found. This feature only works on macOS.' })
+      }
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+
+    // Green accent color: #22c55e -> jsdom converts to rgb(34, 197, 94)
+    const card = screen.getByTestId('connect-card')
+    expect(card.innerHTML).toMatch(/34, 197, 94/)
+  })
+})
+
+describe('IMessage connection tri-state', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.imessageCache.v1')
+    window.localStorage.removeItem('myos.imessageConnection.v1')
+  })
+
+  it('first render shows LoadingState, not ConnectCard', () => {
+    // Hang the status fetch so we can inspect the loading state
+    let resolveStatus: (v: unknown) => void = () => {}
+    const statusPromise = new Promise((resolve) => { resolveStatus = resolve })
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return statusPromise as Promise<unknown>
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+
+    expect(screen.getByTestId('loading-state')).toBeInTheDocument()
+    expect(screen.queryByTestId('connect-card')).not.toBeInTheDocument()
+
+    resolveStatus({ available: false, reason: 'nope' })
+  })
+
+  it('after fetch returns connected: true, the main UI renders', async () => {
+    const convos = makeConversations(2)
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve({ available: true, reason: null })
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: convos })
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Contact 0')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('connect-card')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('loading-state')).not.toBeInTheDocument()
+  })
+
+  it('after fetch returns connected: false, ConnectCard renders', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) {
+        return Promise.resolve({ available: false, reason: 'iMessage not available on this machine.' })
+      }
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('loading-state')).not.toBeInTheDocument()
+  })
+
+  it('return visit with localStorage=connected paints main UI immediately', async () => {
+    // Seed localStorage to simulate a return visit where the user was connected
+    window.localStorage.setItem('myos.imessageConnection.v1', 'connected')
+    const convos = makeConversations(1)
+    window.localStorage.setItem('myos.imessageCache.v1', JSON.stringify(convos))
+
+    // Hang the status fetch to verify the page does NOT wait for it
+    let resolveStatus: (v: unknown) => void = () => {}
+    const statusPromise = new Promise((resolve) => { resolveStatus = resolve })
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return statusPromise as Promise<unknown>
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+
+    // Should immediately show main UI seeded from cache, not loading spinner
+    expect(screen.queryByTestId('loading-state')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('connect-card')).not.toBeInTheDocument()
+    expect(screen.getByText('Contact 0')).toBeInTheDocument()
+
+    resolveStatus({ available: true, reason: null })
   })
 })

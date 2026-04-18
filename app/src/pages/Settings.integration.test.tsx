@@ -139,7 +139,6 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
-        { label: 'Ideas', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
@@ -148,6 +147,8 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
         { label: 'Gmail', enabled: true },
         { label: 'Slack', enabled: true },
         { label: 'GitHub', enabled: true },
+        { label: 'Specs', enabled: true },
+        { label: 'Automations', enabled: false },
         { label: 'Cost Tracking', enabled: true },
       ],
     })
@@ -163,14 +164,14 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.queryByText('Tasks')).not.toBeInTheDocument()
   })
 
-  it('hides Ideas nav item when Ideas feature is disabled', () => {
+  it('hides Specs nav item when Specs feature is disabled', () => {
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
-        f.label === 'Ideas' ? { ...f, enabled: false } : f
+        f.label === 'Specs' ? { ...f, enabled: false } : f
       ),
     })
     renderSidebar()
-    expect(screen.queryByText('Ideas')).not.toBeInTheDocument()
+    expect(screen.queryByText('Specs')).not.toBeInTheDocument()
   })
 
   it('hides Agents nav item when Agents feature is disabled', () => {
@@ -215,7 +216,7 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
   it('shows all items when all features are enabled', () => {
     renderSidebar()
     expect(screen.getByText('Tasks')).toBeInTheDocument()
-    expect(screen.getByText('Ideas')).toBeInTheDocument()
+    expect(screen.getByText('Specs')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
     expect(screen.getByText('Files')).toBeInTheDocument()
     expect(screen.getByText('Activity')).toBeInTheDocument()
@@ -250,7 +251,6 @@ describe('Settings integration: OS name in Sidebar', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
-        { label: 'Ideas', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
@@ -259,6 +259,8 @@ describe('Settings integration: OS name in Sidebar', () => {
         { label: 'Gmail', enabled: true },
         { label: 'Slack', enabled: true },
         { label: 'GitHub', enabled: true },
+        { label: 'Specs', enabled: true },
+        { label: 'Automations', enabled: false },
         { label: 'Cost Tracking', enabled: true },
       ],
     })

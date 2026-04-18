@@ -7,6 +7,7 @@ and fetches the full list when opened.
 
 from fastapi import APIRouter, HTTPException
 
+from services import recent_deletes
 from services.notifications import notifications_service
 
 router = APIRouter(tags=["notifications"])
@@ -46,4 +47,5 @@ async def delete_notification(notification_id: str):
     found = notifications_service.delete(notification_id)
     if not found:
         raise HTTPException(status_code=404, detail="Notification not found")
+    recent_deletes.record_id(f"notification:{notification_id}")
     return {"result": "ok"}

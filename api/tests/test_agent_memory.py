@@ -195,14 +195,15 @@ async def test_complete_with_summary_saves_to_memory(tmp_path, mock_ostk):
         with patch("routers.agents.agent_metadata", {}):
             with patch("routers.agents._save_agent_state"):
                 with patch("routers.agents._save_duration"):
-                    with patch("services.notifications.notifications_service", MagicMock()):
-                        async with AsyncClient(
-                            transport=ASGITransport(app=app), base_url="http://test"
-                        ) as client:
-                            resp = await client.post(
-                                "/api/agents/summarizer-bot/complete",
-                                json={"summary": "Completed the research task"},
-                            )
+                    with patch("routers.agents._load_deleted_agents", return_value=set()):
+                        with patch("services.notifications.notifications_service", MagicMock()):
+                            async with AsyncClient(
+                                transport=ASGITransport(app=app), base_url="http://test"
+                            ) as client:
+                                resp = await client.post(
+                                    "/api/agents/summarizer-bot/complete",
+                                    json={"summary": "Completed the research task"},
+                                )
         assert resp.status_code == 200
         data = mem.get_memory("summarizer-bot")
     assert any("Completed the research task" in s["text"] for s in data["summaries"])
@@ -215,13 +216,14 @@ async def test_complete_without_summary_is_fine(tmp_path, mock_ostk):
         with patch("routers.agents.agent_metadata", {}):
             with patch("routers.agents._save_agent_state"):
                 with patch("routers.agents._save_duration"):
-                    with patch("services.notifications.notifications_service", MagicMock()):
-                        async with AsyncClient(
-                            transport=ASGITransport(app=app), base_url="http://test"
-                        ) as client:
-                            resp = await client.post(
-                                "/api/agents/no-summary-bot/complete"
-                            )
+                    with patch("routers.agents._load_deleted_agents", return_value=set()):
+                        with patch("services.notifications.notifications_service", MagicMock()):
+                            async with AsyncClient(
+                                transport=ASGITransport(app=app), base_url="http://test"
+                            ) as client:
+                                resp = await client.post(
+                                    "/api/agents/no-summary-bot/complete"
+                                )
         assert resp.status_code == 200
 
 
@@ -261,3 +263,315 @@ def test_agent_memory_dir_is_outside_repo():
         f"AGENT_MEMORY_DIR ({memory_dir}) is inside the repo at {repo_root}. "
         "User data inside the repo can be clobbered by git pull."
     )
+
+
+# ---------------------------------------------------------------------------
+# Demo mode memory injection skip + clear memory isolation
+# ---------------------------------------------------------------------------
+#
+# Context: agent memory persists across sessions so a roadmap agent can pick
+# up where it left off. For demos we want a clean slate every run so the
+# fleet does not look stale. These tests pin:
+#
+#   1. DELETE /api/agents/{name}/memory actually removes the on-disk file.
+#   2. Spawning an agent with demo_mode=true skips past-session memory
+#      injection (the prompt passed to the child has no "Memory from past
+#      sessions" block).
+#   3. Clearing one agent's memory leaves every other agent untouched.
+
+
+@pytest.mark.asyncio
+async def test_clear_memory_endpoint_deletes_agent_memory_file(tmp_path, mock_ostk):
+    """DELETE /api/agents/{name}/memory removes the JSON file from disk.
+
+    Regression guard. The live cleanup step of the demo playbook depends
+    on this endpoint wiping the file, not just emptying its contents.
+    """
+    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
+        mem.save_memory("roadmap", "status", "in progress")
+        mem.append_summary("roadmap", "Did an initial draft")
+        memory_file = tmp_path / "roadmap.json"
+        assert memory_file.exists(), "precondition: memory file should exist"
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.delete("/api/agents/roadmap/memory")
+
+        assert resp.status_code == 200
+        assert not memory_file.exists(), (
+            "Clear memory must remove the JSON file from disk, "
+            "not just blank it. Demo runs depend on a truly fresh start."
+        )
+
+
+@pytest.mark.asyncio
+async def test_demo_mode_skips_past_session_memory_injection(tmp_path, monkeypatch):
+    """Spawning with demo_mode=True must not inject past-session memory.
+
+    Even with a fat memory file on disk, a demo_mode spawn should pass a
+    prompt that contains only the caller's text (plus the mailbox block).
+    The "Memory from past sessions" marker and any stored fact or summary
+    text must never reach the child's stdin.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured: dict = {"stdin": b""}
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            captured["stdin"] += data
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 424242
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+        def kill(self):
+            self.returncode = -9
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+
+    agent_name = "demo-mode-memory-skip-agent"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
+        # Seed realistic past-session memory that a non-demo spawn would
+        # normally splice into the prompt.
+        mem.save_memory(agent_name, "lastTopic", "three year roadmap")
+        mem.append_summary(agent_name, "Built the 2026 reliability plan")
+        mem.append_summary(agent_name, "Drafted the 2027 teams milestone")
+
+        try:
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/agents/spawn",
+                    json={
+                        "name": agent_name,
+                        "prompt": "Brand new demo run.",
+                        "model": "sonnet",
+                        "budget": 0.5,
+                        "demo_mode": True,
+                    },
+                )
+            assert resp.status_code == 200, resp.text
+
+            stdin_text = captured["stdin"].decode("utf-8")
+            # The caller prompt is always there.
+            assert "Brand new demo run." in stdin_text
+            # Past-session memory MUST NOT be injected.
+            assert "Memory from past sessions" not in stdin_text, (
+                "demo_mode spawn leaked the 'Memory from past sessions' header "
+                "into the child prompt. Demo runs must start from a clean slate."
+            )
+            assert "three year roadmap" not in stdin_text, (
+                "demo_mode spawn leaked a remembered fact into the child prompt."
+            )
+            assert "Built the 2026 reliability plan" not in stdin_text, (
+                "demo_mode spawn leaked a past session summary into the child prompt."
+            )
+            assert "Drafted the 2027 teams milestone" not in stdin_text, (
+                "demo_mode spawn leaked a past session summary into the child prompt."
+            )
+        finally:
+            agent_metadata.pop(agent_name, None)
+            active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_demo_run_fleet_skips_past_session_memory_injection(tmp_path, monkeypatch):
+    """Fleet demo runs must skip past-session memory for every member.
+
+    demo_run_fleet builds AgentSpawn bodies without demo_mode=True and
+    leans on the agentfile lookup inside _spawn_demo_mode to detect the
+    flag. When a fleet member has no matching agentfile, past-session
+    memory leaked into the prompt on every subsequent demo run. This
+    test pins the fix: demo_run_fleet now stamps demo_mode=True on each
+    AgentSpawn so the memory block is suppressed regardless of whether
+    an agentfile exists.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    # Pick a real fleet template so the demo_run endpoint has something
+    # to spawn. fleet-build-website ships with myOS and has four members.
+    fleet_id = "fleet-build-website"
+    from services.fleet_templates import list_fleet_templates
+    templates = list_fleet_templates()
+    fleet = next((f for f in templates if f["id"] == fleet_id), None)
+    if fleet is None:
+        pytest.skip(f"fleet template {fleet_id} not installed in this env")
+
+    captured_stdin: list[bytes] = []
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            captured_stdin.append(data)
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        returncode = None
+
+        def __init__(self):
+            self.pid = 111111
+            self.stdin = _FakeStdin()
+
+        def kill(self):
+            self.returncode = -9
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+
+    # Seed past-session memory for every fleet member so a leak would
+    # show up as a distinctive string in their stdin.
+    leaked_markers: list[str] = []
+    cleanup_names: list[str] = []
+    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
+        for member in fleet["members"]:
+            role_slug = member["role"].lower().replace(" ", "-")
+            agent_name = f"{fleet_id}-{role_slug}"
+            cleanup_names.append(agent_name)
+            agent_metadata.pop(agent_name, None)
+            active_agents.pop(agent_name, None)
+            marker = f"LEAKED_SUMMARY_FOR_{role_slug.upper()}"
+            leaked_markers.append(marker)
+            mem.append_summary(agent_name, marker)
+
+        try:
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    f"/api/agents/fleets/{fleet_id}/demo-run",
+                    json={
+                        "fleet_id": fleet_id,
+                        "context": "demo context",
+                        "model": "haiku",
+                        "budget": 0.25,
+                    },
+                )
+            assert resp.status_code == 200, resp.text
+
+            all_stdin = b"".join(captured_stdin).decode("utf-8")
+            for marker in leaked_markers:
+                assert marker not in all_stdin, (
+                    f"Fleet demo run leaked '{marker}' into a member prompt. "
+                    "demo_mode must skip past-session memory injection for "
+                    "every fleet member, not just those with agentfiles."
+                )
+            assert "Memory from past sessions" not in all_stdin, (
+                "Fleet demo run leaked the 'Memory from past sessions' header."
+            )
+        finally:
+            for agent_name in cleanup_names:
+                agent_metadata.pop(agent_name, None)
+                active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_clear_memory_does_not_affect_other_agents(tmp_path, mock_ostk):
+    """Clearing one agent's memory must not touch any other agent's file.
+
+    Tori has hundreds of agent memory files on disk. A buggy clear that
+    wipes the whole directory or a sibling by prefix would silently erase
+    every remembered fact for unrelated agents. Pin the isolation.
+    """
+    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
+        mem.save_memory("roadmap", "status", "in progress")
+        mem.append_summary("roadmap", "Past roadmap work")
+
+        # Other agents, including one that shares a prefix with "roadmap"
+        # so a naive glob like "roadmap*" would catch it by mistake.
+        mem.save_memory("roadmap-helper", "k", "v")
+        mem.append_summary("roadmap-helper", "Unrelated helper work")
+
+        mem.save_memory("builder", "lang", "python")
+        mem.append_summary("builder", "Shipped the builder page")
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.delete("/api/agents/roadmap/memory")
+        assert resp.status_code == 200
+
+        # Target is gone.
+        cleared = mem.get_memory("roadmap")
+        assert cleared == {"facts": {}, "summaries": []}
+
+        # Prefix-sharing agent is untouched.
+        sibling = mem.get_memory("roadmap-helper")
+        assert sibling["facts"] == {"k": "v"}
+        assert any(
+            "Unrelated helper work" in s["text"] for s in sibling["summaries"]
+        ), "roadmap-helper memory must survive a clear on 'roadmap'"
+
+        # Unrelated agent is untouched.
+        unrelated = mem.get_memory("builder")
+        assert unrelated["facts"] == {"lang": "python"}
+        assert any(
+            "Shipped the builder page" in s["text"] for s in unrelated["summaries"]
+        ), "builder memory must survive a clear on 'roadmap'"

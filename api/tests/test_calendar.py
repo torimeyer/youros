@@ -123,6 +123,56 @@ async def test_calendar_auth_status_warm_cache_zero_probes(client, tmp_path):
     assert fetch_mock.call_count == 0
 
 
+@pytest.mark.asyncio
+async def test_calendar_auth_status_cached_path_is_fast(client, tmp_path):
+    """Warm cache hits for /calendar/auth/status must return under 50ms."""
+    import time as _time
+
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        first = await client.get("/api/calendar/auth/status")
+        assert first.status_code == 200
+
+        start = _time.perf_counter()
+        second = await client.get("/api/calendar/auth/status")
+        elapsed = _time.perf_counter() - start
+
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert elapsed < 0.050, f"cached path took {elapsed*1000:.1f}ms"
+
+
+@pytest.mark.asyncio
+async def test_calendar_auth_status_cache_invalidates_on_connect_disconnect(client, tmp_path):
+    """Cache must drop its entry when the token is saved or revoked."""
+    from services import connections_cache
+    from services import google_auth as ga
+
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.get("/api/calendar/auth/status")
+    assert resp.json()["authenticated"] is False
+    assert connections_cache.get("calendar_auth_status") is not None
+
+    # Simulate connect.
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.connect",
+        "scope": "https://www.googleapis.com/auth/calendar",
+    }))
+    ga._invalidate_google_status_cache()
+    assert connections_cache.get("calendar_auth_status") is None
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp2 = await client.get("/api/calendar/auth/status")
+    assert resp2.json()["authenticated"] is True
+
+
 # ---------------------------------------------------------------------------
 # Events endpoint
 # ---------------------------------------------------------------------------
@@ -149,7 +199,9 @@ async def test_calendar_events_cache_hit(client, tmp_path):
     cache_dir.mkdir()
     cache_path = cache_dir / "events.json"
     fake_events = _make_events(2)
-    cache_path.write_text(json.dumps(fake_events))
+    from datetime import datetime as _dt
+    today_str = _dt.now().strftime("%Y-%m-%d")
+    cache_path.write_text(json.dumps({"fetched_date": today_str, "events": fake_events}))
 
     with (
         patch("services.google_auth.TOKEN_PATH", token_path),
@@ -217,6 +269,89 @@ async def test_calendar_events_insufficient_scope_returns_403(client, tmp_path):
         resp = await client.get("/api/calendar/events")
 
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Empty-cache guard (Calendar-tab-shows-nothing regression)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_endpoint_returns_recent_events(client, tmp_path):
+    """The events endpoint must surface real events the API returns.
+
+    Regression guard for the demo bug where an earlier-today empty
+    fetch had been pinned in cache. With the new save-skip-on-empty
+    rule the next call straight from Google should land in the
+    response untouched.
+    """
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
+
+    cache_dir = tmp_path / "calendar_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "events.json"
+    # Cache file does not exist, forcing a fetch.
+
+    fresh_events = _make_events(5)
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.calendar.EVENTS_CACHE_PATH", cache_path),
+        patch("services.calendar._fetch_events_sync", return_value=fresh_events),
+    ):
+        resp = await client.get("/api/calendar/events")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["events"]) == 5
+    # The events should now be cached (5 > 0 so save proceeds).
+    assert cache_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_calendar_save_cache_skips_empty_list(tmp_path):
+    """An empty events list must not be persisted to disk.
+
+    Regression guard for the bug where a transient empty fetch was
+    pinned in cache for the full TTL, leaving the Calendar tab blank
+    even after real events appeared on the user's calendar.
+    """
+    from services import calendar as cal
+
+    cache_dir = tmp_path / "calendar_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "events.json"
+
+    with patch("services.calendar.EVENTS_CACHE_PATH", cache_path):
+        cal._save_cache([])
+
+    assert not cache_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_calendar_load_cache_treats_empty_list_as_miss(tmp_path):
+    """An on-disk cache file with an empty events list must be treated as a miss.
+
+    Defensive backstop in case an older version of the code persisted
+    an empty list before the save-skip rule was added.
+    """
+    from services import calendar as cal
+    from datetime import datetime as _dt
+
+    cache_dir = tmp_path / "calendar_cache"
+    cache_dir.mkdir()
+    cache_path = cache_dir / "events.json"
+    today_str = _dt.now().strftime("%Y-%m-%d")
+    cache_path.write_text(json.dumps({"fetched_date": today_str, "events": []}))
+
+    with patch("services.calendar.EVENTS_CACHE_PATH", cache_path):
+        result = cal._load_cache()
+
+    assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +616,86 @@ async def test_calendar_create_event_scope_error(client, tmp_path):
         )
 
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/calendar/events/{event_id}
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_calendar_delete_event_not_authenticated(client, tmp_path):
+    """Deleting without auth must return 401."""
+    token_path = tmp_path / "google_token.json"
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.delete("/api/calendar/events/abc123")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_calendar_delete_event_success(client, tmp_path):
+    """A successful delete returns ok=true and clears the cache."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar",
+    }))
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.calendar.delete_event", new=AsyncMock(return_value=None)) as deleter,
+    ):
+        resp = await client.delete("/api/calendar/events/abc123")
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    deleter.assert_awaited_once_with("abc123")
+
+
+@pytest.mark.asyncio
+async def test_calendar_delete_event_already_gone(client, tmp_path):
+    """A 404 from Google is treated as success so the UI can converge."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar",
+    }))
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.calendar.delete_event",
+            new=AsyncMock(side_effect=Exception("404 Not Found: event 'gone' not found")),
+        ),
+    ):
+        resp = await client.delete("/api/calendar/events/gone")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["already_deleted"] is True
+
+
+@pytest.mark.asyncio
+async def test_calendar_delete_event_scope_error(client, tmp_path):
+    """Insufficient calendar write scope should return 403 with reauth hint."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch(
+            "services.calendar.delete_event",
+            new=AsyncMock(side_effect=Exception("403 insufficientPermissions")),
+        ),
+    ):
+        resp = await client.delete("/api/calendar/events/abc123")
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["needs_reauth"] is True
 
 
 # ---------------------------------------------------------------------------

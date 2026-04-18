@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import asyncio
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from services import imessage as imessage_service
@@ -19,6 +22,10 @@ router = APIRouter(tags=["imessage"])
 
 class SendMessageRequest(BaseModel):
     recipient: str
+    text: str
+
+
+class ReplyRequest(BaseModel):
     text: str
 
 
@@ -85,6 +92,22 @@ async def imessage_messages(chat_id: int, limit: int = Query(100, ge=1, le=500))
     return {"messages": messages}
 
 
+@router.get("/imessage/attachment")
+async def imessage_attachment(path: str = Query(...)):
+    """Serve an iMessage attachment file by its local path.
+
+    Only serves files from the ~/Library/Messages/Attachments directory
+    to prevent path traversal outside the iMessage store.
+    """
+    resolved = Path(path).resolve()
+    allowed = Path.home() / "Library" / "Messages" / "Attachments"
+    if not str(resolved).startswith(str(allowed)):
+        raise HTTPException(status_code=403, detail="Access denied.")
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="Attachment not found.")
+    return FileResponse(str(resolved))
+
+
 @router.post("/imessage/send")
 async def imessage_send(body: SendMessageRequest):
     """Send an iMessage to a phone number or email address.
@@ -120,6 +143,42 @@ async def imessage_send(body: SendMessageRequest):
         ) from exc
 
     # Invalidate conversations cache so the sent message shows up
+    imessage_service.invalidate_conversations_cache()
+
+    return result
+
+
+@router.post("/imessage/conversations/{chat_id}/reply")
+async def imessage_reply(chat_id: int, body: ReplyRequest):
+    """Reply to an existing conversation by its ID.
+
+    Works for both direct messages (phone/email) and group chats (UUID).
+    Looks up the conversation in chat.db and sends using the appropriate method.
+    """
+    status = imessage_service.is_available()
+    if not status["available"]:
+        raise HTTPException(status_code=503, detail=status["reason"])
+
+    try:
+        result = await imessage_service.reply_to_chat(
+            chat_id=chat_id,
+            text=body.text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="Sending the reply timed out. Make sure the Messages app is running.",
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not send the reply: {exc}",
+        ) from exc
+
     imessage_service.invalidate_conversations_cache()
 
     return result

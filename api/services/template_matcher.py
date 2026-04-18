@@ -6,7 +6,7 @@ The user never has to explicitly say "saa" or "diagnose".
 
 Strategy (in order, first match wins):
 1. Explicit invocation: the message starts with the template name or one of
-   its triggers, word-boundary aware. Preserves saa/diagnose/elit behavior.
+   its triggers, word-boundary aware. Preserves saa/diagnose/explain-plain behavior.
 2. Keyword match: the message contains ALL of the template's required
    keywords (if any are defined). Cheap and deterministic.
 3. AI classifier: if nothing matched deterministically, ask Claude to pick
@@ -30,7 +30,7 @@ from typing import Any, Optional
 
 import anthropic
 
-# Built-in templates. These mirror the saa/diagnose/elit commands that used
+# Built-in templates. These mirror the saa/diagnose/explain-plain commands that used
 # to live inside the chat system prompt. They are injected alongside the
 # user's custom templates so the matcher can find them.
 BUILT_IN_TEMPLATES: list[dict[str, Any]] = [
@@ -69,17 +69,29 @@ BUILT_IN_TEMPLATES: list[dict[str, Any]] = [
         ),
     },
     {
-        "name": "elit",
+        "name": "explain-plain",
+        "aliases": ["elit"],
         "description": (
-            "Explain a topic in plain language with no jargon and no code. "
+            "Plain-language explanation of anything. No jargon, no omissions. "
+            "Covers every relevant point and uses analogies for technical concepts. "
             "Use when the user wants a non-technical explanation of something."
         ),
-        "triggers": ["elit", "explain like i'm", "eli5", "in plain english"],
+        "triggers": [
+            "explain-plain",
+            "explain plain",
+            "elit",
+            "explain like i'm",
+            "eli5",
+            "in plain english",
+        ],
         "keywords": [],
         "prompt": (
-            "ELIT MODE: Explain the topic in plain language with no code, no "
-            "jargon, and keep it brief. Pretend you are explaining to a smart "
-            "product manager who is not an engineer."
+            "EXPLAIN-PLAIN MODE: Explain the subject in plain language so "
+            "someone with no background in the field can follow it. No jargon. "
+            "Cover every relevant point. Do not skip material for brevity. Use "
+            "analogies for technical or abstract concepts. No code. No "
+            "em-dashes. Start with a one-paragraph summary, then go deeper in "
+            "clearly labeled sections."
         ),
     },
     {
@@ -148,12 +160,64 @@ def _message_hash(message: str) -> str:
     return hashlib.sha256(message.strip().lower().encode("utf-8")).hexdigest()[:16]
 
 
+def _inject_user_aliases(templates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Inject user-set aliases into the templates list.
+
+    User aliases from ~/.myos/template_aliases.json are added to the
+    matching template's aliases list so the explicit-invocation layer
+    can pick them up. User aliases take priority over built-in aliases
+    on collision.
+    """
+    try:
+        from services.agent_templates_store import agent_templates_store
+        user_aliases = agent_templates_store.get_all_user_aliases()
+    except Exception:
+        return templates
+
+    if not user_aliases:
+        return templates
+
+    # Build a reverse map: template_id -> [alias1, alias2, ...]
+    id_to_aliases: dict[str, list[str]] = {}
+    for alias, tid in user_aliases.items():
+        id_to_aliases.setdefault(tid, []).append(alias)
+
+    # Also build name-to-aliases for templates that have no id field
+    # (the chat matcher built-ins use "name" not "id").
+    # Include template aliases so "saa" (which is an alias of Builder)
+    # resolves to "builtin-builder".
+    name_to_tid: dict[str, str] = {}
+    try:
+        from services.agent_templates_store import BUILTIN_AGENT_TEMPLATES
+        for t in BUILTIN_AGENT_TEMPLATES:
+            name_to_tid[t["name"].lower()] = t["id"]
+            for a in t.get("aliases", []):
+                name_to_tid[a.lower()] = t["id"]
+    except Exception:
+        pass
+
+    for t in templates:
+        tid = t.get("id", "")
+        if not tid:
+            # Try to resolve via name
+            tid = name_to_tid.get(t.get("name", "").lower(), "")
+        if tid and tid in id_to_aliases:
+            existing = list(t.get("aliases", []) or [])
+            for ua in id_to_aliases[tid]:
+                if ua.lower() not in {a.lower() for a in existing}:
+                    existing.append(ua)
+            t["aliases"] = existing
+
+    return templates
+
+
 def merge_with_built_ins(custom_templates: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """Return built-in templates plus any custom ones from settings.
 
     Custom templates with the same name as a built-in override the built-in.
-    This lets power users tweak saa/diagnose/elit behavior without losing
-    auto-matching.
+    This lets power users tweak saa/diagnose/explain-plain behavior without losing
+    auto-matching. User aliases from the Settings page are injected so the
+    explicit-invocation layer can match them.
     """
     custom = list(custom_templates or [])
     custom_names = {str(t.get("name", "")).lower() for t in custom if isinstance(t, dict)}
@@ -164,7 +228,7 @@ def merge_with_built_ins(custom_templates: list[dict[str, Any]] | None) -> list[
     for t in custom:
         if isinstance(t, dict) and t.get("name"):
             merged.append(dict(t))
-    return merged
+    return _inject_user_aliases(merged)
 
 
 async def _run_classifier(
@@ -257,12 +321,15 @@ async def match_template(
 
     text = user_message.strip()
 
-    # Layer 1: explicit invocation. Starts with name or any trigger phrase.
+    # Layer 1: explicit invocation. Starts with name, any alias, or any
+    # trigger phrase. Name and aliases are always implicit triggers so
+    # templates can declare user-facing shortcuts (e.g. elit -> explain-plain)
+    # in the ``aliases`` list without duplicating them in ``triggers``.
     for tpl in templates:
         name = str(tpl.get("name", ""))
+        aliases: list[str] = [str(a) for a in (tpl.get("aliases", []) or [])]
         triggers: list[str] = list(tpl.get("triggers", []) or [])
-        # Name itself is always an implicit trigger.
-        all_triggers = [name] + triggers
+        all_triggers = [name] + aliases + triggers
         for trig in all_triggers:
             if trig and _word_boundary_starts_with(text, trig):
                 return _with_reason(tpl, "explicit")

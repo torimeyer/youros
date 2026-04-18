@@ -4,4 +4,4 @@
 # When the parser sees ALIAS <name>, it follows it to the target
 # Agentfile and returns that config.
 
-ALIAS comprehensive
+ALIAS builder

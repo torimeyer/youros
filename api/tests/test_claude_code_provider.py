@@ -357,6 +357,113 @@ class TestEnvStripping:
         # Sanity check: the safe env var should still make it through.
         assert env.get("PATH") == "/usr/bin:/bin"
 
+    @pytest.mark.asyncio
+    async def test_spawn_raises_stdout_buffer_limit(self, monkeypatch):
+        """A single Claude Code stream event can exceed asyncio's default
+        64 KiB StreamReader limit (e.g. a tool_result carrying a large Read
+        output). When the default applies, proc.stdout.readline() raises
+        LimitOverrunError("Separator is found, but chunk is longer than
+        limit") and surfaces that string to the user. The spawn must pass
+        a generous ``limit`` kwarg to avoid it.
+        """
+        captured: dict = {}
+
+        async def fake_create(*args, **kwargs):
+            captured["limit"] = kwargs.get("limit")
+            result_event = {
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+            return FakeProcess(
+                stdout_lines=[(json.dumps(result_event) + "\n").encode()],
+                return_code=0,
+            )
+
+        websocket = FakeWebSocket()
+        with patch(
+            "services.claude_code_provider._find_claude_binary",
+            return_value="/usr/local/bin/claude",
+        ), patch(
+            "asyncio.create_subprocess_exec",
+            new=fake_create,
+        ):
+            await stream_chat(
+                [{"role": "user", "content": "hi"}],
+                websocket,
+                system_prompt="you are a helper",
+            )
+
+        limit = captured.get("limit")
+        assert limit is not None, (
+            "create_subprocess_exec was spawned without an explicit limit. "
+            "That falls back to asyncio's 64 KiB default and any large "
+            "tool_result will crash the chat turn with "
+            "'Separator is found, but chunk is longer than limit'."
+        )
+        # 8 MiB is the minimum floor. The current value is 32 MiB; a future
+        # refactor that lowers it below 8 MiB should fail this test.
+        assert limit >= 8 * 1024 * 1024, (
+            f"StreamReader limit {limit} is too low. A single Claude Code "
+            "JSON line can easily exceed 1 MiB; keep the limit generous."
+        )
+
+    @pytest.mark.asyncio
+    async def test_chat_turn_registers_and_completes_agent(self, monkeypatch):
+        """Every chat turn must register itself as an agent so it shows
+        up on the Agents page and in the Activity feed. Otherwise the
+        in-app chat looks like nothing is happening.
+        """
+        captured_register: dict = {}
+        captured_complete: dict = {}
+
+        async def fake_register(name: str, **kwargs):
+            captured_register["name"] = name
+            captured_register.update(kwargs)
+
+        async def fake_complete(name: str, **kwargs):
+            captured_complete["name"] = name
+            captured_complete.update(kwargs)
+
+        import routers.agents as agents_router
+        monkeypatch.setattr(agents_router, "register_chat_session", fake_register)
+        monkeypatch.setattr(agents_router, "complete_chat_session", fake_complete)
+
+        async def fake_create(*args, **kwargs):
+            result_event = {
+                "type": "result",
+                "subtype": "success",
+                "is_error": False,
+                "usage": {"input_tokens": 12, "output_tokens": 34},
+            }
+            return FakeProcess(
+                stdout_lines=[(json.dumps(result_event) + "\n").encode()],
+                return_code=0,
+            )
+
+        websocket = FakeWebSocket()
+        with patch(
+            "services.claude_code_provider._find_claude_binary",
+            return_value="/usr/local/bin/claude",
+        ), patch(
+            "asyncio.create_subprocess_exec",
+            new=fake_create,
+        ):
+            await stream_chat(
+                [{"role": "user", "content": "please extend the specs page"}],
+                websocket,
+                system_prompt="you are a helper",
+                tab_id="tab-deadbeef-1234",
+            )
+
+        assert captured_register.get("name") == "chat-tab-dead"
+        assert "please extend the specs page" in (captured_register.get("prompt_preview") or "")
+        assert captured_complete.get("name") == "chat-tab-dead"
+        assert captured_complete.get("status") == "completed"
+        assert captured_complete.get("tokens_in") == 12
+        assert captured_complete.get("tokens_out") == 34
+
 
 # --- streaming tests ---
 

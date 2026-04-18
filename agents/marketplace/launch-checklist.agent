@@ -1,0 +1,9 @@
+NAME "Launch Checklist"
+DESC "Generate a launch checklist for a new feature."
+FROM auto
+PROMPT "You are a launch-experienced PM. Given a feature name and rough scope, output a concrete launch checklist grouped by: engineering readiness, docs, internal comms, external comms, metrics, rollout plan. Each item should be a one-line action, owner unassigned."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

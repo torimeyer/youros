@@ -6,7 +6,10 @@ from difflib import SequenceMatcher
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 
-from models.schemas import TaskCreate, TaskClose, TaskLink, TaskUpdate, CommitCreate, TaskReorder
+from models.schemas import (
+    TaskCreate, TaskClose, TaskLink, TaskUpdate, CommitCreate, TaskReorder,
+    ResolveDuplicateBody, ResolveDuplicatesBulkBody, TaskDeleteAll,
+)
 from services.ostk import ostk, OstkError
 from services.labels_store import labels_store, LABEL_COLORS
 from services.task_labels_store import task_labels_store
@@ -17,6 +20,8 @@ from services.task_labeling import (
     extract_task_id as _extract_task_id,
     schedule_auto_labels,
 )
+from services import session_task_map
+from services import recent_deletes
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +51,14 @@ def _enrich_task(
     task: dict,
     all_assignments: Optional[dict] = None,
     task_thread_map: Optional[dict] = None,
+    session_task_map_pairs: Optional[dict] = None,
+    children_counts: Optional[dict] = None,
 ) -> dict:
-    """Add 'goal', 'label_ids', 'auto_label_ids', and 'thread_id' fields."""
+    """Add 'goal', 'label_ids', 'auto_label_ids', 'thread_id', and
+    session-linked fields ('session_id', 'child_task_count') so the
+    Tasks page can surface a 'View transcript' link and a
+    'N tasks created in this session' count on session-task rows.
+    """
     tags = task.get("tags") or []
     goal = None
     for tag in tags:
@@ -85,6 +96,44 @@ def _enrich_task(
             task["closed_reason"] = "completed"
     else:
         task["closed_reason"] = None
+
+    # Link this task back to its Claude Code session when one is recorded.
+    # Two cases:
+    #   1. The task IS the auto-filed session task. session_id comes from
+    #      the session_to_task map. child_task_count is the number of
+    #      tasks spawned during that session.
+    #   2. The task is a child of a parent session. session_id comes from
+    #      the task_to_session map. child_task_count is always 0 because
+    #      child tasks do not themselves own a transcript.
+    if session_task_map_pairs is None:
+        session_task_map_pairs = session_task_map.all_session_task_pairs()
+    if children_counts is None:
+        children_counts = session_task_map.all_children_counts()
+
+    task_id = task.get("id", "")
+    # Invert session_to_task for fast lookup of "which session is this task?"
+    task_to_parent_session: dict[str, str] = {
+        tid: sid for sid, tid in session_task_map_pairs.items()
+    }
+
+    owned_session = task_to_parent_session.get(task_id)
+    if owned_session:
+        task["session_id"] = owned_session
+        task["child_task_count"] = int(children_counts.get(owned_session, 0))
+    else:
+        # Fallback: if the task was recorded as a child of some session,
+        # surface that parent session id too. Child tasks have count 0.
+        parent_session = session_task_map.get_session_for_task(task_id)
+        if parent_session and parent_session not in session_task_map_pairs:
+            # Only populate if it is NOT already covered by the owned path
+            task["session_id"] = parent_session
+            task["child_task_count"] = 0
+        elif parent_session:
+            task["session_id"] = parent_session
+            task["child_task_count"] = 0
+        else:
+            task["session_id"] = None
+            task["child_task_count"] = 0
 
     return task
 
@@ -124,7 +173,11 @@ def _compute_compound_scores(tasks: list[dict]) -> dict[str, int]:
 
 
 @router.get("/tasks")
-async def list_tasks(status: Optional[str] = None, priority: Optional[str] = None):
+async def list_tasks(
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    include_test_data: bool = False,
+):
     try:
         tasks = await ostk.list_tasks(status=status, priority=priority)
         # Apply custom sort order within each priority group
@@ -132,7 +185,28 @@ async def list_tasks(status: Optional[str] = None, priority: Optional[str] = Non
         # Load all assignments once for efficiency
         all_assignments = task_labels_store.get_all_assignments()
         task_thread_map = threads_store.get_all_task_thread_map()
-        tasks = [_enrich_task(t, all_assignments, task_thread_map) for t in tasks]
+        # Load the session-task map once so every row can be enriched
+        # without re-reading the JSON for each task.
+        session_pairs = session_task_map.all_session_task_pairs()
+        children_counts = session_task_map.all_children_counts()
+        tasks = [
+            _enrich_task(
+                t,
+                all_assignments,
+                task_thread_map,
+                session_task_map_pairs=session_pairs,
+                children_counts=children_counts,
+            )
+            for t in tasks
+        ]
+        # Hide e2e smoke-test tasks from normal responses. They are only
+        # visible when ?include_test_data=true so leftovers from a failed run
+        # do not pollute the task list in the UI.
+        if not include_test_data:
+            tasks = [
+                t for t in tasks
+                if not t.get("title", "").lower().startswith("e2e-")
+            ]
         # Add compound scores (how many tasks each one unblocks)
         compound_scores = _compute_compound_scores(tasks)
         for t in tasks:
@@ -142,6 +216,194 @@ async def list_tasks(status: Optional[str] = None, priority: Optional[str] = Non
         return {"tasks": tasks}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Trailing machine-id patterns we strip from task titles. Smoke
+# scripts and roadmap generators sometimes embed timestamps, PIDs, or
+# short 4-to-6 digit IDs into titles. The user-facing task list should
+# never show these raw tokens. The separator before the number can be
+# a space, a hyphen, or an underscore.
+_TRAILING_ID_RE = re.compile(r"[\s_\-]+\d{4,}[-_\d]*$")
+# Trailing UUID (standard 8-4-4-4-12 hex form, with or without a
+# surrounding pair of brackets or parens).
+_TRAILING_UUID_RE = re.compile(
+    r"\s*[\[\(\{]?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}[\]\)\}]?\s*$"
+)
+# Pure-test artifact patterns. These titles come from smoke runs and
+# have no meaning to the user. Reject them with a plain message so the
+# caller can fix the source.
+#
+# The check must fire when any of the following appears ANYWHERE in the
+# title, not just at the start. Real smoke output looks like
+# "Build e2e alpha feature" and "Something e2e-label-1234567", so
+# anchoring the old regex at the start was letting these through.
+# Patterns that match "e2e" as a token or as an "e2e-label-" prefix.
+# These are the only smoke signatures we allow through when a caller
+# sets ?include_test_data=true. The smoke script creates titles like
+# "e2e-crud-<timestamp>" to exercise the CRUD lifecycle, so the API
+# must accept them when test mode is explicit, and keep rejecting them
+# everywhere else so user-facing writes stay clean.
+_E2E_ARTIFACT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # "e2e" as a standalone word (matches "e2e", "-e2e-", " e2e ").
+    re.compile(r"(?:^|[\s\-_])e2e(?:[\s\-_]|$)", re.IGNORECASE),
+    # Machine-generated label name leaked into the title.
+    re.compile(r"e2e-label-\d+", re.IGNORECASE),
+)
+# Patterns that are pure UI noise regardless of caller. These always
+# reject: "feature alpha", "demo-smoke-roadmap", build-123, all-caps
+# placeholders. Even a test harness should not be creating these.
+_NON_E2E_ARTIFACT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # "feature alpha/beta/gamma/delta/epsilon" anywhere.
+    re.compile(
+        r"\bfeature[\s\-_]+(?:alpha|beta|gamma|delta|epsilon)\b",
+        re.IGNORECASE,
+    ),
+    # "alpha/beta/... feature" (reversed order, same smoke signature).
+    re.compile(
+        r"\b(?:alpha|beta|gamma|delta|epsilon)[\s\-_]+feature\b",
+        re.IGNORECASE,
+    ),
+    # Smoke demo prefixes that sometimes leak via automations.
+    re.compile(r"demo-smoke-(?:roadmap|prd)", re.IGNORECASE),
+    # "build-123" or "test-foo" style machine titles at the start.
+    re.compile(r"^build-\d+\b", re.IGNORECASE),
+    re.compile(r"^test-\w+", re.IGNORECASE),
+    # All-caps placeholder like FOO_BAR_BAZ with 2+ underscores.
+    re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){2,}$"),
+)
+# Union view used by code paths that want to check every smoke
+# signature at once (for example, the cleanup-test-artifacts sweep).
+_TEST_ARTIFACT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    _E2E_ARTIFACT_PATTERNS + _NON_E2E_ARTIFACT_PATTERNS
+)
+# Labels whose names match this regex are machine-generated artifacts
+# from e2e tests. They must never appear in the user-facing label list
+# and must be stripped from any task that arrives carrying them.
+_TEST_LABEL_NAME_RE = re.compile(
+    r"^e2e-label-\d+$|^demo-smoke-(?:roadmap|prd)",
+    re.IGNORECASE,
+)
+# Tasks created by automation_outputs.auto_create_tasks carry a
+# description like "Follow-up from the automation run called '<src>'.".
+# When the source name begins with ``e2e-``, the task came from an e2e
+# probe run. The cleanup-test-artifacts sweep matches this so those
+# tasks get deleted even when their user-visible titles look clean.
+_TEST_DESCRIPTION_SOURCE_RE = re.compile(
+    r"called ['\"]e2e-",
+    re.IGNORECASE,
+)
+
+
+def _description_is_test_artifact(description: str) -> bool:
+    """Return True when a task description references an e2e- source.
+
+    The task creation path in :mod:`services.automation_outputs` stores
+    the source-name inside the description as ``called 'NAME'``. E2E
+    probes that set an ``e2e-`` prefixed agent_name on the chat endpoint
+    end up with ``called 'e2e-...'`` in the description. This helper
+    lets the sweep target those tasks without needing the title itself
+    to carry the prefix.
+    """
+    if not description:
+        return False
+    return bool(_TEST_DESCRIPTION_SOURCE_RE.search(description))
+_MAX_TITLE_LEN = 80
+
+
+_PURE_ID_RE = re.compile(r"^[\s_\-]*\d{4,}[-_\d]*$")
+
+
+def _sanitize_task_title(title: str) -> str:
+    """Strip machine-generated noise from a task title.
+
+    - Removes trailing numeric IDs like "27557-1776316239".
+    - Removes trailing UUIDs.
+    - Collapses runs of whitespace to a single space.
+    - Title-cases the first word so lists look consistent.
+    - Truncates to 80 characters with an ellipsis.
+
+    Returns an empty string if the title is only noise. Callers are
+    expected to reject empty results so we never store a blank title.
+    """
+    if not title:
+        return ""
+    t = str(title).strip()
+    if not t:
+        return ""
+    # A title that is ONLY a numeric ID has no user meaning. Drop it
+    # entirely so the caller can reject it with a plain message.
+    if _PURE_ID_RE.match(t):
+        return ""
+    # Strip trailing UUID first, then trailing numeric id sequences.
+    # Run each pattern in a loop in case a title carries several
+    # trailing tokens (for example a UUID followed by a stamp).
+    for _ in range(3):
+        new_t = _TRAILING_UUID_RE.sub("", t).rstrip()
+        new_t = _TRAILING_ID_RE.sub("", new_t).rstrip()
+        if new_t == t:
+            break
+        t = new_t
+    # Collapse internal whitespace.
+    t = re.sub(r"\s+", " ", t).strip()
+    if not t:
+        return ""
+    # Title-case only the first letter of the first word so brand
+    # names further down the string keep their own casing.
+    t = t[0].upper() + t[1:]
+    # Max length 80 chars with ellipsis.
+    if len(t) > _MAX_TITLE_LEN:
+        t = t[: _MAX_TITLE_LEN - 1].rstrip() + "\u2026"
+    return t
+
+
+def _reject_bad_title(
+    title: str,
+    allow_test_data: bool = False,
+) -> Optional[str]:
+    """Return a plain-language error if the title is not user-friendly.
+
+    Returns None when the title is acceptable. The message is written
+    for a product manager, not an engineer. The check scans the whole
+    title for smoke signatures so strings like "Build e2e alpha feature"
+    are rejected regardless of where the e2e token sits.
+
+    When ``allow_test_data`` is True (set by callers that pass
+    ``?include_test_data=true``), titles containing the ``e2e`` token
+    or an ``e2e-label-<digits>`` leak are accepted so the smoke script
+    can exercise the CRUD lifecycle with titles like ``e2e-crud-<ts>``.
+    Pure UI noise (``feature alpha``, ``demo-smoke-*``, all-caps
+    placeholders) is still rejected in test mode.
+    """
+    if not title or not title.strip():
+        return (
+            "Task title is empty after removing machine-generated noise. "
+            "Try a short sentence like 'Build the login form'."
+        )
+    stripped = title.strip()
+    patterns: tuple[re.Pattern[str], ...]
+    if allow_test_data:
+        patterns = _NON_E2E_ARTIFACT_PATTERNS
+    else:
+        patterns = _TEST_ARTIFACT_PATTERNS
+    for pattern in patterns:
+        if pattern.search(stripped):
+            return (
+                "Task title looks like a test artifact. "
+                "Try: 'Build the login form'."
+            )
+    return None
+
+
+def _is_test_label_name(name: str) -> bool:
+    """Return True when a label name looks machine-generated.
+
+    Labels like ``e2e-label-1234567`` and ``demo-smoke-roadmap`` come
+    from smoke runs and must never surface in the user-facing list.
+    """
+    if not name:
+        return False
+    return bool(_TEST_LABEL_NAME_RE.match(name.strip()))
 
 
 def _clean_task_title(title: str) -> str:
@@ -154,10 +416,15 @@ def _clean_task_title(title: str) -> str:
     if not title or not title.strip():
         return title
 
-    t = title.strip()
-
-    # Capitalize first letter
-    t = t[0].upper() + t[1:]
+    # Strip machine-generated noise first so downstream proper-noun
+    # replacement works on the clean text. If the sanitizer returned
+    # an empty string the title was pure noise; return "" so the
+    # rejection check fails loudly instead of re-inserting the raw
+    # junk.
+    sanitized = _sanitize_task_title(title)
+    if not sanitized:
+        return ""
+    t = sanitized
 
     # Known proper nouns and brand names (case-insensitive match, correct replacement)
     proper_nouns = {
@@ -221,8 +488,34 @@ def _clean_task_title(title: str) -> str:
 
 
 @router.post("/tasks")
-async def create_task(body: TaskCreate):
+async def create_task(body: TaskCreate, include_test_data: bool = False):
     clean_title = _clean_task_title(body.title)
+
+    # Reject titles that are empty or obvious test artifacts so
+    # machine-generated noise never lands in the user-facing list.
+    # Returns 400 so automation can distinguish these from 409 (the
+    # resurrection block). When the caller passes ?include_test_data=true
+    # the sanitizer still blocks pure UI noise but lets e2e-prefixed
+    # titles through so the smoke script can exercise the CRUD lifecycle.
+    rejection = _reject_bad_title(clean_title, allow_test_data=include_test_data)
+    if rejection:
+        raise HTTPException(status_code=400, detail=rejection)
+
+    # Block resurrection: if this title was deleted in the last five
+    # minutes, skip the create so an automation or agent retry cannot
+    # re-inject a task the user just removed. Returns 409 Conflict so
+    # the caller can distinguish this from a validation error.
+    if recent_deletes.is_recent(clean_title):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Task '{clean_title}' was deleted in the last few minutes. "
+                "Skipping re-create to prevent resurrection. "
+                "Wait a few minutes before re-adding, or re-open the "
+                "original from the closed list."
+            ),
+        )
+
     try:
         result = await ostk.add_task(
             clean_title,
@@ -234,19 +527,51 @@ async def create_task(body: TaskCreate):
 
     # Fire-and-forget auto label suggestion. Never blocks task creation.
     new_id = _extract_task_id(result)
+
+    # Historical note: we used to reject when ostk reused an ID that had
+    # just been deleted ("resurrection by id"). That check fired too often
+    # on the normal case where ostk's next-id sequence legitimately lands
+    # on a just-freed slot and the user is creating a wholly different
+    # task. The title tombstone above is the real resurrection guard and
+    # handles the case the user cares about (same title re-added by an
+    # automation). The ID tombstone stays in place for the file-restore
+    # path that writes issues.jsonl directly, which does not go through
+    # this API endpoint.
+
     schedule_auto_labels(new_id, clean_title, body.description or "")
+
+    # Record links to a Claude Code session when the caller provided one.
+    # session_id: this task IS the auto-filed session task.
+    # parent_session_id: this task was created DURING a session.
+    if new_id and body.session_id:
+        session_task_map.link_session_to_task(body.session_id, new_id)
+    if new_id and body.parent_session_id:
+        session_task_map.link_child_task(new_id, body.parent_session_id)
+
     return {"result": result, "task_id": new_id}
 
 
 @router.patch("/tasks/{task_id}")
 async def update_task(task_id: str, body: TaskUpdate):
     try:
-        if body.priority:
-            result = await ostk.update_task_priority(
-                task_id, body.priority, reason=body.reason
+        results: list[str] = []
+        if body.title is not None or body.description is not None:
+            results.append(
+                await ostk.update_task_fields(
+                    task_id,
+                    title=body.title,
+                    description=body.description,
+                )
             )
-            return {"result": result}
-        raise HTTPException(status_code=400, detail="No update fields provided")
+        if body.priority:
+            results.append(
+                await ostk.update_task_priority(
+                    task_id, body.priority, reason=body.reason
+                )
+            )
+        if not results:
+            raise HTTPException(status_code=400, detail="No update fields provided")
+        return {"result": "; ".join(results)}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -311,15 +636,111 @@ async def reorder_task(body: TaskReorder):
 
 @router.delete("/tasks/{task_id}")
 async def delete_task(task_id: str):
+    # Grab the title first so we can tombstone it. Failure to look up
+    # the title is not fatal, the delete still runs, we just lose the
+    # resurrection guard for this one task.
+    deleted_title = ""
+    try:
+        existing = await ostk.list_tasks()
+        for t in existing:
+            if t.get("id") == task_id:
+                deleted_title = t.get("title") or ""
+                break
+    except Exception:
+        pass
+
     try:
         result = await ostk.delete_task(task_id)
     except OstkError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    # Record the title in the recent-delete tombstone cache so any
+    # automation that tries to re-create the same title within five
+    # minutes is rejected with a 409. Prevents the spec-build smoke
+    # loop from instantly resurrecting tasks the user just deleted.
+    if deleted_title:
+        recent_deletes.record(deleted_title)
+    # Also tombstone the numeric task ID. The title cache alone misses
+    # the case where something rewrites issues.jsonl from a backup and
+    # the same IDs come back with reworded titles.
+    recent_deletes.record_id(task_id)
+
     # Clean up label assignments, thread memberships, and sort order for this task
     task_labels_store.remove_task(task_id)
     threads_store.remove_task_from_all_threads(task_id)
     task_order_store.remove_task(task_id)
     return {"result": result}
+
+
+@router.post("/tasks/delete-all")
+async def delete_all_tasks(body: TaskDeleteAll = TaskDeleteAll()):
+    """Delete every task matching the optional filter.
+
+    Body fields (all optional, defaults to deleting everything):
+      - status: "open", "closed", or "all" (default)
+      - priority: list of priority strings, e.g. ["P0", "P1"]; null = any
+      - labels: list of label IDs; null = any
+
+    Returns the count of deleted tasks and their IDs so the frontend can
+    confirm the operation. Logs the deletion for the audit trail.
+    """
+    valid_statuses = {"open", "closed", "all"}
+    if body.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status '{body.status}'. Use 'open', 'closed', or 'all'.")
+
+    try:
+        all_tasks = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Apply status filter
+    if body.status == "open":
+        candidates = [t for t in all_tasks if t.get("status") != "closed"]
+    elif body.status == "closed":
+        candidates = [t for t in all_tasks if t.get("status") == "closed"]
+    else:
+        candidates = list(all_tasks)
+
+    # Apply priority filter
+    if body.priority:
+        priority_set = set(body.priority)
+        candidates = [t for t in candidates if t.get("priority") in priority_set]
+
+    # Apply label filter: only keep tasks that have at least one of the requested labels
+    if body.labels:
+        label_set = set(body.labels)
+        all_assignments = task_labels_store.get_all_assignments()
+        candidates = [
+            t for t in candidates
+            if label_set & set(all_assignments.get(t.get("id", ""), []))
+        ]
+
+    deleted_names: list[str] = []
+    for task in candidates:
+        task_id = task.get("id", "")
+        if not task_id:
+            continue
+        try:
+            await ostk.delete_task(task_id)
+            task_labels_store.remove_task(task_id)
+            threads_store.remove_task_from_all_threads(task_id)
+            task_order_store.remove_task(task_id)
+            # Tombstone by title and by ID so automations cannot resurrect
+            # either variant within the five minute window.
+            title = task.get("title") or ""
+            if title:
+                recent_deletes.record(title)
+            recent_deletes.record_id(task_id)
+            deleted_names.append(task_id)
+        except OstkError:
+            # Log but continue: one missing task should not abort the batch.
+            logger.warning("delete-all: could not delete task %s", task_id)
+
+    logger.info(
+        "delete-all: deleted %d tasks (status=%s priority=%s labels=%s)",
+        len(deleted_names), body.status, body.priority, body.labels,
+    )
+    return {"deleted": len(deleted_names), "names": deleted_names}
 
 
 @router.post("/tasks/backfill-labels")
@@ -496,6 +917,295 @@ async def reopen_task(task_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/tasks/close-by-session/{session_id}")
+async def close_task_by_session(session_id: str):
+    """Close the auto-filed session task linked to ``session_id``.
+
+    Called by the SessionEnd hook when a Claude Code session stops.
+    Looks up the linked task in session_task_map and closes it as
+    ``completed`` via ostk. Idempotent: a second call after the task is
+    already closed returns ``already_closed`` without erroring.
+
+    Returns:
+        - 200 ``{"closed": true, "task_id": "→123"}`` on success.
+        - 200 ``{"closed": false, "task_id": "→123", "reason": "already_closed"}``
+          when the task is already closed (idempotent path).
+        - 404 when no mapping exists for this session_id.
+    """
+    if not session_id or not session_id.strip():
+        raise HTTPException(status_code=422, detail="session_id is required")
+
+    task_id = session_task_map.get_task_for_session(session_id.strip())
+    if not task_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No session task mapping for session_id '{session_id}'",
+        )
+
+    # Look up the current status so a repeat call after close is a no-op.
+    try:
+        all_tasks = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    match = next((t for t in all_tasks if t.get("id") == task_id), None)
+    if match is None:
+        # The mapping points at a task that no longer exists (e.g. it was
+        # deleted manually). Treat as already-closed so the hook succeeds.
+        return {
+            "closed": False,
+            "task_id": task_id,
+            "reason": "not_found",
+        }
+    if match.get("status") == "closed":
+        return {
+            "closed": False,
+            "task_id": task_id,
+            "reason": "already_closed",
+        }
+
+    try:
+        await ostk.close_task(task_id, closed_reason="completed")
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"closed": True, "task_id": task_id}
+
+
+@router.post("/tasks/cleanup-session-duplicates")
+async def cleanup_session_duplicates(max_age_hours: int = 1):
+    """Delete stale auto-filed session tasks so they stop piling up.
+
+    Sweeps every OPEN task that looks like a SessionStart hook auto-file
+    (matched by the same three rules used elsewhere) and deletes any whose
+    creation timestamp is older than ``max_age_hours`` OR whose
+    session_id has no live mapping in session_task_map. This lets Tori
+    clear the visible duplicate pile in one call without touching tasks
+    she actually cares about.
+
+    Returns ``{"deleted": N, "kept": M, "deleted_ids": [...]}``.
+    """
+    import re as _re
+    from datetime import datetime, timezone, timedelta
+
+    _session_re = _re.compile(r"^Claude Code session claude-code-", _re.IGNORECASE)
+    _session_in_re = _re.compile(r"^Session in ", _re.IGNORECASE)
+
+    def _is_session_task(t: dict) -> bool:
+        desc = t.get("description") or ""
+        title = t.get("title") or ""
+        if desc.startswith("session-task:"):
+            return True
+        if "Auto-filed by SessionStart hook" in desc:
+            return True
+        if _session_re.match(title):
+            return True
+        if _session_in_re.match(title):
+            return True
+        return False
+
+    try:
+        tasks = await ostk.list_tasks(status="open")
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, int(max_age_hours)))
+    session_pairs = session_task_map.all_session_task_pairs()
+    # Build a set of task IDs that ARE the linked session task. Anything
+    # else is either an orphaned legacy row or has no live mapping.
+    linked_task_ids = set(session_pairs.values())
+
+    deleted: list[str] = []
+    kept = 0
+
+    for t in tasks:
+        if not _is_session_task(t):
+            continue
+        task_id = t.get("id") or ""
+        if not task_id:
+            continue
+
+        # Decide whether to delete.
+        delete_reason = None
+
+        created_raw = t.get("created_at") or ""
+        try:
+            created = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if created < cutoff:
+                delete_reason = "stale"
+        except (ValueError, AttributeError):
+            # Unparseable timestamps are treated as old.
+            delete_reason = "stale"
+
+        if delete_reason is None and task_id not in linked_task_ids:
+            # No live session_id mapping means the session is gone.
+            delete_reason = "no_mapping"
+
+        if delete_reason is None:
+            kept += 1
+            continue
+
+        try:
+            await ostk.delete_task(task_id)
+            deleted.append(task_id)
+            # Tidy associated bookkeeping so dangling label/thread/order
+            # entries do not linger.
+            task_labels_store.remove_task(task_id)
+            threads_store.remove_task_from_all_threads(task_id)
+            task_order_store.remove_task(task_id)
+        except OstkError as e:
+            logger.warning(
+                "cleanup_session_duplicates: delete_task failed for %s: %s",
+                task_id,
+                e,
+            )
+            kept += 1
+            continue
+
+    return {"deleted": len(deleted), "kept": kept, "deleted_ids": deleted}
+
+
+@router.post("/tasks/cleanup-test-artifacts")
+async def cleanup_test_artifacts():
+    """Delete every open task whose title or labels match a smoke-test signature.
+
+    Scans every open task and removes any whose title trips the
+    test-artifact regex, plus any task carrying a machine-generated
+    label name (``e2e-label-123`` and friends). Also prunes the
+    matching label records so they stop appearing in the label picker.
+
+    Returns the count plus the IDs so the caller can log what was
+    removed. Safe to run as often as you like, it is idempotent.
+    """
+    try:
+        tasks = await ostk.list_tasks(status="open")
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Pre-compute which label IDs are machine-generated so we can check
+    # each task's assignments without re-scanning labels every iteration.
+    all_labels = labels_store.list_labels()
+    bad_label_ids: set[str] = {
+        label["id"] for label in all_labels
+        if _is_test_label_name(label.get("name", ""))
+    }
+    all_assignments = task_labels_store.get_all_assignments()
+
+    deleted: list[str] = []
+    for t in tasks:
+        task_id = t.get("id") or ""
+        if not task_id:
+            continue
+        title = t.get("title") or ""
+
+        # Match on title signature OR on carrying a machine label OR on
+        # a description that points back to an e2e- automation source.
+        # The description check catches tasks from
+        # /chat/roadmap/create-tasks where the title is a real
+        # user-readable phrase but the source name is e2e- prefixed.
+        matched_by_title = _reject_bad_title(title) is not None
+        assigned = set(all_assignments.get(task_id, []))
+        matched_by_label = bool(assigned & bad_label_ids)
+        description = t.get("description") or ""
+        matched_by_description = _description_is_test_artifact(description)
+
+        if not matched_by_title and not matched_by_label and not matched_by_description:
+            continue
+
+        try:
+            await ostk.delete_task(task_id)
+        except OstkError as exc:
+            logger.warning(
+                "cleanup_test_artifacts: delete_task failed for %s: %s",
+                task_id,
+                exc,
+            )
+            continue
+
+        task_labels_store.remove_task(task_id)
+        threads_store.remove_task_from_all_threads(task_id)
+        task_order_store.remove_task(task_id)
+        if title:
+            recent_deletes.record(title)
+        recent_deletes.record_id(task_id)
+        deleted.append(task_id)
+
+    # Also prune the machine-generated label records themselves so the
+    # label picker stops listing them.
+    deleted_labels: list[str] = []
+    for label_id in bad_label_ids:
+        task_labels_store.remove_label_from_all_tasks(label_id)
+        if labels_store.delete_label(label_id):
+            deleted_labels.append(label_id)
+
+    logger.info(
+        "cleanup_test_artifacts: deleted %d tasks, %d labels",
+        len(deleted),
+        len(deleted_labels),
+    )
+    return {
+        "deleted": len(deleted),
+        "deleted_ids": deleted,
+        "deleted_labels": len(deleted_labels),
+        "deleted_label_ids": deleted_labels,
+    }
+
+
+@router.get("/tasks/counts")
+async def task_counts():
+    """Return a count that matches the default Tasks page view.
+
+    The sidebar badge must equal the number of rows the user sees on the
+    Tasks page under its default filter. The default view is:
+      - status is open or in_progress (not closed, not shelved).
+      - e2e smoke-test tasks are hidden (titles starting with "e2e-").
+      - session tasks auto-filed by the SessionStart hook are hidden.
+
+    Session tasks are identified by three rules (matching the frontend
+    isSessionTask helper and the GET /tasks filter):
+      1. description starts with "session-task:"
+      2. description contains "Auto-filed by SessionStart hook"
+      3. title matches the old hook format "Claude Code session claude-code-..."
+    """
+    import re as _re
+
+    _session_re = _re.compile(r"^Claude Code session claude-code-", _re.IGNORECASE)
+
+    def _is_session_task(t: dict) -> bool:
+        desc = t.get("description") or ""
+        title = t.get("title") or ""
+        if desc.startswith("session-task:"):
+            return True
+        if "Auto-filed by SessionStart hook" in desc:
+            return True
+        if _session_re.match(title):
+            return True
+        return False
+
+    def _is_e2e_task(t: dict) -> bool:
+        return (t.get("title") or "").lower().startswith("e2e-")
+
+    def _is_active(t: dict) -> bool:
+        # Mirror the frontend isActiveTask helper so a task claimed by an
+        # agent (in_progress) still counts toward the badge.
+        return t.get("status") not in ("closed", "shelved")
+
+    try:
+        # No status filter on the ostk call: we need open and in_progress
+        # so the badge matches the Tasks page default view, which shows
+        # every non-closed, non-shelved task.
+        tasks = await ostk.list_tasks()
+        open_count = sum(
+            1 for t in tasks
+            if _is_active(t) and not _is_session_task(t) and not _is_e2e_task(t)
+        )
+        return {"open": open_count}
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/tasks/next")
 async def next_task():
     try:
@@ -539,6 +1249,83 @@ async def task_health_check():
         return result
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tasks/health/autofix/{issue_type}")
+async def autofix_issue(issue_type: str, body: dict = {}):
+    """Fix a single health issue by type for a specific task.
+
+    Body: {"task_id": "→123"}
+    Returns {"fixed": true, "details": "..."} or {"fixed": false, "reason": "..."}.
+    """
+    from services.task_autofix import fix_issue
+
+    task_id = (body.get("task_id") or "").strip()
+    if not task_id:
+        raise HTTPException(status_code=422, detail="task_id is required")
+
+    try:
+        tasks = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    task = next((t for t in tasks if t.get("id") == task_id), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    return await fix_issue(issue_type, task_id, task)
+
+
+@router.post("/tasks/health/autofix-all")
+async def autofix_all_issues():
+    """Fix every current health issue by dispatching per-issue-type handlers.
+
+    Re-runs the health check, then dispatches an auto-fix handler for each
+    issue. Returns {"fixed": N, "skipped": M, "details": [...]}.
+    """
+    from services.task_autofix import fix_issue
+
+    try:
+        health = await ostk.refine_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    issues = [i for i in (health.get("issues") or []) if i.get("type") != "isolated"]
+
+    if not issues:
+        return {"fixed": 0, "skipped": 0, "details": []}
+
+    try:
+        all_tasks = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    task_map = {t.get("id"): t for t in all_tasks}
+
+    fixed_count = 0
+    skipped_count = 0
+    details: list[dict] = []
+
+    for issue in issues:
+        issue_type = issue.get("type", "")
+        for task_id in issue.get("task_ids", []):
+            task = task_map.get(task_id)
+            if task is None:
+                skipped_count += 1
+                details.append({"issue_type": issue_type, "task_id": task_id, "fixed": False, "reason": "task not found"})
+                continue
+            result = await fix_issue(issue_type, task_id, task)
+            if result.get("fixed"):
+                fixed_count += 1
+                details.append({"issue_type": issue_type, "task_id": task_id, **result})
+            elif result.get("fixable") is False:
+                skipped_count += 1
+                details.append({"issue_type": issue_type, "task_id": task_id, "fixed": False, "reason": "no handler for this issue type"})
+            else:
+                skipped_count += 1
+                details.append({"issue_type": issue_type, "task_id": task_id, **result})
+
+    return {"fixed": fixed_count, "skipped": skipped_count, "details": details}
 
 
 def _normalize_title(title: str) -> str:
@@ -590,6 +1377,85 @@ async def find_duplicate_tasks(threshold: float = 0.8):
     # at the top of the list.
     duplicates.sort(key=lambda d: d["similarity"], reverse=True)
     return {"duplicates": duplicates}
+
+
+@router.post("/tasks/duplicates/resolve")
+async def resolve_duplicate(body: ResolveDuplicateBody):
+    """Close the duplicate (discard_id) and keep keep_id open.
+
+    Returns 404 when discard_id is not found among open tasks so the UI can
+    surface a helpful message.  Returns ``{resolved: 1}`` on success.
+    """
+    try:
+        tasks = await ostk.list_tasks(status="open")
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    open_ids = {t.get("id") for t in tasks}
+    if body.discard_id not in open_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Task {body.discard_id} not found among open tasks. It may already be closed.",
+        )
+
+    try:
+        await ostk.close_task(body.discard_id, closed_reason="duplicate")
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"resolved": 1, "closed": body.discard_id, "kept": body.keep_id}
+
+
+@router.post("/tasks/duplicates/resolve-all")
+async def resolve_all_duplicates(body: ResolveDuplicatesBulkBody):
+    """Close every lower-priority duplicate in the detected duplicate pairs.
+
+    Scans for duplicate pairs at the given threshold (default 0.8) and closes
+    task_b in each pair (the one with the lower position in the list, i.e. the
+    later-created or second task of each pair).  Returns ``{resolved: N}``.
+    """
+    try:
+        tasks = await ostk.list_tasks(status="open")
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    normalized = [(t, _normalize_title(t.get("title", ""))) for t in tasks]
+
+    to_close: list[dict] = []
+    seen_discard: set[str] = set()
+    for i in range(len(normalized)):
+        task_a, title_a = normalized[i]
+        if not title_a:
+            continue
+        task_a_id = task_a.get("id", "")
+        if task_a_id in seen_discard:
+            continue
+        for j in range(i + 1, len(normalized)):
+            task_b, title_b = normalized[j]
+            if not title_b:
+                continue
+            task_b_id = task_b.get("id", "")
+            if task_b_id in seen_discard:
+                continue
+            similarity = SequenceMatcher(None, title_a, title_b).ratio()
+            if similarity > body.threshold:
+                to_close.append(task_b)
+                seen_discard.add(task_b_id)
+
+    closed_ids: list[str] = []
+    errors: list[str] = []
+    for task in to_close:
+        task_id = task.get("id", "")
+        try:
+            await ostk.close_task(task_id, closed_reason="duplicate")
+            closed_ids.append(task_id)
+        except OstkError as e:
+            errors.append(f"{task_id}: {e}")
+
+    result: dict = {"resolved": len(closed_ids), "closed": closed_ids}
+    if errors:
+        result["errors"] = errors
+    return result
 
 
 @router.get("/tasks/audit")
@@ -884,8 +1750,15 @@ async def unlink_task(task_id: str, target: str, relation: str = "blocks"):
 
 @router.get("/labels")
 async def list_labels():
-    """List all labels with task counts (total, open, closed)."""
-    labels = labels_store.list_labels()
+    """List all labels with task counts (total, open, closed).
+
+    Machine-generated smoke labels (``e2e-label-123``, ``demo-smoke-*``)
+    are filtered out so the user never sees them in the label picker.
+    """
+    labels = [
+        label for label in labels_store.list_labels()
+        if not _is_test_label_name(label.get("name", ""))
+    ]
     all_assignments = task_labels_store.get_all_assignments()
 
     # Get task statuses
@@ -933,6 +1806,14 @@ async def create_label(body: dict):
         raise HTTPException(status_code=400, detail="Label name is required")
     if not color:
         raise HTTPException(status_code=400, detail="Label color is required")
+    if _is_test_label_name(name):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "That label name looks like a smoke-test artifact. "
+                "Try a short tag like 'launch' or 'website'."
+            ),
+        )
     try:
         label = labels_store.create_label(name, color)
         label["task_count"] = 0

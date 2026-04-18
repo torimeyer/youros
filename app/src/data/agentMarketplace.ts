@@ -36,7 +36,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     tagline: 'I ship features and work with teams.',
     templates: [
       { name: 'Competitive Scan', description: 'Research what competitors are shipping in a product area.', icon: 'monitor_heart', model: 'sonnet', budget: 3.0 },
-      { name: 'PRD Draft', description: 'Turn a rough idea into a product requirements doc.', icon: 'article', model: 'sonnet', budget: 3.0 },
+      { name: 'PRD', description: 'Turn a rough idea into a product requirements doc.', icon: 'article', model: 'sonnet', budget: 3.0 },
       { name: 'Customer Interview Notes', description: 'Turn raw interview notes into themes and insights.', icon: 'record_voice_over', model: 'sonnet', budget: 2.0 },
       { name: 'Launch Checklist', description: 'Generate a launch checklist for a new feature.', icon: 'checklist', model: 'sonnet', budget: 2.0 },
       { name: 'Stakeholder Update', description: 'Write a weekly update for your leadership team.', icon: 'campaign', model: 'sonnet', budget: 2.0 },
@@ -47,7 +47,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     category: 'Engineers',
     tagline: 'I write code and debug things.',
     templates: [
-      { name: 'Code Review', description: 'Review code for issues, bugs, and improvements.', icon: 'code', model: 'sonnet', budget: 2.0 },
+      // Code Review is covered by the built-in Review template (alias "Code Review").
       { name: 'Write Tests', description: 'Generate test cases for your code.', icon: 'bug_report', model: 'sonnet', budget: 2.0 },
       { name: 'Bug Finder', description: 'Analyze code for potential bugs and security issues.', icon: 'pest_control', model: 'sonnet', budget: 2.0 },
       { name: 'Debug Helper', description: 'Read an error log, find the root cause, and suggest a fix.', icon: 'bug_report', model: 'sonnet', budget: 2.0 },

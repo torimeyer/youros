@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from services import enterprise_store
+from services import recent_deletes
 from services.policy_enforcement import ISOLATION_LEVELS
 from services.session import create_session, verify_session, SESSION_COOKIE_NAME
 
@@ -88,6 +89,7 @@ async def update_org(body: OrgUpdate):
 async def delete_org():
     """Delete the org and deactivate enterprise mode."""
     enterprise_store.delete_org()
+    recent_deletes.record_id("enterprise-org")
     return {"ok": True}
 
 
@@ -110,6 +112,7 @@ async def add_member(body: MemberAdd):
 @router.delete("/enterprise/members/{member_id}")
 async def remove_member(member_id: str):
     if enterprise_store.remove_member(member_id):
+        recent_deletes.record_id(f"enterprise-member:{member_id}")
         return {"ok": True}
     raise HTTPException(status_code=404, detail="Member not found")
 
@@ -163,6 +166,7 @@ async def delete_api_key(provider: str):
     if not enterprise_store.is_enterprise():
         raise HTTPException(status_code=400, detail="Enterprise mode must be active first")
     if enterprise_store.delete_org_api_key(provider):
+        recent_deletes.record_id(f"enterprise-api-key:{provider}")
         return {"ok": True}
     raise HTTPException(status_code=404, detail="No key found for that provider")
 
@@ -193,6 +197,7 @@ async def delete_org_template(template_id: str):
     if not enterprise_store.is_enterprise():
         raise HTTPException(status_code=400, detail="Enterprise mode must be active first")
     if enterprise_store.delete_org_template(template_id):
+        recent_deletes.record_id(f"enterprise-template:{template_id}")
         return {"ok": True}
     raise HTTPException(status_code=404, detail="Template not found")
 
@@ -451,6 +456,7 @@ async def remove_sso():
     """Remove SSO configuration."""
     from services.sso import remove_sso as _remove
     _remove()
+    recent_deletes.record_id("enterprise-sso")
     return {"ok": True}
 
 

@@ -8,6 +8,13 @@ interface WSMessage {
   return_code?: number
 }
 
+// Reconnect backoff: starts at 1 s, doubles each attempt, caps at 16 s.
+const RECONNECT_BASE_MS = 1000
+const RECONNECT_CAP_MS = 16000
+// After this many consecutive failed connects, stop retrying and surface
+// a visible error so the user is not left staring at a frozen chat panel.
+export const RECONNECT_MAX_ATTEMPTS = 10
+
 export function useWebSocket(path: string, autoConnect = false) {
   const [isConnected, setIsConnected] = useState(false)
   const [lastMessage, setLastMessage] = useState<WSMessage | null>(null)
@@ -19,11 +26,27 @@ export function useWebSocket(path: string, autoConnect = false) {
   // current turn. If the socket closes before that, we treat the close as
   // an unexpected drop and surface an error instead of a silent done.
   const streamEndedRef = useRef(true)
+  // Tracks whether a server-sent done or error was already received for
+  // the current turn. Used by onclose to avoid emitting a SECOND done
+  // event that can trigger the grace-window timer again and produce a
+  // flash of "Done." or a stale confirmedDoneIds entry.
+  const serverDoneReceivedRef = useRef(false)
   // Queue of payloads the caller tried to send before the socket finished
   // opening. Flushed in order from the onopen handler so nothing is ever
   // silently dropped on the very first send after connect().
   const pendingSendsRef = useRef<string[]>([])
+  // Reconnect state: consecutive failure count and the current backoff timer.
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   pathRef.current = path
+
+  // Clear any pending reconnect timer.
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+  }, [])
 
   const connect = useCallback(() => {
     // Close existing connection if any. Never call close() on a socket
@@ -42,10 +65,12 @@ export function useWebSocket(path: string, autoConnect = false) {
       }
       wsRef.current = null
     }
+    clearReconnectTimer()
 
     gotMessageRef.current = false
     hadErrorRef.current = false
     streamEndedRef.current = true
+    serverDoneReceivedRef.current = false
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${protocol}//${window.location.host}${pathRef.current}`)
@@ -54,6 +79,8 @@ export function useWebSocket(path: string, autoConnect = false) {
         ws.close()
         return
       }
+      // Successful connect: reset the failure counter.
+      reconnectAttemptsRef.current = 0
       setIsConnected(true)
       // Flush any sends that were queued while the socket was still
       // connecting. Mark the stream as in progress for each so a mid-turn
@@ -63,6 +90,7 @@ export function useWebSocket(path: string, autoConnect = false) {
         pendingSendsRef.current = []
         for (const payload of queued) {
           streamEndedRef.current = false
+          serverDoneReceivedRef.current = false
           ws.send(payload)
         }
       }
@@ -72,15 +100,19 @@ export function useWebSocket(path: string, autoConnect = false) {
       if (wsRef.current === ws) {
         wsRef.current = null
       }
-      // If the server already finished the turn (sent done/error), closing
-      // is normal and we just clear the streaming state with a silent done.
-      // If the turn was still in progress, the socket dropped mid-stream,
-      // so surface a real error instead of leaving an empty assistant bubble.
-      if (streamEndedRef.current) {
-        flushSync(() => {
-          setLastMessage({ type: 'done' })
-        })
-      } else {
+      // Three cases:
+      // 1. Server already sent done/error → close is normal cleanup. Do NOT
+      //    emit a second done (it re-triggers the grace-window timer and can
+      //    flash "Done." or leave stale confirmedDoneIds entries).
+      // 2. Stream was in progress (tokens started, no done yet) → socket
+      //    dropped mid-turn. Surface an error so the bubble never stays blank.
+      // 3. No messages at all and stream never started → idle close after a
+      //    connect-only cycle (chat panel opened then closed). Harmless done
+      //    so any leftover streaming state gets cleared.
+      if (serverDoneReceivedRef.current) {
+        // Case 1: server handled the turn, do nothing.
+      } else if (!streamEndedRef.current) {
+        // Case 2: mid-stream drop.
         streamEndedRef.current = true
         flushSync(() => {
           setLastMessage({
@@ -88,24 +120,85 @@ export function useWebSocket(path: string, autoConnect = false) {
             data: 'Connection dropped before the response finished. Please try again.',
           })
         })
+      } else {
+        // Case 3: idle close, no server events received at all.
+        flushSync(() => {
+          setLastMessage({ type: 'done' })
+        })
       }
     }
     ws.onerror = () => {
       hadErrorRef.current = true
       streamEndedRef.current = true
+      // Count this as a failed connect attempt.
+      reconnectAttemptsRef.current += 1
+      if (reconnectAttemptsRef.current >= RECONNECT_MAX_ATTEMPTS) {
+        // Cap reached: stop retrying and surface a visible error.
+        flushSync(() => {
+          setLastMessage({
+            type: 'error',
+            data: 'Unable to connect to the server after several attempts. Refresh the page to try again.',
+          })
+        })
+        return
+      }
+      // Exponential backoff: 1 s, 2 s, 4 s, 8 s, 16 s (capped).
+      const delay = Math.min(
+        RECONNECT_BASE_MS * Math.pow(2, reconnectAttemptsRef.current - 1),
+        RECONNECT_CAP_MS,
+      )
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null
+        connect()
+      }, delay)
       flushSync(() => {
         setLastMessage({ type: 'error', data: 'Connection error. Please try again.' })
       })
     }
     ws.onmessage = (event) => {
+      let parsed: WSMessage
+      try {
+        parsed = JSON.parse(event.data) as WSMessage
+      } catch {
+        gotMessageRef.current = true
+        // The WS proxy (or the backend) sent a non-JSON frame.  This can
+        // happen when the vite proxy forwards an HTTP-level error as plain
+        // text instead of closing the socket cleanly.  Treat it as an
+        // error so the chat panel shows a user-visible message instead of
+        // crashing the handleMessage callback with an unhandled exception.
+        streamEndedRef.current = true
+        flushSync(() => {
+          setLastMessage({ type: 'error', data: 'Unexpected response from server. Please try again.' })
+        })
+        return
+      }
+      // Heartbeat frames exist only to keep the socket warm during long
+      // silent phases (extended thinking, tool-use planning). They
+      // carry no user-facing content, must never update lastMessage (or
+      // the consumer effect would re-run once per beat), and must not
+      // flip streamEndedRef either way since they convey nothing about
+      // turn state.
+      if (parsed.type === 'heartbeat') {
+        return
+      }
       gotMessageRef.current = true
-      const parsed = JSON.parse(event.data) as WSMessage
-      // A fresh token event means a new turn has started streaming. Mark
-      // the stream as in progress so a mid-turn close becomes an error.
-      if (parsed.type === 'token' || parsed.type === 'thinking') {
+      // Mark the stream as in-progress on any event that signals active
+      // work so a mid-turn socket close becomes an error instead of a
+      // silent done. tool_use and tool_result are included because a
+      // turn that consists solely of tool calls (no text tokens) must
+      // still surface a connection drop as an error.
+      if (
+        parsed.type === 'token' ||
+        parsed.type === 'thinking' ||
+        parsed.type === 'tool_use' ||
+        parsed.type === 'mcp_tool_use' ||
+        parsed.type === 'tool_result' ||
+        parsed.type === 'mcp_tool_result'
+      ) {
         streamEndedRef.current = false
       } else if (parsed.type === 'done' || parsed.type === 'error') {
         streamEndedRef.current = true
+        serverDoneReceivedRef.current = true
       }
       // CRITICAL: flushSync forces React to commit this state update
       // synchronously instead of batching it with other onmessage events
@@ -120,9 +213,11 @@ export function useWebSocket(path: string, autoConnect = false) {
       })
     }
     wsRef.current = ws
-  }, [])
+  }, [clearReconnectTimer])
 
   const disconnect = useCallback(() => {
+    clearReconnectTimer()
+    reconnectAttemptsRef.current = 0
     const ws = wsRef.current
     if (ws) {
       // Same rule as connect(): do not call close() on a CONNECTING
@@ -136,7 +231,7 @@ export function useWebSocket(path: string, autoConnect = false) {
       }
     }
     wsRef.current = null
-  }, [])
+  }, [clearReconnectTimer])
 
   const send = useCallback((data: unknown) => {
     const payload = JSON.stringify(data)
@@ -146,6 +241,7 @@ export function useWebSocket(path: string, autoConnect = false) {
       // instead of a silent done. The server will flip this back to true
       // when it sends a real done or error event.
       streamEndedRef.current = false
+      serverDoneReceivedRef.current = false
       ws.send(payload)
       return
     }

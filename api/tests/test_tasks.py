@@ -73,6 +73,165 @@ async def test_list_tasks_with_priority_filter(client):
     ctx.mock_ostk.list_tasks.assert_called_once_with(status=None, priority="P0")
 
 
+# --- Regression: e2e smoke task filter on GET /api/tasks ---
+#
+# The tasks router hides any task whose title starts with "e2e-" from the
+# default list so leftovers from a failed smoke run do not pollute the UI.
+# The smoke script creates an e2e-prefixed task and then lists tasks to
+# confirm it exists, so it must pass ?include_test_data=true to see its own
+# task. These tests lock in both halves of that contract.
+
+@pytest.mark.asyncio
+async def test_list_tasks_hides_e2e_prefixed_titles_by_default(client):
+    mock_tasks = [
+        _make_task(id="t-e2e", title="e2e-foo"),
+        _make_task(id="t-real", title="real-thing"),
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+        resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    titles = [t["title"] for t in resp.json()["tasks"]]
+    assert "real-thing" in titles
+    assert "e2e-foo" not in titles, (
+        "Tasks with e2e- prefixed titles must be hidden from the default list "
+        "so smoke leftovers do not pollute the UI."
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_include_test_data_flag_reveals_e2e_titles(client):
+    mock_tasks = [
+        _make_task(id="t-e2e", title="e2e-foo"),
+        _make_task(id="t-real", title="real-thing"),
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+        resp = await client.get("/api/tasks?include_test_data=true")
+
+    assert resp.status_code == 200
+    titles = [t["title"] for t in resp.json()["tasks"]]
+    assert "real-thing" in titles
+    assert "e2e-foo" in titles, (
+        "include_test_data=true must reveal e2e- prefixed tasks so the smoke "
+        "script can verify its own CRUD round trip."
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_case_insensitive_e2e_prefix(client):
+    mock_tasks = [
+        _make_task(id="t-e2e-upper", title="E2E-FOO"),
+        _make_task(id="t-real", title="real-thing"),
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+        resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    titles = [t["title"] for t in resp.json()["tasks"]]
+    assert "real-thing" in titles
+    assert "E2E-FOO" not in titles, (
+        "The e2e- prefix filter must be case insensitive so uppercase smoke "
+        "leftovers are also hidden from the default list."
+    )
+
+
+# --- Title sanitization on POST /api/tasks ---
+#
+# Tori was seeing machine-generated titles like
+# "Build feature alpha 27557-1776316239" in her task list. The sanitizer
+# strips trailing numeric ID sequences and trailing UUIDs so only
+# plain-language titles reach ostk. Pure test patterns and
+# empty-after-cleanup titles are rejected with a 400 and a plain
+# message that tells the caller how to fix it.
+
+
+@pytest.mark.asyncio
+async def test_task_title_strips_trailing_id_sequence(client):
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="created t-99")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": "Build the login form 27557-1776316239", "priority": "P1"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    # ostk.add_task must receive the clean title. No trailing digits.
+    args, kwargs = mock_ostk.add_task.call_args
+    assert args[0] == "Build the login form", (
+        f"Expected trailing id sequence stripped, got: {args[0]!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_title_strips_trailing_uuid(client):
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="created t-100")
+        resp = await client.post(
+            "/api/tasks",
+            json={
+                "title": "Ship the welcome email 550e8400-e29b-41d4-a716-446655440000",
+                "priority": "P1",
+            },
+        )
+
+    assert resp.status_code == 200, resp.text
+    args, _ = mock_ostk.add_task.call_args
+    assert args[0] == "Ship the welcome email"
+
+
+@pytest.mark.asyncio
+async def test_task_title_rejects_pure_test_patterns(client):
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="should never run")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": "Build feature alpha 27557-1776316239"},
+        )
+
+    assert resp.status_code == 400, resp.text
+    body = resp.json()
+    assert "test artifact" in body["detail"].lower()
+    # Plain-language message suggests a fix.
+    assert "try" in body["detail"].lower()
+    mock_ostk.add_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_task_title_rejects_empty_after_sanitization(client):
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="should never run")
+        # A title that is only a trailing id becomes empty after the
+        # sanitizer runs. The stripped result has no user meaning, so
+        # the router must reject it with a plain message.
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": "   27557-1776316239"},
+        )
+
+    assert resp.status_code == 400, resp.text
+    body = resp.json()
+    assert "empty" in body["detail"].lower() or "machine" in body["detail"].lower()
+    mock_ostk.add_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_task_title_max_length_80_chars(client):
+    long_title = "Build the shiny new onboarding wizard with twenty dozen fancy animated widgets plus confetti"
+    assert len(long_title) > 80
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="created t-long")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": long_title, "priority": "P1"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    args, _ = mock_ostk.add_task.call_args
+    # Must be truncated to 80 chars, with an ellipsis at the end.
+    assert len(args[0]) <= 80, f"Title not truncated: {args[0]!r} has {len(args[0])} chars"
+    assert args[0].endswith("\u2026"), f"Truncated title missing ellipsis: {args[0]!r}"
+
+
 # --- POST /api/tasks ---
 
 @pytest.mark.asyncio
@@ -347,6 +506,63 @@ async def test_update_task_not_found(client):
         resp = await client.patch("/api/tasks/no-exist", json={"priority": "P1"})
 
     assert resp.status_code == 400
+
+
+# --- PATCH /api/tasks/{id} (update title + description) ---
+
+@pytest.mark.asyncio
+async def test_update_task_title_renames_task(client):
+    """PATCH with title calls update_task_fields on the ostk service."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_fields = AsyncMock(return_value="updated t-1 title")
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={"title": "Session in torios"},
+        )
+
+    assert resp.status_code == 200
+    mock_ostk.update_task_fields.assert_called_once_with(
+        "t-1", title="Session in torios", description=None
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_task_title_and_description(client):
+    """PATCH can update both title and description in one call."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_fields = AsyncMock(
+            return_value="updated t-1 title and description"
+        )
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={
+                "title": "Session in torios",
+                "description": "session-task: Legacy migration. Close when this Claude Code session ends.",
+            },
+        )
+
+    assert resp.status_code == 200
+    mock_ostk.update_task_fields.assert_called_once_with(
+        "t-1",
+        title="Session in torios",
+        description="session-task: Legacy migration. Close when this Claude Code session ends.",
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_task_description_only(client):
+    """Description-only PATCH does not trigger a title update."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_fields = AsyncMock(return_value="updated t-1 description")
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={"description": "new desc"},
+        )
+
+    assert resp.status_code == 200
+    mock_ostk.update_task_fields.assert_called_once_with(
+        "t-1", title=None, description="new desc"
+    )
 
 
 # --- GET /api/tasks/{id}/briefing ---
@@ -1312,6 +1528,137 @@ async def test_find_duplicates_sorted_by_similarity(client):
         assert duplicates[i]["similarity"] >= duplicates[i + 1]["similarity"]
 
 
+# --- POST /api/tasks/duplicates/resolve ---
+
+@pytest.mark.asyncio
+async def test_resolve_duplicate_closes_discard_task(client):
+    """Calling resolve with a valid pair closes discard_id with reason=duplicate."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Fix the login bug"),
+        _make_task(id="t-2", title="Fix login bug"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        mock_ostk.close_task = AsyncMock(return_value="closed t-2")
+        resp = await client.post(
+            "/api/tasks/duplicates/resolve",
+            json={"keep_id": "t-1", "discard_id": "t-2"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["resolved"] == 1
+    assert data["closed"] == "t-2"
+    assert data["kept"] == "t-1"
+    mock_ostk.close_task.assert_called_once_with("t-2", closed_reason="duplicate")
+
+
+@pytest.mark.asyncio
+async def test_resolve_duplicate_returns_404_for_unknown_task(client):
+    """Returns 404 when discard_id is not among open tasks."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Fix the login bug"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        mock_ostk.close_task = AsyncMock()
+        resp = await client.post(
+            "/api/tasks/duplicates/resolve",
+            json={"keep_id": "t-1", "discard_id": "t-999"},
+        )
+
+    assert resp.status_code == 404
+    assert "t-999" in resp.json()["detail"]
+    mock_ostk.close_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_duplicate_already_closed(client):
+    """Returns 404 when discard_id is already closed (not in open tasks)."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Fix the login bug"),
+        _make_task(id="t-2", title="Fix login bug", status="closed"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        # list_tasks returns only open tasks; t-2 is not there
+        mock_ostk.list_tasks = AsyncMock(
+            return_value=[t for t in mock_tasks if t["status"] == "open"]
+        )
+        mock_ostk.close_task = AsyncMock()
+        resp = await client.post(
+            "/api/tasks/duplicates/resolve",
+            json={"keep_id": "t-1", "discard_id": "t-2"},
+        )
+
+    assert resp.status_code == 404
+    mock_ostk.close_task.assert_not_called()
+
+
+# --- POST /api/tasks/duplicates/resolve-all ---
+
+@pytest.mark.asyncio
+async def test_resolve_all_duplicates_closes_all_dupes(client):
+    """Calling resolve-all closes every task_b in the detected duplicate pairs."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Fix the login bug"),
+        _make_task(id="t-2", title="Fix login bug"),
+        _make_task(id="t-3", title="Completely unrelated task"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        mock_ostk.close_task = AsyncMock(return_value="closed")
+        resp = await client.post("/api/tasks/duplicates/resolve-all", json={})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["resolved"] == 1
+    assert "t-2" in data["closed"]
+    mock_ostk.close_task.assert_called_once_with("t-2", closed_reason="duplicate")
+
+
+@pytest.mark.asyncio
+async def test_resolve_all_duplicates_returns_zero_when_no_dupes(client):
+    """When there are no duplicate pairs, resolved=0 is returned."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Design the landing page"),
+        _make_task(id="t-2", title="Fix the login bug"),
+        _make_task(id="t-3", title="Write unit tests"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        mock_ostk.close_task = AsyncMock()
+        resp = await client.post("/api/tasks/duplicates/resolve-all", json={})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["resolved"] == 0
+    assert data["closed"] == []
+    mock_ostk.close_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_all_duplicates_custom_threshold(client):
+    """A low threshold should catch more pairs; a high threshold fewer."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Refactor auth module"),
+        _make_task(id="t-2", title="Refactor the auth module"),  # ~0.91 similar
+        _make_task(id="t-3", title="Rewrite auth from scratch"),  # ~0.5 similar
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        mock_ostk.close_task = AsyncMock(return_value="closed")
+        # High threshold: only the very similar pair should match
+        resp = await client.post(
+            "/api/tasks/duplicates/resolve-all", json={"threshold": 0.85}
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    # t-1 and t-2 are ~0.91 similar so t-2 should be closed
+    assert data["resolved"] >= 1
+    assert "t-2" in data["closed"]
+
+
 # --- OstkService._parse_refine unit tests ---
 
 def test_parse_refine_basic():
@@ -1481,6 +1828,50 @@ async def test_delete_task_cleans_up_labels_and_threads(client):
     mock_ts.remove_task_from_all_threads.assert_called_once_with("t-5")
 
 
+@pytest.mark.asyncio
+async def test_recently_deleted_task_not_recreated_by_same_source(client):
+    """A task title deleted in the last 5 minutes cannot be re-created.
+
+    Regression: live-demo resurrection bug. User deletes tasks 565-568
+    from the Tasks page; a spec-build smoke loop instantly re-adds them
+    via POST /api/tasks with the same titles. The tombstone cache now
+    rejects those re-creates with 409 for the next five minutes.
+    """
+    from services import recent_deletes
+
+    recent_deletes.clear()
+
+    # Delete a task. The router looks up its title first so it can be
+    # tombstoned, then runs the actual delete.
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("routers.tasks.task_labels_store"), \
+         patch("routers.tasks.threads_store"):
+        mock_ostk.list_tasks = AsyncMock(return_value=[
+            {"id": "t-42", "title": "Build basic homepage", "status": "open"},
+        ])
+        mock_ostk.delete_task = AsyncMock(return_value="deleted t-42")
+        del_resp = await client.delete("/api/tasks/t-42")
+    assert del_resp.status_code == 200
+
+    # Immediately try to re-create a task with the same title. This
+    # mirrors the sibling smoke agent re-running build_tasks_from_file
+    # against roadmap.md right after the user wiped the tasks.
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="created t-43")
+        recreate_resp = await client.post(
+            "/api/tasks",
+            json={"title": "Build basic homepage", "priority": "P1"},
+        )
+
+    assert recreate_resp.status_code == 409
+    body = recreate_resp.json()
+    assert "deleted" in body["detail"].lower()
+    # ostk.add_task must never have been invoked for the tombstoned title.
+    mock_ostk.add_task.assert_not_called()
+
+    recent_deletes.clear()
+
+
 # --- ostk.delete_task unit tests ---
 
 @pytest.mark.asyncio
@@ -1544,6 +1935,154 @@ async def test_ostk_delete_task_missing_file_raises(tmp_path):
     svc = OstkService(cwd=str(tmp_path))
     with pytest.raises(OstkError, match="issues.jsonl not found"):
         await svc.delete_task("t-1")
+
+
+@pytest.mark.asyncio
+async def test_delete_actually_removes_from_issues_jsonl(tmp_path):
+    """DELETE /api/tasks/{id} removes the JSONL line, not just marks it closed.
+
+    Regression: live demo had tasks 565-568 coming back after delete. We
+    needed to prove delete really removes the row from disk, so tail the
+    file pre and post and assert the id is gone.
+    """
+    from services.ostk import OstkService
+
+    issues_dir = tmp_path / ".ostk" / "needles"
+    issues_dir.mkdir(parents=True)
+    issues_file = issues_dir / "issues.jsonl"
+    issues_file.write_text(
+        '{"id": "\u2192565", "title": "Land a basic homepage", "status": "open"}\n'
+        '{"id": "\u2192566", "title": "Add a contact form", "status": "open"}\n'
+        '{"id": "\u2192567", "title": "Wire up a newsletter signup", "status": "open"}\n'
+        '{"id": "\u2192568", "title": "Publish to staging", "status": "open"}\n'
+        '{"id": "\u2192569", "title": "Other unrelated", "status": "open"}\n'
+    )
+
+    svc = OstkService(cwd=str(tmp_path))
+    for tid in ("\u2192565", "\u2192566", "\u2192567", "\u2192568"):
+        await svc.delete_task(tid)
+
+    remaining = issues_file.read_text()
+    for tid in ("\u2192565", "\u2192566", "\u2192567", "\u2192568"):
+        assert tid not in remaining, f"{tid} still present after delete"
+    assert "\u2192569" in remaining
+
+
+@pytest.mark.asyncio
+async def test_id_recycle_after_delete_allowed_with_new_title(client):
+    """After deleting task id N, POST /api/tasks with a DIFFERENT title
+    must succeed even when ostk's next-id sequence lands on the freed id.
+
+    Regression guard (pre-demo-e2e sweep, →593): the old behaviour rolled
+    back any create that reused a recently-deleted id. ostk's next-id
+    sequence normally picks max+1, so deleting the last task and then
+    creating a fresh, unrelated task would hit the ghost create rollback
+    and 409 every time. Tori could not add a new task after a delete.
+
+    The title tombstone still catches genuine title resurrection. The
+    id tombstone remains in place for file-restore scenarios that do
+    not go through this endpoint (see services/recent_deletes.py).
+    """
+    from services import recent_deletes
+
+    recent_deletes.clear()
+
+    # Delete t-565 first so the id tombstone records it.
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("routers.tasks.task_labels_store"), \
+         patch("routers.tasks.threads_store"):
+        mock_ostk.list_tasks = AsyncMock(return_value=[
+            {"id": "\u2192565", "title": "Build basic homepage", "status": "open"},
+        ])
+        mock_ostk.delete_task = AsyncMock(return_value="deleted \u2192565")
+        del_resp = await client.delete("/api/tasks/\u2192565")
+    assert del_resp.status_code == 200
+    assert recent_deletes.is_id_recent("\u2192565") is True
+
+    # ostk now hands back the same id for a completely different new
+    # task. Must succeed: the new title is not in the title tombstone,
+    # and the id-only check no longer blocks normal recycling.
+    delete_calls: list[str] = []
+
+    async def fake_delete(tid):
+        delete_calls.append(tid)
+        return f"deleted {tid}"
+
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(
+            return_value="added \u2192565: Ship a brand new unrelated feature [P1]"
+        )
+        mock_ostk.delete_task = AsyncMock(side_effect=fake_delete)
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": "Ship a brand new unrelated feature", "priority": "P1"},
+        )
+
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["task_id"] == "\u2192565"
+    # No rollback: the new task must stay in place.
+    assert delete_calls == []
+
+    recent_deletes.clear()
+
+
+@pytest.mark.asyncio
+async def test_smoke_does_not_recreate_deleted_demo_tasks(client):
+    """The build_tasks_from_file chat tool must skip ids the user just
+    deleted, even when the roadmap reworded the bullet.
+
+    This is the live-demo smoke path the user hit twice: roadmap reads
+    "Land a basic homepage", the user deletes it, the smoke runs again
+    and now says "Build basic homepage" but ostk hands back the same
+    numeric id. The id tombstone must reject it.
+    """
+    from services import recent_deletes
+    from services import tool_executor
+
+    recent_deletes.clear()
+    recent_deletes.record_id("\u2192565")
+
+    add_calls: list[str] = []
+    delete_calls: list[str] = []
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        add_calls.append(title)
+        return f"added \u2192565: {title} [P1]"
+
+    async def fake_delete_task(tid):
+        delete_calls.append(tid)
+        return f"deleted {tid}"
+
+    async def fake_list_tasks(status="open"):
+        return []
+
+    # Write a roadmap file into a fake home so we never touch the real
+    # ~/.myos/files/ directory during tests. The resolver uses
+    # Path.home(), so patching that redirects the lookup.
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+    with _tempfile.TemporaryDirectory() as fake_home:
+        files_dir = _Path(fake_home) / ".myos" / "files"
+        files_dir.mkdir(parents=True, exist_ok=True)
+        roadmap = files_dir / "pytest-smoke-roadmap.md"
+        roadmap.write_text("# roadmap\n\n- Build basic homepage\n")
+        try:
+            with patch("services.tool_executor.Path.home", return_value=_Path(fake_home)), \
+                 patch("services.tool_executor.ostk") as mock_ostk:
+                mock_ostk.list_tasks = AsyncMock(side_effect=fake_list_tasks)
+                mock_ostk.add_task = AsyncMock(side_effect=fake_add_task)
+                mock_ostk.delete_task = AsyncMock(side_effect=fake_delete_task)
+                result = await tool_executor._build_tasks_from_file(
+                    "pytest-smoke-roadmap.md"
+                )
+        finally:
+            recent_deletes.clear()
+
+    # Tool tried to add once, got the tombstoned id back, and rolled it
+    # back via delete_task so no ghost task lingers.
+    assert add_calls == ["Build basic homepage"]
+    assert delete_calls == ["\u2192565"]
+    assert "recently deleted" in result or "No tasks created" in result
 
 
 # --- Auto-label suggestion on task create ---------------------------------
@@ -1886,3 +2425,1443 @@ async def test_update_task_priority_without_reason(client):
 
     assert resp.status_code == 200
     mock_ostk.update_task_priority.assert_called_once_with("t-2", "P1", reason=None)
+
+
+# --- POST /api/tasks/delete-all ---
+
+def _patch_delete_all(tasks_list, delete_result="deleted"):
+    """Helper: patches ostk.list_tasks and ostk.delete_task for delete-all tests."""
+    ostk_patch = patch("routers.tasks.ostk")
+    tls_patch = patch("routers.tasks.task_labels_store")
+    threads_patch = patch("routers.tasks.threads_store")
+    order_patch = patch("routers.tasks.task_order_store")
+
+    class _Ctx:
+        def __enter__(self):
+            self.mock_ostk = ostk_patch.__enter__()
+            self.mock_tls = tls_patch.__enter__()
+            self.mock_threads = threads_patch.__enter__()
+            self.mock_order = order_patch.__enter__()
+            self.mock_ostk.list_tasks = AsyncMock(return_value=tasks_list)
+            self.mock_ostk.delete_task = AsyncMock(return_value=delete_result)
+            self.mock_tls.get_all_assignments = MagicMock(return_value={})
+            self.mock_tls.remove_task = MagicMock()
+            self.mock_threads.remove_task_from_all_threads = MagicMock()
+            self.mock_order.remove_task = MagicMock()
+            return self
+
+        def __exit__(self, *args):
+            order_patch.__exit__(*args)
+            threads_patch.__exit__(*args)
+            tls_patch.__exit__(*args)
+            ostk_patch.__exit__(*args)
+
+    return _Ctx()
+
+
+@pytest.mark.asyncio
+async def test_delete_all_with_no_filter_deletes_every_task(client):
+    """No filter body deletes every task regardless of status."""
+    tasks = [
+        _make_task(id="t-1", status="open"),
+        _make_task(id="t-2", status="closed"),
+        _make_task(id="t-3", status="open"),
+    ]
+    with _patch_delete_all(tasks) as ctx:
+        resp = await client.post("/api/tasks/delete-all", json={})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["deleted"] == 3
+    assert set(data["names"]) == {"t-1", "t-2", "t-3"}
+    assert ctx.mock_ostk.delete_task.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_delete_all_with_status_filter_leaves_others(client):
+    """status='open' deletes only open/in-progress tasks, leaves closed ones."""
+    tasks = [
+        _make_task(id="t-open", status="open"),
+        _make_task(id="t-closed", status="closed"),
+        _make_task(id="t-prog", status="in_progress"),
+    ]
+    with _patch_delete_all(tasks) as ctx:
+        resp = await client.post("/api/tasks/delete-all", json={"status": "open"})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    # open and in_progress are both "not closed" so both should be deleted
+    assert data["deleted"] == 2
+    assert "t-open" in data["names"]
+    assert "t-prog" in data["names"]
+    assert "t-closed" not in data["names"]
+    assert ctx.mock_ostk.delete_task.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_all_with_priority_filter(client):
+    """priority=['P0'] deletes only P0 tasks."""
+    tasks = [
+        _make_task(id="t-p0", priority="P0", status="open"),
+        _make_task(id="t-p1", priority="P1", status="open"),
+        _make_task(id="t-p2", priority="P2", status="open"),
+    ]
+    with _patch_delete_all(tasks) as ctx:
+        resp = await client.post("/api/tasks/delete-all", json={"priority": ["P0"]})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["deleted"] == 1
+    assert data["names"] == ["t-p0"]
+    assert ctx.mock_ostk.delete_task.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_all_returns_count(client):
+    """Response always includes deleted (int) and names (list)."""
+    tasks = [_make_task(id=f"t-{i}") for i in range(5)]
+    with _patch_delete_all(tasks):
+        resp = await client.post("/api/tasks/delete-all", json={})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data["deleted"], int)
+    assert data["deleted"] == 5
+    assert isinstance(data["names"], list)
+
+
+# --- GET /api/tasks/counts ---
+
+@pytest.mark.asyncio
+async def test_task_counts_returns_open_count(client):
+    """counts endpoint returns the number of visible open tasks.
+
+    The endpoint calls ostk.list_tasks() with no status filter so it
+    can include both open and in_progress tasks (mirroring the Tasks
+    page default view).
+    """
+    tasks = [
+        _make_task(id="t-1", title="Write report", status="open"),
+        _make_task(id="t-2", title="Fix bug", status="open"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        resp = await client.get("/api/tasks/counts")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["open"] == 2
+    mock_ostk.list_tasks.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_task_counts_excludes_session_tasks(client):
+    """counts endpoint does not count session tasks."""
+    tasks = [
+        _make_task(id="t-1", title="Real task", status="open"),
+        _make_task(
+            id="t-2",
+            title="Session placeholder",
+            status="open",
+            description="session-task: auto-filed by hook",
+        ),
+        _make_task(
+            id="t-3",
+            title="Claude Code session claude-code-abc123",
+            status="open",
+        ),
+        _make_task(
+            id="t-4",
+            title="Another auto-filed",
+            status="open",
+            description="Auto-filed by SessionStart hook",
+        ),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        resp = await client.get("/api/tasks/counts")
+
+    assert resp.status_code == 200
+    # Only t-1 should count; the other three are session tasks
+    assert resp.json()["open"] == 1
+
+
+@pytest.mark.asyncio
+async def test_task_counts_excludes_e2e_smoke_tasks(client):
+    """counts endpoint skips e2e- smoke-test leftovers.
+
+    GET /api/tasks hides any task whose title starts with "e2e-" unless
+    include_test_data=true is passed. /counts must apply the same rule so
+    the sidebar badge never counts rows the Tasks page refuses to show.
+    """
+    tasks = [
+        _make_task(id="t-1", title="Real task", status="open"),
+        _make_task(id="t-2", title="E2e-crud-1234567890", status="open"),
+        _make_task(id="t-3", title="e2e-another-smoke", status="open"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        resp = await client.get("/api/tasks/counts")
+
+    assert resp.status_code == 200
+    # Only t-1 counts. The two e2e- tasks are hidden.
+    assert resp.json()["open"] == 1
+
+
+@pytest.mark.asyncio
+async def test_task_counts_includes_in_progress_tasks(client):
+    """counts endpoint includes in_progress alongside open.
+
+    A task claimed by an agent stays visible on the Tasks page (the
+    isActiveTask helper treats anything not closed or shelved as active)
+    so the badge must count it too. Without this, a pull-model claim
+    would make the badge number drop even though the row is still there.
+    """
+    tasks = [
+        _make_task(id="t-1", title="Real open task", status="open"),
+        _make_task(id="t-2", title="Claimed by agent", status="in_progress"),
+        _make_task(id="t-3", title="Done already", status="closed"),
+        _make_task(id="t-4", title="Parked for later", status="shelved"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        resp = await client.get("/api/tasks/counts")
+
+    assert resp.status_code == 200
+    # Open + in_progress = 2; closed and shelved do not count.
+    assert resp.json()["open"] == 2
+
+
+@pytest.mark.asyncio
+async def test_counts_match_visible_open_tasks_default_filter(client):
+    """Badge count equals the number of rows a Tasks-page default filter shows.
+
+    The Tasks page default is statusFilter=open (isActiveTask) plus
+    hideSessionTasks=true. /api/tasks also strips e2e- titles unless
+    include_test_data=true. This test mixes every bucket and asserts the
+    badge matches the visible set exactly.
+    """
+    tasks = [
+        # These are visible on the default Tasks page view.
+        _make_task(id="t-visible-1", title="Write report", status="open"),
+        _make_task(id="t-visible-2", title="Claimed work", status="in_progress"),
+        # Hidden: closed and shelved.
+        _make_task(id="t-hidden-1", title="Old done thing", status="closed"),
+        _make_task(id="t-hidden-2", title="Parked", status="shelved"),
+        # Hidden: session tasks (three detection rules).
+        _make_task(
+            id="t-hidden-3",
+            title="Session placeholder",
+            status="open",
+            description="session-task: auto-filed by hook",
+        ),
+        _make_task(
+            id="t-hidden-4",
+            title="Auto",
+            status="open",
+            description="Auto-filed by SessionStart hook",
+        ),
+        _make_task(
+            id="t-hidden-5",
+            title="Claude Code session claude-code-abc123",
+            status="in_progress",
+        ),
+        # Hidden: e2e smoke-test leftovers.
+        _make_task(id="t-hidden-6", title="E2e-crud-1776277919", status="open"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        resp = await client.get("/api/tasks/counts")
+
+    assert resp.status_code == 200
+    # Only the two "visible" rows count.
+    assert resp.json()["open"] == 2
+
+
+@pytest.mark.asyncio
+async def test_task_counts_includes_real_session_start_hook_tasks(client):
+    """Regression: a real SessionStart-hook task is excluded from the badge.
+
+    When the hook writes `description="session-task: <session_id>"` the
+    counts endpoint must NOT count it. Guards against a future refactor
+    that changes the detection rule and accidentally leaks session rows
+    into the badge number.
+    """
+    tasks = [
+        _make_task(id="t-1", title="Visible work", status="open"),
+        # Exactly what the SessionStart hook writes today.
+        _make_task(
+            id="t-session",
+            title="Claude session a1b2c3",
+            status="open",
+            description="session-task: a1b2c3d4-e5f6",
+        ),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        resp = await client.get("/api/tasks/counts")
+
+    assert resp.status_code == 200
+    assert resp.json()["open"] == 1
+
+
+# --- POST /api/tasks/health/autofix/{issue_type} ---
+
+@pytest.mark.asyncio
+async def test_autofix_no_description_generates_and_saves(client):
+    """no_description handler calls Claude to generate a description and saves it."""
+    task = _make_task(id="→42", title="Build login screen")
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("services.task_autofix._generate_description", new=AsyncMock(return_value="Build the login screen with email and password fields.")) as mock_gen, \
+         patch("services.task_autofix._save_description", new=AsyncMock()) as mock_save:
+        mock_ostk.list_tasks = AsyncMock(return_value=[task])
+        resp = await client.post(
+            "/api/tasks/health/autofix/no_description",
+            json={"task_id": "→42"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fixed"] is True
+    assert "Build the login screen" in data["details"]
+    mock_gen.assert_awaited_once_with("Build login screen")
+    mock_save.assert_awaited_once_with("→42", "Build the login screen with email and password fields.")
+
+
+@pytest.mark.asyncio
+async def test_autofix_no_description_no_api_key(client):
+    """no_description handler returns fixed=False when no API key is available."""
+    task = _make_task(id="→42", title="Build login screen")
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("services.task_autofix._generate_description", new=AsyncMock(return_value=None)):
+        mock_ostk.list_tasks = AsyncMock(return_value=[task])
+        resp = await client.post(
+            "/api/tasks/health/autofix/no_description",
+            json={"task_id": "→42"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fixed"] is False
+    assert "reason" in data
+
+
+@pytest.mark.asyncio
+async def test_autofix_no_labels_dispatches_apply(client):
+    """no_labels handler calls apply_auto_labels for the task."""
+    task = _make_task(id="→10", title="Update docs", description="Refresh the API docs.")
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("services.task_autofix.apply_auto_labels", new=AsyncMock()) as mock_apply:
+        mock_ostk.list_tasks = AsyncMock(return_value=[task])
+        resp = await client.post(
+            "/api/tasks/health/autofix/no_labels",
+            json={"task_id": "→10"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fixed"] is True
+    mock_apply.assert_awaited_once_with("→10", "Update docs", "Refresh the API docs.")
+
+
+@pytest.mark.asyncio
+async def test_autofix_no_priority_sets_p2(client):
+    """no_priority handler defaults to P2 when no priority is set."""
+    task = _make_task(id="→15", title="Refactor auth")
+    task["priority"] = ""
+    with patch("routers.tasks.ostk") as mock_router_ostk, \
+         patch("services.task_autofix.ostk") as mock_svc_ostk:
+        mock_router_ostk.list_tasks = AsyncMock(return_value=[task])
+        mock_svc_ostk.update_task_priority = AsyncMock(return_value="updated")
+        resp = await client.post(
+            "/api/tasks/health/autofix/no_priority",
+            json={"task_id": "→15"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fixed"] is True
+    mock_svc_ostk.update_task_priority.assert_awaited_once_with("→15", "P2")
+
+
+@pytest.mark.asyncio
+async def test_autofix_unknown_type_returns_not_fixable(client):
+    """Unknown issue types return fixable=False without crashing."""
+    task = _make_task(id="→99", title="Mystery task")
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[task])
+        resp = await client.post(
+            "/api/tasks/health/autofix/some_unknown_type",
+            json={"task_id": "→99"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("fixable") is False
+
+
+@pytest.mark.asyncio
+async def test_autofix_missing_task_id_returns_422(client):
+    """autofix endpoint returns 422 when task_id is missing from body."""
+    resp = await client.post("/api/tasks/health/autofix/no_description", json={})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_autofix_task_not_found_returns_404(client):
+    """autofix endpoint returns 404 when task is not in the task list."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        resp = await client.post(
+            "/api/tasks/health/autofix/no_description",
+            json={"task_id": "→999"},
+        )
+
+    assert resp.status_code == 404
+
+
+# --- POST /api/tasks/health/autofix-all ---
+
+@pytest.mark.asyncio
+async def test_autofix_all_dispatches_and_returns_counts(client):
+    """autofix-all iterates issues, dispatches handlers, and returns correct counts."""
+    health_result = {
+        "tasks": [],
+        "issues": [
+            {"type": "no_description", "severity": "info", "message": "Task →1 has no description", "task_ids": ["→1"]},
+            {"type": "no_description", "severity": "info", "message": "Task →2 has no description", "task_ids": ["→2"]},
+            {"type": "isolated", "severity": "info", "message": "Task →3 is isolated", "task_ids": ["→3"]},
+        ],
+        "summary": {"total": 3, "issues": 3, "connected": 0, "isolated": 1},
+    }
+    tasks = [
+        _make_task(id="→1", title="Task one"),
+        _make_task(id="→2", title="Task two"),
+        _make_task(id="→3", title="Task three"),
+    ]
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("services.task_autofix._generate_description", new=AsyncMock(return_value="Short description.")), \
+         patch("services.task_autofix._save_description", new=AsyncMock()):
+        mock_ostk.refine_tasks = AsyncMock(return_value=health_result)
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        resp = await client.post("/api/tasks/health/autofix-all", json={})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    # isolated is filtered out, two no_description issues should be fixed
+    assert data["fixed"] == 2
+    assert data["skipped"] == 0
+    assert len(data["details"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_autofix_all_returns_zero_when_no_issues(client):
+    """autofix-all returns fixed=0 skipped=0 when health check finds no issues."""
+    health_result = {
+        "tasks": [],
+        "issues": [],
+        "summary": {"total": 0, "issues": 0, "connected": 0, "isolated": 0},
+    }
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.refine_tasks = AsyncMock(return_value=health_result)
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        resp = await client.post("/api/tasks/health/autofix-all", json={})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fixed"] == 0
+    assert data["skipped"] == 0
+
+
+# --- e2e test-data filter (needle →539) ---
+
+@pytest.mark.asyncio
+async def test_e2e_tasks_hidden_by_default(client):
+    """Tasks with e2e- prefix (any case) are excluded from the default /api/tasks response."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Real task"),
+        _make_task(id="t-2", title="e2e-smoke-task"),
+        _make_task(id="t-3", title="E2e-label-task"),
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+        resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    ids = [t["id"] for t in resp.json()["tasks"]]
+    assert "t-1" in ids
+    assert "t-2" not in ids, "e2e- task should be hidden by default"
+    assert "t-3" not in ids, "E2e- task (capitalized by title cleaner) should be hidden by default"
+
+
+@pytest.mark.asyncio
+async def test_e2e_tasks_visible_with_include_test_data(client):
+    """Tasks with e2e- prefix are visible when ?include_test_data=true."""
+    mock_tasks = [
+        _make_task(id="t-1", title="Real task"),
+        _make_task(id="t-2", title="e2e-smoke-task"),
+        _make_task(id="t-3", title="E2e-label-task"),
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+        resp = await client.get("/api/tasks?include_test_data=true")
+
+    assert resp.status_code == 200
+    ids = [t["id"] for t in resp.json()["tasks"]]
+    assert "t-1" in ids
+    assert "t-2" in ids, "e2e- task should be visible with include_test_data=true"
+    assert "t-3" in ids, "E2e- task should be visible with include_test_data=true"
+
+
+# --- Session-task map: link tasks to Claude Code sessions ---
+
+@pytest.fixture
+def _isolated_session_task_map(tmp_path, monkeypatch):
+    """Point the session-task map service at a temp file for this test."""
+    tmp_store = tmp_path / "session_task_map.json"
+    monkeypatch.setenv("MYOS_SESSION_TASK_MAP_PATH", str(tmp_store))
+    # Clear between tests to protect against shared state from a prior run.
+    from services import session_task_map
+    session_task_map.clear()
+    yield tmp_store
+    session_task_map.clear()
+
+
+@pytest.mark.asyncio
+async def test_create_task_records_session_id_link(client, _isolated_session_task_map):
+    """POST /api/tasks with session_id links the new task to the session
+    so later GET /api/tasks rows include session_id and child_task_count."""
+    from services import session_task_map as stm
+
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="added t-sess-1: Session placeholder")
+        resp = await client.post(
+            "/api/tasks",
+            json={
+                "title": "Session placeholder",
+                "session_id": "abc-123",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert stm.get_task_for_session("abc-123") == "t-sess-1"
+
+
+@pytest.mark.asyncio
+async def test_create_task_records_parent_session_link(client, _isolated_session_task_map):
+    """A task created during a session (parent_session_id) is counted as
+    a child so child_task_count on the session row is accurate."""
+    from services import session_task_map as stm
+
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="added t-child-1: Work the session spawned")
+        resp = await client.post(
+            "/api/tasks",
+            json={
+                "title": "Work the session spawned",
+                "parent_session_id": "abc-123",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert stm.count_children("abc-123") == 1
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_enriches_with_session_id_and_child_count(client, _isolated_session_task_map):
+    """GET /api/tasks returns session_id for session-task rows and a
+    child_task_count that matches how many child tasks were created
+    during that session."""
+    from services import session_task_map as stm
+
+    # Pre-seed: t-sess is the auto-filed session task, t-c1 and t-c2 are
+    # children created during that same session.
+    stm.link_session_to_task("sess-xyz", "t-sess")
+    stm.link_child_task("t-c1", "sess-xyz")
+    stm.link_child_task("t-c2", "sess-xyz")
+
+    mock_tasks = [
+        _make_task(id="t-sess", title="Session in torios", description="session-task: auto-filed"),
+        _make_task(id="t-c1", title="Fix login"),
+        _make_task(id="t-c2", title="Update docs"),
+        _make_task(id="t-other", title="Unrelated task"),
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+        resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    by_id = {t["id"]: t for t in resp.json()["tasks"]}
+
+    assert by_id["t-sess"]["session_id"] == "sess-xyz"
+    assert by_id["t-sess"]["child_task_count"] == 2
+
+    # Child tasks also carry the parent session id so the row can link
+    # back to the transcript the task was spawned from.
+    assert by_id["t-c1"]["session_id"] == "sess-xyz"
+    assert by_id["t-c1"]["child_task_count"] == 0
+
+    # Unrelated task has no link.
+    assert by_id["t-other"]["session_id"] is None
+    assert by_id["t-other"]["child_task_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_link_session_task_endpoint(client, _isolated_session_task_map):
+    """POST /api/sessions/{id}/link-task attaches an existing task to a session."""
+    from services import session_task_map as stm
+
+    resp = await client.post(
+        "/api/sessions/sess-xyz/link-task",
+        json={"task_id": "t-existing"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["linked"] is True
+    assert stm.get_task_for_session("sess-xyz") == "t-existing"
+
+
+@pytest.mark.asyncio
+async def test_link_child_task_endpoint(client, _isolated_session_task_map):
+    """POST /api/sessions/{id}/link-child-task records a child task."""
+    from services import session_task_map as stm
+
+    resp = await client.post(
+        "/api/sessions/sess-xyz/link-child-task",
+        json={"task_id": "t-new", "parent_session_id": "sess-xyz"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["child_task_count"] == 1
+    assert stm.count_children("sess-xyz") == 1
+
+
+@pytest.mark.asyncio
+async def test_link_child_task_rejects_mismatched_session_id(client, _isolated_session_task_map):
+    """Body parent_session_id must match the path session_id."""
+    resp = await client.post(
+        "/api/sessions/sess-xyz/link-child-task",
+        json={"task_id": "t-new", "parent_session_id": "other-sess"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_get_child_tasks_count(client, _isolated_session_task_map):
+    """GET /api/sessions/{id}/child-tasks returns the child count."""
+    from services import session_task_map as stm
+    stm.link_child_task("t-1", "sess-xyz")
+    stm.link_child_task("t-2", "sess-xyz")
+
+    resp = await client.get("/api/sessions/sess-xyz/child-tasks")
+    assert resp.status_code == 200
+    assert resp.json() == {"session_id": "sess-xyz", "count": 2}
+
+
+# --- POST /api/tasks/close-by-session/{session_id} ---
+
+@pytest.mark.asyncio
+async def test_close_by_session_closes_linked_task(client, _isolated_session_task_map):
+    """close-by-session closes the task linked to the given session_id."""
+    from routers.tasks import _recent_closes
+    _recent_closes.clear()
+    from services import session_task_map as stm
+    stm.link_session_to_task("sess-end-1", "t-sess")
+
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[
+            _make_task(id="t-sess", title="Session in torios", status="open"),
+        ])
+        mock_ostk.close_task = AsyncMock(return_value="closed t-sess")
+        resp = await client.post("/api/tasks/close-by-session/sess-end-1")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["closed"] is True
+    assert body["task_id"] == "t-sess"
+    mock_ostk.close_task.assert_called_once_with("t-sess", closed_reason="completed")
+
+
+@pytest.mark.asyncio
+async def test_close_by_session_returns_404_when_no_mapping(client, _isolated_session_task_map):
+    """With no session->task mapping, the endpoint 404s."""
+    resp = await client.post("/api/tasks/close-by-session/no-such-session")
+    assert resp.status_code == 404
+    assert "No session task mapping" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_close_by_session_idempotent_when_already_closed(client, _isolated_session_task_map):
+    """A second call after close returns closed=false with already_closed reason."""
+    from services import session_task_map as stm
+    stm.link_session_to_task("sess-end-2", "t-sess")
+
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[
+            _make_task(id="t-sess", title="Session in torios", status="closed"),
+        ])
+        mock_ostk.close_task = AsyncMock()
+        resp = await client.post("/api/tasks/close-by-session/sess-end-2")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["closed"] is False
+    assert body["task_id"] == "t-sess"
+    assert body["reason"] == "already_closed"
+    mock_ostk.close_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_close_by_session_handles_deleted_task(client, _isolated_session_task_map):
+    """If the mapping points at a task that no longer exists, return
+    not_found so a repeat hook call is a no-op instead of a 500."""
+    from services import session_task_map as stm
+    stm.link_session_to_task("sess-end-3", "t-vanished")
+
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        mock_ostk.close_task = AsyncMock()
+        resp = await client.post("/api/tasks/close-by-session/sess-end-3")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["closed"] is False
+    assert body["reason"] == "not_found"
+    mock_ostk.close_task.assert_not_called()
+
+
+# --- ostk.update_task_fields service ---
+
+@pytest.mark.asyncio
+async def test_update_task_fields_rewrites_title_and_description(tmp_path):
+    """update_task_fields rewrites only the targeted needle's title and
+    description and leaves other needles untouched."""
+    import json
+    from services.ostk import OstkService
+
+    needles_dir = tmp_path / ".ostk" / "needles"
+    needles_dir.mkdir(parents=True)
+    issues_path = needles_dir / "issues.jsonl"
+    issues_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"id": "\u2192100", "title": "first", "description": "a"}),
+                json.dumps({"id": "\u2192101", "title": "Claude Code session claude-code-xyz", "description": "old"}),
+                json.dumps({"id": "\u2192102", "title": "last", "description": "c"}),
+            ]
+        )
+        + "\n"
+    )
+
+    svc = OstkService.__new__(OstkService)
+    svc.cwd = str(tmp_path)
+
+    result = await svc.update_task_fields(
+        "\u2192101",
+        title="Session in torios",
+        description="session-task: Legacy migration. Close when this Claude Code session ends.",
+    )
+    assert "\u2192101" in result
+
+    rewritten = [json.loads(line) for line in issues_path.read_text().strip().splitlines()]
+    by_id = {e["id"]: e for e in rewritten}
+    assert by_id["\u2192101"]["title"] == "Session in torios"
+    assert "Legacy migration" in by_id["\u2192101"]["description"]
+    # Siblings untouched.
+    assert by_id["\u2192100"]["title"] == "first"
+    assert by_id["\u2192100"]["description"] == "a"
+    assert by_id["\u2192102"]["title"] == "last"
+
+
+@pytest.mark.asyncio
+async def test_update_task_fields_requires_title_or_description(tmp_path):
+    """Calling update_task_fields with no fields raises OstkError."""
+    from services.ostk import OstkService, OstkError
+
+    svc = OstkService.__new__(OstkService)
+    svc.cwd = str(tmp_path)
+
+    with pytest.raises(OstkError):
+        await svc.update_task_fields("\u2192100")
+
+
+@pytest.mark.asyncio
+async def test_update_task_fields_missing_task_raises(tmp_path):
+    """Editing a non-existent task raises OstkError."""
+    import json
+    from services.ostk import OstkService, OstkError
+
+    needles_dir = tmp_path / ".ostk" / "needles"
+    needles_dir.mkdir(parents=True)
+    (needles_dir / "issues.jsonl").write_text(
+        json.dumps({"id": "\u2192100", "title": "t", "description": ""}) + "\n"
+    )
+
+    svc = OstkService.__new__(OstkService)
+    svc.cwd = str(tmp_path)
+
+    with pytest.raises(OstkError):
+        await svc.update_task_fields("\u2192999", title="nope")
+
+
+# --- scripts/backfill_session_task_titles.py ---
+
+def _load_backfill_module():
+    """Import the backfill script by path so tests work regardless of cwd."""
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "scripts"
+        / "backfill_session_task_titles.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "backfill_session_task_titles", script_path
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_backfill_skips_tasks_already_renamed():
+    """Tasks already matching the new 'Session in <basename>' format are
+    never touched by the backfill script."""
+    bf = _load_backfill_module()
+
+    assert bf._is_already_migrated("Session in torios") is True
+    assert bf._is_already_migrated("Session in my-project") is True
+    # A legacy task should NOT be treated as migrated.
+    assert bf._is_already_migrated("Claude Code session claude-code-abc123") is False
+    # Safety: random other titles are also not "migrated"; they just
+    # don't match the legacy pattern either.
+    assert bf._is_already_migrated("Unrelated task") is False
+
+
+def test_backfill_renames_legacy_claude_session_titles(monkeypatch):
+    """Legacy 'Claude Code session claude-code-...' titles match the
+    legacy pattern and are replaced with 'Session in <basename>'."""
+    bf = _load_backfill_module()
+
+    # Legacy pattern detection.
+    assert bf._is_legacy("Claude Code session claude-code-ae81930b-5") is True
+    assert bf._is_legacy("claude code session claude-code-xyz") is True
+    assert bf._is_legacy("Session in torios") is False
+    assert bf._is_legacy("") is False
+
+    # End-to-end backfill: fake httpx.Client returns a mix of legacy,
+    # already-migrated, and unrelated tasks. Only the legacy ones are
+    # renamed.
+    legacy_task = {
+        "id": "\u2192200",
+        "title": "Claude Code session claude-code-ae81930b-5",
+    }
+    migrated_task = {"id": "\u2192201", "title": "Session in torios"}
+    unrelated_task = {"id": "\u2192202", "title": "Add login page"}
+
+    class _FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    patch_calls: list[dict] = []
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url):
+            assert "/api/tasks" in url
+            return _FakeResponse(
+                {"tasks": [legacy_task, migrated_task, unrelated_task]}
+            )
+
+        def patch(self, url, json=None):
+            patch_calls.append({"url": url, "body": json})
+            return _FakeResponse({"result": "ok"})
+
+    monkeypatch.setattr(bf.httpx, "Client", _FakeClient)
+    # Pin the basename so the rename is predictable regardless of test cwd.
+    monkeypatch.setattr(bf, "_cwd_basename_default", lambda: "torios")
+
+    renamed = bf.backfill()
+
+    assert renamed == 1, "only the single legacy task should be renamed"
+    assert len(patch_calls) == 1
+    call = patch_calls[0]
+    assert "\u2192200" in call["url"] or "%E2%86%92200" in call["url"]
+    assert call["body"]["title"] == "Session in torios"
+    assert call["body"]["description"].startswith("session-task: Legacy migration")
+
+
+def test_backfill_is_idempotent(monkeypatch):
+    """A second run against the same data renames nothing. Tasks already
+    at the new format are skipped."""
+    bf = _load_backfill_module()
+
+    migrated_task = {"id": "\u2192201", "title": "Session in torios"}
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"tasks": [migrated_task]}
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url):
+            return _FakeResponse()
+
+        def patch(self, url, json=None):
+            raise AssertionError("patch must not be called on idempotent run")
+
+    monkeypatch.setattr(bf.httpx, "Client", _FakeClient)
+    monkeypatch.setattr(bf, "_cwd_basename_default", lambda: "torios")
+
+    renamed = bf.backfill()
+    assert renamed == 0
+
+
+# --- POST /api/tasks/cleanup-session-duplicates ---
+#
+# Cleanup endpoint sweeps OPEN session-task rows older than max_age_hours
+# (default 1 hour) OR with no live session_id mapping. Live cleanup
+# tested separately with a curl call. These unit tests pin the behavior
+# so a future refactor cannot regress the dedup story.
+
+@pytest.mark.asyncio
+async def test_cleanup_session_duplicates_deletes_stale(client):
+    """Open session tasks older than 1 hour with no mapping are deleted."""
+    from datetime import datetime, timezone, timedelta
+
+    old_iso = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    fresh_iso = datetime.now(timezone.utc).isoformat()
+
+    tasks = [
+        # Stale: 2 hours old, session-task: prefix, no mapping. Delete.
+        {
+            "id": "t-501",
+            "title": "Session in torios",
+            "priority": "P1",
+            "status": "open",
+            "tags": [],
+            "description": "session-task: stale row",
+            "created_at": old_iso,
+        },
+        # Fresh: less than 1 hour old AND has a mapping. Keep.
+        {
+            "id": "t-502",
+            "title": "Session in torios",
+            "priority": "P1",
+            "status": "open",
+            "tags": [],
+            "description": "session-task: fresh row",
+            "created_at": fresh_iso,
+        },
+        # Real user task: never touched even if old.
+        {
+            "id": "t-503",
+            "title": "Write the report",
+            "priority": "P1",
+            "status": "open",
+            "tags": [],
+            "description": "Quarterly report draft.",
+            "created_at": old_iso,
+        },
+    ]
+
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("routers.tasks.session_task_map") as mock_map, \
+         patch("routers.tasks.task_labels_store") as mock_tls, \
+         patch("routers.tasks.threads_store") as mock_threads, \
+         patch("routers.tasks.task_order_store") as mock_order:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        mock_ostk.delete_task = AsyncMock(return_value="deleted")
+        # Only t-502 has a live mapping, so t-501 is doubly doomed
+        # (stale AND no mapping). t-503 is not a session task.
+        mock_map.all_session_task_pairs.return_value = {"sess-fresh": "t-502"}
+        mock_tls.remove_task = MagicMock()
+        mock_threads.remove_task_from_all_threads = MagicMock()
+        mock_order.remove_task = MagicMock()
+
+        resp = await client.post("/api/tasks/cleanup-session-duplicates")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deleted"] == 1
+    assert body["kept"] == 1
+    assert body["deleted_ids"] == ["t-501"]
+    # Verify only t-501 was deleted, not the fresh session task or the
+    # real user task.
+    mock_ostk.delete_task.assert_awaited_once_with("t-501")
+
+
+@pytest.mark.asyncio
+async def test_cleanup_session_duplicates_deletes_unmapped_even_when_fresh(client):
+    """A session-task row younger than 1 hour is still deleted when it has
+    no session_id mapping. No mapping means the session is gone, so the
+    row is a leftover that nothing will ever close."""
+    from datetime import datetime, timezone
+
+    fresh_iso = datetime.now(timezone.utc).isoformat()
+    tasks = [
+        {
+            "id": "t-510",
+            "title": "Session in torios",
+            "priority": "P1",
+            "status": "open",
+            "tags": [],
+            "description": "session-task: orphan",
+            "created_at": fresh_iso,
+        },
+    ]
+
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("routers.tasks.session_task_map") as mock_map, \
+         patch("routers.tasks.task_labels_store") as mock_tls, \
+         patch("routers.tasks.threads_store") as mock_threads, \
+         patch("routers.tasks.task_order_store") as mock_order:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        mock_ostk.delete_task = AsyncMock(return_value="deleted")
+        mock_map.all_session_task_pairs.return_value = {}
+        mock_tls.remove_task = MagicMock()
+        mock_threads.remove_task_from_all_threads = MagicMock()
+        mock_order.remove_task = MagicMock()
+
+        resp = await client.post("/api/tasks/cleanup-session-duplicates")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deleted"] == 1
+    assert body["deleted_ids"] == ["t-510"]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_session_duplicates_skips_non_session_tasks(client):
+    """Real user tasks must never be deleted by the sweep, even when old."""
+    from datetime import datetime, timezone, timedelta
+
+    old_iso = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    tasks = [
+        {
+            "id": "t-520",
+            "title": "Quarterly OKR review",
+            "priority": "P1",
+            "status": "open",
+            "tags": [],
+            "description": "Plan Q3 priorities.",
+            "created_at": old_iso,
+        },
+    ]
+
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("routers.tasks.session_task_map") as mock_map:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        mock_ostk.delete_task = AsyncMock(return_value="deleted")
+        mock_map.all_session_task_pairs.return_value = {}
+
+        resp = await client.post("/api/tasks/cleanup-session-duplicates")
+
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] == 0
+    mock_ostk.delete_task.assert_not_called()
+
+
+# --- SessionStart hook dedup contract ---
+#
+# The hook itself is bash, but the dedup contract is shared with the
+# server-side helpers used by the cleanup endpoint and the link-task
+# endpoint. This test pins the contract that two SessionStart calls
+# with the SAME session_id NEVER create two entries in
+# session_task_map.
+
+def test_session_start_skips_duplicate_for_same_session_id(monkeypatch, tmp_path):
+    """Linking the same session_id twice keeps one row, not two."""
+    monkeypatch.setenv("MYOS_SESSION_TASK_MAP_PATH", str(tmp_path / "map.json"))
+    from services import session_task_map as stm
+
+    stm.link_session_to_task("sess-abc", "t-700")
+    # Second SessionStart for the same session_id MUST overwrite, not
+    # append. session_task_map is a dict keyed on session_id, so the
+    # invariant we care about is: one session_id maps to exactly one
+    # task_id, and the link is idempotent for the same pair.
+    stm.link_session_to_task("sess-abc", "t-700")
+
+    pairs = stm.all_session_task_pairs()
+    assert pairs == {"sess-abc": "t-700"}
+    assert stm.get_task_for_session("sess-abc") == "t-700"
+
+
+# --- Hardened title sanitizer: test-artifact regex ---
+#
+# The old reject regex anchored at the start of the string and required
+# the word "feature" immediately after the prefix, so real smoke titles
+# like "Build e2e alpha feature" leaked past the check. These tests
+# pin the new behavior: the reject regex must fire when any smoke
+# signature appears anywhere in the title.
+
+
+@pytest.mark.asyncio
+async def test_reject_e2e_anywhere_in_title(client):
+    """A title with the word e2e in the middle must be rejected."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="should never run")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": "Build e2e alpha feature", "priority": "P1"},
+        )
+
+    assert resp.status_code == 400, resp.text
+    body = resp.json()
+    assert "test artifact" in body["detail"].lower()
+    mock_ostk.add_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reject_demo_smoke_prefix(client):
+    """Smoke-demo prefixed titles must be rejected."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="should never run")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": "demo-smoke-roadmap-12345", "priority": "P1"},
+        )
+
+    assert resp.status_code == 400, resp.text
+    body = resp.json()
+    assert "test artifact" in body["detail"].lower()
+    mock_ostk.add_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reject_label_leaked_into_title(client):
+    """A title carrying a machine-generated label name must be rejected."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="should never run")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": "Something e2e-label-1234567", "priority": "P1"},
+        )
+
+    assert resp.status_code == 400, resp.text
+    body = resp.json()
+    assert "test artifact" in body["detail"].lower()
+    mock_ostk.add_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_test_artifacts_endpoint_deletes_matches(client):
+    """The cleanup endpoint deletes every open task matching a smoke signature."""
+    real_task = _make_task(id="t-real", title="Build the login form")
+    smoke_title = _make_task(id="t-smoke-1", title="Build e2e alpha feature")
+    smoke_demo = _make_task(id="t-smoke-2", title="demo-smoke-roadmap-12345")
+    smoke_label = _make_task(id="t-smoke-3", title="Something useful")
+
+    all_tasks = [real_task, smoke_title, smoke_demo, smoke_label]
+
+    deleted_calls: list[str] = []
+
+    async def _fake_delete(task_id):
+        deleted_calls.append(task_id)
+        return "deleted"
+
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("routers.tasks.labels_store") as mock_labels, \
+         patch("routers.tasks.task_labels_store") as mock_tls, \
+         patch("routers.tasks.threads_store") as mock_threads, \
+         patch("routers.tasks.task_order_store") as mock_order, \
+         patch("routers.tasks.recent_deletes") as mock_rd:
+        mock_ostk.list_tasks = AsyncMock(return_value=all_tasks)
+        mock_ostk.delete_task = AsyncMock(side_effect=_fake_delete)
+        mock_labels.list_labels = MagicMock(return_value=[
+            {"id": "lbl-smoke", "name": "e2e-label-9999", "color": "#fff"},
+            {"id": "lbl-real", "name": "launch", "color": "#000"},
+        ])
+        mock_labels.delete_label = MagicMock(return_value=True)
+        mock_tls.get_all_assignments = MagicMock(return_value={
+            "t-smoke-3": ["lbl-smoke"],
+            "t-real": ["lbl-real"],
+        })
+        mock_tls.remove_task = MagicMock()
+        mock_tls.remove_label_from_all_tasks = MagicMock()
+        mock_threads.remove_task_from_all_threads = MagicMock()
+        mock_order.remove_task = MagicMock()
+        mock_rd.record = MagicMock()
+        mock_rd.record_id = MagicMock()
+
+        resp = await client.post("/api/tasks/cleanup-test-artifacts")
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Three of the four tasks match (title or label), the real one stays.
+    assert data["deleted"] == 3, data
+    assert set(data["deleted_ids"]) == {"t-smoke-1", "t-smoke-2", "t-smoke-3"}
+    assert "t-real" not in deleted_calls
+    # The machine-generated label is pruned too.
+    assert data["deleted_labels"] == 1
+    assert data["deleted_label_ids"] == ["lbl-smoke"]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_test_artifacts_matches_e2e_description_source(client):
+    """Tasks whose DESCRIPTION references an e2e- automation source
+    must be swept even when their TITLE reads like a real user task.
+    Regression guard for roadmap-e2e-task-leak.
+    """
+    # Title is a clean user-readable phrase (would not trip the title
+    # regex), but the description carries an e2e- source marker like
+    # the real leak: "Follow-up from the automation run called
+    # 'e2e-roadmap-probe-...'. The automation suggested ...".
+    real_task = _make_task(
+        id="t-real",
+        title="Ship onboarding wizard",
+        description="A real user task with no automation provenance.",
+    )
+    leaked_task = _make_task(
+        id="t-leak",
+        title="Ship onboarding wizard",
+        description=(
+            "Follow-up from the automation run called "
+            "'e2e-roadmap-probe-2026-04-17T04-20'. "
+            "The automation suggested this next step: Ship onboarding wizard"
+        ),
+    )
+    non_e2e_auto_task = _make_task(
+        id="t-prod-auto",
+        title="Ship billing flow",
+        description=(
+            "Follow-up from the automation run called 'quarterly-plan'. "
+            "The automation suggested this next step: Ship billing flow"
+        ),
+    )
+
+    all_tasks = [real_task, leaked_task, non_e2e_auto_task]
+    deleted_calls: list[str] = []
+
+    async def _fake_delete(task_id):
+        deleted_calls.append(task_id)
+        return "deleted"
+
+    with patch("routers.tasks.ostk") as mock_ostk, \
+         patch("routers.tasks.labels_store") as mock_labels, \
+         patch("routers.tasks.task_labels_store") as mock_tls, \
+         patch("routers.tasks.threads_store") as mock_threads, \
+         patch("routers.tasks.task_order_store") as mock_order, \
+         patch("routers.tasks.recent_deletes") as mock_rd:
+        mock_ostk.list_tasks = AsyncMock(return_value=all_tasks)
+        mock_ostk.delete_task = AsyncMock(side_effect=_fake_delete)
+        mock_labels.list_labels = MagicMock(return_value=[])
+        mock_labels.delete_label = MagicMock(return_value=False)
+        mock_tls.get_all_assignments = MagicMock(return_value={})
+        mock_tls.remove_task = MagicMock()
+        mock_tls.remove_label_from_all_tasks = MagicMock()
+        mock_threads.remove_task_from_all_threads = MagicMock()
+        mock_order.remove_task = MagicMock()
+        mock_rd.record = MagicMock()
+        mock_rd.record_id = MagicMock()
+
+        resp = await client.post("/api/tasks/cleanup-test-artifacts")
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Only the leaked e2e task is swept. The real user task stays.
+    # The production auto-task (non-e2e source) also stays, proving
+    # the description match does not over-reach.
+    assert data["deleted"] == 1, data
+    assert data["deleted_ids"] == ["t-leak"]
+    assert "t-real" not in deleted_calls
+    assert "t-prod-auto" not in deleted_calls
+
+
+def test_is_e2e_task_matches_description_source():
+    """``is_e2e_task`` hides tasks whose description references an e2e-
+    automation source so the leaked tasks never reach the user-facing
+    list even when the title itself reads clean. Defense-in-depth for
+    the display filter.
+    """
+    from services.task_visibility import is_e2e_task
+
+    # Title prefix (original behaviour).
+    assert is_e2e_task({"title": "e2e-crud-12345"}) is True
+    # Description source prefix (new behaviour).
+    assert is_e2e_task({
+        "title": "Ship onboarding wizard",
+        "description": (
+            "Follow-up from the automation run called "
+            "'e2e-roadmap-probe-2026'. The automation suggested ..."
+        ),
+    }) is True
+    # Production auto-task must NOT be hidden.
+    assert is_e2e_task({
+        "title": "Ship onboarding wizard",
+        "description": (
+            "Follow-up from the automation run called 'quarterly-plan'. "
+            "The automation suggested ..."
+        ),
+    }) is False
+    # Plain user task must NOT be hidden.
+    assert is_e2e_task({
+        "title": "Ship onboarding wizard",
+        "description": "User-written description",
+    }) is False
+
+
+@pytest.mark.asyncio
+async def test_reject_all_caps_placeholder_title(client):
+    """An all-caps FOO_BAR_BAZ style placeholder is a smoke artifact."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="should never run")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": "FOO_BAR_BAZ", "priority": "P1"},
+        )
+
+    assert resp.status_code == 400, resp.text
+    mock_ostk.add_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_accept_normal_title_with_letters(client):
+    """Regression guard: a normal title must still pass the hardened check."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="created t-ok")
+        resp = await client.post(
+            "/api/tasks",
+            json={"title": "Plan the offsite agenda", "priority": "P1"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    mock_ostk.add_task.assert_called_once()
+
+
+# --- include_test_data=true bypasses e2e rejection ---
+#
+# The smoke script creates tasks with titles like "e2e-crud-<timestamp>"
+# to exercise the CRUD lifecycle. Those POSTs pass
+# ?include_test_data=true so the sanitizer lets the e2e- prefix
+# through while still blocking pure UI noise.
+
+
+@pytest.mark.asyncio
+async def test_reject_bad_title_allows_e2e_when_test_data_flag(client):
+    """POST /tasks?include_test_data=true accepts an e2e- smoke title."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="created t-smoke")
+        resp = await client.post(
+            "/api/tasks?include_test_data=true",
+            json={"title": "e2e-crud-1760000000", "priority": "P1"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    mock_ostk.add_task.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reject_bad_title_allows_e2e_label_leak_when_test_data_flag(client):
+    """include_test_data=true also lets an e2e-label-<n> leak through."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="created t-label-smoke")
+        resp = await client.post(
+            "/api/tasks?include_test_data=true",
+            json={"title": "Something e2e-label-1234567", "priority": "P1"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    mock_ostk.add_task.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_reject_bad_title_still_rejects_feature_alpha_even_with_test_data(client):
+    """Pure UI noise (feature alpha) must reject even with the flag.
+
+    The test-data flag only loosens e2e-prefix rejection. Smoke markers
+    that never belong in any task list (feature alpha, demo-smoke-*,
+    all-caps placeholders) must keep returning 400.
+    """
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="should never run")
+        resp = await client.post(
+            "/api/tasks?include_test_data=true",
+            json={"title": "feature alpha preview", "priority": "P1"},
+        )
+
+    assert resp.status_code == 400, resp.text
+    body = resp.json()
+    assert "test artifact" in body["detail"].lower()
+    mock_ostk.add_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reject_bad_title_still_rejects_demo_smoke_with_test_data(client):
+    """demo-smoke-* prefixes stay rejected even under the test-data flag."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="should never run")
+        resp = await client.post(
+            "/api/tasks?include_test_data=true",
+            json={"title": "demo-smoke-roadmap-12345", "priority": "P1"},
+        )
+
+    assert resp.status_code == 400, resp.text
+    mock_ostk.add_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reject_bad_title_still_rejects_all_caps_with_test_data(client):
+    """All-caps placeholder stays rejected even under the test-data flag."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.add_task = AsyncMock(return_value="should never run")
+        resp = await client.post(
+            "/api/tasks?include_test_data=true",
+            json={"title": "FOO_BAR_BAZ", "priority": "P1"},
+        )
+
+    assert resp.status_code == 400, resp.text
+    mock_ostk.add_task.assert_not_called()
+
+
+def test_reject_bad_title_unit_allows_e2e_when_test_data_flag():
+    """Unit-level: the helper accepts e2e titles when allow_test_data=True."""
+    from routers.tasks import _reject_bad_title
+
+    # Default behavior: e2e-prefixed titles still reject.
+    assert _reject_bad_title("e2e-crud-123") is not None
+    # With the flag, e2e-prefixed titles pass.
+    assert _reject_bad_title("e2e-crud-123", allow_test_data=True) is None
+    assert _reject_bad_title("Some e2e label leak", allow_test_data=True) is None
+    assert (
+        _reject_bad_title("Something e2e-label-1234567", allow_test_data=True)
+        is None
+    )
+
+
+def test_reject_bad_title_unit_still_rejects_feature_alpha_with_flag():
+    """Unit-level: allow_test_data=True must not loosen non-e2e rejections."""
+    from routers.tasks import _reject_bad_title
+
+    # Pure UI noise always rejects, flag or no flag.
+    assert (
+        _reject_bad_title("Build feature alpha now", allow_test_data=True)
+        is not None
+    )
+    assert (
+        _reject_bad_title("demo-smoke-roadmap-1", allow_test_data=True)
+        is not None
+    )
+    assert _reject_bad_title("FOO_BAR_BAZ", allow_test_data=True) is not None
+    assert _reject_bad_title("build-123 thing", allow_test_data=True) is not None

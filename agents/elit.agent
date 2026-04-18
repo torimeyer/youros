@@ -1,0 +1,8 @@
+# Agentfile alias. "elit" is Tori's muscle-memory name for the
+# plain-language explainer. The generic, user-agnostic template is
+# "explain-plain". Keep this file so scripts, memory notes, and chat
+# messages that still say "elit" keep working.
+# When the parser sees ALIAS <name>, it follows it to the target
+# Agentfile and returns that config.
+
+ALIAS explain-plain

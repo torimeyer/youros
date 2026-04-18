@@ -120,6 +120,64 @@ describe('api client', () => {
     })
   })
 
+  describe('sidebar bus notifications', () => {
+    it('POST /agents/spawn bumps the agents bus so the sidebar refetches', async () => {
+      mockFetch({ ok: true })
+      const bus = await import('./sidebarBus')
+      const listener = vi.fn()
+      const off = bus.onAgentsChange(listener)
+      try {
+        await api.post('/agents/spawn', { name: 'x' })
+        expect(listener).toHaveBeenCalledTimes(1)
+      } finally {
+        off()
+      }
+    })
+
+    it('POST /tasks bumps the tasks bus so the sidebar refetches', async () => {
+      mockFetch({ ok: true })
+      const bus = await import('./sidebarBus')
+      const listener = vi.fn()
+      const off = bus.onTasksChange(listener)
+      try {
+        await api.post('/tasks', { title: 'hi' })
+        expect(listener).toHaveBeenCalledTimes(1)
+      } finally {
+        off()
+      }
+    })
+
+    it('GET /agents does NOT bump the bus (reads are not writes)', async () => {
+      mockFetch({ active: [], agents: [] })
+      const bus = await import('./sidebarBus')
+      const listener = vi.fn()
+      const off = bus.onAgentsChange(listener)
+      try {
+        await api.get('/agents')
+        expect(listener).not.toHaveBeenCalled()
+      } finally {
+        off()
+      }
+    })
+
+    it('unrelated endpoints do not bump either bus', async () => {
+      mockFetch({ ok: true })
+      const bus = await import('./sidebarBus')
+      const aListener = vi.fn()
+      const tListener = vi.fn()
+      const offA = bus.onAgentsChange(aListener)
+      const offT = bus.onTasksChange(tListener)
+      try {
+        await api.post('/settings', { theme: 'dark' })
+        expect(aListener).not.toHaveBeenCalled()
+        expect(tListener).not.toHaveBeenCalled()
+      } finally {
+        offA()
+        offT()
+      }
+    })
+  })
+
   describe('error handling', () => {
     it('throws on non-ok response', async () => {
       mockFetch('Not Found', false, 404)

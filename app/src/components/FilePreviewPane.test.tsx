@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import FilePreviewPane, { categorizeFile, renderMarkdown } from './FilePreviewPane'
+import FilePreviewPane, {
+  categorizeFile,
+  renderMarkdown,
+  parseRoadmap,
+  isRoadmapDoc,
+} from './FilePreviewPane'
 
 vi.mock('../lib/api', () => ({
   api: {
@@ -397,5 +402,115 @@ describe('FilePreviewPane', () => {
     })
     fireEvent.click(screen.getByTestId('file-preview-overlay'))
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe('Roadmap parsing', () => {
+  it('detects roadmap docs by kind: roadmap front matter', () => {
+    const yes = '---\nkind: roadmap\n---\n\n# Roadmap\n\n[]'
+    const no = '---\nkind: fleet-output\n---\n\n# Other\n\n'
+    expect(isRoadmapDoc(yes)).toBe(true)
+    expect(isRoadmapDoc(no)).toBe(false)
+    expect(isRoadmapDoc('no front matter at all')).toBe(false)
+  })
+
+  it('parses a JSON quarter array into quarters with initiatives', () => {
+    const json = [
+      {
+        quarter: 'Q1 2026',
+        theme: 'Launch',
+        initiatives: ['Ship onboarding', 'Publish templates', 'Add chat'],
+      },
+      {
+        quarter: 'Q2 2026',
+        theme: 'Polish',
+        initiatives: ['Fix bugs', 'Improve perf'],
+      },
+    ]
+    const content = `---\nkind: roadmap\n---\n\n# Roadmap\n\n${JSON.stringify(json)}`
+    const parsed = parseRoadmap(content)
+    expect(parsed.quarters).toHaveLength(2)
+    expect(parsed.quarters[0].quarter).toBe('Q1 2026')
+    expect(parsed.quarters[0].initiatives).toEqual([
+      'Ship onboarding',
+      'Publish templates',
+      'Add chat',
+    ])
+  })
+
+  it('falls back to bullet lines when JSON is absent', () => {
+    const content =
+      '---\nkind: roadmap\n---\n\n# Roadmap\n\n- Ship the onboarding flow\n- Polish the files page\n* tbd\n'
+    const parsed = parseRoadmap(content)
+    expect(parsed.quarters).toHaveLength(0)
+    expect(parsed.bullets).toContain('Ship the onboarding flow')
+    expect(parsed.bullets).toContain('Polish the files page')
+    // "tbd" is a single word, excluded by the 3-word heuristic.
+    expect(parsed.bullets).not.toContain('tbd')
+  })
+})
+
+describe('Roadmap renderer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders a plus button per initiative and posts to from-roadmap-line on click', async () => {
+    const content =
+      '---\nkind: roadmap\n---\n\n# Roadmap\n\n' +
+      JSON.stringify([
+        {
+          quarter: 'Q1 2026',
+          theme: 'Launch',
+          initiatives: ['Ship guided onboarding', 'Publish five templates'],
+        },
+      ])
+
+    mockedApiGet.mockResolvedValue({
+      content,
+      type: 'text',
+      size: content.length,
+    })
+
+    const mockedApiPost = vi.mocked(api.post)
+    mockedApiPost.mockResolvedValue({
+      title: 'Ship guided onboarding',
+      promoted_path: 'docs/spec/ship-guided-onboarding.md',
+      status: 'ready',
+    })
+
+    render(
+      <FilePreviewPane
+        entry={{ name: 'roadmap.md', path: '/tmp/roadmap.md', size_display: '1 KB' }}
+        onClose={() => {}}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('roadmap-preview')).toBeInTheDocument()
+    })
+
+    const buttons = screen.getAllByTestId('roadmap-make-spec-button')
+    expect(buttons.length).toBe(2)
+    expect(buttons[0].textContent).toContain('Make spec')
+
+    fireEvent.click(buttons[0])
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith(
+        '/specs/from-roadmap-line',
+        {
+          roadmap_path: '/tmp/roadmap.md',
+          initiative_text: 'Ship guided onboarding',
+        }
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('roadmap-spec-toast')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('roadmap-spec-toast').textContent).toContain(
+      'Ship guided onboarding'
+    )
   })
 })

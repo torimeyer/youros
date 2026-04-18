@@ -187,8 +187,6 @@ describe('GmailReplyComposer', () => {
       return Promise.resolve({})
     })
 
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
-
     render(
       <GmailReplyComposer
         threadId="t-1"
@@ -204,11 +202,16 @@ describe('GmailReplyComposer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Draft for me/i }))
 
-    expect(confirmSpy).toHaveBeenCalledWith('Replace your draft?')
-    // Cancelled, so the body stays and no draft_reply call goes out.
+    // The in-product modal should appear with the replace prompt.
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-modal-confirm')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Replace your draft?')).toBeInTheDocument()
+
+    // Cancel - body stays, no API call.
+    fireEvent.click(screen.getByTestId('confirm-modal-cancel'))
+
     expect((screen.getByLabelText('Reply body') as HTMLTextAreaElement).value).toBe('My own words')
     expect(mockedApiPost).not.toHaveBeenCalled()
-
-    confirmSpy.mockRestore()
   })
 })

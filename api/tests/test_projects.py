@@ -392,3 +392,407 @@ async def test_read_file_large_text(client):
     data = resp.json()
     assert data["type"] == "text"
     assert "too large" in data["content"].lower()
+
+
+@pytest.mark.asyncio
+async def test_read_file_accepts_absolute_myos_files_path(client):
+    """Absolute paths under ~/.myos/files/ must be readable.
+
+    Recent Documents emits these paths as absolute, so the preview
+    endpoint must accept them too. Regression guard for the
+    md-preview-any-path fix.
+    """
+    target = None
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        myos_files = Path(fake_home) / ".myos" / "files"
+        myos_files.mkdir(parents=True)
+        target = myos_files / "ia-review-session-7-2026-04-17T02-30.md"
+        target.write_text("# IA Review Session 7\n\nPreview should work.")
+
+        try:
+            with patch("routers.projects.TORIOS_DIR", tmppath), \
+                 patch("routers.projects.Path.home", return_value=Path(fake_home)):
+                resp = await client.get(
+                    f"/api/files/read?path={target}"
+                )
+
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            assert data["type"] == "text"
+            assert "IA Review Session 7" in data["content"]
+        finally:
+            # Teardown: always remove the artifact we created.
+            if target and target.exists():
+                target.unlink()
+
+
+@pytest.mark.asyncio
+async def test_read_file_rejects_absolute_path_outside_allowed_roots(client):
+    """Absolute paths outside the workspace and ~/.myos/files/ must be rejected."""
+    stray = None
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home, \
+         tempfile.TemporaryDirectory() as elsewhere:
+        tmppath = Path(tmpdir)
+        stray = Path(elsewhere) / "stray.md"
+        stray.write_text("should not be readable")
+
+        try:
+            with patch("routers.projects.TORIOS_DIR", tmppath), \
+                 patch("routers.projects.Path.home", return_value=Path(fake_home)):
+                resp = await client.get(f"/api/files/read?path={stray}")
+
+            assert resp.status_code == 403
+        finally:
+            if stray and stray.exists():
+                stray.unlink()
+
+
+@pytest.mark.asyncio
+async def test_recent_docs_and_preview_are_consistent(client):
+    """Every path /docs/recent returns must be readable by /files/read.
+
+    This is the core consistency guarantee: a user clicking a Recent
+    Documents row must never see "Couldn't open this file" when the
+    row itself came from the same backend.
+    """
+    created_paths: list[Path] = []
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        # Workspace .md file (relative path in /docs/recent).
+        workspace_doc = tmppath / "workspace-note.md"
+        workspace_doc.write_text("# Workspace Note\n\nHello.")
+        created_paths.append(workspace_doc)
+
+        # ~/.myos/files/ .md file (absolute path in /docs/recent).
+        myos_files = Path(fake_home) / ".myos" / "files"
+        myos_files.mkdir(parents=True)
+        fleet_output = myos_files / "ia-review-session-7-2026-04-17T02-30.md"
+        fleet_output.write_text(
+            "---\n"
+            "source: ia-review-session-7\n"
+            "kind: agent-output\n"
+            "---\n\n"
+            "# IA Review Session 7\n\nFleet output body."
+        )
+        created_paths.append(fleet_output)
+
+        try:
+            with patch("routers.projects.TORIOS_DIR", tmppath), \
+                 patch("routers.projects.Path.home", return_value=Path(fake_home)):
+                recent_resp = await client.get("/api/docs/recent")
+                assert recent_resp.status_code == 200
+                files = recent_resp.json()["files"]
+                assert len(files) >= 2, f"Expected both docs in response, got {files}"
+
+                for entry in files:
+                    read_resp = await client.get(
+                        f"/api/files/read?path={entry['path']}"
+                    )
+                    assert read_resp.status_code == 200, (
+                        f"Preview failed for path {entry['path']!r} that "
+                        f"came from /docs/recent: {read_resp.text}"
+                    )
+                    data = read_resp.json()
+                    assert data["type"] == "text"
+        finally:
+            # Teardown: always remove every artifact this test created.
+            for p in created_paths:
+                if p.exists():
+                    p.unlink()
+
+
+@pytest.mark.asyncio
+async def test_automation_output_is_previewable(client):
+    """A file written via services.automation_outputs.write_output must
+    be readable by /files/read. Closes the loop between the write site
+    and the preview endpoint.
+    """
+    from services.automation_outputs import write_output
+
+    written = None
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        myos_files = Path(fake_home) / ".myos" / "files"
+        myos_files.mkdir(parents=True)
+
+        body = (
+            "This is a realistic IA review summary that is long enough "
+            "to satisfy the minimum-summary threshold enforced by the "
+            "automation outputs writer. It describes the navigation and "
+            "labels surveyed during the review."
+        )
+        written = write_output(
+            automation_kind="agent",
+            name="ia-review-session-7",
+            content=body,
+            files_dir=myos_files,
+        )
+        assert written is not None
+        assert written.exists()
+
+        try:
+            with patch("routers.projects.TORIOS_DIR", tmppath), \
+                 patch("routers.projects.Path.home", return_value=Path(fake_home)):
+                resp = await client.get(f"/api/files/read?path={written}")
+
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            assert data["type"] == "text"
+            assert "IA review summary" in data["content"]
+        finally:
+            if written and written.exists():
+                written.unlink()
+
+
+# --- /docs/recent endpoint ---
+
+
+@pytest.mark.asyncio
+async def test_recent_docs_returns_md_files(client):
+    """Should return .md files sorted by modification time, newest first."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+
+        # Create some markdown files with staggered mtimes
+        docs_dir = tmppath / "docs"
+        docs_dir.mkdir()
+        old_file = docs_dir / "old.md"
+        old_file.write_text("# Old\n\nOld content here.")
+        new_file = docs_dir / "new.md"
+        new_file.write_text("# New\n\nNew content here.")
+
+        # Make old_file actually older
+        os.utime(old_file, (1000000, 1000000))
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.get("/api/docs/recent")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "files" in data
+    names = [f["name"] for f in data["files"]]
+    assert "new.md" in names
+    assert "old.md" in names
+    # new.md should come first (more recent)
+    assert names.index("new.md") < names.index("old.md")
+
+
+@pytest.mark.asyncio
+async def test_recent_docs_only_md_files(client):
+    """Should only return .md files, not other file types."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        (tmppath / "readme.md").write_text("# Hello")
+        (tmppath / "code.py").write_text("print('hi')")
+        (tmppath / "data.json").write_text("{}")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.get("/api/docs/recent")
+
+    assert resp.status_code == 200
+    files = resp.json()["files"]
+    assert len(files) == 1
+    assert files[0]["name"] == "readme.md"
+
+
+@pytest.mark.asyncio
+async def test_recent_docs_respects_limit(client):
+    """Should respect the limit query parameter."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        for i in range(5):
+            (tmppath / f"doc{i}.md").write_text(f"# Doc {i}")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.get("/api/docs/recent?limit=2")
+
+    assert resp.status_code == 200
+    assert len(resp.json()["files"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_recent_docs_skips_hidden_dirs(client):
+    """Should not return .md files from hidden or skipped directories."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        (tmppath / "visible.md").write_text("# Visible")
+        hidden = tmppath / ".git"
+        hidden.mkdir()
+        (hidden / "hidden.md").write_text("# Hidden")
+        node_modules = tmppath / "node_modules"
+        node_modules.mkdir()
+        (node_modules / "dep.md").write_text("# Dep")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.get("/api/docs/recent")
+
+    assert resp.status_code == 200
+    names = [f["name"] for f in resp.json()["files"]]
+    assert "visible.md" in names
+    assert "hidden.md" not in names
+    assert "dep.md" not in names
+
+
+@pytest.mark.asyncio
+async def test_recent_docs_includes_snippet(client):
+    """Should include a text snippet from the file content."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        (tmppath / "noted.md").write_text("# Title\n\nThis is the first paragraph.\n\nSecond paragraph here.")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.get("/api/docs/recent")
+
+    assert resp.status_code == 200
+    files = resp.json()["files"]
+    assert len(files) == 1
+    assert "first paragraph" in files[0]["snippet"]
+
+
+@pytest.mark.asyncio
+async def test_recent_docs_includes_metadata(client):
+    """Each file entry should have all expected fields."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        (tmppath / "test.md").write_text("# Test\n\nSome content.")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.get("/api/docs/recent")
+
+    assert resp.status_code == 200
+    f = resp.json()["files"][0]
+    assert f["name"] == "test.md"
+    assert "path" in f
+    assert "size" in f
+    assert "size_display" in f
+    assert "last_modified" in f
+    assert "snippet" in f
+    # Should not leak internal mtime field
+    assert "mtime" not in f
+
+
+# --- DELETE /docs/recent endpoint ---
+
+
+@pytest.mark.asyncio
+async def test_delete_recent_doc_in_myos_files(client):
+    """Should delete a .md file living under ~/.myos/files/."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        myos_files = Path(fake_home) / ".myos" / "files"
+        myos_files.mkdir(parents=True)
+        target = myos_files / "roadmap.md"
+        target.write_text("# Roadmap\n\nPlan.")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.delete(
+                f"/api/docs/recent?path={target}"
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["path"] == str(target.resolve())
+        assert not target.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_recent_doc_in_workspace(client):
+    """Should delete a .md file living inside the workspace, passed as a relative path."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        docs_dir = tmppath / "docs"
+        docs_dir.mkdir()
+        target = docs_dir / "note.md"
+        target.write_text("# Note")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.delete("/api/docs/recent?path=docs/note.md")
+
+        assert resp.status_code == 200
+        assert not target.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_recent_doc_rejects_path_escape(client):
+    """Should reject paths that resolve outside the allowed roots."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.delete("/api/docs/recent?path=../../etc/passwd")
+
+        assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_delete_recent_doc_rejects_absolute_path_outside_roots(client):
+    """Should reject an absolute path that is not under workspace or ~/.myos/files."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home, \
+         tempfile.TemporaryDirectory() as elsewhere:
+        tmppath = Path(tmpdir)
+        stray = Path(elsewhere) / "stray.md"
+        stray.write_text("# Stray")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.delete(f"/api/docs/recent?path={stray}")
+
+        assert resp.status_code == 400
+        # The file must still be there since the request was rejected.
+        assert stray.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_recent_doc_rejects_non_md(client):
+    """Should reject any file whose suffix is not .md."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+        target = tmppath / "code.py"
+        target.write_text("print('hi')")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.delete("/api/docs/recent?path=code.py")
+
+        assert resp.status_code == 400
+        assert target.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_recent_doc_404_when_missing(client):
+    """Should 404 when the target .md file does not exist."""
+    with tempfile.TemporaryDirectory() as tmpdir, \
+         tempfile.TemporaryDirectory() as fake_home:
+        tmppath = Path(tmpdir)
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("routers.projects.Path.home", return_value=Path(fake_home)):
+            resp = await client.delete("/api/docs/recent?path=missing.md")
+
+        assert resp.status_code == 404

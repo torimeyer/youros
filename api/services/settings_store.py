@@ -10,21 +10,76 @@ SETTINGS_PATH = Path.home() / ".myos" / "settings.json"
 _FEATURE_KEY_MAP: dict[str, str] = {
     "chat": "Chat",
     "tasks": "Tasks",
-    "hay": "Hay/Ideas",
     "agents": "Agents",
     "projects": "Projects",
-    "docs": "Docs",
+    "docs": "Specs",
+    "specs": "Specs",
     "transcripts": "Transcripts",
 }
 
 
 def _normalize_features(features: dict[str, bool]) -> dict[str, bool]:
-    """Convert any old lowercase feature keys to canonical TitleCase labels."""
+    """Convert any old lowercase feature keys to canonical TitleCase labels.
+
+    Also migrates the old "Docs" feature key to "Specs" so saved user
+    preferences carry over after the rename.
+    """
     normalized: dict[str, bool] = {}
     for key, value in features.items():
         canonical = _FEATURE_KEY_MAP.get(key, key)
+        # Migrate old "Docs" TitleCase key to "Specs"
+        if canonical == "Docs":
+            canonical = "Specs"
         normalized[canonical] = value
     return normalized
+
+
+# Keys whose default used to be False in older clients. On first load after
+# upgrading to the "all features default on" rule, we flip any of these that
+# are still False back to True. Once the migration runs we record a flag so
+# future user-initiated toggles (e.g. turning Automations off in Settings)
+# are preserved and never overridden.
+_HISTORICAL_DEFAULT_FALSE_KEYS: set[str] = {"Automations"}
+
+
+def _migrate_feature_defaults_all_true(data: dict) -> tuple[dict, bool]:
+    """One-shot migration to the "all features default on" rule.
+
+    For any feature key that historically defaulted to False (only
+    ``Automations`` at the time of writing), promote a stored ``False`` to
+    ``True`` the first time we load this settings file. Also backfill any
+    feature key that is entirely missing with ``True`` so new system
+    features appear enabled for existing users without a fresh install.
+
+    We write a ``features_default_on_migrated: True`` flag so later user
+    toggles are never overridden.
+    """
+    if data.get("features_default_on_migrated") is True:
+        return data, False
+
+    changed = False
+    features = data.get("features")
+    if isinstance(features, dict):
+        for key in _HISTORICAL_DEFAULT_FALSE_KEYS:
+            if features.get(key) is False:
+                features[key] = True
+                changed = True
+
+        # Backfill any missing canonical feature key with True using the
+        # schema defaults as the source of truth for the full set.
+        from models.schemas import Settings as _Settings
+
+        schema_features = _Settings().features
+        for key, default_value in schema_features.items():
+            if key not in features:
+                features[key] = default_value if default_value is True else True
+                changed = True
+        data["features"] = features
+
+    # Always mark the migration as run, even if no changes, so this is
+    # truly a one-shot pass.
+    data["features_default_on_migrated"] = True
+    return data, True
 
 
 def _migrate_briefing_keys(data: dict) -> tuple[dict, bool]:
@@ -77,7 +132,12 @@ class SettingsStore:
         # the new keys, drop the old ones, and rewrite the file in place
         # so future loads skip this branch.
         data, migrated = _migrate_briefing_keys(data)
-        if migrated:
+        # One-shot migration: promote any historically default-False
+        # feature (Automations, etc.) to True so every system feature
+        # is on by default for existing users. Subsequent user toggles
+        # are preserved via the ``features_default_on_migrated`` flag.
+        data, features_migrated = _migrate_feature_defaults_all_true(data)
+        if migrated or features_migrated:
             atomic_write_json(SETTINGS_PATH, data)
         # Backfill any fields missing from an older settings.json with the
         # pydantic schema defaults. This is how new server-backed settings

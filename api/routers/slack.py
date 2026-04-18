@@ -7,14 +7,29 @@ import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from services import connections_cache, recent_deletes
 from services import slack as slack_service
 
 router = APIRouter(tags=["slack"])
 
-# OAuth settings from environment
-SLACK_CLIENT_ID = os.getenv("SLACK_CLIENT_ID", "")
-SLACK_CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET", "")
-SLACK_REDIRECT_URI = os.getenv("SLACK_REDIRECT_URI", "http://localhost:8000/api/slack/callback")
+# Cache key used by the in-memory TTL cache around /slack/status.
+_SLACK_STATUS_CACHE_KEY = "slack_status"
+
+# OAuth settings: check settings store first, fall back to environment.
+from services.settings_store import settings_store as _slack_settings
+
+def _get_slack_client_id() -> str:
+    return str(_slack_settings.get("slack_client_id", "") or os.getenv("SLACK_CLIENT_ID", ""))
+
+def _get_slack_client_secret() -> str:
+    return str(_slack_settings.get("slack_client_secret", "") or os.getenv("SLACK_CLIENT_SECRET", ""))
+
+def _get_slack_redirect_uri() -> str:
+    return str(
+        _slack_settings.get("slack_redirect_uri", "")
+        or os.getenv("SLACK_REDIRECT_URI", "")
+        or "https://localhost:8000/api/slack/callback"
+    )
 
 # Bot scopes needed for reading channels and posting messages
 SLACK_BOT_SCOPES = "channels:read,channels:history,chat:write,groups:read,groups:history,users:read"
@@ -24,18 +39,18 @@ SLACK_USER_SCOPES = "search:read"
 @router.get("/slack/auth")
 async def slack_auth():
     """Return the Slack OAuth URL to initiate the connection flow."""
-    if not SLACK_CLIENT_ID:
+    if not _get_slack_client_id():
         raise HTTPException(
             status_code=500,
-            detail="Slack is not configured. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET in your .env file.",
+            detail="Slack is not configured. Add your Slack Client ID and Secret in Settings.",
         )
 
     import urllib.parse
     params = {
-        "client_id": SLACK_CLIENT_ID,
+        "client_id": _get_slack_client_id(),
         "scope": SLACK_BOT_SCOPES,
         "user_scope": SLACK_USER_SCOPES,
-        "redirect_uri": SLACK_REDIRECT_URI,
+        "redirect_uri": _get_slack_redirect_uri(),
     }
     url = "https://slack.com/oauth/v2/authorize?" + urllib.parse.urlencode(params)
     return {"url": url}
@@ -46,15 +61,15 @@ async def slack_callback(code: str = ""):
     """Handle the OAuth callback from Slack."""
     if not code:
         raise HTTPException(status_code=400, detail="No authorization code received.")
-    if not SLACK_CLIENT_ID or not SLACK_CLIENT_SECRET:
+    if not _get_slack_client_id() or not _get_slack_client_secret():
         raise HTTPException(status_code=500, detail="Slack OAuth not configured.")
 
     try:
         await slack_service.exchange_code(
             code=code,
-            client_id=SLACK_CLIENT_ID,
-            client_secret=SLACK_CLIENT_SECRET,
-            redirect_uri=SLACK_REDIRECT_URI,
+            client_id=_get_slack_client_id(),
+            client_secret=_get_slack_client_secret(),
+            redirect_uri=_get_slack_redirect_uri(),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -64,17 +79,30 @@ async def slack_callback(code: str = ""):
     return RedirectResponse(url="/slack?connected=true")
 
 
-@router.get("/slack/status")
-async def slack_status():
-    """Return Slack connection status."""
+def _compute_slack_status() -> dict:
+    """Pure function that resolves the Slack status payload from disk."""
     connected = slack_service.is_connected()
     team = slack_service.get_team_info() if connected else None
     return {
         "connected": connected,
         "team_name": team.get("team_name", "") if team else "",
         "team_id": team.get("team_id", "") if team else "",
-        "configured": bool(SLACK_CLIENT_ID),
+        "configured": bool(_get_slack_client_id()),
     }
+
+
+@router.get("/slack/status")
+async def slack_status():
+    """Return Slack connection status.
+
+    Served from an in-memory TTL cache so repeat polls within the same
+    minute return in sub-millisecond time. Connect and disconnect paths
+    invalidate the cache so the UI sees state changes on the next poll.
+    """
+    return connections_cache.get_or_compute(
+        _SLACK_STATUS_CACHE_KEY,
+        _compute_slack_status,
+    )
 
 
 @router.get("/slack/channels")
@@ -127,8 +155,29 @@ async def slack_send(req: SlackSendRequest):
     return result
 
 
+class SlackCredentials(BaseModel):
+    client_id: str
+    client_secret: str
+
+
+@router.post("/slack/credentials")
+async def save_slack_credentials(body: SlackCredentials):
+    """Save Slack OAuth credentials to the settings store.
+
+    This lets users configure Slack directly from the Settings page
+    instead of editing .env files.
+    """
+    cid = body.client_id.strip()
+    secret = body.client_secret.strip()
+    if not cid or not secret:
+        raise HTTPException(status_code=400, detail="Both Client ID and Client Secret are required.")
+    _slack_settings.update({"slack_client_id": cid, "slack_client_secret": secret})
+    return {"ok": True, "configured": True}
+
+
 @router.delete("/slack/disconnect")
 async def slack_disconnect():
     """Remove Slack tokens and disconnect."""
     slack_service.disconnect()
+    recent_deletes.record_id("slack-connection")
     return {"ok": True}

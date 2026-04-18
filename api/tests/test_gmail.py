@@ -112,6 +112,78 @@ async def test_gmail_auth_status_zero_probes(client, tmp_path):
     assert probe.call_count == 0
 
 
+@pytest.mark.asyncio
+async def test_gmail_auth_status_cached_path_is_fast(client, tmp_path):
+    """Warm cache hits for /gmail/auth/status must return under 50ms.
+
+    Primes the cache with one real request, then times a second request
+    and asserts it comes back well under a fiftieth of a second.
+    """
+    import time as _time
+
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+    }))
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        # First call: cache miss, computes from disk.
+        first = await client.get("/api/gmail/auth/status")
+        assert first.status_code == 200
+
+        # Second call: cache hit. Should be sub-millisecond.
+        start = _time.perf_counter()
+        second = await client.get("/api/gmail/auth/status")
+        elapsed = _time.perf_counter() - start
+
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert elapsed < 0.050, f"cached path took {elapsed*1000:.1f}ms"
+
+
+@pytest.mark.asyncio
+async def test_gmail_auth_status_cache_invalidates_on_connect_and_disconnect(client, tmp_path):
+    """Cache must drop its entry when the token is saved or revoked.
+
+    Simulates the connect flow (exchange_code writes a token) and the
+    disconnect flow (revoke removes the token) and confirms /auth/status
+    returns the fresh state immediately, not the stale cached payload.
+    """
+    from services import connections_cache
+    from services import google_auth as ga
+
+    token_path = tmp_path / "google_token.json"
+
+    # Initial state: not authenticated. Warm the cache.
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.get("/api/gmail/auth/status")
+    assert resp.json()["authenticated"] is False
+    assert connections_cache.get("gmail_auth_status") is not None
+
+    # Simulate connect: write a token file and fire the invalidation hook
+    # that exchange_code would call in production.
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.connect",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+    }))
+    ga._invalidate_google_status_cache()
+    assert connections_cache.get("gmail_auth_status") is None
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp2 = await client.get("/api/gmail/auth/status")
+    assert resp2.json()["authenticated"] is True
+
+    # Simulate disconnect: delete token and fire invalidation.
+    token_path.unlink()
+    ga._invalidate_google_status_cache()
+    assert connections_cache.get("gmail_auth_status") is None
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp3 = await client.get("/api/gmail/auth/status")
+    assert resp3.json()["authenticated"] is False
+
+
 # ---------------------------------------------------------------------------
 # Messages endpoint
 # ---------------------------------------------------------------------------
@@ -885,3 +957,190 @@ def test_extract_body_text_snippet_fallback():
         "snippet": "Snippet fallback text.",
     }
     assert _extract_body_text(msg) == "Snippet fallback text."
+
+
+# ---------------------------------------------------------------------------
+# Delete (Trash) endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_message_not_authenticated(client, tmp_path):
+    """Delete should return 401 when not authenticated."""
+    token_path = tmp_path / "google_token.json"
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.delete("/api/gmail/messages/msg-1")
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_delete_message_moves_to_trash(client, tmp_path):
+    """Default delete should call trash_message, not permanent_delete."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    trash_mock = AsyncMock(return_value=None)
+    perm_mock = AsyncMock(return_value=None)
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.gmail.trash_message", new=trash_mock),
+        patch("services.gmail.permanent_delete_message", new=perm_mock),
+    ):
+        resp = await client.delete("/api/gmail/messages/msg-42")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["permanent"] is False
+    assert data["id"] == "msg-42"
+    trash_mock.assert_awaited_once_with("msg-42")
+    perm_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_message_permanent_calls_permanent_delete(client, tmp_path):
+    """When permanent=true, the router must call permanent_delete_message."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    trash_mock = AsyncMock(return_value=None)
+    perm_mock = AsyncMock(return_value=None)
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.gmail.trash_message", new=trash_mock),
+        patch("services.gmail.permanent_delete_message", new=perm_mock),
+    ):
+        resp = await client.delete("/api/gmail/messages/msg-42?permanent=true")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["permanent"] is True
+    perm_mock.assert_awaited_once_with("msg-42")
+    trash_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_moves_all_to_trash(client, tmp_path):
+    """Batch delete should trash every provided id and report succeeded."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    trash_mock = AsyncMock(return_value=None)
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.gmail.trash_message", new=trash_mock),
+    ):
+        resp = await client.post(
+            "/api/gmail/messages/batch-delete",
+            json={"ids": ["m1", "m2", "m3"]},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["count"] == 3
+    assert set(data["succeeded"]) == {"m1", "m2", "m3"}
+    assert data["failed"] == []
+    assert trash_mock.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_reports_partial_failures(client, tmp_path):
+    """If one id fails, batch reports it in 'failed' and keeps going."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    async def flaky_trash(mid: str) -> None:
+        if mid == "m2":
+            raise RuntimeError("boom")
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.gmail.trash_message", new=AsyncMock(side_effect=flaky_trash)),
+    ):
+        resp = await client.post(
+            "/api/gmail/messages/batch-delete",
+            json={"ids": ["m1", "m2", "m3"]},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["count"] == 2
+    assert set(data["succeeded"]) == {"m1", "m3"}
+    assert len(data["failed"]) == 1
+    assert data["failed"][0]["id"] == "m2"
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_empty_ids_returns_400(client, tmp_path):
+    """Empty id list is a user error, not a silent no-op."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    with patch("services.google_auth.TOKEN_PATH", token_path):
+        resp = await client.post(
+            "/api/gmail/messages/batch-delete",
+            json={"ids": []},
+        )
+
+    assert resp.status_code == 400
+
+
+def test_trash_message_calls_gmail_trash():
+    """The service wrapper must call messages().trash(), not delete()."""
+    import asyncio as _asyncio
+    from services import gmail as gmail_service
+
+    service = MagicMock()
+    trash_exec = MagicMock()
+    service.users.return_value.messages.return_value.trash.return_value.execute = trash_exec
+
+    with (
+        patch.object(gmail_service, "_build_gmail_service", return_value=service),
+        patch.object(gmail_service, "_clear_cache"),
+        patch.object(gmail_service, "invalidate_full_inbox_cache"),
+    ):
+        # Use a fresh loop to avoid test pollution when an earlier test
+        # closed the default loop (common with async FastAPI fixtures).
+        _loop = _asyncio.new_event_loop()
+        try:
+            _loop.run_until_complete(gmail_service.trash_message("abc123"))
+        finally:
+            _loop.close()
+
+    # Confirm trash() was called with the right id and execute() ran.
+    service.users.return_value.messages.return_value.trash.assert_called_once_with(
+        userId="me", id="abc123"
+    )
+    trash_exec.assert_called_once()
+
+
+def test_permanent_delete_calls_gmail_delete():
+    """The permanent path must call messages().delete(), which is irreversible."""
+    import asyncio as _asyncio
+    from services import gmail as gmail_service
+
+    service = MagicMock()
+    delete_exec = MagicMock()
+    service.users.return_value.messages.return_value.delete.return_value.execute = delete_exec
+
+    with (
+        patch.object(gmail_service, "_build_gmail_service", return_value=service),
+        patch.object(gmail_service, "_clear_cache"),
+        patch.object(gmail_service, "invalidate_full_inbox_cache"),
+    ):
+        # Use a fresh loop to avoid test pollution when an earlier test
+        # closed the default loop (common with async FastAPI fixtures).
+        _loop = _asyncio.new_event_loop()
+        try:
+            _loop.run_until_complete(
+                gmail_service.permanent_delete_message("abc123")
+            )
+        finally:
+            _loop.close()
+
+    service.users.return_value.messages.return_value.delete.assert_called_once_with(
+        userId="me", id="abc123"
+    )
+    delete_exec.assert_called_once()

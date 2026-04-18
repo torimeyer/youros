@@ -61,6 +61,9 @@ describe('Tasks page', () => {
     // Clear the first-paint tasks cache between tests so state does
     // not leak from one test to the next. Needle 299.
     window.localStorage.clear()
+    // Clear the per-session "show session tasks" preference so each
+    // test starts with the default behavior (sessions hidden).
+    window.sessionStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
@@ -100,16 +103,36 @@ describe('Tasks page', () => {
     mockedApiGet.mockReturnValue(new Promise(() => {}))
     renderTasks()
 
-    expect(screen.getByText('Loading tasks...')).toBeInTheDocument()
+    // LoadingState skeleton-list renders a data-testid="loading-state" element
+    expect(screen.getByTestId('loading-state')).toBeInTheDocument()
   })
 
-  it('renders the export button in the toolbar', async () => {
+  it('skeleton list renders when both data and localStorage are empty', () => {
+    window.localStorage.clear()
+    mockedApiGet.mockReturnValue(new Promise(() => {}))
+    renderTasks()
+
+    expect(screen.getByTestId('loading-state')).toBeInTheDocument()
+  })
+
+  it('PageHeader renders the page title', async () => {
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('page-header')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('page-header')).toHaveTextContent('Tasks')
+  })
+
+  it('renders the export button in the overflow menu', async () => {
     renderTasks()
 
     await waitFor(() => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
+    // Export button lives inside overflow menu
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
     expect(screen.getByTestId('export-button')).toBeInTheDocument()
   })
 
@@ -120,10 +143,13 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    const openButton = screen.getByRole('button', { name: /Open/i })
+    // Open filter drawer to access status filter buttons
+    fireEvent.click(screen.getByTestId('filters-pill'))
+
+    const openButton = screen.getByTestId('status-filter-open')
     expect(openButton).toHaveTextContent('3')
 
-    const closedButton = screen.getByRole('button', { name: /Closed/i })
+    const closedButton = screen.getByTestId('status-filter-closed')
     expect(closedButton).toHaveTextContent('1')
   })
 
@@ -147,8 +173,8 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    const closedButton = screen.getByRole('button', { name: /Closed/i })
-    fireEvent.click(closedButton)
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
 
     expect(screen.getByText('Old completed task')).toBeInTheDocument()
     expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
@@ -162,10 +188,11 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /Closed/i }))
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
     expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Open/i }))
+    fireEvent.click(screen.getByTestId('status-filter-open'))
     expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     expect(screen.queryByText('Old completed task')).not.toBeInTheDocument()
   })
@@ -259,7 +286,8 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /Closed/i }))
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
 
     await waitFor(() => {
       expect(screen.getByText('Old completed task')).toBeInTheDocument()
@@ -290,17 +318,17 @@ describe('Tasks page', () => {
     expect(docsLabels.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('shows label filter chips in the filter bar', async () => {
+  it('shows label filter chips in the filter drawer', async () => {
     renderTasks()
 
     await waitFor(() => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // Label filter chips should be in the filter bar
-    // "Bug" and "Docs" labels appear as filter chips
-    const bugChips = screen.getAllByRole('button', { name: /Bug/ })
-    expect(bugChips.length).toBeGreaterThanOrEqual(1)
+    // Open filter drawer to see label chips
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    expect(screen.getByTestId('label-filter-l1')).toBeInTheDocument()
+    expect(screen.getByTestId('label-filter-l2')).toBeInTheDocument()
   })
 
   it('clicking a label filter chip filters tasks', async () => {
@@ -310,11 +338,9 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // Find the "Bug" filter chip button in the filter bar (not inside a task row)
-    // The filter bar label chip has a colored dot and the label name
-    const bugFilterButtons = screen.getAllByRole('button', { name: /Bug/ })
-    // Click the first one that is a filter chip (outside task rows)
-    fireEvent.click(bugFilterButtons[0])
+    // Open filter drawer and click the Bug label chip
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    fireEvent.click(screen.getByTestId('label-filter-l1'))
 
     // Tasks with "Bug" label (l1): task 1 and task 3
     // Task 2 (Add dark mode, no label) should be hidden
@@ -332,9 +358,9 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    const p0Buttons = screen.getAllByRole('button', { name: /P0/i })
-    const p0FilterButton = p0Buttons.find((b) => b.textContent?.match(/P0\s*1/))!
-    fireEvent.click(p0FilterButton)
+    // Open filter drawer and click P0
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    fireEvent.click(screen.getByTestId('priority-filter-P0'))
 
     expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
@@ -348,13 +374,11 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    const p0Buttons = screen.getAllByRole('button', { name: /P0/i })
-    const p0FilterButton = p0Buttons.find((b) => b.textContent?.match(/P0\s*1/))!
-
-    fireEvent.click(p0FilterButton)
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    fireEvent.click(screen.getByTestId('priority-filter-P0'))
     expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
 
-    fireEvent.click(p0FilterButton)
+    fireEvent.click(screen.getByTestId('priority-filter-P0'))
     expect(screen.getByText('Add dark mode')).toBeInTheDocument()
     expect(screen.getByText('Fix login bug')).toBeInTheDocument()
   })
@@ -376,7 +400,8 @@ describe('Tasks page', () => {
       expect(screen.getByText('Only open')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /Closed/i }))
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
     expect(screen.getByText('No tasks match this filter.')).toBeInTheDocument()
   })
 
@@ -472,9 +497,11 @@ describe('Tasks page', () => {
     renderTasks()
 
     await waitFor(() => {
-      const closedButton = screen.getByRole('button', { name: /Closed/i })
-      fireEvent.click(closedButton)
+      expect(screen.queryByText('Old closed task')).not.toBeInTheDocument()
     })
+
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
 
     await waitFor(() => {
       expect(screen.getByText('Old closed task')).toBeInTheDocument()
@@ -1158,13 +1185,13 @@ describe('Tasks page', () => {
     it('Open count badge includes in_progress tasks', async () => {
       renderTasks()
 
-      // The open filter button renders with the count in a sibling span.
-      // Before the fix this badge read "1" instead of "3".
       await waitFor(() => {
         expect(screen.getByText('Active open task')).toBeInTheDocument()
       })
-      // Find the Open filter button and check it has a "3" badge.
-      const openButton = screen.getByRole('button', { name: /open/i })
+      // Open filter drawer to access status filter buttons.
+      // Before needle 277 fix this badge read "1" instead of "3".
+      fireEvent.click(screen.getByTestId('filters-pill'))
+      const openButton = screen.getByTestId('status-filter-open')
       expect(openButton).toHaveTextContent('3')
     })
 
@@ -1174,8 +1201,8 @@ describe('Tasks page', () => {
         expect(screen.getByText('Active open task')).toBeInTheDocument()
       })
 
-      // Click the Closed filter.
-      fireEvent.click(screen.getByRole('button', { name: /closed/i }))
+      fireEvent.click(screen.getByTestId('filters-pill'))
+      fireEvent.click(screen.getByTestId('status-filter-closed'))
 
       await waitFor(() => {
         expect(screen.getByText('Done dusted and gone')).toBeInTheDocument()
@@ -1367,11 +1394,13 @@ describe('Tasks page', () => {
       { id: '4', title: 'Archived task', priority: 'P2', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [], closed_reason: 'archived' },
     ]
 
-    it('renders the Audit for review button in the toolbar', async () => {
+    it('renders the Audit for review button in the overflow menu', async () => {
       renderTasks()
       await waitFor(() => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
+      // Open overflow menu to reveal audit button
+      fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
       const button = screen.getByTestId('tasks-audit-button')
       expect(button).toBeInTheDocument()
       expect(button.textContent).toContain('Audit for review')
@@ -1401,6 +1430,7 @@ describe('Tasks page', () => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
 
+      fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
       fireEvent.click(screen.getByTestId('tasks-audit-button'))
 
       await waitFor(() => {
@@ -1432,6 +1462,7 @@ describe('Tasks page', () => {
       await waitFor(() => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
+      fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
       fireEvent.click(screen.getByTestId('tasks-audit-button'))
 
       await waitFor(() => {
@@ -1486,6 +1517,7 @@ describe('Tasks page', () => {
       await waitFor(() => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
+      fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
       fireEvent.click(screen.getByTestId('tasks-audit-button'))
 
       await waitFor(() => {
@@ -1549,6 +1581,7 @@ describe('Tasks page', () => {
       await waitFor(() => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
+      fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
       fireEvent.click(screen.getByTestId('tasks-audit-button'))
 
       await waitFor(() => {
@@ -1602,6 +1635,7 @@ describe('Tasks page', () => {
       await waitFor(() => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
+      fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
       fireEvent.click(screen.getByTestId('tasks-audit-button'))
       await waitFor(() => {
         expect(screen.getByTestId('audit-keep-r-1')).toBeInTheDocument()
@@ -1627,7 +1661,8 @@ describe('Tasks page', () => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
       // Switch to the Closed filter so the closed rows render.
-      fireEvent.click(screen.getByRole('button', { name: /Closed/i }))
+      fireEvent.click(screen.getByTestId('filters-pill'))
+      fireEvent.click(screen.getByTestId('status-filter-closed'))
       await waitFor(() => {
         expect(screen.getByText('Done task')).toBeInTheDocument()
       })
@@ -1664,6 +1699,7 @@ describe('Tasks page - first-paint budget (needle 299)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
+    window.sessionStorage.clear()
     useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
     mockedApiPost.mockResolvedValue({})
   })
@@ -1796,5 +1832,855 @@ describe('Tasks page - first-paint budget (needle 299)', () => {
     expect(Array.isArray(persisted)).toBe(true)
     expect(persisted.length).toBe(manyTasks.length)
     expect(persisted[0].title).toBe('Load test task 1')
+  })
+
+  // --- Session task filter (Bug 3) ---
+
+  it('hides session tasks by default (old hook format with "Claude Code session" title)', async () => {
+    const sessionTask = {
+      id: '99',
+      title: 'Claude Code session claude-code-abc12345',
+      priority: 'P3',
+      status: 'open',
+      created_at: new Date().toISOString(),
+      description: 'Auto-filed by SessionStart hook. Close when the session\'s work is merged or abandoned.',
+      label_ids: [],
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [...mockTasks, sessionTask] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    // Session task should be hidden by default
+    expect(screen.queryByText('Claude Code session claude-code-abc12345')).not.toBeInTheDocument()
+    // Normal tasks should still be visible
+    expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+  })
+
+  it('hides session tasks by default (new hook format with session-task: description)', async () => {
+    const sessionTask = {
+      id: '98',
+      title: 'Claude session abc12345 (2:30pm)',
+      priority: 'P3',
+      status: 'open',
+      created_at: new Date().toISOString(),
+      description: 'session-task: Auto-filed when this Claude Code session started.',
+      label_ids: [],
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [...mockTasks, sessionTask] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    // Session task should be hidden by default
+    expect(screen.queryByText('Claude session abc12345 (2:30pm)')).not.toBeInTheDocument()
+  })
+
+  it('shows session tasks when the toggle is clicked', async () => {
+    const sessionTask = {
+      id: '97',
+      title: 'Claude session xyz99999 (3:15pm)',
+      priority: 'P3',
+      status: 'open',
+      created_at: new Date().toISOString(),
+      description: 'session-task: Auto-filed when this Claude Code session started.',
+      label_ids: [],
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [...mockTasks, sessionTask] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    // Hidden by default
+    expect(screen.queryByText('Claude session xyz99999 (3:15pm)')).not.toBeInTheDocument()
+
+    // Open filter drawer, then click the sessions toggle
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    const toggleBtn = screen.getByTestId('toggle-session-tasks')
+    fireEvent.click(toggleBtn)
+
+    // Now the session task should appear
+    expect(screen.getByText('Claude session xyz99999 (3:15pm)')).toBeInTheDocument()
+  })
+
+  it('tasks page session filter defaults off (sessions hidden) on every fresh mount', async () => {
+    // Tori asked: opening the page or reloading should ALWAYS hide
+    // session tasks unless the user flipped the toggle in this same
+    // browser tab. This guards against a regression where state
+    // persisted in localStorage made sessions show up forever.
+    const sessionTask = {
+      id: '98',
+      title: 'Session in torios',
+      priority: 'P3',
+      status: 'open',
+      created_at: new Date().toISOString(),
+      description: 'session-task: Auto-filed when this Claude Code session started.',
+      label_ids: [],
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [...mockTasks, sessionTask] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    // Pretend a previous tab had wired sessionStorage to a stale state.
+    // A reload (which clears sessionStorage) MUST come back hidden.
+    window.sessionStorage.removeItem('myos.tasks.showSessionTasks')
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('Session in torios')).not.toBeInTheDocument()
+
+    // After mount, sessionStorage should reflect the hidden default
+    // ("0" means hide). This pins the persistence direction.
+    expect(window.sessionStorage.getItem('myos.tasks.showSessionTasks')).toBe('0')
+  })
+})
+
+describe('Tasks page - simplified toolbar (2-layer layout)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  it('renders primary toolbar with title and LIVE badge', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    expect(screen.getByTestId('primary-toolbar')).toBeInTheDocument()
+    expect(screen.getByTestId('live-badge')).toBeInTheDocument()
+    expect(screen.getByText('LIVE')).toBeInTheDocument()
+  })
+
+  it('renders "What should I do next?" AI button in primary row', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    expect(screen.getByTestId('what-should-i-do-next')).toBeInTheDocument()
+  })
+
+  it('renders Filters pill in primary row', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    expect(screen.getByTestId('filters-pill')).toBeInTheDocument()
+  })
+
+  it('filter drawer is hidden by default', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    expect(screen.queryByTestId('filter-drawer')).not.toBeInTheDocument()
+  })
+
+  it('clicking Filters pill opens the filter drawer', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    expect(screen.getByTestId('filter-drawer')).toBeInTheDocument()
+  })
+
+  it('clicking Filters pill again closes the drawer', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    expect(screen.getByTestId('filter-drawer')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    expect(screen.queryByTestId('filter-drawer')).not.toBeInTheDocument()
+  })
+
+  it('selecting a filter shows an active chip in the primary row when drawer is closed', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    expect(screen.getByTestId('active-filter-chips')).toBeInTheDocument()
+  })
+
+  it('Filters pill badge shows active filter count', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('filters-pill'))
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
+    const pill = screen.getByTestId('filters-pill')
+    expect(pill.textContent).toContain('1')
+  })
+
+  it('renders overflow menu trigger button', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    expect(screen.getByTestId('overflow-menu-trigger')).toBeInTheDocument()
+  })
+
+  it('overflow menu is hidden by default', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    expect(screen.queryByTestId('overflow-menu')).not.toBeInTheDocument()
+  })
+
+  it('clicking overflow trigger opens the menu', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    expect(screen.getByTestId('overflow-menu')).toBeInTheDocument()
+  })
+
+  it('overflow menu contains Label all, Import, Share, Copy list, Audit for review', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    expect(screen.getByTestId('label-all-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('overflow-import')).toBeInTheDocument()
+    expect(screen.getByTestId('overflow-share')).toBeInTheDocument()
+    expect(screen.getByTestId('overflow-copy')).toBeInTheDocument()
+    expect(screen.getByTestId('tasks-audit-button')).toBeInTheDocument()
+  })
+
+  // --- Delete all ---
+
+  it('overflow menu has a Delete all item', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    expect(screen.getByTestId('overflow-delete-all')).toBeInTheDocument()
+  })
+
+  it('clicking Delete all opens ConfirmModal', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    fireEvent.click(screen.getByTestId('overflow-delete-all'))
+    expect(screen.getByTestId('confirm-modal-backdrop')).toBeInTheDocument()
+    // The modal title contains "Delete all N tasks?"
+    expect(screen.getByText(/Delete all \d+ tasks?/i)).toBeInTheDocument()
+  })
+
+  it('confirming Delete all calls the delete endpoint with current filters', async () => {
+    const mockedApiPostLocal = vi.mocked(api.post)
+    mockedApiPostLocal.mockResolvedValue({ deleted: 3, names: ['1', '2', '3'] })
+
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    fireEvent.click(screen.getByTestId('overflow-delete-all'))
+    // Confirm in the modal
+    fireEvent.click(screen.getByTestId('confirm-modal-confirm'))
+
+    await waitFor(() => {
+      expect(mockedApiPostLocal).toHaveBeenCalledWith(
+        '/tasks/delete-all',
+        expect.objectContaining({ status: expect.any(String) })
+      )
+    })
+  })
+
+  it('canceling Delete all does not call the endpoint', async () => {
+    const mockedApiPostLocal = vi.mocked(api.post)
+
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+    fireEvent.click(screen.getByTestId('overflow-delete-all'))
+    // Cancel in the modal
+    fireEvent.click(screen.getByTestId('confirm-modal-cancel'))
+
+    expect(screen.queryByTestId('confirm-modal-backdrop')).not.toBeInTheDocument()
+    // No /tasks/delete-all call should have been made
+    const deleteAllCalls = mockedApiPostLocal.mock.calls.filter(
+      ([path]) => path === '/tasks/delete-all'
+    )
+    expect(deleteAllCalls).toHaveLength(0)
+  })
+
+  // ── Counter-vs-list mismatch fix ─────────────────────────────────────
+  //
+  // Root cause: openCount counted all open (minus session) tasks but
+  // ignored priority/label/thread filters. filteredTasks applied every
+  // filter. Result: footer showed "6 Open" while the list was empty.
+  //
+  // Fix: footer derives from visibleCount (= filteredTasks.length) so
+  // the counter always matches what is visible. When secondary filters
+  // reduce the list to zero, a "N open total · 0 match · Clear filters"
+  // hint appears so the user is never stuck wondering where their tasks
+  // went.
+
+  describe('counter matches visible list (counter-mismatch fix)', () => {
+    it('footer open count matches the visible list when no secondary filters', async () => {
+      // 3 open tasks, no filters → footer should show 3
+      renderTasks()
+      await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+
+      const footer = screen.getByTestId('footer-open-count')
+      expect(footer).toHaveTextContent('3')
+    })
+
+    it('footer open count drops to 0 when a P0 priority filter is set and no P0 tasks match', async () => {
+      // Only task 1 is P0. After P1 filter there are 0 visible P1 tasks... actually
+      // let us use a label filter that matches nothing.
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({
+          tasks: [
+            { id: '1', title: 'Session task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+            { id: '2', title: 'Regular task', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          ],
+        })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        return Promise.resolve({})
+      })
+
+      renderTasks()
+      await waitFor(() => expect(screen.getByText('Regular task')).toBeInTheDocument())
+
+      // Apply P0 filter (no P0 tasks exist)
+      fireEvent.click(screen.getByTestId('filters-pill'))
+      fireEvent.click(screen.getByTestId('priority-filter-P0'))
+
+      // List is empty
+      expect(screen.queryByText('Regular task')).not.toBeInTheDocument()
+      expect(screen.queryByText('Session task')).not.toBeInTheDocument()
+
+      // Footer counter must reflect 0
+      const footer = screen.getByTestId('footer-open-count')
+      expect(footer).toHaveTextContent('0')
+    })
+
+    it('shows "0 match your filters · Clear filters" hint when filters hide all tasks', async () => {
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({
+          tasks: [
+            { id: '1', title: 'P2 task', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          ],
+        })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        return Promise.resolve({})
+      })
+
+      renderTasks()
+      await waitFor(() => expect(screen.getByText('P2 task')).toBeInTheDocument())
+
+      // Apply P0 filter (hides the only open task)
+      fireEvent.click(screen.getByTestId('filters-pill'))
+      fireEvent.click(screen.getByTestId('priority-filter-P0'))
+
+      // Hint should appear
+      await waitFor(() => {
+        expect(screen.getByTestId('filters-hiding-hint')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('clear-filters-btn')).toBeInTheDocument()
+    })
+
+    it('clicking "Clear filters" resets priority/label/thread filters and restores the list', async () => {
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({
+          tasks: [
+            { id: '1', title: 'P2 task A', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+            { id: '2', title: 'P2 task B', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          ],
+        })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        return Promise.resolve({})
+      })
+
+      renderTasks()
+      await waitFor(() => expect(screen.getByText('P2 task A')).toBeInTheDocument())
+
+      // Apply P0 filter
+      fireEvent.click(screen.getByTestId('filters-pill'))
+      fireEvent.click(screen.getByTestId('priority-filter-P0'))
+
+      // Wait for hint
+      await waitFor(() => {
+        expect(screen.getByTestId('clear-filters-btn')).toBeInTheDocument()
+      })
+
+      // Click "Clear filters"
+      fireEvent.click(screen.getByTestId('clear-filters-btn'))
+
+      // Tasks reappear
+      await waitFor(() => {
+        expect(screen.getByText('P2 task A')).toBeInTheDocument()
+        expect(screen.getByText('P2 task B')).toBeInTheDocument()
+      })
+
+      // Hint is gone
+      expect(screen.queryByTestId('filters-hiding-hint')).not.toBeInTheDocument()
+
+      // Footer shows 2
+      expect(screen.getByTestId('footer-open-count')).toHaveTextContent('2')
+    })
+
+    it('shows session-hiding empty state (not generic filter hint) when sessions are the only open tasks', async () => {
+      // When every open task is a session task and hideSessionTasks=true, the
+      // session-hiding empty state must appear, NOT the generic "No tasks match
+      // this filter." text, and NOT the secondary-filter hint (filters-hiding-hint).
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({
+          tasks: [
+            {
+              id: '1',
+              title: 'Claude Code session claude-code-abc',
+              priority: 'P1',
+              status: 'open',
+              created_at: new Date().toISOString(),
+              description: 'session-task: boot',
+              label_ids: [],
+            },
+          ],
+        })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        return Promise.resolve({})
+      })
+
+      renderTasks()
+
+      // Session-hiding empty state must appear
+      await waitFor(() => {
+        expect(screen.getByTestId('session-hiding-empty-state')).toBeInTheDocument()
+      })
+
+      // The old generic message must NOT appear
+      expect(screen.queryByText('No tasks match this filter.')).not.toBeInTheDocument()
+      // The secondary-filter hint must NOT appear (no priority/label/thread filter active)
+      expect(screen.queryByTestId('filters-hiding-hint')).not.toBeInTheDocument()
+      // The footer session hint must appear
+      expect(screen.getByTestId('session-hiding-hint')).toBeInTheDocument()
+    })
+  })
+})
+
+describe('Tasks page - null-priority render fix', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  it('renders tasks with null priority (falls into P3 bucket)', async () => {
+    // Tasks 531-536 from ostk arrive with priority=null. Before the fix these
+    // were silently dropped from the render loop while still being counted in
+    // the footer, so the user saw "6 Open" but an empty list.
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({
+        tasks: [
+          { id: '531', title: 'Unprioritized task A', priority: null, status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          { id: '532', title: 'Unprioritized task B', priority: null, status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          { id: '533', title: 'Normal P1 task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+        ],
+      })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Normal P1 task')).toBeInTheDocument()
+    })
+
+    // Null-priority tasks must appear, not be silently dropped
+    expect(screen.getByText('Unprioritized task A')).toBeInTheDocument()
+    expect(screen.getByText('Unprioritized task B')).toBeInTheDocument()
+  })
+
+  it('footer open count matches the number of visible rows when tasks have null priority', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({
+        tasks: [
+          { id: '531', title: 'Null prio 1', priority: null, status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          { id: '532', title: 'Null prio 2', priority: null, status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          { id: '533', title: 'Closed task', priority: 'P1', status: 'closed', created_at: new Date().toISOString(), label_ids: [] },
+        ],
+      })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Null prio 1')).toBeInTheDocument()
+    })
+
+    // Footer must say 2 open (matching the 2 visible rows), not 0
+    const footer = screen.getByTestId('footer-open-count')
+    expect(footer).toHaveTextContent('2')
+  })
+
+  it('session-only open tasks: counter shows 0 Open and session-hiding hint appears', async () => {
+    // All open tasks are session tasks. Counter must say 0, list is empty,
+    // and the session-hiding hint must explain why with a "Show sessions" button.
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({
+        tasks: [
+          { id: '537', title: 'Claude Code session claude-code-abc123', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          { id: '538', title: 'Claude Code session claude-code-def456', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          { id: '400', title: 'Done task', priority: 'P1', status: 'closed', created_at: new Date().toISOString(), label_ids: [] },
+        ],
+      })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-hiding-empty-state')).toBeInTheDocument()
+    })
+
+    // Counter must show 0, not the raw session count
+    const footer = screen.getByTestId('footer-open-count')
+    expect(footer).toHaveTextContent('0')
+
+    // Footer session hint must be present
+    expect(screen.getByTestId('session-hiding-hint')).toBeInTheDocument()
+
+    // Session tasks must not be visible yet
+    expect(screen.queryByText('Claude Code session claude-code-abc123')).not.toBeInTheDocument()
+  })
+
+  it('clicking "Show sessions" in the empty state reveals session tasks', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({
+        tasks: [
+          { id: '537', title: 'Claude Code session claude-code-abc123', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+        ],
+      })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('show-sessions-btn')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('show-sessions-btn'))
+
+    // After clicking, session tasks appear and counter updates to 1
+    await waitFor(() => {
+      expect(screen.getByText('Claude Code session claude-code-abc123')).toBeInTheDocument()
+    })
+    const footer = screen.getByTestId('footer-open-count')
+    expect(footer).toHaveTextContent('1')
+  })
+
+  it('mix of session and regular tasks: counter shows only regular count when sessions hidden', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({
+        tasks: [
+          { id: '531', title: 'Real task 1', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          { id: '532', title: 'Real task 2', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          { id: '537', title: 'Claude Code session claude-code-abc123', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+        ],
+      })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Real task 1')).toBeInTheDocument()
+    })
+
+    // Regular tasks visible, session task hidden
+    expect(screen.getByText('Real task 2')).toBeInTheDocument()
+    expect(screen.queryByText('Claude Code session claude-code-abc123')).not.toBeInTheDocument()
+
+    // Counter shows 2 (not 3)
+    const footer = screen.getByTestId('footer-open-count')
+    expect(footer).toHaveTextContent('2')
+
+    // No session-hiding empty state (list is not empty)
+    expect(screen.queryByTestId('session-hiding-empty-state')).not.toBeInTheDocument()
+  })
+})
+
+describe('Tasks page - session transcript link and child task count', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  it('renders a View transcript button on a session task row', async () => {
+    const sessionTask = {
+      id: '99',
+      title: 'Session in torios',
+      priority: 'P3',
+      status: 'open',
+      created_at: new Date().toISOString(),
+      description: 'session-task: Work happening in /Users/torimeyer/claude/torios.',
+      label_ids: [],
+      session_id: 'sess-abc-123',
+      child_task_count: 3,
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [sessionTask] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    // Session tasks are hidden by default. Flip the toggle first so the row renders.
+    await waitFor(() => {
+      expect(screen.getByTestId('session-hiding-empty-state')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('show-sessions-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('view-transcript-99')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('view-transcript-99')).toHaveTextContent(/View transcript/i)
+  })
+
+  it('renders a "N tasks created in this session" count when child_task_count > 0', async () => {
+    const sessionTask = {
+      id: '100',
+      title: 'Session in torios',
+      priority: 'P3',
+      status: 'open',
+      created_at: new Date().toISOString(),
+      description: 'session-task: Work happening in /Users/torimeyer/claude/torios.',
+      label_ids: [],
+      session_id: 'sess-abc-123',
+      child_task_count: 3,
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [sessionTask] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-hiding-empty-state')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('show-sessions-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('child-task-count-100')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('child-task-count-100')).toHaveTextContent(/3 tasks created in this session/i)
+  })
+
+  it('hides the child task count when child_task_count is 0', async () => {
+    const sessionTask = {
+      id: '101',
+      title: 'Session in torios',
+      priority: 'P3',
+      status: 'open',
+      created_at: new Date().toISOString(),
+      description: 'session-task: Work happening in /Users/torimeyer/claude/torios.',
+      label_ids: [],
+      session_id: 'sess-abc-123',
+      child_task_count: 0,
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [sessionTask] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-hiding-empty-state')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('show-sessions-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('view-transcript-101')).toBeInTheDocument()
+    })
+    // No child count row renders when count is zero.
+    expect(screen.queryByTestId('child-task-count-101')).not.toBeInTheDocument()
+  })
+
+  it('does NOT render View transcript on a task with no session_id', async () => {
+    const regularTask = {
+      id: '102',
+      title: 'Fix login bug',
+      priority: 'P1',
+      status: 'open',
+      created_at: new Date().toISOString(),
+      label_ids: [],
+      session_id: null,
+      child_task_count: 0,
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [regularTask] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('view-transcript-102')).not.toBeInTheDocument()
+  })
+
+  it('singularizes the child task count to "1 task created" when count is 1', async () => {
+    const sessionTask = {
+      id: '103',
+      title: 'Session in torios',
+      priority: 'P3',
+      status: 'open',
+      created_at: new Date().toISOString(),
+      description: 'session-task: Work happening in /Users/torimeyer/claude/torios.',
+      label_ids: [],
+      session_id: 'sess-xyz',
+      child_task_count: 1,
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [sessionTask] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-hiding-empty-state')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('show-sessions-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('child-task-count-103')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('child-task-count-103')).toHaveTextContent(/1 task created in this session/i)
+    // Not pluralized
+    expect(screen.getByTestId('child-task-count-103')).not.toHaveTextContent(/1 tasks/i)
+  })
+
+  describe('default open filter and All toggle', () => {
+    const mixedTasks = [
+      { id: 'o1', title: 'Open one', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+      { id: 'o2', title: 'Open two', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+      { id: 'c1', title: 'Closed one', priority: 'P2', status: 'closed', created_at: '2024-01-01T00:00:00Z', label_ids: [] },
+      { id: 's1', title: 'Shelved one', priority: 'P3', status: 'shelved', created_at: '2024-01-01T00:00:00Z', label_ids: [] },
+    ]
+
+    beforeEach(() => {
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: mixedTasks })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        return Promise.resolve({})
+      })
+    })
+
+    it('on first mount only open rows are rendered', async () => {
+      renderTasks()
+
+      await waitFor(() => {
+        expect(screen.getByText('Open one')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Open two')).toBeInTheDocument()
+      expect(screen.queryByText('Closed one')).not.toBeInTheDocument()
+      expect(screen.queryByText('Shelved one')).not.toBeInTheDocument()
+    })
+
+    it('shows a visible Open only chip on first mount', async () => {
+      renderTasks()
+
+      await waitFor(() => {
+        expect(screen.getByText('Open one')).toBeInTheDocument()
+      })
+      const chip = screen.getByTestId('status-chip-open')
+      expect(chip).toBeInTheDocument()
+      expect(chip).toHaveTextContent(/Open only/)
+    })
+
+    it('clearing the Open only chip reveals closed and shelved rows', async () => {
+      renderTasks()
+
+      await waitFor(() => {
+        expect(screen.getByText('Open one')).toBeInTheDocument()
+      })
+      // Clear the chip to show all.
+      fireEvent.click(screen.getByTestId('status-chip-clear'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Closed one')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Open one')).toBeInTheDocument()
+      expect(screen.getByText('Open two')).toBeInTheDocument()
+      expect(screen.getByText('Shelved one')).toBeInTheDocument()
+      // The chip now reads "All tasks".
+      expect(screen.getByTestId('status-chip-all')).toHaveTextContent(/All tasks/)
+    })
+
+    it('selecting All in the filter drawer reveals previously hidden rows', async () => {
+      renderTasks()
+
+      await waitFor(() => {
+        expect(screen.getByText('Open one')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('filters-pill'))
+      fireEvent.click(screen.getByTestId('status-filter-all'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Closed one')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Shelved one')).toBeInTheDocument()
+      expect(screen.getByText('Open one')).toBeInTheDocument()
+    })
+
+    it('clicking the All chip close button returns to Open only', async () => {
+      renderTasks()
+
+      await waitFor(() => {
+        expect(screen.getByText('Open one')).toBeInTheDocument()
+      })
+      // Switch to All.
+      fireEvent.click(screen.getByTestId('status-chip-clear'))
+      await waitFor(() => {
+        expect(screen.getByText('Closed one')).toBeInTheDocument()
+      })
+      // Reset to Open only via the All chip.
+      fireEvent.click(screen.getByTestId('status-chip-reset-open'))
+      await waitFor(() => {
+        expect(screen.queryByText('Closed one')).not.toBeInTheDocument()
+      })
+      expect(screen.getByTestId('status-chip-open')).toBeInTheDocument()
+    })
   })
 })

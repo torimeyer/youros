@@ -21,12 +21,10 @@ class OstkError(Exception):
     pass
 
 
-# Shared parse cache for .ostk/audit.jsonl. The file is ~400 KB and grew
-# every time routers/ideas.py, routers/dashboard.py, and
-# services/briefing.py re-read it on the async event loop. Before this
-# cache, a single /api/ideas request read + parsed the file three times
-# (1.2 MB I/O + three full JSON parses) and blocked the loop each time.
-# Now every caller goes through :func:`read_audit_entries` which checks
+# Shared parse cache for .ostk/audit.jsonl. The file is ~400 KB and was
+# re-read by routers/dashboard.py and services/briefing.py on the async
+# event loop on every request. Now every caller goes through
+# :func:`read_audit_entries` which checks
 # the file's size + mtime_ns and returns the cached parse if the file
 # is unchanged. Callers get a shared list[dict] they must NOT mutate.
 _audit_cache: dict[str, tuple[int, int, list[dict]]] = {}
@@ -447,6 +445,50 @@ class OstkService:
         issues_path.write_text("\n".join(updated) + "\n")
         return f"updated {task_id} priority to {priority}"
 
+    async def update_task_fields(
+        self,
+        task_id: str,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> str:
+        """Rename a task's title and/or description.
+
+        ``ostk needle edit`` only supports ``--description`` today, so this
+        edits ``issues.jsonl`` directly for title changes. Description changes
+        use the same fast path for consistency. Both fields are optional and
+        any unset field is left untouched.
+        """
+        if title is None and description is None:
+            raise OstkError("update_task_fields requires title or description")
+
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        if not issues_path.exists():
+            raise OstkError("issues.jsonl not found")
+
+        lines = issues_path.read_text().strip().splitlines()
+        found = False
+        updated = []
+        for line in lines:
+            entry = json.loads(line)
+            if entry.get("id") == task_id:
+                if title is not None:
+                    entry["title"] = title
+                if description is not None:
+                    entry["description"] = description
+                found = True
+            updated.append(json.dumps(entry, ensure_ascii=False))
+
+        if not found:
+            raise OstkError(f"task '{task_id}' not found")
+
+        issues_path.write_text("\n".join(updated) + "\n")
+        fields = []
+        if title is not None:
+            fields.append("title")
+        if description is not None:
+            fields.append("description")
+        return f"updated {task_id} {' and '.join(fields)}"
+
     async def shelve_task(self, task_id: str) -> str:
         """Pause a task via ``ostk work shelve``."""
         return await self._run("work", "shelve", task_id)
@@ -632,7 +674,7 @@ class OstkService:
                 if "all blockers resolved" in stripped.lower():
                     result["all_blockers_resolved"] = True
                     continue
-                # ostk emits a trailing footer like "→ ⚠ unresolved blockers — may not be ready"
+                # ostk emits a trailing footer like "-> unresolved blockers, may not be ready"
                 # when at least one blocker is still open. It is a status note, not an item.
                 if stripped.startswith("\u2192") and "\u26a0" in stripped:
                     continue
@@ -964,16 +1006,14 @@ class OstkService:
     # --- Search ---
 
     async def search_near(self, query: str) -> dict:
-        """Search tasks and ideas by concept using ostk work near.
+        """Search tasks by concept using ostk work near.
 
-        Returns a dict with 'tasks' (list of matching needles) and
-        'ideas' (list of matching hay items from the audit log).
+        Returns a dict with 'tasks' (list of matching needles).
         The CLI output is parsed into structured results.
         """
         tasks: list[dict] = []
-        ideas: list[dict] = []
 
-        # 1. Search tasks (needles) via ostk work near
+        # Search tasks (needles) via ostk work near
         try:
             raw = await self._run("work", "near", query)
             tasks = self._parse_near_output(raw)
@@ -981,44 +1021,7 @@ class OstkService:
             # "no open needles matching ..." is not a real error
             pass
 
-        # 2. Search ideas (hay) by scanning audit.jsonl for hay.filed events
-        audit_path = Path(self.cwd) / ".ostk" / "audit.jsonl"
-        if audit_path.exists():
-            try:
-                text = audit_path.read_text()
-            except OSError:
-                text = ""
-
-            # Build a set of converted straws so we can mark them
-            converted_straws: set[str] = set()
-            for line in text.strip().splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if entry.get("event") == "hay.converted":
-                    converted_straws.add(entry.get("straw", ""))
-
-            query_lower = query.lower()
-            for line in text.strip().splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if entry.get("event") == "hay.filed":
-                    straw = entry.get("straw", "")
-                    if query_lower in straw.lower():
-                        ideas.append({
-                            "straw": straw,
-                            "timestamp": entry.get("timestamp", ""),
-                            "converted": straw in converted_straws,
-                        })
-
-        return {"tasks": tasks, "ideas": ideas, "query": query}
+        return {"tasks": tasks, "query": query}
 
     def _parse_near_output(self, output: str) -> list[dict]:
         """Parse the output of ``ostk work near`` into a list of task dicts."""
@@ -1434,11 +1437,13 @@ class OstkService:
     def _parse_history_line(line: str) -> Optional[dict]:
         """Parse a single ostk os history output line.
 
-        Expected format:
+        Handles both legacy format (Z suffix, no microseconds):
           [2026-04-06T17:42:46Z] task.added        →091 Use ostk secret management
+        And the current format (microseconds + UTC offset):
+          [2026-04-14T22:30:45.665455+00:00] agent.spawned     name="fix-activity-insights"
         """
         m = re.match(
-            r"\[(\d{4}-\d{2}-\d{2}T[\d:]+Z)\]\s+(\S+)\s+(.*)",
+            r"\[(\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2}))\]\s+(\S+)\s*(.*)",
             line,
         )
         if not m:
@@ -1820,15 +1825,37 @@ class OstkService:
         """Promote a draft to a spec. Returns the new file path."""
         return await self._run("doc", "promote", path)
 
-    async def doc_decompose(self, path: str) -> str:
-        """Break a spec into tasks. Returns the created task list."""
-        return await self._run("doc", "decompose", path, "--auto")
+    async def doc_decompose(self, path: str) -> dict:
+        """Break a spec into tasks. Returns result text and extracted task IDs.
+
+        After ostk decomposes the spec, this method:
+        1. Parses the output for created needle IDs (lines matching ->NNN)
+        2. Writes those IDs back to the spec's front matter ``tasks:`` field
+        3. Returns ``{"result": "...", "task_ids": ["NNN", ...]}``
+        """
+        result = await self._run("doc", "decompose", path, "--auto")
+
+        # Extract needle IDs from output lines like "->407" or "→407 Some task title"
+        # ostk may emit ASCII "->NNN" or Unicode "→NNN"; handle both.
+        task_ids: list[str] = []
+        for line in result.split("\n"):
+            stripped = line.strip()
+            match = re.match(r"(?:->|→)(\d+)", stripped)
+            if match:
+                task_ids.append(match.group(1))
+
+        # Write task IDs back to spec front matter if any were created
+        if task_ids:
+            self._write_tasks_to_frontmatter(path, task_ids)
+
+        return {"result": result, "task_ids": task_ids}
 
     async def list_docs(self) -> list[dict]:
         """Scan docs/draft and docs/spec directories for documents.
 
-        Returns a list of dicts with path, title, status, and timestamps
-        parsed from the YAML front matter.
+        Returns a list of dicts with path, title, status, timestamps,
+        task_ids, task_summary, acceptance_criteria, and computed status
+        parsed from the YAML front matter and body.
         """
         docs_dir = Path(self.cwd) / "docs"
         results: list[dict] = []
@@ -1841,10 +1868,80 @@ class OstkService:
                 doc = self._parse_doc_frontmatter(md, status)
                 results.append(doc)
 
+        # Collect all task IDs referenced by any spec. Spec front matter
+        # stores bare numeric IDs ("407") but ostk returns IDs prefixed with
+        # an arrow ("→407"). Normalize both sides so the lookup matches.
+        all_task_ids: set[str] = set()
+        for doc in results:
+            all_task_ids.update(
+                self._normalize_task_id(t) for t in doc.get("task_ids", [])
+            )
+
+        # Fetch task statuses in one batch if any specs reference tasks
+        task_status_map: dict[str, str] = {}
+        if all_task_ids:
+            try:
+                all_tasks = await self.list_tasks()
+                for t in all_tasks:
+                    tid = self._normalize_task_id(t.get("id"))
+                    if tid and tid in all_task_ids:
+                        task_status_map[tid] = t.get("status", "open")
+            except OstkError:
+                pass  # graceful degradation if ostk is unavailable
+
+        # Enrich each doc with task_summary and computed status
+        for doc in results:
+            raw_ids = doc.get("task_ids", [])
+            norm_ids = [self._normalize_task_id(t) for t in raw_ids]
+            total = len(norm_ids)
+            closed = sum(
+                1 for tid in norm_ids
+                if task_status_map.get(tid, "open") == "closed"
+            )
+            doc["task_summary"] = {
+                "total": total,
+                "open": total - closed,
+                "closed": closed,
+            }
+            # Include acceptance-criteria progress in the computation so a
+            # spec with all tasks closed flips to "complete" once Verify has
+            # checked every box. Without an explicit Verify run, ACs start
+            # unchecked and the spec stays "in-progress" so the Verify step
+            # is still required in the happy path.
+            ac = doc.get("acceptance_criteria", [])
+            ac_all_met = bool(ac) and all(c.get("checked") for c in ac)
+            doc["status"] = self.compute_spec_status(
+                doc["status"], norm_ids, task_status_map, ac_all_met=ac_all_met
+            )
+
         return results
 
+    @staticmethod
+    def _normalize_task_id(tid: Optional[str]) -> str:
+        """Strip the ``→`` / ``->`` prefix so IDs compare cleanly.
+
+        Spec front matter stores bare numeric IDs ("407") while ostk's
+        ``work list --json`` emits the arrow-prefixed form ("→407"). Both
+        map to the same task; without this normalization the spec status
+        never flipped to Complete because the lookup always missed.
+        """
+        if not tid:
+            return ""
+        s = str(tid).strip()
+        if s.startswith("→"):
+            return s[1:]
+        if s.startswith("->"):
+            return s[2:]
+        return s
+
     def _parse_doc_frontmatter(self, path: Path, fallback_status: str) -> dict:
-        """Read YAML front matter from a markdown file."""
+        """Read YAML front matter from a markdown file.
+
+        Returns a dict with the standard fields plus Phase 2 additions:
+        - ``task_ids``: list of needle IDs from the ``tasks:`` front matter
+        - ``acceptance_criteria``: list of ``{text, checked}`` dicts parsed
+          from ``- [ ]`` / ``- [x]`` checkboxes in the body
+        """
         text = path.read_text()
         doc: dict = {
             "path": str(path.relative_to(self.cwd)),
@@ -1854,6 +1951,8 @@ class OstkService:
             "created_at": "",
             "promoted_at": "",
             "body": "",
+            "task_ids": [],
+            "acceptance_criteria": [],
         }
 
         lines = text.split("\n")
@@ -1864,7 +1963,19 @@ class OstkService:
                     end = i
                     break
             if end:
+                # Track whether we are inside the tasks: YAML list
+                in_tasks_list = False
                 for line in lines[1:end]:
+                    stripped = line.strip()
+                    # Detect YAML list items under tasks:
+                    if in_tasks_list:
+                        if stripped.startswith("- "):
+                            val = stripped[2:].strip().strip('"').strip("'")
+                            if val:
+                                doc["task_ids"].append(val)
+                            continue
+                        else:
+                            in_tasks_list = False
                     if ":" in line:
                         key, _, val = line.partition(":")
                         key = key.strip()
@@ -1877,12 +1988,312 @@ class OstkService:
                             doc["created_at"] = val
                         elif key == "promoted_at":
                             doc["promoted_at"] = val
+                        elif key == "tasks":
+                            # Inline format: tasks: ["407", "408"]
+                            if val.startswith("["):
+                                import ast
+                                try:
+                                    parsed = ast.literal_eval(val)
+                                    doc["task_ids"] = [str(t) for t in parsed]
+                                except (ValueError, SyntaxError):
+                                    pass
+                            else:
+                                # Block format: subsequent lines are list items
+                                in_tasks_list = True
                 # Body is everything after the front matter
                 doc["body"] = "\n".join(lines[end + 1:]).strip()
         else:
             doc["body"] = text.strip()
 
+        # Parse acceptance criteria from markdown checkboxes in the body
+        doc["acceptance_criteria"] = self._parse_acceptance_criteria(doc["body"])
+
         return doc
+
+    @staticmethod
+    def _parse_acceptance_criteria(body: str) -> list[dict]:
+        """Extract ``- [ ]`` and ``- [x]`` checkboxes from markdown body."""
+        criteria: list[dict] = []
+        for line in body.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("- [x]") or stripped.startswith("- [X]"):
+                text = stripped[5:].strip()
+                criteria.append({"text": text, "checked": True})
+            elif stripped.startswith("- [ ]"):
+                text = stripped[5:].strip()
+                criteria.append({"text": text, "checked": False})
+        return criteria
+
+    def _write_tasks_to_frontmatter(self, spec_path: str, task_ids: list[str]) -> None:
+        """Write task IDs into a spec's YAML front matter ``tasks:`` field.
+
+        Merges with any existing task IDs to avoid duplicates.
+        """
+        full_path = Path(self.cwd) / spec_path
+        if not full_path.exists():
+            return
+
+        text = full_path.read_text()
+        lines = text.split("\n")
+
+        if not (lines and lines[0].strip() == "---"):
+            return
+
+        end = None
+        for i, line in enumerate(lines[1:], 1):
+            if line.strip() == "---":
+                end = i
+                break
+        if end is None:
+            return
+
+        # Parse existing task IDs from front matter
+        existing_ids: list[str] = []
+        fm_lines = lines[1:end]
+        tasks_start = None
+        tasks_end = None
+        in_tasks = False
+        for idx, line in enumerate(fm_lines):
+            stripped = line.strip()
+            if in_tasks:
+                if stripped.startswith("- "):
+                    val = stripped[2:].strip().strip('"').strip("'")
+                    if val:
+                        existing_ids.append(val)
+                    tasks_end = idx + 1
+                    continue
+                else:
+                    in_tasks = False
+            if stripped.startswith("tasks:"):
+                _, _, val = stripped.partition(":")
+                val = val.strip()
+                tasks_start = idx
+                tasks_end = idx + 1
+                if val.startswith("["):
+                    import ast
+                    try:
+                        parsed = ast.literal_eval(val)
+                        existing_ids = [str(t) for t in parsed]
+                    except (ValueError, SyntaxError):
+                        pass
+                elif not val:
+                    in_tasks = True
+
+        # Merge: add new IDs that are not already present
+        merged = list(existing_ids)
+        for tid in task_ids:
+            if tid not in merged:
+                merged.append(tid)
+
+        # Build the tasks: YAML block
+        tasks_yaml_lines = ["tasks:"]
+        for tid in merged:
+            tasks_yaml_lines.append(f'  - "{tid}"')
+
+        # Rebuild front matter
+        if tasks_start is not None:
+            new_fm = fm_lines[:tasks_start] + tasks_yaml_lines + fm_lines[tasks_end:]
+        else:
+            new_fm = fm_lines + tasks_yaml_lines
+
+        new_lines = ["---"] + new_fm + ["---"] + lines[end + 1:]
+        full_path.write_text("\n".join(new_lines))
+
+    def _resolve_spec_path(self, spec_path: str) -> Path:
+        """Resolve a spec path to a full filesystem path, with validation."""
+        full = Path(self.cwd) / spec_path
+        if not full.exists():
+            raise OstkError(f"Spec not found: {spec_path}")
+        docs_dir = Path(self.cwd) / "docs"
+        resolved = full.resolve()
+        if not str(resolved).startswith(str(docs_dir.resolve())):
+            raise OstkError("Spec path must be under docs/")
+        return full
+
+    async def spec_tasks(self, spec_path: str) -> list[dict]:
+        """Read a spec's linked tasks and return their current status.
+
+        Returns a list of dicts: ``[{id, title, status, priority}, ...]``
+        """
+        full = self._resolve_spec_path(spec_path)
+        doc = self._parse_doc_frontmatter(full, "spec")
+        task_ids = doc.get("task_ids", [])
+        if not task_ids:
+            return []
+
+        # Fetch all tasks and filter to the ones linked to this spec.
+        # IDs on both sides may or may not carry the arrow prefix, so
+        # normalize before comparing.
+        all_tasks = await self.list_tasks()
+        id_set = {self._normalize_task_id(tid) for tid in task_ids}
+        matched: list[dict] = []
+        for t in all_tasks:
+            if self._normalize_task_id(t.get("id")) in id_set:
+                matched.append({
+                    "id": t["id"],
+                    "title": t.get("title", ""),
+                    "status": t.get("status", "open"),
+                    "priority": t.get("priority", "P1"),
+                })
+        return matched
+
+    async def spec_verify(self, spec_path: str) -> dict:
+        """Verify a spec's acceptance criteria against linked task status.
+
+        Returns::
+
+            {
+                "criteria": [{"text": "...", "met": bool}, ...],
+                "all_met": bool,
+                "task_summary": {"total": N, "open": N, "closed": N}
+            }
+        """
+        full = self._resolve_spec_path(spec_path)
+        doc = self._parse_doc_frontmatter(full, "spec")
+        ac = doc.get("acceptance_criteria", [])
+        task_ids = doc.get("task_ids", [])
+
+        # Get task statuses. Normalize IDs so arrow-prefixed tasks returned
+        # by ostk match the bare numeric IDs stored in the spec front matter.
+        all_tasks = await self.list_tasks()
+        id_set = {self._normalize_task_id(tid) for tid in task_ids}
+        linked_tasks = [
+            t for t in all_tasks
+            if self._normalize_task_id(t.get("id")) in id_set
+        ]
+
+        total = len(linked_tasks)
+        closed = sum(1 for t in linked_tasks if t.get("status") == "closed")
+        open_count = total - closed
+
+        # Acceptance criteria are treated as met when either the checkbox is
+        # already checked in the spec body, OR every linked task is closed
+        # and there are tasks to begin with. This mirrors a real Verify run:
+        # once the agents finish every task, the checklist is considered
+        # satisfied. We also persist the checkmarks back to the spec body
+        # so subsequent list_docs calls see the spec as complete.
+        all_tasks_closed = total > 0 and closed == total
+        criteria = [
+            {
+                "text": c["text"],
+                "met": c["checked"] or all_tasks_closed,
+            }
+            for c in ac
+        ]
+        all_met = bool(criteria) and all(c["met"] for c in criteria)
+
+        # If Verify confirms every box, write the checkmarks back to disk so
+        # the spec's computed status flips to complete on the next list.
+        if all_met and not all(c["checked"] for c in ac):
+            try:
+                self._check_all_acceptance_criteria(spec_path)
+            except Exception:
+                pass  # best effort; stale state is better than a 500
+
+        return {
+            "criteria": criteria,
+            "all_met": all_met,
+            "task_summary": {"total": total, "open": open_count, "closed": closed},
+        }
+
+    def _check_all_acceptance_criteria(self, spec_path: str) -> None:
+        """Flip every ``- [ ]`` line in a spec body to ``- [x]``.
+
+        Called when Verify decides every criterion is met. Keeps the spec
+        file, the Verify response, and the derived Complete status aligned.
+        """
+        full = Path(self.cwd) / spec_path
+        if not full.exists():
+            return
+        text = full.read_text()
+        new_lines: list[str] = []
+        for line in text.split("\n"):
+            stripped = line.lstrip()
+            if stripped.startswith("- [ ]"):
+                indent = line[: len(line) - len(stripped)]
+                new_lines.append(indent + "- [x]" + stripped[5:])
+            else:
+                new_lines.append(line)
+        full.write_text("\n".join(new_lines))
+
+    async def spec_build(self, spec_path: str) -> dict:
+        """Build agent configs for a spec's open tasks.
+
+        Returns agent configurations without actually spawning them.
+        The frontend (Phase 3) handles the actual spawning.
+
+        Returns::
+
+            {"agents": [{"name": "...", "task_id": "...", "prompt": "..."}, ...]}
+        """
+        full = self._resolve_spec_path(spec_path)
+        doc = self._parse_doc_frontmatter(full, "spec")
+        spec_name = Path(spec_path).stem
+        spec_text = doc.get("body", "")
+        task_ids = doc.get("task_ids", [])
+
+        if not task_ids:
+            return {"agents": []}
+
+        # Get open tasks only. Normalize so arrow-prefixed IDs match.
+        all_tasks = await self.list_tasks()
+        id_set = {self._normalize_task_id(tid) for tid in task_ids}
+        open_tasks = [
+            t for t in all_tasks
+            if self._normalize_task_id(t.get("id")) in id_set
+            and t.get("status") != "closed"
+        ]
+
+        agents: list[dict] = []
+        for task in open_tasks:
+            task_id = task["id"]
+            task_title = task.get("title", "")
+            agent_name = f"spec-{spec_name}-{task_id}"
+            prompt = (
+                f"You are building task {task_id}: {task_title}\n\n"
+                f"## Spec\n\n{spec_text}\n\n"
+                f"## Instructions\n\n"
+                f"- Complete the task described above.\n"
+                f"- Use `ostk commit --spec {spec_name} --needle {task_id}` "
+                f"for all your commits so your work is attributed to the spec.\n"
+                f"- When done, close the task with `ostk work close ->{task_id}`.\n"
+            )
+            agents.append({
+                "name": agent_name,
+                "task_id": task_id,
+                "task_title": task_title,
+                "prompt": prompt,
+            })
+
+        return {"agents": agents}
+
+    @staticmethod
+    def compute_spec_status(
+        base_status: str,
+        task_ids: list[str],
+        task_statuses: dict[str, str],
+        ac_all_met: bool = False,
+    ) -> str:
+        """Derive a spec's lifecycle status from its tasks.
+
+        - ``draft``: no tasks, original status is draft
+        - ``ready``: promoted (status=spec) but no tasks yet
+        - ``in-progress``: has tasks and at least one is open, OR all tasks
+          are closed but Verify has not yet marked every acceptance
+          criterion met (so the checklist is still visibly incomplete).
+        - ``complete``: has tasks, all are closed, AND every acceptance
+          criterion is checked (i.e. Verify has run and all boxes are met).
+        - Falls back to base_status for unknown states.
+        """
+        if base_status == "draft":
+            return "draft"
+        if not task_ids:
+            return "ready"
+        statuses = [task_statuses.get(tid, "open") for tid in task_ids]
+        all_closed = all(s == "closed" for s in statuses)
+        if all_closed and ac_all_met:
+            return "complete"
+        return "in-progress"
 
     # --- Threads ---
 
@@ -1951,12 +2362,79 @@ class OstkService:
 
     # --- Nudges ---
 
-    async def write_nudge(self, agent_name: str, message: str) -> dict:
+    async def purge_agent_chat_state(self, agent_name: str) -> dict:
+        """Delete every on-disk chat artifact for ``agent_name``.
+
+        Called at the top of a fresh spawn so a second Roadmap (or any
+        template) run never sees the previous run's nudges, replies, or
+        transcript. Without this purge the UI's inline chat panel merges
+        stale file-based entries from ``.ostk/nudges/{name}/`` and
+        ``.ostk/nudges/{name}/replies/`` with the new agent's state and
+        the operator sees messages that do not belong to the new run.
+
+        Removes:
+          * ``.ostk/nudges/{agent_name}/`` (user messages)
+          * ``.ostk/nudges/{agent_name}/replies/`` (agent replies)
+          * ``transcripts/{agent_name}.md`` (legacy markdown transcript)
+
+        Safe to call when the directories do not exist (no-op). Errors
+        on individual files are swallowed so one bad file does not
+        block the spawn. Returns a small dict with the counts of
+        artifacts removed so callers and tests can assert the purge
+        actually fired.
+        """
+        import shutil
+
+        counts = {"nudges": 0, "replies": 0, "transcripts": 0}
+
+        # 1. Nudges + replies directory. A single rmtree on the parent
+        #    takes both in one shot because replies is nested under it.
+        nudges_dir = NUDGES_DIR / agent_name
+        if nudges_dir.exists():
+            try:
+                nudge_files = list(nudges_dir.glob("*.json"))
+                counts["nudges"] = len(nudge_files)
+                replies_dir = nudges_dir / "replies"
+                if replies_dir.exists():
+                    counts["replies"] = len(list(replies_dir.glob("*.json")))
+                shutil.rmtree(nudges_dir)
+            except OSError:
+                # Swallow: a partially broken dir should not block a
+                # fresh spawn. The UI will still get a clean chat as
+                # long as at least the new nudges land on top.
+                pass
+
+        # 2. Legacy markdown transcript. The spawn path reopens this
+        #    with ``open(..., "w")`` which truncates, but we unlink
+        #    first so a stale stub from a crashed prior run cannot
+        #    briefly surface before the new output lands.
+        transcript_path = PROJECT_ROOT / "transcripts" / f"{agent_name}.md"
+        if transcript_path.exists():
+            try:
+                transcript_path.unlink()
+                counts["transcripts"] = 1
+            except OSError:
+                pass
+
+        return counts
+
+    async def write_nudge(
+        self,
+        agent_name: str,
+        message: str,
+        kind: Optional[str] = None,
+    ) -> dict:
         """Write a nudge file to .ostk/nudges/{agent_name}/.
 
         Nudges are the file-based messaging system for communicating with
         running agents. Each nudge is a JSON file with a timestamp-based
         name so multiple nudges can queue up.
+
+        ``kind`` tags the nudge so the agent's mailbox poller and the
+        inline chat UI can distinguish a plain follow-up message
+        (``user_message``) from a course-correcting instruction
+        (``correction``). When omitted, the field is left absent on
+        disk for backward compatibility with older readers.
         """
         nudges_dir = NUDGES_DIR / agent_name
         nudges_dir.mkdir(parents=True, exist_ok=True)
@@ -1965,12 +2443,14 @@ class OstkService:
         filename = f"{ts.strftime('%Y%m%dT%H%M%S')}_{int(ts.timestamp() * 1000) % 1000:03d}.json"
         nudge_path = nudges_dir / filename
 
-        nudge_data = {
+        nudge_data: dict = {
             "agent": agent_name,
             "message": message,
             "timestamp": ts.isoformat(),
             "source": "ui",
         }
+        if kind:
+            nudge_data["kind"] = kind
 
         atomic_write_text(nudge_path, json.dumps(nudge_data, indent=2) + "\n")
         return nudge_data
@@ -1996,6 +2476,7 @@ class OstkService:
         agent_name: str,
         message: str,
         in_reply_to: Optional[str] = None,
+        kind: Optional[str] = None,
     ) -> dict:
         """Write an agent's reply to a prior nudge under .ostk/nudges/{agent}/replies/.
 
@@ -2005,21 +2486,90 @@ class OstkService:
         correlates the reply to a specific user message, so the UI can
         thread them. When omitted, the reply is treated as a free form
         status update from the agent.
+
+        ``kind`` lets the writer mark the reply so the inline chat UI
+        can distinguish a warm ack bot reply (``ack``) from a real
+        substantive subagent reply (``real``). Real subagent replies
+        coming through POST /reply default to ``real`` so the UI can
+        always tell the two apart, even when the field is absent on
+        older records.
+
+        Write-time dedupe
+        -----------------
+        If an identical ``(in_reply_to, message, kind)`` record was
+        written within the last 30 seconds, the new write is skipped and
+        the existing record is returned unchanged. This is the last line
+        of defense for the inline chat dupe bug Tori hit: even when the
+        process-local acked-id set in ``chat_ack_bot`` gets wiped (a
+        restart, a backend reload during development, a reload watchdog
+        replay), the on-disk store itself refuses to accept a second
+        copy of the same reply. Callers never see an error: they get
+        the first record, so the UI shows one bubble per ack.
         """
         replies_dir = NUDGES_DIR / agent_name / "replies"
         replies_dir.mkdir(parents=True, exist_ok=True)
 
         ts = datetime.now(timezone.utc)
-        filename = f"{ts.strftime('%Y%m%dT%H%M%S')}_{int(ts.timestamp() * 1000) % 1000:03d}.json"
+
+        # Write-time dedupe. Scan the last few reply files. If one of
+        # them has the same ``(in_reply_to, message, kind)`` fingerprint
+        # AND was written within the last 30 seconds, treat this call
+        # as a duplicate and return the existing record. The 30 second
+        # window covers the practical failure modes (ack bot restart,
+        # rapid double-ack race) without ever folding two genuinely
+        # distinct replies that happen to repeat the same text hours
+        # apart. We only walk the tail of the sorted list so this scan
+        # stays O(1) amortised even when the replies dir has thousands
+        # of entries.
+        try:
+            recent = sorted(replies_dir.glob("*.json"))[-16:]
+            cutoff = ts.timestamp() - 30.0
+            for existing_path in recent:
+                try:
+                    existing = json.loads(existing_path.read_text())
+                except (json.JSONDecodeError, OSError):
+                    continue
+                existing_kind = existing.get("kind") if kind else None
+                if (
+                    existing.get("message") == message
+                    and existing.get("in_reply_to") == in_reply_to
+                    and existing_kind == kind
+                ):
+                    existing_ts_raw = str(existing.get("timestamp", ""))
+                    try:
+                        existing_dt = datetime.fromisoformat(existing_ts_raw)
+                    except ValueError:
+                        continue
+                    if existing_dt.timestamp() >= cutoff:
+                        existing["file"] = existing_path.name
+                        return existing
+        except OSError:
+            # A broken replies dir should not block a fresh write. Fall
+            # through to the normal path so the caller's message still
+            # lands on disk.
+            pass
+
+        # Use microsecond precision in the filename so two replies written
+        # back to back with different identities never collide and silently
+        # overwrite each other. Millisecond precision was not enough: the
+        # ack bot's burst path (one ack per nudge within a few microseconds)
+        # and the dedupe test case both exposed a collision where the
+        # second write landed on the same filename as the first.
+        filename = (
+            f"{ts.strftime('%Y%m%dT%H%M%S')}_"
+            f"{ts.microsecond:06d}.json"
+        )
         reply_path = replies_dir / filename
 
-        reply_data = {
+        reply_data: dict = {
             "agent": agent_name,
             "message": message,
             "timestamp": ts.isoformat(),
             "source": "agent",
             "in_reply_to": in_reply_to,
         }
+        if kind:
+            reply_data["kind"] = kind
 
         atomic_write_text(reply_path, json.dumps(reply_data, indent=2) + "\n")
         return reply_data
@@ -2221,16 +2771,6 @@ class OstkService:
         also send a regular nudge so both systems stay in sync.
         """
         return await self._run("work", "correct", agent_name, message, timeout=10)
-
-    # --- Compile / Idea Triage (needle 336) ---
-
-    async def compile_ideas(self, dry_run: bool = False) -> str:
-        """Run ostk work compile to triage hay into needles.
-
-        This is the compile_hay method exposed under a friendlier name
-        that matches the ostk :compile verb.
-        """
-        return await self.compile_hay(dry_run=dry_run)
 
     # --- Agent Lifecycle / Context Pressure (needle 337) ---
 

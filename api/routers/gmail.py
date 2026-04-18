@@ -9,27 +9,27 @@ from pydantic import BaseModel
 
 from services.google_auth import get_email, is_authenticated
 from services import gmail as gmail_service
+from services import connections_cache
 
 router = APIRouter(tags=["gmail"])
+
+# Cache key for the status payload. The cache TTL is short, and any
+# connect/disconnect flow invalidates every google_* key so a user sees
+# state change immediately.
+_GMAIL_STATUS_CACHE_KEY = "gmail_auth_status"
 
 
 class EmailToTaskRequest(BaseModel):
     message_id: str
 
 
-@router.get("/gmail/auth/status")
-async def gmail_auth_status():
-    """Return whether the user has connected Gmail.
+class BatchDeleteRequest(BaseModel):
+    ids: list[str]
+    permanent: bool = False
 
-    - authenticated: True if a Google token exists.
-    - needs_reauth: True if the token exists but the Gmail scope is missing.
-    - email: the connected account email, if available.
-    - unread_count: number of unread messages, or 0 if not authenticated.
 
-    Uses get_unread_summary as the single probe. A successful call means the
-    scope is fine and gives us the unread count for free. A scope error means
-    needs_reauth. One Gmail round trip on cold, zero on warm cache.
-    """
+def _compute_gmail_status() -> dict:
+    """Pure function that resolves the Gmail status payload from disk."""
     authed = is_authenticated()
     email = get_email() if authed else None
     reauth = False
@@ -52,6 +52,27 @@ async def gmail_auth_status():
         "email": email,
         "unread_count": unread_count,
     }
+
+
+@router.get("/gmail/auth/status")
+async def gmail_auth_status():
+    """Return whether the user has connected Gmail.
+
+    - authenticated: True if a Google token exists.
+    - needs_reauth: True if the token exists but the Gmail scope is missing.
+    - email: the connected account email, if available.
+    - unread_count: number of unread messages, or 0 if not authenticated.
+
+    Payload is served from an in-memory TTL cache so repeat polls within
+    the same minute return in sub-millisecond time. Any connect, disconnect,
+    or scope-update path must call
+    ``connections_cache.invalidate(_GMAIL_STATUS_CACHE_KEY)`` so the UI sees
+    the change on its next poll.
+    """
+    return connections_cache.get_or_compute(
+        _GMAIL_STATUS_CACHE_KEY,
+        _compute_gmail_status,
+    )
 
 
 @router.get("/gmail/messages")
@@ -216,4 +237,67 @@ async def gmail_to_task(body: EmailToTaskRequest):
         "task_id": task_id,
         "title": title,
         "description": description,
+    }
+
+
+@router.delete("/gmail/messages/{message_id}")
+async def gmail_delete_message(message_id: str, permanent: bool = False):
+    """Move a Gmail message to Trash, or permanently delete it.
+
+    Default behavior matches Gmail's own UI: the message moves to the
+    Trash label and Gmail will auto purge it after 30 days. Pass
+    ``permanent=true`` only when the user has explicitly asked for a
+    permanent delete (for example by saying "delete forever"). There is
+    no undo for a permanent delete.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Gmail.")
+
+    try:
+        if permanent:
+            await gmail_service.permanent_delete_message(message_id)
+        else:
+            await gmail_service.trash_message(message_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not delete message: {exc}",
+        ) from exc
+
+    return {"ok": True, "permanent": permanent, "id": message_id}
+
+
+@router.post("/gmail/messages/batch-delete")
+async def gmail_batch_delete(body: BatchDeleteRequest):
+    """Move a list of Gmail messages to Trash, or permanently delete them.
+
+    Each id is processed independently. A failure on one id does not stop
+    the others. The response reports how many succeeded and the ids that
+    failed so the UI can show a targeted error instead of a blanket one.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Gmail.")
+
+    if not body.ids:
+        raise HTTPException(status_code=400, detail="No message ids provided.")
+
+    succeeded: list[str] = []
+    failed: list[dict] = []
+
+    for message_id in body.ids:
+        try:
+            if body.permanent:
+                await gmail_service.permanent_delete_message(message_id)
+            else:
+                await gmail_service.trash_message(message_id)
+            succeeded.append(message_id)
+        except Exception as exc:
+            failed.append({"id": message_id, "error": str(exc)})
+
+    return {
+        "ok": True,
+        "permanent": body.permanent,
+        "succeeded": succeeded,
+        "failed": failed,
+        "count": len(succeeded),
     }

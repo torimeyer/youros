@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import FilePreviewPane from '../components/FilePreviewPane';
+import ConfirmModal from '../components/ConfirmModal';
+import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
 
 // --- Types ---
@@ -42,6 +44,19 @@ interface BrowseResponse {
   entries: BrowseEntry[];
 }
 
+interface RecentDoc {
+  name: string;
+  path: string;
+  size: number;
+  size_display: string;
+  last_modified: string | null;
+  snippet: string;
+}
+
+interface RecentDocsResponse {
+  files: RecentDoc[];
+}
+
 // --- Helpers ---
 
 const typeConfig: Record<string, { icon: string; color: string; label: string }> = {
@@ -63,6 +78,30 @@ function timeAgo(iso: string | null): string {
   const days = Math.floor(hours / 24);
   if (days === 1) return 'yesterday';
   return `${days}d ago`;
+}
+
+// Turn an auto-saved agent artifact filename into a friendly title.
+// Handles "ia-review-2026-04-16T18-31.md" -> { title: "IA Review",
+// timeLabel: "Apr 16, 6:31 PM" }. Any file that does not match the
+// <slug>-<YYYY-MM-DDTHH-MM>.md pattern falls back to its raw name.
+function agentArtifactTitle(name: string): { title: string; timeLabel: string | null } {
+  const stem = name.endsWith('.md') ? name.slice(0, -3) : name;
+  const match = stem.match(/^(.+)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2})$/);
+  if (!match) return { title: name, timeLabel: null };
+  const slug = match[1];
+  const tsRaw = match[2];
+  const words = slug.split('-').filter(Boolean).map((w) => {
+    if (w.length <= 3 && /^[a-z]+$/.test(w)) return w.toUpperCase();
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  });
+  const title = words.join(' ') || name;
+  const isoCompat = tsRaw.replace(/T(\d{2})-(\d{2})$/, 'T$1:$2:00Z');
+  const d = new Date(isoCompat);
+  if (Number.isNaN(d.getTime())) return { title, timeLabel: null };
+  const timeLabel = d.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+  return { title, timeLabel };
 }
 
 function fileIcon(name: string): string {
@@ -115,6 +154,40 @@ export default function Files() {
   // Preview state: the file currently being previewed in the side pane.
   const [previewEntry, setPreviewEntry] = useState<BrowseEntry | null>(null);
 
+  // Recent docs state (shown on root view, populated from
+  // ~/.myos/files/*.md so every agent output lands in the Files tab).
+  const [recentDocs, setRecentDocs] = useState<RecentDoc[]>([]);
+  const [recentDocsLoading, setRecentDocsLoading] = useState(true);
+
+  // Transient toast for delete feedback. success = green, error = red.
+  // Auto-dismisses after 4 seconds so the UI does not get cluttered.
+  const [deleteToast, setDeleteToast] = useState<
+    { kind: 'success' | 'error'; message: string } | null
+  >(null);
+
+  // In-app confirm dialog (replaces window.confirm). See hooks/useConfirm.
+  const { confirm, confirmProps } = useConfirm();
+
+  // Auto-dismiss the delete toast after 4 seconds.
+  useEffect(() => {
+    if (!deleteToast) return;
+    const id = setTimeout(() => setDeleteToast(null), 4000);
+    return () => clearTimeout(id);
+  }, [deleteToast]);
+
+  // Fetch recent docs (generated agent output, roadmap, plans, etc.)
+  const fetchRecentDocs = useCallback(async () => {
+    setRecentDocsLoading(true);
+    try {
+      const res = await api.get<RecentDocsResponse>('/docs/recent?limit=8');
+      setRecentDocs(res.files ?? []);
+    } catch {
+      setRecentDocs([]);
+    } finally {
+      setRecentDocsLoading(false);
+    }
+  }, []);
+
   // Fetch project list (root view)
   const fetchProjects = useCallback(async () => {
     setProjectsLoading(true);
@@ -147,10 +220,11 @@ export default function Files() {
   useEffect(() => {
     if (currentPath === null) {
       fetchProjects();
+      fetchRecentDocs();
     } else {
       fetchDirectory(currentPath);
     }
-  }, [currentPath, fetchProjects, fetchDirectory]);
+  }, [currentPath, fetchProjects, fetchRecentDocs, fetchDirectory]);
 
   // Navigation helpers
   const navigateTo = (path: string) => setCurrentPath(path);
@@ -187,8 +261,38 @@ export default function Files() {
   const refresh = () => {
     if (currentPath === null) {
       fetchProjects();
+      fetchRecentDocs();
     } else {
       fetchDirectory(currentPath);
+    }
+  };
+
+  // Delete a recent doc from disk, then refresh the list so the
+  // row disappears. Optimistically drop the row locally first so
+  // the UI feels instant even if the network round trip is slow.
+  const deleteRecentDoc = async (doc: RecentDoc) => {
+    const ok = await confirm({
+      title: `Delete ${doc.name}?`,
+      message: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      danger: true,
+    });
+    if (!ok) return;
+    const previous = recentDocs;
+    setRecentDocs((curr) => curr.filter((d) => d.path !== doc.path));
+    try {
+      await api.delete(`/docs/recent?path=${encodeURIComponent(doc.path)}`);
+      setDeleteToast({ kind: 'success', message: `Deleted ${doc.name}` });
+      // Re-fetch so any new items or mtimes stay in sync.
+      fetchRecentDocs();
+    } catch {
+      // Restore the row and warn the user so the list does not lie.
+      setRecentDocs(previous);
+      setDeleteToast({
+        kind: 'error',
+        message: `Could not delete ${doc.name}. Try again, or remove the file manually from the folder.`,
+      });
     }
   };
 
@@ -247,6 +351,69 @@ export default function Files() {
                 )}
               </span>
             ))}
+          </div>
+        )}
+
+        {/* Recent Documents (root view only). Every agent output that
+            clears the length and name filter lands in ~/.myos/files/ so
+            this list picks up roadmap, IA review, PRD, and custom build
+            outputs next to repo docs. */}
+        {currentPath === null && !recentDocsLoading && recentDocs.length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Icon name="schedule" className="text-base text-slate-500" />
+              Recent Documents
+            </h2>
+            <div className="flex flex-col gap-1">
+              {recentDocs.map((doc) => {
+                const friendly = agentArtifactTitle(doc.name);
+                return (
+                  <div
+                    key={doc.path}
+                    className="group grid grid-cols-[1fr_80px_80px_32px] gap-4 items-center bg-slate-900/40 border border-slate-800/60 rounded-lg px-4 py-2.5 hover:border-blue-500/40 hover:bg-slate-800/40 transition-colors w-full"
+                    data-testid={`recent-doc-row-${doc.path}`}
+                  >
+                    <button
+                      onClick={() => openPreview({
+                        name: doc.name,
+                        kind: 'file',
+                        path: doc.path,
+                        item_count: null,
+                        size: doc.size,
+                        size_display: doc.size_display,
+                        last_modified: doc.last_modified,
+                      })}
+                      className="min-w-0 text-left"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon name="article" className="text-base text-blue-400 flex-shrink-0" />
+                        <span className="text-sm text-slate-200 truncate">{friendly.title}</span>
+                        {friendly.timeLabel && (
+                          <span className="text-[11px] text-slate-600 truncate hidden sm:inline">{friendly.timeLabel}</span>
+                        )}
+                      </div>
+                      {doc.snippet && (
+                        <p className="text-[11px] text-slate-500 truncate mt-0.5 ml-6">{doc.snippet}</p>
+                      )}
+                    </button>
+                    <span className="text-xs text-slate-500">{doc.size_display}</span>
+                    <span className="text-xs text-slate-500 text-right">{timeAgo(doc.last_modified)}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteRecentDoc(doc);
+                      }}
+                      className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      title="Delete"
+                      aria-label={`Delete ${doc.name}`}
+                      data-testid={`recent-doc-delete-${doc.path}`}
+                    >
+                      <Icon name="delete" className="text-base" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -404,6 +571,40 @@ export default function Files() {
         onClose={closePreview}
         onOpenExternally={openFile}
       />
+
+      {/* In-app confirm dialog, used by delete flows. */}
+      <ConfirmModal {...confirmProps} />
+
+      {/* Transient toast for delete feedback (success or error). */}
+      {deleteToast && (
+        <div
+          role="status"
+          data-testid={
+            deleteToast.kind === 'success'
+              ? 'files-delete-success-toast'
+              : 'files-delete-error-toast'
+          }
+          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-start gap-3 px-4 py-3 rounded-xl shadow-lg text-sm border ${
+            deleteToast.kind === 'success'
+              ? 'bg-slate-800 border-slate-700 text-slate-200'
+              : 'bg-red-950 border-red-800 text-red-200'
+          }`}
+        >
+          <Icon
+            name={deleteToast.kind === 'success' ? 'check_circle' : 'error'}
+            size={18}
+            className={deleteToast.kind === 'success' ? 'text-green-400' : 'text-red-400'}
+          />
+          <span>{deleteToast.message}</span>
+          <button
+            onClick={() => setDeleteToast(null)}
+            className="text-slate-500 hover:text-slate-300"
+            aria-label="Dismiss"
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

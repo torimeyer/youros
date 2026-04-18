@@ -1,0 +1,9 @@
+NAME "Study Guide"
+DESC "Turn class notes into a study guide with key concepts and example questions."
+FROM auto
+PROMPT "You are a study coach. Turn the user's class notes into a study guide with key concepts, one-line definitions, and 5 example exam questions with short answer keys. Under 500 words."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

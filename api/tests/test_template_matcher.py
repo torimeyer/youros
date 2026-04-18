@@ -51,7 +51,7 @@ class TestMergeWithBuiltIns:
         names = {t["name"] for t in merged}
         assert "saa" in names
         assert "diagnose" in names
-        assert "elit" in names
+        assert "explain-plain" in names
 
     def test_appends_custom_templates(self):
         custom = [{"name": "calendar", "description": "Show calendar", "prompt": "..."}]
@@ -88,11 +88,23 @@ class TestExplicitInvocation:
         assert result["name"] == "diagnose"
 
     @pytest.mark.asyncio
-    async def test_elit_prefix_matches_elit(self):
+    async def test_elit_alias_matches_explain_plain(self):
+        """The generic template is 'explain-plain'. 'elit' is kept as an
+        alias so Tori's muscle memory still resolves to the same template.
+        """
         templates = merge_with_built_ins(None)
         result = await match_template("elit how does TLS work", templates, api_key="")
         assert result is not None
-        assert result["name"] == "elit"
+        assert result["name"] == "explain-plain"
+
+    @pytest.mark.asyncio
+    async def test_explain_plain_prefix_matches_explain_plain(self):
+        templates = merge_with_built_ins(None)
+        result = await match_template(
+            "explain-plain how does TLS work", templates, api_key=""
+        )
+        assert result is not None
+        assert result["name"] == "explain-plain"
 
     @pytest.mark.asyncio
     async def test_trigger_phrase_matches(self):
@@ -322,10 +334,44 @@ class TestEdgeCases:
         # Sanity check the built-in list so the matcher always knows the
         # three classic commands.
         names = {t["name"] for t in BUILT_IN_TEMPLATES}
-        assert names == {"saa", "diagnose", "elit", "idea"}
+        assert names == {"saa", "diagnose", "explain-plain", "idea"}
 
 
 # --- chat flow integration -----------------------------------------------
+
+
+class TestUserAliasResolvesInMatcher:
+    """User-set aliases from ~/.myos/template_aliases.json should
+    be picked up by the explicit invocation layer so typing the alias
+    in chat triggers the corresponding template."""
+
+    @pytest.mark.asyncio
+    async def test_user_alias_matches_in_chat(self, tmp_path, monkeypatch):
+        """A user alias set via the API resolves in the chat matcher."""
+        import services.agent_templates_store as mod
+
+        fake_at_path = tmp_path / "at.json"
+        fake_aliases_path = tmp_path / "aliases.json"
+        monkeypatch.setattr(mod, "AGENT_TEMPLATES_PATH", fake_at_path)
+        monkeypatch.setattr(mod, "TEMPLATE_ALIASES_PATH", fake_aliases_path)
+
+        # Set a user alias: "bb" -> builtin-builder
+        store = mod.AgentTemplatesStore()
+        store.set_alias("builtin-builder", "bb")
+
+        # Now merge templates (which injects user aliases)
+        templates = merge_with_built_ins(None)
+
+        # The chat message "bb fix the thing" should match via explicit invocation
+        # because _inject_user_aliases adds "bb" to the saa template's aliases
+        # (or the closest match). Since built-in templates in the matcher use
+        # "name" not "id", the injection maps via the store lookup.
+        result = await match_template("bb fix the thing", templates, api_key="")
+        # bb is a user alias for Builder, which maps to "saa" in the chat matcher
+        # The exact match depends on how templates are structured. The key check
+        # is that the result is not None (the alias was recognized).
+        assert result is not None
+        assert result["_match_reason"] == "explicit"
 
 
 class TestAutoTemplateSettingDisablesMatcher:

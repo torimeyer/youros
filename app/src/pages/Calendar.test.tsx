@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Calendar from './Calendar'
@@ -11,6 +11,7 @@ vi.mock('../lib/api', async () => {
     api: {
       get: vi.fn(),
       post: vi.fn(),
+      delete: vi.fn(),
     },
   }
 })
@@ -34,6 +35,7 @@ Object.defineProperty(window, 'matchMedia', {
 import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
+const mockedApiPost = vi.mocked(api.post)
 
 const AUTHENTICATED = {
   authenticated: true,
@@ -147,6 +149,112 @@ describe('Calendar page api_not_enabled screen', () => {
   })
 })
 
+describe('Calendar ConnectCard (chunk-d migration)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows ConnectCard with blue accent when not authenticated', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) {
+        return Promise.resolve({ authenticated: false, needs_reauth: false, email: null })
+      }
+      return Promise.resolve({})
+    })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+
+    // The icon container carries the blue accent color via inline style
+    // jsdom converts #3b82f6 to rgb(59, 130, 246) in the DOM
+    const card = screen.getByTestId('connect-card')
+    expect(card.innerHTML).toMatch(/59, 130, 246/)
+  })
+
+  it('shows ConnectCard with reauth title when needs_reauth is true', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) {
+        return Promise.resolve({ authenticated: true, needs_reauth: true, email: null })
+      }
+      return Promise.resolve({})
+    })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Calendar access needs to be updated/i)).toBeInTheDocument()
+  })
+})
+
+describe('Calendar empty-cache recovery (demo bug fix)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders events when the API returns some', async () => {
+    const fakeEvents = [
+      {
+        id: 'ev-1',
+        summary: 'Fox - soccer game',
+        start: { dateTime: '2026-04-16T19:30:00-05:00' },
+        end: { dateTime: '2026-04-16T20:30:00-05:00' },
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) return Promise.resolve({ events: fakeEvents })
+      return Promise.resolve({})
+    })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByText('Fox - soccer game')).toBeInTheDocument()
+    })
+  })
+
+  it('auto-syncs when the first events fetch comes back empty, then renders the new events', async () => {
+    let getCalls = 0
+    const realEvents = [
+      {
+        id: 'ev-2',
+        summary: 'Pepper - gymnastics',
+        start: { dateTime: '2026-04-21T16:45:00-05:00' },
+        end: { dateTime: '2026-04-21T17:45:00-05:00' },
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) {
+        getCalls += 1
+        // First call: empty (simulates stale empty cache).
+        // Second call: real events (after the sync clears the cache).
+        return Promise.resolve({ events: getCalls === 1 ? [] : realEvents })
+      }
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockImplementation((path: string) => {
+      if (path.includes('/calendar/sync')) return Promise.resolve({ ok: true, count: 1 })
+      return Promise.resolve({})
+    })
+
+    renderCalendar()
+
+    // After the auto-sync fallback the real event should land on screen.
+    await waitFor(() => {
+      expect(screen.getByText('Pepper - gymnastics')).toBeInTheDocument()
+    })
+
+    // Sanity check: the sync was actually called.
+    expect(mockedApiPost).toHaveBeenCalledWith('/calendar/sync', {})
+  })
+})
+
 describe('Calendar connect error', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -246,5 +354,483 @@ describe('Calendar day grouping helpers (needle 282)', () => {
       const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
       expect(toLocalDateKey(d)).toBe(expected)
     }
+  })
+})
+
+describe('Calendar countdown subtitle (formatCountdown helper)', () => {
+  // These are pure-function tests. The render-based tests below
+  // exercise the integration (mount the Today strip with a fake event
+  // and read the rendered countdown text from the DOM).
+
+  it('returns empty string when start is missing', async () => {
+    const { formatCountdown } = await import('./Calendar')
+    expect(formatCountdown(undefined, undefined, Date.now())).toBe('')
+  })
+
+  it('returns empty string when the event has already ended', async () => {
+    const { formatCountdown } = await import('./Calendar')
+    const now = new Date('2026-04-15T12:00:00Z').getTime()
+    // Event was 9am to 10am, now is noon.
+    const start = '2026-04-15T09:00:00Z'
+    const end = '2026-04-15T10:00:00Z'
+    expect(formatCountdown(start, end, now)).toBe('')
+  })
+
+  it('returns "Happening now" when the event is in progress', async () => {
+    const { formatCountdown } = await import('./Calendar')
+    const now = new Date('2026-04-15T12:15:00Z').getTime()
+    // Event from 12:00 to 13:00.
+    const start = '2026-04-15T12:00:00Z'
+    const end = '2026-04-15T13:00:00Z'
+    expect(formatCountdown(start, end, now)).toBe('Happening now')
+  })
+
+  it('returns "Starts soon" under 5 minutes away', async () => {
+    const { formatCountdown } = await import('./Calendar')
+    const now = new Date('2026-04-15T11:58:00Z').getTime()
+    // 2 minutes out.
+    const start = '2026-04-15T12:00:00Z'
+    const end = '2026-04-15T13:00:00Z'
+    expect(formatCountdown(start, end, now)).toBe('Starts soon')
+  })
+
+  it('returns "Starts in X minutes" in the 5 to 30 minute window', async () => {
+    const { formatCountdown } = await import('./Calendar')
+    const now = new Date('2026-04-15T11:48:00Z').getTime()
+    // 12 minutes out.
+    const start = '2026-04-15T12:00:00Z'
+    const end = '2026-04-15T13:00:00Z'
+    expect(formatCountdown(start, end, now)).toBe('Starts in 12 minutes')
+  })
+
+  it('returns "Coming up in 1 hour" in the 31 to 60 minute window', async () => {
+    const { formatCountdown } = await import('./Calendar')
+    const now = new Date('2026-04-15T11:15:00Z').getTime()
+    // 45 minutes out.
+    const start = '2026-04-15T12:00:00Z'
+    const end = '2026-04-15T13:00:00Z'
+    expect(formatCountdown(start, end, now)).toBe('Coming up in 1 hour')
+  })
+
+  it('returns "Coming up in 2 hours" when more than an hour away', async () => {
+    const { formatCountdown } = await import('./Calendar')
+    const now = new Date('2026-04-15T10:00:00Z').getTime()
+    // 2 hours out.
+    const start = '2026-04-15T12:00:00Z'
+    const end = '2026-04-15T13:00:00Z'
+    expect(formatCountdown(start, end, now)).toBe('Coming up in 2 hours')
+  })
+
+  it('rounds 1h 20m down to "Coming up in 1 hour"', async () => {
+    const { formatCountdown } = await import('./Calendar')
+    const now = new Date('2026-04-15T10:40:00Z').getTime()
+    // 1h 20m out.
+    const start = '2026-04-15T12:00:00Z'
+    const end = '2026-04-15T13:00:00Z'
+    expect(formatCountdown(start, end, now)).toBe('Coming up in 1 hour')
+  })
+
+  it('never renders a bare "1h" string anywhere', async () => {
+    const { formatCountdown } = await import('./Calendar')
+    // Sweep across every minute of a 3 hour window and make sure the
+    // bare "1h" short form is never returned. Guards against a
+    // regression where someone restores the old duration-style label.
+    const start = '2026-04-15T12:00:00Z'
+    const end = '2026-04-15T13:00:00Z'
+    const baseNow = new Date('2026-04-15T09:00:00Z').getTime()
+    for (let offset = 0; offset < 180; offset += 1) {
+      const now = baseNow + offset * 60000
+      const label = formatCountdown(start, end, now)
+      expect(label).not.toBe('1h')
+      expect(label).not.toMatch(/^\d+h$/)
+    }
+  })
+})
+
+describe('Calendar countdown subtitle (rendered)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // ``shouldAdvanceTime: true`` keeps timers ticking in real wall
+    // time so Testing Library's ``waitFor`` polling still completes,
+    // while ``setSystemTime`` lets each test pin the calendar to a
+    // known moment. Without this flag, ``waitFor`` would hang
+    // forever because its internal interval never fires.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function renderWithEventAtDeltaMinutes(deltaMinutes: number, durationMinutes = 60) {
+    // Freeze the wall clock at a known moment, then build an event
+    // whose start is ``deltaMinutes`` from now. Negative means the
+    // event already started.
+    const fixedNow = new Date('2026-04-15T19:30:00-05:00')
+    vi.setSystemTime(fixedNow)
+    const start = new Date(fixedNow.getTime() + deltaMinutes * 60000)
+    const end = new Date(start.getTime() + durationMinutes * 60000)
+    const fakeEvents = [
+      {
+        id: 'ev-countdown',
+        summary: 'Fox - soccer game',
+        start: { dateTime: start.toISOString() },
+        end: { dateTime: end.toISOString() },
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) return Promise.resolve({ events: fakeEvents })
+      return Promise.resolve({})
+    })
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByText('Fox - soccer game')).toBeInTheDocument()
+    })
+    return screen.getByTestId('countdown-ev-countdown') as HTMLElement | null
+  }
+
+  async function renderWithEventAtDeltaMinutesExpectNoSubtitle(deltaMinutes: number, durationMinutes: number) {
+    // Same as above but the caller is testing the "hide subtitle"
+    // case, so we assert the element is NOT present instead of
+    // returning it.
+    const fixedNow = new Date('2026-04-15T19:30:00-05:00')
+    vi.setSystemTime(fixedNow)
+    const start = new Date(fixedNow.getTime() + deltaMinutes * 60000)
+    const end = new Date(start.getTime() + durationMinutes * 60000)
+    const fakeEvents = [
+      {
+        id: 'ev-countdown',
+        summary: 'Fox - soccer game',
+        start: { dateTime: start.toISOString() },
+        end: { dateTime: end.toISOString() },
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) return Promise.resolve({ events: fakeEvents })
+      return Promise.resolve({})
+    })
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByText('Fox - soccer game')).toBeInTheDocument()
+    })
+  }
+
+  it('test_calendar_card_shows_coming_up_label_within_1h_window', async () => {
+    // Event is 45 minutes away. Should read "Coming up in 1 hour".
+    const el = await renderWithEventAtDeltaMinutes(45)
+    expect(el).not.toBeNull()
+    expect(el!.textContent).toBe('Coming up in 1 hour')
+  })
+
+  it('test_calendar_card_shows_minutes_under_30m', async () => {
+    // Event is 15 minutes away. Should read "Starts in 15 minutes".
+    const el = await renderWithEventAtDeltaMinutes(15)
+    expect(el).not.toBeNull()
+    expect(el!.textContent).toBe('Starts in 15 minutes')
+  })
+
+  it('test_calendar_card_shows_happening_now_during_event', async () => {
+    // Event started 10 minutes ago and still has 50 minutes left.
+    const el = await renderWithEventAtDeltaMinutes(-10, 60)
+    expect(el).not.toBeNull()
+    expect(el!.textContent).toBe('Happening now')
+  })
+
+  it('test_calendar_card_hides_subtitle_after_event_ends', async () => {
+    // Event ended 30 minutes ago. Subtitle should be hidden entirely.
+    await renderWithEventAtDeltaMinutesExpectNoSubtitle(-90, 30)
+    expect(screen.queryByTestId('countdown-ev-countdown')).toBeNull()
+  })
+})
+
+describe('Calendar countdown badge (pretty pill with clock icon)', () => {
+  // These tests cover the visual badge refactor: the countdown subtitle
+  // must render as a rounded pill with a clock icon (or pulsing dot
+  // when the event is in progress) and pick an accent color based on
+  // how close the event is. The plain gray "Coming up in 1 hour" line
+  // is replaced by a styled chip that matches the rest of myOS.
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function renderWithEventAtDeltaMinutes(deltaMinutes: number, durationMinutes = 60) {
+    const fixedNow = new Date('2026-04-15T19:30:00-05:00')
+    vi.setSystemTime(fixedNow)
+    const start = new Date(fixedNow.getTime() + deltaMinutes * 60000)
+    const end = new Date(start.getTime() + durationMinutes * 60000)
+    const fakeEvents = [
+      {
+        id: 'ev-badge',
+        summary: 'Fox - soccer game',
+        start: { dateTime: start.toISOString() },
+        end: { dateTime: end.toISOString() },
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) return Promise.resolve({ events: fakeEvents })
+      return Promise.resolve({})
+    })
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByText('Fox - soccer game')).toBeInTheDocument()
+    })
+  }
+
+  it('test_calendar_countdown_renders_as_badge_with_clock_icon', async () => {
+    // 45 minutes out. The subtitle must render as a pill, not a plain
+    // paragraph, and must include a clock icon on its left.
+    await renderWithEventAtDeltaMinutes(45)
+    const badge = screen.getByTestId('countdown-badge-ev-badge')
+    expect(badge).toBeInTheDocument()
+    // Pill shape comes from rounded-full + inline-flex.
+    expect(badge.className).toMatch(/rounded-full/)
+    expect(badge.className).toMatch(/inline-flex/)
+    // Clock icon lives inside the badge for the non-live states.
+    const clock = screen.getByTestId('countdown-clock-icon')
+    expect(clock).toBeInTheDocument()
+    expect(badge.contains(clock)).toBe(true)
+  })
+
+  it('test_calendar_countdown_red_badge_when_under_5m', async () => {
+    // 3 minutes out. Must paint the red accent so it reads as urgent.
+    await renderWithEventAtDeltaMinutes(3)
+    const badge = screen.getByTestId('countdown-badge-ev-badge')
+    expect(badge.className).toMatch(/bg-red-500\/20/)
+    expect(badge.className).toMatch(/text-red-400/)
+    expect(badge.className).toMatch(/border-red-500\/40/)
+  })
+
+  it('test_calendar_countdown_amber_badge_in_5_to_30m_window', async () => {
+    // 15 minutes out. Amber accent, meaning "start wrapping up".
+    await renderWithEventAtDeltaMinutes(15)
+    const badge = screen.getByTestId('countdown-badge-ev-badge')
+    expect(badge.className).toMatch(/bg-amber-500\/20/)
+    expect(badge.className).toMatch(/text-amber-400/)
+    expect(badge.className).toMatch(/border-amber-500\/40/)
+  })
+
+  it('test_calendar_countdown_blue_badge_in_30_to_60m_window', async () => {
+    // 45 minutes out. Blue accent for the "Coming up in 1 hour" state.
+    await renderWithEventAtDeltaMinutes(45)
+    const badge = screen.getByTestId('countdown-badge-ev-badge')
+    expect(badge.className).toMatch(/bg-blue-500\/20/)
+    expect(badge.className).toMatch(/text-blue-400/)
+    expect(badge.className).toMatch(/border-blue-500\/40/)
+  })
+
+  it('test_calendar_countdown_slate_badge_when_more_than_1h_out', async () => {
+    // 3 hours out. Slate accent: informational, not urgent.
+    await renderWithEventAtDeltaMinutes(180)
+    const badge = screen.getByTestId('countdown-badge-ev-badge')
+    expect(badge.className).toMatch(/bg-slate-500\/20/)
+    expect(badge.className).toMatch(/text-slate-400/)
+    expect(badge.className).toMatch(/border-slate-500\/40/)
+  })
+
+  it('test_calendar_countdown_green_badge_with_pulse_when_happening_now', async () => {
+    // Event started 10 minutes ago, still 50 minutes left. Green
+    // accent plus a pulsing dot that replaces the clock icon.
+    await renderWithEventAtDeltaMinutes(-10, 60)
+    const badge = screen.getByTestId('countdown-badge-ev-badge')
+    expect(badge.className).toMatch(/bg-green-500\/20/)
+    expect(badge.className).toMatch(/text-green-400/)
+    expect(badge.className).toMatch(/border-green-500\/40/)
+    // Pulsing dot present, clock icon absent.
+    const pulse = screen.getByTestId('countdown-pulse-ev-badge')
+    expect(pulse).toBeInTheDocument()
+    expect(pulse.className).toMatch(/animate-pulse/)
+    expect(screen.queryByTestId('countdown-clock-icon')).toBeNull()
+  })
+
+  it('test_calendar_countdown_badge_hidden_after_event_ends', async () => {
+    // Event ended 30 minutes ago. Badge must not render at all.
+    const fixedNow = new Date('2026-04-15T19:30:00-05:00')
+    vi.setSystemTime(fixedNow)
+    const start = new Date(fixedNow.getTime() - 90 * 60000)
+    const end = new Date(start.getTime() + 30 * 60000)
+    const fakeEvents = [
+      {
+        id: 'ev-badge',
+        summary: 'Fox - soccer game',
+        start: { dateTime: start.toISOString() },
+        end: { dateTime: end.toISOString() },
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) return Promise.resolve({ events: fakeEvents })
+      return Promise.resolve({})
+    })
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByText('Fox - soccer game')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('countdown-badge-ev-badge')).toBeNull()
+  })
+})
+
+describe('countdownBadgeStyle helper (pure)', () => {
+  // Pure-function unit tests for the badge selector. The rendered
+  // tests above cover integration; these lock down the decision
+  // boundaries so the tier cutoffs never drift quietly.
+
+  it('returns null when start is missing', async () => {
+    const { countdownBadgeStyle } = await import('./Calendar')
+    expect(countdownBadgeStyle(undefined, undefined, Date.now())).toBeNull()
+  })
+
+  it('returns null after the event has ended', async () => {
+    const { countdownBadgeStyle } = await import('./Calendar')
+    const now = new Date('2026-04-15T12:00:00Z').getTime()
+    expect(
+      countdownBadgeStyle('2026-04-15T09:00:00Z', '2026-04-15T10:00:00Z', now),
+    ).toBeNull()
+  })
+
+  it('returns green pulse while the event is in progress', async () => {
+    const { countdownBadgeStyle } = await import('./Calendar')
+    const now = new Date('2026-04-15T12:15:00Z').getTime()
+    const style = countdownBadgeStyle('2026-04-15T12:00:00Z', '2026-04-15T13:00:00Z', now)
+    expect(style).not.toBeNull()
+    expect(style!.pulse).toBe(true)
+    expect(style!.className).toMatch(/green/)
+  })
+
+  it('returns red for under 5 minutes out', async () => {
+    const { countdownBadgeStyle } = await import('./Calendar')
+    const now = new Date('2026-04-15T11:58:00Z').getTime()
+    const style = countdownBadgeStyle('2026-04-15T12:00:00Z', '2026-04-15T13:00:00Z', now)
+    expect(style!.pulse).toBe(false)
+    expect(style!.className).toMatch(/red/)
+  })
+
+  it('returns amber in the 5 to 30 minute window', async () => {
+    const { countdownBadgeStyle } = await import('./Calendar')
+    const now = new Date('2026-04-15T11:45:00Z').getTime()
+    const style = countdownBadgeStyle('2026-04-15T12:00:00Z', '2026-04-15T13:00:00Z', now)
+    expect(style!.className).toMatch(/amber/)
+  })
+
+  it('returns blue in the 30 to 60 minute window', async () => {
+    const { countdownBadgeStyle } = await import('./Calendar')
+    const now = new Date('2026-04-15T11:15:00Z').getTime()
+    const style = countdownBadgeStyle('2026-04-15T12:00:00Z', '2026-04-15T13:00:00Z', now)
+    expect(style!.className).toMatch(/blue/)
+  })
+
+  it('returns slate when more than an hour out', async () => {
+    const { countdownBadgeStyle } = await import('./Calendar')
+    const now = new Date('2026-04-15T09:00:00Z').getTime()
+    const style = countdownBadgeStyle('2026-04-15T12:00:00Z', '2026-04-15T13:00:00Z', now)
+    expect(style!.className).toMatch(/slate/)
+  })
+})
+
+describe('Calendar event card layout (badge aligned under time)', () => {
+  // The old layout put the time in a right-aligned fixed-width column,
+  // which pushed the countdown badge onto a second line inside that
+  // same column. Because the badge was wider than the time text, it
+  // visually slipped far to the left of the time while the title hung
+  // off to the right. The card now stacks as two rows inside a single
+  // left-aligned column: row 1 is time + title, row 2 is the badge.
+  // Both rows share the same left edge so the eye follows a clean
+  // vertical line.
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function renderSoccerGame() {
+    const fixedNow = new Date('2026-04-15T18:30:00-05:00')
+    vi.setSystemTime(fixedNow)
+    const start = new Date(fixedNow.getTime() + 60 * 60000)
+    const end = new Date(start.getTime() + 60 * 60000)
+    const fakeEvents = [
+      {
+        id: 'ev-badge',
+        summary: 'Fox - soccer game',
+        start: { dateTime: start.toISOString() },
+        end: { dateTime: end.toISOString() },
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) return Promise.resolve({ events: fakeEvents })
+      return Promise.resolve({})
+    })
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByText('Fox - soccer game')).toBeInTheDocument()
+    })
+  }
+
+  it('test_calendar_badge_left_edge_aligned_with_time', async () => {
+    // The badge must share its left edge with the time text. Both sit
+    // inside the same left-aligned body column, with no right-aligned
+    // fixed-width wrapper pushing the badge away from the time.
+    await renderSoccerGame()
+    const body = screen.getByTestId('event-body-ev-badge')
+    // Body column is left aligned (no text-right anywhere on the wrapper).
+    expect(body.className).not.toMatch(/text-right/)
+    // Time and badge must both live inside the same body column so they
+    // share a starting x-coordinate. The old layout had the time in a
+    // separate sibling div from the badge's parent; now they are cousins
+    // under one body wrapper.
+    const titleEl = screen.getByText('Fox - soccer game')
+    const badge = screen.getByTestId('countdown-badge-ev-badge')
+    expect(body.contains(titleEl)).toBe(true)
+    expect(body.contains(badge)).toBe(true)
+    // Badge itself must not be wrapped in a right-aligned column.
+    let p: HTMLElement | null = badge.parentElement
+    while (p && p !== body) {
+      expect(p.className || '').not.toMatch(/text-right/)
+      p = p.parentElement
+    }
+    // The old layout used a min-w-[72px] column to park the time on
+    // one side. The new layout must not reintroduce that fixed-width
+    // cage, or the badge drifts out of alignment again.
+    expect(body.innerHTML).not.toMatch(/min-w-\[72px\]/)
+    expect(body.innerHTML).not.toMatch(/min-w-\[64px\]/)
+  })
+
+  it('test_calendar_card_layout_two_rows_time_title_then_badge', async () => {
+    // The card body must be a vertical stack. Row 1 holds the time and
+    // the title side by side. Row 2 holds the countdown badge directly
+    // below. The badge must be a sibling of the time+title row, not a
+    // child of the time cell. This keeps the badge flush left under
+    // the time even when the title is long.
+    await renderSoccerGame()
+    const body = screen.getByTestId('event-body-ev-badge')
+    const badge = screen.getByTestId('countdown-badge-ev-badge')
+    const titleEl = screen.getByText('Fox - soccer game')
+    // Title sits on its own row (a flex row), and that row is a direct
+    // child of the body column.
+    const titleRow = titleEl.closest('div')
+    expect(titleRow).not.toBeNull()
+    expect(titleRow!.parentElement).toBe(body)
+    // Badge's direct parent is also the body wrapper, not the title
+    // row. That puts it on its own line right under the title row.
+    expect(badge.parentElement).toBe(body)
+    // The time text and the title must live in the SAME row so row 1
+    // reads "time  title" left to right. If the time were elsewhere,
+    // the title row would hold only the title.
+    const timeP = titleRow!.querySelector('p')
+    expect(timeP).not.toBeNull()
+    // The row must hold at least two <p> children (time and title).
+    expect(titleRow!.querySelectorAll('p').length).toBeGreaterThanOrEqual(2)
   })
 })

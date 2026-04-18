@@ -36,12 +36,17 @@ describe('useAppStore', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
-        { label: 'Ideas', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
-        { label: 'Docs', enabled: true },
-        { label: 'Automations', enabled: false },
+        { label: 'Drive', enabled: true },
+        { label: 'Calendar', enabled: true },
+        { label: 'Gmail', enabled: true },
+        { label: 'Slack', enabled: true },
+        { label: 'GitHub', enabled: true },
+        { label: 'Specs', enabled: true },
+        { label: 'Automations', enabled: true },
+        { label: 'Cost Tracking', enabled: true },
       ],
     })
     // Clear localStorage between tests so cached values do not leak
@@ -54,7 +59,7 @@ describe('useAppStore', () => {
     expect(state.osName).toBe('myOS')
     expect(state.darkMode).toBe(true)
     expect(state.accentColor).toBe('blue')
-    expect(state.features).toHaveLength(8)
+    expect(state.features).toHaveLength(13)
   })
 
   it('toggleChat flips chatOpen from true to false', () => {
@@ -174,6 +179,11 @@ describe('useAppStore', () => {
   })
 
   it('isFeatureEnabled returns false for disabled features', () => {
+    // Explicitly disable a feature, then confirm the getter reflects it.
+    const updated = useAppStore.getState().features.map((f) =>
+      f.label === 'Automations' ? { ...f, enabled: false } : f
+    )
+    useAppStore.getState().setFeatures(updated)
     expect(useAppStore.getState().isFeatureEnabled('Automations')).toBe(false)
   })
 
@@ -182,11 +192,17 @@ describe('useAppStore', () => {
   })
 
   it('toggling a feature updates isFeatureEnabled', () => {
+    // All features default to true now, so first confirm it is on.
+    expect(useAppStore.getState().isFeatureEnabled('Automations')).toBe(true)
+    const disabled = useAppStore.getState().features.map((f) =>
+      f.label === 'Automations' ? { ...f, enabled: false } : f
+    )
+    useAppStore.getState().setFeatures(disabled)
     expect(useAppStore.getState().isFeatureEnabled('Automations')).toBe(false)
-    const updated = useAppStore.getState().features.map((f) =>
+    const reEnabled = useAppStore.getState().features.map((f) =>
       f.label === 'Automations' ? { ...f, enabled: true } : f
     )
-    useAppStore.getState().setFeatures(updated)
+    useAppStore.getState().setFeatures(reEnabled)
     expect(useAppStore.getState().isFeatureEnabled('Automations')).toBe(true)
   })
 

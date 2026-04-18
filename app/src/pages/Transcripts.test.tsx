@@ -140,6 +140,7 @@ describe('Transcripts page', () => {
     mockedApiGet.mockReturnValue(new Promise(() => {}))
     renderTranscripts()
 
+    expect(screen.getByTestId('loading-state')).toBeInTheDocument()
     expect(screen.getByText('Loading transcripts...')).toBeInTheDocument()
   })
 
@@ -148,9 +149,10 @@ describe('Transcripts page', () => {
     renderTranscripts()
 
     await waitFor(() => {
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
       expect(
         screen.getByText(
-          'No transcripts found. Conversations you have with AI will appear here.'
+          'Conversations you have with AI will appear here.'
         )
       ).toBeInTheDocument()
     })
@@ -161,7 +163,7 @@ describe('Transcripts page', () => {
     renderTranscripts()
 
     await waitFor(() => {
-      expect(screen.getByText('Could not load transcripts.')).toBeInTheDocument()
+      expect(screen.getByText('Could not load conversations. Check that the backend is running and try again.')).toBeInTheDocument()
     })
   })
 
@@ -290,9 +292,10 @@ describe('Transcripts page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
 
     await waitFor(() => {
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
       expect(
         screen.getByText(
-          'No transcripts match your search. Try different terms or clear the filters.'
+          'No conversations match your search. Try different terms or clear the filters.'
         )
       ).toBeInTheDocument()
     })
@@ -300,12 +303,13 @@ describe('Transcripts page', () => {
 
   // --- Date range filter ---
 
-  it('shows date range dropdown', async () => {
+  it('shows date range pill row with All Time selected by default', async () => {
     renderTranscripts()
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue('All time')).toBeInTheDocument()
+      expect(screen.getByTestId('time-filter-all')).toBeInTheDocument()
     })
+    expect(screen.getByTestId('time-filter-all')).toHaveAttribute('aria-checked', 'true')
   })
 
   it('changing date range triggers a filtered API call', async () => {
@@ -315,8 +319,7 @@ describe('Transcripts page', () => {
       expect(screen.getByText('Build the dashboard')).toBeInTheDocument()
     })
 
-    const select = screen.getByDisplayValue('All time')
-    fireEvent.change(select, { target: { value: 'today' } })
+    fireEvent.click(screen.getByTestId('time-filter-today'))
 
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalledWith('/transcripts?date_range=today')
@@ -332,8 +335,7 @@ describe('Transcripts page', () => {
       expect(screen.getByText('Build the dashboard')).toBeInTheDocument()
     })
 
-    const select = screen.getByDisplayValue('All time')
-    fireEvent.change(select, { target: { value: 'today' } })
+    fireEvent.click(screen.getByTestId('time-filter-today'))
 
     await waitFor(() => {
       expect(screen.getByText('Clear filters')).toBeInTheDocument()
@@ -509,5 +511,160 @@ describe('Transcripts page', () => {
         )
       ).toBeInTheDocument()
     })
+  })
+
+  // --- Markdown rendering ---
+
+  it('transcript detail renders **bold** text as a <strong> element', async () => {
+    const boldDetail = {
+      ...mockTranscriptDetail,
+      messages: [
+        {
+          role: 'assistant' as const,
+          text: 'This is **bold** text.',
+          timestamp: '10:00 AM',
+        },
+      ],
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path.startsWith('/transcripts/')) return boldDetail
+      return mockTranscriptsResponse
+    })
+
+    const { container } = renderTranscripts()
+
+    await waitFor(() => {
+      expect(screen.getByText('Build the dashboard')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Build the dashboard').closest('button')!)
+
+    await waitFor(() => {
+      expect(container.querySelector('strong')).toBeInTheDocument()
+    })
+    expect(container.querySelector('strong')?.textContent).toBe('bold')
+  })
+
+  it('transcript detail renders ## Heading as an <h2> element', async () => {
+    const headingDetail = {
+      ...mockTranscriptDetail,
+      messages: [
+        {
+          role: 'assistant' as const,
+          text: '## Section Title',
+          timestamp: '10:00 AM',
+        },
+      ],
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path.startsWith('/transcripts/')) return headingDetail
+      return mockTranscriptsResponse
+    })
+
+    const { container } = renderTranscripts()
+
+    await waitFor(() => {
+      expect(screen.getByText('Build the dashboard')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Build the dashboard').closest('button')!)
+
+    await waitFor(() => {
+      expect(container.querySelector('h2')).toBeInTheDocument()
+    })
+    expect(container.querySelector('h2')?.textContent).toBe('Section Title')
+  })
+
+  it('transcript detail does not render raw markdown characters in the DOM text', async () => {
+    const markdownDetail = {
+      ...mockTranscriptDetail,
+      messages: [
+        {
+          role: 'assistant' as const,
+          text: '## Heading\n**bold** item\n- bullet point',
+          timestamp: '10:00 AM',
+        },
+      ],
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path.startsWith('/transcripts/')) return markdownDetail
+      return mockTranscriptsResponse
+    })
+
+    const { container } = renderTranscripts()
+
+    await waitFor(() => {
+      expect(screen.getByText('Build the dashboard')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Build the dashboard').closest('button')!)
+
+    await waitFor(() => {
+      expect(container.querySelector('h2')).toBeInTheDocument()
+    })
+
+    const bubbleContent = container.querySelector('.chat-bubble-content')
+    expect(bubbleContent).toBeInTheDocument()
+    // Raw markdown syntax must not appear as visible text
+    expect(bubbleContent?.textContent).not.toMatch(/^##/)
+    expect(bubbleContent?.textContent).not.toContain('**')
+    expect(bubbleContent?.textContent).not.toMatch(/^- /)
+  })
+
+  // --- TimeFilter integration ---
+
+  it('renders pill row with all four time period options', async () => {
+    renderTranscripts()
+    expect(screen.getByTestId('time-filter-today')).toBeInTheDocument()
+    expect(screen.getByTestId('time-filter-week')).toBeInTheDocument()
+    expect(screen.getByTestId('time-filter-month')).toBeInTheDocument()
+    expect(screen.getByTestId('time-filter-all')).toBeInTheDocument()
+  })
+
+  it('clicking "This Week" pill refetches with date_range=week', async () => {
+    renderTranscripts()
+    await waitFor(() => expect(screen.getByText('Build the dashboard')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('time-filter-week'))
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/transcripts?date_range=week')
+    })
+  })
+
+  it('LoadingState appears during fetch (uses loading-state testid)', () => {
+    mockedApiGet.mockReturnValue(new Promise(() => {}))
+    renderTranscripts()
+
+    expect(screen.getByTestId('loading-state')).toBeInTheDocument()
+  })
+
+  it('EmptyState appears when no transcripts (uses empty-state testid)', async () => {
+    mockedApiGet.mockResolvedValue({ transcripts: [], total: 0 })
+    renderTranscripts()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
+    })
+  })
+
+  it('empty state shows plain-language title "No conversations yet"', async () => {
+    localStorage.removeItem('myos_transcripts_period')
+    mockedApiGet.mockResolvedValue({ transcripts: [], total: 0 })
+    renderTranscripts()
+
+    await waitFor(() => {
+      expect(screen.getByText('No conversations yet')).toBeInTheDocument()
+    })
+  })
+
+  it('TopBar title is "Conversations" not "History"', () => {
+    mockedApiGet.mockReturnValue(new Promise(() => {}))
+    renderTranscripts()
+
+    expect(screen.getByText('Conversations')).toBeInTheDocument()
   })
 })

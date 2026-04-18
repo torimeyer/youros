@@ -1,0 +1,1433 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import Specs, { displayStatus } from './Specs'
+
+vi.mock('../lib/api', () => ({
+  api: {
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+  },
+}))
+
+// jsdom does not provide window.matchMedia. Provide a minimal stub
+// so components that use responsive breakpoints do not crash.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
+import { api } from '../lib/api'
+
+const mockedApiGet = vi.mocked(api.get)
+const mockedApiPost = vi.mocked(api.post)
+
+const mockDocsResponse = {
+  docs: [
+    {
+      path: 'docs/draft/onboarding-flow.md',
+      filename: 'onboarding-flow.md',
+      title: 'onboarding flow',
+      status: 'draft',
+      created_at: '2026-04-01T00:00:00Z',
+      promoted_at: '',
+      body: 'Plan the onboarding experience.',
+    },
+    {
+      path: 'docs/spec/auth-system.md',
+      filename: 'auth-system.md',
+      title: 'auth system',
+      status: 'spec',
+      created_at: '2026-03-15T00:00:00Z',
+      promoted_at: '2026-03-20T00:00:00Z',
+      body: '## Overview\nAuth system design.\n\n- [ ] sign in flow\n- [ ] sign out flow',
+    },
+    {
+      path: 'docs/spec/dashboard-redesign.md',
+      filename: 'dashboard-redesign.md',
+      title: 'dashboard redesign',
+      status: 'in-progress',
+      created_at: '2026-02-10T00:00:00Z',
+      promoted_at: '2026-02-15T00:00:00Z',
+      body: '- [x] new layout\n- [ ] dark mode',
+      task_summary: { total: 4, open: 2, closed: 2 },
+      acceptance_criteria: [
+        { text: 'new layout', checked: true },
+        { text: 'dark mode', checked: false },
+      ],
+    },
+    {
+      path: 'docs/spec/settings-page.md',
+      filename: 'settings-page.md',
+      title: 'settings page',
+      status: 'complete',
+      created_at: '2026-01-05T00:00:00Z',
+      promoted_at: '2026-01-10T00:00:00Z',
+      body: '- [x] user preferences\n- [x] theme toggle',
+      task_summary: { total: 2, open: 0, closed: 2 },
+      acceptance_criteria: [
+        { text: 'user preferences', checked: true },
+        { text: 'theme toggle', checked: true },
+      ],
+    },
+  ],
+}
+
+function renderSpecs() {
+  return render(
+    <MemoryRouter>
+      <Specs />
+    </MemoryRouter>
+  )
+}
+
+describe('Specs page', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      // Default: no plan templates. The "Start from a template" tests
+      // below override this per-test.
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      // Return empty tasks for linked tasks endpoint
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ result: 'ok', task_ids: [] })
+  })
+
+  it('renders specs from API data', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('auth system')).toBeInTheDocument()
+  })
+
+  it('calls api.get with /specs on mount', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/specs')
+    })
+  })
+
+  it('shows the page title', async () => {
+    renderSpecs()
+
+    const heading = screen.getByRole('heading', { name: 'Specs' })
+    expect(heading).toBeInTheDocument()
+  })
+
+  it('onboarding banner uses "Specs" vocabulary and light-mode-readable colors', async () => {
+    localStorage.removeItem('specs-onboarding-dismissed')
+    renderSpecs()
+
+    const banner = await screen.findByRole('heading', { name: 'What are Specs?' })
+    expect(banner).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'What are Plans?' })).toBeNull()
+    expect(screen.getByText(/Specs let you define/i)).toBeInTheDocument()
+
+    const bannerContainer = banner.closest('div')!
+    expect(bannerContainer.className).toMatch(/bg-slate-100/)
+    expect(banner.className).toMatch(/text-slate-900/)
+  })
+
+  it('count badge shows correct total', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      const badge = document.querySelector('.bg-blue-500.text-white.text-xs.rounded-full')
+      expect(badge).not.toBeNull()
+      expect(badge!.textContent).toBe('4')
+    })
+  })
+
+  it('shows workflow summary with all status counts', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    })
+
+    // Workflow summary shows counts for drafts, ready, building, complete
+    const boldCounts = document.querySelectorAll('strong.text-white')
+    expect(boldCounts.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('new draft button calls POST /specs/draft', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalled()
+    })
+
+    const input = screen.getByPlaceholderText('Name your plan...')
+    fireEvent.change(input, { target: { value: 'My new plan' } })
+
+    const button = screen.getByRole('button', { name: 'New Spec' })
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/specs/draft', { title: 'My new plan' })
+    })
+  })
+
+  it('clears input after creating a draft', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalled()
+    })
+
+    const input = screen.getByPlaceholderText('Name your plan...') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'Temp' } })
+    expect(input.value).toBe('Temp')
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
+
+    await waitFor(() => {
+      expect(input.value).toBe('')
+    })
+  })
+
+  it('Enter key creates a new draft', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalled()
+    })
+
+    const input = screen.getByPlaceholderText('Name your plan...')
+    fireEvent.change(input, { target: { value: 'Enter plan' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/specs/draft', { title: 'Enter plan' })
+    })
+  })
+
+  it('does not create draft with empty input', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
+    expect(mockedApiPost).not.toHaveBeenCalled()
+  })
+
+  it('shows status badges on spec cards', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    })
+
+    const badges = screen.getAllByTestId('status-badge')
+    expect(badges.length).toBe(4)
+    expect(badges.map(b => b.textContent)).toContain('Draft')
+    expect(badges.map(b => b.textContent)).toContain('Ready')
+    expect(badges.map(b => b.textContent)).toContain('Building')
+    expect(badges.map(b => b.textContent)).toContain('Done')
+  })
+
+  it('shows task progress bar for specs with task summary', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
+    })
+
+    const progressBars = screen.getAllByTestId('task-progress')
+    expect(progressBars.length).toBeGreaterThanOrEqual(1)
+    // dashboard redesign has 2/4 tasks
+    expect(screen.getByText('2/4 tasks')).toBeInTheDocument()
+  })
+
+  it('expands detail view on card click', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Click on auth system card
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+  })
+
+  it('shows acceptance criteria in expanded detail', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Expand auth system
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('acceptance-criteria')).toBeInTheDocument()
+    })
+
+    // Acceptance criteria parsed from body
+    expect(screen.getByText('sign in flow')).toBeInTheDocument()
+    expect(screen.getByText('sign out flow')).toBeInTheDocument()
+  })
+
+  it('shows Build it and Verify buttons for ready specs and no Promote or Break into Tasks', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Expand auth system (status: "spec" normalized to "ready")
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Build it')).toBeInTheDocument()
+    expect(screen.getByText('Verify')).toBeInTheDocument()
+    // Wave 2: Break into Tasks and Promote to Spec are gone from Ready.
+    expect(screen.queryByText('Break into Tasks')).not.toBeInTheDocument()
+    expect(screen.queryByText('Promote to Spec')).not.toBeInTheDocument()
+    expect(screen.getByTestId('unlock-spec-button')).toBeInTheDocument()
+  })
+
+  it('shows Build it and Verify buttons for in-progress specs', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
+    })
+
+    // Expand dashboard redesign (status: "in-progress")
+    const cards = screen.getAllByTestId('spec-card')
+    const dashCard = cards.find(c => c.textContent?.includes('dashboard redesign'))!
+    fireEvent.click(dashCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Build it')).toBeInTheDocument()
+    expect(screen.getByText('Verify')).toBeInTheDocument()
+  })
+
+  it('shows Verify button for complete specs', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('settings page')).toBeInTheDocument()
+    })
+
+    // Expand settings page (status: "complete")
+    const cards = screen.getAllByTestId('spec-card')
+    const settingsCard = cards.find(c => c.textContent?.includes('settings page'))!
+    fireEvent.click(settingsCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Verify')).toBeInTheDocument()
+    // Should NOT have Build it for complete specs
+    expect(screen.queryByText('Build it')).not.toBeInTheDocument()
+  })
+
+  it('draft card has Promote to Spec button in expanded view', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    })
+
+    // Expand draft
+    const cards = screen.getAllByTestId('spec-card')
+    const draftCard = cards.find(c => c.textContent?.includes('onboarding flow'))!
+    fireEvent.click(draftCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Promote to Spec')).toBeInTheDocument()
+  })
+
+  it('Promote to Spec calls POST /specs/promote', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    })
+
+    // Expand draft
+    const cards = screen.getAllByTestId('spec-card')
+    const draftCard = cards.find(c => c.textContent?.includes('onboarding flow'))!
+    fireEvent.click(draftCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Promote to Spec')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Promote to Spec'))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/specs/promote', {
+        path: 'docs/draft/onboarding-flow.md',
+      })
+    })
+  })
+
+  // Wave 2: "Break into Tasks" button is removed from Ready. Decompose
+  // happens automatically inside /specs/{path}/build, so the UI only
+  // exposes the one-click "Build it" action. The decompose endpoint is
+  // still exported by the backend for compat, but the frontend does not
+  // call it directly anymore.
+
+  it('Build This calls POST /specs/{encodedPath}/build', async () => {
+    mockedApiPost.mockResolvedValue({ agents: ['agent-1'], message: 'Build started' })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Expand ready spec
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Build it')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Build it'))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith(
+        `/specs/${encodeURIComponent('docs/spec/auth-system.md')}/build`
+      )
+    })
+  })
+
+  it('Wave 2: Ready plan shows Build it but not Promote to Spec, and one click fires a single build request', async () => {
+    // Build returns one agent so we can assert the status transition.
+    mockedApiPost.mockResolvedValue({ agents: ['spec-auth-1'], message: 'Spawned 1 agent.' })
+    // After the build call resolves, the second /specs fetch should
+    // return the plan in in-progress state so the UI reflects the new
+    // lifecycle stage. Each API instance in the test mocks differs by
+    // call count.
+    let specsCallCount = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') {
+        specsCallCount += 1
+        if (specsCallCount === 1) {
+          return Promise.resolve(mockDocsResponse)
+        }
+        // After Build it, auth system is in-progress.
+        return Promise.resolve({
+          docs: mockDocsResponse.docs.map((d) =>
+            d.path === 'docs/spec/auth-system.md'
+              ? { ...d, status: 'in-progress', task_summary: { total: 1, open: 1, closed: 0 } }
+              : d
+          ),
+        })
+      }
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+
+    // Ready plan must show Build it and must NOT show Promote to Spec
+    // or Break into Tasks. Unlock and edit must be visible for demote.
+    expect(screen.getByText('Build it')).toBeInTheDocument()
+    expect(screen.queryByText('Promote to Spec')).not.toBeInTheDocument()
+    expect(screen.queryByText('Break into Tasks')).not.toBeInTheDocument()
+    expect(screen.getByTestId('unlock-spec-button')).toBeInTheDocument()
+
+    // One click must fire exactly one POST to /specs/.../build.
+    const postCallsBefore = mockedApiPost.mock.calls.length
+    fireEvent.click(screen.getByText('Build it'))
+
+    await waitFor(() => {
+      const buildCalls = mockedApiPost.mock.calls.filter(
+        (c) => typeof c[0] === 'string' && c[0].endsWith('/build')
+      )
+      expect(buildCalls.length).toBe(1)
+    })
+    // No stray decompose or promote calls slipped in.
+    const decomposeCalls = mockedApiPost.mock.calls.filter(
+      (c) => c[0] === '/specs/decompose'
+    )
+    const promoteCalls = mockedApiPost.mock.calls.filter(
+      (c) => c[0] === '/specs/promote'
+    )
+    expect(decomposeCalls.length).toBe(0)
+    expect(promoteCalls.length).toBe(0)
+    // Build fired exactly one new POST on top of the baseline.
+    expect(mockedApiPost.mock.calls.length).toBe(postCallsBefore + 1)
+
+    // After the Build resolves the UI should reflect the new state.
+    await waitFor(() => {
+      const badges = screen.getAllByTestId('status-badge')
+      expect(badges.map((b) => b.textContent)).toContain('Building')
+    })
+  })
+
+  it('Wave 2: Unlock and edit calls POST /specs/{encodedPath}/unlock', async () => {
+    mockedApiPost.mockResolvedValue({ result: 'docs/draft/auth-system.md', path: 'docs/draft/auth-system.md' })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('unlock-spec-button')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('unlock-spec-button'))
+
+    await waitFor(() => {
+      const unlockCalls = mockedApiPost.mock.calls.filter(
+        (c) => typeof c[0] === 'string' && c[0].endsWith('/unlock')
+      )
+      expect(unlockCalls.length).toBe(1)
+      expect(unlockCalls[0][0]).toBe(
+        `/specs/${'docs/spec/auth-system.md'.split('/').map(encodeURIComponent).join('/')}/unlock`
+      )
+    })
+  })
+
+  it('Build This renders returned agent names and links to Agents', async () => {
+    mockedApiPost.mockResolvedValue({
+      agents: ['spec-auth-01', 'spec-auth-02', 'spec-auth-03'],
+      message: 'Spawned 3 agents to build this spec. Watch the Agents tab.',
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Build it')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Build it'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('build-result')).toBeInTheDocument()
+    })
+
+    const names = screen.getAllByTestId('build-agent-name').map(el => el.textContent)
+    expect(names).toEqual(['spec-auth-01', 'spec-auth-02', 'spec-auth-03'])
+    expect(screen.getByTestId('build-agents-link')).toBeInTheDocument()
+  })
+
+  it('Build This shows empty message when no open tasks', async () => {
+    mockedApiPost.mockResolvedValue({
+      agents: [],
+      message: 'This spec has no open tasks to build. Break it into tasks first, or all tasks may already be closed.',
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Build it')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Build it'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('build-empty-message')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('build-agent-name')).not.toBeInTheDocument()
+  })
+
+  it('Verify calls POST /specs/{encodedPath}/verify', async () => {
+    mockedApiPost.mockResolvedValue({ criteria: [], summary: 'All criteria met.' })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Expand ready spec
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Verify')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Verify'))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith(
+        `/specs/${encodeURIComponent('docs/spec/auth-system.md')}/verify`
+      )
+    })
+  })
+
+  it('shows success message after creating draft', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalled()
+    })
+
+    const input = screen.getByPlaceholderText('Name your plan...')
+    fireEvent.change(input, { target: { value: 'Test plan' } })
+    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Draft created.')).toBeInTheDocument()
+    })
+  })
+
+  it('shows error message on draft creation failure', async () => {
+    mockedApiPost.mockRejectedValueOnce(new Error('Server error'))
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalled()
+    })
+
+    const input = screen.getByPlaceholderText('Name your plan...')
+    fireEvent.change(input, { target: { value: 'Bad plan' } })
+    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Could not create draft. Try again.')).toBeInTheDocument()
+    })
+  })
+
+  it('shows empty state when no specs exist', async () => {
+    mockedApiGet.mockResolvedValue({ docs: [] })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
+      expect(screen.getByText('No specs yet')).toBeInTheDocument()
+      expect(screen.getByText('Create a draft to start planning.')).toBeInTheDocument()
+    })
+  })
+
+  it('tabs filter by status', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    })
+
+    // Click Drafts tab
+    fireEvent.click(screen.getByRole('button', { name: /^Drafts/ }))
+
+    // Draft should be visible, others should not
+    expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    expect(screen.queryByText('auth system')).not.toBeInTheDocument()
+    expect(screen.queryByText('dashboard redesign')).not.toBeInTheDocument()
+
+    // Click Ready tab
+    fireEvent.click(screen.getByRole('button', { name: /^Ready/ }))
+
+    expect(screen.queryByText('onboarding flow')).not.toBeInTheDocument()
+    expect(screen.getByText('auth system')).toBeInTheDocument()
+
+    // Click Building tab (was "In Progress" in the backend schema)
+    fireEvent.click(screen.getByRole('button', { name: /^Building/ }))
+
+    expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
+    expect(screen.queryByText('auth system')).not.toBeInTheDocument()
+
+    // Click Done tab (was "Complete" in the backend schema)
+    fireEvent.click(screen.getByRole('button', { name: /^Done/ }))
+
+    expect(screen.getByText('settings page')).toBeInTheDocument()
+    expect(screen.queryByText('dashboard redesign')).not.toBeInTheDocument()
+
+    // Click All tab
+    fireEvent.click(screen.getByRole('button', { name: 'All' }))
+
+    expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    expect(screen.getByText('auth system')).toBeInTheDocument()
+    expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
+    expect(screen.getByText('settings page')).toBeInTheDocument()
+  })
+
+  it('handles API error on initial load gracefully', async () => {
+    mockedApiGet.mockRejectedValue(new Error('Network error'))
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/specs')
+    })
+
+    // Page title should still be visible
+    expect(screen.getByRole('heading', { name: 'Specs' })).toBeInTheDocument()
+  })
+
+  it('shows promote error about acceptance criteria', async () => {
+    mockedApiPost.mockRejectedValueOnce(new Error('Draft must contain at least one unchecked checkbox'))
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('onboarding flow')).toBeInTheDocument()
+    })
+
+    // Expand draft and click promote
+    const cards = screen.getAllByTestId('spec-card')
+    const draftCard = cards.find(c => c.textContent?.includes('onboarding flow'))!
+    fireEvent.click(draftCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Promote to Spec')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Promote to Spec'))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('This draft needs at least one checklist item (acceptance criteria) before it can be promoted.')
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('collapses detail view on second click', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+
+    // Expand
+    fireEvent.click(authCard)
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+
+    // Collapse
+    fireEvent.click(authCard)
+    await waitFor(() => {
+      expect(screen.queryByTestId('spec-detail')).not.toBeInTheDocument()
+    })
+  })
+
+  it('shows error when Build This fails', async () => {
+    mockedApiPost.mockRejectedValueOnce(new Error('Not implemented'))
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Expand and click build
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Build it')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Build it'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Could not start build. The backend may not support this yet.')).toBeInTheDocument()
+    })
+  })
+
+  it('shows error when Verify fails', async () => {
+    mockedApiPost.mockRejectedValueOnce(new Error('Not implemented'))
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Expand and click verify
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Verify')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Verify'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Could not run acceptance checks. Make sure the plan has linked tasks.')).toBeInTheDocument()
+    })
+  })
+
+  it('deletes a spec without a confirm dialog and offers an Undo toast', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm')
+    const mockedApiDelete = vi.mocked(api.delete)
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Open the overflow menu on the auth system card.
+    const overflowButtons = screen.getAllByTestId('plan-overflow-button')
+    const authCard = overflowButtons
+      .map((b) => b.closest('[data-testid="spec-card"]'))
+      .find((c) => c?.textContent?.includes('auth system'))!
+    const authOverflow = authCard.querySelector(
+      '[data-testid="plan-overflow-button"]'
+    ) as HTMLElement
+    fireEvent.click(authOverflow)
+
+    await waitFor(() => {
+      const btns = screen.getAllByTestId('delete-spec-button')
+      expect(btns.length).toBeGreaterThan(0)
+    })
+    const deleteBtn = screen.getAllByTestId('delete-spec-button')[0]
+    fireEvent.click(deleteBtn)
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(mockedApiDelete).not.toHaveBeenCalled()
+    expect(screen.getByTestId('undo-delete-spec-toast')).toBeInTheDocument()
+    expect(screen.queryByText('auth system')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('undo-delete-spec-button'))
+    expect(mockedApiDelete).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('undo-delete-spec-toast')).not.toBeInTheDocument()
+
+    confirmSpy.mockRestore()
+  })
+
+  it('encodes path segments individually so FastAPI :path converter still matches', async () => {
+    const mockedApiDelete = vi.mocked(api.delete)
+    mockedApiDelete.mockResolvedValue({})
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+    const overflowButtons = screen.getAllByTestId('plan-overflow-button')
+    const authCard = overflowButtons
+      .map((b) => b.closest('[data-testid="spec-card"]'))
+      .find((c) => c?.textContent?.includes('auth system'))!
+    const authOverflow = authCard.querySelector(
+      '[data-testid="plan-overflow-button"]'
+    ) as HTMLElement
+    fireEvent.click(authOverflow)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('delete-spec-button').length).toBeGreaterThan(0)
+    })
+
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getAllByTestId('delete-spec-button')[0])
+      await vi.advanceTimersByTimeAsync(5100)
+      expect(mockedApiDelete).toHaveBeenCalledWith('/specs/docs/spec/auth-system.md')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('normalizes legacy "spec" status to "ready"', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // The badge should say "Ready" not "Spec"
+    const badges = screen.getAllByTestId('status-badge')
+    const authBadge = badges.find(b => {
+      // Find the badge in the same card as "auth system"
+      const card = b.closest('[data-testid="spec-card"]') || b.closest('.bg-slate-900\\/40')
+      return card?.textContent?.includes('auth system')
+    })
+    expect(authBadge?.textContent).toBe('Ready')
+  })
+
+  it('empty state uses EmptyState primitive when no specs exist', async () => {
+    mockedApiGet.mockResolvedValue({ docs: [] })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      const emptyState = screen.getByTestId('empty-state')
+      expect(emptyState).toBeInTheDocument()
+    })
+  })
+
+  it('New Draft button uses Button primitive', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/specs')
+    })
+
+    const btn = screen.getByRole('button', { name: 'New Spec' })
+    expect(btn).toBeInTheDocument()
+    // Button primitive includes font-medium class
+    expect(btn).toHaveClass('font-medium')
+  })
+
+  it('optimistically inserts placeholder row immediately when New Draft is clicked', async () => {
+    // POST resolves only after we check for the placeholder
+    let resolvePost!: (value: unknown) => void
+    mockedApiPost.mockImplementationOnce(
+      () => new Promise((res) => { resolvePost = res })
+    )
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/specs')
+    })
+
+    const input = screen.getByPlaceholderText('Name your plan...')
+    fireEvent.change(input, { target: { value: 'Instant plan' } })
+    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
+
+    // The placeholder row must appear BEFORE the POST resolves
+    expect(screen.getByText('Instant plan')).toBeInTheDocument()
+    // Input should already be cleared
+    expect((input as HTMLInputElement).value).toBe('')
+
+    // Let the POST finish so we don't leave a hanging promise
+    resolvePost({ result: 'docs/draft/instant-plan.md' })
+  })
+
+  it('replaces placeholder with server-returned draft after POST resolves, and does not show refresh nudge', async () => {
+    // First /specs GET returns empty, second returns the newly created draft
+    // with server-generated acceptance criteria.
+    let specsGetCount = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') {
+        specsGetCount += 1
+        if (specsGetCount === 1) {
+          return Promise.resolve({ docs: [] })
+        }
+        return Promise.resolve({
+          docs: [
+            {
+              path: 'docs/draft/fresh-plan.md',
+              filename: 'fresh-plan.md',
+              title: 'Fresh plan',
+              status: 'draft',
+              created_at: '2026-04-17T00:00:00Z',
+              promoted_at: '',
+              body: '- [ ] the page loads\n- [ ] the button works',
+              acceptance_criteria: [
+                { text: 'the page loads', checked: false },
+                { text: 'the button works', checked: false },
+              ],
+            },
+          ],
+        })
+      }
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValueOnce({ result: 'docs/draft/fresh-plan.md' })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/specs')
+    })
+
+    const input = screen.getByPlaceholderText('Name your plan...')
+    fireEvent.change(input, { target: { value: 'Fresh plan' } })
+    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
+
+    // After the POST resolves, a refetch runs and the real row with
+    // acceptance criteria replaces the placeholder.
+    await waitFor(() => {
+      expect(screen.getByText('Draft created.')).toBeInTheDocument()
+    })
+
+    // Expand the card so the acceptance criteria render.
+    const cards = screen.getAllByTestId('spec-card')
+    const freshCard = cards.find(c => c.textContent?.includes('Fresh plan'))!
+    fireEvent.click(freshCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('acceptance-criteria')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('the page loads')).toBeInTheDocument()
+    expect(screen.getByText('the button works')).toBeInTheDocument()
+    // The old "Refresh in a moment" nudge must not be present.
+    expect(screen.queryByText(/Refresh in a moment/i)).not.toBeInTheDocument()
+    // The waiting-for-content indicator must not be present when AC has arrived.
+    expect(screen.queryByTestId('generating-criteria-indicator')).not.toBeInTheDocument()
+  })
+
+  // Wave 2: decompose no longer has its own UI. The "decompose success
+  // toast" path still exists internally (handleDecompose) but is never
+  // reached from user action now that the Ready state hides Break into
+  // Tasks. The backend one-click build handles decompose implicitly.
+
+  it('Verify button has tooltip explaining what it does', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('verify-button').length).toBeGreaterThan(0)
+    })
+
+    const verifyBtn = screen.getAllByTestId('verify-button')[0]
+    expect(verifyBtn).toHaveAttribute('title')
+    expect(verifyBtn.getAttribute('title')).toContain('acceptance checks')
+  })
+
+  it('Build shows spinner per open task with the assigned agent name', async () => {
+    // Build returns two agents.
+    mockedApiPost.mockResolvedValueOnce({
+      agents: ['spec-auth-001', 'spec-auth-002'],
+      message: 'Spawned 2 agents to build this spec.',
+    })
+    // The tasks endpoint returns two open tasks, each assigned to an agent.
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path.endsWith('/tasks')) {
+        return Promise.resolve({
+          tasks: [
+            { id: '001', title: 'sign in flow', status: 'open', assigned_agent: 'spec-auth-001' },
+            { id: '002', title: 'sign out flow', status: 'open', assigned_agent: 'spec-auth-002' },
+          ],
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Build it')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Build it'))
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('task-building-spinner').length).toBe(2)
+    })
+    expect(screen.getAllByTestId('task-building-label').length).toBe(2)
+    const agentLinks = screen.getAllByTestId('task-agent-link')
+    expect(agentLinks.map((a) => a.textContent)).toEqual(['spec-auth-001', 'spec-auth-002'])
+    expect(screen.getByTestId('build-progress-count').textContent).toContain('0 of 2 tasks built')
+  })
+
+  it('Build polls task status every 2 seconds and flips to checkmark on close', async () => {
+    mockedApiPost.mockResolvedValueOnce({
+      agents: ['spec-auth-001'],
+      message: 'Spawned 1 agent.',
+    })
+
+    let taskStatus: 'open' | 'closed' = 'open'
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path.endsWith('/tasks')) {
+        return Promise.resolve({
+          tasks: [
+            {
+              id: '001',
+              title: 'sign in flow',
+              status: taskStatus,
+              assigned_agent: 'spec-auth-001',
+            },
+          ],
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Build it')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Build it'))
+
+    // First render after Build: spinner is up for the open task.
+    await waitFor(() => {
+      expect(screen.getByTestId('task-building-spinner')).toBeInTheDocument()
+    })
+
+    // Flip the backing state and wait for a poll cycle. Polling runs
+    // every 2 seconds; real timers give us a clean end-to-end check.
+    taskStatus = 'closed'
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('task-done-check')).toBeInTheDocument()
+      },
+      { timeout: 4000, interval: 200 }
+    )
+    expect(screen.queryByTestId('task-building-spinner')).not.toBeInTheDocument()
+    // Agent name is rendered with "by: ..." prefix once done.
+    expect(screen.getByTestId('task-agent-link').textContent).toContain(
+      'by: spec-auth-001'
+    )
+  })
+
+  it('agent chip in a task row links to the Agents tab with the agent name', async () => {
+    mockedApiPost.mockResolvedValueOnce({
+      agents: ['spec-auth-42'],
+      message: 'Spawned 1 agent.',
+    })
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path.endsWith('/tasks')) {
+        return Promise.resolve({
+          tasks: [
+            {
+              id: '042',
+              title: 'sign in flow',
+              status: 'open',
+              assigned_agent: 'spec-auth-42',
+            },
+          ],
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Build it')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Build it'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-agent-link')).toBeInTheDocument()
+    })
+    // The link is a button; clicking it should route to /agents with
+    // the agent name as a query param so the Agents tab can highlight
+    // the matching transcript.
+    const link = screen.getByTestId('task-agent-link')
+    expect(link.tagName).toBe('BUTTON')
+    expect(link.getAttribute('title')).toContain('spec-auth-42')
+  })
+
+  it('Plans page shows the Start from a template grid and clicking a template creates a ready plan', async () => {
+    const templates = [
+      {
+        id: 'build-a-website',
+        name: 'Build a Website',
+        description: 'Plan, design, build, and review a new website end to end.',
+        icon: 'web',
+        goal_markdown: 'body',
+        acceptance_criteria: ['ac1', 'ac2'],
+        tasks: ['Write the PRD', 'Build the frontend'],
+      },
+      {
+        id: 'launch-announcement',
+        name: 'Launch announcement',
+        description: 'Write an announcement that explains what shipped and why it matters.',
+        icon: 'campaign',
+        goal_markdown: 'body',
+        acceptance_criteria: ['ac1'],
+        tasks: ['Draft the announcement'],
+      },
+    ]
+
+    // Track fetch order: first /specs returns the seed list, second
+    // returns the list with the new ready plan appended.
+    let specsCallCount = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs/templates') {
+        return Promise.resolve({ templates })
+      }
+      if (path === '/specs') {
+        specsCallCount += 1
+        if (specsCallCount === 1) return Promise.resolve(mockDocsResponse)
+        return Promise.resolve({
+          docs: [
+            ...mockDocsResponse.docs,
+            {
+              path: 'docs/spec/build-a-website.md',
+              filename: 'build-a-website.md',
+              title: 'Build a Website',
+              status: 'spec',
+              created_at: '2026-04-17T00:00:00Z',
+              promoted_at: '2026-04-17T00:00:00Z',
+              body: 'body',
+            },
+          ],
+        })
+      }
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    mockedApiPost.mockResolvedValue({
+      result: 'docs/spec/build-a-website.md',
+      status: 'ready',
+      promoted_path: 'docs/spec/build-a-website.md',
+      template_id: 'build-a-website',
+    })
+
+    renderSpecs()
+
+    // Both template cards render in the grid.
+    await waitFor(() => {
+      expect(screen.getByTestId('plan-templates')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('plan-template-build-a-website')).toBeInTheDocument()
+    expect(screen.getByTestId('plan-template-launch-announcement')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('plan-template-build-a-website'))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/specs/from-template', {
+        template_id: 'build-a-website',
+      })
+    })
+
+    // New plan appears in the list. Use getAllByText because the
+    // template card also renders the text "Build a Website".
+    await waitFor(() => {
+      const matches = screen.getAllByText('Build a Website')
+      // Expect at least two matches: the template card and the new plan row.
+      expect(matches.length).toBeGreaterThanOrEqual(2)
+    })
+    const badges = screen.getAllByTestId('status-badge')
+    expect(badges.map((b) => b.textContent)).toContain('Ready')
+  })
+
+  // Wave 4 W6: acceptance criteria are status pills, not checkboxes.
+  it('Ready plan renders AC items as status pills, not clickable checkboxes', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('acceptance-criteria')).toBeInTheDocument()
+    })
+
+    // No interactive checkboxes inside the AC list.
+    const acList = screen.getByTestId('acceptance-criteria')
+    expect(
+      acList.querySelector('input[type="checkbox"]')
+    ).toBeNull()
+
+    // The list uses role="list" semantics.
+    expect(acList.querySelector('ul[role="list"]')).not.toBeNull()
+
+    // Each AC renders a status pill with a done or not-done state and
+    // a tooltip explaining when it flips to green.
+    const pills = screen.getAllByTestId('ac-status-pill')
+    expect(pills.length).toBeGreaterThan(0)
+    for (const pill of pills) {
+      const state = pill.getAttribute('data-state')
+      expect(state === 'done' || state === 'not-done').toBe(true)
+      expect(pill.getAttribute('title')).toContain(
+        'Acceptance criteria flip to green when Verify passes'
+      )
+    }
+
+    // The pills are not buttons or inputs, so they are not clickable
+    // in a way that would fire a PATCH.
+    for (const pill of pills) {
+      expect(pill.tagName).not.toBe('BUTTON')
+      expect(pill.tagName).not.toBe('INPUT')
+    }
+  })
+
+  // Wave 4 F5: one Verify button regardless of plan status.
+  it('Plan card renders exactly one Verify button regardless of status', async () => {
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Expand ready plan and count Verify buttons.
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+    expect(screen.getAllByTestId('verify-button').length).toBe(1)
+    // Collapse and try in-progress plan.
+    fireEvent.click(authCard)
+
+    const dashCard = cards.find((c) =>
+      c.textContent?.includes('dashboard redesign')
+    )!
+    fireEvent.click(dashCard)
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+    expect(screen.getAllByTestId('verify-button').length).toBe(1)
+    fireEvent.click(dashCard)
+
+    // And complete plan.
+    const settingsCard = cards.find((c) =>
+      c.textContent?.includes('settings page')
+    )!
+    fireEvent.click(settingsCard)
+    await waitFor(() => {
+      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
+    })
+    expect(screen.getAllByTestId('verify-button').length).toBe(1)
+    // The one Verify button has the same tooltip everywhere.
+    const verifyBtn = screen.getByTestId('verify-button')
+    expect(verifyBtn.getAttribute('title')).toBe('Runs the acceptance checks')
+  })
+
+  // Wave 4 F6: Delete is reachable by its accessible name, no window.confirm.
+  it('Delete action is reachable by its accessible name and triggers the confirm dialog (not window.confirm)', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm')
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // The overflow button is reachable by its accessible name.
+    const overflowBtns = screen.getAllByRole('button', { name: 'More actions' })
+    expect(overflowBtns.length).toBeGreaterThan(0)
+
+    // Find the one on the auth system card.
+    const authOverflow = overflowBtns.find((b) =>
+      b.closest('[data-testid="spec-card"]')?.textContent?.includes('auth system')
+    )!
+    fireEvent.click(authOverflow)
+
+    // The Delete menu item is reachable by its accessible name.
+    const deleteItem = screen.getByRole('menuitem', { name: /Delete plan/i })
+    expect(deleteItem).toBeInTheDocument()
+
+    fireEvent.click(deleteItem)
+
+    // window.confirm was never called. The in-app Undo toast appears.
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(screen.getByTestId('undo-delete-spec-toast')).toBeInTheDocument()
+    confirmSpy.mockRestore()
+  })
+
+  // Wave 4 F7: displayStatus maps every backend status to a pretty name.
+  it('displayStatus maps every backend status to a user-facing pretty name', () => {
+    expect(displayStatus('draft')).toBe('Draft')
+    expect(displayStatus('spec')).toBe('Ready')
+    expect(displayStatus('ready')).toBe('Ready')
+    expect(displayStatus('in-progress')).toBe('Building')
+    expect(displayStatus('complete')).toBe('Done')
+    // Unknown values fall back to Draft so the UI never renders raw
+    // backend identifiers.
+    expect(displayStatus('something-new')).toBe('Draft')
+    expect(displayStatus('')).toBe('Draft')
+  })
+})

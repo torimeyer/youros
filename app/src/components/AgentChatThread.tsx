@@ -17,11 +17,22 @@ export interface AgentThreadNudge {
   message: string;
   timestamp: string;
   delivery_message?: string;
+  // "stdin" = message delivered directly to the subprocess stdin now.
+  // "file_only" = message saved to the mailbox file for the next poll.
+  // Absence means the nudge predates this field (treat as file_only).
+  delivery?: "stdin" | "file_only" | string;
 }
 
 export interface AgentThreadReply {
   message: string;
   timestamp: string;
+  // "ack" = warm canned reply from the ack bot ("On it, give me a
+  //   sec.") that confirms receipt within 2s while the real subagent
+  //   is mid tool call.
+  // "real" = substantive reply from the live subagent.
+  // Absent = legacy record from before the field existed; treat as
+  //   "real" so we never hide a real answer behind ack styling.
+  kind?: "ack" | "real" | string;
 }
 
 interface AgentChatThreadProps {
@@ -76,8 +87,16 @@ export function AgentChatThread({
   const scrollEndRef = useRef<HTMLDivElement>(null);
 
   // Interleave nudges and replies by timestamp so the transcript reads top
-  // to bottom in chronological order.
-  const entries: Entry[] = [
+  // to bottom in chronological order. Render-time dedupe is the regression
+  // guard for the screenshot Tori captured where a single user message
+  // rendered twice in a row and a single ack rendered three times. Even
+  // when the parent page's merge logic and the backend ack bot both refuse
+  // to emit duplicates, the chat surface itself must never paint the same
+  // bubble twice within one render. We dedupe by ``role:timestamp:message``
+  // so two genuinely distinct messages with the same text but different
+  // timestamps still both render. Identical role+ts+text is treated as
+  // the same logical bubble and collapses to one.
+  const rawEntries: Entry[] = [
     ...nudges.map((n, index) => ({
       kind: "nudge" as const,
       ts: n.timestamp,
@@ -91,7 +110,17 @@ export function AgentChatThread({
       index,
     })),
   ];
-  entries.sort((a, b) => a.ts.localeCompare(b.ts));
+  rawEntries.sort((a, b) => a.ts.localeCompare(b.ts));
+  const seenKeys = new Set<string>();
+  const entries: Entry[] = [];
+  for (const entry of rawEntries) {
+    const text =
+      entry.kind === "nudge" ? entry.data.message : entry.data.message;
+    const key = `${entry.kind}:${entry.ts}:${text}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    entries.push(entry);
+  }
 
   // Scroll the thread to the bottom when new entries arrive so the latest
   // bubble is always visible without making the user scroll. Guarded
@@ -112,13 +141,36 @@ export function AgentChatThread({
   // Show a thinking indicator when the user is waiting on a reply.
   // True when either a send is in flight (the optimistic nudge is not
   // in the list yet) OR the most recent entry is a nudge with no newer
-  // reply. Suppressed when the mailbox warning is showing because then
-  // we already know the agent will never reply, so dots would lie.
-  // Tori added this after sending "hi!" to a running agent and seeing
-  // no indicator at all, thinking she was being ignored.
+  // real reply. An ack bot reply (kind="ack") is just a receipt, not an
+  // answer, so we keep the dots up until a real reply lands. Suppressed
+  // when the mailbox warning is showing because then we already know
+  // the agent will never reply, so dots would lie.
   const lastEntry = entries[entries.length - 1];
+  const lastEntryIsAck =
+    lastEntry?.kind === "reply" && lastEntry.data.kind === "ack";
   const awaitingReply =
-    !showMailboxWarning && (isSending || lastEntry?.kind === "nudge");
+    !showMailboxWarning &&
+    (isSending || lastEntry?.kind === "nudge" || lastEntryIsAck);
+
+  // Banner copy under the thinking dots. Prefer the backend's
+  // delivery_message when present. It knows the ground truth:
+  //   stdin delivery  -> "Sent. The agent should respond shortly."
+  //   file_only + parked long-poll -> "Sent. ... within a second."
+  //   file_only + no parked poller -> "Saved. The agent will pick this
+  //     up on its next mailbox check, up to 60 seconds from now."
+  // This avoids the old optimistic lie that promised "within a couple
+  // of seconds" for agents that are mid tool chain and not polling.
+  // Fallback copy covers old nudges that predate the delivery_message
+  // field or rare cases where the backend did not set it.
+  const lastNudge =
+    lastEntry?.kind === "nudge" ? lastEntry.data : undefined;
+  const lastNudgeDelivery = lastNudge?.delivery;
+  const backendCopy = lastNudge?.delivery_message;
+  const fallbackCopy =
+    lastNudgeDelivery === "stdin"
+      ? "Sent. The agent has it now."
+      : `Sent. ${agentName} will pick this up on its next mailbox check.`;
+  const awaitingCopy = backendCopy || fallbackCopy;
 
   const handleSendClick = async () => {
     const trimmed = input.trim();
@@ -210,6 +262,40 @@ export function AgentChatThread({
             );
           }
           const reply = entry.data;
+          // Distinguish the warm ack bot reply (kind="ack") from the
+          // substantive subagent reply (kind="real" or absent). Acks
+          // get a lighter italic bubble and an "Agent received your
+          // message" label so Tori can tell at a glance that the
+          // canned receipt and the actual answer are two different
+          // things. Real replies render as the primary bubble, same
+          // as before.
+          const isAck = reply.kind === "ack";
+          if (isAck) {
+            return (
+              <div
+                key={`r-${reply.timestamp}-${entry.index}`}
+                data-testid="agent-chat-ack-row"
+                className="group"
+              >
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span
+                    data-testid="agent-chat-ack-label"
+                    className="text-[10px] text-slate-500 font-medium"
+                  >
+                    Agent received your message
+                  </span>
+                </div>
+                <div className="relative max-w-[75%] w-fit">
+                  <div
+                    data-testid="agent-chat-ack-bubble"
+                    className="inline-block border px-3 py-2 rounded-xl text-xs italic text-slate-400 whitespace-pre-line overflow-hidden break-words bg-slate-900/60 border-slate-800/60"
+                  >
+                    {reply.message}
+                  </div>
+                </div>
+              </div>
+            );
+          }
           return (
             <div
               key={`r-${reply.timestamp}-${entry.index}`}
@@ -253,7 +339,7 @@ export function AgentChatThread({
               />
             </div>
             <span className="text-[10px] text-slate-500">
-              {agentName} will see this within about a minute
+              {awaitingCopy}
             </span>
           </div>
         )}

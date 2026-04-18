@@ -67,13 +67,38 @@ describe('Settings', () => {
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
-        { label: 'Ideas', enabled: true },
         { label: 'Agents', enabled: true },
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
-        { label: 'Docs', enabled: true },
+        { label: 'Specs', enabled: true },
         { label: 'Automations', enabled: false },
+        { label: 'Cost Tracking', enabled: true },
       ],
+    })
+  })
+
+  describe('System Features toggle labels', () => {
+    it('shows the Cost Tracking feature as "Usage" to match the nav', () => {
+      renderSettings()
+      // The Settings toggle row should display "Usage", not "Cost Tracking",
+      // so the user sees the same name as the sidebar nav entry.
+      const usageToggle = screen.getByRole('switch', { name: 'Usage' })
+      expect(usageToggle).toBeInTheDocument()
+      // And the old wording must not appear as a visible label.
+      expect(screen.queryByRole('switch', { name: 'Cost Tracking' })).toBeNull()
+    })
+  })
+
+  describe('PageHeader', () => {
+    it('renders a PageHeader with title Settings at the top', () => {
+      renderSettings()
+      expect(screen.getByTestId('page-header')).toBeInTheDocument()
+    })
+
+    it('PageHeader displays the text "Settings"', () => {
+      renderSettings()
+      const header = screen.getByTestId('page-header')
+      expect(header).toHaveTextContent('Settings')
     })
   })
 
@@ -337,6 +362,45 @@ describe('Settings', () => {
     })
   })
 
+  describe('Anthropic model dropdown', () => {
+    it('model dropdown shows when anthropic backend selected', async () => {
+      // Default provider is Anthropic. The dropdown should render.
+      renderSettings()
+      await waitFor(() => {
+        expect(screen.getByTestId('anthropic-model-dropdown')).toBeInTheDocument()
+      })
+    })
+
+    it('model dropdown hides when gemini backend selected', async () => {
+      renderSettings()
+      // Dropdown is present by default
+      await waitFor(() => {
+        expect(screen.getByTestId('anthropic-model-dropdown')).toBeInTheDocument()
+      })
+      // Switch to Gemini
+      const geminiCard = screen.getByText('Google Gemini').closest('div[class*="cursor-pointer"]')!
+      fireEvent.click(geminiCard)
+      await waitFor(() => {
+        expect(screen.queryByTestId('anthropic-model-dropdown')).not.toBeInTheDocument()
+      })
+    })
+
+    it('shows current Claude models (Opus 4.6, Sonnet 4.6, Haiku 4.5)', async () => {
+      renderSettings()
+      const dropdown = await screen.findByTestId('anthropic-model-dropdown')
+      const options = dropdown.querySelectorAll('option')
+      const labels = Array.from(options).map((o) => o.textContent?.trim())
+      // Labels should be plain-language, not raw ids.
+      expect(labels).toContain('Opus 4.6')
+      expect(labels).toContain('Sonnet 4.6')
+      expect(labels).toContain('Haiku 4.5')
+      // Old ids must not leak into the UI.
+      expect(labels).not.toContain('claude-opus-4-20250514')
+      expect(labels).not.toContain('claude-sonnet-4-20250514')
+      expect(labels).not.toContain('claude-haiku-35-20241022')
+    })
+  })
+
   describe('Feature toggle key normalization', () => {
     it('reads lowercase feature keys from backend and applies them correctly', async () => {
       // Simulate a backend that returns lowercase keys (old format)
@@ -477,4 +541,373 @@ describe('Settings', () => {
       expect(screen.getByText('Added manually')).toBeInTheDocument()
     })
   })
+
+  describe('Budget Caps toggle', () => {
+    it('renders the budget caps toggle button', async () => {
+      renderSettings()
+      await waitFor(() => {
+        expect(screen.getByTestId('budget-caps-toggle')).toBeInTheDocument()
+      })
+    })
+
+    it('shows "Show budget caps" label', async () => {
+      renderSettings()
+      await waitFor(() => {
+        expect(screen.getByText('Show budget caps')).toBeInTheDocument()
+      })
+    })
+
+    it('budget caps toggle defaults to off (aria-pressed=false)', async () => {
+      renderSettings()
+      await waitFor(() => {
+        const toggle = screen.getByTestId('budget-caps-toggle')
+        expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      })
+    })
+  })
+
+  describe('Connections section', () => {
+    it('fires all four connection status fetches in parallel, not serially', async () => {
+      // Track call ordering. If the code awaits each request before
+      // starting the next, we would see call 2 start only after call 1
+      // resolves. Parallel dispatch means all four names appear before
+      // any of the deferred promises have resolved.
+      const dispatched: string[] = []
+      const resolvers: Record<string, () => void> = {}
+
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        dispatched.push(path)
+        // Keys we care about get a deferred response so the test can
+        // observe that all four were dispatched before any resolved.
+        const connectionPaths = [
+          '/gmail/auth/status',
+          '/calendar/auth/status',
+          '/drive/auth/status',
+          '/slack/status',
+        ]
+        if (connectionPaths.includes(path)) {
+          return new Promise((resolve) => {
+            resolvers[path] = () => {
+              if (path === '/slack/status') {
+                resolve({ connected: true, team_name: 'Acme' })
+              } else {
+                resolve({ authenticated: true, email: 'test@example.com' })
+              }
+            }
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      // Wait for all four to have been dispatched. If the code awaited
+      // each response in sequence, this would time out because later
+      // paths would never be dispatched until earlier ones resolved.
+      await waitFor(() => {
+        expect(dispatched).toContain('/gmail/auth/status')
+        expect(dispatched).toContain('/calendar/auth/status')
+        expect(dispatched).toContain('/drive/auth/status')
+        expect(dispatched).toContain('/slack/status')
+      })
+
+      // Now resolve all four and confirm the dots render in the same
+      // subsequent render pass (all loading states clear together).
+      resolvers['/gmail/auth/status']()
+      resolvers['/calendar/auth/status']()
+      resolvers['/drive/auth/status']()
+      resolvers['/slack/status']()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('connection-dot-gmail')).toHaveAttribute('data-connected', 'yes')
+        expect(screen.getByTestId('connection-dot-calendar')).toHaveAttribute('data-connected', 'yes')
+        expect(screen.getByTestId('connection-dot-drive')).toHaveAttribute('data-connected', 'yes')
+        expect(screen.getByTestId('connection-dot-slack')).toHaveAttribute('data-connected', 'yes')
+      })
+    })
+
+    it('shows a red dot for disconnected services', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/gmail/auth/status') return Promise.resolve({ authenticated: false, email: null })
+        if (path === '/calendar/auth/status') return Promise.resolve({ authenticated: false, email: null })
+        if (path === '/drive/auth/status') return Promise.resolve({ authenticated: false, email: null })
+        if (path === '/slack/status') return Promise.resolve({ connected: false, team_name: '' })
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('connection-dot-gmail')).toHaveAttribute('data-connected', 'no')
+        expect(screen.getByTestId('connection-dot-slack')).toHaveAttribute('data-connected', 'no')
+      })
+    })
+  })
 })
+
+describe('Settings - Enter key submit', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.get).mockResolvedValue({})
+    useAppStore.setState({ osName: 'myOS', darkMode: false })
+  })
+
+  it('Enter on the OS Identifier field saves the name', async () => {
+    renderSettings()
+
+    // Navigate to the Appearance section where OS Identifier lives
+    await waitFor(() => {
+      expect(screen.getByText('Appearance')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Appearance'))
+
+    const osInput = await screen.findByDisplayValue('myOS')
+    fireEvent.change(osInput, { target: { value: 'ToriOS' } })
+    fireEvent.keyDown(osInput, { key: 'Enter' })
+
+    // handleOsNameBlur sets store and patches settings
+    await waitFor(() => {
+      expect(useAppStore.getState().osName).toBe('ToriOS')
+    })
+  })
+
+  it('Enter on the MCP URL field adds the server', async () => {
+    mockedApiPatch.mockResolvedValue({ ok: true })
+    renderSettings()
+
+    const nameInput = await screen.findByPlaceholderText('Server name (e.g. Stitch)')
+    const urlInput = await screen.findByPlaceholderText('Paste your server URL after running setup')
+
+    fireEvent.change(nameInput, { target: { value: 'TestServer' } })
+    fireEvent.change(urlInput, { target: { value: 'https://example.com/mcp' } })
+    fireEvent.keyDown(urlInput, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(mockedApiPatch).toHaveBeenCalledWith(
+        '/settings',
+        expect.objectContaining({ mcp_servers: expect.arrayContaining([
+          expect.objectContaining({ name: 'TestServer', url: 'https://example.com/mcp' })
+        ]) }),
+      )
+    })
+  })
+
+  describe('Compression toggle', () => {
+    it('does not render a Compression toggle in Settings', () => {
+      renderSettings()
+      expect(screen.queryByTestId('compression-toggle')).not.toBeInTheDocument()
+      expect(screen.queryByText('Compression')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Standing instructions', () => {
+    it('renders the Standing instructions section with a textarea and Save button', () => {
+      renderSettings()
+      expect(screen.getByTestId('standing-instructions-section')).toBeInTheDocument()
+      expect(screen.getByText('Standing instructions')).toBeInTheDocument()
+      expect(screen.getByTestId('standing-instructions-textarea')).toBeInTheDocument()
+      expect(screen.getByTestId('standing-instructions-save')).toBeInTheDocument()
+    })
+
+    it('uses the standing-instructions id so the Usage page link can deep-link to it', () => {
+      renderSettings()
+      const section = screen.getByTestId('standing-instructions-section')
+      expect(section.id).toBe('standing-instructions')
+    })
+
+    it('saves standing_instructions via PATCH when the Save button is clicked', async () => {
+      renderSettings()
+      const textarea = screen.getByTestId('standing-instructions-textarea') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: 'Always reply in plain language.' } })
+      fireEvent.click(screen.getByTestId('standing-instructions-save'))
+      await waitFor(() => {
+        expect(mockedApiPatch).toHaveBeenCalledWith(
+          '/settings',
+          expect.objectContaining({ standing_instructions: 'Always reply in plain language.' }),
+        )
+      })
+    })
+
+    it('loads the saved standing_instructions from the server on mount', async () => {
+      vi.mocked(api.get).mockImplementation((url: string) => {
+        if (url === '/settings') {
+          return Promise.resolve({ standing_instructions: 'Keep replies short.' })
+        }
+        return Promise.resolve({})
+      })
+      renderSettings()
+      await waitFor(() => {
+        const textarea = screen.getByTestId('standing-instructions-textarea') as HTMLTextAreaElement
+        expect(textarea.value).toBe('Keep replies short.')
+      })
+    })
+
+    it('test_standing_instructions_hydrates_from_server_on_mount', async () => {
+      // The textarea must be populated from GET /api/settings on first render
+      // so the user sees their existing instructions. The bug report was that
+      // this did not happen and Tori's stored value looked lost.
+      vi.mocked(api.get).mockImplementation((url: string) => {
+        if (url === '/settings') {
+          return Promise.resolve({
+            standing_instructions: 'be nice to me and be the best you can be but always be accurate',
+          })
+        }
+        return Promise.resolve({})
+      })
+      renderSettings()
+      await waitFor(() => {
+        const textarea = screen.getByTestId('standing-instructions-textarea') as HTMLTextAreaElement
+        expect(textarea.value).toBe('be nice to me and be the best you can be but always be accurate')
+      })
+    })
+
+    it('test_standing_instructions_save_patches_and_shows_toast', async () => {
+      // Clicking Save must both PATCH /api/settings and surface a visible
+      // confirmation so the user knows the write succeeded. Actionable
+      // feedback is required per the project rule.
+      mockedApiPatch.mockResolvedValueOnce({})
+      renderSettings()
+      const textarea = screen.getByTestId('standing-instructions-textarea') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: 'Keep replies short.' } })
+      fireEvent.click(screen.getByTestId('standing-instructions-save'))
+      await waitFor(() => {
+        expect(mockedApiPatch).toHaveBeenCalledWith(
+          '/settings',
+          expect.objectContaining({ standing_instructions: 'Keep replies short.' }),
+        )
+      })
+      await waitFor(() => {
+        const status = screen.getByTestId('standing-instructions-status')
+        expect(status).toHaveTextContent('Saved')
+      })
+    })
+
+    it('test_standing_instructions_save_failure_shows_error', async () => {
+      // If the PATCH fails the user must see an actionable error message,
+      // not a silent Save. The error span must be role=alert so screen
+      // readers announce it.
+      mockedApiPatch.mockRejectedValueOnce(new Error('network down'))
+      renderSettings()
+      const textarea = screen.getByTestId('standing-instructions-textarea') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: 'anything' } })
+      fireEvent.click(screen.getByTestId('standing-instructions-save'))
+      await waitFor(() => {
+        const status = screen.getByTestId('standing-instructions-status')
+        expect(status).toHaveTextContent(/could not save/i)
+        expect(status).toHaveAttribute('role', 'alert')
+      })
+    })
+
+    it('renders the Suggest for me button above the textarea', () => {
+      renderSettings()
+      expect(screen.getByTestId('standing-instructions-suggest')).toBeInTheDocument()
+      expect(screen.getByTestId('standing-instructions-suggest')).toHaveTextContent(/suggest for me/i)
+    })
+
+    it('clicking Suggest for me calls the suggest endpoint and renders checkboxes', async () => {
+      vi.mocked(api.post).mockImplementation((url: string) => {
+        if (url === '/settings/standing-instructions/suggest') {
+          return Promise.resolve({
+            suggestions: [
+              'Always explain things in plain language.',
+              'Prefer Google Calendar for scheduling.',
+              'Never use em-dashes.',
+            ],
+          })
+        }
+        return Promise.resolve({})
+      })
+      renderSettings()
+      fireEvent.click(screen.getByTestId('standing-instructions-suggest'))
+      await waitFor(() => {
+        expect(vi.mocked(api.post)).toHaveBeenCalledWith(
+          '/settings/standing-instructions/suggest',
+          expect.anything(),
+        )
+      })
+      await waitFor(() => {
+        expect(screen.getByTestId('standing-instructions-suggestions')).toBeInTheDocument()
+      })
+      // Three suggestions must each have a checkbox and text input.
+      expect(screen.getByTestId('standing-instructions-suggestion-check-0')).toBeInTheDocument()
+      expect(screen.getByTestId('standing-instructions-suggestion-check-1')).toBeInTheDocument()
+      expect(screen.getByTestId('standing-instructions-suggestion-check-2')).toBeInTheDocument()
+      const row0 = screen.getByTestId('standing-instructions-suggestion-text-0') as HTMLInputElement
+      expect(row0.value).toBe('Always explain things in plain language.')
+      // All checked by default so "Save all checked" is the happy path.
+      const check0 = screen.getByTestId('standing-instructions-suggestion-check-0') as HTMLInputElement
+      expect(check0.checked).toBe(true)
+    })
+
+    it('Save all checked joins checked rows with newlines and PATCHes the store', async () => {
+      vi.mocked(api.post).mockResolvedValueOnce({
+        suggestions: [
+          'Always explain things in plain language.',
+          'Prefer Google Calendar for scheduling.',
+          'Never use em-dashes.',
+        ],
+      })
+      mockedApiPatch.mockResolvedValueOnce({})
+      renderSettings()
+      fireEvent.click(screen.getByTestId('standing-instructions-suggest'))
+      await waitFor(() => {
+        expect(screen.getByTestId('standing-instructions-suggestions')).toBeInTheDocument()
+      })
+      // Uncheck the middle one so only rows 0 and 2 are saved.
+      fireEvent.click(screen.getByTestId('standing-instructions-suggestion-check-1'))
+      fireEvent.click(screen.getByTestId('standing-instructions-save-checked'))
+      await waitFor(() => {
+        expect(mockedApiPatch).toHaveBeenCalledWith(
+          '/settings',
+          expect.objectContaining({
+            standing_instructions: 'Always explain things in plain language.\nNever use em-dashes.',
+          }),
+        )
+      })
+    })
+
+    it('Save all checked appends to existing instructions instead of replacing', async () => {
+      vi.mocked(api.get).mockImplementation((url: string) => {
+        if (url === '/settings') {
+          return Promise.resolve({ standing_instructions: 'Keep replies short.' })
+        }
+        return Promise.resolve({})
+      })
+      vi.mocked(api.post).mockResolvedValueOnce({
+        suggestions: ['Prefer Gmail for email drafts.'],
+      })
+      mockedApiPatch.mockResolvedValueOnce({})
+      renderSettings()
+      // Wait for the existing instructions to hydrate.
+      await waitFor(() => {
+        const ta = screen.getByTestId('standing-instructions-textarea') as HTMLTextAreaElement
+        expect(ta.value).toBe('Keep replies short.')
+      })
+      fireEvent.click(screen.getByTestId('standing-instructions-suggest'))
+      await waitFor(() => {
+        expect(screen.getByTestId('standing-instructions-suggestions')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('standing-instructions-save-checked'))
+      await waitFor(() => {
+        expect(mockedApiPatch).toHaveBeenCalledWith(
+          '/settings',
+          expect.objectContaining({
+            standing_instructions: 'Keep replies short.\nPrefer Gmail for email drafts.',
+          }),
+        )
+      })
+    })
+
+    it('Suggest failure shows an actionable error message', async () => {
+      vi.mocked(api.post).mockRejectedValueOnce(new Error('network down'))
+      renderSettings()
+      fireEvent.click(screen.getByTestId('standing-instructions-suggest'))
+      await waitFor(() => {
+        const err = screen.getByTestId('standing-instructions-suggest-error')
+        expect(err).toHaveTextContent(/could not get suggestions/i)
+        expect(err).toHaveAttribute('role', 'alert')
+      })
+    })
+  })
+})
+

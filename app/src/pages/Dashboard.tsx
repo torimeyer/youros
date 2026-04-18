@@ -4,11 +4,13 @@ import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import QuickAddTaskModal from '../components/QuickAddTaskModal';
 import QuickSpawnAgentModal from '../components/QuickSpawnAgentModal';
-import QuickCaptureIdeaModal from '../components/QuickCaptureIdeaModal';
 import DashboardCustomizeModal from '../components/DashboardCustomizeModal';
+import RecentSpecsWidget from '../components/RecentSpecsWidget';
+import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { renderMarkdown } from '../lib/markdown';
 import { useAppStore } from '../stores/app';
+import { ADVENTURE_DISMISSED_KEY, type AdventureTemplate } from '../lib/adventures';
 
 interface ActionItem {
   type: 'reply_email' | 'close_task' | 'prep_meeting' | 'review_agent';
@@ -28,6 +30,41 @@ interface BriefingData {
   // "dismissed" copy even though the user never touched Dismiss.
   // See needle 281.
   unavailable?: boolean;
+}
+
+// localStorage key used to paint the last-known briefing within the
+// 300ms primary-rows budget. Value shape: { ts, data: BriefingData }.
+// Expires after 24 hours so a stale briefing from yesterday is never
+// reused. See CLAUDE.md "300ms primary rows from localStorage" rule.
+const BRIEFING_SEED_KEY = 'myos.briefing.last';
+const BRIEFING_SEED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function readBriefingSeed(): BriefingData | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = localStorage.getItem(BRIEFING_SEED_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { ts?: number; data?: BriefingData };
+    if (!parsed || typeof parsed.ts !== 'number' || !parsed.data) return null;
+    if (Date.now() - parsed.ts > BRIEFING_SEED_MAX_AGE_MS) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeBriefingSeed(data: BriefingData): void {
+  try {
+    if (typeof window === 'undefined') return;
+    // Only cache briefings with actual content. A null briefing
+    // (generating) or a dismissed/unavailable state is not worth
+    // painting on the next mount.
+    if (!data.show || !data.briefing) return;
+    const payload = JSON.stringify({ ts: Date.now(), data });
+    localStorage.setItem(BRIEFING_SEED_KEY, payload);
+  } catch {
+    // ignore quota errors
+  }
 }
 
 interface FocusTask {
@@ -92,6 +129,19 @@ interface LiveSessionsData {
   idle_count: number;
 }
 
+interface RecentSpec {
+  path: string;
+  filename: string;
+  title: string;
+  created_at: string;
+  promoted_at?: string;
+  status?: string;
+}
+
+interface RecentSpecsResponse {
+  docs: RecentSpec[];
+}
+
 
 const focusIcons = ['code', 'mail', 'smart_toy', 'target', 'bolt'];
 const focusColors = [
@@ -116,13 +166,31 @@ export default function Dashboard() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [compounds, setCompounds] = useState<CompoundsData | null>(null);
   const [, setSessionDiff] = useState<SessionDiff | null>(null);
-  const [briefing, setBriefing] = useState<BriefingData | null>(null);
-  const [briefingLoading, setBriefingLoading] = useState(true);
+  // Seed from localStorage so the Briefing card paints within the 300ms
+  // primary-rows budget, before any network fetch completes. The fresh
+  // fetch runs in the effect below and replaces this seed once it lands.
+  const initialBriefingSeed = readBriefingSeed();
+  const [briefing, setBriefing] = useState<BriefingData | null>(initialBriefingSeed);
+  const [briefingLoading, setBriefingLoading] = useState(initialBriefingSeed === null);
+  // True while a fresh briefing fetch is in flight on top of a seeded
+  // briefing. Drives the small "Refreshing..." hint so the user knows
+  // the card on screen is last-known and a newer one is on the way.
+  const [briefingRefreshing, setBriefingRefreshing] = useState(initialBriefingSeed !== null);
   const [liveSessions, setLiveSessions] = useState<LiveSessionsData | null>(null);
   const [quickAddTaskOpen, setQuickAddTaskOpen] = useState(false);
   const [quickSpawnOpen, setQuickSpawnOpen] = useState(false);
-  const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
+
+  // Adventure card state
+  const [adventureTemplates, setAdventureTemplates] = useState<AdventureTemplate[]>([]);
+  const [adventureDismissed, setAdventureDismissed] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem(ADVENTURE_DISMISSED_KEY) === 'true'
+  );
+  const [adventureSelected, setAdventureSelected] = useState<AdventureTemplate | null>(null);
+  const [adventureDescription, setAdventureDescription] = useState('');
+  const [adventureLoading, setAdventureLoading] = useState(false);
+  const [adventureSpawned, setAdventureSpawned] = useState(false);
+
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -189,7 +257,16 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    setBriefingLoading(true);
+    // If we have a seeded briefing on screen from localStorage, keep
+    // showing it and flip the refreshing hint instead of blowing back
+    // to the loading skeleton. The fetch below will replace the seed
+    // once the fresh data lands.
+    const hasSeed = readBriefingSeed() !== null;
+    if (hasSeed) {
+      setBriefingRefreshing(true);
+    } else {
+      setBriefingLoading(true);
+    }
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
     // The backend may still be starting when the page first loads
@@ -206,6 +283,8 @@ export default function Dashboard() {
           } else {
             setBriefing(res);
             setBriefingLoading(false);
+            setBriefingRefreshing(false);
+            writeBriefingSeed(res);
           }
         })
         .catch(() => {
@@ -216,17 +295,95 @@ export default function Dashboard() {
             return;
           }
           // The fetch failed after retries (network issue, backend
-          // hang, vite proxy zombie, etc). Mark the briefing as
-          // unavailable so the empty state tells the truth instead
-          // of claiming the user dismissed it.
-          setBriefing({ show: false, briefing: null, unavailable: true });
+          // hang, vite proxy zombie, etc). If we have a seeded briefing
+          // on screen already, keep it and just stop the refresh hint.
+          // If we had nothing, fall through to the unavailable state.
+          setBriefingRefreshing(false);
+          setBriefing((current) => {
+            if (current && current.show && current.briefing) {
+              return current;
+            }
+            return { show: false, briefing: null, unavailable: true };
+          });
           setBriefingLoading(false);
         });
     };
 
-    fetchBriefing();
+    // If this load is a browser reload (Cmd+R or Cmd+Shift+R), clear
+    // any previous dismissal so the briefing shows fresh. Tori's
+    // mental model: a refresh means "start over with today's state".
+    // See needle: briefing-hard-refresh-reload.
+    let isReload = false;
+    try {
+      const navEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+      if (navEntries.length > 0 && navEntries[0].type === 'reload') {
+        isReload = true;
+      }
+    } catch {
+      // Performance API unavailable (older browser, jsdom without stub).
+      // Default to not-reload so we do not repeatedly un-dismiss.
+    }
+
+    if (isReload) {
+      api.post('/briefing/undismiss', {})
+        .catch(() => {})
+        .finally(() => { fetchBriefing(); });
+    } else {
+      fetchBriefing();
+    }
     return () => { if (pollTimer) clearTimeout(pollTimer); };
   }, []);
+
+  // Load adventure templates once (only if the card is not dismissed)
+  useEffect(() => {
+    if (adventureDismissed) return;
+    api.get<{ adventures: AdventureTemplate[] }>('/adventures/templates')
+      .then((data) => setAdventureTemplates(data.adventures || []))
+      .catch(() => {});
+  }, [adventureDismissed]);
+
+  // Load recent specs
+  useEffect(() => {
+    const fetchRecentSpecs = async () => {
+      setRecentSpecsLoading(true);
+      try {
+        const res = await api.get<{ docs: any[] }>('/specs');
+        const specs = res.docs || [];
+        const sorted = specs.sort((a: any, b: any) => {
+          const dateA = new Date(a.promoted_at || a.created_at || '').getTime();
+          const dateB = new Date(b.promoted_at || b.created_at || '').getTime();
+          return dateB - dateA;
+        });
+        setRecentSpecs(sorted.slice(0, 5));
+      } catch {
+        // silently ignore
+      } finally {
+        setRecentSpecsLoading(false);
+      }
+    };
+    fetchRecentSpecs();
+  }, []);
+
+  const handleDismissAdventure = () => {
+    localStorage.setItem(ADVENTURE_DISMISSED_KEY, 'true');
+    setAdventureDismissed(true);
+  };
+
+  const handleSpawnAdventure = async () => {
+    if (!adventureSelected && !adventureDescription.trim()) return;
+    setAdventureLoading(true);
+    try {
+      const payload = adventureSelected
+        ? { adventure_id: adventureSelected.id, description: adventureDescription || adventureSelected.tagline }
+        : { adventure_id: 'custom', description: adventureDescription };
+      await api.post('/adventures/start', payload);
+      setAdventureSpawned(true);
+    } catch {
+      // silently ignore
+    } finally {
+      setAdventureLoading(false);
+    }
+  };
 
   const handleDismissBriefing = () => {
     api.post('/briefing/dismiss', {}).catch(() => {});
@@ -244,6 +401,7 @@ export default function Dashboard() {
           } else {
             setBriefing(res);
             setBriefingLoading(false);
+            writeBriefingSeed(res);
           }
         })
         .catch(() => setBriefingLoading(false));
@@ -273,21 +431,19 @@ export default function Dashboard() {
   const quickLaunchActions: Record<string, () => void> = {
     'New Task': () => setQuickAddTaskOpen(true),
     'Spawn Agent': () => setQuickSpawnOpen(true),
-    'Capture Idea': () => setQuickCaptureOpen(true),
     'Open Chat': () => toggleChat(),
   };
 
   const quickLaunch = [
     { icon: 'add_task', label: 'New Task', color: 'text-blue-400', hoverBorder: 'hover:border-blue-500' },
     { icon: 'bolt', label: 'Spawn Agent', color: 'text-purple-400', hoverBorder: 'hover:border-purple-500' },
-    { icon: 'note_add', label: 'Capture Idea', color: 'text-pink-400', hoverBorder: 'hover:border-pink-500' },
     { icon: 'chat', label: 'Open Chat', color: 'text-cyan-400', hoverBorder: 'hover:border-cyan-500' },
   ];
 
   const [nextMeeting, setNextMeeting] = useState<CalendarEvent | null | undefined>(undefined);
 
 
-  const cardClass = 'bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-700 transition-colors';
+  // cardClass replaced by Card component. Use: <Card hover padding="sm" className="sm:p-6">
 
   const hour = new Date().getHours();
 
@@ -330,14 +486,14 @@ export default function Dashboard() {
   const renderBriefing = () => {
     if (briefingLoading) {
       return (
-        <div
-          key="briefing"
-          data-testid="widget-briefing"
-          className="mb-6 bg-slate-900/40 border border-slate-800 rounded-xl p-5 animate-pulse"
-        >
-          <div className="h-3 bg-slate-700 rounded w-1/4 mb-3" />
-          <div className="h-3 bg-slate-700 rounded w-3/4 mb-2" />
-          <div className="h-3 bg-slate-700 rounded w-2/3" />
+        <div key="briefing" data-testid="widget-briefing" className="mb-6">
+          <Card padding="sm" className="p-5">
+            <div className="flex flex-col gap-2">
+              <SkeletonLine width="w-1/4" />
+              <SkeletonLine width="w-3/4" />
+              <SkeletonLine width="w-2/3" />
+            </div>
+          </Card>
         </div>
       );
     }
@@ -354,7 +510,17 @@ export default function Dashboard() {
                 <Icon name="wb_sunny" className="text-blue-400" size={18} />
               </div>
               <div className="flex-1">
-                <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-1.5">{greetingLabel}</p>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <p className="text-xs font-medium text-blue-400 uppercase tracking-wide">{greetingLabel}</p>
+                  {briefingRefreshing && (
+                    <span
+                      data-testid="briefing-refreshing"
+                      className="text-[10px] font-medium text-blue-300/70 uppercase tracking-wide"
+                    >
+                      Refreshing...
+                    </span>
+                  )}
+                </div>
                 <div className="text-sm text-slate-200 leading-relaxed space-y-3">
                   {briefing.briefing.split(/\n\n+/).map((para, i) => (
                     <p key={i}>{renderMarkdown(para)}</p>
@@ -528,7 +694,8 @@ export default function Dashboard() {
   };
 
   const renderTodaysFocus = () => (
-    <div key="todays_focus" data-testid="widget-todays-focus" className={cardClass}>
+    <div key="todays_focus" data-testid="widget-todays-focus">
+    <Card hover padding="sm" className="sm:p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Icon name="target" className="text-pink-400" size={20} />
@@ -572,11 +739,13 @@ export default function Dashboard() {
           ))
         )}
       </div>
+    </Card>
     </div>
   );
 
   const renderQuickLaunch = () => (
-    <div key="quick_launch" data-testid="widget-quick-launch" className={cardClass}>
+    <div key="quick_launch" data-testid="widget-quick-launch">
+    <Card hover padding="sm" className="sm:p-6">
       <h2 className="text-lg font-semibold mb-4">Quick Launch</h2>
       <div className="grid grid-cols-2 gap-2 sm:gap-3">
         {quickLaunch.map((item) => (
@@ -590,18 +759,19 @@ export default function Dashboard() {
           </button>
         ))}
       </div>
+    </Card>
     </div>
   );
 
   const renderNextMeeting = () => {
     if (!nextMeeting) {
       return (
-        <div
-          key="next_meeting"
-          data-testid="widget-next-meeting"
-          className={`${cardClass} lg:col-span-2`}
+        <div key="next_meeting" data-testid="widget-next-meeting" className="lg:col-span-2">
+        <Card
+          hover
+          padding="sm"
+          className="sm:p-6"
           onClick={() => navigate('/calendar')}
-          style={{ cursor: 'pointer' }}
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
@@ -612,16 +782,17 @@ export default function Dashboard() {
               <p className="text-sm text-slate-400">No upcoming meetings on your calendar.</p>
             </div>
           </div>
+        </Card>
         </div>
       );
     }
     return (
-      <div
-        key="next_meeting"
-        data-testid="widget-next-meeting"
-        className={`${cardClass} lg:col-span-2`}
+      <div key="next_meeting" data-testid="widget-next-meeting" className="lg:col-span-2">
+      <Card
+        hover
+        padding="sm"
+        className="sm:p-6"
         onClick={() => navigate('/calendar')}
-        style={{ cursor: 'pointer' }}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -666,6 +837,7 @@ export default function Dashboard() {
             <Icon name="chevron_right" className="text-slate-500" size={20} />
           </div>
         </div>
+      </Card>
       </div>
     );
   };
@@ -675,7 +847,8 @@ export default function Dashboard() {
     // render. The briefing banner and Day Summary are now independent
     // cards the user controls via Customize.
     return (
-      <div key="day_summary" data-testid="widget-day-summary" className={cardClass}>
+      <div key="day_summary" data-testid="widget-day-summary">
+      <Card hover padding="sm" className="sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Icon name="calendar_today" className="text-cyan-400" size={20} />
@@ -706,6 +879,7 @@ export default function Dashboard() {
             </ul>
           )}
         </div>
+      </Card>
       </div>
     );
   };
@@ -736,7 +910,8 @@ export default function Dashboard() {
     };
 
     return (
-      <div key="live_sessions" data-testid="widget-live-sessions" className={cardClass}>
+      <div key="live_sessions" data-testid="widget-live-sessions">
+      <Card hover padding="sm" className="sm:p-6">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Icon name="terminal" className="text-emerald-400" size={20} />
@@ -781,9 +956,99 @@ export default function Dashboard() {
             ))}
           </div>
         )}
+      </Card>
       </div>
     );
   };
+
+  const renderAdventure = () => {
+    if (adventureDismissed) return null;
+    return (
+      <div key="adventure" data-testid="widget-adventure" className="lg:col-span-2">
+      <Card hover padding="sm" className="sm:p-6">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center shrink-0">
+              <Icon name="rocket_launch" className="text-indigo-400" size={20} />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-indigo-400 uppercase tracking-wide mb-0.5">Try an Adventure</p>
+              <p className="font-semibold">Pick something to get started on</p>
+            </div>
+          </div>
+          <button
+            onClick={handleDismissAdventure}
+            aria-label="Dismiss adventure card"
+            data-testid="adventure-dismiss"
+            className="text-slate-500 hover:text-slate-300 transition-colors shrink-0 mt-0.5"
+          >
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+
+        {adventureSpawned ? (
+          <div data-testid="adventure-spawned-banner" className="flex items-center gap-2 px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-lg text-sm text-green-300">
+            <Icon name="check_circle" size={16} />
+            <span>Agent started.</span>
+            <button
+              onClick={() => navigate('/agents')}
+              className="ml-1 underline hover:text-green-200 transition-colors"
+              data-testid="adventure-agents-link"
+            >
+              See the Agents page
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4" data-testid="adventure-cards">
+              {adventureTemplates.map((adv) => (
+                <button
+                  key={adv.id}
+                  onClick={() => setAdventureSelected(adventureSelected?.id === adv.id ? null : adv)}
+                  data-testid={`adventure-card-${adv.id}`}
+                  className={`text-left p-3 rounded-lg border transition-colors ${
+                    adventureSelected?.id === adv.id
+                      ? 'border-indigo-500 bg-indigo-500/10'
+                      : 'border-slate-700 bg-slate-900/50 hover:border-slate-600'
+                  }`}
+                >
+                  <Icon name={adv.icon} size={16} className="text-indigo-400 mb-1" />
+                  <p className="text-xs font-medium text-slate-200 leading-snug">{adv.title}</p>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={adventureDescription}
+                onChange={(e) => setAdventureDescription(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !adventureLoading) handleSpawnAdventure(); }}
+                placeholder={adventureSelected ? adventureSelected.placeholder : 'Describe what you want to do...'}
+                data-testid="adventure-description-input"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+              <button
+                onClick={handleSpawnAdventure}
+                disabled={!adventureSelected && !adventureDescription.trim() || adventureLoading}
+                data-testid="adventure-spawn-button"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/40 disabled:cursor-not-allowed rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
+              >
+                {adventureLoading ? 'Starting...' : 'Spawn agent'}
+              </button>
+            </div>
+          </>
+        )}
+      </Card>
+      </div>
+    );
+  };
+
+  const renderRecentSpecs = () => (
+    <div key="recent_specs" data-testid="widget-recent-specs">
+      <RecentSpecsWidget />
+    </div>
+  );
 
   // Map of widget id to render function. Only widgets present in
   // dashboardWidgets render, and they render in that order. Widgets above
@@ -792,11 +1057,13 @@ export default function Dashboard() {
   const widgetRenderers: Record<string, () => ReactNode> = {
     briefing: renderBriefing,
     focus_first: renderFocusFirst,
+    adventure: renderAdventure,
     todays_focus: renderTodaysFocus,
     quick_launch: renderQuickLaunch,
     next_meeting: renderNextMeeting,
     day_summary: renderDaySummary,
     live_sessions: renderLiveSessions,
+    recent_specs: renderRecentSpecs,
   };
 
   const [widgetMenuOpen, setWidgetMenuOpen] = useState<string | null>(null);
@@ -826,7 +1093,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <TopBar title="Home Dashboard" />
+      <TopBar title="Home" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         {visibleBanners.map((id) => widgetRenderers[id]?.())}
@@ -893,10 +1160,6 @@ export default function Dashboard() {
       <QuickSpawnAgentModal
         open={quickSpawnOpen}
         onClose={() => setQuickSpawnOpen(false)}
-      />
-      <QuickCaptureIdeaModal
-        open={quickCaptureOpen}
-        onClose={() => setQuickCaptureOpen(false)}
       />
       <DashboardCustomizeModal
         open={customizeOpen}

@@ -16,8 +16,8 @@ def settings_file(tmp_path):
         "accent_color": "blue",
         "default_model": "@claude",
         "features": {
-            "chat": True, "tasks": True, "hay": True,
-            "agents": True, "projects": True, "docs": True,
+            "chat": True, "tasks": True,
+            "agents": True, "projects": True, "specs": True,
             "transcripts": False,
         },
         "notifications": {
@@ -125,15 +125,13 @@ async def test_get_settings_normalizes_lowercase_feature_keys(client, settings_f
     # return TitleCase labels that the frontend expects.
     assert "Tasks" in features
     assert "Chat" in features
-    assert "Hay/Ideas" in features
     assert "Agents" in features
     assert "Projects" in features
-    assert "Docs" in features
+    assert "Specs" in features
     assert "Transcripts" in features
     # Old lowercase keys should NOT appear in the response
     assert "tasks" not in features
     assert "chat" not in features
-    assert "hay" not in features
 
 
 @pytest.mark.asyncio
@@ -203,7 +201,6 @@ async def test_default_settings_schema_uses_titlecase_feature_keys():
     defaults = Settings()
     assert "Tasks" in defaults.features
     assert "Chat" in defaults.features
-    assert "Hay/Ideas" in defaults.features
     assert "tasks" not in defaults.features
     assert "chat" not in defaults.features
 
@@ -643,3 +640,156 @@ async def test_appearance_settings_survive_store_restart(tmp_path):
     assert data["dashboard_layout"] == "focus"
     assert data["status_dot_style"] == "badges"
     assert data["greeting_style"] == "quote"
+
+
+# --- System feature defaults tests ---
+# Needle: every non-debug system feature must default to True so new users
+# see the full feature set without any manual setup.
+
+# Keys that are intentionally excluded from the "must be True" check:
+# none at this time. All features in the schema are user-visible and should
+# default on.
+_DEBUG_FEATURE_KEYS: set[str] = set()
+
+
+@pytest.mark.asyncio
+async def test_all_non_debug_feature_defaults_are_true():
+    """Every system feature in the Settings schema must default to True.
+
+    This prevents a regression where a new feature is added with a False
+    default and new users never see it turned on. Debug/staging-only keys
+    listed in _DEBUG_FEATURE_KEYS are exempt.
+    """
+    from models.schemas import Settings
+    defaults = Settings()
+    for key, value in defaults.features.items():
+        if key in _DEBUG_FEATURE_KEYS:
+            continue
+        assert value is True, (
+            f"Feature '{key}' defaults to False. "
+            "All user-visible features must default to True. "
+            "If this is a debug/staging-only flag, add it to _DEBUG_FEATURE_KEYS."
+        )
+
+
+@pytest.mark.asyncio
+async def test_user_set_feature_false_preserved_on_load(client, tmp_path):
+    """A user who intentionally turned a feature off after the all-features-on
+    migration keeps it off after load.
+
+    Once ``features_default_on_migrated`` is set to True, subsequent loads
+    must never flip user-disabled features back on.
+    """
+    sf = tmp_path / "settings.json"
+    # Write a settings file where the user has explicitly disabled Automations
+    # AFTER the one-shot migration has already run.
+    sf.write_text(json.dumps({
+        "os_name": "myOS",
+        "onboarded": True,
+        "features_default_on_migrated": True,
+        "features": {
+            "Chat": True,
+            "Tasks": True,
+            "Automations": False,
+        },
+    }))
+
+    with patch("services.settings_store.SETTINGS_PATH", sf):
+        resp = await client.get("/api/settings")
+
+    assert resp.status_code == 200
+    features = resp.json()["features"]
+    # Automations was explicitly set False by the user after migration; it must stay False.
+    assert features["Automations"] is False
+    # Other features that were absent from the file should be backfilled as True.
+    assert features["Chat"] is True
+    assert features["Tasks"] is True
+
+
+@pytest.mark.asyncio
+async def test_feature_defaults_all_true():
+    """Every feature in the Settings schema must default to True so new
+    users see every system feature enabled out of the box."""
+    from models.schemas import Settings
+    defaults = Settings()
+    assert defaults.features, "Settings.features defaults must not be empty"
+    for key, value in defaults.features.items():
+        assert value is True, (
+            f"Feature '{key}' defaults to {value}. All system features "
+            "must default to True."
+        )
+
+
+@pytest.mark.asyncio
+async def test_settings_load_migrates_missing_or_false_defaults_to_true_first_time(
+    client, tmp_path
+):
+    """First load after the all-features-on rule must promote any
+    historically default-False feature (Automations) to True and backfill
+    missing feature keys with True. The migration runs exactly once and
+    records a flag so future user toggles are preserved.
+    """
+    sf = tmp_path / "settings.json"
+    # Pre-migration settings file: no migration flag, Automations is False
+    # because the old frontend default wrote it that way, and most feature
+    # keys are missing entirely.
+    sf.write_text(json.dumps({
+        "os_name": "myOS",
+        "onboarded": True,
+        "features": {
+            "Chat": True,
+            "Automations": False,
+        },
+    }))
+
+    with patch("services.settings_store.SETTINGS_PATH", sf):
+        resp = await client.get("/api/settings")
+        features = resp.json()["features"]
+
+        # Historically default-False Automations is promoted to True on first load.
+        assert features["Automations"] is True
+        # Every schema feature is now present and True for this user.
+        for key in ("Chat", "Tasks", "Agents", "Projects", "Specs", "Cost Tracking"):
+            assert features[key] is True, f"{key} should be True after migration"
+
+        # The migration flag is recorded on disk so this never runs again.
+        saved = json.loads(sf.read_text())
+        assert saved.get("features_default_on_migrated") is True
+        assert saved["features"]["Automations"] is True
+
+        # Second load: a user toggle that sets Automations False AFTER the
+        # migration must be preserved, not flipped back to True.
+        await client.patch(
+            "/api/settings", json={"features": {"Automations": False}}
+        )
+        resp2 = await client.get("/api/settings")
+        features2 = resp2.json()["features"]
+        assert features2["Automations"] is False
+
+
+# --- Standing instructions ---
+
+
+@pytest.mark.asyncio
+async def test_settings_stores_standing_instructions(client, settings_file):
+    """PATCH /api/settings accepts standing_instructions and GET returns it.
+
+    The Usage page links "Save standing instructions to raise this" to
+    ``/settings#standing-instructions``. The Settings page stores that
+    free-form block on the generic settings store so every chat and
+    agent spawn can pick it up. An empty default keeps new users clean.
+    """
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.get("/api/settings")
+        assert resp.status_code == 200
+        # Empty default for users who have not written anything.
+        assert resp.json().get("standing_instructions", "") == ""
+
+        resp = await client.patch(
+            "/api/settings",
+            json={"standing_instructions": "Always reply in plain language."},
+        )
+        assert resp.status_code == 200
+
+        resp = await client.get("/api/settings")
+        assert resp.json()["standing_instructions"] == "Always reply in plain language."

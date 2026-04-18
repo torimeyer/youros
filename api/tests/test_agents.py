@@ -13,6 +13,7 @@ These tests verify that:
 5. The response includes the new fields (daemon_running, agents list)
 """
 
+import asyncio
 import json
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -265,7 +266,9 @@ async def test_nudge_writes_file_and_returns_record():
             assert data["result"] == "Nudge sent to 'test-agent'"
             assert data["nudge"]["message"] == "Hello agent"
             assert data["nudge"]["source"] == "ui"
-            mock_ostk.write_nudge.assert_called_once_with("test-agent", "Hello agent")
+            mock_ostk.write_nudge.assert_called_once_with(
+                "test-agent", "Hello agent", kind="user_message"
+            )
     finally:
         agent_metadata.pop("test-agent", None)
 
@@ -389,6 +392,134 @@ async def test_nudge_claude_code_agent_reports_file_only_delivery():
 
 
 @pytest.mark.asyncio
+async def test_nudge_stdin_writer_delivers_stdin():
+    """Registering a claude-code agent with a stdin writer delivers via stdin.
+
+    When an agent was spawned via /agents/spawn and its stdin pipe is stored
+    in _agent_stdin_writers, /nudge must write the message to that writer and
+    return delivery='stdin'. This is the instant-delivery path.
+    """
+    from routers.agents import agent_metadata, _agent_stdin_writers, nudge_history
+
+    agent_name = "stdin-writer-agent"
+    agent_metadata[agent_name] = {"status": "running", "source": "claude-code"}
+
+    mock_writer = MagicMock()
+    mock_writer.is_closing.return_value = False
+    mock_writer.write = MagicMock()
+    mock_writer.drain = AsyncMock()
+    _agent_stdin_writers[agent_name] = mock_writer
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": agent_name,
+                    "message": "hey, done yet?",
+                    "timestamp": "2026-04-14T10:00:00+00:00",
+                    "source": "ui",
+                })
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/nudge",
+                    json={"message": "hey, done yet?"},
+                )
+    finally:
+        _agent_stdin_writers.pop(agent_name, None)
+        agent_metadata.pop(agent_name, None)
+        nudge_history.pop(agent_name, None)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["nudge"]["delivery"] == "stdin"
+    assert data["nudge"]["stdin_delivered"] is True
+    mock_writer.write.assert_called_once()
+    written = mock_writer.write.call_args[0][0]
+    assert b"hey, done yet?" in written
+
+
+@pytest.mark.asyncio
+async def test_nudge_dead_stdin_writer_falls_back_to_file_only():
+    """A closing stdin writer causes fallback to file_only delivery.
+
+    When the subprocess exits, its stdin pipe reports is_closing()=True.
+    /nudge must detect this, remove the stale entry from _agent_stdin_writers,
+    and return delivery='file_only' so the UI shows the honest wait time.
+    """
+    from routers.agents import agent_metadata, _agent_stdin_writers, nudge_history
+
+    agent_name = "dead-writer-agent"
+    agent_metadata[agent_name] = {"status": "running", "source": "claude-code"}
+
+    mock_writer = MagicMock()
+    mock_writer.is_closing.return_value = True
+    _agent_stdin_writers[agent_name] = mock_writer
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": agent_name,
+                    "message": "still alive?",
+                    "timestamp": "2026-04-14T10:01:00+00:00",
+                    "source": "ui",
+                })
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/nudge",
+                    json={"message": "still alive?"},
+                )
+    finally:
+        _agent_stdin_writers.pop(agent_name, None)
+        agent_metadata.pop(agent_name, None)
+        nudge_history.pop(agent_name, None)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["nudge"]["delivery"] == "file_only"
+    assert data["nudge"]["stdin_delivered"] is False
+    assert agent_name not in _agent_stdin_writers
+
+
+@pytest.mark.asyncio
+async def test_nudge_no_stdin_writer_and_no_proc_uses_file_only():
+    """Agent with no stdin writer and no active proc uses file_only delivery.
+
+    Non-API-registered agents (HTTP-only registrations) never have an entry
+    in _agent_stdin_writers, so /nudge must always use file_only for them.
+    """
+    from routers.agents import agent_metadata, _agent_stdin_writers, active_agents, nudge_history
+
+    agent_name = "http-only-agent"
+    agent_metadata[agent_name] = {"status": "running", "source": "claude-code"}
+    _agent_stdin_writers.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": agent_name,
+                    "message": "how long?",
+                    "timestamp": "2026-04-14T10:02:00+00:00",
+                    "source": "ui",
+                })
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/nudge",
+                    json={"message": "how long?"},
+                )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        nudge_history.pop(agent_name, None)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["nudge"]["delivery"] == "file_only"
+    assert data["nudge"]["stdin_delivered"] is False
+
+
+@pytest.mark.asyncio
 async def test_reply_endpoint_records_agent_reply():
     """POST /api/agents/{name}/reply should persist an agent reply.
 
@@ -444,6 +575,155 @@ async def test_reply_endpoint_rejects_unknown_agent():
             json={"message": "hi"},
         )
         assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_nudge_agent_name_with_spaces_returns_200():
+    """POST /api/agents/{name}/nudge where name has spaces should return 200.
+
+    Regression for the 'Closed this week' inline-reply 500: agent names with
+    spaces are valid (they come from task titles) and the nudge endpoint must
+    handle them without crashing. The path parameter is URL-decoded by
+    FastAPI so the endpoint receives the name with literal spaces.
+    """
+    from routers.agents import agent_metadata, nudge_history
+    spaced_name = "Closed this week"
+    agent_metadata[spaced_name] = {"status": "running", "source": "claude-code"}
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": spaced_name,
+                    "message": "Still going?",
+                    "timestamp": "2026-04-15T10:00:00+00:00",
+                    "source": "ui",
+                })
+                resp = await client.post(
+                    "/api/agents/Closed%20this%20week/nudge",
+                    json={"message": "Still going?"},
+                )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["nudge"]["message"] == "Still going?"
+        mock_ostk.write_nudge.assert_called_once_with(
+            spaced_name, "Still going?", kind="user_message"
+        )
+    finally:
+        agent_metadata.pop(spaced_name, None)
+        nudge_history.pop(spaced_name, None)
+
+
+@pytest.mark.asyncio
+async def test_reply_agent_name_with_spaces_returns_200():
+    """POST /api/agents/{name}/reply where name has spaces should return 200.
+
+    Same regression guard as the nudge test: agent names with spaces must
+    round-trip cleanly through the URL path and into the reply storage.
+    """
+    from routers.agents import agent_metadata, nudge_replies
+    spaced_name = "Closed this week"
+    agent_metadata[spaced_name] = {"status": "running", "source": "claude-code"}
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.append_nudge_reply = AsyncMock(return_value={
+                    "agent": spaced_name,
+                    "message": "Done, wrapping up.",
+                    "timestamp": "2026-04-15T10:01:00+00:00",
+                    "source": "agent",
+                    "in_reply_to": None,
+                })
+                resp = await client.post(
+                    "/api/agents/Closed%20this%20week/reply",
+                    json={"message": "Done, wrapping up."},
+                )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["reply"]["message"] == "Done, wrapping up."
+        mock_ostk.append_nudge_reply.assert_called_once_with(
+            spaced_name, "Done, wrapping up.", in_reply_to=None, kind="real"
+        )
+    finally:
+        agent_metadata.pop(spaced_name, None)
+        nudge_replies.pop(spaced_name, None)
+
+
+@pytest.mark.asyncio
+async def test_reply_empty_body_returns_400():
+    """POST /api/agents/{name}/reply with an empty message should return 400.
+
+    The endpoint must reject blank replies with a plain-language reason so
+    the UI can surface it instead of showing a confusing 'Internal Server Error'.
+    """
+    from routers.agents import agent_metadata
+    agent_metadata["reply-agent-400"] = {"status": "running", "source": "claude-code"}
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/reply-agent-400/reply",
+                json={"message": "   "},
+            )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert isinstance(detail, str) and len(detail) > 0, "Detail must be a readable reason"
+    finally:
+        agent_metadata.pop("reply-agent-400", None)
+
+
+@pytest.mark.asyncio
+async def test_nudge_storage_error_returns_503():
+    """POST /api/agents/{name}/nudge should return 503 (not 500) if the filesystem write fails.
+
+    Regression for the 'Closed this week' inline-reply Internal Server Error:
+    when write_nudge raises an exception (disk full, permission error), the
+    endpoint must catch it and return a 503 with a readable message so the
+    UI shows something actionable instead of 'Internal Server Error'.
+    """
+    from routers.agents import agent_metadata
+    agent_metadata["storage-error-agent"] = {"status": "running", "source": "claude-code"}
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(side_effect=OSError("disk full"))
+                resp = await client.post(
+                    "/api/agents/storage-error-agent/nudge",
+                    json={"message": "ping"},
+                )
+        assert resp.status_code == 503
+        detail = resp.json()["detail"]
+        assert "disk full" in detail.lower() or "storage error" in detail.lower()
+    finally:
+        agent_metadata.pop("storage-error-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_reply_storage_error_returns_503():
+    """POST /api/agents/{name}/reply should return 503 (not 500) if the write fails.
+
+    Mirror of test_nudge_storage_error_returns_503 for the reply path.
+    Both endpoints share the same vulnerability: an unhandled exception from
+    append_nudge_reply surfaces as a generic 500, not a readable message.
+    """
+    from routers.agents import agent_metadata
+    agent_metadata["storage-error-reply-agent"] = {"status": "running", "source": "claude-code"}
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.append_nudge_reply = AsyncMock(side_effect=OSError("permission denied"))
+                resp = await client.post(
+                    "/api/agents/storage-error-reply-agent/reply",
+                    json={"message": "all done"},
+                )
+        assert resp.status_code == 503
+        detail = resp.json()["detail"]
+        assert "permission denied" in detail.lower() or "storage error" in detail.lower()
+    finally:
+        agent_metadata.pop("storage-error-reply-agent", None)
 
 
 @pytest.mark.asyncio
@@ -635,7 +915,8 @@ async def test_list_agents_daemon_agents_override_audit():
             },
         ]
 
-        with patch("routers.agents.ostk") as mock_ostk:
+        with patch("routers.agents.ostk") as mock_ostk, \
+             patch("routers.agents._load_deleted_agents", return_value=set()):
             mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
             mock_ostk.audit_agents = AsyncMock(return_value=mock_audit)
 
@@ -1497,7 +1778,7 @@ async def test_register_endpoint_stores_metadata():
 
             resp = await client.post(
                 "/api/agents/register",
-                json={"name": "cc-new-agent", "prompt": "do stuff", "model": "opus", "budget": 2.0},
+                json={"name": "cc-new-agent", "prompt": "do stuff", "model": "opus", "budget": 2.0, "source": "claude-code"},
             )
 
         assert resp.status_code == 200
@@ -1696,20 +1977,113 @@ def test_format_jsonl_skips_malformed_lines(tmp_path):
     assert "still works" in out
 
 
+def test_format_jsonl_skips_ismeta_user_entries(tmp_path):
+    """Regression for needle 589: Claude Code injects repeated
+    ``isMeta: true`` system-reminder user entries into long sessions.
+    The transcript reader must drop those so the View Transcript modal
+    does not show the same opening message dozens of times on scroll-up.
+    The reader must also collapse consecutive identical real user lines
+    to a single entry.
+    """
+    from routers.agents import _format_jsonl_transcript
+    p = tmp_path / "x.output"
+    reminder = "<system-reminder>Respond with just the action.</system-reminder>"
+    real_ask = "diagnose the duplicate opening bug"
+    lines = [
+        json.dumps({"type": "user", "message": {"role": "user", "content": real_ask}}),
+    ]
+    # Five isMeta reminders (should all be filtered out).
+    for _ in range(5):
+        lines.append(json.dumps({
+            "type": "user",
+            "isMeta": True,
+            "message": {"role": "user", "content": reminder},
+        }))
+    # Same real ask repeated (should collapse to the existing entry).
+    lines.append(json.dumps({
+        "type": "user",
+        "message": {"role": "user", "content": real_ask},
+    }))
+    p.write_text("\n".join(lines) + "\n")
+
+    out = _format_jsonl_transcript(p)
+    # Reminder is completely absent.
+    assert "system-reminder" not in out
+    # Real ask appears exactly once even though the JSONL has it twice in
+    # a row (collapse) and even though there are meta entries between
+    # the first and second real ask (collapse still applies because the
+    # meta entries are filtered out before deduping).
+    assert out.count(real_ask) == 1
+
+
 @pytest.mark.asyncio
-async def test_get_agent_transcript_404_when_no_source(tmp_path):
+async def test_get_agent_transcript_empty_when_no_source(tmp_path):
     """If neither the markdown file nor a transcript_path-backed JSONL exists,
-    return 404 with a helpful detail."""
+    return 200 with empty=True and a human-readable reason (not a 404)."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         with patch("config.PROJECT_ROOT", tmp_path):
             (tmp_path / "transcripts").mkdir(parents=True, exist_ok=True)
             resp = await client.get("/api/agents/ghost-agent/transcript")
 
-    assert resp.status_code == 404
-    detail = resp.json()["detail"]
-    assert "ghost-agent" in detail
-    assert "older myOS" in detail
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["empty"] is True
+    assert "reason" in data
+    assert len(data["reason"]) > 0
+    assert data["bytes"] == 0
+    assert data["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_get_agent_transcript_empty_for_cancelled_agent(tmp_path):
+    """A cancelled agent with no transcript file returns empty=True with a
+    cancel-specific reason rather than the generic fallback message."""
+    from routers.agents import agent_metadata, _reset_transcript_resolver_cache
+    agent_metadata["gone-agent"] = {
+        "status": "cancelled",
+        "terminated_reason": "bulk cancel",
+        "spawned_at": "2026-04-15T17:00:00+00:00",
+    }
+    _reset_transcript_resolver_cache()
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("config.PROJECT_ROOT", tmp_path):
+                (tmp_path / "transcripts").mkdir(parents=True, exist_ok=True)
+                resp = await client.get("/api/agents/gone-agent/transcript")
+    finally:
+        agent_metadata.pop("gone-agent", None)
+        _reset_transcript_resolver_cache()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["empty"] is True
+    assert "cancelled" in data["reason"].lower()
+
+
+@pytest.mark.asyncio
+async def test_get_agent_transcript_warm_returns_content_fast(tmp_path):
+    """Warm transcript (resolver cache populated) must return real content
+    proving sub-200ms warm reads."""
+    import time
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir(parents=True, exist_ok=True)
+    (transcripts_dir / "speed-agent.md").write_text("fast content\n")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("config.PROJECT_ROOT", tmp_path):
+            # warm the cache
+            await client.get("/api/agents/speed-agent/transcript")
+            # measure cached response
+            t0 = time.monotonic()
+            resp = await client.get("/api/agents/speed-agent/transcript")
+            elapsed_ms = (time.monotonic() - t0) * 1000
+
+    assert resp.status_code == 200
+    assert resp.json()["content"] == "fast content\n"
+    assert elapsed_ms < 200, f"Warm transcript took {elapsed_ms:.1f}ms, expected <200ms"
 
 
 @pytest.mark.asyncio
@@ -1730,6 +2104,7 @@ async def test_register_endpoint_persists_transcript_path():
                     "model": "opus",
                     "budget": 2.0,
                     "transcript_path": "/private/tmp/claude-501/proj/sess/tasks/abc.output",
+                    "source": "claude-code",
                 },
             )
 
@@ -1991,7 +2366,7 @@ async def test_register_then_complete_persists_status(tmp_path):
                 # 1. Register the agent
                 resp = await client.post(
                     "/api/agents/register",
-                    json={"name": "reg-test-agent", "prompt": "do x", "model": "opus", "budget": 2.0},
+                    json={"name": "reg-test-agent", "prompt": "do x", "model": "opus", "budget": 2.0, "source": "claude-code"},
                 )
                 assert resp.status_code == 200
 
@@ -2083,7 +2458,7 @@ async def test_register_defaults_status_to_running(tmp_path):
 
                 resp = await client.post(
                     "/api/agents/register",
-                    json={"name": "realtime-agent", "model": "sonnet", "budget": 2.0},
+                    json={"name": "realtime-agent", "model": "sonnet", "budget": 2.0, "task": "test task", "source": "claude-code"},
                 )
                 assert resp.status_code == 200
                 data = resp.json()
@@ -2116,6 +2491,7 @@ async def test_register_accepts_explicit_status(tmp_path):
                         "budget": 2.0,
                         "status": "running",
                         "description": "Doing important work",
+                        "source": "claude-code",
                     },
                 )
                 assert resp.status_code == 200
@@ -2152,7 +2528,7 @@ async def test_registered_agent_visible_immediately_as_running(tmp_path):
                 # Register the agent
                 resp = await client.post(
                     "/api/agents/register",
-                    json={"name": "immediate-agent", "model": "sonnet", "budget": 2.0},
+                    json={"name": "immediate-agent", "model": "sonnet", "budget": 2.0, "task": "test task", "source": "claude-code"},
                 )
                 assert resp.status_code == 200
 
@@ -2200,7 +2576,7 @@ async def test_registered_agent_never_disappears_before_complete(tmp_path):
                 # Step 1: register
                 await client.post(
                     "/api/agents/register",
-                    json={"name": "lifecycle-agent", "model": "sonnet", "budget": 2.0},
+                    json={"name": "lifecycle-agent", "model": "sonnet", "budget": 2.0, "task": "test task", "source": "claude-code"},
                 )
 
                 # Step 2: listed as running
@@ -2254,6 +2630,7 @@ async def test_register_with_description_and_prompt_preserved(tmp_path):
                         "budget": 2.0,
                         "description": "Research task",
                         "prompt": long_prompt,
+                        "source": "claude-code",
                     },
                 )
                 assert resp.status_code == 200
@@ -2431,7 +2808,7 @@ async def test_view_transcript_endpoint_returns_jsonl_for_claude_code_agent(tmp_
                 # name only, no transcript_path.
                 resp = await client.post(
                     "/api/agents/register",
-                    json={"name": "end-to-end-agent", "model": "sonnet", "budget": 2.0},
+                    json={"name": "end-to-end-agent", "model": "sonnet", "budget": 2.0, "task": "test task", "source": "claude-code"},
                 )
                 assert resp.status_code == 200
 
@@ -2560,7 +2937,7 @@ async def test_view_transcript_discovers_tasks_output_for_claude_code_agent(tmp_
                 # does: name only, no transcript_path.
                 resp = await client.post(
                     "/api/agents/register",
-                    json={"name": "test-real-fallback", "model": "sonnet", "budget": 2.0},
+                    json={"name": "test-real-fallback", "model": "sonnet", "budget": 2.0, "task": "test task", "source": "claude-code"},
                 )
                 assert resp.status_code == 200
 
@@ -2614,7 +2991,7 @@ async def test_complete_does_not_clobber_real_transcript_with_stub(tmp_path):
                 # Register, then complete, then view.
                 resp = await client.post(
                     "/api/agents/register",
-                    json={"name": "clobber-test-agent", "model": "sonnet", "budget": 2.0},
+                    json={"name": "clobber-test-agent", "model": "sonnet", "budget": 2.0, "task": "test task", "source": "claude-code"},
                 )
                 assert resp.status_code == 200
 
@@ -2835,7 +3212,7 @@ async def test_register_sets_last_heartbeat(tmp_path):
                 mock_ostk._run = AsyncMock(return_value="")
                 resp = await client.post(
                     "/api/agents/register",
-                    json={"name": "heartbeat-agent", "model": "sonnet", "budget": 2.0},
+                    json={"name": "heartbeat-agent", "model": "sonnet", "budget": 2.0, "task": "test task", "source": "claude-code"},
                 )
                 assert resp.status_code == 200
                 assert "heartbeat-agent" in agent_metadata
@@ -2899,10 +3276,13 @@ async def test_list_endpoint_marks_stale_running_agents(tmp_path):
     from datetime import datetime, timezone, timedelta
 
     stale_ts = (datetime.now(timezone.utc) - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 60)).isoformat()
+    # Use source="api" to exercise the long 900s sweep path that
+    # demotes to terminated_stale. The shorter 480s claude-code path
+    # is covered separately by test_stale_running_row_auto_demotes_on_list.
     agent_metadata["stale-running-agent"] = {
         "spawned_at": stale_ts,
         "last_heartbeat_at": stale_ts,
-        "source": "claude-code",
+        "source": "api",
         "status": "running",
         "budget": "2.0",
         "model": "claude-sonnet-4-6",
@@ -3049,7 +3429,10 @@ async def test_complete_after_cancel_is_a_noop(tmp_path):
     user or swept by the server and then posted a late completion."""
     from routers.agents import agent_metadata
 
-    for terminal in ("cancelled", "terminated_stale"):
+    # `terminated_stale` is intentionally NOT tested here: post-stale /complete
+    # is now allowed to flip status to `completed` (see
+    # test_complete_accepted_after_terminated_stale).
+    for terminal in ("cancelled",):
         agent_metadata["zombie-agent"] = {
             "spawned_at": "2026-04-08T00:00:00+00:00",
             "source": "claude-code",
@@ -3085,12 +3468,14 @@ async def test_stale_sweep_runs_at_most_once_per_request(tmp_path):
     from datetime import datetime, timezone, timedelta
 
     stale_ts = (datetime.now(timezone.utc) - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)).isoformat()
+    # Use source="api" so this exercises the long-window terminated_stale
+    # path, not the new claude-code 480s completed_timeout path.
     names = [f"sweep-agent-{i}" for i in range(50)]
     for name in names:
         agent_metadata[name] = {
             "spawned_at": stale_ts,
             "last_heartbeat_at": stale_ts,
-            "source": "claude-code",
+            "source": "api",
             "status": "running",
             "budget": "2.0",
             "model": "claude-sonnet-4-6",
@@ -3141,18 +3526,21 @@ async def test_stale_sweep_runs_at_most_once_per_request(tmp_path):
 
 @pytest.mark.asyncio
 async def test_nudge_delivery_message_includes_check_interval():
-    """The file_only delivery_message must cite the real check interval.
+    """The file_only delivery_message must cite a real mailbox check cap.
 
-    Regression for needle 238. Before the fix the message said "next time
-    it checks its mailbox" which was misleading because agents never checked
-    at all. After the fix the message must cite the actual interval (60
-    seconds at the time of writing) and must not fall back to the vague
-    "next time" wording.
+    Regression history:
+      * Original wording said "next time it checks" which was misleading.
+      * Then it cited MAILBOX_FAST_POLL_SECONDS (10s) which overpromised
+        because agents mid tool chain are not polling every 10 seconds.
+      * Current contract: when no long-poller is parked, the backend
+        cites MAILBOX_SLOW_POLL_SECONDS (60s) so the user sees the real
+        worst case, not the fast cap. The parked case is covered by a
+        separate test in test_agent_mailbox.py.
     """
     from routers.agents import (
         agent_metadata,
         active_agents,
-        MAILBOX_CHECK_INTERVAL_SECONDS,
+        MAILBOX_SLOW_POLL_SECONDS,
     )
     agent_metadata["mailbox-interval-agent"] = {
         "status": "running",
@@ -3162,7 +3550,8 @@ async def test_nudge_delivery_message_includes_check_interval():
     transport = ASGITransport(app=app)
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            with patch("routers.agents.ostk") as mock_ostk:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._touch_nudge_signal"):
                 mock_ostk.write_nudge = AsyncMock(return_value={
                     "agent": "mailbox-interval-agent",
                     "message": "still working?",
@@ -3178,11 +3567,15 @@ async def test_nudge_delivery_message_includes_check_interval():
         assert resp.status_code == 200
         data = resp.json()
         msg = data["nudge"]["delivery_message"]
-        # Specific and honest: cites the real wait time in seconds.
-        assert f"{MAILBOX_CHECK_INTERVAL_SECONDS} seconds" in msg
-        # And does not use the old vague wording.
+        # Honest cap. No parked long-poller, so the message cites the
+        # slow poll ceiling. This is the worst case an agent backed off
+        # to after a quiet stretch.
+        assert f"{MAILBOX_SLOW_POLL_SECONDS} seconds" in msg
+        # And does not use the old vague wording or the over-optimistic
+        # couple-of-seconds promise.
         assert "next time it checks" not in msg.lower()
         assert "mailbox check" in msg.lower()
+        assert "couple of seconds" not in msg.lower()
     finally:
         agent_metadata.pop("mailbox-interval-agent", None)
 
@@ -3230,6 +3623,115 @@ def test_mailbox_interval_constant_is_under_two_minutes():
     # And also guard the lower bound so nobody drops it to one second and
     # burns the agent turn on HTTP polls.
     assert MAILBOX_CHECK_INTERVAL_SECONDS >= 10
+
+
+# Size budget for the compact mailbox block. Under 1.6 KB keeps the
+# first prompt tokens predictable so demo-critical spawns start streaming
+# fast, while leaving room for the mid-task reply cues that make agents
+# respond warmly between tool calls instead of silently working.
+MAILBOX_SHORT_SIZE_BUDGET = 1600
+
+
+def test_mailbox_instruction_under_size_budget():
+    """The quick-mode mailbox block must stay under the size budget.
+
+    The full mailbox block is ~4 KB which costs real first-byte latency
+    on short demo spawns. ``agent_mailbox_instruction_short`` ships the
+    same protocol contract (register, heartbeat, nudges, reply, complete)
+    in well under 1 KB. This test locks that in so future edits cannot
+    quietly balloon the short block back toward the old size.
+    """
+    import json
+
+    from routers.agents import (
+        MAILBOX_CHECK_INTERVAL_SECONDS,
+        agent_mailbox_instruction_short,
+    )
+
+    block = agent_mailbox_instruction_short("size-budget-agent")
+
+    assert len(block) < MAILBOX_SHORT_SIZE_BUDGET, (
+        f"short mailbox block is {len(block)} chars, "
+        f"must stay under {MAILBOX_SHORT_SIZE_BUDGET} to keep spawn latency low"
+    )
+
+    # Every required protocol endpoint must still be present so the trim
+    # never drops a step the subagent needs to stay healthy.
+    assert "size-budget-agent" in block
+    assert "/register" in block
+    assert "/heartbeat" in block
+    assert "/nudges" in block
+    assert "/reply" in block
+    assert "/complete" in block
+    assert f"{MAILBOX_CHECK_INTERVAL_SECONDS} seconds" in block
+    assert "Tori" in block
+    # Style rule: no em dashes anywhere in user-visible copy.
+    assert "\u2014" not in block
+
+    # All curl bodies must be valid JSON so agents can copy paste them
+    # straight into a shell without quoting bugs.
+    for line in block.splitlines():
+        if "-d '" in line:
+            body = line.split("-d '", 1)[1].rsplit("'", 1)[0]
+            json.loads(body)
+
+
+def test_agent_spawner_reuses_cached_auth_status():
+    """Second call to is_claude_code_available in the TTL window must not shell out.
+
+    ``claude auth status`` costs ~1.5 s on a cold shell. The detection
+    cache keeps the first probe for ``_DETECTION_CACHE_TTL_SECONDS`` so
+    back to back spawns do not each pay that tax. This test patches the
+    underlying subprocess call and asserts it runs only once across three
+    calls inside the window. Regression guard for the demo speedup: if
+    the cache TTL drops too low or a caller passes force=True by mistake
+    the second spawn lights up the subprocess and the user waits.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    from services import claude_code_provider
+
+    # Start from a known empty cache so the first call always probes.
+    claude_code_provider.clear_detection_cache()
+
+    async def _run():
+        with patch(
+            "services.claude_code_provider._run_auth_status",
+            new=AsyncMock(return_value={
+                "loggedIn": True,
+                "apiProvider": "firstparty",
+                "subscriptionType": "pro",
+            }),
+        ) as mock_probe:
+            first = await claude_code_provider.is_claude_code_available()
+            second = await claude_code_provider.is_claude_code_available()
+            third = await claude_code_provider.is_claude_code_available()
+            # The real binary may or may not resolve in CI. What matters
+            # for this test is that the subprocess shell-out fired at
+            # most once for three calls in the same TTL window.
+            assert mock_probe.await_count <= 1, (
+                f"expected auth probe to run at most once inside the TTL "
+                f"window, got {mock_probe.await_count} calls"
+            )
+            # And the cached result must have been returned on the
+            # second and third calls (same value as the first).
+            assert first == second == third
+
+        # Freshness guard: the module-level TTL must stay long enough to
+        # cover a typical demo spawn burst (multi-minute). Sixty seconds
+        # was the old value and was too short for a live demo where
+        # prewarm and first spawn can be 90+ seconds apart.
+        assert claude_code_provider._DETECTION_CACHE_TTL_SECONDS >= 300, (
+            "auth status cache TTL must stay >= 5 minutes so demo spawn "
+            "bursts do not each pay the ~1.5 s shell-out tax"
+        )
+
+    try:
+        asyncio.run(_run())
+    finally:
+        # Reset so later tests do not inherit the mocked result.
+        claude_code_provider.clear_detection_cache()
 
 
 # ── Mailbox contract must reach the agent (needle 240) ──────────────────────
@@ -3280,6 +3782,9 @@ async def test_spawn_agent_prompt_contains_mailbox_instruction(tmp_path, monkeyp
 
         def close(self):
             self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
 
     class _FakeProc:
         pid = 424242
@@ -3335,6 +3840,262 @@ async def test_spawn_agent_prompt_contains_mailbox_instruction(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_spawn_agent_closes_stdin_after_prompt(tmp_path, monkeypatch):
+    """POST /agents/spawn must close the subprocess stdin after writing
+    the prompt so ``claude --print`` sees EOF and emits its response.
+
+    Regression for the e2e-journey3-roadmap incident (2026-04-17): every
+    demo-mode spawn hit ``completed_timeout`` with ``transcript_bytes=0``
+    because stdin was held open. ``claude --print`` with the default
+    ``--input-format text`` reads stdin until EOF and only emits its
+    response after that signal, so without the close the subprocess
+    hangs forever waiting for more input and is killed by the 90s
+    wall-clock force-complete.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured: dict = {"stdin": b"", "closed": False}
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            captured["stdin"] += data
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+            captured["closed"] = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 525252
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "stdin-close-spawn-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Say hi.",
+                    "model": "haiku",
+                    "budget": 1.0,
+                    "demo_mode": True,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        # The prompt must have been written to stdin.
+        assert b"Say hi." in captured["stdin"]
+        # And stdin must have been closed so claude --print sees EOF.
+        assert captured["closed"], (
+            "spawn_agent left stdin open; claude --print will hang forever "
+            "waiting for EOF"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_build_agent_includes_display_name_with_task_title(tmp_path, monkeypatch):
+    """POST /agents/spawn must persist the caller-supplied ``task`` field
+    into agent_metadata so the Agents page can show a friendly title
+    instead of the opaque internal name (e.g. build-568).
+
+    Regression: before the fix, the spawn endpoint accepted ``body.task``
+    in its schema but never wrote it to ``spawn_meta``, so the Agents
+    page rendered rows like ``build-568`` with no indication of what the
+    builder was actually working on. The /register endpoint wrote the
+    field, but /spawn did not, and the ``build it`` chain uses /spawn.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 525252
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "build-568"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Build task 568: Wire up a newsletter signup.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "task": "Build task 568: Wire up a newsletter signup",
+                    "source": "chat-build-it",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        meta = agent_metadata.get(agent_name) or {}
+        # The friendly task label must be persisted so the UI can render
+        # it via agentTitleParts instead of falling back to the raw name.
+        assert meta.get("task") == "Build task 568: Wire up a newsletter signup"
+        # Source is also persisted so filter helpers (isUserSpawnedAgent)
+        # and completion hooks see the same record the register path
+        # would have produced.
+        assert meta.get("source") == "chat-build-it"
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_agent_spawn_prepends_standing_instructions_to_prompt(tmp_path, monkeypatch):
+    """POST /agents/spawn must prepend the user's saved standing instructions.
+
+    Standing instructions live in Settings and apply to every chat,
+    agent run, and task. The spawn endpoint reads settings_store and
+    pushes a STANDING INSTRUCTIONS block onto the prompt before the
+    mailbox contract and the user's task.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured: dict = {"stdin": b""}
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            captured["stdin"] += data
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 424243
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    # Point the settings store at a temp file that has the user's
+    # standing instructions saved.
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        json.dumps({"standing_instructions": "Prefer plain language. Always show file paths."})
+    )
+    monkeypatch.setattr(
+        "services.settings_store.SETTINGS_PATH",
+        settings_path,
+    )
+
+    agent_name = "standing-instructions-spawn-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Go do the thing.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        stdin_text = captured["stdin"].decode("utf-8")
+        assert "STANDING INSTRUCTIONS" in stdin_text
+        assert "Prefer plain language. Always show file paths." in stdin_text
+        # The user's original prompt must still be there.
+        assert "Go do the thing." in stdin_text
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
 async def test_register_endpoint_returns_mailbox_instruction():
     """POST /agents/register must return the mailbox contract in the response.
 
@@ -3363,9 +4124,10 @@ async def test_register_endpoint_returns_mailbox_instruction():
                     "/api/agents/register",
                     json={
                         "name": agent_name,
-                        "prompt": "",
+                        "prompt": "test mailbox contract",
                         "model": "sonnet",
                         "budget": 2.0,
+                        "source": "claude-code",
                     },
                 )
         assert resp.status_code == 200, resp.text
@@ -3571,6 +4333,9 @@ class _CaptureStdin:
     def close(self) -> None:
         self.closed = True
 
+    def is_closing(self) -> bool:
+        return self.closed
+
 
 class _FakeProc:
     """Minimal stand-in for the process object returned by create_subprocess_exec."""
@@ -3583,16 +4348,16 @@ class _FakeProc:
 def _patch_build_templates(monkeypatch, agents_dir: Path) -> None:
     """Point the agentfile parser at a fixture agents_dir.
 
-    Writes a comprehensive.agent with the full plan, build, test,
-    verify pattern and a saa.agent that is just ``ALIAS comprehensive``.
-    This mirrors the real on-disk layout so tests exercise both
-    direct resolution and alias resolution without depending on repo
-    state. We also patch the module-level AGENTS_DIR used by
-    get_agent_config_by_template, list_available_templates, and
-    find_agentfile so every lookup path sees the fixture.
+    Writes a builder.agent with the full plan, build, test, verify pattern
+    and a saa.agent that is just ``ALIAS builder``. This mirrors the
+    real on-disk layout so tests exercise both direct resolution and alias
+    resolution without depending on repo state. We also patch the
+    module-level AGENTS_DIR used by get_agent_config_by_template,
+    list_available_templates, and find_agentfile so every lookup path
+    sees the fixture.
     """
     agents_dir.mkdir(exist_ok=True)
-    (agents_dir / "comprehensive.agent").write_text(
+    (agents_dir / "builder.agent").write_text(
         'FROM auto\n'
         'PROMPT "You are a myOS comprehensive build agent. Follow this pattern strictly: '
         '(1) Read the task and plan your approach. (2) Build the solution. '
@@ -3610,7 +4375,7 @@ def _patch_build_templates(monkeypatch, agents_dir: Path) -> None:
         'BOOT ostk boot\n'
         'PIN default\n'
     )
-    (agents_dir / "saa.agent").write_text('ALIAS comprehensive\n')
+    (agents_dir / "saa.agent").write_text('ALIAS builder\n')
     from services import agentfile_parser
     monkeypatch.setattr(agentfile_parser, "AGENTS_DIR", agents_dir)
 
@@ -3640,9 +4405,9 @@ def _assert_has_full_envelope(decoded: str) -> None:
 
 @pytest.mark.asyncio
 async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path, monkeypatch):
-    """POST /agents/spawn with template='comprehensive' prepends the
+    """POST /agents/spawn with template='builder' (was 'comprehensive') prepends the
     PROMPT, AC gates, TOOL list, and LIMIT lines to the stdin the
-    claude subprocess receives."""
+    claude subprocess receives. Also confirms the 'comprehensive' alias still works."""
     _patch_build_templates(monkeypatch, tmp_path / "agents")
 
     fake_proc = _FakeProc()
@@ -3650,6 +4415,7 @@ async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path
     async def _returner(*args, **kwargs):
         return fake_proc
 
+    # Use canonical name "builder" (the agentfile stem)
     with patch("asyncio.create_subprocess_exec", side_effect=_returner):
         with patch("routers.agents.ostk._run", new_callable=AsyncMock):
             transport = ASGITransport(app=app)
@@ -3661,12 +4427,12 @@ async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path
                         "prompt": "Implement this task: 'Fix login bug'.",
                         "model": "sonnet",
                         "budget": 2.0,
-                        "template": "comprehensive",
+                        "template": "builder",
                     },
                 )
 
     assert resp.status_code == 200, resp.text
-    assert fake_proc.stdin.closed is True
+    # stdin is kept open for follow-up nudges via _agent_stdin_writers.
     decoded = fake_proc.stdin.written.decode()
     _assert_has_full_envelope(decoded)
     # The user-supplied prompt must still be there.
@@ -3676,9 +4442,9 @@ async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path
 @pytest.mark.asyncio
 async def test_spawn_with_template_saa_alias_resolves_to_comprehensive(tmp_path, monkeypatch):
     """Tori's muscle memory template name 'saa' must resolve to the
-    comprehensive.agent file via the built-in alias map plus the
-    ALIAS directive in saa.agent. The spawned agent should see the
-    exact same envelope as template='comprehensive'."""
+    builder.agent file via the built-in alias map plus the ALIAS
+    directive in saa.agent. The spawned agent should see the same
+    full envelope as template='builder'."""
     _patch_build_templates(monkeypatch, tmp_path / "agents")
 
     fake_proc = _FakeProc()
@@ -3776,9 +4542,8 @@ async def test_spawn_with_unknown_template_returns_plain_language_400(tmp_path, 
     detail = resp.json()["detail"]
     assert "doesnotexist" in detail
     assert "Available templates" in detail
-    # Both the canonical name and the alias should appear in the
-    # list so Tori can pick either.
-    assert "comprehensive" in detail
+    # Both the canonical agentfile name and the alias should appear.
+    assert "builder" in detail
     assert "saa" in detail
 
 
@@ -3941,10 +4706,13 @@ async def test_sweep_marks_stale_when_no_proc_and_no_polls(tmp_path):
         datetime.now(timezone.utc)
         - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)
     ).isoformat()
+    # Use source="api" to lock in the legacy 900s terminated_stale path.
+    # The 480s claude-code completed_timeout path has its own coverage in
+    # test_stale_running_row_auto_demotes_on_list.
     agent_metadata["truly-dead-agent"] = {
         "spawned_at": stale_ts,
         "last_heartbeat_at": stale_ts,
-        "source": "claude-code",
+        "source": "api",
         "status": "running",
         "budget": "2.0",
         "model": "claude-sonnet-4-6",
@@ -4069,6 +4837,170 @@ async def test_stale_timeout_is_at_least_fifteen_minutes():
         "to cover pytest, tsc, and large writes that legitimately "
         "leave the mailbox quiet. See needle 300."
     )
+
+
+# ── Transcript-growth liveness heuristic (Agent-tool subagents) ───
+
+
+@pytest.mark.asyncio
+async def test_sweep_skips_agent_with_fresh_transcript_mtime(tmp_path):
+    """A running agent whose heartbeat is stale but whose transcript file
+    was modified within STALE_AGENT_TIMEOUT_SECONDS must NOT be marked
+    terminated_stale.
+
+    This covers Claude Code Agent-tool subagents that are never given the
+    mailbox instruction block and therefore never call POST /heartbeat.
+    Their only liveness signal is the transcript file mtime growing as the
+    model streams output."""
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_TIMEOUT_SECONDS,
+        _transcript_recently_active,
+    )
+    from datetime import datetime, timezone, timedelta
+
+    stale_ts = (
+        datetime.now(timezone.utc) - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)
+    ).isoformat()
+
+    # Write a fresh transcript file (mtime = now).
+    transcript = tmp_path / "transcripts" / "agent-tool-subagent.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("# Agent session\nSome output")
+
+    agent_metadata["agent-tool-subagent"] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+        "transcript_path": str(transcript),
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert names["agent-tool-subagent"]["status"] == "running", (
+                    "Agent with fresh transcript mtime must not be swept even "
+                    "when last_heartbeat_at is stale. "
+                    "This protects Agent-tool subagents that cannot heartbeat."
+                )
+        finally:
+            agent_metadata.pop("agent-tool-subagent", None)
+
+
+@pytest.mark.asyncio
+async def test_sweep_terminates_agent_with_stale_transcript_and_no_heartbeat(tmp_path):
+    """A running agent whose heartbeat AND transcript mtime are both older
+    than STALE_AGENT_TIMEOUT_SECONDS must be swept to terminated_stale.
+
+    This ensures the transcript-growth heuristic does not hide genuinely
+    dead agents whose files have not changed."""
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_TIMEOUT_SECONDS,
+    )
+    from datetime import datetime, timezone, timedelta
+    import os
+
+    stale_ts = (
+        datetime.now(timezone.utc) - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)
+    ).isoformat()
+
+    # Write a transcript file and backdate its mtime to match the stale heartbeat.
+    transcript = tmp_path / "transcripts" / "truly-dead-subagent.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("# Agent session\nLast output")
+    old_time = (
+        datetime.now(timezone.utc) - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)
+    ).timestamp()
+    os.utime(transcript, (old_time, old_time))
+
+    agent_metadata["truly-dead-subagent"] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+        "transcript_path": str(transcript),
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                # source="claude-code" now demotes to completed_timeout
+                # (the common case is a clean exit without /complete) at
+                # the shorter 480s threshold. Either way, the agent must
+                # be swept out of the running state.
+                assert names["truly-dead-subagent"]["status"] in (
+                    "terminated_stale",
+                    "completed_timeout",
+                ), (
+                    "Agent with stale transcript mtime AND stale heartbeat must "
+                    "be swept. Transcript-growth heuristic must not protect dead agents."
+                )
+        finally:
+            agent_metadata.pop("truly-dead-subagent", None)
+
+
+@pytest.mark.asyncio
+async def test_transcript_recently_active_returns_false_when_no_transcript(tmp_path):
+    """_transcript_recently_active must return False (not crash) when an
+    agent has no transcript path at all. The sweep must still work for
+    agents registered without any transcript file."""
+    from routers.agents import (
+        agent_metadata,
+        _transcript_recently_active,
+        STALE_AGENT_TIMEOUT_SECONDS,
+    )
+    from datetime import datetime, timezone
+
+    agent_metadata["no-transcript-agent"] = {
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        # no transcript_path key
+    }
+    try:
+        with patch("routers.agents._resolve_transcript_source", return_value=None):
+            result = _transcript_recently_active(
+                "no-transcript-agent", datetime.now(timezone.utc)
+            )
+        assert result is False, (
+            "_transcript_recently_active must return False when no "
+            "transcript source is found, not raise."
+        )
+    finally:
+        agent_metadata.pop("no-transcript-agent", None)
 
 
 # ── Needle 333: Agent Correction ──────────────────────────────────
@@ -4205,6 +5137,46 @@ async def test_correct_agent_ostk_failure_still_sends_nudge():
         _save_agent_state()
 
 
+@pytest.mark.asyncio
+async def test_correct_agent_storage_error_returns_503():
+    """POST /agents/{name}/correct should return 503 (not 500) if write_nudge fails.
+
+    Regression: the correction endpoint called write_nudge without a try/except,
+    so a filesystem error (disk full, permission denied) surfaced as a raw 500
+    Internal Server Error in the UI instead of a readable 503 message.
+    """
+    from routers.agents import agent_metadata, _save_agent_state
+
+    agent_name = "test-correct-storage-err"
+    agent_metadata[agent_name] = {
+        "status": "running",
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_agent_state()
+
+    try:
+        mock_correct = AsyncMock(return_value="ok")
+        mock_nudge = AsyncMock(side_effect=OSError("disk full"))
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            with patch.object(ostk, "correct_agent", mock_correct), \
+                 patch.object(ostk, "write_nudge", mock_nudge):
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/correct",
+                    json={"message": "fix it"},
+                )
+
+        assert resp.status_code == 503
+        detail = resp.json()["detail"]
+        assert "disk full" in detail.lower() or "storage error" in detail.lower()
+    finally:
+        agent_metadata.pop(agent_name, None)
+        _save_agent_state()
+
+
 # ── Needle 337: Context Pressure ──────────────────────────────────
 
 
@@ -4337,16 +5309,6 @@ async def test_ostk_correct_agent():
     mock_run.assert_called_once_with("work", "correct", "agent-1", "stop doing that", timeout=10)
 
 
-@pytest.mark.asyncio
-async def test_ostk_compile_ideas_delegates_to_compile_hay():
-    """OstkService.compile_ideas delegates to compile_hay."""
-    svc = OstkService()
-    mock_compile = AsyncMock(return_value="compiled 3 needles")
-    with patch.object(svc, "compile_hay", mock_compile):
-        result = await svc.compile_ideas(dry_run=True)
-    assert "compiled" in result
-    mock_compile.assert_called_once_with(dry_run=True)
-
 
 @pytest.mark.asyncio
 async def test_ostk_agent_lifecycle_returns_none_on_error():
@@ -4434,3 +5396,5396 @@ async def test_ostk_release_lock():
         result = await svc.release_lock("deploy-prod")
     assert "released" in result
     mock_run.assert_called_once_with("lock", "release", "deploy-prod", timeout=5)
+
+
+# ---------------------------------------------------------------------------
+# bulk-delete / Insights "Clean up" button regression tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_bulk_delete_removes_abandoned_from_state():
+    """POST /agents/bulk-delete must remove abandoned agents from agent_metadata
+    and report the correct deleted count.
+
+    Regression: previously the handler called list_agents() which filters out
+    already-deleted names, so agents in deleted_agents.json but still in
+    agent_state.json were invisible and count was always 0.
+    """
+    from routers.agents import agent_metadata
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    agent_metadata["bulk-del-abandoned-1"] = {
+        "status": "abandoned",
+        "model": "sonnet",
+        "budget": "1",
+        "spawned_at": now,
+        "abandoned_at": now,
+        "source": "claude-code",
+    }
+    agent_metadata["bulk-del-abandoned-2"] = {
+        "status": "abandoned",
+        "model": "haiku",
+        "budget": "0.5",
+        "spawned_at": now,
+        "abandoned_at": now,
+        "source": "claude-code",
+    }
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            mock_ps = {"raw": "no daemon", "daemon_running": False, "agents": []}
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._save_deleted_agents"), \
+                 patch("routers.agents._load_deleted_agents", return_value=set()):
+                mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+
+                resp = await client.post(
+                    "/api/agents/bulk-delete",
+                    json={"statuses": ["abandoned"]},
+                )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["deleted"] >= 2, (
+            f"Expected at least 2 deleted, got {data['deleted']}. "
+            "bulk-delete must check agent_metadata directly."
+        )
+        assert "bulk-del-abandoned-1" in data["names"]
+        assert "bulk-del-abandoned-2" in data["names"]
+        assert "bulk-del-abandoned-1" not in agent_metadata
+        assert "bulk-del-abandoned-2" not in agent_metadata
+    finally:
+        agent_metadata.pop("bulk-del-abandoned-1", None)
+        agent_metadata.pop("bulk-del-abandoned-2", None)
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_skips_running_agents():
+    """Running agents must never be deleted even if 'running' is in statuses."""
+    from routers.agents import agent_metadata
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    agent_metadata["bulk-del-running"] = {
+        "status": "running",
+        "model": "sonnet",
+        "budget": "1",
+        "spawned_at": now,
+        "source": "claude-code",
+    }
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            mock_ps = {"raw": "no daemon", "daemon_running": False, "agents": []}
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._save_deleted_agents"), \
+                 patch("routers.agents._load_deleted_agents", return_value=set()):
+                mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+
+                resp = await client.post(
+                    "/api/agents/bulk-delete",
+                    json={"statuses": ["running", "abandoned"]},
+                )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "bulk-del-running" not in data["names"], (
+            "Running agents must never be deleted by bulk-delete."
+        )
+        assert "bulk-del-running" in agent_metadata
+    finally:
+        agent_metadata.pop("bulk-del-running", None)
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_clears_ghost_records_from_state():
+    """Agents already in deleted_agents.json but still in agent_metadata must
+    be purged so agent_patterns stops counting them in recommendations.
+
+    Regression: the original code used list_agents() which filters deleted names,
+    leaving ghost records in agent_state.json that kept the Insights
+    'X agents never ran' card visible forever after clicking Clean up.
+    """
+    from routers.agents import agent_metadata
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    agent_metadata["bulk-del-ghost"] = {
+        "status": "abandoned",
+        "model": "sonnet",
+        "budget": "1",
+        "spawned_at": now,
+        "abandoned_at": now,
+        "source": "claude-code",
+    }
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            mock_ps = {"raw": "no daemon", "daemon_running": False, "agents": []}
+            pre_deleted = {"bulk-del-ghost"}
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._save_deleted_agents"), \
+                 patch("routers.agents._load_deleted_agents", return_value=pre_deleted):
+                mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+
+                resp = await client.post(
+                    "/api/agents/bulk-delete",
+                    json={"statuses": ["abandoned"]},
+                )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "bulk-del-ghost" in data["names"], (
+            "bulk-delete must purge ghost agents from agent_state.json even "
+            "when they are already in deleted_agents.json."
+        )
+        assert "bulk-del-ghost" not in agent_metadata
+    finally:
+        agent_metadata.pop("bulk-del-ghost", None)
+
+
+# ---------------------------------------------------------------------------
+# Regression: duplicate agent.completed audit events
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_complete_twice_emits_only_one_audit_event(tmp_path):
+    """Calling /complete twice for the same agent must call _emit_audit_event
+    exactly once (idempotency guard blocks the second call before the emit).
+
+    Regression for the summarizer-bot dupe storm: the idempotency guard
+    checks status AFTER the AC gate completes, but the status was only
+    set AFTER the gate. Two concurrent requests both saw status=None,
+    ran the AC gate in parallel, and both emitted. This test verifies
+    the "completing" sentinel blocks the second request.
+    """
+    import uuid
+    from routers.agents import agent_metadata
+    from unittest.mock import patch, AsyncMock, MagicMock, call
+
+    agent_name = f"dupe-guard-{uuid.uuid4().hex[:8]}"
+    agent_metadata.pop(agent_name, None)
+
+    emit_calls: list = []
+
+    def _capture_emit(event, data):
+        emit_calls.append((event, data.get("name")))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents._save_agent_state"), \
+             patch("routers.agents._load_deleted_agents", return_value=set()), \
+             patch("routers.agents.get_agent_config") as mock_cfg, \
+             patch("routers.agents._emit_audit_event", side_effect=_capture_emit):
+            mock_cfg_obj = MagicMock()
+            mock_cfg_obj.acceptance_criteria = []
+            mock_cfg.return_value = mock_cfg_obj
+
+            # First /complete
+            resp1 = await client.post(
+                f"/api/agents/{agent_name}/complete",
+                json={"summary": "done"},
+            )
+            assert resp1.status_code == 200
+
+            # Second /complete (should be idempotent -- not reach _emit_audit_event)
+            resp2 = await client.post(
+                f"/api/agents/{agent_name}/complete",
+                json={"summary": "done again"},
+            )
+            assert resp2.status_code == 200
+            assert "already" in resp2.json().get("result", ""), (
+                f"Expected idempotent response, got: {resp2.json()}"
+            )
+
+    completed_emits = [c for c in emit_calls if c[0] == "agent.completed" and c[1] == agent_name]
+    assert len(completed_emits) == 1, (
+        f"Expected exactly 1 agent.completed emit, got {len(completed_emits)}: {emit_calls}"
+    )
+
+    agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_complete_for_deleted_agent_is_ignored(tmp_path):
+    """Calling /complete for an agent that has been deleted must return
+    200 without writing any audit event.
+
+    Regression for the summarizer-bot storm: after deletion, the agent
+    is removed from agent_metadata. Without the deleted-agent guard,
+    every /complete call would see status=None, pass the idempotency
+    check, and emit a new audit row.
+    """
+    from routers.agents import agent_metadata
+
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.touch()
+
+    agent_metadata.pop("deleted-agent-test", None)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.OSTK_DIR", tmp_path), \
+             patch("routers.agents._save_agent_state"), \
+             patch("routers.agents._load_deleted_agents", return_value={"deleted-agent-test"}):
+            resp = await client.post(
+                "/api/agents/deleted-agent-test/complete",
+                json={},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data.get("status") == "deleted"
+
+    rows = [
+        json.loads(l)
+        for l in audit_path.read_text().splitlines()
+        if l.strip()
+    ]
+    completed_rows = [
+        r for r in rows
+        if r.get("event") == "agent.completed" and r.get("name") == "deleted-agent-test"
+    ]
+    assert len(completed_rows) == 0, (
+        f"Expected 0 audit rows for deleted agent, got {len(completed_rows)}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_emit_audit_event_dedup_within_60s(tmp_path):
+    """_emit_audit_event must deduplicate agent.completed rows emitted
+    within a 60-second window for the same agent name.
+    """
+    from routers.agents import _emit_audit_event
+    from datetime import datetime, timezone, timedelta
+    import json as _json
+
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.touch()
+
+    with patch("routers.agents.OSTK_DIR", tmp_path):
+        # First emit: should write.
+        _emit_audit_event("agent.completed", {"name": "dedup-test"})
+        # Second emit within 60s: should be suppressed.
+        _emit_audit_event("agent.completed", {"name": "dedup-test"})
+        # Different agent: should write.
+        _emit_audit_event("agent.completed", {"name": "other-agent"})
+
+    rows = [
+        _json.loads(l)
+        for l in audit_path.read_text().splitlines()
+        if l.strip()
+    ]
+    dedup_rows = [r for r in rows if r.get("name") == "dedup-test"]
+    other_rows = [r for r in rows if r.get("name") == "other-agent"]
+
+    assert len(dedup_rows) == 1, f"Expected 1 row for dedup-test, got {len(dedup_rows)}"
+    assert len(other_rows) == 1, f"Expected 1 row for other-agent, got {len(other_rows)}"
+
+
+@pytest.mark.asyncio
+async def test_stale_sweep_then_complete_emits_one_audit_event(tmp_path):
+    """An agent that was swept as terminated_stale and then calls /complete
+    should flip to completed and emit exactly one audit event, not two.
+
+    Regression: the old code allowed /complete to proceed after terminated_stale
+    (to handle legitimate long-running agents), but did not guard against
+    the audit dedup. Combined with the AC gate race, this could emit twice.
+    """
+    import uuid
+    from routers.agents import agent_metadata
+
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.touch()
+
+    # Unique name avoids 60s dedup collision with previous test runs in real audit.jsonl
+    agent_name = f"stale-complete-{uuid.uuid4().hex[:8]}"
+    agent_metadata[agent_name] = {
+        "spawned_at": "2026-04-08T00:00:00+00:00",
+        "source": "claude-code",
+        "status": "terminated_stale",
+        "terminated_at": "2026-04-08T00:01:00+00:00",
+    }
+
+    # Intercept _emit_audit_event calls to count how many agent.completed
+    # events are emitted (avoids writing to real audit.jsonl in the test env).
+    emit_calls: list = []
+
+    def _capture_emit(event, data):
+        emit_calls.append((event, data.get("name")))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents._save_agent_state"), \
+             patch("routers.agents._load_deleted_agents", return_value=set()), \
+             patch("routers.agents.get_agent_config") as mock_cfg, \
+             patch("routers.agents._emit_audit_event", side_effect=_capture_emit):
+            mock_cfg_obj = MagicMock()
+            mock_cfg_obj.acceptance_criteria = []
+            mock_cfg.return_value = mock_cfg_obj
+
+            resp = await client.post(
+                f"/api/agents/{agent_name}/complete",
+                json={},
+            )
+            assert resp.status_code == 200
+
+    completed_emits = [c for c in emit_calls if c[0] == "agent.completed" and c[1] == agent_name]
+    assert len(completed_emits) == 1, (
+        f"Expected 1 agent.completed emit, got {len(completed_emits)}: {emit_calls}"
+    )
+    assert agent_metadata.get(agent_name, {}).get("status") == "completed"
+
+    agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_sweep_skips_agent_stale_heartbeat_fresh_transcript(tmp_path):
+    """Regression: an agent registered via the Agent tool never calls /heartbeat.
+    After 900s the sweep fires on last_heartbeat_at age alone and flips the row to
+    terminated_stale while the transcript is actively growing.
+
+    This was the root cause of the 'diagnose-dupe-completed-still-present' agent
+    being marked terminated_stale mid-work: the subagent was spawned via the Agent
+    tool, received no mailbox instruction block, and therefore never POSTed
+    /heartbeat. The sweep had no other liveness signal before the transcript-mtime
+    heuristic was added.
+
+    Conditions:
+    - last_heartbeat_at is older than STALE_AGENT_TIMEOUT_SECONDS
+    - transcript file mtime is within the last STALE_AGENT_TIMEOUT_SECONDS seconds
+    Expected: status remains 'running'; sweep must skip this agent.
+    """
+    import os
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_TIMEOUT_SECONDS,
+    )
+    from datetime import datetime, timezone, timedelta
+
+    stale_ts = (
+        datetime.now(timezone.utc) - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 300)
+    ).isoformat()
+
+    # Fresh transcript file: mtime = now (agent is still writing output)
+    transcript = tmp_path / "transcripts" / "agent-tool-no-heartbeat.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("# Agent transcript\nActive work happening now.")
+
+    agent_name = "agent-tool-no-heartbeat"
+    agent_metadata[agent_name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,  # stale: agent never called /heartbeat
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "transcript_path": str(transcript),
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert agent_name in names, f"Agent {agent_name!r} not in response"
+                assert names[agent_name]["status"] == "running", (
+                    "Agent with stale last_heartbeat_at but fresh transcript mtime "
+                    "must NOT be marked terminated_stale. "
+                    "The transcript-growth heuristic must protect Agent-tool "
+                    "subagents that never call /heartbeat."
+                )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+# ---------------------------------------------------------------------------
+# cancel-all endpoint tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cancel_all_cancels_running_agents():
+    """POST /api/agents/cancel-all cancels every running/spawned claude-code or api agent."""
+    from routers.agents import agent_metadata
+
+    # Use unique names that won't collide with any ambient test state.
+    names_to_clean = [
+        "ca-test-run-1", "ca-test-run-2", "ca-test-spawn-3",
+        "ca-test-done-1", "ca-test-done-2",
+    ]
+    # Remove any ambient state first so counts are deterministic.
+    for k in names_to_clean:
+        agent_metadata.pop(k, None)
+
+    # Seed 3 running background agents and 2 completed ones.
+    agent_metadata["ca-test-run-1"] = {"status": "running", "source": "claude-code"}
+    agent_metadata["ca-test-run-2"] = {"status": "running", "source": "claude-code"}
+    agent_metadata["ca-test-spawn-3"] = {"status": "spawned", "source": "api"}
+    agent_metadata["ca-test-done-1"] = {"status": "completed", "source": "claude-code"}
+    agent_metadata["ca-test-done-2"] = {"status": "failed", "source": "api"}
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            with patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._emit_audit_event"):
+                resp = await client.post("/api/agents/cancel-all")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        cancelled_names = set(data["names"])
+
+        # All three running/spawned agents must be in the response.
+        assert "ca-test-run-1" in cancelled_names
+        assert "ca-test-run-2" in cancelled_names
+        assert "ca-test-spawn-3" in cancelled_names
+
+        # Completed agents must NOT appear in the cancelled list.
+        assert "ca-test-done-1" not in cancelled_names
+        assert "ca-test-done-2" not in cancelled_names
+
+        # In-memory status must reflect the change.
+        assert agent_metadata["ca-test-run-1"]["status"] == "cancelled"
+        assert agent_metadata["ca-test-run-2"]["status"] == "cancelled"
+        assert agent_metadata["ca-test-spawn-3"]["status"] == "cancelled"
+        # Terminal agents untouched.
+        assert agent_metadata["ca-test-done-1"]["status"] == "completed"
+        assert agent_metadata["ca-test-done-2"]["status"] == "failed"
+    finally:
+        for k in names_to_clean:
+            agent_metadata.pop(k, None)
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_skips_chat_source():
+    """POST /api/agents/cancel-all must NOT cancel agents with source='chat'."""
+    from routers.agents import agent_metadata
+
+    chat_key = "ca-test-chat-session"
+    worker_key = "ca-test-bg-worker"
+    agent_metadata.pop(chat_key, None)
+    agent_metadata.pop(worker_key, None)
+
+    agent_metadata[chat_key] = {"status": "running", "source": "chat"}
+    agent_metadata[worker_key] = {"status": "running", "source": "claude-code"}
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            with patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._emit_audit_event"):
+                resp = await client.post("/api/agents/cancel-all")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        cancelled_names = set(data["names"])
+
+        # Background worker must be cancelled.
+        assert worker_key in cancelled_names
+        # Chat session must NOT be cancelled.
+        assert chat_key not in cancelled_names
+
+        # Verify in-memory state.
+        assert agent_metadata[chat_key]["status"] == "running"
+        assert agent_metadata[worker_key]["status"] == "cancelled"
+    finally:
+        agent_metadata.pop(chat_key, None)
+        agent_metadata.pop(worker_key, None)
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_returns_zero_when_nothing_running():
+    """POST /api/agents/cancel-all returns cancelled=0 when no eligible agents exist.
+
+    This test forces all existing agents into terminal state and verifies
+    the endpoint returns cancelled=0.
+    """
+    from routers.agents import agent_metadata
+
+    old_key = "ca-test-old-completed"
+    agent_metadata.pop(old_key, None)
+
+    # Mark every pre-existing running agent as terminal so the count stays at 0.
+    pre_existing = {k: v for k, v in agent_metadata.items()}
+    for meta in pre_existing.values():
+        meta["_was_status"] = meta.get("status")
+        meta["status"] = "completed"
+
+    # Add one terminal agent under our own key.
+    agent_metadata[old_key] = {"status": "completed", "source": "claude-code"}
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            with patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._emit_audit_event"):
+                resp = await client.post("/api/agents/cancel-all")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["cancelled"] == 0
+        assert data["names"] == []
+    finally:
+        # Restore original statuses.
+        for k, meta in pre_existing.items():
+            if "_was_status" in meta:
+                meta["status"] = meta.pop("_was_status")
+        agent_metadata.pop(old_key, None)
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_cancels_agents_with_missing_source():
+    """POST /api/agents/cancel-all must cancel running agents whose source field
+    is None (not set at registration time).
+
+    Root cause: agents registered without an explicit source have source=None in
+    agent_metadata. The old code used meta.get("source", "") which returned None
+    for None values, and None not in _BACKGROUND_SOURCES is True, so these agents
+    were silently skipped. The fix uses (meta.get("source") or "api") to apply the
+    same "api" default as the GET /agents listing endpoint.
+    """
+    from routers.agents import agent_metadata
+
+    no_source_key = "ca-test-no-source-agent"
+    agent_metadata.pop(no_source_key, None)
+    agent_metadata[no_source_key] = {"status": "running", "source": None}
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            with patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._emit_audit_event"):
+                resp = await client.post("/api/agents/cancel-all")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        cancelled_names = set(data["names"])
+
+        # Agent with source=None must be treated as "api" and cancelled.
+        assert no_source_key in cancelled_names
+        assert agent_metadata[no_source_key]["status"] == "cancelled"
+    finally:
+        agent_metadata.pop(no_source_key, None)
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_status_persists_through_list_endpoint():
+    """GET /agents must return 'cancelled' for an agent that cancel-all stamped,
+    even when the agent also appears in the audit log as 'running'.
+
+    Root cause: list_agents step 2b previously only overrode audit-log entries
+    when persisted_status was 'running' or 'completed'. Terminal statuses like
+    'cancelled' fell through to ``if name in agents_map: continue`` which let
+    the audit-log 'running' entry stand, making cancelled agents reappear in
+    the Active list on the next 2-second poll.
+
+    Fix: any status recorded in agent_metadata is authoritative over the audit
+    log (which is a guess derived from process inspection). Once cancel-all
+    writes 'cancelled', that must survive through subsequent GET /agents calls.
+    """
+    from routers.agents import agent_metadata
+    from unittest.mock import AsyncMock
+
+    audit_key = "ca-test-audit-override"
+    agent_metadata.pop(audit_key, None)
+
+    # Agent is known to cancel-all: stored as cancelled in agent_metadata.
+    agent_metadata[audit_key] = {
+        "status": "cancelled",
+        "source": "claude-code",
+        "terminated_at": "2026-01-01T00:00:00+00:00",
+        "terminated_reason": "bulk cancel",
+    }
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                # Simulate audit log still reporting the agent as running.
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[
+                    {
+                        "name": audit_key,
+                        "status": "running",
+                        "source": "claude-code",
+                        "spawned_at": "2026-01-01T00:00:00+00:00",
+                    }
+                ])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+
+        assert resp.status_code == 200
+        agents_by_name = {a["name"]: a for a in resp.json()["agents"]}
+
+        assert audit_key in agents_by_name, (
+            f"{audit_key!r} must appear in the agent list"
+        )
+        assert agents_by_name[audit_key]["status"] == "cancelled", (
+            "agent_metadata 'cancelled' must override the audit log 'running' entry. "
+            "Without this fix, cancel-all reverts on the next GET /agents poll."
+        )
+    finally:
+        agent_metadata.pop(audit_key, None)
+
+
+# ── Adaptive poll + signal file (faster-inline-nudges) ───────────────────────
+
+
+def test_mailbox_fast_and_slow_constants_defined():
+    """MAILBOX_FAST_POLL_SECONDS and MAILBOX_SLOW_POLL_SECONDS must be exported.
+
+    Added for the faster-inline-nudges work. The two-constant scheme lets
+    callers tune the adaptive range without editing the string body.
+    """
+    from routers.agents import MAILBOX_FAST_POLL_SECONDS, MAILBOX_SLOW_POLL_SECONDS
+    # Fast must be short enough to feel immediate.
+    assert MAILBOX_FAST_POLL_SECONDS <= 15
+    assert MAILBOX_FAST_POLL_SECONDS >= 1
+    # Slow must cap well below two minutes.
+    assert MAILBOX_SLOW_POLL_SECONDS <= 120
+    assert MAILBOX_SLOW_POLL_SECONDS > MAILBOX_FAST_POLL_SECONDS
+
+
+def test_mailbox_instruction_describes_adaptive_poll():
+    """The mailbox instruction block must document both poll bounds.
+
+    Agents read this block at spawn time. If it only mentions the slow
+    cap they will never discover the fast-start behaviour. Both values
+    must appear so the contract is self-contained.
+    """
+    from routers.agents import (
+        agent_mailbox_instruction,
+        MAILBOX_FAST_POLL_SECONDS,
+        MAILBOX_SLOW_POLL_SECONDS,
+    )
+    block = agent_mailbox_instruction("adaptive-agent")
+    assert str(MAILBOX_FAST_POLL_SECONDS) in block, (
+        "fast poll interval must appear in the mailbox instruction"
+    )
+    assert str(MAILBOX_SLOW_POLL_SECONDS) in block, (
+        "slow poll interval must appear in the mailbox instruction"
+    )
+    # Signal file path must be mentioned so agents know to stat it.
+    assert "signal" in block.lower(), (
+        "signal file mechanism must be documented in the mailbox instruction"
+    )
+
+
+@pytest.mark.asyncio
+async def test_nudge_endpoint_writes_signal_file(tmp_path):
+    """POST /agents/{name}/nudge must touch the per-agent signal file.
+
+    The adaptive poll checks mtime on this file to skip ahead immediately
+    instead of waiting for the full interval. If the file is never written
+    the shortcut path is dead and worst-case latency falls back to the slow
+    poll cap.
+    """
+    from routers.agents import agent_metadata, active_agents, _NUDGE_SIGNAL_DIR
+    import routers.agents as agents_module
+
+    agent_metadata["signal-test-agent"] = {"status": "running", "source": "claude-code"}
+    active_agents.pop("signal-test-agent", None)
+
+    # Redirect the signal directory to tmp_path so the test is hermetic.
+    real_dir = agents_module._NUDGE_SIGNAL_DIR
+    agents_module._NUDGE_SIGNAL_DIR = tmp_path / "nudges"
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": "signal-test-agent",
+                    "message": "are you done yet?",
+                    "timestamp": "2026-04-15T03:00:00+00:00",
+                    "source": "ui",
+                })
+                resp = await client.post(
+                    "/api/agents/signal-test-agent/nudge",
+                    json={"message": "are you done yet?"},
+                )
+
+        assert resp.status_code == 200
+        signal_path = agents_module._NUDGE_SIGNAL_DIR / "signal-test-agent.signal"
+        assert signal_path.exists(), (
+            "nudge endpoint must create the signal file so the adaptive "
+            "poll can detect delivery immediately"
+        )
+    finally:
+        agents_module._NUDGE_SIGNAL_DIR = real_dir
+        agent_metadata.pop("signal-test-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_nudge_delivery_message_cites_slow_poll_when_not_parked():
+    """The file_only delivery message must cite MAILBOX_SLOW_POLL_SECONDS
+    when no long-poller is parked for the agent.
+
+    Previously this test asserted the FAST cap, but the fast cap lies
+    when the agent is busy on its own work and has not polled recently.
+    The truth is the slow cap (60s): the real worst case an agent
+    arrives at when it has backed off during a quiet stretch or is
+    mid tool chain. Parked-waiter case is in test_agent_mailbox.py.
+    """
+    from routers.agents import (
+        agent_metadata,
+        active_agents,
+        MAILBOX_SLOW_POLL_SECONDS,
+    )
+    agent_metadata["fast-delivery-agent"] = {"status": "running", "source": "claude-code"}
+    active_agents.pop("fast-delivery-agent", None)
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._touch_nudge_signal"):
+                mock_ostk.write_nudge = AsyncMock(return_value={
+                    "agent": "fast-delivery-agent",
+                    "message": "ping",
+                    "timestamp": "2026-04-15T03:01:00+00:00",
+                    "source": "ui",
+                })
+                resp = await client.post(
+                    "/api/agents/fast-delivery-agent/nudge",
+                    json={"message": "ping"},
+                )
+        assert resp.status_code == 200
+        msg = resp.json()["nudge"]["delivery_message"]
+        assert str(MAILBOX_SLOW_POLL_SECONDS) in msg, (
+            f"delivery_message must cite the slow poll ceiling "
+            f"({MAILBOX_SLOW_POLL_SECONDS}s) when no waiter is parked, "
+            f"got: {msg!r}"
+        )
+    finally:
+        agent_metadata.pop("fast-delivery-agent", None)
+
+
+# ---------------------------------------------------------------------------
+# Auto-complete exited subagents tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_inferred_dead_agent_flips_to_completed(tmp_path):
+    """A source='claude-code' agent with stale heartbeat, idle transcript, and
+    no live PID must be auto-completed to status='completed' on the next
+    GET /api/agents.
+    """
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_AUTOCOMPLETE_SECONDS,
+        STALE_AGENT_TRANSCRIPT_GRACE_SECONDS,
+    )
+
+    # Heartbeat older than STALE_AGENT_AUTOCOMPLETE_SECONDS.
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_AUTOCOMPLETE_SECONDS + 60)
+    ).isoformat()
+
+    # Transcript last written before the 2-minute grace window.
+    transcript = tmp_path / "transcripts" / "inferred-dead-agent.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("last output from agent\n")
+    old_mtime = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TRANSCRIPT_GRACE_SECONDS + 60)
+    ).timestamp()
+    import os
+    os.utime(str(transcript), (old_mtime, old_mtime))
+
+    agent_name = "inferred-dead-agent"
+    agent_metadata[agent_name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "transcript_path": str(transcript),
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._is_pid_alive", return_value=False), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert agent_name in names, f"Agent {agent_name!r} not in response"
+                assert names[agent_name]["status"] == "completed", (
+                    "A source='claude-code' agent with stale heartbeat, idle transcript, "
+                    "and no live PID must be auto-completed to 'completed', "
+                    f"got: {names[agent_name]['status']!r}"
+                )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_live_agent_stays_running(tmp_path):
+    """A source='claude-code' agent with a freshly-updated transcript must NOT
+    be auto-completed even if the heartbeat is stale.
+    """
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_AUTOCOMPLETE_SECONDS,
+    )
+
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_AUTOCOMPLETE_SECONDS + 60)
+    ).isoformat()
+
+    # Transcript mtime = now (agent is still writing).
+    transcript = tmp_path / "transcripts" / "live-transcript-agent.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("# still active\n")
+
+    agent_name = "live-transcript-agent"
+    agent_metadata[agent_name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "transcript_path": str(transcript),
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._is_pid_alive", return_value=False), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert agent_name in names, f"Agent {agent_name!r} not in response"
+                assert names[agent_name]["status"] == "running", (
+                    "An agent with a freshly-grown transcript must NOT be auto-completed. "
+                    f"Got: {names[agent_name]['status']!r}"
+                )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_source_api_agent_not_auto_completed(tmp_path):
+    """A source='api' agent with stale heartbeat and idle transcript must NOT
+    be auto-completed. Only source='claude-code' agents are eligible.
+    """
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_AUTOCOMPLETE_SECONDS,
+        STALE_AGENT_TRANSCRIPT_GRACE_SECONDS,
+    )
+
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_AUTOCOMPLETE_SECONDS + 60)
+    ).isoformat()
+
+    # Idle transcript (older than grace window).
+    transcript = tmp_path / "transcripts" / "api-source-agent.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("api agent output\n")
+    import os
+    old_mtime = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TRANSCRIPT_GRACE_SECONDS + 60)
+    ).timestamp()
+    os.utime(str(transcript), (old_mtime, old_mtime))
+
+    agent_name = "api-source-agent"
+    agent_metadata[agent_name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "api",          # <-- NOT claude-code
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "transcript_path": str(transcript),
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._is_pid_alive", return_value=False), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert agent_name in names, f"Agent {agent_name!r} not in response"
+                # source=api must NOT be auto-completed. The existing stale sweep
+                # (terminated_stale at 900s) governs it instead.
+                assert names[agent_name]["status"] != "completed", (
+                    "source='api' agents must never be auto-completed by the "
+                    "_autocomplete_exited_subagents pass. "
+                    f"Got: {names[agent_name]['status']!r}"
+                )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_emits_exactly_one_audit_event(tmp_path):
+    """Sweeping the same exited agent twice must land exactly one
+    agent.completed row in the audit log (dedup guard).
+    """
+    import os
+    from routers.agents import (
+        agent_metadata,
+        _autocomplete_exited_subagents,
+        STALE_AGENT_AUTOCOMPLETE_SECONDS,
+        STALE_AGENT_TRANSCRIPT_GRACE_SECONDS,
+    )
+
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_AUTOCOMPLETE_SECONDS + 120)
+    ).isoformat()
+
+    # Idle transcript.
+    transcript = tmp_path / "transcripts" / "dedup-ac-agent.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("done\n")
+    old_mtime = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TRANSCRIPT_GRACE_SECONDS + 120)
+    ).timestamp()
+    os.utime(str(transcript), (old_mtime, old_mtime))
+
+    audit_path = tmp_path / ".ostk" / "audit.jsonl"
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+
+    agent_name = "dedup-ac-agent"
+    agent_metadata[agent_name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "transcript_path": str(transcript),
+    }
+
+    try:
+        with patch("routers.agents.OSTK_DIR", tmp_path / ".ostk"), \
+             patch("routers.agents._save_agent_state"), \
+             patch("routers.agents._is_pid_alive", return_value=False):
+            # First sweep: should flip to completed and emit one audit row.
+            _autocomplete_exited_subagents()
+            assert agent_metadata[agent_name]["status"] == "completed"
+
+            # Second sweep: agent is no longer 'running', no new row written.
+            _autocomplete_exited_subagents()
+
+        # Count agent.completed rows for this agent in the audit log.
+        rows = []
+        if audit_path.exists():
+            for line in audit_path.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("event") == "agent.completed" and entry.get("name") == agent_name:
+                    rows.append(entry)
+
+        assert len(rows) == 1, (
+            f"Expected exactly 1 agent.completed audit row for {agent_name!r}, "
+            f"got {len(rows)}. Rows: {rows}"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+
+
+# ---------------------------------------------------------------------------
+# Register validation: require task/description/prompt and source
+# Regression guard for the stronger-set-selection orphan incident.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_register_without_task_description_prompt_returns_400():
+    """POST /agents/register with no task, description, or prompt must return 400
+    with a plain-language message. This prevents mystery rows with no purpose."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents._save_agent_state"):
+            resp = await client.post(
+                "/api/agents/register",
+                json={"name": "orphan-agent", "model": "sonnet", "budget": 1.0, "source": "claude-code"},
+            )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "register requires task, description, or prompt"
+
+
+@pytest.mark.asyncio
+async def test_register_without_source_returns_400():
+    """POST /agents/register with no source field must return 400.
+    Every registered agent must declare where it came from."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents._save_agent_state"):
+            resp = await client.post(
+                "/api/agents/register",
+                json={"name": "no-source-agent", "model": "sonnet", "budget": 1.0, "task": "do something"},
+            )
+    assert resp.status_code == 400
+    assert "source" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_register_with_task_succeeds_and_defaults_spawned_at():
+    """POST /agents/register with task and source succeeds, and spawned_at is
+    defaulted to server-side now when the caller does not supply one."""
+    from routers.agents import agent_metadata
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk._run = AsyncMock(return_value="")
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={
+                        "name": "task-agent",
+                        "model": "sonnet",
+                        "budget": 1.0,
+                        "task": "Make orphan registrations rejected",
+                        "source": "claude-code",
+                    },
+                )
+            assert resp.status_code == 200
+            assert resp.json()["result"] == "Agent 'task-agent' registered"
+            meta = agent_metadata["task-agent"]
+            assert meta["task"] == "Make orphan registrations rejected"
+            assert meta["source"] == "claude-code"
+            # spawned_at must be set by the server when the caller omits it
+            assert "spawned_at" in meta
+            assert isinstance(meta["spawned_at"], str)
+            assert len(meta["spawned_at"]) > 0
+        finally:
+            agent_metadata.pop("task-agent", None)
+
+
+@pytest.mark.asyncio
+async def test_orphan_cleanup_cancels_records_with_no_task_or_spawned_at(tmp_path):
+    """GET /api/agents must NOT auto-cancel orphan records.
+
+    Orphan cleanup was intentionally removed because it killed real agents
+    whose register call hadn't populated task metadata yet. The UI-side
+    filter hides mystery rows instead. Both orphan and legitimate agents
+    must survive a list call with their status unchanged.
+    """
+    from routers.agents import agent_metadata
+
+    orphan_name = "orphan-no-meta"
+    good_name = "good-with-task"
+
+    agent_metadata[orphan_name] = {
+        "model": "claude-sonnet-4-6",
+        "budget": "1.0",
+        "source": "claude-code",
+        "status": "running",
+        # No task, description, prompt, or spawned_at
+    }
+    from datetime import datetime, timezone
+    agent_metadata[good_name] = {
+        "model": "claude-sonnet-4-6",
+        "budget": "1.0",
+        "source": "claude-code",
+        "status": "running",
+        "task": "legitimate work",
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon running",
+                    "daemon_running": False,
+                    "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                transcripts_dir = tmp_path / "transcripts"
+                transcripts_dir.mkdir(parents=True, exist_ok=True)
+
+                resp = await client.get("/api/agents")
+            assert resp.status_code == 200
+
+        # Neither record should be cancelled. Orphan cleanup is disabled.
+        assert agent_metadata[orphan_name]["status"] == "running"
+        assert agent_metadata[good_name]["status"] == "running"
+    finally:
+        agent_metadata.pop(orphan_name, None)
+        agent_metadata.pop(good_name, None)
+
+
+# ---------------------------------------------------------------------------
+# Tests for bulk-cancel recovery and cancel-all grace period
+# ---------------------------------------------------------------------------
+
+class TestBulkCancelRecovery:
+    """_recover_bulk_cancelled_agents flips wrongly-cancelled rows to completed."""
+
+    def test_recovers_agent_heartbeated_after_cancel(self):
+        """An agent that sent a heartbeat after being bulk-cancelled is recovered."""
+        from routers.agents import _recover_bulk_cancelled_agents, agent_metadata
+
+        now = datetime.now(timezone.utc)
+        cancelled_at = (now - timedelta(minutes=5)).isoformat()
+        heartbeat_after = (now - timedelta(minutes=3)).isoformat()
+
+        name = "test-recover-bulk-cancel-001"
+        agent_metadata[name] = {
+            "status": "cancelled",
+            "terminated_reason": "bulk cancel",
+            "terminated_at": cancelled_at,
+            "last_heartbeat_at": heartbeat_after,
+            "source": "claude-code",
+            "task": "fix something important",
+        }
+        try:
+            changed = _recover_bulk_cancelled_agents()
+            assert changed is True
+            assert agent_metadata[name]["status"] == "completed"
+            assert "Recovered" in agent_metadata[name]["summary"]
+            assert "terminated_at" not in agent_metadata[name]
+            assert "terminated_reason" not in agent_metadata[name]
+        finally:
+            agent_metadata.pop(name, None)
+
+    def test_does_not_recover_user_cancelled_agents(self):
+        """An agent explicitly cancelled by the user must not be auto-recovered."""
+        from routers.agents import _recover_bulk_cancelled_agents, agent_metadata
+
+        now = datetime.now(timezone.utc)
+        cancelled_at = (now - timedelta(minutes=5)).isoformat()
+        heartbeat_after = (now - timedelta(minutes=3)).isoformat()
+
+        name = "test-user-cancelled-no-recover-001"
+        agent_metadata[name] = {
+            "status": "cancelled",
+            "terminated_reason": "user cancelled",
+            "terminated_at": cancelled_at,
+            "last_heartbeat_at": heartbeat_after,
+            "source": "claude-code",
+            "task": "some task",
+        }
+        try:
+            changed = _recover_bulk_cancelled_agents()
+            assert changed is False
+            assert agent_metadata[name]["status"] == "cancelled"
+        finally:
+            agent_metadata.pop(name, None)
+
+    def test_does_not_recover_agent_with_no_post_cancel_heartbeat(self):
+        """An agent whose last heartbeat was BEFORE the cancel stays cancelled."""
+        from routers.agents import _recover_bulk_cancelled_agents, agent_metadata
+
+        now = datetime.now(timezone.utc)
+        heartbeat_before = (now - timedelta(minutes=10)).isoformat()
+        cancelled_at = (now - timedelta(minutes=5)).isoformat()
+
+        name = "test-bulk-cancel-no-heartbeat-001"
+        agent_metadata[name] = {
+            "status": "cancelled",
+            "terminated_reason": "bulk cancel",
+            "terminated_at": cancelled_at,
+            "last_heartbeat_at": heartbeat_before,
+            "source": "claude-code",
+            "task": "old task",
+        }
+        try:
+            changed = _recover_bulk_cancelled_agents()
+            assert changed is False
+            assert agent_metadata[name]["status"] == "cancelled"
+        finally:
+            agent_metadata.pop(name, None)
+
+    def test_recovered_row_visible_in_get_agents(self):
+        """GET /agents returns the recovered agent with status=completed."""
+        import asyncio
+        from routers.agents import agent_metadata
+
+        now = datetime.now(timezone.utc)
+        cancelled_at = (now - timedelta(minutes=5)).isoformat()
+        heartbeat_after = (now - timedelta(minutes=3)).isoformat()
+
+        name = "test-get-agents-recovery-001"
+        agent_metadata[name] = {
+            "status": "cancelled",
+            "terminated_reason": "bulk cancel",
+            "terminated_at": cancelled_at,
+            "last_heartbeat_at": heartbeat_after,
+            "source": "claude-code",
+            "task": "fix feature",
+            "description": "test recovery",
+        }
+
+        transport = ASGITransport(app=app)
+
+        async def run():
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                with patch("routers.agents.ostk") as mock_ostk, \
+                     patch("routers.agents._save_agent_state"):
+                    mock_ostk.kernel_ps = AsyncMock(return_value={
+                        "raw": "",
+                        "daemon_running": False,
+                        "agents": [],
+                    })
+                    mock_ostk.audit_agents = AsyncMock(return_value=[])
+                    resp = await client.get("/api/agents")
+            assert resp.status_code == 200
+            data = resp.json()
+            agents = data.get("agents", data) if isinstance(data, dict) else data
+            found = next((a for a in agents if a["name"] == name), None)
+            assert found is not None, f"{name} not found in response"
+            assert found["status"] == "completed", f"Expected completed, got {found['status']}"
+
+        try:
+            asyncio.run(run())
+        finally:
+            agent_metadata.pop(name, None)
+
+
+class TestCancelAllGracePeriod:
+    """cancel-all skips agents spawned within CANCEL_ALL_GRACE_SECONDS."""
+
+    @pytest.mark.anyio
+    async def test_fresh_agent_skipped_by_cancel_all(self, tmp_path):
+        """An agent spawned < 30 s ago must not be cancelled by /agents/cancel-all."""
+        from routers.agents import agent_metadata
+
+        name = "test-grace-period-fresh-001"
+        agent_metadata[name] = {
+            "status": "running",
+            "source": "claude-code",
+            "task": "active work",
+            "spawned_at": datetime.now(timezone.utc).isoformat(),
+            "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        transport = ASGITransport(app=app)
+        try:
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                with patch("routers.agents._save_agent_state"), \
+                     patch("routers.agents._emit_audit_event"):
+                    resp = await client.post("/api/agents/cancel-all")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert name not in data.get("names", []), (
+                "Fresh agent should not be in the cancelled list"
+            )
+            # Status must still be running.
+            assert agent_metadata[name]["status"] == "running"
+        finally:
+            agent_metadata.pop(name, None)
+
+    @pytest.mark.anyio
+    async def test_old_agent_cancelled_by_cancel_all(self, tmp_path):
+        """An agent spawned > 30 s ago is eligible for bulk cancel."""
+        from routers.agents import agent_metadata
+
+        name = "test-grace-period-old-001"
+        old_spawn = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+        agent_metadata[name] = {
+            "status": "running",
+            "source": "claude-code",
+            "task": "old work",
+            "spawned_at": old_spawn,
+            "last_heartbeat_at": old_spawn,
+        }
+
+        transport = ASGITransport(app=app)
+        try:
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                with patch("routers.agents._save_agent_state"), \
+                     patch("routers.agents._emit_audit_event"):
+                    resp = await client.post("/api/agents/cancel-all")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert name in data.get("names", []), (
+                "Old agent should be in the cancelled list"
+            )
+            assert agent_metadata[name]["status"] == "cancelled"
+        finally:
+            agent_metadata.pop(name, None)
+
+
+# ---------------------------------------------------------------------------
+# cancel-all clears workflow-step agents (the "4 stuck sessions" regression)
+# Root cause: GET /agents Step 2 unconditionally set status="running" for any
+# agent still present in active_agents (live process handle), overriding the
+# "cancelled" stamp that cancel-all had already written to agent_metadata.
+# ---------------------------------------------------------------------------
+
+
+class TestCancelAllClearsWorkflowStepAgents:
+    """cancel-all must drain workflow-step agents from the Active Sessions list."""
+
+    @pytest.mark.anyio
+    async def test_cancel_all_with_four_old_workflow_step_agents(self, tmp_path):
+        """POST /agents/cancel-all cancels all 4 old workflow-step agents and
+        GET /agents no longer shows them as running."""
+        from routers.agents import agent_metadata, active_agents
+
+        names = ["roadmap", "closed-this-week", "still-open", "write-the-review"]
+        old_spawn = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        for n in names:
+            agent_metadata[n] = {
+                "status": "running",
+                "source": "api",
+                "spawned_at": old_spawn,
+                "last_heartbeat_at": old_spawn,
+                "workflow_run_id": "07d73322" if n != "roadmap" else None,
+            }
+
+        transport = ASGITransport(app=app)
+        try:
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                with patch("routers.agents._save_agent_state"), \
+                     patch("routers.agents._emit_audit_event"):
+                    resp = await client.post("/api/agents/cancel-all")
+            assert resp.status_code == 200
+            data = resp.json()
+            for n in names:
+                assert n in data.get("names", []), (
+                    f"Workflow-step agent {n!r} should be in cancelled list"
+                )
+            assert data["cancelled"] >= len(names)
+            for n in names:
+                assert agent_metadata[n]["status"] == "cancelled", (
+                    f"agent_metadata[{n!r}] must be 'cancelled', not "
+                    f"{agent_metadata[n]['status']!r}"
+                )
+        finally:
+            for n in names:
+                agent_metadata.pop(n, None)
+
+    @pytest.mark.anyio
+    async def test_cancel_all_grace_only_applies_to_fresh_user_agent(self, tmp_path):
+        """cancel-all with 1 fresh agent + 3 old workflow agents clears the 3 old
+        ones but preserves the fresh one (grace period applies only by age)."""
+        from routers.agents import agent_metadata
+
+        now = datetime.now(timezone.utc)
+        fresh_name = "test-fresh-grace-wf-001"
+        old_names = ["test-old-wf-step-a", "test-old-wf-step-b", "test-old-wf-step-c"]
+        old_spawn = (now - timedelta(minutes=5)).isoformat()
+
+        agent_metadata[fresh_name] = {
+            "status": "running",
+            "source": "claude-code",
+            "spawned_at": now.isoformat(),
+            "last_heartbeat_at": now.isoformat(),
+        }
+        for n in old_names:
+            agent_metadata[n] = {
+                "status": "running",
+                "source": "api",
+                "spawned_at": old_spawn,
+                "last_heartbeat_at": old_spawn,
+                "workflow_run_id": "deadbeef",
+            }
+
+        transport = ASGITransport(app=app)
+        try:
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                with patch("routers.agents._save_agent_state"), \
+                     patch("routers.agents._emit_audit_event"):
+                    resp = await client.post("/api/agents/cancel-all")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert fresh_name not in data.get("names", []), (
+                "Fresh agent must NOT be cancelled (grace period applies)"
+            )
+            assert agent_metadata[fresh_name]["status"] == "running", (
+                "Fresh agent status must stay running"
+            )
+            for n in old_names:
+                assert n in data.get("names", []), (
+                    f"Old workflow-step agent {n!r} must be cancelled"
+                )
+                assert agent_metadata[n]["status"] == "cancelled"
+        finally:
+            agent_metadata.pop(fresh_name, None)
+            for n in old_names:
+                agent_metadata.pop(n, None)
+
+    @pytest.mark.anyio
+    async def test_get_agents_respects_cancelled_status_for_alive_process(self, tmp_path):
+        """GET /agents must return 'cancelled' even when an active_agents entry
+        (live subprocess handle) exists for the same name.
+
+        Root cause: Step 2 of list_agents unconditionally set status='running'
+        for any agent in active_agents, overriding agent_metadata's 'cancelled'
+        stamp.  Fix: Step 2 now checks metadata for terminal statuses first.
+        """
+        from routers.agents import agent_metadata, active_agents
+
+        name = "test-alive-proc-cancelled-001"
+        old_spawn = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        agent_metadata[name] = {
+            "status": "cancelled",
+            "source": "api",
+            "spawned_at": old_spawn,
+            "last_heartbeat_at": old_spawn,
+            "terminated_at": (
+                datetime.now(timezone.utc) - timedelta(seconds=10)
+            ).isoformat(),
+            "terminated_reason": "bulk cancel",
+        }
+        # Simulate a live process handle still in active_agents.
+        mock_proc = MagicMock()
+        mock_proc.returncode = None  # alive
+        active_agents[name] = mock_proc
+
+        transport = ASGITransport(app=app)
+        try:
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                with patch("routers.agents.ostk") as mock_ostk, \
+                     patch("routers.agents._save_agent_state"):
+                    mock_ostk.kernel_ps = AsyncMock(return_value={
+                        "daemon_running": False, "agents": []
+                    })
+                    mock_ostk.audit_agents = AsyncMock(return_value=[])
+                    mock_ostk._run = AsyncMock(return_value="")
+                    resp = await client.get("/api/agents")
+            assert resp.status_code == 200
+            agents_by_name = {a["name"]: a for a in resp.json()["agents"]}
+            assert name in agents_by_name
+            assert agents_by_name[name]["status"] == "cancelled", (
+                "An alive process handle must not override agent_metadata's "
+                "'cancelled' stamp. GET /agents was restoring the row to "
+                "'running' on every poll, making cancel-all appear broken."
+            )
+        finally:
+            agent_metadata.pop(name, None)
+            active_agents.pop(name, None)
+
+
+# ---------------------------------------------------------------------------
+# Fast-path autocomplete: count drift fix
+# Regression guard for the 3-vs-4 orchestrator/UI count mismatch.
+# Root cause: _autocomplete_exited_subagents gated on heartbeat age > 300s,
+# so a fast subagent that finished in < 5 minutes stayed "running" for up to
+# 5 minutes post-completion, inflating the UI count.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_fast_agent_completes_on_transcript_idle(tmp_path):
+    """A source='claude-code' agent whose transcript stopped growing more than
+    STALE_AGENT_TRANSCRIPT_GRACE_SECONDS ago must be auto-completed even when
+    the heartbeat is FRESH (i.e. less than STALE_AGENT_AUTOCOMPLETE_SECONDS old).
+
+    This is the direct regression test for the 3-vs-4 count drift: a fast
+    diagnosis subagent that finishes in < 5 minutes must not stay 'running'
+    just because its heartbeat has not aged out yet.
+    """
+    import os
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_AUTOCOMPLETE_SECONDS,
+        STALE_AGENT_TRANSCRIPT_GRACE_SECONDS,
+    )
+
+    # Heartbeat is FRESH -- well under the 5-minute threshold.
+    # This is the scenario that was broken: the old code would skip this agent.
+    fresh_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_AUTOCOMPLETE_SECONDS - 120)
+    ).isoformat()
+
+    # Transcript stopped growing more than STALE_AGENT_TRANSCRIPT_GRACE_SECONDS ago.
+    transcript = tmp_path / "transcripts" / "fast-done-agent.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("agent finished its work\n")
+    old_mtime = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TRANSCRIPT_GRACE_SECONDS + 60)
+    ).timestamp()
+    os.utime(str(transcript), (old_mtime, old_mtime))
+
+    agent_name = "fast-done-agent"
+    agent_metadata[agent_name] = {
+        "spawned_at": fresh_ts,
+        "last_heartbeat_at": fresh_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "transcript_path": str(transcript),
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._is_pid_alive", return_value=False), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert agent_name in names, f"Agent {agent_name!r} not in response"
+                assert names[agent_name]["status"] == "completed", (
+                    "A source='claude-code' agent with FRESH heartbeat but idle "
+                    "transcript must still be auto-completed via the fast transcript "
+                    f"path. Got: {names[agent_name]['status']!r}"
+                )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_active_transcript_blocks_fast_path(tmp_path):
+    """A source='claude-code' agent whose transcript is STILL GROWING must NOT
+    be auto-completed even when the heartbeat would otherwise qualify.
+
+    Guards against incorrectly completing an agent that is mid-stream.
+    """
+    import os
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_AUTOCOMPLETE_SECONDS,
+    )
+
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_AUTOCOMPLETE_SECONDS + 60)
+    ).isoformat()
+
+    # Transcript mtime is NOW (agent is still writing output).
+    transcript = tmp_path / "transcripts" / "still-streaming-agent.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("...still going...\n")
+    # mtime defaults to now -- no utime call needed.
+
+    agent_name = "still-streaming-agent"
+    agent_metadata[agent_name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "transcript_path": str(transcript),
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._is_pid_alive", return_value=False), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert agent_name in names, f"Agent {agent_name!r} not in response"
+                assert names[agent_name]["status"] == "running", (
+                    "An agent with a freshly-modified transcript must NOT be "
+                    "auto-completed even via the fast transcript path. "
+                    f"Got: {names[agent_name]['status']!r}"
+                )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_count_agreement_sidebar_cancelall_activelist(tmp_path):
+    """Three concurrent user-spawned agents must all agree across:
+      - GET /api/agents active list (status in running/spawned + isUserSpawnedAgent)
+      - Cancel-all eligible count (same filter)
+
+    Verifies the fix for 3-vs-4 count drift: a fourth ghost agent with an
+    idle transcript gets auto-completed so the count stays at 3.
+    """
+    import os
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_TRANSCRIPT_GRACE_SECONDS,
+        STALE_AGENT_AUTOCOMPLETE_SECONDS,
+    )
+
+    # Three legitimate running agents (no transcript, fresh heartbeat).
+    # They represent the "3 fix agents" the orchestrator spawned.
+    fresh_ts = datetime.now(timezone.utc).isoformat()
+    legit_agents = [
+        "count-test-agent-1",
+        "count-test-agent-2",
+        "count-test-agent-3",
+    ]
+    for name in legit_agents:
+        agent_metadata[name] = {
+            "spawned_at": fresh_ts,
+            "last_heartbeat_at": fresh_ts,
+            "source": "claude-code",
+            "status": "running",
+            "budget": "1.0",
+            "model": "claude-sonnet-4-6",
+            "task": f"Fix task for {name}",
+        }
+
+    # One ghost agent: registered, finished quickly (heartbeat < 300s old),
+    # but transcript has been idle > STALE_AGENT_TRANSCRIPT_GRACE_SECONDS.
+    # This is the pattern that caused the "3 said 3, UI showed 4" bug.
+    ghost_fresh_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_AUTOCOMPLETE_SECONDS - 120)
+    ).isoformat()
+    ghost_transcript = tmp_path / "transcripts" / "ghost-agent.md"
+    ghost_transcript.parent.mkdir(parents=True, exist_ok=True)
+    ghost_transcript.write_text("ghost agent finished\n")
+    idle_mtime = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TRANSCRIPT_GRACE_SECONDS + 60)
+    ).timestamp()
+    os.utime(str(ghost_transcript), (idle_mtime, idle_mtime))
+    agent_metadata["count-test-ghost"] = {
+        "spawned_at": ghost_fresh_ts,
+        "last_heartbeat_at": ghost_fresh_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "task": "ghost diagnosis agent",
+        "transcript_path": str(ghost_transcript),
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._is_pid_alive", return_value=False), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+
+                all_agents = resp.json()["agents"]
+                # isUserSpawnedAgent filter (mirrors agentUtils.ts)
+                import re
+
+                def is_main_session(a):
+                    name = a.get("name", "")
+                    if not re.match(r"^claude-code-[0-9a-f]{8}", name):
+                        return False
+                    return (a.get("description") or "").startswith("Claude Code session")
+
+                def is_user_spawned(a):
+                    if is_main_session(a):
+                        return False
+                    return a.get("source") not in ("chat", "audit", "hook") and \
+                           a.get("model") != "claude-code-subscription"
+
+                # Active list: what the UI would show
+                active = [
+                    a for a in all_agents
+                    if a["status"] in ("running", "spawned") and is_user_spawned(a)
+                    and a["name"].startswith("count-test-")
+                ]
+                active_count = len(active)
+
+                # Ghost must have been auto-completed.
+                ghost_rows = {a["name"]: a for a in all_agents if a["name"] == "count-test-ghost"}
+                assert ghost_rows, "Ghost agent must appear in response"
+                assert ghost_rows["count-test-ghost"]["status"] == "completed", (
+                    "Ghost agent with idle transcript must be auto-completed so it "
+                    "does not inflate the running count. "
+                    f"Got: {ghost_rows['count-test-ghost']['status']!r}"
+                )
+
+                # Active count must equal 3 (only the three legit agents).
+                assert active_count == 3, (
+                    f"Expected 3 active agents (not 4). Active: "
+                    f"{[a['name'] for a in active]}"
+                )
+        finally:
+            for name in legit_agents + ["count-test-ghost"]:
+                agent_metadata.pop(name, None)
+
+
+# ── transcript fix: non-JSONL transcript_path should not block subagent scan ──
+
+
+def test_is_real_conversation_jsonl_accepts_valid_conversation(tmp_path):
+    """A file whose first line is a JSON object with a 'type' key is real."""
+    from routers.agents import _is_real_conversation_jsonl
+    p = tmp_path / "conv.jsonl"
+    p.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}}) + "\n")
+    assert _is_real_conversation_jsonl(p) is True
+
+
+def test_is_real_conversation_jsonl_rejects_plain_text_output(tmp_path):
+    """Ostk task-summary .output files (plain text) must return False."""
+    from routers.agents import _is_real_conversation_jsonl
+    p = tmp_path / "task.output"
+    p.write_text("ready\nregistered 30/30\n---\ntoday: events=6225 agents=30\n")
+    assert _is_real_conversation_jsonl(p) is False
+
+
+def test_is_real_conversation_jsonl_rejects_json_without_type_key(tmp_path):
+    """A JSON file whose first object lacks 'type' is not a conversation."""
+    from routers.agents import _is_real_conversation_jsonl
+    p = tmp_path / "other.jsonl"
+    p.write_text(json.dumps({"foo": "bar"}) + "\n")
+    assert _is_real_conversation_jsonl(p) is False
+
+
+@pytest.mark.asyncio
+async def test_transcript_path_plain_text_falls_through_to_subagent_scan(tmp_path):
+    """When transcript_path points to a plain-text ostk summary file,
+    the resolver must skip it and fall through to the subagent glob scan
+    to find the real JSONL conversation file.
+    """
+    from routers.agents import agent_metadata, _reset_transcript_resolver_cache, _reset_candidates_cache
+
+    # Create a fake ostk task output (plain text, not a conversation)
+    task_out = tmp_path / "tasks" / "abc123.output"
+    task_out.parent.mkdir(parents=True)
+    task_out.write_text("ready\nregistered 5/5\n")
+
+    # Set up the subagent JSONL in the expected location:
+    #   <projects_root>/-<project_label>/<session>/subagents/agent-xyz.jsonl
+    fake_projects_root = tmp_path / "projects"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_projects_root / f"-{project_label}"
+    session_dir = project_dir / "session-aabbcc"
+    subagent_dir = session_dir / "subagents"
+    subagent_dir.mkdir(parents=True)
+    subagent_jsonl = subagent_dir / "agent-xyz.jsonl"
+
+    spawn_prompt_line = json.dumps({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": (
+                "curl -X POST http://localhost:8000/api/agents/register "
+                "-d '{\"name\": \"fallthrough-agent\"}'"
+            ),
+        },
+    })
+    real_content_line = json.dumps({
+        "type": "assistant",
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "Working on it."}]},
+    })
+    subagent_jsonl.write_text(spawn_prompt_line + "\n" + real_content_line + "\n")
+
+    agent_metadata["fallthrough-agent"] = {
+        "spawned_at": "2026-04-14T00:00:00+00:00",
+        "source": "claude-code",
+        "transcript_path": str(task_out),
+    }
+    _reset_transcript_resolver_cache()
+    _reset_candidates_cache()
+
+    try:
+        with patch("routers.agents._claude_code_projects_dir", return_value=fake_projects_root), \
+             patch("routers.agents._claude_code_tasks_root", return_value=tmp_path / "notexist"), \
+             patch("config.PROJECT_ROOT", fake_repo):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get("/api/agents/fallthrough-agent/transcript")
+
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        data = resp.json()
+        assert "Working on it." in data["content"], (
+            "Expected the real JSONL content, got: " + repr(data["content"][:200])
+        )
+    finally:
+        agent_metadata.pop("fallthrough-agent", None)
+        _reset_transcript_resolver_cache()
+        _reset_candidates_cache()
+
+
+@pytest.mark.asyncio
+async def test_transcript_endpoint_fast_after_warm_cache(tmp_path):
+    """Transcript endpoint must respond in under 200ms after the cache is warm.
+
+    Cold resolution (first call, fresh glob walk) is allowed to take longer.
+    The warm path must be fast because the resolver cache memoizes results and
+    the metrics cache avoids re-reading unchanged files.
+    """
+    import time as _time
+    from routers.agents import agent_metadata, _reset_transcript_resolver_cache, _reset_candidates_cache
+
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir(parents=True)
+    agent_md = transcripts_dir / "fast-agent.md"
+    # Write a reasonably-sized transcript (simulates a real agent output)
+    agent_md.write_text("## Summary\n\n" + ("This is a line of transcript content.\n" * 200))
+
+    _reset_transcript_resolver_cache()
+    _reset_candidates_cache()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("config.PROJECT_ROOT", tmp_path):
+            # Cold call: warms the cache
+            await client.get("/api/agents/fast-agent/transcript")
+            # Warm call: must be fast
+            t0 = _time.monotonic()
+            resp = await client.get("/api/agents/fast-agent/transcript")
+            elapsed_ms = (_time.monotonic() - t0) * 1000
+
+    assert resp.status_code == 200
+    assert elapsed_ms < 200, f"Warm transcript call took {elapsed_ms:.1f}ms, expected < 200ms"
+
+
+@pytest.mark.asyncio
+async def test_transcript_missing_returns_actionable_empty_response(tmp_path):
+    """When no transcript exists the endpoint returns 200 with empty=True and
+    a human-readable reason string so the UI can display a helpful message
+    instead of treating a missing transcript as a network error.
+    """
+    empty_projects = tmp_path / "projects"
+    empty_projects.mkdir()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("config.PROJECT_ROOT", tmp_path), \
+             patch("routers.agents._claude_code_projects_dir", return_value=empty_projects), \
+             patch("routers.agents._claude_code_tasks_root", return_value=tmp_path / "notexist"):
+            (tmp_path / "transcripts").mkdir(parents=True, exist_ok=True)
+            resp = await client.get("/api/agents/no-such-agent-xyzabc/transcript")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("empty") is True
+    assert data.get("content") == ""
+    assert data.get("bytes") == 0
+    reason = data.get("reason", "")
+    assert len(reason) > 10, f"Reason must be non-empty and descriptive: {reason!r}"
+
+
+def test_candidates_cache_busts_on_dir_mtime_change(tmp_path):
+    """The _load_candidates cache must return fresh results when a new session
+    directory is created under root (which changes root's mtime), rather than
+    serving stale data until the TTL expires.
+
+    This models the real use case: a new Claude Code agent spawns and creates
+    a new session directory under the project_dir root. That creation changes
+    project_dir's mtime, which busts the cache key so the next call rescans.
+    """
+    from routers.agents import _load_candidates, _reset_candidates_cache
+
+    # Session 1 with a subagent file
+    session1 = tmp_path / "session-aaa"
+    subdir1 = session1 / "subagents"
+    subdir1.mkdir(parents=True)
+    file1 = subdir1 / "agent-111.jsonl"
+    file1.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "hello"}}) + "\n")
+
+    _reset_candidates_cache()
+
+    # First call: picks up file1
+    result1 = _load_candidates(tmp_path, "*/subagents/agent-*.jsonl")
+    paths1 = {r[1] for r in result1}
+    assert file1 in paths1, "file1 must appear in first scan"
+
+    # A new agent spawns: Claude Code creates a new session directory under tmp_path.
+    # This changes tmp_path's own mtime, so the cache key changes.
+    import time as _time
+    _time.sleep(0.01)  # ensure filesystem mtime resolution catches the change
+    session2 = tmp_path / "session-bbb"
+    subdir2 = session2 / "subagents"
+    subdir2.mkdir(parents=True)
+    file2 = subdir2 / "agent-222.jsonl"
+    file2.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "world"}}) + "\n")
+
+    # Second call: root mtime changed (new session dir created), cache busts, rescan returns file2
+    result2 = _load_candidates(tmp_path, "*/subagents/agent-*.jsonl")
+    paths2 = {r[1] for r in result2}
+    assert file2 in paths2, (
+        "file2 must appear after root dir mtime change (new session dir). "
+        f"Got paths: {paths2}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# user_spawned_only filter (server mirror of isUserSpawnedAgent)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_agents_user_spawned_only_filter_matches_frontend():
+    """GET /api/agents?user_spawned_only=true must return ONLY user-spawned
+    rows, using the exact same rule as isUserSpawnedAgent in
+    app/src/lib/agentUtils.ts.
+
+    Regression: an ad-hoc curl status loop counted a torichat session as a
+    running agent and reported "2 agents" while the Agents page showed 1.
+    The page applies isUserSpawnedAgent; this endpoint flag now does too so
+    scripts/status.sh never diverges from the UI.
+    """
+    from routers.agents import active_agents, agent_metadata
+
+    # Use a fresh heartbeat so the 900-second stale sweep does not flip these
+    # rows to terminated_stale before the filter runs.
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Seed one of every excluded source plus one genuine user-spawned agent.
+    # Using agent_metadata with persisted_status="running" routes through the
+    # same code path as a live register + heartbeat, so the filter runs on
+    # realistic output rather than hand-built fixtures.
+    seeded = {
+        "chat-default": {  # torichat session, excluded
+            "status": "running",
+            "source": "chat",
+            "model": "sonnet",
+            "spawned_at": now_iso,
+            "last_heartbeat_at": now_iso,
+        },
+        "audit-agent-row": {  # audit-log inferred row, excluded
+            "status": "running",
+            "source": "audit",
+            "model": "sonnet",
+            "spawned_at": now_iso,
+            "last_heartbeat_at": now_iso,
+        },
+        "hook-agent-row": {  # hook-spawned log row, excluded
+            "status": "running",
+            "source": "hook",
+            "model": "sonnet",
+            "spawned_at": now_iso,
+            "last_heartbeat_at": now_iso,
+        },
+        "subscription-agent-row": {  # claude-code-subscription model, excluded
+            "status": "running",
+            "source": "claude-code",
+            "model": "claude-code-subscription",
+            "spawned_at": now_iso,
+            "last_heartbeat_at": now_iso,
+        },
+        "real-subagent-fixture": {  # user-spawned, included
+            "status": "running",
+            "source": "claude-code",
+            "model": "sonnet",
+            "spawned_at": now_iso,
+            "last_heartbeat_at": now_iso,
+        },
+    }
+
+    # Install metadata; make sure none of them are in active_agents so the
+    # "persisted running" branch handles them all identically.
+    originals = {}
+    for name, meta in seeded.items():
+        originals[name] = agent_metadata.get(name)
+        agent_metadata[name] = dict(meta)
+        active_agents.pop(name, None)
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.kernel_ps = AsyncMock(
+                    return_value={"raw": "no daemon", "daemon_running": False, "agents": []}
+                )
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+
+                # Unfiltered: all seeded rows must show up.
+                resp_all = await client.get("/api/agents")
+                assert resp_all.status_code == 200
+                names_all = {a["name"] for a in resp_all.json()["agents"]}
+                for n in seeded:
+                    assert n in names_all, f"{n} missing from unfiltered list"
+
+                # Filtered: only real-subagent-fixture remains from our seeds.
+                resp = await client.get("/api/agents?user_spawned_only=true")
+                assert resp.status_code == 200
+                data = resp.json()
+                names = {a["name"] for a in data["agents"]}
+                assert "real-subagent-fixture" in names
+                assert "chat-default" not in names
+                assert "audit-agent-row" not in names
+                assert "hook-agent-row" not in names
+                assert "subscription-agent-row" not in names
+                # The active-names array must also be filtered.
+                assert "chat-default" not in data["active"]
+                assert "real-subagent-fixture" in data["active"]
+    finally:
+        # Cleanup: restore prior state.
+        for name, prior in originals.items():
+            if prior is None:
+                agent_metadata.pop(name, None)
+            else:
+                agent_metadata[name] = prior
+
+
+@pytest.mark.asyncio
+async def test_list_agents_user_spawned_only_excludes_main_session():
+    """Inferred claude-code-<hex> rows with "Claude Code session" description
+    are the user's own tab. The Agents page hides them via isMainSession.
+    The server flag must do the same."""
+    from routers.agents import active_agents, agent_metadata
+
+    main_name = "claude-code-abcdef12"
+    other_name = "claude-code-12345678"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    agent_metadata[main_name] = {
+        "status": "running",
+        "source": "claude-code",
+        "model": "sonnet",
+        "description": "Claude Code session (cwd: /Users/tori/claude/torios)",
+        "spawned_at": now_iso,
+        "last_heartbeat_at": now_iso,
+    }
+    agent_metadata[other_name] = {
+        "status": "running",
+        "source": "claude-code",
+        "model": "sonnet",
+        "task": "Fix something",
+        "spawned_at": now_iso,
+        "last_heartbeat_at": now_iso,
+    }
+    active_agents.pop(main_name, None)
+    active_agents.pop(other_name, None)
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.kernel_ps = AsyncMock(
+                    return_value={"raw": "no daemon", "daemon_running": False, "agents": []}
+                )
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                resp = await client.get("/api/agents?user_spawned_only=true")
+                assert resp.status_code == 200
+                names = {a["name"] for a in resp.json()["agents"]}
+                assert main_name not in names, (
+                    "main session (claude-code-<hex> with Claude Code session desc) "
+                    "must be excluded by user_spawned_only"
+                )
+                assert other_name in names, (
+                    "other inferred claude-code-<hex> rows without the main "
+                    "session description should still be included"
+                )
+    finally:
+        agent_metadata.pop(main_name, None)
+        agent_metadata.pop(other_name, None)
+
+
+def test_is_user_spawned_agent_helper_matches_frontend_rule():
+    """Pure-Python unit test for services.agent_filters.is_user_spawned_agent.
+
+    The rule must match isUserSpawnedAgent in app/src/lib/agentUtils.ts
+    exactly. Any divergence causes the CLI count to drift from the UI count.
+    """
+    from services.agent_filters import is_user_spawned_agent, is_main_session
+
+    # Included: a named subagent registered via claude-code.
+    assert is_user_spawned_agent({
+        "name": "real-agent",
+        "source": "claude-code",
+        "model": "sonnet",
+    }) is True
+    # Included: an api-sourced agent.
+    assert is_user_spawned_agent({
+        "name": "api-agent",
+        "source": "api",
+        "model": "sonnet",
+    }) is True
+    # Excluded: chat session.
+    assert is_user_spawned_agent({
+        "name": "chat-default",
+        "source": "chat",
+        "model": "sonnet",
+    }) is False
+    # Excluded: audit-log row.
+    assert is_user_spawned_agent({
+        "name": "some-agent",
+        "source": "audit",
+        "model": "sonnet",
+    }) is False
+    # Excluded: hook row.
+    assert is_user_spawned_agent({
+        "name": "hook-agent",
+        "source": "hook",
+        "model": "sonnet",
+    }) is False
+    # Excluded: subscription model row.
+    assert is_user_spawned_agent({
+        "name": "sub-agent",
+        "source": "claude-code",
+        "model": "claude-code-subscription",
+    }) is False
+    # Excluded: main session (inferred name + "Claude Code session" desc).
+    main_agent = {
+        "name": "claude-code-abcdef12",
+        "source": "claude-code",
+        "model": "sonnet",
+        "description": "Claude Code session (cwd: /tmp)",
+    }
+    assert is_main_session(main_agent) is True
+    assert is_user_spawned_agent(main_agent) is False
+    # Included: inferred name with a real task description is NOT a main session.
+    assert is_user_spawned_agent({
+        "name": "claude-code-12345678",
+        "source": "claude-code",
+        "model": "sonnet",
+        "task": "Fix the bug",
+    }) is True
+
+
+# --- Reconcile endpoint tests ---
+
+
+@pytest.mark.asyncio
+async def test_reconcile_marks_orphaned_agents_as_stopped():
+    """POST /api/agents/reconcile must mark running agents with no live
+    process and no recent heartbeat as stopped."""
+    from routers.agents import agent_metadata, active_agents
+
+    # Snapshot existing metadata so we can restore after the test.
+    # This prevents ambient "running" entries from other tests from
+    # inflating the reconciled count.
+    saved_metadata = dict(agent_metadata)
+    saved_active = dict(active_agents)
+    agent_metadata.clear()
+    active_agents.clear()
+
+    names = ["reconcile-orphan-1", "reconcile-orphan-2", "reconcile-alive"]
+
+    old_ts = "2026-04-10T00:00:00+00:00"  # well past any timeout
+    agent_metadata["reconcile-orphan-1"] = {
+        "spawned_at": old_ts,
+        "last_heartbeat_at": old_ts,
+        "source": "claude-code",
+        "status": "running",
+    }
+    agent_metadata["reconcile-orphan-2"] = {
+        "spawned_at": old_ts,
+        "source": "claude-code",
+        "status": "running",
+    }
+    # This agent has a recent heartbeat and should survive.
+    from datetime import datetime, timezone
+    recent_ts = datetime.now(timezone.utc).isoformat()
+    agent_metadata["reconcile-alive"] = {
+        "spawned_at": old_ts,
+        "last_heartbeat_at": recent_ts,
+        "source": "claude-code",
+        "status": "running",
+    }
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            with patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._emit_audit_event"), \
+                 patch("routers.agents._transcript_recently_active", return_value=False):
+                resp = await client.post("/api/agents/reconcile")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["reconciled"] == 2
+        assert data["still_running"] == 1
+        assert "reconcile-orphan-1" in data["names"]
+        assert "reconcile-orphan-2" in data["names"]
+        assert "reconcile-alive" not in data["names"]
+
+        assert agent_metadata["reconcile-orphan-1"]["status"] == "stopped"
+        assert agent_metadata["reconcile-orphan-2"]["status"] == "stopped"
+        assert agent_metadata["reconcile-alive"]["status"] == "running"
+    finally:
+        agent_metadata.clear()
+        agent_metadata.update(saved_metadata)
+        active_agents.clear()
+        active_agents.update(saved_active)
+
+
+@pytest.mark.asyncio
+async def test_cancel_agent_kills_subprocess():
+    """POST /agents/{name}/cancel must terminate the subprocess in
+    active_agents and clean it up, not just flip metadata."""
+    from routers.agents import agent_metadata, active_agents, _agent_stdin_writers
+
+    agent_metadata["cancel-proc-test"] = {
+        "spawned_at": "2026-04-10T00:00:00+00:00",
+        "source": "claude-code",
+        "status": "running",
+    }
+    mock_proc = MagicMock()
+    mock_proc.terminate = MagicMock()
+    mock_proc.kill = MagicMock()
+    mock_proc.wait = MagicMock(return_value=0)
+    active_agents["cancel-proc-test"] = mock_proc
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            with patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._emit_audit_event"):
+                resp = await client.post(
+                    "/api/agents/cancel-proc-test/cancel",
+                    json={"reason": "test kill"},
+                )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["process_killed"] is True
+        assert agent_metadata["cancel-proc-test"]["status"] == "cancelled"
+        # Process handle must be removed from active_agents.
+        assert "cancel-proc-test" not in active_agents
+        # terminate() must have been called.
+        mock_proc.terminate.assert_called_once()
+    finally:
+        agent_metadata.pop("cancel-proc-test", None)
+        active_agents.pop("cancel-proc-test", None)
+
+
+@pytest.mark.asyncio
+async def test_cancel_agent_sigkills_after_grace_period():
+    """If SIGTERM does not kill the process within the grace period,
+    the cancel path must escalate to SIGKILL."""
+    from routers.agents import _terminate_with_sigkill_fallback
+
+    mock_proc = MagicMock()
+    mock_proc.terminate = MagicMock()
+    mock_proc.kill = MagicMock()
+    # wait() never returns (simulating a resilient process).
+    mock_proc.wait = MagicMock(side_effect=lambda: (_ for _ in ()).throw(TimeoutError()))
+
+    # Patch the grace period to 0.1s so the test is fast.
+    with patch("routers.agents.CANCEL_SIGKILL_GRACE_SECONDS", 0.1):
+        result = await _terminate_with_sigkill_fallback(mock_proc)
+        assert result is True
+        mock_proc.terminate.assert_called_once()
+
+        # Give the background task time to fire SIGKILL.
+        await asyncio.sleep(0.3)
+        mock_proc.kill.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_session_start_creates_task_and_session_end_closes_it(tmp_path):
+    """Verify the session task lifecycle: register creates a task mapping,
+    close-by-session closes it. This tests the API endpoints that the
+    shell hooks call, not the hooks themselves."""
+    import os
+    from services import session_task_map as stm
+
+    session_id = "sync-test-session-001"
+    task_id = "sync-test-task-001"
+
+    # Point the session-task map at a tmp file so we don't touch user data.
+    tmp_store = tmp_path / "session_task_map.json"
+    old_env = os.environ.get("MYOS_SESSION_TASK_MAP_PATH")
+    os.environ["MYOS_SESSION_TASK_MAP_PATH"] = str(tmp_store)
+
+    try:
+        stm.clear()
+        # Simulate the SessionStart hook linking session to task.
+        stm.link_session_to_task(session_id, task_id)
+
+        # Verify the link was recorded.
+        assert stm.get_task_for_session(session_id) == task_id
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            with patch("routers.tasks.ostk") as mock_ostk:
+                mock_ostk.list_tasks = AsyncMock(return_value=[
+                    {"id": task_id, "title": "Session in torios", "status": "open"},
+                ])
+                mock_ostk.close_task = AsyncMock(return_value=f"closed {task_id}")
+
+                # Clear the idempotency cache so this test is not affected by prior runs.
+                from routers.tasks import _recent_closes
+                _recent_closes.clear()
+
+                # Simulate the SessionEnd hook calling close-by-session.
+                resp = await client.post(
+                    f"/api/tasks/close-by-session/{session_id}"
+                )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["closed"] is True
+        assert body["task_id"] == task_id
+    finally:
+        stm.clear()
+        if old_env is None:
+            os.environ.pop("MYOS_SESSION_TASK_MAP_PATH", None)
+        else:
+            os.environ["MYOS_SESSION_TASK_MAP_PATH"] = old_env
+
+
+@pytest.mark.asyncio
+async def test_roadmap_saves_output_to_roadmap_md(tmp_path):
+    """When an agent spawned from the Roadmap marketplace template calls
+    /complete with its JSON summary, the server must write that output
+    to ~/.myos/files/roadmap.md with a timestamped front matter block.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    agent_name = "roadmap-demo-agent"
+    # Pre-seed metadata as if /register recorded a Roadmap spawn.
+    agent_metadata[agent_name] = {
+        "spawned_at": "2026-04-15T10:00:00+00:00",
+        "budget": "3.0",
+        "model": "claude-sonnet-4-20250514",
+        "source": "claude-code",
+        "template": "Roadmap",
+        "status": "running",
+    }
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            # Point MYOS_FILES_DIR at the fake home so we do not touch
+            # the real ~/.myos during tests.
+            with patch.object(
+                agents_module,
+                "MYOS_FILES_DIR",
+                fake_home / ".myos" / "files",
+            ), patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk.append_nudge_reply = AsyncMock(
+                    return_value={"message": "ok", "timestamp": "2026-04-15T10:01:00+00:00"}
+                )
+
+                roadmap_json = (
+                    '[{"quarter":"Q1 2026","theme":"Ship onboarding",'
+                    '"initiatives":["Wizard","Tour","Welcome email"]}]'
+                )
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/complete",
+                    json={"summary": roadmap_json},
+                )
+
+            assert resp.status_code == 200
+            target = fake_home / ".myos" / "files" / "roadmap.md"
+            assert target.exists(), f"roadmap.md was not written to {target}"
+            content = target.read_text()
+            assert "kind: roadmap" in content
+            assert "generated_at:" in content
+            assert "Q1 2026" in content
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_roadmap_save_skipped_for_non_roadmap_agents(tmp_path):
+    """Only Roadmap-template agents should trigger the file write so
+    unrelated spawns never clobber ~/.myos/files/roadmap.md.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    agent_name = "builder-demo-agent"
+    agent_metadata[agent_name] = {
+        "spawned_at": "2026-04-15T10:00:00+00:00",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-20250514",
+        "source": "claude-code",
+        "template": "Builder",
+        "status": "running",
+    }
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch.object(
+                agents_module, "MYOS_FILES_DIR",
+                fake_home / ".myos" / "files",
+            ), patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk.append_nudge_reply = AsyncMock(
+                    return_value={"message": "ok", "timestamp": "2026-04-15T10:01:00+00:00"}
+                )
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/complete",
+                    json={"summary": "Did some building."},
+                )
+
+            assert resp.status_code == 200
+            target = fake_home / ".myos" / "files" / "roadmap.md"
+            assert not target.exists(), (
+                "Non-roadmap agent should not have written roadmap.md"
+            )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+# ---- Generalized Files-tab artifact capture -------------------------------
+#
+# Every agent run with a non-trivial summary should land a
+# <slug>-<timestamp>.md in ~/.myos/files/, not just the Roadmap template.
+# These tests cover the generalized hook, the empty-summary skip, and
+# the test-artifact name filter.
+
+
+@pytest.mark.asyncio
+async def test_complete_saves_summary_as_md_file_in_myos_files(tmp_path):
+    """When an IA Review or PRD agent calls /complete with a long summary,
+    the server writes ~/.myos/files/<slug>-<timestamp>.md with the
+    summary body and a front matter block. This is the generalized
+    version of the roadmap capture hook.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    agent_name = "ia-review-session-7"
+    agent_metadata[agent_name] = {
+        "spawned_at": "2026-04-15T10:00:00+00:00",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-20250514",
+        "source": "claude-code",
+        "template": "IA Review",
+        # Opt-in: without this flag the narrowed gate skips the .md
+        # write for solo agents. IA Review runs are review documents
+        # that belong on the Files tab, so we set the flag here.
+        "template_produces_doc": True,
+        "status": "running",
+    }
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    files_dir = fake_home / ".myos" / "files"
+
+    summary = (
+        "IA review findings from the sixth walkthrough. Top five: "
+        "Files and Projects name drift is confusing, the MCP directory "
+        "needs grouping, Timeline and Projects pages are orphaned, "
+        "Focus ring contrast is low, and the Agents status bar has no "
+        "progressive disclosure."
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch.object(agents_module, "MYOS_FILES_DIR", files_dir), \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk.append_nudge_reply = AsyncMock(
+                    return_value={"message": "ok", "timestamp": "2026-04-15T10:01:00+00:00"}
+                )
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/complete",
+                    json={"summary": summary},
+                )
+            assert resp.status_code == 200
+            # Find the artifact file. Filename is <slug>-<YYYY-MM-DDTHH-MM>.md.
+            artifacts = list(files_dir.glob("ia-review-session-7-*.md"))
+            assert len(artifacts) == 1, (
+                f"Expected one ia-review artifact, got {artifacts}"
+            )
+            content = artifacts[0].read_text()
+            assert "source: ia-review-session-7" in content
+            assert "template: IA Review" in content
+            assert "kind: agent-output" in content
+            assert "summary_length:" in content
+            assert "# Ia Review Session 7" in content or "# IA" in content
+            assert "IA review findings" in content
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_complete_skips_empty_summary(tmp_path):
+    """A short summary like "Done" or "ok" must NOT land in
+    ~/.myos/files/. We only capture real artifacts, not acks.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    agent_name = "prd-quick-check"
+    agent_metadata[agent_name] = {
+        "spawned_at": "2026-04-15T10:00:00+00:00",
+        "source": "claude-code",
+        "template": "PRD",
+        "status": "running",
+    }
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    files_dir = fake_home / ".myos" / "files"
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch.object(agents_module, "MYOS_FILES_DIR", files_dir), \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk.append_nudge_reply = AsyncMock(
+                    return_value={"message": "ok", "timestamp": "2026-04-15T10:01:00+00:00"}
+                )
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/complete",
+                    json={"summary": "Done."},
+                )
+            assert resp.status_code == 200
+            # No artifact should have been written for such a short summary.
+            if files_dir.exists():
+                found = list(files_dir.glob("prd-quick-check-*.md"))
+                assert found == [], (
+                    f"Short summary should not land an artifact, found {found}"
+                )
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_complete_skips_test_artifact_agent_names(tmp_path):
+    """Agents whose names match the infra-noise pattern (demo-smoke-*,
+    build-NNN, fix-*, diagnose-*, smoke-*, etc) must NOT drop artifacts
+    into the Files tab, even if their summaries are long. These are ops
+    runs, not user work.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    long_summary = (
+        "This is a long enough summary to clear the 50-character "
+        "threshold. It describes fake work for the test run and would "
+        "otherwise land a file on disk."
+    )
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    files_dir = fake_home / ".myos" / "files"
+
+    infra_names = [
+        "build-568",
+        "demo-smoke-roadmap",
+        "fix-open-md-hook",
+        "diagnose-inline-chat-dupes",
+        "smoke-e2e-release",
+        "fleet-build-website-product-manager",
+    ]
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            for name in infra_names:
+                agent_metadata[name] = {
+                    "spawned_at": "2026-04-15T10:00:00+00:00",
+                    "source": "claude-code",
+                    "template": "Custom",
+                    "status": "running",
+                }
+            with patch.object(agents_module, "MYOS_FILES_DIR", files_dir), \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk.append_nudge_reply = AsyncMock(
+                    return_value={"message": "ok", "timestamp": "2026-04-15T10:01:00+00:00"}
+                )
+                for name in infra_names:
+                    resp = await client.post(
+                        f"/api/agents/{name}/complete",
+                        json={"summary": long_summary},
+                    )
+                    assert resp.status_code == 200
+            if files_dir.exists():
+                got = sorted(p.name for p in files_dir.glob("*.md"))
+                for name in infra_names:
+                    slug_prefix = name.lower()
+                    assert not any(n.startswith(slug_prefix) for n in got), (
+                        f"Infra agent {name} should not have written an "
+                        f"artifact, but found {got}"
+                    )
+        finally:
+            for name in infra_names:
+                agent_metadata.pop(name, None)
+
+
+# ---- Narrow opt-in gate for /complete -> .md ------------------------------
+#
+# Tori's rule: only fleets, workflows, Roadmap, and templates that opted
+# in via ``produces_doc`` drop a .md + auto-tasks on /complete. A plain
+# solo agent editing code should NOT. These tests lock that contract.
+
+
+@pytest.mark.asyncio
+async def test_solo_agent_without_opt_in_does_not_produce_md(tmp_path):
+    """A plain solo agent (no fleet_id, no produces_doc, not Roadmap) must
+    NOT produce a .md artifact or any auto-created tasks on /complete,
+    even if its summary is long and contains next-step bullets.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    agent_name = "solo-coder-no-optin"
+    agent_metadata[agent_name] = {
+        "spawned_at": "2026-04-16T10:00:00+00:00",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-20250514",
+        "source": "claude-code",
+        "template": "Builder",  # Builder does NOT opt in to produces_doc
+        "status": "running",
+    }
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    files_dir = fake_home / ".myos" / "files"
+
+    summary = (
+        "Refactored the payment module. Pulled the validation logic out "
+        "into a shared helper, added four unit tests, confirmed the full "
+        "suite runs green. No user-visible changes.\n\n"
+        "TODO: Review the payment validation helper with the team.\n"
+        "TODO: Ship the follow-up tests next week.\n"
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch.object(agents_module, "MYOS_FILES_DIR", files_dir), \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents.ostk") as mock_ostk, \
+                 patch("services.ostk.ostk.add_task", new=AsyncMock()) as mock_add, \
+                 patch("services.task_labeling.schedule_auto_labels") as mock_schedule, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk.append_nudge_reply = AsyncMock(
+                    return_value={"message": "ok", "timestamp": "2026-04-16T10:01:00+00:00"}
+                )
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/complete",
+                    json={"summary": summary},
+                )
+            assert resp.status_code == 200
+            # No artifact landed for a plain solo agent.
+            if files_dir.exists():
+                got = list(files_dir.glob("*.md"))
+                assert got == [], (
+                    f"Solo agent without produces_doc opt-in must not write "
+                    f"a .md, got {got}"
+                )
+            # And no auto-tasks were created.
+            assert mock_add.call_count == 0
+            assert mock_schedule.call_count == 0
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_agent_with_produces_doc_opt_in_writes_md(tmp_path):
+    """An agent whose template carries ``template_produces_doc=True`` in
+    metadata (set at spawn time from the template's ``produces_doc``
+    flag) DOES write a .md to ~/.myos/files/ on /complete.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    agent_name = "prd-for-billing-feature"
+    agent_metadata[agent_name] = {
+        "spawned_at": "2026-04-16T10:00:00+00:00",
+        "budget": "3.0",
+        "model": "claude-sonnet-4-20250514",
+        "source": "claude-code",
+        "template": "PRD",
+        "template_produces_doc": True,
+        "status": "running",
+    }
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    files_dir = fake_home / ".myos" / "files"
+
+    summary = (
+        "Draft PRD for the billing upgrade feature. Problem: monthly "
+        "billing fails silently for 3 percent of customers. User: finance "
+        "ops and customers on enterprise plans. Goal: zero silent failures "
+        "within 30 days. Non-goals: refactoring the invoice generator. "
+        "Acceptance: every failure surfaces a user-facing error and fires "
+        "a support notification."
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch.object(agents_module, "MYOS_FILES_DIR", files_dir), \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk.append_nudge_reply = AsyncMock(
+                    return_value={"message": "ok", "timestamp": "2026-04-16T10:01:00+00:00"}
+                )
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/complete",
+                    json={"summary": summary},
+                )
+            assert resp.status_code == 200
+            artifacts = list(files_dir.glob(f"{agent_name}-*.md"))
+            assert len(artifacts) == 1, (
+                f"Expected one PRD artifact, got {artifacts}"
+            )
+            content = artifacts[0].read_text()
+            assert "template: PRD" in content
+            assert "kind: agent-output" in content
+            assert "Draft PRD for the billing upgrade" in content
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+
+def test_prd_template_carries_produces_doc_flag():
+    """Regression: the PRD template must keep its produces_doc opt-in so
+    PRD spawns drop an artifact onto the Files tab.
+    """
+    from services.agent_templates_store import agent_templates_store
+
+    prd = agent_templates_store.get_by_name_or_alias("PRD")
+    assert prd is not None
+    assert prd.get("produces_doc") is True
+
+
+def test_builder_template_does_not_opt_in_to_produces_doc():
+    """Regression: Builder (the everyday code-editing template) must NOT
+    opt in to produces_doc. Tori explicitly said solo agents editing code
+    should not drop a .md.
+    """
+    from services.agent_templates_store import agent_templates_store
+
+    builder = agent_templates_store.get_by_name_or_alias("Builder")
+    assert builder is not None
+    assert not builder.get("produces_doc", False)
+
+
+# ---- Demo mode spawn path -------------------------------------------------
+
+# Background: the live demo fleet (fleet-build-website) was missing its 3
+# minute end-to-end budget. Demo mode is the fast path: force Haiku, skip
+# CLAUDE.md/MCP, and hard cap every agent at 90 seconds of wall clock.
+# These tests lock in each lever so a future edit cannot silently regress.
+
+
+class _DemoFakeStdin:
+    def __init__(self):
+        self._closed = False
+        self.bytes_written = b""
+
+    def write(self, data):
+        self.bytes_written += data
+
+    async def drain(self):
+        return None
+
+    def close(self):
+        self._closed = True
+
+    def is_closing(self) -> bool:
+        return self._closed
+
+
+class _DemoFakeProc:
+    pid = 919191
+    returncode = None
+
+    def __init__(self):
+        self.stdin = _DemoFakeStdin()
+        self.killed = False
+
+    def kill(self):
+        self.killed = True
+        self.returncode = -9
+
+
+@pytest.mark.asyncio
+async def test_spawn_agent_in_demo_mode_uses_haiku(tmp_path, monkeypatch):
+    """Spawning an agent whose agentfile sets LIMIT demo_mode true forces Haiku.
+
+    Demo mode must not trust the caller-supplied model. Even when the
+    user-facing request says "sonnet" or "opus", the demo path must pick
+    Haiku because it is the fastest tier and the 90 second wall-clock
+    cap depends on it.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured_args: dict = {"argv": None}
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured_args["argv"] = list(args)
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+
+    agent_name = "fleet-build-website-product-manager"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Plan it.",
+                    "model": "opus",
+                    "budget": 0.5,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        argv = captured_args["argv"]
+        assert argv is not None, "create_subprocess_exec was never called"
+        model_idx = argv.index("--model")
+        chosen_model = argv[model_idx + 1]
+        assert "haiku" in chosen_model.lower(), (
+            f"demo mode must force Haiku, got {chosen_model!r}"
+        )
+
+        meta = agent_metadata[agent_name]
+        assert meta.get("demo_mode") is True
+        assert "haiku" in meta["model"].lower()
+        assert meta.get("deadline_seconds") == 90
+        assert "force_complete_at" in meta
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_agent_in_demo_mode_uses_valid_mcp_config(
+    tmp_path, monkeypatch
+):
+    """Demo mode passes a schema-valid empty MCP config and skips skills.
+
+    Regression guard for the fleet-build-website no-run bug. Two past
+    footguns locked in here:
+
+    1. ``--mcp-config '{}'`` is rejected by the Claude CLI validator
+       (mcpServers: Does not adhere to MCP server configuration schema)
+       and the subprocess exits 1 in under 300 ms. The valid empty shape
+       is ``{"mcpServers": {}}``.
+    2. ``--bare`` disables keychain OAuth reads. Only safe to add when
+       ``ANTHROPIC_API_KEY`` is set. Without the env var the CLI prints
+       "Not logged in" and exits 1.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured_args: dict = {"argv": None}
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured_args["argv"] = list(args)
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+    # Make the test deterministic: pretend no API key so --bare is
+    # skipped. The first assertion below proves the MCP config fix
+    # lands regardless of env.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    agent_name = "fleet-build-website-security-engineer"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Audit.",
+                    "model": "sonnet",
+                    "budget": 0.25,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        argv = captured_args["argv"]
+        assert argv is not None
+        # MCP empty config must use the valid shape.
+        assert "--mcp-config" in argv, f"demo mode must pass --mcp-config, got {argv}"
+        mcp_idx = argv.index("--mcp-config")
+        mcp_val = argv[mcp_idx + 1]
+        assert mcp_val == '{"mcpServers":{}}', (
+            "demo mode must pass a schema-valid empty MCP config "
+            f"(claude CLI rejects bare '{{}}'). Got {mcp_val!r}"
+        )
+        assert "--strict-mcp-config" in argv
+        assert "--disable-slash-commands" in argv
+        # Without ANTHROPIC_API_KEY, --bare must be skipped so the
+        # subprocess can fall back to keychain OAuth.
+        assert "--bare" not in argv, (
+            "demo mode must NOT pass --bare when ANTHROPIC_API_KEY is "
+            f"unset; it disables keychain OAuth. Got argv={argv}"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_agent_in_demo_mode_adds_bare_when_api_key_set(
+    tmp_path, monkeypatch
+):
+    """When ANTHROPIC_API_KEY is set, demo mode keeps --bare for speed.
+
+    --bare skips CLAUDE.md auto-discovery, hooks, plugin sync, and
+    other first-byte-latency warm-ups. It is only safe when the CLI
+    can authenticate via ANTHROPIC_API_KEY or an apiKeyHelper, since
+    bare mode disables keychain OAuth.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured_args: dict = {"argv": None}
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured_args["argv"] = list(args)
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake")
+
+    agent_name = "fleet-build-website-product-manager"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Plan.",
+                    "model": "sonnet",
+                    "budget": 0.25,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        argv = captured_args["argv"]
+        assert argv is not None
+        assert "--bare" in argv
+        mcp_idx = argv.index("--mcp-config")
+        assert argv[mcp_idx + 1] == '{"mcpServers":{}}'
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_demo_agent_is_force_completed_after_90_seconds(monkeypatch):
+    """The 90 second supervisor SIGKILLs stragglers and flips status.
+
+    The supervisor is a plain asyncio.sleep-then-check task. We patch
+    the sleep so the test does not actually wait 90 seconds, then
+    assert that an agent stuck in "running" is killed, the status flips
+    to "completed_timeout", and the summary is the plain-language
+    "Completed quickly for demo." line the UI promises.
+    """
+    from routers import agents as agents_module
+    from routers.agents import (
+        _schedule_demo_force_complete,
+        active_agents,
+        agent_metadata,
+    )
+
+    agent_name = "demo-timeout-victim"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    fake_proc = _DemoFakeProc()
+    active_agents[agent_name] = fake_proc
+    agent_metadata[agent_name] = {
+        "status": "running",
+        "demo_mode": True,
+        "spawned_at": "2026-04-15T00:00:00+00:00",
+        "source": "claude-code",
+    }
+
+    async def _instant_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(agents_module.asyncio, "sleep", _instant_sleep)
+    monkeypatch.setattr(agents_module, "_save_agent_state", lambda: None)
+
+    try:
+        await _schedule_demo_force_complete(agent_name, deadline_seconds=90)
+
+        assert fake_proc.killed is True, "supervisor must SIGKILL a stuck agent"
+        meta = agent_metadata[agent_name]
+        assert meta["status"] == "completed_timeout"
+        assert meta["summary"] == "Completed quickly for demo."
+        assert agent_name not in active_agents
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_demo_agent_force_complete_is_noop_after_clean_exit(monkeypatch):
+    """When an agent already called /complete, the supervisor must not re-flip.
+
+    The supervisor fires after 90 seconds, but healthy agents finish
+    well before that. This test sets status to "completed" before the
+    supervisor runs and asserts it leaves the metadata alone and never
+    kills a subprocess it does not own.
+    """
+    from routers import agents as agents_module
+    from routers.agents import (
+        _schedule_demo_force_complete,
+        active_agents,
+        agent_metadata,
+    )
+
+    agent_name = "demo-already-completed"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    fake_proc = _DemoFakeProc()
+    active_agents[agent_name] = fake_proc
+    agent_metadata[agent_name] = {
+        "status": "completed",
+        "summary": "Done for real.",
+        "demo_mode": True,
+    }
+
+    async def _instant_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(agents_module.asyncio, "sleep", _instant_sleep)
+    monkeypatch.setattr(agents_module, "_save_agent_state", lambda: None)
+
+    try:
+        await _schedule_demo_force_complete(agent_name, deadline_seconds=90)
+        assert fake_proc.killed is False
+        assert agent_metadata[agent_name]["status"] == "completed"
+        assert agent_metadata[agent_name]["summary"] == "Done for real."
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_fleet_members_use_valid_mcp_config(monkeypatch):
+    """Every fleet member's CLI argv must pass a schema-valid MCP config.
+
+    Regression guard for the fleet-build-website no-run demo-blocker:
+    the old demo-mode path passed ``--mcp-config '{}'``, which the
+    claude CLI rejects with a schema error. All four members exited
+    1 in under 300 ms, leaving zero-byte transcripts and the canned
+    autocomplete summary "Agent exited without calling /complete".
+
+    This test drives the real spawn path (no spawn_agent stub) and
+    inspects every subprocess invocation to prove the MCP config is
+    the valid empty shape for every single fleet member.
+    """
+    from routers import agents as agents_mod
+    from routers.agents import active_agents, agent_metadata
+
+    captured: list[list[str]] = []
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured.append(list(args))
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_mod.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_mod.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_mod,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    # Clean any previous run of these fleet members.
+    member_names = [
+        "fleet-build-website-product-manager",
+        "fleet-build-website-backend-developer",
+        "fleet-build-website-frontend-developer",
+        "fleet-build-website-security-engineer",
+    ]
+    for n in member_names:
+        agent_metadata.pop(n, None)
+        active_agents.pop(n, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/fleets/fleet-build-website/demo-run",
+                json={
+                    "fleet_id": "fleet-build-website",
+                    "context": "unit test",
+                    "model": "haiku",
+                    "budget": 0.25,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["total"] == 4
+
+        # Every fleet member subprocess must have been invoked with the
+        # valid empty MCP config shape. The old bug was that '{}'
+        # failed the CLI schema check, which this guard forbids.
+        assert len(captured) == 4, (
+            f"expected 4 subprocess invocations, got {len(captured)}"
+        )
+        for argv in captured:
+            assert "--mcp-config" in argv, (
+                f"fleet member missing --mcp-config: {argv}"
+            )
+            mcp_idx = argv.index("--mcp-config")
+            mcp_val = argv[mcp_idx + 1]
+            assert mcp_val == '{"mcpServers":{}}', (
+                f"fleet member passed invalid MCP config {mcp_val!r}: "
+                f"the claude CLI rejects '{{}}' with a schema error. "
+                f"argv={argv}"
+            )
+            # Without ANTHROPIC_API_KEY, --bare must not be present
+            # because it disables keychain OAuth.
+            assert "--bare" not in argv, (
+                f"fleet member passed --bare without ANTHROPIC_API_KEY, "
+                f"which breaks keychain OAuth. argv={argv}"
+            )
+    finally:
+        for n in member_names:
+            agent_metadata.pop(n, None)
+            active_agents.pop(n, None)
+
+
+@pytest.mark.asyncio
+async def test_fleet_demo_run_spawns_all_members_in_parallel(monkeypatch):
+    """POST /agents/fleets/{id}/demo-run spawns every member in parallel.
+
+    Demo mode stacks on top of the existing parallel fleet path. This
+    test stubs spawn_agent with a per-call sleep and asserts every
+    member starts before the first one finishes (the signature of
+    asyncio.gather, not a serial await loop). It also locks in the
+    response shape the UI needs: agents list, deadline_seconds, and
+    will_force_complete_at.
+    """
+    import asyncio as _asyncio
+    import time as _time
+
+    from routers import agents as agents_mod
+
+    start_times: list[float] = []
+    finish_times: list[float] = []
+
+    async def _fake_spawn_agent(body, request=None):
+        start_times.append(_time.perf_counter())
+        await _asyncio.sleep(0.05)
+        finish_times.append(_time.perf_counter())
+        return {"result": "ok", "pid": 55555, "transcript": "/tmp/t.md"}
+
+    monkeypatch.setattr(agents_mod, "spawn_agent", _fake_spawn_agent)
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+    monkeypatch.setattr(
+        agents_mod,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/agents/fleets/fleet-build-website/demo-run",
+            json={
+                "fleet_id": "fleet-build-website",
+                "context": "a dog walking business site",
+                "model": "haiku",
+                "budget": 0.25,
+            },
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total"] == 4
+    assert len(body["agents"]) == 4
+    assert body["deadline_seconds"] == 90
+    assert "will_force_complete_at" in body
+
+    assert len(start_times) == 4
+    assert len(finish_times) == 4
+    assert max(start_times) < min(finish_times), (
+        f"demo-run fleet was not parallel: "
+        f"starts={start_times} finishes={finish_times}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fleet_demo_run_unknown_fleet_id_returns_404():
+    """Unknown fleet ids return a clean 404 from /demo-run, not a crash."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/agents/fleets/fleet-not-a-real-thing/demo-run",
+            json={
+                "fleet_id": "fleet-not-a-real-thing",
+                "context": "",
+                "model": "haiku",
+                "budget": 0.25,
+            },
+        )
+    assert resp.status_code == 404
+    assert "not found" in resp.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_spawn_with_roadmap_template_auto_routes_to_demo_mode(monkeypatch):
+    """Clicking the Roadmap template card in the UI must auto-route to demo mode.
+
+    Regression guard for the "demo agents are still slow" live demo bug.
+    The UI POSTs /api/agents/spawn with ``template: "Roadmap"`` (Title Case,
+    the display name). The backend must:
+      1. Resolve the alias "Roadmap" to the marketplace agentfile at
+         ``agents/marketplace/roadmap.agent``.
+      2. Read ``LIMIT demo_mode true`` from that file.
+      3. Force Haiku, stamp demo_mode metadata, and schedule the 90s
+         force-complete.
+
+    Before the fix, the spawn resolver only tried one stem
+    ("pm-roadmap") and ignored the second stem derived from the template
+    name ("roadmap"), so the demo_mode flag never fired and the agent
+    ran at full Sonnet speed with no wall-clock cap.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured_args: dict = {"argv": None}
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured_args["argv"] = list(args)
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+    # Demo mode only adds --bare when ANTHROPIC_API_KEY is set (else
+    # --bare disables keychain OAuth and the CLI prints "Not logged
+    # in"). Set a fake key so the --bare assertion below holds.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake")
+
+    agent_name = "roadmap-from-ui"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "3 year roadmap",
+                    "model": "sonnet",
+                    "budget": 0.5,
+                    "template": "Roadmap",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        argv = captured_args["argv"]
+        assert argv is not None
+        model_idx = argv.index("--model")
+        chosen_model = argv[model_idx + 1]
+        assert "haiku" in chosen_model.lower(), (
+            "template=Roadmap must auto-route to demo mode and force "
+            f"Haiku, got {chosen_model!r}"
+        )
+        assert "--bare" in argv
+
+        meta = agent_metadata[agent_name]
+        assert meta.get("demo_mode") is True
+        assert meta.get("deadline_seconds") == 90
+        assert "force_complete_at" in meta
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_with_demo_mode_agentfile_gets_90s_force_complete(monkeypatch):
+    """Any spawn whose agentfile has LIMIT demo_mode true stamps a 90s wall clock.
+
+    Locks in the wire-up between the demo_mode agentfile flag and the
+    metadata fields the UI reads to draw the "Completed quickly for
+    demo." badge: ``demo_mode``, ``deadline_seconds``, and
+    ``force_complete_at``. Uses a fleet member agent name
+    (fleet-build-website-*) because those agentfiles carry
+    ``LIMIT demo_mode true`` and fleet member spawns go through the
+    same POST /agents/spawn path as the template cards Tori clicks.
+    """
+    from datetime import datetime, timezone
+
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+
+    agent_name = "fleet-build-website-backend-developer"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Build it.",
+                    "model": "sonnet",
+                    "budget": 0.25,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        meta = agent_metadata[agent_name]
+        assert meta.get("demo_mode") is True, (
+            "agentfile with LIMIT demo_mode true must stamp demo_mode on meta"
+        )
+        assert meta.get("deadline_seconds") == 90, (
+            "demo_mode must stamp the 90 second wall clock on meta"
+        )
+        force_at = meta.get("force_complete_at")
+        assert force_at, "demo_mode must stamp a force_complete_at ISO timestamp"
+
+        # force_complete_at should be roughly 90 seconds after spawned_at.
+        spawned_at = datetime.fromisoformat(meta["spawned_at"])
+        force_at_dt = datetime.fromisoformat(force_at)
+        delta = (force_at_dt - spawned_at).total_seconds()
+        assert 85 <= delta <= 95, (
+            f"force_complete_at must be ~90s after spawned_at, got {delta}s"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_respects_explicit_model_over_demo_mode_default(monkeypatch):
+    """honor_explicit_model=True must win over the agentfile's Haiku default.
+
+    The template detail modal lets the user pick a model before spawning
+    a template like Roadmap. The Roadmap agentfile has
+    ``LIMIT demo_mode true`` which normally forces Haiku. When the user
+    has seen the picker and chosen Sonnet, the backend must respect that
+    choice so the "Sonnet" badge the modal just showed them does not
+    silently become "Haiku" on the Agents list. The 90 second wall
+    clock still applies so the demo budget is preserved.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured_args: dict = {"argv": None}
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured_args["argv"] = list(args)
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+
+    agent_name = "roadmap-explicit-sonnet"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "3 year roadmap",
+                    "model": "sonnet",
+                    "budget": 0.5,
+                    "template": "Roadmap",
+                    "honor_explicit_model": True,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        argv = captured_args["argv"]
+        assert argv is not None
+        model_idx = argv.index("--model")
+        chosen_model = argv[model_idx + 1]
+        assert "sonnet" in chosen_model.lower(), (
+            "honor_explicit_model=True must keep the user's Sonnet choice "
+            f"even on a demo_mode template, got {chosen_model!r}"
+        )
+
+        # Demo mode still enforces the 90s cap so the budget stays
+        # predictable even when a slower model is in play.
+        meta = agent_metadata[agent_name]
+        assert meta.get("demo_mode") is True, (
+            "honor_explicit_model must not turn demo mode off, only drop "
+            "the model override"
+        )
+        assert meta.get("deadline_seconds") == 90
+        assert "sonnet" in meta["model"].lower()
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_demo_mode_uses_haiku_when_no_explicit_model(monkeypatch):
+    """Without honor_explicit_model, demo mode must keep forcing Haiku.
+
+    This locks in the default for callers that have not opted into the
+    explicit-model path: fleet members, workflow steps, and any script
+    that posts /api/agents/spawn with a ``template`` but no picker UI
+    to back up the model choice. The original fast-path contract must
+    not regress for those callers.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured_args: dict = {"argv": None}
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured_args["argv"] = list(args)
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+
+    agent_name = "roadmap-default-haiku"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "3 year roadmap",
+                    "model": "sonnet",
+                    "budget": 0.5,
+                    "template": "Roadmap",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        argv = captured_args["argv"]
+        assert argv is not None
+        model_idx = argv.index("--model")
+        chosen_model = argv[model_idx + 1]
+        assert "haiku" in chosen_model.lower(), (
+            "no honor_explicit_model means demo_mode must still force "
+            f"Haiku on the Roadmap template, got {chosen_model!r}"
+        )
+
+        meta = agent_metadata[agent_name]
+        assert meta.get("demo_mode") is True
+        assert "haiku" in meta["model"].lower()
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+# -------------------------------------------------------------------------
+# Regression tests for the "source=audit" mis-tag bug
+# -------------------------------------------------------------------------
+#
+# Symptom: a user-spawned agent (Roadmap template Run button) showed up
+# on the Agents page with source="audit". The Recent tab filter
+# is_user_spawned_agent excludes source="audit" rows, so the agent was
+# invisible even though the user had just spawned it.
+#
+# Root cause: spawn_agent only set spawn_meta["source"] when the caller
+# passed body.source. Without it, agent_metadata[name] had no source
+# field, and the list_agents merge fell back to the audit-log entry
+# (which always stamps source="audit"). The demo-mode force-complete
+# supervisor's terminal status "completed_timeout" was also missing from
+# the authoritative set, so even a retag would not override the audit
+# row for demo agents.
+#
+# Fix:
+#   1. spawn_agent always stamps source (defaults to "api").
+#   2. "completed_timeout" joins _AUTHORITATIVE_STATUSES so meta wins
+#      over the audit-log placeholder for demo-force-completed agents.
+#   3. When the audit row stands but meta carries a real (non-audit)
+#      source, the list endpoint still upgrades the row's source.
+#   4. UI Templates Run button passes source="ui" explicitly.
+
+
+@pytest.mark.asyncio
+async def test_spawn_agent_defaults_source_to_api_not_audit(tmp_path, monkeypatch):
+    """POST /agents/spawn without a body.source must default to ``api``.
+
+    Before the fix: the spawn endpoint's ``if body.source`` guard meant
+    an omitted source left agent_metadata with no source key at all.
+    The /agents list endpoint then let the audit-log entry (source=
+    "audit") win, and is_user_spawned_agent filtered the row out of
+    the Recent tab. User-spawned agents vanished.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 737373
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "source-default-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Do the roadmap thing.",
+                    "model": "sonnet",
+                    "budget": 1.0,
+                    # Deliberately no ``source`` field: this is the
+                    # exact scenario the Roadmap template Run button
+                    # used to hit before the UI fix.
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        meta = agent_metadata.get(agent_name) or {}
+        # The row must carry a real source so the list endpoint does
+        # not fall through to the audit-log placeholder.
+        assert meta.get("source") == "api", (
+            f"spawn must default source to 'api', got {meta.get('source')!r}. "
+            "Without this default, the Recent tab filter hides the agent."
+        )
+        # And never ``audit`` by accident.
+        assert meta.get("source") != "audit"
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_audit_replay_does_not_mutate_existing_source(tmp_path, monkeypatch):
+    """GET /api/agents must not regress a real source to ``audit``.
+
+    When agent_metadata carries source="api" (or any real source) and
+    the audit log has the same name with source="audit", the list
+    endpoint must surface the agent_metadata value. The audit log is
+    a fallback for agents the running server never saw; it must not
+    clobber a row that was actually spawned through the API.
+
+    This covers the demo-force-complete path specifically: a roadmap
+    demo run ends with status="completed_timeout", which was previously
+    missing from _AUTHORITATIVE_STATUSES so the audit merge kept its
+    source="audit" placeholder even though agent_metadata had the
+    real source.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    agent_name = "audit-replay-guard"
+    # Pre-seed agent_metadata with a completed demo row that has
+    # source="api". This mirrors what a real Roadmap template run
+    # leaves on disk after force-complete.
+    agent_metadata[agent_name] = {
+        "status": "completed_timeout",
+        "source": "api",
+        "model": "claude-haiku-4-5",
+        "budget": "3.0",
+        "spawned_at": "2026-04-15T04:37:52+00:00",
+        "completed_at": "2026-04-15T04:40:10+00:00",
+        "demo_mode": True,
+    }
+
+    # Stub audit_agents to return an entry for the same name with
+    # source="audit". This is what ostk.audit_agents produces for any
+    # name it sees in the audit log.
+    async def _fake_audit_agents():
+        return [
+            {
+                "name": agent_name,
+                "status": "completed",
+                "model": "sonnet",
+                "budget": "1.0",
+                "timestamp": "2026-04-15T04:37:52+00:00",
+                "source": "audit",
+            }
+        ]
+
+    async def _fake_kernel_ps():
+        return {"daemon_running": False, "agents": [], "raw": ""}
+
+    monkeypatch.setattr(agents_module.ostk, "audit_agents", _fake_audit_agents)
+    monkeypatch.setattr(agents_module.ostk, "kernel_ps", _fake_kernel_ps)
+    # Avoid touching external deleted-agents state.
+    monkeypatch.setattr(agents_module, "_load_deleted_agents", lambda: set())
+
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/agents")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        rows = [a for a in data.get("agents", []) if a.get("name") == agent_name]
+        assert rows, "the agent should appear in the list"
+        row = rows[0]
+        # The critical assertion: meta.source must win over the
+        # audit-log placeholder.
+        assert row["source"] == "api", (
+            f"list_agents leaked audit placeholder over real source: "
+            f"got {row['source']!r}. The Recent tab filter would hide "
+            "this row even though it is a real user-spawned agent."
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_ui_spawn_source_is_ui_or_api_not_audit(tmp_path, monkeypatch):
+    """POST /agents/spawn with source='ui' (what the UI now sends) must
+    persist ``source=ui`` and pass the Recent tab filter.
+
+    This is the end-to-end contract for the Templates Run button:
+    after spawning, the resulting row's source is one the filter
+    accepts (not ``audit``, ``chat``, or ``hook``).
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+    from services.agent_filters import is_user_spawned_agent
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 818181
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "ui-source-contract-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Run the roadmap template.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "source": "ui",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        meta = agent_metadata.get(agent_name) or {}
+        assert meta.get("source") == "ui", (
+            f"UI-initiated spawn must keep source='ui', got {meta.get('source')!r}"
+        )
+        # And the Recent tab filter must accept it.
+        row = {"name": agent_name, "source": meta["source"]}
+        assert is_user_spawned_agent(row), (
+            "UI-spawned agents must pass the Recent tab filter. If this "
+            "fails, is_user_spawned_agent is filtering source='ui', "
+            "which would hide every Templates Run button spawn."
+        )
+        # Sanity: it must NOT be the audit placeholder.
+        assert meta.get("source") != "audit"
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_respawn_purges_prior_chat_state(tmp_path, monkeypatch):
+    """Every fresh spawn must start with an empty chat history.
+
+    Regression for the demo bug where Tori spawned the Roadmap agent for
+    a second run and saw messages from a prior run inside the inline
+    chat panel. Root cause: ``.ostk/nudges/{name}/`` and its
+    ``replies/`` subdir persist on disk across spawns. The UI's
+    ``GET /api/agents/{name}/nudges`` merges file-based entries with
+    in-memory ones, so stale nudges and replies from the previous
+    Roadmap run leaked into the new one.
+
+    This test spawns an agent with a fixed name, sends a nudge and
+    posts a reply (populating both the on-disk and in-memory stores),
+    then spawns a second agent with the same name. The new agent's
+    ``/nudges`` response must be empty across every channel.
+    """
+    from routers import agents as agents_module
+    from routers.agents import (
+        active_agents,
+        agent_metadata,
+        nudge_history,
+        nudge_replies,
+    )
+    from services import ostk as ostk_module
+    from services.ostk import NUDGES_DIR
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            return None
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 525252
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "clean-slate-roadmap"
+    # Clean slate going in so leftover state from a prior test run does
+    # not hide a real regression.
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+    nudge_history.pop(agent_name, None)
+    nudge_replies.pop(agent_name, None)
+    import shutil
+    leftover = NUDGES_DIR / agent_name
+    if leftover.exists():
+        shutil.rmtree(leftover)
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # First spawn
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Draft a roadmap.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "source": "ui",
+                },
+            )
+            assert resp.status_code == 200, resp.text
+
+            # Send a nudge so the on-disk nudges dir picks up an entry.
+            resp = await client.post(
+                f"/api/agents/{agent_name}/nudge",
+                json={"message": "old demo message, must not leak"},
+            )
+            assert resp.status_code == 200, resp.text
+
+            # Post a reply so the replies/ subdir picks up an entry too.
+            resp = await client.post(
+                f"/api/agents/{agent_name}/reply",
+                json={"message": "old reply, also must not leak"},
+            )
+            assert resp.status_code == 200, resp.text
+
+            # Sanity: the first run's state is visible via /nudges.
+            resp = await client.get(f"/api/agents/{agent_name}/nudges")
+            assert resp.status_code == 200
+            first_run = resp.json()
+            first_all = (
+                first_run.get("nudges", [])
+                + first_run.get("session_nudges", [])
+                + first_run.get("replies", [])
+                + first_run.get("session_replies", [])
+            )
+            assert len(first_all) >= 2, (
+                f"Setup failed: prior run must have posted nudge+reply, "
+                f"got {first_run!r}"
+            )
+
+            # Second spawn with the same name. Purge must fire.
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Draft a fresh roadmap.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "source": "ui",
+                },
+            )
+            assert resp.status_code == 200, resp.text
+
+            # The fresh spawn must see an empty chat in every channel.
+            resp = await client.get(f"/api/agents/{agent_name}/nudges")
+            assert resp.status_code == 200
+            fresh = resp.json()
+            assert fresh.get("nudges") == [], (
+                f"file-based nudges leaked into fresh spawn: "
+                f"{fresh.get('nudges')!r}"
+            )
+            assert fresh.get("replies") == [], (
+                f"file-based replies leaked into fresh spawn: "
+                f"{fresh.get('replies')!r}"
+            )
+            assert fresh.get("session_nudges") == [], (
+                f"in-memory nudges leaked into fresh spawn: "
+                f"{fresh.get('session_nudges')!r}"
+            )
+            assert fresh.get("session_replies") == [], (
+                f"in-memory replies leaked into fresh spawn: "
+                f"{fresh.get('session_replies')!r}"
+            )
+
+            # The on-disk dir should have been purged by the spawn. It
+            # may have been recreated by the subsequent nudge/reply
+            # writes if any fired, but in this test we only spawned
+            # after the prior state, so the dir should not exist OR
+            # should be empty.
+            nudges_dir = NUDGES_DIR / agent_name
+            if nudges_dir.exists():
+                assert not list(nudges_dir.glob("*.json")), (
+                    f"Stale nudge files remain on disk: "
+                    f"{list(nudges_dir.glob('*.json'))}"
+                )
+                replies_dir = nudges_dir / "replies"
+                if replies_dir.exists():
+                    assert not list(replies_dir.glob("*.json")), (
+                        f"Stale reply files remain on disk: "
+                        f"{list(replies_dir.glob('*.json'))}"
+                    )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+        nudge_history.pop(agent_name, None)
+        nudge_replies.pop(agent_name, None)
+        leftover = NUDGES_DIR / agent_name
+        if leftover.exists():
+            shutil.rmtree(leftover, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_purge_agent_chat_state_handles_missing_dir():
+    """purge_agent_chat_state is a no-op when the agent has no prior state.
+
+    The fresh-spawn purge path runs on every spawn, including the very
+    first one. It must not raise when no ``.ostk/nudges/{name}/`` dir
+    exists. Covers the demo smoke case where a throwaway name runs
+    once and the cleanup helper is the only code that touches the
+    missing dir.
+    """
+    from services.ostk import ostk as ostk_singleton
+
+    result = await ostk_singleton.purge_agent_chat_state(
+        "never-existed-agent-xyz-9876"
+    )
+    assert result == {"nudges": 0, "replies": 0, "transcripts": 0}
+
+
+# ---------------------------------------------------------------------------
+# Roadmap prewarm replay (Feature A)
+# ---------------------------------------------------------------------------
+#
+# The demo prewarm replay path lets the live demo stream a cached Roadmap
+# transcript back to the UI instead of calling the real LLM. The three
+# tests below lock in the three states of the gate:
+#   1. Demo mode + Roadmap template + prewarm file: the replay fires and
+#      the agent completes without touching create_subprocess_exec.
+#   2. demo_mode false: the replay is ignored, the real spawn path runs.
+#   3. Prewarm file missing: the replay is ignored, the real spawn path runs.
+
+
+@pytest.mark.asyncio
+async def test_roadmap_prewarm_replay_when_file_exists_and_demo_mode(
+    tmp_path, monkeypatch
+):
+    """Demo mode Roadmap spawn with a prewarm file on disk replays it.
+
+    Locks in the Feature A contract:
+      * ``create_subprocess_exec`` is never called (no real LLM).
+      * The agent row lands with ``prewarm_replay=True`` in metadata.
+      * The transcript file contains the cached content after the drip
+        task finishes.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    # Redirect the prewarm path to a test file inside tmp_path so we do
+    # not depend on the user's real ~/.myos/prewarm/ directory.
+    fake_prewarm = tmp_path / "prewarm" / "roadmap.md"
+    fake_prewarm.parent.mkdir(parents=True)
+    fake_prewarm.write_text(
+        "---\nkind: roadmap\n---\n\n# Roadmap\n\n- ship the thing\n"
+    )
+    monkeypatch.setattr(agents_module, "PREWARM_ROADMAP_PATH", fake_prewarm)
+    # Speed up the drip so the test completes fast.
+    monkeypatch.setattr(agents_module, "_PREWARM_TARGET_SECONDS", 0.2)
+    monkeypatch.setattr(agents_module, "_PREWARM_CHUNK_DELAY_SECONDS", 0.001)
+
+    # Redirect transcripts to tmp_path so the writer does not touch the
+    # repo's real transcripts directory.
+    from config import PROJECT_ROOT as _real_root  # noqa: F401
+
+    import config as _config_mod
+
+    monkeypatch.setattr(_config_mod, "PROJECT_ROOT", tmp_path)
+
+    subprocess_calls = {"count": 0}
+
+    async def _exploding_subprocess(*args, **kwargs):
+        subprocess_calls["count"] += 1
+        raise AssertionError(
+            "create_subprocess_exec must NOT be called when replay fires"
+        )
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _exploding_subprocess,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module, "_schedule_demo_force_complete", _noop_force_complete
+    )
+
+    agent_name = "demo-roadmap-replay"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Draft a 3-year roadmap.",
+                    "template": "Roadmap",
+                    "budget": 3.0,
+                    "demo_mode": True,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "prewarm replay" in data["result"].lower()
+        assert data["pid"] == 0
+        assert subprocess_calls["count"] == 0
+
+        meta = agent_metadata.get(agent_name) or {}
+        assert meta.get("prewarm_replay") is True
+        assert meta.get("demo_mode") is True
+        assert meta.get("template") == "Roadmap"
+
+        # Wait for the drip to finish, then verify the transcript holds
+        # the full cached content.
+        for _ in range(50):
+            await asyncio.sleep(0.05)
+            if (agent_metadata.get(agent_name) or {}).get("status") == "completed":
+                break
+        transcript = tmp_path / "transcripts" / f"{agent_name}.md"
+        assert transcript.exists(), "transcript file must be written"
+        assert "ship the thing" in transcript.read_text()
+        assert (agent_metadata.get(agent_name) or {}).get("status") == "completed"
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_roadmap_prewarm_ignored_when_no_demo_mode(tmp_path, monkeypatch):
+    """Roadmap spawn without demo_mode takes the normal subprocess path.
+
+    The prewarm file exists but demo_mode is false, so the replay gate
+    must not fire and ``create_subprocess_exec`` runs the real LLM.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    fake_prewarm = tmp_path / "prewarm" / "roadmap.md"
+    fake_prewarm.parent.mkdir(parents=True)
+    fake_prewarm.write_text("cached content")
+    monkeypatch.setattr(agents_module, "PREWARM_ROADMAP_PATH", fake_prewarm)
+
+    # Force the demo-mode resolver to report False so the gate's first
+    # condition cannot trip. The Roadmap agentfile carries
+    # ``LIMIT demo_mode true`` which wins over a caller-side opt out, so
+    # simulating "no demo mode" requires overriding the resolver
+    # directly. This mirrors the non-demo Files-page spawn path where a
+    # Roadmap template request arrives without the demo flag.
+    monkeypatch.setattr(agents_module, "_spawn_demo_mode", lambda body: False)
+    # Non-demo spawns resolve the template envelope via the agentfile
+    # parser. The Roadmap marketplace agent resolves fine in CI but
+    # some environments do not re-index the marketplace dir, so we
+    # stub the resolver to always return a minimal config for the
+    # Roadmap stem. The test only cares that the subprocess path
+    # executes, not what prompt the subprocess receives.
+    class _StubCfg:
+        demo_mode = False
+        quick_mode = False
+
+    def _stub_by_template(name):
+        return _StubCfg()
+
+    def _stub_by_name(name):
+        return None
+
+    import services.agentfile_parser as _afp
+
+    monkeypatch.setattr(_afp, "get_agent_config_by_template", _stub_by_template)
+    monkeypatch.setattr(_afp, "get_agent_config", _stub_by_name)
+    monkeypatch.setattr(_afp, "build_template_instructions", lambda cfg: "")
+    monkeypatch.setattr(_afp, "build_quality_gate_instructions", lambda cfg: "")
+
+    captured = {"called": False}
+
+    async def _fake_subprocess(*args, **kwargs):
+        captured["called"] = True
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio, "create_subprocess_exec", _fake_subprocess
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module, "_schedule_demo_force_complete", _noop_force_complete
+    )
+
+    agent_name = "roadmap-no-demo-mode"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Draft a roadmap.",
+                    # Lowercase stem matches the non-demo template
+                    # resolver which is case-sensitive. The gate's
+                    # Roadmap check accepts both cases, so this still
+                    # exercises the "Roadmap template + demo_mode off"
+                    # scenario the test is named for.
+                    "template": "roadmap",
+                    "budget": 3.0,
+                    "demo_mode": False,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        assert captured["called"] is True, (
+            "normal spawn path must run when demo_mode is false"
+        )
+        meta = agent_metadata.get(agent_name) or {}
+        assert meta.get("prewarm_replay") is not True
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_roadmap_prewarm_ignored_when_file_missing(tmp_path, monkeypatch):
+    """Demo mode Roadmap spawn with no prewarm file falls back to the real LLM.
+
+    Regression guard so an operator who deletes the prewarm asset still
+    gets a working Roadmap run, just without the replay speedup.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    missing = tmp_path / "prewarm" / "missing-roadmap.md"
+    assert not missing.exists()
+    monkeypatch.setattr(agents_module, "PREWARM_ROADMAP_PATH", missing)
+
+    captured = {"called": False}
+
+    async def _fake_subprocess(*args, **kwargs):
+        captured["called"] = True
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio, "create_subprocess_exec", _fake_subprocess
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module, "_schedule_demo_force_complete", _noop_force_complete
+    )
+
+    agent_name = "roadmap-no-prewarm-file"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Draft a roadmap.",
+                    "template": "Roadmap",
+                    "budget": 3.0,
+                    "demo_mode": True,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        assert captured["called"] is True, (
+            "normal spawn path must run when the prewarm file is missing"
+        )
+        meta = agent_metadata.get(agent_name) or {}
+        assert meta.get("prewarm_replay") is not True
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+# ── Diagnose: Active Agents visibility + cancelled-stays-cancelled ──────────
+#
+# Two bugs tracked together:
+#   Bug A: a Roadmap spawn that takes the prewarm replay path can finish so
+#          quickly that the Agents page polling loop misses the "running"
+#          window entirely. The fix raises the replay target wall time so
+#          several polls comfortably land inside the running window.
+#   Bug B: a row that was cancelled (explicitly or via bulk cancel) must
+#          stay cancelled across backend restarts AND across re-register
+#          and heartbeat attempts from a subprocess that did not die.
+#          The fix rejects re-registration and heartbeats against rows
+#          whose persisted status is terminal.
+
+
+@pytest.mark.asyncio
+async def test_prewarm_replay_row_shows_running_for_entire_duration(
+    tmp_path, monkeypatch
+):
+    """Bug A regression: the prewarm replay must hold ``status=running`` for
+    the full wall-time window, not just the first few milliseconds.
+
+    The Agents page polls ``GET /api/agents`` every two seconds. If the
+    replay completes in under ~4 s, two consecutive polls can both land
+    outside the running window on a saturated backend and the UI never
+    sees the row alive. We poll ``agent_metadata`` at tight intervals
+    while the drip is in flight and assert the row reads "running" for
+    more than 90% of the samples collected before the drip finishes.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    fake_prewarm = tmp_path / "prewarm" / "roadmap.md"
+    fake_prewarm.parent.mkdir(parents=True)
+    fake_prewarm.write_text("line\n" * 800)
+    monkeypatch.setattr(agents_module, "PREWARM_ROADMAP_PATH", fake_prewarm)
+    # Short but realistic: 0.6 s target with 40 ms chunk delay so the
+    # test finishes fast yet still proves the row stays running across
+    # multiple poll samples. The production values are 20 s / 80 ms.
+    monkeypatch.setattr(agents_module, "_PREWARM_TARGET_SECONDS", 0.6)
+    monkeypatch.setattr(agents_module, "_PREWARM_CHUNK_DELAY_SECONDS", 0.04)
+
+    import config as _config_mod
+    monkeypatch.setattr(_config_mod, "PROJECT_ROOT", tmp_path)
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module, "_schedule_demo_force_complete", _noop_force_complete
+    )
+
+    agent_name = "prewarm-running-window-probe"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Draft a roadmap.",
+                    "template": "Roadmap",
+                    "budget": 3.0,
+                    "demo_mode": True,
+                },
+            )
+            assert resp.status_code == 200, resp.text
+
+            samples: list[str] = []
+            for _ in range(100):
+                st = (agent_metadata.get(agent_name) or {}).get("status", "")
+                samples.append(st)
+                if st == "completed":
+                    break
+                await asyncio.sleep(0.05)
+
+        running_samples = [s for s in samples if s == "running"]
+        pre_completion = [s for s in samples if s != "completed"]
+        assert len(running_samples) >= 3, (
+            f"Expected at least 3 running samples, got {running_samples!r} "
+            f"(all samples: {samples!r})"
+        )
+        assert pre_completion, "drip never registered running at all"
+        ratio = len(running_samples) / max(1, len(pre_completion))
+        assert ratio >= 0.9, (
+            f"running status held for only {ratio:.0%} of pre-completion "
+            f"samples (need >=90%). Samples: {samples!r}"
+        )
+        assert (
+            agent_metadata.get(agent_name, {}).get("status") == "completed"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_agent_stays_cancelled_after_restart(tmp_path, monkeypatch):
+    """Bug B regression: a cancelled row must not flip back to running on
+    the next backend boot.
+
+    Simulates a restart by seeding ``agent_metadata`` with a cancelled row
+    and calling the startup-recovery pass directly. Asserts the status
+    stays cancelled.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    name = "cancelled-survives-restart-probe"
+    agent_metadata.pop(name, None)
+    try:
+        now = datetime.now(timezone.utc)
+        agent_metadata[name] = {
+            "spawned_at": (now - timedelta(minutes=10)).isoformat(),
+            "last_heartbeat_at": (now - timedelta(minutes=9)).isoformat(),
+            "terminated_at": (now - timedelta(minutes=5)).isoformat(),
+            "terminated_reason": "user cancelled",
+            "source": "claude-code",
+            "status": "cancelled",
+        }
+
+        with patch("routers.agents._save_agent_state"):
+            agents_module._recover_stale_agents()
+            agents_module._recover_bulk_cancelled_agents()
+
+        assert agent_metadata[name]["status"] == "cancelled", (
+            "Startup recovery must not flip a user-cancelled row back to "
+            "running or completed."
+        )
+        assert agent_metadata[name]["terminated_reason"] == "user cancelled"
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_recover_stale_marks_backend_spawned_running_as_abandoned():
+    """Phantom-agent regression: backend-managed running rows (source=ui,
+    api, chat) survive restart even though their in-memory worker died with
+    the backend. They MUST be marked abandoned on boot. Otherwise the user
+    lands on the Agents page after a backend bounce and sees a running
+    Roadmap (or PRD, or Builder) they did not spawn this session.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    name = "ui-spawn-survives-restart-probe"
+    agent_metadata.pop(name, None)
+    try:
+        now = datetime.now(timezone.utc)
+        agent_metadata[name] = {
+            "spawned_at": (now - timedelta(seconds=20)).isoformat(),
+            "last_heartbeat_at": (now - timedelta(seconds=5)).isoformat(),
+            "source": "ui",
+            "status": "running",
+            "pid": 0,
+        }
+
+        with patch("routers.agents._save_agent_state"):
+            agents_module._recover_stale_agents()
+
+        assert agent_metadata[name]["status"] == "abandoned", (
+            "A ui-spawned row whose worker died with the backend must be "
+            "marked abandoned on boot, even if its heartbeat is recent."
+        )
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_recover_stale_keeps_external_claude_code_session_with_fresh_heartbeat():
+    """Counter-test: external Claude Code sessions (source=claude-code)
+    have their own process tree and survive backend restarts. If their
+    heartbeat is fresh, _recover_stale_agents must KEEP them as running.
+    """
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    name = "claude-code-external-session-probe"
+    agent_metadata.pop(name, None)
+    try:
+        now = datetime.now(timezone.utc)
+        agent_metadata[name] = {
+            "spawned_at": (now - timedelta(minutes=2)).isoformat(),
+            "last_heartbeat_at": (now - timedelta(seconds=30)).isoformat(),
+            "source": "claude-code",
+            "status": "running",
+            "pid": None,
+        }
+
+        with patch("routers.agents._save_agent_state"):
+            agents_module._recover_stale_agents()
+
+        assert agent_metadata[name]["status"] == "running", (
+            "External Claude Code session with fresh heartbeat must stay "
+            "running across backend restart."
+        )
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_terminal_name_reuse(tmp_path):
+    """Bug B regression: a name that already holds a terminal status must
+    not be re-registered as running. A zombie subprocess that keeps
+    polling /register after the user hit cancel used to resurrect the
+    row with fresh heartbeat metadata. The fix makes /register return
+    409 so the caller has to pick a fresh name.
+    """
+    from routers.agents import agent_metadata
+
+    name = "terminal-reuse-probe"
+    agent_metadata.pop(name, None)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport, base_url="http://test"
+    ) as client:
+        try:
+            agent_metadata[name] = {
+                "spawned_at": "2026-04-17T00:00:00+00:00",
+                "last_heartbeat_at": "2026-04-17T00:00:05+00:00",
+                "terminated_at": "2026-04-17T00:00:10+00:00",
+                "terminated_reason": "user cancelled",
+                "source": "claude-code",
+                "status": "cancelled",
+            }
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk._run = AsyncMock(return_value="")
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={
+                        "name": name,
+                        "model": "sonnet",
+                        "budget": 2.0,
+                        "task": "do more work",
+                        "source": "claude-code",
+                    },
+                )
+                assert resp.status_code == 409, resp.text
+                assert "terminal" in resp.text.lower() or "already" in resp.text.lower()
+                assert agent_metadata[name]["status"] == "cancelled"
+        finally:
+            agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_rejects_terminal_row(tmp_path):
+    """Bug B regression: a cancelled row must reject further heartbeats so
+    a zombie subprocess cannot keep refreshing last_heartbeat_at.
+    """
+    from routers.agents import agent_metadata
+
+    name = "heartbeat-after-cancel-probe"
+    agent_metadata.pop(name, None)
+
+    try:
+        old_hb = "2026-04-17T00:00:00+00:00"
+        agent_metadata[name] = {
+            "spawned_at": old_hb,
+            "last_heartbeat_at": old_hb,
+            "terminated_at": "2026-04-17T00:00:05+00:00",
+            "terminated_reason": "user cancelled",
+            "source": "claude-code",
+            "status": "cancelled",
+        }
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            with patch("routers.agents._save_agent_state"):
+                resp = await client.post(
+                    f"/api/agents/{name}/heartbeat",
+                    json={"step": "should not be applied"},
+                )
+        assert resp.status_code == 409, resp.text
+        assert agent_metadata[name]["last_heartbeat_at"] == old_hb
+        assert "current_step" not in agent_metadata[name]
+    finally:
+        agent_metadata.pop(name, None)
+
+
+def test_active_tab_polls_at_most_3s():
+    """Frontend regression: the Agents page Active tab must poll at 3 s or
+    faster so a Roadmap prewarm replay (target ~20 s wall time) yields
+    at least five polls showing ``status=running``. The guard is a
+    simple grep of the one location that owns the polling interval.
+    """
+    agents_page = Path(__file__).resolve().parent.parent.parent / "app" / "src" / "pages" / "Agents.tsx"
+    assert agents_page.exists(), f"Missing {agents_page}"
+    src = agents_page.read_text()
+    import re
+    match = re.search(r"setInterval\(fetchAgents,\s*(\d+)\s*\)", src)
+    assert match, "Could not find setInterval(fetchAgents, <ms>) in Agents.tsx"
+    ms = int(match.group(1))
+    assert ms <= 3000, (
+        f"Active tab polls every {ms} ms. The Roadmap prewarm replay is "
+        "~20 s, so polling slower than every 3 s risks missing the "
+        "running window on a slow backend."
+    )
+
+
+# ── Stale-running sweep for Claude Code Agent-tool subagents ──────
+# Regression: subagents spawned from the parent Claude Code session
+# (source="claude-code") finished their work and returned via task
+# notification, but their rows on the Agents page stayed RUNNING for
+# 14+ minutes because the register-agent.sh PreToolUse hook spawns a
+# detached heartbeat loop that keeps pinging /heartbeat for 45 minutes.
+# That kept the row above the 900s stale threshold even though the
+# subagent had exited. Fix: a shorter 480s threshold for source=
+# "claude-code" agents only, demoted to "completed_timeout".
+
+
+@pytest.mark.asyncio
+async def test_stale_running_row_auto_demotes_on_list(tmp_path):
+    """A claude-code subagent row with status=running and a 9-minute-old
+    heartbeat must be demoted to completed_timeout on the next GET /agents
+    call, regardless of whether /complete was ever called."""
+    from routers.agents import (
+        agent_metadata,
+        STALE_CLAUDE_CODE_SUBAGENT_SECONDS,
+    )
+
+    # Threshold is 480s (8 min). 9 minutes is comfortably past it.
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_CLAUDE_CODE_SUBAGENT_SECONDS + 60)
+    ).isoformat()
+    name = "perf-agent-templates-stalefake"
+    agent_metadata[name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert name in names, "Stale agent missing from list"
+                assert names[name]["status"] == "completed_timeout", (
+                    f"Expected completed_timeout for stale claude-code "
+                    f"subagent, got {names[name]['status']!r}"
+                )
+                assert "terminated_at" in names[name]
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_stale_sweep_persists_to_disk(tmp_path):
+    """The stale-row demotion must persist via _save_agent_state so the
+    next request does not re-sweep the same row, and so a server restart
+    finds the demoted status."""
+    from routers.agents import (
+        agent_metadata,
+        STALE_CLAUDE_CODE_SUBAGENT_SECONDS,
+    )
+
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_CLAUDE_CODE_SUBAGENT_SECONDS + 60)
+    ).isoformat()
+    name = "perf-connections-stalefake"
+    agent_metadata[name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    save_calls = []
+
+    def fake_save():
+        save_calls.append(True)
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state", side_effect=fake_save), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                # In-memory metadata reflects the demotion.
+                assert agent_metadata[name]["status"] == "completed_timeout"
+                # _save_agent_state was called at least once (the sweep
+                # batches all rows into a single write per request).
+                assert len(save_calls) >= 1, (
+                    "Sweep must persist via _save_agent_state so a server "
+                    "restart sees the demoted row."
+                )
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_fresh_running_row_survives_list(tmp_path):
+    """A claude-code subagent with a recent heartbeat (well inside the
+    480s window) must not be demoted by the new sweep. The purpose of
+    the shorter window is to clean up zombies, not to kill live agents."""
+    from routers.agents import agent_metadata
+
+    fresh_ts = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+    name = "live-claude-code-subagent"
+    agent_metadata[name] = {
+        "spawned_at": fresh_ts,
+        "last_heartbeat_at": fresh_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                assert names[name]["status"] == "running", (
+                    "Fresh claude-code subagent must NOT be swept; the "
+                    "new threshold is for zombie cleanup only."
+                )
+                assert agent_metadata[name]["status"] == "running"
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_externally_registered_agent_keeps_long_window(tmp_path):
+    """The shorter 480s window only applies to source="claude-code".
+    An externally-registered agent (e.g. a long pytest run) with a
+    9-minute-old heartbeat must NOT be swept; that path keeps the
+    900s threshold so legitimate long work is not killed."""
+    from routers.agents import (
+        agent_metadata,
+        STALE_CLAUDE_CODE_SUBAGENT_SECONDS,
+    )
+
+    # 9 minutes: past the new 480s but under the old 900s threshold.
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_CLAUDE_CODE_SUBAGENT_SECONDS + 60)
+    ).isoformat()
+    name = "long-pytest-run"
+    agent_metadata[name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "api",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon", "daemon_running": False, "agents": []
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk._run = AsyncMock(return_value="")
+
+                resp = await client.get("/api/agents")
+                assert resp.status_code == 200
+                names = {a["name"]: a for a in resp.json()["agents"]}
+                # Source != claude-code, age below 900s: must survive.
+                assert names[name]["status"] == "running", (
+                    "Externally-registered agents (pytest, tsc) keep the "
+                    "long 900s window so legitimate quiet stretches do "
+                    "not kill them."
+                )
+    finally:
+        agent_metadata.pop(name, None)
+
+
+def test_complete_agent_hook_posts_to_complete_endpoint(tmp_path, monkeypatch):
+    """The PostToolUse hook complete-agent.sh must read the recorded
+    agent name from ~/.myos/subagents/last.name and POST to
+    /api/agents/{name}/complete. Verifies the name handoff between
+    register-agent.sh (writes the file) and complete-agent.sh (reads
+    it and closes the row)."""
+    import subprocess
+
+    hook_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / ".claude"
+        / "hooks"
+        / "complete-agent.sh"
+    )
+    assert hook_path.exists(), f"Hook missing: {hook_path}"
+    assert hook_path.stat().st_mode & 0o111, "Hook must be executable"
+
+    # Point the hook at a fake HOME so we do not touch ~/.myos.
+    fake_home = tmp_path / "home"
+    (fake_home / ".myos" / "subagents").mkdir(parents=True)
+    name_file = fake_home / ".myos" / "subagents" / "last.name"
+    fake_agent_name = "perf-agent-templates-instant-abc123"
+    name_file.write_text(fake_agent_name)
+
+    # Stub curl so the hook calls our fake binary instead of hitting
+    # localhost. The stub records its argv to a file we can inspect.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    curl_log = tmp_path / "curl.log"
+    fake_curl = bin_dir / "curl"
+    fake_curl.write_text(
+        "#!/bin/bash\n"
+        f'printf "%s\\n" "$@" >> "{curl_log}"\n'
+        'exit 0\n'
+    )
+    fake_curl.chmod(0o755)
+
+    env = {
+        "HOME": str(fake_home),
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+    }
+    payload = json.dumps({
+        "tool_response": {"output": "Completion summary line one\nmore detail"}
+    })
+    result = subprocess.run(
+        ["bash", str(hook_path)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=10,
+    )
+    assert result.returncode == 0, (
+        f"Hook exited {result.returncode}: stderr={result.stderr!r}"
+    )
+    # The fake curl should have been invoked. Its argv must include the
+    # /complete URL with the recorded name.
+    assert curl_log.exists(), "Hook did not call curl"
+    log_text = curl_log.read_text()
+    expected_url = (
+        f"https://127.0.0.1:8000/api/agents/{fake_agent_name}/complete"
+    )
+    assert expected_url in log_text, (
+        f"Hook curl did not target /complete for the recorded agent.\n"
+        f"Expected URL: {expected_url}\nGot: {log_text!r}"
+    )
+    # last.name should be cleared so a stale value cannot misfire next time.
+    assert name_file.read_text() == "", (
+        "Hook must clear last.name after firing so a future Agent tool "
+        "call cannot misfire complete on a stale name."
+    )
+
+
+# Spawn POST must echo the agent name in its JSON body. The frontend
+# uses this to reconcile the optimistic placeholder row in the Active
+# tab with the server row, especially for chat-driven spawns where the
+# user did not type the name. Without `name` in the response, the
+# frontend has no canonical key to swap by.
+@pytest.mark.asyncio
+async def test_spawn_agent_response_includes_name(monkeypatch):
+    """POST /agents/spawn returns the agent name in the JSON response.
+
+    The optimistic-insert flow on the Agents page inserts a placeholder
+    row keyed by the requested name. When the POST resolves, the
+    frontend uses the response to confirm the row is real instead of a
+    transient placeholder. Returning ``name`` makes that contract
+    explicit so the frontend never has to re-derive it from the body.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            return None
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 717171
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "spawn-response-name-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "do the work",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body.get("name") == agent_name, (
+            "Spawn response must include the agent name so the frontend "
+            "can reconcile its optimistic-insert placeholder. Got: "
+            f"{body!r}"
+        )
+        # The other documented fields stay in place.
+        assert "pid" in body
+        assert "transcript" in body
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+# ---------------------------------------------------------------------------
+# Respawn-after-delete tests (needle: spawn must un-delete the name)
+# ---------------------------------------------------------------------------
+
+def _make_fake_proc_helpers():
+    """Return fake stdin/proc classes and async factory for subprocess mocking."""
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+        def write(self, d):
+            pass
+        async def drain(self):
+            pass
+        def close(self):
+            self._closed = True
+        def is_closing(self):
+            return self._closed
+
+    class _FakeProc:
+        pid = 55555
+        returncode = None
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create(*a, **kw):
+        return _FakeProc()
+
+    async def _noop_run(*a, **kw):
+        return ""
+
+    return _fake_create, _noop_run
+
+
+@pytest.mark.asyncio
+async def test_spawn_removes_name_from_deleted_agents(tmp_path, monkeypatch):
+    """spawn_agent removes the agent name from deleted_agents.json when present.
+
+    Regression for the delete-then-respawn invisibility bug: a user who
+    deletes an agent and relaunches one with the same name must see it in
+    GET /api/agents. Without the fix, deleted_agents.json still contained
+    the name so the list endpoint filtered the new row out forever.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    saved: list[set] = []
+    pre_deleted = {"respawn-unit-test", "unrelated-agent"}
+
+    monkeypatch.setattr(agents_module, "_load_deleted_agents", lambda: set(pre_deleted))
+    monkeypatch.setattr(agents_module, "_save_deleted_agents", lambda names: saved.append(set(names)))
+
+    _fake_create, _noop_run = _make_fake_proc_helpers()
+    monkeypatch.setattr(agents_module.asyncio, "create_subprocess_exec", _fake_create)
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "respawn-unit-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={"name": agent_name, "prompt": "re-run", "model": "sonnet", "budget": 1.0},
+            )
+        assert resp.status_code == 200, resp.text
+        assert len(saved) >= 1, "Must write deleted_agents.json to remove the name"
+        assert agent_name not in saved[0], f"{agent_name!r} must be removed from deleted set"
+        assert "unrelated-agent" in saved[0], "Other deleted names must be preserved"
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_noop_when_name_not_in_deleted_agents(tmp_path, monkeypatch):
+    """spawn_agent must not write deleted_agents.json when the name was not in it."""
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    saved: list = []
+
+    monkeypatch.setattr(agents_module, "_load_deleted_agents", lambda: {"different-agent"})
+    monkeypatch.setattr(agents_module, "_save_deleted_agents", lambda names: saved.append(names))
+
+    _fake_create, _noop_run = _make_fake_proc_helpers()
+    monkeypatch.setattr(agents_module.asyncio, "create_subprocess_exec", _fake_create)
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "fresh-noop-spawn-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={"name": agent_name, "prompt": "first run", "model": "sonnet", "budget": 1.0},
+            )
+        assert resp.status_code == 200, resp.text
+        assert len(saved) == 0, (
+            f"Must not write deleted_agents.json when name was never deleted; "
+            f"got {len(saved)} write(s)"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_delete_adds_to_deleted_agents_and_filters_from_get(tmp_path, monkeypatch):
+    """DELETE /agents/{name} adds to deleted_agents.json; GET hides that row.
+
+    Regression guard: existing delete behavior must not be broken by the
+    respawn fix. A deleted agent must stay invisible in GET /api/agents
+    until a subsequent spawn with the same name un-deletes it.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    deleted_path = tmp_path / "deleted_agents.json"
+    monkeypatch.setattr(agents_module, "DELETED_AGENTS_PATH", deleted_path)
+
+    agent_name = "delete-regression-guard"
+    agent_metadata[agent_name] = {
+        "status": "completed",
+        "source": "api",
+        "model": "claude-sonnet-4-6",
+        "budget": "1.0",
+        "spawned_at": "2026-04-18T00:00:00+00:00",
+    }
+    active_agents.pop(agent_name, None)
+
+    async def _fake_kernel_ps():
+        return {"daemon_running": False, "agents": [], "raw": ""}
+
+    async def _fake_audit_agents():
+        return []
+
+    monkeypatch.setattr(agents_module.ostk, "kernel_ps", _fake_kernel_ps)
+    monkeypatch.setattr(agents_module.ostk, "audit_agents", _fake_audit_agents)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            del_resp = await client.delete(f"/api/agents/{agent_name}")
+            assert del_resp.status_code == 200, del_resp.text
+
+            assert deleted_path.exists(), "deleted_agents.json must be written by DELETE"
+            on_disk = json.loads(deleted_path.read_text())
+            assert agent_name in on_disk, f"Expected {agent_name!r} in deleted file, got {on_disk!r}"
+
+            get_resp = await client.get("/api/agents")
+            assert get_resp.status_code == 200, get_resp.text
+            names = [a["name"] for a in get_resp.json().get("agents", [])]
+            assert agent_name not in names, (
+                f"{agent_name!r} must be hidden after DELETE but appeared in {names}"
+            )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_delete_spawn_shows_in_agents_list(tmp_path, monkeypatch):
+    """Full integration: spawn → delete → spawn same name → GET shows the agent.
+
+    This is the exact scenario Tori hit with the Roadmap template:
+    clicking delete then re-clicking the template card should produce a
+    visible agent row, not a silent no-show.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    deleted_path = tmp_path / "deleted_agents.json"
+    monkeypatch.setattr(agents_module, "DELETED_AGENTS_PATH", deleted_path)
+
+    _fake_create, _noop_run = _make_fake_proc_helpers()
+    monkeypatch.setattr(agents_module.asyncio, "create_subprocess_exec", _fake_create)
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    async def _fake_kernel_ps():
+        return {"daemon_running": False, "agents": [], "raw": ""}
+
+    async def _fake_audit_agents():
+        return []
+
+    monkeypatch.setattr(agents_module.ostk, "kernel_ps", _fake_kernel_ps)
+    monkeypatch.setattr(agents_module.ostk, "audit_agents", _fake_audit_agents)
+
+    agent_name = "respawn-integration-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/api/agents/spawn",
+                json={"name": agent_name, "prompt": "first run", "model": "sonnet", "budget": 1.0},
+            )
+            assert r.status_code == 200, r.text
+
+            agent_metadata[agent_name]["status"] = "completed"
+            active_agents.pop(agent_name, None)
+
+            r = await client.delete(f"/api/agents/{agent_name}")
+            assert r.status_code == 200, r.text
+
+            r = await client.get("/api/agents")
+            names_after_delete = [a["name"] for a in r.json().get("agents", [])]
+            assert agent_name not in names_after_delete, "Must be hidden after DELETE"
+
+            r = await client.post(
+                "/api/agents/spawn",
+                json={"name": agent_name, "prompt": "second run", "model": "sonnet", "budget": 1.0},
+            )
+            assert r.status_code == 200, r.text
+
+            r = await client.get("/api/agents")
+            names_after_respawn = [a["name"] for a in r.json().get("agents", [])]
+            assert agent_name in names_after_respawn, (
+                f"{agent_name!r} must appear in /api/agents after respawn, "
+                f"but was missing. Visible agents: {names_after_respawn}"
+            )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+

@@ -11,6 +11,7 @@ vi.mock('../lib/api', async () => {
     api: {
       get: vi.fn(),
       post: vi.fn(),
+      delete: vi.fn(),
     },
   }
 })
@@ -199,11 +200,10 @@ describe('Gmail page inbox rendering', () => {
 
     renderGmail()
 
-    // While the fetch is pending the page shows the top-level Loading...
-    // spinner and MUST NOT render the "No messages in your inbox." copy.
-    expect(screen.getByText('Loading...')).toBeInTheDocument()
-    expect(screen.queryByText(/No messages in your inbox\./i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Your inbox is clear\./i)).not.toBeInTheDocument()
+    // While the fetch is pending the page shows the top-level loading
+    // spinner and MUST NOT render the empty state.
+    expect(screen.getByTestId('loading-state')).toBeInTheDocument()
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument()
 
     // Now resolve with zero messages.
     resolveMessages({ messages: [] })
@@ -211,7 +211,7 @@ describe('Gmail page inbox rendering', () => {
     // Only AFTER the fetch resolves with an empty list does the empty
     // state render.
     await waitFor(() => {
-      expect(screen.getByText(/No messages in your inbox\./i)).toBeInTheDocument()
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument()
     })
   })
 
@@ -372,5 +372,288 @@ describe('Gmail page Reconnect Gmail CTA', () => {
     // The rendered DOM must not contain a stringified JSON envelope
     // with a "url" key, which is what Tori's broken browser showed.
     expect(document.body.textContent).not.toMatch(/\{\s*"url"\s*:/)
+  })
+})
+
+describe('Gmail ConnectCard (chunk-d migration)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.gmailCache.v1')
+  })
+
+  it('renders ConnectCard with red accent when not authenticated', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) {
+        return Promise.resolve({ authenticated: false, needs_reauth: false, email: null, unread_count: 0 })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+
+    // Red accent color: #ef4444 -> jsdom converts to rgb(239, 68, 68)
+    const card = screen.getByTestId('connect-card')
+    expect(card.innerHTML).toMatch(/239, 68, 68/)
+  })
+
+  it('renders ConnectCard with reauth title when needs_reauth is true', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) {
+        return Promise.resolve({ authenticated: true, needs_reauth: true, email: null, unread_count: 0 })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Gmail access needs to be updated/i)).toBeInTheDocument()
+  })
+})
+
+
+describe('Gmail preview overflow containment', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.gmailCache.v1')
+  })
+
+  const LONG_SNIPPET =
+    'This is an extremely long snippet with a huge uninterruptedtokenthatwouldotherwiseblowoutofthecardboundarywithoutwordbreakrules and also https://example.com/very/long/url/that/should/not/push/the/layout/sideways/past/the/card/edge/when/rendered/in/the/collapsed/row/or/in/the/expanded/body/view'
+
+  const LONG_SUBJECT =
+    'Returned Scheduleabsolutelymassivesubjectlinewithanunbreakablestringthatcouldotherwisepushthecardsideways'
+
+  const MESSAGE = {
+    id: 'overflow1',
+    thread_id: 't-overflow',
+    subject: LONG_SUBJECT,
+    from_name: 'Sender With A Rather Long Display Name',
+    from_email: 'extremely.long.email.address.that.could.push.the.layout@example-domain-that-is-unreasonable.com',
+    snippet: LONG_SNIPPET,
+    date: '2026-04-15T10:00:00+00:00',
+    is_unread: true,
+  }
+
+  function mockAuthenticated() {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/gmail/messages')) return Promise.resolve({ messages: [MESSAGE] })
+      if (path.includes('/gmail/send_capability')) {
+        return Promise.resolve({ has_send_scope: true, reauth_url: null })
+      }
+      return Promise.resolve({})
+    })
+  }
+
+  it('email row snippet truncates and does not overflow card', async () => {
+    mockAuthenticated()
+    renderGmail()
+
+    // Wait for the row to render.
+    const snippetEl = await screen.findByText(LONG_SNIPPET)
+    expect(snippetEl).toBeInTheDocument()
+    // The snippet <p> must carry the truncate class (overflow:hidden +
+    // text-overflow:ellipsis + white-space:nowrap). Without this, long
+    // unbroken snippets overflow the card horizontally. Needle 357.
+    expect(snippetEl.className).toContain('truncate')
+
+    // The subject <p> must also truncate.
+    const subjectEl = screen.getByText(LONG_SUBJECT)
+    expect(subjectEl.className).toContain('truncate')
+  })
+
+  it('row button has min-w-0 so truncate children can actually shrink', async () => {
+    mockAuthenticated()
+    renderGmail()
+
+    // The row button wraps the preview block. Its class must contain
+    // min-w-0, otherwise the flex-1 button holds its content min-width
+    // and the truncate inside never kicks in. This is the exact bug
+    // where the preview bled off the right card edge.
+    const rowButton = await screen.findByRole('button', {
+      name: /Returned Schedule/i,
+    })
+    expect(rowButton.className).toContain('min-w-0')
+    expect(rowButton.className).toContain('flex-1')
+  })
+
+  it('expanded snippet body wraps long unbreakable tokens with break-words', async () => {
+    mockAuthenticated()
+    renderGmail()
+
+    // Expand the row.
+    const rowButton = await screen.findByRole('button', {
+      name: /Returned Schedule/i,
+    })
+    fireEvent.click(rowButton)
+
+    // The expanded snippet <p> must have break-words so long URLs and
+    // unbreakable tokens wrap inside the card instead of pushing it
+    // sideways. whitespace-pre-wrap alone does NOT break long tokens.
+    const paragraphs = screen.getAllByText(LONG_SNIPPET)
+    // The expanded body paragraph is the one with whitespace-pre-wrap.
+    const expanded = paragraphs.find((el) =>
+      el.className.includes('whitespace-pre-wrap')
+    )
+    expect(expanded).toBeDefined()
+    expect(expanded!.className).toContain('break-words')
+  })
+})
+
+describe('Gmail delete (Trash) actions', () => {
+  const mockedApiDelete = vi.mocked(api.delete)
+  const mockedApiPost = vi.mocked(api.post)
+
+  const MESSAGES = [
+    {
+      id: 'm1',
+      thread_id: 't1',
+      subject: 'Subject one',
+      from_name: 'Amazon',
+      from_email: 'a@example.com',
+      snippet: 'Sale snippet',
+      date: '2026-04-08T10:00:00+00:00',
+      is_unread: false,
+    },
+    {
+      id: 'm2',
+      thread_id: 't2',
+      subject: 'Subject two',
+      from_name: 'Amazon',
+      from_email: 'a@example.com',
+      snippet: 'Deal snippet',
+      date: '2026-04-08T11:00:00+00:00',
+      is_unread: false,
+    },
+  ]
+
+  function mockAuthenticated() {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/gmail/messages')) return Promise.resolve({ messages: MESSAGES })
+      if (path.includes('/gmail/send_capability')) {
+        return Promise.resolve({ has_send_scope: true, reauth_url: null })
+      }
+      return Promise.resolve({})
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.gmailCache.v1')
+  })
+
+  it('Move to Trash button calls DELETE and removes the row', async () => {
+    mockAuthenticated()
+    mockedApiDelete.mockResolvedValue({ ok: true, permanent: false, id: 'm1' })
+
+    renderGmail()
+
+    const subject = await screen.findByText('Subject one')
+    fireEvent.click(subject)
+
+    const trashBtn = await screen.findByRole('button', { name: /Move to Trash/i })
+    fireEvent.click(trashBtn)
+
+    await waitFor(() => {
+      expect(mockedApiDelete).toHaveBeenCalledWith('/gmail/messages/m1')
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Subject one')).not.toBeInTheDocument()
+    })
+    // Other row still visible.
+    expect(screen.getByText('Subject two')).toBeInTheDocument()
+  })
+
+  it('bulk Trash selected sends batch-delete with selected ids and confirms', async () => {
+    mockAuthenticated()
+    mockedApiPost.mockImplementation((path: string, body?: unknown) => {
+      if (path.includes('/gmail/messages/batch-delete')) {
+        const ids = (body as { ids: string[] }).ids
+        return Promise.resolve({ succeeded: ids, failed: [], count: ids.length })
+      }
+      return Promise.resolve({})
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm')
+
+    renderGmail()
+
+    // Select both messages via their checkboxes.
+    const checkboxes = await screen.findAllByRole('checkbox', {
+      name: /Select message from Amazon/i,
+    })
+    expect(checkboxes.length).toBe(2)
+    fireEvent.click(checkboxes[0])
+    fireEvent.click(checkboxes[1])
+
+    // Bulk action bar should now show 2 selected and a Trash button.
+    const bulkBtn = await screen.findByRole('button', {
+      name: /Trash selected messages/i,
+    })
+    fireEvent.click(bulkBtn)
+
+    // In-app modal appears; app must not call window.confirm.
+    const confirmModalBtn = await screen.findByTestId('confirm-modal-confirm')
+    expect(confirmSpy).not.toHaveBeenCalled()
+    fireEvent.click(confirmModalBtn)
+
+    await waitFor(() => {
+      const call = mockedApiPost.mock.calls.find((c) =>
+        String(c[0]).includes('/gmail/messages/batch-delete')
+      )
+      expect(call).toBeTruthy()
+      expect((call![1] as { ids: string[]; permanent: boolean }).ids.sort()).toEqual([
+        'm1',
+        'm2',
+      ])
+      expect((call![1] as { ids: string[]; permanent: boolean }).permanent).toBe(false)
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Subject one')).not.toBeInTheDocument()
+      expect(screen.queryByText('Subject two')).not.toBeInTheDocument()
+    })
+
+    confirmSpy.mockRestore()
+  })
+
+  it('bulk Trash aborts when the user cancels the in-app confirm dialog', async () => {
+    mockAuthenticated()
+    const confirmSpy = vi.spyOn(window, 'confirm')
+
+    renderGmail()
+
+    const checkboxes = await screen.findAllByRole('checkbox', {
+      name: /Select message from Amazon/i,
+    })
+    fireEvent.click(checkboxes[0])
+
+    const bulkBtn = await screen.findByRole('button', {
+      name: /Trash selected messages/i,
+    })
+    fireEvent.click(bulkBtn)
+
+    // The in-app modal should appear. Click Cancel.
+    const cancelBtn = await screen.findByTestId('confirm-modal-cancel')
+    fireEvent.click(cancelBtn)
+
+    // batch-delete must NOT fire when the user cancels.
+    expect(
+      mockedApiPost.mock.calls.find((c) =>
+        String(c[0]).includes('/gmail/messages/batch-delete')
+      )
+    ).toBeUndefined()
+    // Row still visible.
+    expect(screen.getByText('Subject one')).toBeInTheDocument()
+    // The browser-native confirm must never be called.
+    expect(confirmSpy).not.toHaveBeenCalled()
+
+    confirmSpy.mockRestore()
   })
 })

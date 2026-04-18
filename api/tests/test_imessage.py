@@ -534,6 +534,242 @@ def test_invalidate_conversations_cache(tmp_path):
     assert not cache_path.exists()
 
 
+# ---------------------------------------------------------------------------
+# Reply endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_imessage_reply_not_available(client):
+    """When iMessage is not available, reply returns 503."""
+    with patch(
+        "services.imessage.is_available",
+        return_value={"available": False, "reason": "Not on macOS"},
+    ):
+        resp = await client.post(
+            "/api/imessage/conversations/1/reply",
+            json={"text": "Hey!"},
+        )
+
+    assert resp.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_imessage_reply_success(client):
+    """Successful reply returns ok=True and invalidates cache."""
+    with (
+        patch(
+            "services.imessage.is_available",
+            return_value={"available": True, "reason": None},
+        ),
+        patch(
+            "services.imessage.reply_to_chat",
+            new=AsyncMock(return_value={"ok": True}),
+        ),
+        patch(
+            "services.imessage.invalidate_conversations_cache",
+        ) as mock_invalidate,
+    ):
+        resp = await client.post(
+            "/api/imessage/conversations/42/reply",
+            json={"text": "Sounds good!"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    mock_invalidate.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_imessage_reply_missing_text(client):
+    """Reply without text returns 422."""
+    with patch(
+        "services.imessage.is_available",
+        return_value={"available": True, "reason": None},
+    ):
+        resp = await client.post(
+            "/api/imessage/conversations/1/reply",
+            json={},
+        )
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_imessage_reply_chat_not_found(client):
+    """When the chat doesn't exist, reply returns 400."""
+    with (
+        patch(
+            "services.imessage.is_available",
+            return_value={"available": True, "reason": None},
+        ),
+        patch(
+            "services.imessage.reply_to_chat",
+            new=AsyncMock(side_effect=ValueError("Conversation 99 not found.")),
+        ),
+    ):
+        resp = await client.post(
+            "/api/imessage/conversations/99/reply",
+            json={"text": "Hello"},
+        )
+
+    assert resp.status_code == 400
+    assert "not found" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_imessage_reply_runtime_error(client):
+    """When AppleScript fails during reply, returns 500."""
+    with (
+        patch(
+            "services.imessage.is_available",
+            return_value={"available": True, "reason": None},
+        ),
+        patch(
+            "services.imessage.reply_to_chat",
+            new=AsyncMock(side_effect=RuntimeError("Failed to send reply: chat not found")),
+        ),
+    ):
+        resp = await client.post(
+            "/api/imessage/conversations/1/reply",
+            json={"text": "Hello"},
+        )
+
+    assert resp.status_code == 500
+    assert "chat not found" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# reply_to_chat_sync service unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_is_direct_identifier_phone():
+    """Phone numbers are identified as direct identifiers."""
+    from services.imessage import _is_direct_identifier
+
+    assert _is_direct_identifier("+15551234567") is True
+    assert _is_direct_identifier("5551234567") is True
+    assert _is_direct_identifier("+1 (555) 123-4567") is True
+
+
+def test_is_direct_identifier_email():
+    """Email addresses are identified as direct identifiers."""
+    from services.imessage import _is_direct_identifier
+
+    assert _is_direct_identifier("user@example.com") is True
+
+
+def test_is_direct_identifier_group_chat():
+    """Group chat UUIDs are not direct identifiers."""
+    from services.imessage import _is_direct_identifier
+
+    assert _is_direct_identifier("chat00000000-0000-0000-0000-000000000000") is False
+    assert _is_direct_identifier("chat12345678901234567890") is False
+
+
+def test_is_direct_identifier_empty():
+    """Empty string is not a direct identifier."""
+    from services.imessage import _is_direct_identifier
+
+    assert _is_direct_identifier("") is False
+
+
+def test_reply_to_chat_sync_direct_message(tmp_path):
+    """reply_to_chat_sync sends to buddy for direct message chats."""
+    import sqlite3 as _sqlite3
+    from services import imessage
+
+    db_path = tmp_path / "chat.db"
+    conn = _sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, chat_identifier TEXT, service_name TEXT)")
+    conn.execute("INSERT INTO chat VALUES (1, '+15551234567', 'iMessage')")
+    conn.commit()
+    conn.close()
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = ""
+    mock_result.stderr = ""
+
+    with (
+        patch.object(imessage, "CHAT_DB_PATH", db_path),
+        patch("subprocess.run", return_value=mock_result) as mock_run,
+    ):
+        result = imessage.reply_to_chat_sync(1, "Hey there!")
+
+    assert result["ok"] is True
+    script = mock_run.call_args[0][0][2]
+    assert "participant" in script
+    assert "+15551234567" in script
+    assert "Hey there!" in script
+
+
+def test_reply_to_chat_sync_group_chat(tmp_path):
+    """reply_to_chat_sync iterates chats for group chat identifiers."""
+    import sqlite3 as _sqlite3
+    from services import imessage
+
+    group_id = "chat00000000-0000-0000-0000-000000000000"
+    db_path = tmp_path / "chat.db"
+    conn = _sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, chat_identifier TEXT, service_name TEXT)")
+    conn.execute(f"INSERT INTO chat VALUES (2, '{group_id}', 'iMessage')")
+    conn.commit()
+    conn.close()
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = ""
+    mock_result.stderr = ""
+
+    with (
+        patch.object(imessage, "CHAT_DB_PATH", db_path),
+        patch("subprocess.run", return_value=mock_result) as mock_run,
+    ):
+        result = imessage.reply_to_chat_sync(2, "Group message!")
+
+    assert result["ok"] is True
+    script = mock_run.call_args[0][0][2]
+    assert "every chat" in script
+    assert group_id in script
+    assert "Group message!" in script
+
+
+def test_reply_to_chat_sync_not_found(tmp_path):
+    """reply_to_chat_sync raises ValueError when chat_id does not exist."""
+    import sqlite3 as _sqlite3
+    from services import imessage
+
+    db_path = tmp_path / "chat.db"
+    conn = _sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, chat_identifier TEXT, service_name TEXT)")
+    conn.commit()
+    conn.close()
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path):
+        with pytest.raises(ValueError, match="not found"):
+            imessage.reply_to_chat_sync(99, "Hello")
+
+
+def test_reply_to_chat_sync_empty_text(tmp_path):
+    """reply_to_chat_sync raises ValueError when text is empty."""
+    import sqlite3 as _sqlite3
+    from services import imessage
+
+    db_path = tmp_path / "chat.db"
+    conn = _sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, chat_identifier TEXT, service_name TEXT)")
+    conn.execute("INSERT INTO chat VALUES (1, '+15551234567', 'iMessage')")
+    conn.commit()
+    conn.close()
+
+    with patch.object(imessage, "CHAT_DB_PATH", db_path):
+        with pytest.raises(ValueError, match="required"):
+            imessage.reply_to_chat_sync(1, "")
+
+
 def test_send_message_sanitizes_input():
     """send_message_sync escapes special characters in AppleScript."""
     from services import imessage

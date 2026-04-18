@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from models.schemas import ThreadCreate, ThreadUpdate
+from services import recent_deletes
 from services.threads_store import threads_store
 from services.ostk import ostk
 
@@ -72,6 +73,7 @@ async def delete_thread(thread_id: str):
     deleted = threads_store.delete_thread(thread_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Group not found")
+    recent_deletes.record_id(f"thread:{thread_id}")
     return {"result": "deleted"}
 
 
@@ -90,4 +92,5 @@ async def remove_task_from_thread(thread_id: str, task_id: str):
     updated = threads_store.remove_task_from_thread(thread_id, task_id)
     if not updated:
         raise HTTPException(status_code=404, detail="Group not found")
+    recent_deletes.record_id(f"thread-task:{thread_id}:{task_id}")
     return {"thread": updated}

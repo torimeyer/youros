@@ -65,16 +65,33 @@ def get_tokens() -> dict:
     return json.loads(TOKEN_PATH.read_text())
 
 
+def _invalidate_slack_status_cache() -> None:
+    """Drop the cached Slack status payload.
+
+    Lazy import so this module has no hard dependency on the cache module
+    ordering at import time.
+    """
+    try:
+        from services import connections_cache
+
+        connections_cache.invalidate("slack_status")
+    except Exception:
+        pass
+
+
 def save_tokens(tokens: dict) -> None:
     """Persist tokens to disk."""
     _ensure_dirs()
     atomic_write_json(TOKEN_PATH, tokens)
+    # Connection state changed: drop cached status so next poll is fresh.
+    _invalidate_slack_status_cache()
 
 
 def disconnect() -> None:
     """Remove saved tokens."""
     if TOKEN_PATH.exists():
         TOKEN_PATH.unlink(missing_ok=True)
+    _invalidate_slack_status_cache()
 
 
 def get_team_info() -> Optional[dict]:

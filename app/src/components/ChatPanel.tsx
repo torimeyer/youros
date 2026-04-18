@@ -1,9 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Icon from './Icon'
+import ConfirmModal from './ConfirmModal'
+import { useConfirm } from '../hooks/useConfirm'
 import { useAppStore } from '../stores/app'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { renderMarkdown, renderTextWithMarkdown } from '../lib/markdown'
 import { api } from '../lib/api'
+import { bumpAgents } from '../lib/sidebarBus'
+import {
+  isRoadmapToTasksRequest,
+  type RoadmapToTasksResponse,
+} from '../lib/roadmapChatCommand'
 
 // Local cache key. The server is the source of truth for chat history.
 // We still mirror to localStorage so the very first paint after a hard
@@ -62,9 +69,17 @@ interface Message {
   model?: string
   toolCalls?: ToolCall[]
   replyTo?: string
+  /** thread_id is the id of the root message that started this thread.
+   *  null / undefined means the message lives in the root conversation. */
+  thread_id?: string | null
   gifUrl?: string
   imageUrl?: string
   reactions?: Record<string, number>
+  /** True when this bubble is rendering a WebSocket-level error. The UI
+   *  shows an inline Retry button that re-sends the last user turn so
+   *  the user never has to re-type their question after a mid-turn
+   *  socket drop. */
+  isError?: boolean
 }
 
 interface GiphyResult {
@@ -139,7 +154,10 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
 
 function ThinkingDots() {
   return (
-    <span className="inline-flex items-center gap-2 py-1 text-slate-400 text-xs">
+    <span
+      data-testid="thinking-dots"
+      className="inline-flex items-center gap-2 py-1 text-slate-400 text-xs"
+    >
       <span className="inline-flex items-center gap-1">
         <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
         <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -163,7 +181,7 @@ function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: bo
         <button onClick={() => setExpanded(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mb-1">
           Show full response ({text.length} chars)
         </button>
-        <div>{renderMarkdown(display)}</div>
+        <div className="chat-bubble-content">{renderMarkdown(display)}</div>
       </div>
     )
   }
@@ -171,7 +189,7 @@ function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: bo
     // After streaming is done, show first 300 chars with expand option
     return (
       <div>
-        <div>{renderMarkdown(text.slice(0, 300))}...</div>
+        <div className="chat-bubble-content">{renderMarkdown(text.slice(0, 300))}...</div>
         <button onClick={() => setExpanded(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mt-1">
           Show more
         </button>
@@ -179,7 +197,7 @@ function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: bo
     )
   }
   return (
-    <div>
+    <div className="chat-bubble-content">
       {renderMarkdown(text)}
       {isLong && expanded && (
         <button onClick={() => setExpanded(false)} className="block text-[10px] text-blue-400 hover:text-blue-300 mt-1">
@@ -325,6 +343,14 @@ export function ChatPanel() {
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
   )
   const [isStreaming, setIsStreaming] = useState(false)
+  // Gate for the "instant thinking dots" indicator. Set synchronously in
+  // the send handlers so the ThinkingDots render in the same React commit
+  // as the user's bubble. Cleared as soon as the first server event for
+  // this turn lands (thinking, token, multi-AI status, turn start, tool
+  // use, done, error). Without this, the assistant bubble briefly paints
+  // with just the model label and no dots while the socket hop to the
+  // server completes.
+  const [placeholderAwaitingServer, setPlaceholderAwaitingServer] = useState(false)
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [toolsEnabled, setToolsEnabled] = useState(true)
   const [activeTemplate, setActiveTemplate] = useState<{ name: string; description?: string } | null>(null)
@@ -353,6 +379,19 @@ export function ChatPanel() {
   // effect, which would otherwise loop on the same event.
   const currentBubbleIdRef = useRef<string | null>(null)
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
+  // Set of thread root ids that are currently collapsed.
+  const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(new Set())
+  const toggleThread = useCallback((threadRootId: string) => {
+    setCollapsedThreads(prev => {
+      const next = new Set(prev)
+      if (next.has(threadRootId)) {
+        next.delete(threadRootId)
+      } else {
+        next.add(threadRootId)
+      }
+      return next
+    })
+  }, [])
   const [showGiphy, setShowGiphy] = useState(false)
   const [giphyInitialSearch, setGiphyInitialSearch] = useState('')
   const [pendingImage, setPendingImage] = useState<string | null>(null)
@@ -362,19 +401,90 @@ export function ChatPanel() {
   const lastUpRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Grace-window state for the "Done." fallback.
+  // When `done` arrives we do not immediately show "Done." because some
+  // providers (notably Gemini) send a `done` event before the last text
+  // tokens have been flushed through the WebSocket. Instead we start a
+  // 500ms timer per message. If a token lands within that window the
+  // timer is cancelled and "Done." never flashes. Only after the timer
+  // fires with no new tokens do we mark the message as confirmed-final.
+  // confirmedDoneIds drives the fallback render so the bubble is never
+  // blank on a genuine tool-only turn, but also never shows "Done."
+  // while Gemini's text is still on its way.
+  const doneGraceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const [confirmedDoneIds, setConfirmedDoneIds] = useState<Set<string>>(new Set())
+  // Track which bubble IDs received at least one text token. When the
+  // grace window fires and 0 tokens were received, we know the model
+  // produced no content and should show a retry prompt, not "Done.".
+  const bubbleGotTokensRef = useRef<Set<string>>(new Set())
+  // Track whether we have received any real server event (token, thinking,
+  // tool_use, multi_ai_status, etc.) for the current turn. This prevents
+  // the dead-backend timer from firing after the server has started
+  // responding but before text tokens have landed.
+  const receivedAnyServerEventRef = useRef(false)
+  // Deduplicate lastMessage processing. The useEffect depends on
+  // [lastMessage, currentModel]. When sendMessage sets currentModel the
+  // effect re-runs with the stale lastMessage from the previous turn,
+  // causing a phantom `done` to fire against the new turn's assistant
+  // bubble. By tracking the last-processed reference we skip the
+  // duplicate. This ref is NOT reset when a new turn starts because
+  // the new turn's first real event will be a different object reference.
+  const processedMessageRef = useRef<unknown>(null)
 
-  const { connect, send, lastMessage, isConnected } = useWebSocket('/ws/chat')
+  const { connect, disconnect, send, lastMessage, isConnected } = useWebSocket('/ws/chat')
+  const { confirm, confirmProps } = useConfirm()
+
+  // Clear all pending Done. grace timers and reset confirmed state.
+  // Called when switching tabs, clearing history, or closing a tab so
+  // timers from a previous conversation do not fire in the new context.
+  const clearAllDoneGraceTimers = useCallback(() => {
+    doneGraceTimersRef.current.forEach(timer => clearTimeout(timer))
+    doneGraceTimersRef.current.clear()
+    setConfirmedDoneIds(new Set())
+    bubbleGotTokensRef.current.clear()
+  }, [])
 
   const findMessage = useCallback((id: string) => messages.find(m => m.id === id), [messages])
 
+  // Connect when the chat panel opens; disconnect when it closes.
+  // Do NOT depend on isConnected here: that would re-trigger connect()
+  // on every failed attempt and create an immediate-retry storm.
+  // The hook's own exponential backoff handles reconnects after errors.
   useEffect(() => {
-    if (chatOpen && !isConnected) {
+    if (chatOpen) {
       connect()
+    } else {
+      disconnect()
     }
-  }, [chatOpen, isConnected, connect])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatOpen])
 
   useEffect(() => {
     if (!lastMessage) return
+
+    // Deduplicate: the effect fires when currentModel changes but
+    // lastMessage has not changed (same object reference). Processing
+    // the same event twice causes a stale `done` from the previous turn
+    // to start a grace timer against the new turn's assistant bubble,
+    // producing a premature "No response received" error while Claude's
+    // first token is still ~5s away.
+    if (lastMessage === processedMessageRef.current) return
+    processedMessageRef.current = lastMessage
+
+    // The server has spoken for this turn. Drop the instant-dots gate so
+    // the render falls back to the normal isStreaming driven indicator.
+    // Any event type counts, including `done` and `error`, so the flag
+    // never outlives its own turn even if the stream is empty.
+    setPlaceholderAwaitingServer(false)
+
+    // Track real server events (anything except model_label, template_matched,
+    // backend_active, and done which are metadata/lifecycle). This lets
+    // the dead-backend timer distinguish "server never started responding"
+    // from "server responded but produced zero text tokens".
+    const isRealServerEvent = !['model_label', 'template_matched', 'backend_active', 'done'].includes(lastMessage.type as string)
+    if (isRealServerEvent) {
+      receivedAnyServerEventRef.current = true
+    }
 
     if (lastMessage.type === 'model_label') {
       setCurrentModel((lastMessage.data as string) ?? null)
@@ -399,18 +509,65 @@ export function ChatPanel() {
         // append-to-last-assistant path the single-model flow uses.
         const bubbleId = currentBubbleIdRef.current
         if (bubbleId) {
-          return prev.map(m =>
-            m.id === bubbleId && m.role === 'assistant'
-              ? { ...m, content: m.content + (lastMessage.data as string) }
-              : m,
-          )
+          // Cancel any pending Done. grace timer for this bubble.
+          const existing = doneGraceTimersRef.current.get(bubbleId)
+          if (existing !== undefined) {
+            clearTimeout(existing)
+            doneGraceTimersRef.current.delete(bubbleId)
+          }
+          // Track that this bubble received at least one text token.
+          bubbleGotTokensRef.current.add(bubbleId)
+          return prev.map(m => {
+            if (m.id === bubbleId && m.role === 'assistant') {
+              const baseContent = m.isError ? '' : m.content
+              return { ...m, content: baseContent + (lastMessage.data as string), isError: undefined }
+            }
+            return m
+          })
         }
         const updated = [...prev]
         const last = updated[updated.length - 1]
         if (last && last.role === 'assistant') {
-          updated[updated.length - 1] = { ...last, content: last.content + lastMessage.data }
+          // Cancel any pending Done. grace timer for the last bubble.
+          const existingTimer = doneGraceTimersRef.current.get(last.id)
+          if (existingTimer !== undefined) {
+            clearTimeout(existingTimer)
+            doneGraceTimersRef.current.delete(last.id)
+          }
+          // Track that this bubble received at least one text token.
+          bubbleGotTokensRef.current.add(last.id)
+          // If the bubble was converted to a zero-token error by the
+          // grace timer (Bug A fix), a late arriving token means the
+          // model DID produce content. Clear the error state and reset
+          // content so the real text replaces the error message.
+          const baseContent = last.isError ? '' : last.content
+          updated[updated.length - 1] = {
+            ...last,
+            content: baseContent + lastMessage.data,
+            isError: undefined,
+          }
         }
         return updated
+      })
+      // If a token arrives for a message already in confirmedDoneIds (rare
+      // race, e.g. Gemini sends done then flushes tokens >500ms later),
+      // remove it so the "Done." label disappears and the text shows instead.
+      setConfirmedDoneIds(prev => {
+        if (prev.size === 0) return prev
+        const bubbleId = currentBubbleIdRef.current
+        if (bubbleId) {
+          // Multi-AI path: remove the specific bubble.
+          if (prev.has(bubbleId)) {
+            const next = new Set(prev)
+            next.delete(bubbleId)
+            return next
+          }
+          return prev
+        }
+        // Non-multi-AI path: any token landing means the last assistant bubble
+        // is still receiving content. Clear all confirmed-done ids so the
+        // "Done." label disappears and the arriving text renders instead.
+        return new Set<string>()
       })
     } else if (lastMessage.type === 'multi_ai_status') {
       // Drives the live thinking pill above the latest assistant row.
@@ -480,6 +637,14 @@ export function ChatPanel() {
         }
         return updated
       })
+      // When the chat assistant spawns a background agent (e.g. "spawn
+      // roadmap"), bump the agents bus so the Agents page, sidebar
+      // badge, and any other listening surface refetch right away. The
+      // chat WebSocket does not go through the api wrapper so the
+      // automatic bump in api.ts never fires for chat-driven spawns.
+      if (data.tool === 'spawn_agent') {
+        bumpAgents()
+      }
     } else if (lastMessage.type === 'mcp_tool_use') {
       const data = lastMessage.data as unknown as { tool: string; server: string; input: Record<string, unknown>; id: string }
       setMessages(prev => {
@@ -529,16 +694,33 @@ export function ChatPanel() {
         return [...prev, { id: genId(), role: 'assistant', content: '', model: '' }]
       })
     } else if (lastMessage.type === 'done') {
-      if (currentModel) {
-        setMessages(prev => {
-          const updated = [...prev]
-          const last = updated[updated.length - 1]
-          if (last && last.role === 'assistant') {
-            updated[updated.length - 1] = { ...last, model: currentModel }
-          }
-          return updated
-        })
-      }
+      // Resolve lastMsgId from the closure messages snapshot BEFORE
+      // calling setMessages. Relying on the setMessages reducer to set
+      // lastMsgId is a bug: React 18 defers the reducer so the
+      // enclosing code runs with lastMsgId still null, and the
+      // grace-window timer below never gets registered.
+      const lastExisting = messages[messages.length - 1]
+      const lastMsgId: string | null =
+        lastExisting && lastExisting.role === 'assistant' ? lastExisting.id : null
+      setMessages(prev => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (last && last.role === 'assistant') {
+          // Stamp the model name if we know it.
+          const withModel = currentModel ? { ...last, model: currentModel } : last
+          // Close any tool calls that never received a result event.
+          // The claude-code provider handles tools internally and never
+          // sends tool_result messages, so result stays undefined
+          // forever. Marking them '' on done stops the spinner and lets
+          // the check-circle render without waiting for a result that
+          // will never arrive.
+          const resolvedCalls = withModel.toolCalls?.map(tc =>
+            tc.result === undefined ? { ...tc, result: '' } : tc,
+          )
+          updated[updated.length - 1] = { ...withModel, toolCalls: resolvedCalls }
+        }
+        return updated
+      })
       setIsStreaming(false)
       setCurrentModel(null)
       // Defensive cleanup. The complete phase usually arrives just
@@ -546,8 +728,51 @@ export function ChatPanel() {
       // still go away when the stream ends.
       setMultiAiStatus(null)
       currentBubbleIdRef.current = null
+      // Start the 500ms grace window before showing "Done." in the bubble.
+      // Some providers (Gemini) can flush a `done` event slightly before
+      // their last text tokens reach the client, so we delay the fallback
+      // label to avoid a visible flash. If a token arrives inside the
+      // window, the token handler cancels the timer (see below).
+      if (lastMsgId) {
+        const msgId = lastMsgId
+        const hasToolCalls = !!(lastExisting && lastExisting.toolCalls?.length)
+        const timer = setTimeout(() => {
+          doneGraceTimersRef.current.delete(msgId)
+          const gotTokens = bubbleGotTokensRef.current.has(msgId)
+          if (!gotTokens && !hasToolCalls) {
+            // The model produced no text and no tool calls. This is a
+            // genuine empty response (the dedup guard already filtered
+            // stale `done` events from a previous turn). Show a
+            // user-friendly error with a retry button instead of the
+            // misleading "Done." label.
+            setMessages(prev => {
+              const updated = [...prev]
+              const target = updated.find(m => m.id === msgId)
+              if (target && target.role === 'assistant' && !target.content?.trim()) {
+                const idx = updated.indexOf(target)
+                updated[idx] = {
+                  ...target,
+                  content: 'No response received. Please try again.',
+                  isError: true,
+                }
+              }
+              return updated
+            })
+          } else {
+            // Normal turn end: either tokens arrived or tool calls happened.
+            // Add to confirmedDoneIds so tool-only turns show "Done.".
+            setConfirmedDoneIds(prev => {
+              const next = new Set(prev)
+              next.add(msgId)
+              return next
+            })
+          }
+        }, 500)
+        doneGraceTimersRef.current.set(msgId, timer)
+      }
     } else if (lastMessage.type === 'error') {
       setIsStreaming(false)
+      setPlaceholderAwaitingServer(false)
       setCurrentModel(null)
       setMultiAiStatus(null)
       currentBubbleIdRef.current = null
@@ -555,12 +780,59 @@ export function ChatPanel() {
         const updated = [...prev]
         const last = updated[updated.length - 1]
         if (last && last.role === 'assistant') {
-          updated[updated.length - 1] = { ...last, content: `Error: ${lastMessage.data}` }
+          // Flag the bubble so the UI renders an inline Retry button.
+          // Re-send logic: the Retry button finds the last user message
+          // in this tab and replays its content through sendMessage, so
+          // the user never has to re-type after a mid-turn socket drop.
+          updated[updated.length - 1] = {
+            ...last,
+            content: `Error: ${lastMessage.data}`,
+            isError: true,
+          }
         }
         return updated
       })
     }
   }, [lastMessage, currentModel])
+
+  // Dead-backend safety net: if the UI has been in the
+  // placeholderAwaitingServer state for 30 seconds and no real server
+  // event has arrived, show the error. This catches cases where the
+  // backend is genuinely unreachable and neither tokens nor a `done`
+  // event will ever arrive.
+  useEffect(() => {
+    if (!placeholderAwaitingServer && !isStreaming) return
+    // Only start the dead-backend timer when we are waiting and have
+    // NOT yet received any real server event for this turn.
+    if (receivedAnyServerEventRef.current) return
+    const deadTimer = setTimeout(() => {
+      // Re-check: if a real event arrived in the meantime, abort.
+      if (receivedAnyServerEventRef.current) return
+      setIsStreaming(false)
+      setPlaceholderAwaitingServer(false)
+      setMessages(prev => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (last && last.role === 'assistant' && !last.content?.trim()) {
+          const idx = updated.indexOf(last)
+          // Backend went silent for 30s with no events. This is almost
+          // always a dead backend or a WebSocket that dropped without a
+          // close frame. The server-side provider timeouts will surface
+          // a more specific message when the provider itself stalls.
+          updated[idx] = {
+            ...last,
+            content:
+              'The server did not send any response in 30 seconds. ' +
+              'The backend may be restarting or unreachable. ' +
+              'Please try again.',
+            isError: true,
+          }
+        }
+        return updated
+      })
+    }, 30_000)
+    return () => clearTimeout(deadTimer)
+  }, [placeholderAwaitingServer, isStreaming])
 
   // Hydrate chat history from the server on first mount. The server is
   // the source of truth, so anything it returns replaces what was in the
@@ -756,27 +1028,64 @@ export function ChatPanel() {
       return
     }
 
+    // Handle "create tasks from this roadmap" and its variants. The
+    // backend reads the latest roadmap.md, parses items, and creates
+    // tasks. We show the user's message and a reply bubble inline
+    // without the WebSocket round-trip so the model cost is zero.
+    if (isRoadmapToTasksRequest(text)) {
+      handleRoadmapToTasks(text.trim())
+      return
+    }
+
     if (!text.trim() && !pendingImage) return
     // Clear any prior template badge so the next response shows its own.
     setActiveTemplate(null)
+
+    // Determine thread_id for this message. If replying to something that
+    // already belongs to a thread, inherit that thread_id. If replying to a
+    // root message (no thread_id), start a new thread rooted at that message.
+    let replyThreadId: string | null = null
+    if (replyingTo) {
+      const parentMsg = messages.find(m => m.id === replyingTo)
+      if (parentMsg) {
+        replyThreadId = parentMsg.thread_id ?? parentMsg.id
+      }
+    }
+
+    const userMsgId = genId()
     const userMessage: Message = {
-      id: genId(),
+      id: userMsgId,
       role: 'user',
       content: text.trim(),
       replyTo: replyingTo || undefined,
+      thread_id: replyThreadId,
       imageUrl: pendingImage || undefined,
     }
 
     const mentionMatch = text.match(/@(\w+)/i)
     const detectedModel = mentionMatch ? mentionMatch[1].toLowerCase() : defaultChatModel
 
-    const assistantMessage: Message = { id: genId(), role: 'assistant', content: '', model: detectedModel }
+    const assistantMessage: Message = {
+      id: genId(),
+      role: 'assistant',
+      content: '',
+      model: detectedModel,
+      thread_id: replyThreadId,
+    }
     const updatedMessages = [...messages, userMessage]
     setMessages([...updatedMessages, assistantMessage])
     setIsStreaming(true)
+    setPlaceholderAwaitingServer(true)
     setCurrentModel(detectedModel)
     setReplyingTo(null)
     setPendingImage(null)
+    // Reset turn-level tracking for the new message so stale state
+    // from the previous turn does not leak into the new one.
+    // Note: processedMessageRef is intentionally NOT reset here. The
+    // stale lastMessage object from the previous turn will be the same
+    // reference, so the dedup guard in the useEffect skips it. The new
+    // turn's first real WebSocket event will be a different object.
+    receivedAnyServerEventRef.current = false
 
     // Build the messages payload. Include the model field on assistant
     // messages so the backend can detect multi-model conversations and
@@ -806,7 +1115,78 @@ export function ChatPanel() {
       messages: apiMessages,
       tools: toolsEnabled,
       tab_id: activeTabId,
+      replyToId: replyingTo || undefined,
+      thread_id: replyThreadId || undefined,
     })
+  }
+
+  // Intercept the "create tasks from this roadmap" chat command. The
+  // user's message is appended as a normal user bubble, the backend
+  // parses the latest roadmap and creates tasks, and the reply lands
+  // as an assistant bubble with a link to the Tasks page.
+  const handleRoadmapToTasks = (text: string) => {
+    const userMessage: Message = {
+      id: genId(),
+      role: 'user',
+      content: text,
+    }
+    const placeholder: Message = {
+      id: genId(),
+      role: 'assistant',
+      content: '',
+      model: 'myos',
+    }
+    setMessages((prev) => [...prev, userMessage, placeholder])
+    setReplyingTo(null)
+
+    api
+      .post<RoadmapToTasksResponse>('/chat/roadmap/create-tasks', {})
+      .then((resp) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === placeholder.id
+              ? { ...m, content: resp?.reply || 'Done.' }
+              : m,
+          ),
+        )
+      })
+      .catch((err) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === placeholder.id
+              ? {
+                  ...m,
+                  content:
+                    'I could not create tasks from the roadmap: ' +
+                    (err?.message || 'unknown error'),
+                  isError: true,
+                }
+              : m,
+          ),
+        )
+      })
+  }
+
+  // Re-send the last user turn after a WebSocket-level error.
+  //
+  // After a mid-turn socket drop the last bubble carries isError=true
+  // and shows a "Retry" button. The retry flow drops the failed
+  // assistant bubble and the user bubble that preceded it, then calls
+  // sendMessage with that user text. sendMessage creates a fresh
+  // assistant placeholder and opens a new stream, so the user never has
+  // to re-type their question.
+  const retryLastTurn = () => {
+    const lastMsg = messages[messages.length - 1]
+    if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isError) return
+    const userMsg = messages[messages.length - 2]
+    if (!userMsg || userMsg.role !== 'user') return
+    const text = userMsg.content || ''
+    if (!text.trim()) return
+    // Drop the failed assistant bubble and the original user bubble so
+    // sendMessage does not duplicate them. sendMessage will append a
+    // fresh pair using the same text.
+    setMessages(prev => prev.slice(0, prev.length - 2))
+    sendMessage(text)
   }
 
   const sendGif = (gifUrl: string) => {
@@ -821,9 +1201,11 @@ export function ChatPanel() {
     const updatedMessages = [...messages, userMessage]
     setMessages([...updatedMessages, assistantMessage])
     setIsStreaming(true)
+    setPlaceholderAwaitingServer(true)
     setCurrentModel(defaultChatModel)
     setShowGiphy(false)
     setReplyingTo(null)
+    receivedAnyServerEventRef.current = false
 
     // Send messages with GIF URLs so the AI can see them
     const apiMessages = updatedMessages.map(m => ({
@@ -935,10 +1317,17 @@ export function ChatPanel() {
     setCurrentModel(null)
     setReplyingTo(null)
     setShowGiphy(false)
+    clearAllDoneGraceTimers()
   }
 
-  const handleClearHistory = () => {
-    if (!window.confirm('Clear all chat history? This cannot be undone.')) return
+  const handleClearHistory = async () => {
+    const ok = await confirm({
+      title: 'Clear all chat history?',
+      message: 'This cannot be undone.',
+      confirmLabel: 'Clear history',
+      danger: true,
+    })
+    if (!ok) return
     const freshTab: ChatTab = { id: genId(), name: 'New Chat', messages: [], updatedAt: new Date().toISOString() }
     setTabs([freshTab])
     setActiveTabId(freshTab.id)
@@ -946,6 +1335,7 @@ export function ChatPanel() {
     setCurrentModel(null)
     setReplyingTo(null)
     setShowGiphy(false)
+    clearAllDoneGraceTimers()
     try {
       localStorage.removeItem(CHAT_CACHE_KEY)
     } catch {
@@ -971,6 +1361,7 @@ export function ChatPanel() {
     setCurrentModel(null)
     setReplyingTo(null)
     setShowGiphy(false)
+    clearAllDoneGraceTimers()
   }
 
   const handleSwitchTab = (tabId: string) => {
@@ -980,6 +1371,7 @@ export function ChatPanel() {
     setCurrentModel(null)
     setReplyingTo(null)
     setShowGiphy(false)
+    clearAllDoneGraceTimers()
     setPendingImage(null)
   }
 
@@ -1139,7 +1531,7 @@ export function ChatPanel() {
               {[
                 { icon: 'calendar_month', text: "What's on my calendar today?" },
                 { icon: 'checklist', text: 'Help me plan my week' },
-                { icon: 'lightbulb', text: 'Break an idea into tasks' },
+                { icon: 'bolt', text: 'Break a project into tasks' },
                 { icon: 'summarize', text: 'Write a status update from my recent work' },
               ].map((s) => (
                 <button
@@ -1154,161 +1546,262 @@ export function ChatPanel() {
             </div>
           </div>
         )}
-        {messages.map((msg, i) => {
-          // Hide empty assistant bubbles during multi-AI conversations.
-          // The status pill already shows who is thinking/speaking.
-          const isEmpty = !msg.content && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl
-          if (isEmpty && msg.role === 'assistant' && multiAiStatus && i === messages.length - 1) return null
-          return (
-          <div key={msg.id} id={`msg-${msg.id}`} className={`group transition-all rounded-xl ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
-            {/* Reply context */}
-            {msg.replyTo && (
-              <ReplyPreview
-                message={findMessage(msg.replyTo)}
-                onClick={() => scrollToMessage(msg.replyTo!)}
-              />
-            )}
+        {(() => {
+          // Build a flat render list. Thread replies are injected inline
+          // under their root bubble, grouped and collapsible.
+          // Root messages: thread_id == null/undefined.
+          // Thread messages: thread_id == some root message id.
 
-            {msg.role === 'assistant' && (
-              <div className="flex items-center gap-1.5 mb-1">
-                {msg.model && (
-                  <span className={`text-[10px] font-bold uppercase ${MODEL_COLORS[msg.model] ?? 'text-slate-500'}`}>
-                    {msg.model}
-                  </span>
-                )}
-                {!msg.model && (
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">Assistant</span>
-                )}
-                {/* Auto-matched template badge. Shows on the latest assistant
-                    message so the user can see which helper kicked in. */}
-                {i === messages.length - 1 && activeTemplate && (
-                  <span
-                    data-testid="template-badge"
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-[10px] text-blue-300"
-                    title={activeTemplate.description || `Using helper: ${activeTemplate.name}`}
-                  >
-                    Using: {activeTemplate.name}
-                    <button
-                      onClick={() => setActiveTemplate(null)}
-                      className="ml-0.5 text-blue-400 hover:text-blue-200"
-                      aria-label="Dismiss helper badge"
-                    >
-                      <Icon name="close" className="text-[10px]" />
-                    </button>
-                  </span>
-                )}
-              </div>
-            )}
+          // Index thread children by their thread root id.
+          const threadMap = new Map<string, Message[]>()
+          for (const m of messages) {
+            if (m.thread_id) {
+              const arr = threadMap.get(m.thread_id) ?? []
+              arr.push(m)
+              threadMap.set(m.thread_id, arr)
+            }
+          }
 
-            <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%] w-fit' : 'max-w-[85%] w-fit'}`}>
+          // Helper: render a single bubble. isThread=true means it is
+          // inside a thread block (indented, left-border style).
+          const renderBubble = (msg: Message, globalIdx: number, isThread: boolean) => {
+            const isEmpty = !msg.content && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl
+            if (isEmpty && msg.role === 'assistant' && multiAiStatus && globalIdx === messages.length - 1) return null
+            // Suppress truly empty finalized assistant bubbles. These appear when
+            // sendMessage pushes a placeholder that was never filled (e.g. the
+            // second bubble in a pure tool-use turn). Only suppress when not
+            // streaming so we never hide a bubble that is still waiting for tokens.
+            if (isEmpty && msg.role === 'assistant' && !isStreaming && globalIdx !== messages.length - 1) return null
+            return (
               <div
-                className={
-                  msg.role === 'user'
-                    ? 'inline-block bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm break-words overflow-hidden'
-                    : `inline-block border px-4 py-3 rounded-xl text-sm text-slate-300 whitespace-pre-line overflow-hidden break-words ${
-                        msg.model ? MODEL_BG[msg.model] ?? 'bg-slate-900 border-slate-800' : 'bg-slate-900 border-slate-800'
-                      }`
-                }
+                key={msg.id}
+                id={`msg-${msg.id}`}
+                data-testid={`bubble-${msg.id}`}
+                className={`group transition-all rounded-xl ${msg.role === 'user' ? 'flex flex-col items-end' : ''} ${isThread ? 'ml-2' : ''}`}
               >
-                {/* GIF display */}
-                {msg.gifUrl && (
-                  <img
-                    src={msg.gifUrl}
-                    alt="GIF"
-                    className="rounded-lg max-w-full max-h-[300px] object-contain"
-                    loading="lazy"
+                {/* Reply context within a thread */}
+                {msg.replyTo && isThread && (
+                  <ReplyPreview
+                    message={findMessage(msg.replyTo)}
+                    onClick={() => scrollToMessage(msg.replyTo!)}
+                  />
+                )}
+                {/* Reply context on root messages (non-threaded) */}
+                {msg.replyTo && !isThread && (
+                  <ReplyPreview
+                    message={findMessage(msg.replyTo)}
+                    onClick={() => scrollToMessage(msg.replyTo!)}
                   />
                 )}
 
-                {/* Pasted image display */}
-                {msg.imageUrl && (
-                  <img
-                    src={msg.imageUrl}
-                    alt="Image"
-                    className="rounded-lg max-w-full max-h-[400px] object-contain mb-1"
-                    loading="lazy"
-                  />
+                {msg.role === 'assistant' && (
+                  <div className="flex items-center gap-1.5 mb-1">
+                    {msg.model && (
+                      <span className={`text-[10px] font-bold uppercase ${MODEL_COLORS[msg.model] ?? 'text-slate-500'}`}>
+                        {msg.model}
+                      </span>
+                    )}
+                    {!msg.model && (
+                      <span className="text-[10px] text-slate-500 font-bold uppercase">Assistant</span>
+                    )}
+                    {/* Auto-matched template badge. Hidden while the assistant bubble
+                        is still in the pure thinking state (streaming with no visible
+                        content yet) so nothing renders beside the thinking indicator. */}
+                    {globalIdx === messages.length - 1 && activeTemplate && msg.content?.trim() && (
+                      <span
+                        data-testid="template-badge"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-[10px] text-blue-300"
+                        title={activeTemplate.description || `Using helper: ${activeTemplate.name}`}
+                      >
+                        Using: {activeTemplate.name}
+                        <button
+                          onClick={() => setActiveTemplate(null)}
+                          className="ml-0.5 text-blue-400 hover:text-blue-200"
+                          aria-label="Dismiss helper badge"
+                        >
+                          <Icon name="close" className="text-[10px]" />
+                        </button>
+                      </span>
+                    )}
+                  </div>
                 )}
 
-                {msg.role === 'user' ? (
-                  msg.content ? renderText(msg.content) : null
-                ) : (
-                  <>
-                    {msg.toolCalls && msg.toolCalls.length > 0 && (
-                      <div className="mb-2">
-                        {msg.toolCalls.map((tc) => (
-                          <ToolCallBlock key={tc.id} call={tc} />
+                <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%] w-fit' : 'max-w-[85%] w-fit'}`}>
+                  <div
+                    className={
+                      msg.role === 'user'
+                        ? 'inline-block bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm break-words overflow-hidden'
+                        : `inline-block border px-4 py-3 rounded-xl text-sm text-slate-300 overflow-hidden break-words ${
+                            msg.model ? MODEL_BG[msg.model] ?? 'bg-slate-900 border-slate-800' : 'bg-slate-900 border-slate-800'
+                          }`
+                    }
+                  >
+                    {/* GIF display */}
+                    {msg.gifUrl && (
+                      <img
+                        src={msg.gifUrl}
+                        alt="GIF"
+                        className="rounded-lg max-w-full max-h-[300px] object-contain"
+                        loading="lazy"
+                      />
+                    )}
+
+                    {/* Pasted image display */}
+                    {msg.imageUrl && (
+                      <img
+                        src={msg.imageUrl}
+                        alt="Image"
+                        className="rounded-lg max-w-full max-h-[400px] object-contain mb-1"
+                        loading="lazy"
+                      />
+                    )}
+
+                    {msg.role === 'user' ? (
+                      msg.content ? renderText(msg.content) : null
+                    ) : (
+                      <>
+                        {msg.toolCalls && msg.toolCalls.length > 0 && (
+                          <div className="mb-2">
+                            {msg.toolCalls.map((tc) => (
+                              <ToolCallBlock key={tc.id} call={tc} />
+                            ))}
+                          </div>
+                        )}
+                        {msg.content?.trim() && (
+                          <CollapsibleText text={msg.content} isLast={globalIdx === messages.length - 1} streaming={isStreaming} />
+                        )}
+                        {msg.isError && globalIdx === messages.length - 1 && (
+                          <button
+                            type="button"
+                            data-testid="retry-last-turn"
+                            onClick={retryLastTurn}
+                            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/40 text-blue-200 text-xs font-medium transition-colors"
+                          >
+                            <Icon name="refresh" className="text-sm" />
+                            Retry
+                          </button>
+                        )}
+                        {globalIdx === messages.length - 1 && !multiAiStatus && (isStreaming || placeholderAwaitingServer) && !msg.toolCalls?.length && (
+                          <ThinkingDots />
+                        )}
+                        {isStreaming && globalIdx === messages.length - 1 && (msg.toolCalls?.some(tc => tc.result === undefined)) && (
+                          <ThinkingDots />
+                        )}
+                        {/* Fallback: stream is confirmed done and the bubble has no visible text.
+                            Three sub-cases:
+                            1. Tool-only turn: tools ran but Claude sent no follow-up text.
+                               Show "Done." below the tool blocks so the label is never empty.
+                            2. Completely empty last bubble: can briefly flash while waiting
+                               for the first token. Show "Done." so nothing is ever blank.
+                            3. Whitespace-only content: a '\n' token makes msg.content truthy
+                               but renderMarkdown returns nothing visible. Treat the same as
+                               empty so the bubble never shows just a label with no text.
+                            Uses confirmedDoneIds (500ms grace window) instead of !isStreaming
+                            so providers like Gemini that flush `done` before the last text
+                            tokens never cause a visible "Done." flash. The label only renders
+                            after the grace window expires with no new tokens.
+                            All cases use data-testid="tool-only-done" for tests. */}
+                        {confirmedDoneIds.has(msg.id) && !msg.content?.trim() && (
+                          <span
+                            className="text-slate-500 text-xs italic"
+                            data-testid="tool-only-done"
+                          >
+                            Done.
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Reaction pills */}
+                  {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                    <div className={`flex flex-wrap gap-1 mt-0.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      {Object.entries(msg.reactions).map(([emoji, count]) => (
+                        <button
+                          key={emoji}
+                          onClick={() => toggleReaction(msg.id, emoji)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-xs transition-colors"
+                          title={`${emoji} ${count}`}
+                        >
+                          <span>{emoji}</span>
+                          <span className="text-slate-400">{count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Reply and reaction buttons on hover */}
+                  <div className={`${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'} opacity-0 group-hover:opacity-100 mt-0.5 transition-all`}>
+                    <div className="flex items-center gap-0.5 z-10">
+                      <button
+                        onClick={() => handleReply(msg.id)}
+                        className="p-1 text-slate-600 hover:text-blue-400 transition-colors"
+                        title="Reply"
+                        data-testid={`reply-btn-${msg.id}`}
+                      >
+                        <Icon name="reply" className="text-sm" />
+                      </button>
+                      {/* Reaction picker */}
+                      <div className="flex items-center gap-0.5 bg-slate-800 border border-slate-700 rounded-lg p-0.5" data-testid={`reaction-bar-${msg.id}`}>
+                        {REACTION_EMOJIS.map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={() => toggleReaction(msg.id, emoji)}
+                            className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-700 transition-colors text-sm"
+                            title={`React with ${emoji}`}
+                          >
+                            {emoji}
+                          </button>
                         ))}
                       </div>
-                    )}
-                    {msg.content && (
-                      <CollapsibleText text={msg.content} isLast={i === messages.length - 1} streaming={isStreaming} />
-                    )}
-                    {/* Show thinking dots on the latest assistant bubble
-                        while streaming is active. Covers both the empty
-                        state (waiting for first token) and the mid-stream
-                        state (LLM is still working after sending some text).
-                        Suppressed during multi-AI exchanges because the
-                        status pill already shows thinking state. */}
-                    {i === messages.length - 1 && !multiAiStatus && isStreaming && !msg.toolCalls?.length && (
-                      <ThinkingDots />
-                    )}
-                    {!msg.content && i === messages.length - 1 && !msg.toolCalls?.length && !multiAiStatus && !isStreaming && (
-                      <ThinkingDots />
-                    )}
-                    {isStreaming && i === messages.length - 1 && (msg.toolCalls?.some(tc => tc.result === undefined)) && (
-                      <ThinkingDots />
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* Reaction pills - tight to the bubble */}
-              {msg.reactions && Object.keys(msg.reactions).length > 0 && (
-                <div className={`flex flex-wrap gap-1 mt-0.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {Object.entries(msg.reactions).map(([emoji, count]) => (
-                    <button
-                      key={emoji}
-                      onClick={() => toggleReaction(msg.id, emoji)}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-xs transition-colors"
-                      title={`${emoji} ${count}`}
-                    >
-                      <span>{emoji}</span>
-                      <span className="text-slate-400">{count}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Reply and reaction buttons on hover */}
-              <div className={`${msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'} opacity-0 group-hover:opacity-100 mt-0.5 transition-all`}>
-                <div className="flex items-center gap-0.5 z-10">
-                  <button
-                    onClick={() => handleReply(msg.id)}
-                    className="p-1 text-slate-600 hover:text-blue-400 transition-colors"
-                    title="Reply"
-                  >
-                    <Icon name="reply" className="text-sm" />
-                  </button>
-                  {/* Reaction picker */}
-                  <div className="flex items-center gap-0.5 bg-slate-800 border border-slate-700 rounded-lg p-0.5" data-testid={`reaction-bar-${msg.id}`}>
-                    {REACTION_EMOJIS.map(emoji => (
-                      <button
-                        key={emoji}
-                        onClick={() => toggleReaction(msg.id, emoji)}
-                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-700 transition-colors text-sm"
-                        title={`React with ${emoji}`}
-                      >
-                        {emoji}
-                      </button>
-                    ))}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-          )
-        })}
+            )
+          }
+
+          // Render root messages. For each root message that has thread
+          // children, render them in a collapsible block directly below.
+          return messages
+            .filter(m => !m.thread_id)
+            .map((msg) => {
+              const globalIdx = messages.indexOf(msg)
+              const threadChildren = threadMap.get(msg.id) ?? []
+              const isCollapsed = collapsedThreads.has(msg.id)
+
+              return (
+                <div key={msg.id}>
+                  {renderBubble(msg, globalIdx, false)}
+
+                  {/* Thread block */}
+                  {threadChildren.length > 0 && (
+                    <div className="mt-1 ml-3 border-l-2 border-slate-700 pl-3" data-testid={`thread-block-${msg.id}`}>
+                      <button
+                        onClick={() => toggleThread(msg.id)}
+                        className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-400 transition-colors mb-1"
+                        data-testid={`thread-toggle-${msg.id}`}
+                        aria-expanded={!isCollapsed}
+                      >
+                        <Icon name={isCollapsed ? 'chevron_right' : 'expand_more'} className="text-xs" />
+                        {isCollapsed
+                          ? `${threadChildren.length} ${threadChildren.length === 1 ? 'reply' : 'replies'}`
+                          : 'Hide replies'}
+                      </button>
+                      {!isCollapsed && (
+                        <div className="space-y-2">
+                          {threadChildren.map((child) => {
+                            const childIdx = messages.indexOf(child)
+                            return renderBubble(child, childIdx, true)
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+        })()}
         {/* Multi-AI live status pill. Renders just below the latest
             assistant bubble so the user can watch the conversation
             move from one model to the other. Hidden whenever no
@@ -1431,6 +1924,7 @@ export function ChatPanel() {
           </div>
         )}
       </div>
+      <ConfirmModal {...confirmProps} />
     </div>
   )
 }

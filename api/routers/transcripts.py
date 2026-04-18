@@ -3,15 +3,32 @@
 import asyncio
 import json
 import os
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from services.atomic_io import atomic_write_json
+from services import session_task_map
 
 router = APIRouter(tags=["transcripts"])
+
+# Patterns that identify mailbox/registration boilerplate lines.
+# A first-message line matching any of these is skipped when deriving a title.
+_MAILBOX_BOILERPLATE_RE = re.compile(
+    r"(?i)"
+    r"(##\s*(agent\s+registration|mailbox)|"
+    r"register\s+immediately|"
+    r"step\s+0\s*:|"
+    r"curl.*agents/register|"
+    r"heartbeat.*every|"
+    r"mailbox\s+check(?:ing)?|"
+    r"nudge.*poll|"
+    r"post\s*/api/agents)"
+)
 
 MYOS_DIR = Path.home() / ".myos"
 TITLE_CACHE_PATH = MYOS_DIR / "transcript_titles.json"
@@ -49,8 +66,71 @@ from config import PROJECT_ROOT
 TORIOS_PROJECT_DIR = PROJECTS_DIR / str(PROJECT_ROOT).replace("/", "-").lstrip("-")
 
 
+def _skip_mailbox_boilerplate(text: str) -> str:
+    """Return the meaningful portion of a prompt text, skipping mailbox/registration blocks.
+
+    Strategy:
+    1. Locate the '## Agent registration' heading.
+    2. Scan forward for the NEXT top-level '##' heading that is NOT itself
+       a registration/mailbox heading. Everything under that heading is the
+       real task text.
+    3. Return the first non-empty non-code prose line from that section.
+    4. If no such second heading exists but there is text after all the
+       boilerplate lines are exhausted, return that text.
+    5. If the input has no registration heading at all, return it unchanged.
+    """
+    lines = text.splitlines()
+
+    # Find the line index of the mailbox block start
+    mailbox_start: Optional[int] = None
+    for i, line in enumerate(lines):
+        if re.match(r"(?i)^##\s*agent\s+registration", line.strip()):
+            mailbox_start = i
+            break
+
+    if mailbox_start is None:
+        return text
+
+    # Scan lines after the mailbox heading for the next top-level ## heading
+    # that is NOT itself mailbox boilerplate.
+    for i in range(mailbox_start + 1, len(lines)):
+        line = lines[i].strip()
+        if re.match(r"^##\s+", line) and not _MAILBOX_BOILERPLATE_RE.search(line):
+            # Found the real task section. Return its first prose line.
+            for j in range(i + 1, len(lines)):
+                candidate = lines[j].strip()
+                if not candidate:
+                    continue
+                if candidate.startswith("#"):
+                    continue
+                if candidate.startswith("`") or candidate.startswith("curl") or candidate.startswith("POST "):
+                    continue
+                return candidate
+            # Heading found but no prose lines under it
+            return ""
+
+    # No secondary heading found. Try to find any non-boilerplate prose line
+    # after the mailbox block.
+    for i in range(mailbox_start + 1, len(lines)):
+        candidate = lines[i].strip()
+        if not candidate:
+            continue
+        if candidate.startswith("#"):
+            continue
+        if candidate.startswith("`") or candidate.startswith("curl") or candidate.startswith("POST "):
+            continue
+        if _MAILBOX_BOILERPLATE_RE.search(candidate):
+            continue
+        # Skip lines that are clearly still part of registration prose
+        if re.search(r"(?i)(register|heartbeat|mailbox|nudge|agents page|before doing)", candidate):
+            continue
+        return candidate
+
+    return ""
+
+
 def _extract_context(jsonl_path: Path, max_messages: int = 5) -> str:
-    """Extract the first few user messages for context."""
+    """Extract the first few user messages for context, skipping mailbox boilerplate."""
     parts: list[str] = []
     try:
         with open(jsonl_path, "r") as f:
@@ -77,6 +157,7 @@ def _extract_context(jsonl_path: Path, max_messages: int = 5) -> str:
                         elif isinstance(part, str) and part.strip():
                             text = part.strip()
                             break
+                text = _skip_mailbox_boilerplate(text)
                 if text:
                     parts.append(text[:300])
                     if len(parts) >= max_messages:
@@ -177,7 +258,12 @@ def _format_timestamp(ts_ms: Optional[int] = None, ts_iso: Optional[str] = None)
 
 
 def _extract_first_user_message(jsonl_path: Path) -> str:
-    """Read the JSONL and return the first user message text (truncated)."""
+    """Read the JSONL and return the first meaningful user message text (truncated).
+
+    Skips mailbox/registration boilerplate. If the first user message is entirely
+    boilerplate, reads subsequent messages until a meaningful line is found.
+    Caps output at 200 characters.
+    """
     try:
         with open(jsonl_path, "r") as f:
             for line in f:
@@ -192,21 +278,48 @@ def _extract_first_user_message(jsonl_path: Path) -> str:
                 if entry.get("type") == "user" and "message" in entry:
                     msg = entry["message"]
                     content = msg.get("content", "")
+                    raw_text = ""
                     if isinstance(content, str) and content.strip():
-                        text = content.strip()
-                        return text[:200] if len(text) > 200 else text
-                    if isinstance(content, list):
-                        # content can be a list of parts (tool results, etc.)
+                        raw_text = content.strip()
+                    elif isinstance(content, list):
                         for part in content:
                             if isinstance(part, dict) and part.get("type") == "text":
-                                text = part.get("text", "").strip()
-                                if text:
-                                    return text[:200] if len(text) > 200 else text
+                                candidate = part.get("text", "").strip()
+                                if candidate:
+                                    raw_text = candidate
+                                    break
                             elif isinstance(part, str) and part.strip():
-                                text = part.strip()
-                                return text[:200] if len(text) > 200 else text
+                                raw_text = part.strip()
+                                break
+
+                    if not raw_text:
+                        continue
+
+                    # Strip mailbox boilerplate and pick the real content
+                    cleaned = _skip_mailbox_boilerplate(raw_text)
+                    # If the entire first message was boilerplate, skip to next message
+                    if not cleaned:
+                        continue
+
+                    return cleaned[:200] if len(cleaned) > 200 else cleaned
     except OSError:
         pass
+    return ""
+
+
+def _derive_title(jsonl_path: Path, spawn_task: str = "") -> str:
+    """Derive a display title for a transcript without calling an LLM.
+
+    Rules (in priority order):
+    1. First meaningful prose line after mailbox boilerplate, capped at 60 chars.
+    2. spawn_task field from the agent row.
+    3. Empty string (caller falls back to session name or session ID prefix).
+    """
+    first = _extract_first_user_message(jsonl_path)
+    if first:
+        return first[:60]
+    if spawn_task:
+        return spawn_task[:60]
     return ""
 
 
@@ -360,7 +473,18 @@ async def list_transcripts(
         # Convert back to a readable path
         project_label = dir_name.lstrip("-").replace("-", "/")
 
-        for jsonl_file in sorted(project_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+        def _safe_mtime(p: Path) -> float:
+            try:
+                return p.stat().st_mtime
+            except OSError:
+                return 0.0
+
+        try:
+            jsonl_files = sorted(project_dir.glob("*.jsonl"), key=_safe_mtime, reverse=True)
+        except OSError:
+            continue
+
+        for jsonl_file in jsonl_files:
             session_id = jsonl_file.stem
             meta = session_index.get(session_id, {})
 
@@ -382,17 +506,25 @@ async def list_transcripts(
                     continue
 
             first_message = _extract_first_user_message(jsonl_file)
-            file_size = jsonl_file.stat().st_size
+            try:
+                file_size = jsonl_file.stat().st_size
+            except OSError:
+                file_size = 0
             counts = _count_messages(jsonl_file)
 
-            # Use cached AI title > session name > first message snippet
+            # Use cached AI title > session name > derived title (boilerplate-skipped) > session ID
             name = title_cache.get(session_id, "")
             if not name:
                 name = meta.get("name", "")
+            if not name:
+                # Derive from first meaningful message, skipping mailbox boilerplate
+                name = _derive_title(jsonl_file)
             if not name and first_message:
-                name = first_message[:80]
+                name = first_message[:60]
             if not name:
                 name = f"Session {session_id[:8]}"
+            # Always cap at 60 chars
+            name = name[:60]
 
             if session_id not in title_cache:
                 needs_title.append((session_id, jsonl_file))
@@ -454,6 +586,16 @@ async def get_transcript(session_id: str, limit: int = 100, offset: int = 0):
                 timestamp = entry.get("timestamp", "")
 
                 if entry_type == "user" and "message" in entry:
+                    # Claude Code stamps automated re-injections (system
+                    # reminders, image-source placeholders, wakeup pings)
+                    # with ``isMeta: true``. These are runtime scaffolding,
+                    # not things the user actually typed, so scrolling up
+                    # should not show the same "Claude Code opening"
+                    # banner 100+ times. Drop them at read time so the
+                    # on-disk JSONL stays an untouched audit log.
+                    if entry.get("isMeta") is True:
+                        continue
+
                     msg = entry["message"]
                     content = msg.get("content", "")
                     text = ""
@@ -478,9 +620,20 @@ async def get_transcript(session_id: str, limit: int = 100, offset: int = 0):
                         text = "\n".join(parts)
 
                     if text.strip():
+                        cleaned = text.strip()
+                        # Collapse consecutive identical user bubbles into
+                        # one. In long sessions the same "60s check: idle"
+                        # style ping can fire dozens of times in a row and
+                        # is not useful to render separately on scroll-up.
+                        if (
+                            messages
+                            and messages[-1]["role"] == "user"
+                            and messages[-1]["text"] == cleaned
+                        ):
+                            continue
                         messages.append({
                             "role": "user",
-                            "text": text.strip(),
+                            "text": cleaned,
                             "timestamp": _format_timestamp(ts_iso=timestamp) if timestamp else "",
                         })
 
@@ -540,4 +693,107 @@ async def get_transcript(session_id: str, limit: int = 100, offset: int = 0):
         "kind": meta.get("kind", ""),
         "total_messages": total,
         "messages": paginated,
+    }
+
+
+@router.post("/transcripts/backfill-titles")
+async def backfill_transcript_titles():
+    """Re-derive titles for transcripts whose cached title looks like boilerplate.
+
+    Checks every entry in the title cache. If a title starts with
+    'Agent registration' (case-insensitive) it is deleted so the next
+    /transcripts fetch will re-derive it from the actual message content.
+    Does NOT mutate source JSONL files. Safe to call multiple times.
+    """
+    cache = _load_title_cache()
+    removed: list[str] = []
+
+    boilerplate_title_re = re.compile(
+        r"(?i)^agent\s+registration"
+    )
+
+    for session_id, title in list(cache.items()):
+        if boilerplate_title_re.match(title):
+            del cache[session_id]
+            removed.append(session_id)
+
+    if removed:
+        _save_title_cache(cache)
+
+    return {
+        "removed": len(removed),
+        "message": (
+            f"Cleared {len(removed)} boilerplate title(s) from cache. "
+            "They will be re-derived on the next transcript fetch."
+            if removed
+            else "No boilerplate titles found in cache."
+        ),
+    }
+
+
+# ---- Session-task links ----------------------------------------------------
+#
+# These endpoints let the SessionStart hook (or any other caller) connect a
+# Claude Code session UUID to an already-filed task so the Tasks page can
+# show a "View transcript" link on the session row and count how many tasks
+# were created during that session.
+
+
+class _LinkTaskBody(BaseModel):
+    task_id: str
+
+
+@router.post("/sessions/{session_id}/link-task")
+async def link_session_task(session_id: str, body: _LinkTaskBody):
+    """Attach an existing task_id to this Claude Code session.
+
+    The task becomes the "session task" for this session: the row on the
+    Tasks page that represents the session itself. Used by the
+    SessionStart hook right after it files its auto task, so later
+    renders can link back to the transcript.
+    """
+    if not session_id or not body.task_id:
+        raise HTTPException(status_code=422, detail="session_id and task_id are required")
+    session_task_map.link_session_to_task(session_id, body.task_id)
+    return {"session_id": session_id, "task_id": body.task_id, "linked": True}
+
+
+class _LinkChildBody(BaseModel):
+    task_id: str
+    parent_session_id: str
+
+
+@router.post("/sessions/{session_id}/link-child-task")
+async def link_child_task_endpoint(session_id: str, body: _LinkChildBody):
+    """Record that ``task_id`` was created during ``session_id``.
+
+    The session_id in the path and body must match so the record is
+    unambiguous. This powers the "N tasks created in this session"
+    count shown on the session row.
+    """
+    if body.parent_session_id != session_id:
+        raise HTTPException(
+            status_code=422,
+            detail="parent_session_id in body does not match session_id in path",
+        )
+    if not body.task_id:
+        raise HTTPException(status_code=422, detail="task_id is required")
+    session_task_map.link_child_task(body.task_id, session_id)
+    return {
+        "session_id": session_id,
+        "task_id": body.task_id,
+        "child_task_count": session_task_map.count_children(session_id),
+    }
+
+
+@router.get("/sessions/{session_id}/child-tasks")
+async def get_child_tasks(session_id: str):
+    """Return the count of tasks created during this session.
+
+    Lightweight companion to ``/link-child-task`` so the Tasks page can
+    refresh the count without refetching every task row.
+    """
+    return {
+        "session_id": session_id,
+        "count": session_task_map.count_children(session_id),
     }

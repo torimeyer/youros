@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import Icon from "./Icon";
+import ConfirmModal from "./ConfirmModal";
+import { useConfirm } from "../hooks/useConfirm";
 import { api } from "../lib/api";
 
 // What the backend returns for one recurring task rule.
@@ -100,6 +102,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const { confirm, confirmProps } = useConfirm();
 
   const fetchRules = async () => {
     setLoading(true);
@@ -182,7 +185,13 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
   };
 
   const handleDelete = async (rule: Rule) => {
-    if (!confirm(`Remove the recurring task "${rule.task_template.title}"?`)) return;
+    const ok = await confirm({
+      title: `Remove "${rule.task_template.title}"?`,
+      message: "This recurring task will stop generating new tasks.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.delete(`/recurring/${rule.id}`);
       await fetchRules();
@@ -471,6 +480,7 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
           </div>
         </div>
       )}
+      <ConfirmModal {...confirmProps} />
     </div>
   );
 }

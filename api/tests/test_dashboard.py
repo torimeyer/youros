@@ -291,12 +291,20 @@ async def test_dashboard_summary_agent_activity_from_audit(client, tmp_path):
     import json
     from datetime import datetime, timezone
 
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Use local date and construct UTC timestamps that fall within the
+    # local calendar day. This matters when the UTC date has rolled ahead
+    # (e.g. it is evening CDT but already tomorrow in UTC).
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    # Noon local time in UTC: guaranteed to be on the local calendar day.
+    local_noon = datetime.strptime(f"{today_str} 12:00:00", "%Y-%m-%d %H:%M:%S")
+    noon_utc = local_noon.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    one_pm_utc = local_noon.replace(hour=13).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    half_past_utc = local_noon.replace(hour=12, minute=30).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     audit_path = tmp_path / "audit.jsonl"
     audit_entries = [
-        {"event": "agent.spawned", "name": "worker-1", "model": "sonnet", "timestamp": f"{today_str}T10:00:00Z"},
-        {"event": "agent.spawned", "name": "worker-2", "model": "sonnet", "timestamp": f"{today_str}T11:00:00Z"},
-        {"event": "agent.completed", "name": "worker-1", "timestamp": f"{today_str}T10:30:00Z"},
+        {"event": "agent.spawned", "name": "worker-1", "model": "sonnet", "timestamp": noon_utc},
+        {"event": "agent.spawned", "name": "worker-2", "model": "sonnet", "timestamp": one_pm_utc},
+        {"event": "agent.completed", "name": "worker-1", "timestamp": half_past_utc},
     ]
     audit_path.write_text("\n".join(json.dumps(e) for e in audit_entries) + "\n")
 
@@ -315,22 +323,28 @@ async def test_dashboard_summary_agent_activity_from_audit(client, tmp_path):
     assert "1 finished" in agent_bullet[0]
 
 
-@pytest.mark.asyncio
-async def test_dashboard_summary_idea_count(client, tmp_path):
-    """Summary should mention the open idea count when ideas exist."""
-    with patch("routers.dashboard.ostk") as mock_ostk, \
-         patch("routers.dashboard.OSTK_DIR", tmp_path):
-        mock_ostk.list_tasks = AsyncMock(return_value=[])
-        mock_ostk.list_hay = AsyncMock(return_value={
-            "clusters": [{"name": "design", "count": 3, "items": []}],
-            "unclustered": ["idea1", "idea2"],
-        })
+def test_is_local_today_converts_utc_to_local():
+    """_is_local_today should convert UTC timestamps to local time before
+    comparing the date string, so events near UTC midnight are correctly
+    classified by the local calendar day."""
+    from routers.dashboard import _is_local_today
+    from datetime import datetime, timezone
 
-        resp = await client.get("/api/dashboard/summary")
+    today_str = datetime.now().strftime("%Y-%m-%d")
 
-    bullets = resp.json()["bullets"]
-    # 3 cluster items + 2 unclustered = 5 ideas
-    assert any("5 ideas saved" in b for b in bullets)
+    # Noon local time converted to UTC is unambiguously on the local date.
+    local_noon = datetime.strptime(f"{today_str} 12:00:00", "%Y-%m-%d %H:%M:%S")
+    noon_utc = local_noon.astimezone(timezone.utc).isoformat()
+    assert _is_local_today(noon_utc, today_str) is True
+
+    # A timestamp from 30 hours ago should NOT match today.
+    from datetime import timedelta
+    old_ts = (local_noon - timedelta(hours=30)).astimezone(timezone.utc).isoformat()
+    assert _is_local_today(old_ts, today_str) is False
+
+    # Edge cases.
+    assert _is_local_today("", today_str) is False
+    assert _is_local_today("garbage", today_str) is False
 
 
 # --- GET /api/dashboard/compounds ---
@@ -409,7 +423,7 @@ def test_parse_compounds_with_entries():
     """Parser should extract id, title, and blocks_count from CLI output."""
     from services.ostk import OstkService
 
-    output = """:compounds — highest compounding work
+    output = """:compounds - highest compounding work
 
   →042  Build smart focus  (blocks 5)
   →017  Fix auth redirect  (blocks 2)
@@ -426,7 +440,7 @@ def test_parse_compounds_empty():
     """Parser should return empty list when no dependencies found."""
     from services.ostk import OstkService
 
-    output = """:compounds — highest compounding work
+    output = """:compounds - highest compounding work
 
   (no blocking dependencies found)"""
     result = OstkService._parse_compounds(output)
@@ -437,7 +451,7 @@ def test_parse_compounds_sorts_by_blocks_count():
     """Parser should sort results so highest blocks_count comes first."""
     from services.ostk import OstkService
 
-    output = """:compounds — highest compounding work
+    output = """:compounds - highest compounding work
 
   →003  Low priority  (blocks 1)
   →042  High priority  (blocks 9)
@@ -453,7 +467,7 @@ def test_parse_compounds_single_block():
     """Parser should handle singular 'block' vs 'blocks'."""
     from services.ostk import OstkService
 
-    output = """:compounds — highest compounding work
+    output = """:compounds - highest compounding work
 
   →001  Only one  (block 1)
 """

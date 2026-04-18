@@ -2,10 +2,11 @@ import asyncio
 import json as _json
 import os
 import re
+from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from services.chat_history_store import chat_history_store
 from services.chat_providers import (
@@ -19,61 +20,82 @@ from services.settings_store import settings_store
 
 router = APIRouter(tags=["chat"])
 
+# Where roadmap .md files land. Same directory the Files tab scans. Kept
+# as a module-level constant so tests can monkeypatch it onto a tmp_path.
+MYOS_FILES_DIR = Path.home() / ".myos" / "files"
+
+# Phrases that route to the "create tasks from this roadmap" handler.
+# Matched case-insensitively against the full user message (after strip).
+# The patterns deliberately accept "the roadmap", "this roadmap", "that
+# roadmap", etc., so conversational phrasing lands. Keep the list tight
+# to avoid over-matching on unrelated "task" talk.
+_ROADMAP_TO_TASKS_PATTERNS: tuple[re.Pattern, ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\bcreate\s+tasks?\s+from\s+(?:this|the|that|my)?\s*roadmap\b",
+        r"\bmake\s+tasks?\s+from\s+(?:this|the|that|my)?\s*roadmap\b",
+        r"\bturn\s+(?:this|the|that|my)?\s*roadmap\s+into\s+tasks?\b",
+        r"\bconvert\s+(?:this|the|that|my)?\s*roadmap\s+(?:in)?to\s+tasks?\b",
+        r"\bbreak\s+(?:this|the|that|my)?\s*roadmap\s+(?:down\s+)?into\s+tasks?\b",
+        r"\bbuild\s+tasks?\s+from\s+(?:this|the|that|my)?\s*roadmap\b",
+        r"\bgenerate\s+tasks?\s+from\s+(?:this|the|that|my)?\s*roadmap\b",
+    ]
+)
+
+
+def is_roadmap_to_tasks_request(text: str) -> bool:
+    """Return True when the user is asking to convert a roadmap into tasks.
+
+    Used by the chat router to intercept these messages before normal AI
+    routing. Accepts phrasings like "create tasks from this roadmap",
+    "make tasks from the roadmap", "turn the roadmap into tasks", etc.
+    """
+    if not isinstance(text, str):
+        return False
+    candidate = text.strip()
+    if not candidate:
+        return False
+    return any(p.search(candidate) for p in _ROADMAP_TO_TASKS_PATTERNS)
+
+
+def _latest_roadmap_path() -> Optional[Path]:
+    """Return the most recent roadmap ``.md`` on disk, or None.
+
+    Prefers ``roadmap.md`` (the stable name the Roadmap template writes
+    for chat's shortcut) and falls back to the newest timestamped
+    ``roadmap-*.md`` or any file whose front matter declares
+    ``kind: roadmap``.
+    """
+    base = MYOS_FILES_DIR
+    if not base.exists():
+        return None
+
+    stable = base / "roadmap.md"
+    if stable.exists():
+        return stable
+
+    candidates: list[Path] = []
+    for path in base.glob("*.md"):
+        if not path.is_file():
+            continue
+        try:
+            head = path.read_text()[:400]
+        except OSError:
+            continue
+        if "kind: roadmap" in head or path.name.startswith("roadmap-"):
+            candidates.append(path)
+    if not candidates:
+        return None
+    # Newest mtime wins.
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0]
+
 GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", "uac5bYV974kGSu3Pe0B92ChNrIQypZ0Y")
 
-CONTEXT_KEYWORDS = {"tasks", "needles", "task", "needle", "focus", "agents", "hay", "ideas", "status"}
+CONTEXT_KEYWORDS = {"tasks", "needles", "task", "needle", "focus", "agents", "status"}
 
 CALENDAR_KEYWORDS = {"calendar", "meeting", "meetings", "schedule", "today", "tomorrow", "event", "field trip"}
 
-# Phrases that trigger saving the current conversation topic as an idea.
-_SAVE_AS_IDEA_PATTERNS = [
-    re.compile(r"\bsave\s+(?:this\s+)?as\s+an?\s+idea\b", re.IGNORECASE),
-    re.compile(r"\bpark\s+(?:this\s+)?as\s+an?\s+idea\b", re.IGNORECASE),
-    re.compile(r"\badd\s+(?:this\s+)?to\s+ideas\b", re.IGNORECASE),
-    re.compile(r"\bfile\s+(?:this\s+)?as\s+(?:an?\s+)?idea\b", re.IGNORECASE),
-]
-
-
-def _detect_save_as_idea(text: str) -> bool:
-    """Return True if the message is asking to save the topic as an idea."""
-    for pattern in _SAVE_AS_IDEA_PATTERNS:
-        if pattern.search(text):
-            return True
-    return False
-
-
-def _extract_idea_content(messages: list[dict]) -> str:
-    """Pull the most relevant content to save as an idea from recent messages.
-
-    Looks at the last few assistant and user turns to find something
-    substantive to save. Falls back to the last user message if nothing
-    useful is found.
-    """
-    # Walk backwards through the conversation looking for content.
-    for msg in reversed(messages[:-1]):  # skip the command message itself
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-        if not isinstance(content, str):
-            continue
-        content = content.strip()
-        if not content:
-            continue
-        if role in ("assistant", "user") and len(content) > 10:
-            # Trim to a reasonable length for an idea title.
-            return content[:200]
-    # Absolute fallback: use the user's command text stripped of the keyword.
-    last = messages[-1].get("content", "") if messages else ""
-    if isinstance(last, str):
-        cleaned = re.sub(
-            r"\b(?:save|park)\s+(?:this\s+)?as\s+an?\s+idea\b|"
-            r"\badd\s+(?:this\s+)?to\s+ideas\b|"
-            r"\bfile\s+(?:this\s+)?as\s+(?:an?\s+)?idea\b",
-            "",
-            last,
-            flags=re.IGNORECASE,
-        ).strip()
-        return cleaned or last[:200]
-    return "Idea from chat"
 
 # Map @mention names to provider keys
 MODEL_ALIASES = {
@@ -221,6 +243,47 @@ _BARE_MODEL_RE = re.compile(
 )
 
 
+# Pronouns that signal the user themself is the other party in the
+# conversation phrase ("@gemini chat with me", "talk to us about X").
+# When the first noun-like token after a conversation keyword is one of
+# these, the router must NOT pull in the host model as a second speaker,
+# because the user is the interlocutor, not another AI.
+_SELF_REFERENCE_TARGETS: frozenset[str] = frozenset({
+    "me", "us", "myself", "yourself", "ourselves", "you",
+})
+
+
+def conversation_target_is_user(text: str) -> bool:
+    """Return True if the conversation phrase's object is the user.
+
+    Scans the first word right after each conversation keyword and
+    returns True if that word is a self-reference pronoun like ``me``,
+    ``us``, or ``myself``. Punctuation around the word is stripped
+    before the comparison. Used to suppress the host-fallback path so
+    ``@gemini chat with me about my day`` stays a single-AI request.
+
+    Only the first token matters. ``chat with me about X`` has ``me``
+    as the object. ``chat with claude about me`` has ``claude`` as the
+    object and that case should NOT suppress host fallback.
+    """
+    if not isinstance(text, str) or not text:
+        return False
+    lowered = text.lower()
+    for keyword in _CONVERSATION_KEYWORDS:
+        idx = lowered.find(keyword)
+        if idx == -1:
+            continue
+        tail = lowered[idx + len(keyword):].strip()
+        if not tail:
+            continue
+        first_word = tail.split()[0]
+        # Strip punctuation like "me," or "us!" so the comparison matches.
+        first_word = re.sub(r"[^a-z']+", "", first_word)
+        if first_word in _SELF_REFERENCE_TARGETS:
+            return True
+    return False
+
+
 def infer_second_model(text: str, already_mentioned: list[str]) -> Optional[str]:
     """Infer a second model referenced by bare name in a conversation phrase.
 
@@ -342,6 +405,11 @@ def transform_image_messages(messages: list[dict]) -> list[dict]:
     for msg in messages:
         content = msg.get("content", "")
         image_data = msg.get("image")
+        # Preserve the model field so downstream providers (Gemini) can
+        # label assistant messages by their source model. Without this,
+        # multi-AI chats lose cross-model attribution and Gemini thinks
+        # it has no access to Claude's prior responses.
+        source_model = msg.get("model")
 
         if image_data and isinstance(image_data, str) and image_data.startswith("data:"):
             # Pasted image: data:image/png;base64,...
@@ -354,23 +422,32 @@ def transform_image_messages(messages: list[dict]) -> list[dict]:
             })
             text = content if isinstance(content, str) and content.strip() else "The user pasted this image. Describe what you see."
             blocks.append({"type": "text", "text": text})
-            result.append({"role": msg["role"], "content": blocks})
+            new_msg: dict = {"role": msg["role"], "content": blocks}
+            if source_model:
+                new_msg["model"] = source_model
+            result.append(new_msg)
         elif isinstance(content, str) and GIF_RE.search(content):
             blocks = []
             remaining = content
             for match in GIF_RE.finditer(content):
                 url = match.group(1)
-                # Extract multiple frames so the model can see the animation.
-                blocks.extend(_extract_gif_frames(url, max_frames=4))
+                # Single frame is enough for reaction GIFs and keeps response fast.
+                blocks.extend(_extract_gif_frames(url, max_frames=1))
                 remaining = remaining.replace(match.group(0), "").strip()
             text = (
                 remaining
-                or "The user sent this GIF. The multiple frames above show the animation. Describe what is happening and react to it."
+                or "The user sent this GIF. React to it briefly and playfully."
             )
             blocks.append({"type": "text", "text": text})
-            result.append({"role": msg["role"], "content": blocks})
+            new_msg = {"role": msg["role"], "content": blocks}
+            if source_model:
+                new_msg["model"] = source_model
+            result.append(new_msg)
         else:
-            result.append({"role": msg["role"], "content": content})
+            new_msg = {"role": msg["role"], "content": content}
+            if source_model:
+                new_msg["model"] = source_model
+            result.append(new_msg)
     return result
 
 
@@ -444,15 +521,75 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
     if label:
         await websocket.send_json({"type": "model_label", "data": label})
 
-    if provider == "claude":
-        if use_tools:
-            return await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id)
-        return await chat_service.stream_anthropic(messages, websocket, tab_id=tab_id)
-    elif provider == "gemini":
-        return await chat_service.stream_gemini(messages, websocket)
+    # Register this chat turn as an agent so it appears in the Agents
+    # page and Activity feed regardless of which provider answered.
+    #
+    # Naming: when the user message starts with a saa verb ("saa foo",
+    # "diagnose foo", "ship foo"), use a slug of the task text so each
+    # ask becomes its own visible agent row. Otherwise fall back to a
+    # per-tab generic name so idle chat still shows up but does not
+    # clutter the list with one row per passing remark.
+    last_user = ""
+    for m in reversed(messages):
+        if isinstance(m, dict) and m.get("role") == "user":
+            c = m.get("content")
+            if isinstance(c, str):
+                last_user = c
+            break
+
+    import re as _re
+    _SAA_VERBS = ("saa", "diagnose", "ship", "implement", "build", "fix")
+    def _slugify_task(text: str) -> str:
+        s = text.strip().lower()
+        s = _re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+        return s[:40] or "task"
+
+    stripped = (last_user or "").strip()
+    lowered = stripped.lower()
+    matched_verb: str | None = None
+    for verb in _SAA_VERBS:
+        if lowered.startswith(verb + " ") or lowered == verb:
+            matched_verb = verb
+            break
+    if matched_verb:
+        task_text = stripped[len(matched_verb):].strip() or matched_verb
+        chat_agent_name = f"{matched_verb}-{_slugify_task(task_text)}"
     else:
-        await websocket.send_json({"type": "error", "data": f"Unknown model: {provider}"})
-        return ""
+        chat_agent_name = f"chat-{tab_id[:8]}" if tab_id else "chat-default"
+    try:
+        from routers.agents import register_chat_session
+        await register_chat_session(
+            chat_agent_name,
+            model=provider,
+            prompt_preview=last_user,
+        )
+    except Exception:
+        pass
+
+    full_text = ""
+    status = "completed"
+    try:
+        if provider == "claude":
+            if use_tools:
+                full_text = await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id)
+            else:
+                full_text = await chat_service.stream_anthropic(messages, websocket, tab_id=tab_id)
+        elif provider == "gemini":
+            full_text = await chat_service.stream_gemini(messages, websocket)
+        else:
+            await websocket.send_json({"type": "error", "data": f"Unknown model: {provider}"})
+            status = "failed"
+    except Exception:
+        status = "failed"
+        raise
+    finally:
+        try:
+            from routers.agents import complete_chat_session
+            await complete_chat_session(chat_agent_name, status=status)
+        except Exception:
+            pass
+
+    return full_text
 
 
 @router.get("/api/chat/history")
@@ -473,6 +610,154 @@ async def clear_chat_history():
     """Clear all saved chat tabs."""
     chat_history_store.clear()
     return {"result": "cleared"}
+
+
+@router.post("/api/chat/roadmap/create-tasks")
+async def chat_create_tasks_from_roadmap(body: Optional[dict] = None):
+    """Convert the latest roadmap ``.md`` into tasks on user request.
+
+    The torichat UI calls this endpoint when the user types a phrase
+    like "create tasks from this roadmap". It reads the most recent
+    roadmap under ``~/.myos/files/``, harvests actionable items via
+    :func:`services.automation_outputs.parse_roadmap_items`, and runs
+    the shared :func:`auto_create_tasks` pass so labels and dedup work
+    the same way they do for every other automation.
+
+    Request body is optional. When present it may carry:
+
+        {
+          "roadmap_path": "~/.myos/files/roadmap.md",
+          "agent_name": "e2e-roadmap-check-123"
+        }
+
+    ``agent_name`` is used to tag the source name stored on each
+    generated task so the test-artifact sweep can catch them. When the
+    agent name starts with ``e2e-``, the source name gets the same
+    ``e2e-`` prefix. This keeps e2e probe tasks cleanable even when the
+    roadmap filename itself does not carry the prefix.
+
+    Returns:
+
+        {
+          "status": "ok" | "no_roadmap",
+          "reply": "<short chat-ready message>",
+          "created": [{"id": "...", "title": "..."}, ...],
+          "roadmap_path": "..."
+        }
+
+    When no roadmap is found, ``status`` is ``"no_roadmap"`` and
+    ``reply`` is a plain-language suggestion. The caller renders the
+    reply as an assistant message in the current chat tab.
+    """
+    from services import automation_outputs as _auto
+
+    body = body or {}
+    explicit_path = str(body.get("roadmap_path") or "").strip()
+    agent_name = str(body.get("agent_name") or "").strip()
+    roadmap_path: Optional[Path]
+    if explicit_path:
+        roadmap_path = Path(explicit_path).expanduser()
+        if not roadmap_path.exists():
+            roadmap_path = None
+    else:
+        roadmap_path = _latest_roadmap_path()
+
+    if roadmap_path is None or not roadmap_path.exists():
+        return {
+            "status": "no_roadmap",
+            "reply": (
+                "I don't see a recent roadmap. Open or create one "
+                "first, then ask again."
+            ),
+            "created": [],
+            "roadmap_path": "",
+        }
+
+    try:
+        content = roadmap_path.read_text()
+    except OSError as exc:
+        return {
+            "status": "no_roadmap",
+            "reply": f"I could not read that roadmap: {exc}",
+            "created": [],
+            "roadmap_path": roadmap_path.as_posix(),
+        }
+
+    items = _auto.parse_roadmap_items(content)
+    if not items:
+        return {
+            "status": "empty",
+            "reply": (
+                "I read the roadmap but could not find any items to "
+                "turn into tasks. Add bullets under a Milestones or "
+                "Next steps section and try again."
+            ),
+            "created": [],
+            "roadmap_path": roadmap_path.as_posix(),
+        }
+
+    source_name = roadmap_path.stem or "roadmap"
+    # When an e2e- prefixed agent drives this endpoint, stamp the e2e-
+    # prefix onto the source name so the task-artifact sweep can catch
+    # the generated tasks by their description. Production agents (no
+    # e2e- prefix) are unaffected.
+    if agent_name.lower().startswith("e2e-") and not source_name.lower().startswith("e2e-"):
+        source_name = f"e2e-{source_name}"
+    created = await _auto.auto_create_tasks(
+        items,
+        source_name=source_name,
+        automation_kind="roadmap_from_chat",
+        priority="P2",
+    )
+    count = len(created)
+    if count == 0:
+        reply = (
+            "Those items were already open tasks, so nothing new was "
+            "created."
+        )
+    else:
+        noun = "task" if count == 1 else "tasks"
+        reply = (
+            f"Created {count} {noun} from {roadmap_path.name}. "
+            "See them on the [Tasks page](/tasks)."
+        )
+    return {
+        "status": "ok",
+        "reply": reply,
+        "created": created,
+        "roadmap_path": roadmap_path.as_posix(),
+    }
+
+
+@router.post("/api/chat/tools/run")
+async def run_chat_tool(body: dict):
+    """Execute a single chat tool by name and return the result string.
+
+    Mirrors the inline tool dispatch the chat WebSocket performs after
+    the model emits a ``tool_use`` block. Used by the demo smoke script
+    so each chat-driven surface can be hit by a plain HTTP curl without
+    booting a full streaming chat session. Body shape:
+
+        {"name": "build_tasks_from_file", "input": {"file_path": "..."}}
+
+    Returns ``{"result": "<tool stdout>"}`` on success, or HTTP 400 if
+    the tool name is unknown / the input is malformed.
+    """
+    from services.tool_executor import execute_tool
+
+    name = (body or {}).get("name")
+    if not name or not isinstance(name, str):
+        raise HTTPException(status_code=400, detail="name is required")
+    raw_input = (body or {}).get("input") or {}
+    if not isinstance(raw_input, dict):
+        raise HTTPException(status_code=400, detail="input must be an object")
+    try:
+        result = await execute_tool(name, raw_input)
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail=f"missing field: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"result": result}
 
 
 @router.get("/api/giphy/search")
@@ -501,7 +786,6 @@ _SLASH_HELP_TEXT = (
     "  /tasks    . List open tasks\n"
     "  /commit <message> . Commit with a message\n"
     "  /agents   . Show active and recent agents\n"
-    "  /ideas    . List ideas\n"
     "  /mcp      . Info about MCP server management\n"
     "  /help     . Show this list"
 )
@@ -582,29 +866,6 @@ async def _handle_slash_command(text: str, websocket: WebSocket) -> bool:
         except Exception as exc:
             result = f"Could not list agents: {exc}"
 
-    elif command == "/ideas":
-        try:
-            hay = await ostk.list_hay()
-            clusters = hay.get("clusters", [])
-            unclustered = hay.get("unclustered", [])
-            if not clusters and not unclustered:
-                result = "No ideas yet."
-            else:
-                lines = []
-                for cluster in clusters:
-                    label = cluster.get("label", "Cluster")
-                    items = cluster.get("items", [])
-                    lines.append(f"{label} ({len(items)}):")
-                    for item in items[:10]:
-                        lines.append(f"  - {item}")
-                if unclustered:
-                    lines.append(f"Unclustered ({len(unclustered)}):")
-                    for item in unclustered[:10]:
-                        lines.append(f"  - {item}")
-                result = "\n".join(lines)
-        except Exception as exc:
-            result = f"Could not list ideas: {exc}"
-
     else:
         result = "Unknown command. Type /help for available commands."
 
@@ -653,6 +914,29 @@ async def _fetch_agents_list() -> str:
     return "\n".join(lines) if lines else "No agents found."
 
 
+def build_thread_context(messages: list[dict], thread_id: str) -> list[dict]:
+    """Return only the messages that belong to the given thread.
+
+    The root message (whose id == thread_id) is included first, followed
+    by all messages whose thread_id field matches. This isolates the AI's
+    context so replies in thread A never see thread B's content.
+
+    ``messages`` is the full flat list the client sent (already cleaned).
+    Each message may carry an optional ``thread_id`` and ``id`` field.
+    """
+    result: list[dict] = []
+    for msg in messages:
+        msg_id = msg.get("id", "")
+        msg_thread_id = msg.get("thread_id")
+        # Include the root message itself.
+        if msg_id == thread_id and not msg_thread_id:
+            result.append(msg)
+        # Include all messages in this thread.
+        elif msg_thread_id == thread_id:
+            result.append(msg)
+    return result
+
+
 @router.websocket("/ws/chat")
 async def chat_websocket(websocket: WebSocket):
     await websocket.accept()
@@ -661,6 +945,12 @@ async def chat_websocket(websocket: WebSocket):
             data = await websocket.receive_json()
             fallback_model = data.get("model", "@claude").lstrip("@")
             messages = data.get("messages", [])
+            # Thread-scoped reply support. When replyToId is provided, the
+            # message belongs to a thread. thread_id is the id of the root
+            # message that started that thread (same as replyToId on the
+            # first reply, or the inherited thread_id on subsequent replies).
+            reply_to_id: Optional[str] = data.get("replyToId")
+            payload_thread_id: Optional[str] = data.get("thread_id")
 
             if not messages:
                 await websocket.send_json({"type": "error", "data": "No messages"})
@@ -683,6 +973,14 @@ async def chat_websocket(websocket: WebSocket):
             # loop still fires. Without this the router falls back to
             # the single model path and the user gets one bubble
             # instead of a real back and forth.
+            #
+            # If the bare name is missing too ("chat with @gemini about
+            # X"), the implicit second speaker is the current host model
+            # the user is chatting with in the UI (the dropdown
+            # selection sent as fallback_model). Example: user is
+            # "Talking to Claude" and types "chat with @gemini about
+            # songs" → mentioned_models becomes [gemini, claude] so
+            # orchestration alternates both models for three rounds.
             if (
                 isinstance(last_text, str)
                 and len(mentioned_models) == 1
@@ -691,24 +989,16 @@ async def chat_websocket(websocket: WebSocket):
                 inferred = infer_second_model(last_text, mentioned_models)
                 if inferred:
                     mentioned_models = [*mentioned_models, inferred]
-
-            # --- Chat-to-Idea: intercept "save as idea" commands ---
-            if isinstance(last_text, str) and _detect_save_as_idea(last_text):
-                idea_content = _extract_idea_content(messages)
-                try:
-                    await ostk.add_hay_from_chat(idea_content)
-                    saved_ok = True
-                except Exception:
-                    saved_ok = False
-
-                confirm_text = (
-                    "Saved to Ideas. You can break it into tasks from the Ideas page."
-                    if saved_ok
-                    else "I could not save that idea right now. Try again."
-                )
-                await websocket.send_json({"type": "text", "data": confirm_text})
-                await websocket.send_json({"type": "done"})
-                continue
+                elif not conversation_target_is_user(last_text):
+                    # No explicit second model name, and the phrasing is
+                    # NOT "chat with me" / "talk to us". Pull in the
+                    # host model the user is talking to (the dropdown
+                    # selection) as the second speaker so phrases like
+                    # "chat with @gemini about X" become a real back
+                    # and forth instead of one silent Claude turn.
+                    host_key = MODEL_ALIASES.get(fallback_model.lower())
+                    if host_key and host_key not in mentioned_models:
+                        mentioned_models = [*mentioned_models, host_key]
 
             # Collective addressing ("you guys", "both of you", "everyone") means
             # the user wants every AI to respond. Override whatever mentions were
@@ -746,12 +1036,66 @@ async def chat_websocket(websocket: WebSocket):
             if memory_msgs:
                 messages = memory_msgs + messages
 
+            # Clean up tool-heavy history to prevent context pollution.
+            # When a prior turn used tools (Bash, Read, etc.), the message
+            # list contains dozens of tool_use/tool_result blocks that bloat
+            # context and confuse the model on new requests. Strip them down
+            # to just the final assistant text from each turn.
+            MAX_HISTORY_MESSAGES = 20  # keep last 20 messages max
+            cleaned: list[dict] = []
+            for m in messages:
+                content = m.get("content", "")
+                role = m.get("role", "")
+                # Keep user messages as-is
+                if role == "user":
+                    cleaned.append(m)
+                    continue
+                # For assistant messages, extract only the text content
+                if role == "assistant":
+                    if isinstance(content, str) and content.strip():
+                        cleaned.append(m)
+                    elif isinstance(content, list):
+                        # Extract text blocks, skip tool_use blocks
+                        text_parts = [
+                            b.get("text", "") for b in content
+                            if isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip()
+                        ]
+                        if text_parts:
+                            # Preserve the model field so downstream providers
+                            # can label assistant messages by source model.
+                            rebuilt: dict = {"role": "assistant", "content": " ".join(text_parts)}
+                            source_model = m.get("model")
+                            if source_model:
+                                rebuilt["model"] = source_model
+                            cleaned.append(rebuilt)
+                    continue
+                # Keep system/other messages
+                cleaned.append(m)
+            # Only keep the last N messages to bound context size
+            if len(cleaned) > MAX_HISTORY_MESSAGES:
+                cleaned = cleaned[-MAX_HISTORY_MESSAGES:]
+            messages = cleaned
+
             # Convert [gif:URL] markers to image content blocks for vision.
             # transform_image_messages calls urllib.request.urlopen and PIL
             # decode per GIF, both blocking. Run on a worker thread so the
             # uvicorn event loop keeps serving other HTTP requests while
             # a GIF is being fetched.
             messages = await asyncio.to_thread(transform_image_messages, messages)
+
+            # Thread context isolation. When the client sends replyToId (or
+            # thread_id), we restrict the conversation context to only the
+            # messages in that thread. This prevents replies in thread A from
+            # seeing thread B's content, giving each thread its own isolated
+            # back-and-forth that the AI only sees from that thread's root.
+            effective_thread_id = payload_thread_id or reply_to_id
+            if effective_thread_id:
+                thread_msgs = build_thread_context(messages, effective_thread_id)
+                # Always use the thread-scoped subset. If thread is empty
+                # (e.g. first reply before history is sent), fall through to
+                # full context so the user gets a response rather than nothing.
+                if thread_msgs:
+                    messages = thread_msgs
 
             # The last message content might now be a list (image blocks), so
             # extract text for mention parsing from the original last_text.

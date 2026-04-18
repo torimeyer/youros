@@ -15,48 +15,73 @@ BUILTIN_FLEET_TEMPLATES: list[dict[str, Any]] = [
         "name": "Build a Website",
         "description": "A full team to plan, design, build, and review a website.",
         "icon": "web",
+        # Demo budget. ``quick_mode`` shrinks the mailbox block and
+        # short-circuits the heavy context inject. ``demo_mode`` adds the
+        # 90 second wall-clock cap and forces Haiku per member. Belt and
+        # suspenders: each member's agentfile already opts in via
+        # ``LIMIT demo_mode true`` so the supervisor fires even if the
+        # fleet template is edited later. Without this flag the fleet
+        # ran ~8 minutes under live demo conditions instead of the ~90
+        # seconds the demo requires.
+        "quick_mode": True,
+        "demo_mode": True,
         "members": [
             {
                 "role": "Product Manager",
                 "icon": "assignment_ind",
+                "quick_mode": True,
+                "demo_mode": True,
                 "prompt": (
-                    "You are the Product Manager. Your job is to write a clear, "
-                    "one-page requirements doc based on the user's request. Define "
-                    "the target audience, key pages, must-have features, and success "
-                    "criteria. Write it in plain language. Save it to the shared "
-                    "workspace so the rest of the team can reference it."
+                    "QUICK_MODE on. TARGET: respond in under 60 seconds. Do NOT "
+                    "over-engineer. Produce a minimum viable artifact.\n\n"
+                    "You are the Product Manager. Write a SHORT markdown PRD with "
+                    "exactly 10 bullet points max. Cover: audience, 3 key pages, "
+                    "3 must-have features, 3 success criteria. Plain language. "
+                    "Save as requirements.md and stop. No iteration."
                 ),
             },
             {
                 "role": "Frontend Developer",
                 "icon": "code",
+                "quick_mode": True,
+                "demo_mode": True,
                 "prompt": (
-                    "You are the Frontend Developer. Read the requirements from the "
-                    "PM in the shared workspace. Build the frontend: HTML, CSS, and "
-                    "JavaScript. Focus on clean, responsive design. Write tests for "
-                    "key interactions. Save your work to the shared workspace."
+                    "QUICK_MODE on. TARGET: respond in under 60 seconds. Do NOT "
+                    "over-engineer. Produce a minimum viable artifact.\n\n"
+                    "You are the Frontend Developer. Produce ONE single-file "
+                    "index.html with inline CSS, under 100 lines total. Landing "
+                    "page with 3 cards labeled 'Review', 'Comment', 'Approve'. "
+                    "No JS frameworks, no build tools, no external CSS file. "
+                    "Save to the shared workspace and stop. No smoke test needed."
                 ),
             },
             {
                 "role": "Backend Developer",
                 "icon": "storage",
+                "quick_mode": True,
+                "demo_mode": True,
                 "prompt": (
-                    "You are the Backend Developer. Read the requirements from the "
-                    "PM in the shared workspace. Build any needed API endpoints, "
-                    "database schema, and server logic. Write tests. Save your "
-                    "work to the shared workspace."
+                    "QUICK_MODE on. TARGET: respond in under 60 seconds. Do NOT "
+                    "over-engineer. Produce a minimum viable artifact.\n\n"
+                    "You are the Backend Developer. Produce ONE single-file "
+                    "FastAPI app under 50 lines total that returns mock "
+                    "prototype data (id, title, status). One endpoint GET "
+                    "/prototypes returning a hard-coded list. No database, no "
+                    "tests. Save as api.py to the shared workspace and stop."
                 ),
             },
             {
                 "role": "Security Engineer",
                 "icon": "security",
+                "quick_mode": True,
+                "demo_mode": True,
                 "prompt": (
-                    "You are the Security Engineer. Wait for the frontend and backend "
-                    "work to appear in the shared workspace, then review it. Check for "
-                    "common security problems: can attackers inject code, access data "
-                    "they should not see, or bypass login? Look for exposed passwords "
-                    "and unsafe default settings. Write a short security report with "
-                    "findings and fixes. Save it to the shared workspace."
+                    "QUICK_MODE on. TARGET: respond in under 60 seconds. Do NOT "
+                    "over-engineer. Produce a minimum viable artifact.\n\n"
+                    "You are the Security Engineer. Output a bullet list of "
+                    "exactly 5 risks with a one-line mitigation each, under 20 "
+                    "lines total. No preamble, no summary paragraph. Save as "
+                    "security.md to the shared workspace and stop."
                 ),
             },
         ],

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
+import { ConnectCard, LoadingState, EmptyState, ErrorBanner } from '../components/ui'
 import { api } from '../lib/api'
 
 interface GitHubIssue {
@@ -66,6 +67,7 @@ export default function GitHub() {
   const [status, setStatus] = useState<GitHubStatus | null>(null)
   const [issues, setIssues] = useState<GitHubIssue[]>(() => readIssueCache())
   const [loading, setLoading] = useState<boolean>(() => readIssueCache().length === 0)
+  const [refreshing, setRefreshing] = useState<boolean>(false)
   const [connectToken, setConnectToken] = useState('')
   const [connectRepo, setConnectRepo] = useState('')
   const [connecting, setConnecting] = useState(false)
@@ -84,6 +86,7 @@ export default function GitHub() {
   }, [])
 
   const fetchIssues = useCallback(async () => {
+    setRefreshing(true)
     try {
       const res = await api.get<{ issues: GitHubIssue[] }>('/github/issues')
       const fetched = res.issues || []
@@ -91,6 +94,8 @@ export default function GitHub() {
       writeIssueCache(fetched)
     } catch {
       setIssues((prev) => (prev.length > 0 ? prev : []))
+    } finally {
+      setRefreshing(false)
     }
   }, [])
 
@@ -182,70 +187,69 @@ export default function GitHub() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="GitHub" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex items-center gap-2 text-slate-400">
-          <Icon name="progress_activity" size={20} className="animate-spin" />
-          Loading...
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <LoadingState variant="spinner" />
         </div>
       </div>
     )
   }
 
-  if (!status?.connected) {
+  // If status is still loading but we have seeded issues from the last
+  // session, paint them now rather than flashing the Connect card. The
+  // server response will replace the rows shortly.
+  const hasSeededIssues = issues.length > 0
+  const showConnectCard = status ? !status.connected : !hasSeededIssues
+
+  if (showConnectCard) {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="GitHub" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl">
-            <div className="w-12 h-12 rounded-full bg-slate-500/20 flex items-center justify-center mb-4">
-              <Icon name="code" className="text-slate-300" size={24} />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">Connect GitHub</h2>
-            <p className="text-slate-400 mb-6">
-              Import issues from a GitHub repository and sync them with your myOS tasks.
-              You need a personal access token with repo scope.
-            </p>
-            <div className="space-y-3 mb-4">
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Personal access token</label>
-                <input
-                  type="password"
-                  value={connectToken}
-                  onChange={(e) => setConnectToken(e.target.value)}
-                  placeholder="ghp_..."
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
-                />
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <ConnectCard
+            icon="code"
+            accentColor="#94a3b8"
+            title="Connect GitHub"
+            description="Import issues from a GitHub repository and sync them with your myOS tasks. You need a personal access token with repo scope."
+            primaryAction={
+              <div className="w-full space-y-3 text-left">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Personal access token</label>
+                  <input
+                    type="password"
+                    value={connectToken}
+                    onChange={(e) => setConnectToken(e.target.value)}
+                    placeholder="ghp_..."
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Repository</label>
+                  <input
+                    type="text"
+                    value={connectRepo}
+                    onChange={(e) => setConnectRepo(e.target.value)}
+                    placeholder="owner/repo or https://github.com/owner/repo"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                  />
+                </div>
+                <button
+                  onClick={handleConnect}
+                  disabled={connecting}
+                  className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors disabled:opacity-50"
+                >
+                  {connecting ? 'Connecting...' : 'Connect'}
+                </button>
+                <p className="text-xs text-slate-500">
+                  Create a token at{' '}
+                  <a href="https://github.com/settings/tokens/new" target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300">
+                    github.com/settings/tokens
+                  </a>
+                  {' '}with the <code className="text-slate-300">repo</code> scope.
+                </p>
               </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Repository</label>
-                <input
-                  type="text"
-                  value={connectRepo}
-                  onChange={(e) => setConnectRepo(e.target.value)}
-                  placeholder="owner/repo or https://github.com/owner/repo"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
-                />
-              </div>
-            </div>
-            <button
-              onClick={handleConnect}
-              disabled={connecting}
-              className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors disabled:opacity-50"
-            >
-              {connecting ? 'Connecting...' : 'Connect'}
-            </button>
-            <p className="mt-3 text-xs text-slate-500">
-              Create a token at{' '}
-              <a href="https://github.com/settings/tokens/new" target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300">
-                github.com/settings/tokens
-              </a>
-              {' '}with the <code className="text-slate-300">repo</code> scope.
-            </p>
-            {connectError && (
-              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
-                {connectError}
-              </div>
-            )}
-          </div>
+            }
+            error={connectError ?? undefined}
+          />
         </div>
       </div>
     )
@@ -260,7 +264,7 @@ export default function GitHub() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl sm:text-2xl font-bold">GitHub</h1>
-              {status.repo && (
+              {status?.repo && (
                 <a
                   href={`https://github.com/${status.repo}`}
                   target="_blank"
@@ -292,11 +296,18 @@ export default function GitHub() {
         </div>
 
         {/* Sync result */}
-        {syncResult && (
-          <div className={`mb-4 p-3 rounded-lg text-sm ${syncResult.errors.length > 0 ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' : 'bg-green-500/10 border border-green-500/30 text-green-300'}`}>
+        {syncResult && syncResult.errors.length > 0 && (
+          <div className="mb-4">
+            <ErrorBanner
+              message={syncResult.errors.join(' ')}
+              action={{ label: 'Try again', onClick: handleSync }}
+            />
+          </div>
+        )}
+        {syncResult && syncResult.errors.length === 0 && (
+          <div className="mb-4 p-3 rounded-xl text-sm bg-green-500/10 border border-green-500/30 text-green-300">
             {syncResult.created > 0 && <span>Created {syncResult.created} tasks. </span>}
             {syncResult.skipped > 0 && <span>Skipped {syncResult.skipped} (already in myOS). </span>}
-            {syncResult.errors.map((e, i) => <span key={i} className="block">{e}</span>)}
           </div>
         )}
 
@@ -306,13 +317,15 @@ export default function GitHub() {
             <Icon name="bug_report" className="text-green-400" size={18} />
             <h2 className="text-base font-semibold">Open Issues</h2>
             <span className="text-xs text-slate-500">{issues.length}</span>
+            {refreshing && issues.length > 0 && (
+              <span className="text-xs text-slate-400 ml-auto" data-testid="github-refreshing">
+                Refreshing...
+              </span>
+            )}
           </div>
 
           {issues.length === 0 ? (
-            <div className="text-center py-8 text-slate-500">
-              <Icon name="check_circle" size={36} className="mb-2 mx-auto opacity-40" />
-              <p>No open issues in this repository.</p>
-            </div>
+            <EmptyState icon="check_circle" title="No open issues" />
           ) : (
             <div className="divide-y divide-slate-800/60">
               {issues.map((issue) => (

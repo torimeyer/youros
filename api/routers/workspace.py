@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from services import recent_deletes
 from services.agent_workspace import agent_workspace_service, VALID_TYPES
 
 router = APIRouter(tags=["workspace"])
@@ -56,6 +57,7 @@ async def post_message(body: PostMessageBody):
 async def clear_messages():
     """Clear all workspace messages (admin action)."""
     count = agent_workspace_service.clear_workspace()
+    recent_deletes.record_id("workspace-messages")
     return {"result": "workspace cleared", "cleared_count": count}
 
 

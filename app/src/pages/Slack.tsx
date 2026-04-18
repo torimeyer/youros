@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
+import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
 
 interface SlackChannel {
@@ -178,9 +179,8 @@ export default function Slack() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Slack" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex items-center gap-2 text-slate-400">
-          <Icon name="progress_activity" size={20} className="animate-spin" />
-          Loading...
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <LoadingState variant="spinner" />
         </div>
       </div>
     )
@@ -190,38 +190,33 @@ export default function Slack() {
     return (
       <div className="min-h-screen bg-slate-950 text-white">
         <TopBar title="Slack" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-md mx-auto">
-          <div className="bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl">
-            <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center mb-4">
-              <Icon name="chat" className="text-purple-400" size={24} />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">Connect Slack</h2>
-            <p className="text-slate-400 mb-6">
-              See your Slack messages, reply to conversations, and create tasks from messages without leaving myOS.
-            </p>
-            {status?.configured ? (
-              <button
-                onClick={handleConnect}
-                className="w-full py-3 bg-purple-600 hover:bg-purple-700 rounded-xl font-medium transition-colors"
-              >
-                Connect Slack workspace
-              </button>
-            ) : (
-              <div className="text-sm text-slate-400">
-                <p className="mb-2">Slack is not configured yet. Add these to your <code className="text-slate-300">.env</code> file:</p>
-                <div className="bg-slate-800 rounded-lg p-3 font-mono text-xs">
-                  <p>SLACK_CLIENT_ID=your_client_id</p>
-                  <p>SLACK_CLIENT_SECRET=your_secret</p>
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+          <ConnectCard
+            icon="chat"
+            accentColor="#a855f7"
+            title="Connect Slack"
+            description="See your Slack messages, reply to conversations, and create tasks from messages without leaving myOS."
+            primaryAction={
+              status?.configured ? (
+                <button
+                  onClick={handleConnect}
+                  className="w-full py-3 bg-purple-600 hover:bg-purple-700 rounded-xl font-medium transition-colors"
+                >
+                  Connect Slack workspace
+                </button>
+              ) : (
+                <div className="text-sm text-slate-400 text-left">
+                  <p className="mb-2">Slack is not configured yet. Add these to your <code className="text-slate-300">.env</code> file:</p>
+                  <div className="bg-slate-800 rounded-lg p-3 font-mono text-xs">
+                    <p>SLACK_CLIENT_ID=your_client_id</p>
+                    <p>SLACK_CLIENT_SECRET=your_secret</p>
+                  </div>
+                  <p className="mt-2">Create a Slack app at <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer" className="text-purple-400 hover:text-purple-300">api.slack.com/apps</a></p>
                 </div>
-                <p className="mt-2">Create a Slack app at <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer" className="text-purple-400 hover:text-purple-300">api.slack.com/apps</a></p>
-              </div>
-            )}
-            {connectError && (
-              <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
-                {connectError}
-              </div>
-            )}
-          </div>
+              )
+            }
+            error={connectError ?? undefined}
+          />
         </div>
       </div>
     )
@@ -260,7 +255,7 @@ export default function Slack() {
               <h2 className="text-base font-semibold">Channels</h2>
             </div>
             {channels.length === 0 ? (
-              <p className="text-slate-500 text-sm">No channels found.</p>
+              <EmptyState icon="tag" title="No channels yet" description="Sync to pull your Slack channels." />
             ) : (
               <div className="space-y-1 max-h-[60vh] overflow-y-auto">
                 {channels.map((ch) => (
@@ -298,19 +293,11 @@ export default function Slack() {
             </div>
 
             {!selectedChannel ? (
-              <div className="text-center py-12 text-slate-500">
-                <Icon name="arrow_back" size={36} className="mb-2 mx-auto opacity-40" />
-                <p>Select a channel to view messages.</p>
-              </div>
+              <EmptyState icon="forum" title="Select a channel to read messages" />
             ) : messagesLoading ? (
-              <div className="text-center py-8 text-slate-500 flex items-center justify-center gap-2">
-                <Icon name="progress_activity" size={20} className="animate-spin" />
-                <p>Loading messages...</p>
-              </div>
+              <LoadingState variant="spinner" message="Loading messages..." />
             ) : messages.length === 0 ? (
-              <div className="text-center py-8 text-slate-500">
-                <p>No messages in this channel.</p>
-              </div>
+              <EmptyState icon="forum" title="No messages in this channel yet" />
             ) : (
               <>
                 <div className="space-y-3 max-h-[50vh] overflow-y-auto mb-4">

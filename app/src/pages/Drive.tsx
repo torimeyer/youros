@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
-import { api } from '../lib/api';
+import { LoadingState, ErrorBanner, EmptyState } from '../components/ui';
+import { api, ApiError } from '../lib/api';
+import DrivePreview from '../components/DrivePreview';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,17 +35,6 @@ interface SyncResponse {
   ok: boolean;
   file_count: number;
   synced_at: number;
-}
-
-interface PreviewNotAvailable {
-  previewable: false;
-  webViewLink: string;
-  mimeType: string;
-}
-
-interface ThumbnailResponse {
-  thumbnailLink: string | null;
-  name: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +83,19 @@ function mimeIcon(mimeType: string): { icon: string; color: string } {
 
 function mimeLabel(mimeType: string): string {
   return MIME_LABELS[mimeType] ?? 'File';
+}
+
+// Returns true for file types we can render inside the preview panel.
+// Everything else falls back to opening the Drive webViewLink in a new tab.
+function isInlinePreviewable(mimeType: string): boolean {
+  return (
+    mimeType === 'application/vnd.google-apps.document' ||
+    mimeType === 'application/vnd.google-apps.presentation' ||
+    mimeType === 'application/vnd.google-apps.spreadsheet' ||
+    mimeType === 'application/vnd.google-apps.drawing' ||
+    mimeType === 'application/pdf' ||
+    mimeType.startsWith('image/')
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +218,7 @@ function CredentialsPicker({ onSaved }: { onSaved: () => void }) {
       </p>
 
       {saved ? (
-        <div className="flex items-center gap-2 p-4 bg-green-500/10 border border-green-500/30 rounded-lg text-green-300 text-sm">
+        <div className="flex items-center gap-2 p-4 bg-green-500/10 border border-green-500/30 rounded-xl text-green-300 text-sm">
           <Icon name="check_circle" size={18} />
           Credentials saved. Moving on...
         </div>
@@ -235,13 +239,7 @@ function CredentialsPicker({ onSaved }: { onSaved: () => void }) {
             }`}
           >
             {uploading ? (
-              <>
-                <span
-                  className="w-5 h-5 border-2 border-slate-500 border-t-blue-400 rounded-full animate-spin"
-                  role="status"
-                />
-                <span className="text-sm text-slate-400">Saving...</span>
-              </>
+              <LoadingState variant="spinner" message="Saving..." />
             ) : (
               <>
                 <Icon name="upload_file" className="text-3xl text-slate-400" />
@@ -261,9 +259,8 @@ function CredentialsPicker({ onSaved }: { onSaved: () => void }) {
           />
 
           {error && (
-            <div className="mt-3 flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 text-sm">
-              <Icon name="error" size={16} className="flex-shrink-0 mt-0.5" />
-              <span>{error}</span>
+            <div className="mt-3">
+              <ErrorBanner message={error} />
             </div>
           )}
         </>
@@ -308,9 +305,11 @@ function ConnectScreen({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 max-w-md w-full">
-        <Icon name="cloud" className="text-5xl text-blue-400 mb-4" />
-        <h2 className="text-2xl font-bold mb-2">Connect Google Drive</h2>
+      <div data-testid="connect-card" className="max-w-md mx-auto bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl w-full">
+        <div className="p-4 rounded-2xl mb-4 inline-block" style={{ backgroundColor: '#3b82f61a' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: '32px', color: '#3b82f6' }}>cloud</span>
+        </div>
+        <h2 className="text-xl font-bold mb-2">Connect Google Drive</h2>
         <p className="text-slate-400 text-sm mb-6">
           Browse and preview your Docs, Slides, and Sheets right here in myOS.
         </p>
@@ -326,8 +325,8 @@ function ConnectScreen({
             </p>
 
             {error && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4 text-red-300 text-sm">
-                {error}
+              <div className="mb-4">
+                <ErrorBanner message={error} />
               </div>
             )}
 
@@ -338,10 +337,7 @@ function ConnectScreen({
             >
               {loading ? (
                 <>
-                  <span
-                    className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"
-                    role="status"
-                  />
+                  <Icon name="progress_activity" size={16} className="animate-spin" />
                   Waiting for sign-in...
                 </>
               ) : (
@@ -514,264 +510,6 @@ function SetupGuideModal({ onClose }: { onClose: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Preview panel (overlay)
-// ---------------------------------------------------------------------------
-
-function PreviewPanel({
-  file,
-  onClose,
-}: {
-  file: DriveFile;
-  onClose: () => void;
-}) {
-  const [loading, setLoading] = useState(true);
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [notPreviewable, setNotPreviewable] = useState<PreviewNotAvailable | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingFull, setLoadingFull] = useState(false);
-  const objectUrlRef = useRef<string | null>(null);
-
-  // Close on Escape.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
-
-  // Revoke object URL on unmount.
-  useEffect(() => {
-    return () => {
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-        objectUrlRef.current = null;
-      }
-    };
-  }, [file.id]);
-
-  // Load thumbnail first (fast), fall back to full preview if no thumbnail.
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setThumbnailUrl(null);
-    setPdfUrl(null);
-    setNotPreviewable(null);
-    setError(null);
-    setLoadingFull(false);
-
-    async function load() {
-      try {
-        // Try the fast thumbnail endpoint first.
-        const thumbResp = await fetch(`/api/drive/files/${encodeURIComponent(file.id)}/thumbnail`);
-        if (thumbResp.ok) {
-          const thumbData = (await thumbResp.json()) as ThumbnailResponse;
-          if (!cancelled && thumbData.thumbnailLink) {
-            setThumbnailUrl(thumbData.thumbnailLink);
-            setLoading(false);
-            return;
-          }
-        }
-
-        // No thumbnail available, fall back to full preview.
-        const resp = await fetch(`/api/drive/files/${encodeURIComponent(file.id)}/preview`);
-        if (!resp.ok) {
-          throw new Error(`Could not load this file (${resp.status}).`);
-        }
-        const contentType = resp.headers.get('content-type') ?? '';
-        if (contentType.includes('application/json')) {
-          const data = (await resp.json()) as PreviewNotAvailable;
-          if (!cancelled) setNotPreviewable(data);
-        } else {
-          const blob = await resp.blob();
-          const url = URL.createObjectURL(blob);
-          objectUrlRef.current = url;
-          if (!cancelled) setPdfUrl(url);
-        }
-      } catch (err: unknown) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Could not load preview.');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [file.id]);
-
-  const loadFullPreview = async () => {
-    setLoadingFull(true);
-    try {
-      const resp = await fetch(`/api/drive/files/${encodeURIComponent(file.id)}/preview`);
-      if (!resp.ok) {
-        throw new Error(`Could not load full preview (${resp.status}).`);
-      }
-      const contentType = resp.headers.get('content-type') ?? '';
-      if (contentType.includes('application/json')) {
-        const data = (await resp.json()) as PreviewNotAvailable;
-        setNotPreviewable(data);
-      } else {
-        const blob = await resp.blob();
-        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-        const url = URL.createObjectURL(blob);
-        objectUrlRef.current = url;
-        setPdfUrl(url);
-        setThumbnailUrl(null);
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Could not load full preview.');
-    } finally {
-      setLoadingFull(false);
-    }
-  };
-
-  const { icon, color } = mimeIcon(file.mimeType);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      data-testid="drive-preview-overlay"
-    >
-      <aside
-        className="bg-slate-900 border-l border-slate-700 shadow-2xl w-full max-w-3xl h-full flex flex-col"
-        role="dialog"
-        aria-label={`Preview of ${file.name}`}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700 flex-shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <Icon name={icon} className={`text-xl ${color} flex-shrink-0`} />
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-100 truncate">{file.name}</p>
-              <p className="text-[11px] text-slate-500">{mimeLabel(file.mimeType)}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-            {file.webViewLink && (
-              <a
-                href={file.webViewLink}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300 transition-colors border border-slate-600"
-              >
-                <Icon name="open_in_new" size={14} />
-                Open in Drive
-              </a>
-            )}
-            <button
-              onClick={onClose}
-              className="flex items-center justify-center w-8 h-8 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
-              title="Close preview"
-              aria-label="Close preview"
-            >
-              <Icon name="close" size={18} />
-            </button>
-          </div>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-hidden">
-          {loading && (
-            <div className="flex flex-col items-center justify-center h-full gap-3">
-              <div
-                className="w-6 h-6 border-2 border-slate-700 border-t-blue-400 rounded-full animate-spin"
-                role="status"
-                aria-label="Loading preview"
-              />
-              <p className="text-sm text-slate-500">Preparing preview...</p>
-            </div>
-          )}
-
-          {!loading && error && (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
-              <Icon name="error" className="text-3xl text-red-400" />
-              <p className="text-sm text-red-300">{error}</p>
-              {file.webViewLink && (
-                <a
-                  href={file.webViewLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm text-white transition-colors"
-                >
-                  <Icon name="open_in_new" size={16} />
-                  Open in Google Drive
-                </a>
-              )}
-            </div>
-          )}
-
-          {!loading && notPreviewable && (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
-              <Icon name={icon} className={`text-5xl ${color}`} />
-              <p className="text-sm text-slate-300">
-                This file type can't be previewed here.
-              </p>
-              {notPreviewable.webViewLink && (
-                <a
-                  href={notPreviewable.webViewLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm text-white transition-colors"
-                >
-                  <Icon name="open_in_new" size={16} />
-                  Open in Google Drive
-                </a>
-              )}
-            </div>
-          )}
-
-          {!loading && thumbnailUrl && !pdfUrl && (
-            <div className="flex flex-col items-center justify-center h-full gap-4 px-8">
-              <img
-                src={thumbnailUrl}
-                alt={`Thumbnail of ${file.name}`}
-                className="max-w-full max-h-[60vh] rounded-lg shadow-lg object-contain"
-              />
-              <button
-                onClick={loadFullPreview}
-                disabled={loadingFull}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm text-white transition-colors"
-              >
-                {loadingFull ? (
-                  <>
-                    <span
-                      className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"
-                      role="status"
-                    />
-                    Loading full document...
-                  </>
-                ) : (
-                  <>
-                    <Icon name="description" size={16} />
-                    View full document
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-
-          {!loading && pdfUrl && (
-            <iframe
-              src={pdfUrl}
-              className="w-full h-full border-0"
-              title={`Preview of ${file.name}`}
-            />
-          )}
-        </div>
-      </aside>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -787,13 +525,33 @@ export default function Drive() {
   const [syncing, setSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [connectBanner, setConnectBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [connectBanner, setConnectBanner] = useState<
+    | { type: 'success' | 'error'; message: string }
+    | { type: 'redirect_uri_mismatch'; redirectUri: string }
+    | null
+  >(null);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [apiNotEnabled, setApiNotEnabled] = useState(false);
+
+  // Undo-delete state: optimistic delete with a 5s grace window.
+  const [undoDelete, setUndoDelete] = useState<{
+    id: string;
+    name: string;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+
+  // In-app error toast for trash failures (replaces window.alert).
+  // Auto-dismisses after 6 seconds.
+  const [trashError, setTrashError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!trashError) return;
+    const id = setTimeout(() => setTrashError(null), 6000);
+    return () => clearTimeout(id);
+  }, [trashError]);
 
   // Apply all three filters (file type, modified, search) client-side with AND logic.
   const filteredFiles = useMemo(() => {
@@ -872,6 +630,9 @@ export default function Drive() {
       setConnectBanner({ type: 'success', message: 'Google Drive connected!' });
       // Clean the URL so a refresh doesn't re-show the banner.
       window.history.replaceState({}, '', window.location.pathname);
+    } else if (oauthError === 'redirect_uri_mismatch') {
+      setConnectBanner({ type: 'redirect_uri_mismatch', redirectUri: 'https://localhost:8000/api/drive/auth/callback' });
+      window.history.replaceState({}, '', window.location.pathname);
     } else if (oauthError) {
       setConnectBanner({ type: 'error', message: 'Could not connect Google Drive. Please try again.' });
       window.history.replaceState({}, '', window.location.pathname);
@@ -926,6 +687,53 @@ export default function Drive() {
     }
   };
 
+  // Delete a Drive file with a 5-second undo window. Optimistically removes
+  // the file from the local list and shows an Undo toast. If the user hits
+  // Undo the entry is restored via a sync. If they wait out the timer, the
+  // backend trash call fires and the list refreshes.
+  const deleteDriveFile = (id: string, name: string) => {
+    // Commit any previous pending delete immediately.
+    if (undoDelete) {
+      clearTimeout(undoDelete.timer);
+      api
+        .delete(`/drive/files/${encodeURIComponent(undoDelete.id)}`)
+        .catch(() => {});
+    }
+
+    // Optimistically remove from the local list.
+    setFiles((prev) => prev.filter((f) => f.id !== id));
+    if (previewFile?.id === id) setPreviewFile(null);
+
+    const timer = setTimeout(async () => {
+      try {
+        await api.delete(`/drive/files/${encodeURIComponent(id)}`);
+        await fetchFiles(search || undefined);
+      } catch (err) {
+        // Surface the real reason from the API when available.
+        let reason = 'The file may be protected or the API may be down.';
+        if (err instanceof ApiError) {
+          const detail = err.response.data.detail;
+          if (detail && typeof detail === 'object' && 'message' in detail) {
+            reason = String((detail as { message: string }).message);
+          } else if (typeof detail === 'string' && detail) {
+            reason = detail;
+          }
+        }
+        setTrashError(`Could not move "${name}" to trash. ${reason}`);
+        await fetchFiles(search || undefined);
+      }
+      setUndoDelete(null);
+    }, 5000);
+    setUndoDelete({ id, name, timer });
+  };
+
+  const handleUndoDriveDelete = () => {
+    if (!undoDelete) return;
+    clearTimeout(undoDelete.timer);
+    fetchFiles(search || undefined);
+    setUndoDelete(null);
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <TopBar title="Drive" />
@@ -936,9 +744,41 @@ export default function Drive() {
         </div>
 
         {/* OAuth callback banner */}
-        {connectBanner && (
+        {connectBanner && connectBanner.type === 'redirect_uri_mismatch' && (
+          <div className="flex items-start justify-between gap-3 p-4 rounded-xl mb-6 text-sm bg-red-500/10 border border-red-500/30 text-red-300">
+            <div className="flex items-start gap-2">
+              <Icon name="error" size={18} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium mb-1">Google refused the connection because this URL is not registered:</p>
+                <code className="block bg-slate-900/60 px-2 py-1 rounded text-xs font-mono text-red-200 mb-2">
+                  {connectBanner.redirectUri}
+                </code>
+                <p className="mb-2">
+                  Add it to <strong>Authorized redirect URIs</strong> in Google Cloud Console, then click Connect again.
+                </p>
+                <a
+                  href="https://console.cloud.google.com/apis/credentials"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-red-200 hover:text-white underline"
+                >
+                  Open Google Cloud Console credentials
+                  <Icon name="open_in_new" size={12} />
+                </a>
+              </div>
+            </div>
+            <button
+              onClick={() => setConnectBanner(null)}
+              className="text-slate-400 hover:text-white flex-shrink-0"
+              aria-label="Dismiss"
+            >
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+        )}
+        {connectBanner && connectBanner.type !== 'redirect_uri_mismatch' && (
           <div
-            className={`flex items-center justify-between gap-3 p-4 rounded-lg mb-6 text-sm ${
+            className={`flex items-center justify-between gap-3 p-4 rounded-xl mb-6 text-sm ${
               connectBanner.type === 'success'
                 ? 'bg-green-500/10 border border-green-500/30 text-green-300'
                 : 'bg-red-500/10 border border-red-500/30 text-red-300'
@@ -992,13 +832,7 @@ export default function Drive() {
 
         {/* Auth loading */}
         {authStatus === null && !apiNotEnabled && (
-          <div className="flex items-center gap-3 py-8 text-slate-500">
-            <span
-              className="w-4 h-4 border-2 border-slate-700 border-t-slate-400 rounded-full animate-spin"
-              role="status"
-            />
-            <span className="text-sm">Checking connection...</span>
-          </div>
+          <LoadingState variant="spinner" message="Checking connection..." />
         )}
 
         {/* Connect screen */}
@@ -1011,7 +845,7 @@ export default function Drive() {
         {/* Authenticated view */}
         {authStatus?.authenticated && !apiNotEnabled && (
           <>
-            {/* Reconnect banner — shown when drive.file scope is missing */}
+            {/* Reconnect banner: shown when drive.file scope is missing */}
             {authStatus.needs_reauth && (
               <div className="flex items-center justify-between gap-3 p-4 rounded-lg mb-5 text-sm bg-amber-500/15 border border-amber-400/60 text-amber-100">
                 <div className="flex items-center gap-2">
@@ -1178,77 +1012,73 @@ export default function Drive() {
 
             {/* File list */}
             {filesLoading && files.length === 0 && (
-              <div className="flex items-center gap-3 py-8 text-slate-500">
-                <span
-                  className="w-4 h-4 border-2 border-slate-700 border-t-slate-400 rounded-full animate-spin"
-                  role="status"
-                />
-                <span className="text-sm">Loading files...</span>
-              </div>
+              <LoadingState variant="spinner" message="Loading files..." />
             )}
 
             {filesError && (
-              <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4">
-                <Icon name="error" className="text-lg" />
-                <span>{filesError}</span>
+              <div className="mb-4">
+                <ErrorBanner
+                  message={filesError}
+                  action={{ label: 'Retry', onClick: () => fetchFiles(search || undefined) }}
+                />
               </div>
             )}
 
             {!filesLoading && !filesError && files.length === 0 && (
-              <div className="text-center py-12 text-slate-500">
-                <Icon name="cloud_off" className="text-4xl mb-2" />
-                <p>No files found. Click Sync to pull your latest files from Drive.</p>
-                <button
-                  onClick={handleSync}
-                  className="mt-3 text-sm text-blue-400 hover:text-blue-300"
-                >
-                  Sync now
-                </button>
-              </div>
+              <EmptyState
+                icon="cloud_off"
+                title="No files found"
+                description="Click Sync to pull your latest files from Drive."
+                action={{ label: 'Sync now', onClick: handleSync }}
+              />
             )}
 
             {!filesLoading && !filesError && files.length > 0 && filteredFiles.length === 0 && (
-              <div className="text-center py-12 text-slate-500">
-                <Icon name="filter_alt_off" className="text-4xl mb-2" />
-                <p>No files match your filters.</p>
-                {hasActiveFilters && (
-                  <button
-                    onClick={() => {
-                      setFileTypeFilter('all');
-                      setModifiedFilter('all');
-                      setSearch('');
-                    }}
-                    className="mt-3 text-sm text-blue-400 hover:text-blue-300"
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </div>
+              <EmptyState
+                icon="filter_alt_off"
+                title="No files match your filters"
+                action={hasActiveFilters ? {
+                  label: 'Clear filters',
+                  onClick: () => {
+                    setFileTypeFilter('all');
+                    setModifiedFilter('all');
+                    setSearch('');
+                  },
+                } : undefined}
+              />
             )}
 
             {filteredFiles.length > 0 && (
               <div className="flex flex-col gap-1">
-                <div className="grid grid-cols-[1fr_120px_auto_80px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                <div className="grid grid-cols-[1fr_120px_auto_80px_36px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
                   <span>Name</span>
                   <span>Type</span>
                   <span></span>
                   <span className="text-right">Modified</span>
+                  <span></span>
                 </div>
 
                 {filteredFiles.map((file) => {
                   const { icon, color } = mimeIcon(file.mimeType);
                   const isSelected = previewFile?.id === file.id;
+                  const previewable = isInlinePreviewable(file.mimeType);
                   return (
                     <div
                       key={file.id}
-                      className={`grid grid-cols-[1fr_120px_auto_80px] gap-4 items-center border rounded-lg px-4 py-3 transition-colors ${
+                      className={`grid grid-cols-[1fr_120px_auto_80px_36px] gap-4 items-center border rounded-xl px-4 py-3 transition-colors ${
                         isSelected
                           ? 'bg-blue-600/10 border-blue-500/50'
                           : 'bg-slate-900/60 border-slate-800 hover:border-blue-500/30 hover:bg-slate-800/60'
                       }`}
                     >
                       <button
-                        onClick={() => setPreviewFile(file)}
+                        onClick={() => {
+                          if (previewable) {
+                            setPreviewFile(file);
+                          } else if (file.webViewLink) {
+                            window.open(file.webViewLink, '_blank', 'noopener,noreferrer');
+                          }
+                        }}
                         className="flex items-center gap-3 min-w-0 cursor-pointer text-left"
                       >
                         <Icon name={icon} className={`text-xl ${color} flex-shrink-0`} />
@@ -1275,6 +1105,17 @@ export default function Drive() {
                       <span className="text-xs text-slate-500 text-right">
                         {timeAgo(file.modifiedTime)}
                       </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteDriveFile(file.id, file.name);
+                        }}
+                        className="flex items-center justify-center w-7 h-7 rounded-md text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        title={`Delete ${file.name}`}
+                        data-testid={`drive-delete-${file.id}`}
+                      >
+                        <Icon name="delete" size={16} />
+                      </button>
                     </div>
                   );
                 })}
@@ -1290,10 +1131,47 @@ export default function Drive() {
 
       {/* Preview overlay */}
       {previewFile && (
-        <PreviewPanel
-          file={previewFile}
+        <DrivePreview
+          fileId={previewFile.id}
+          name={previewFile.name}
+          mimeType={previewFile.mimeType}
+          webViewLink={previewFile.webViewLink}
           onClose={() => setPreviewFile(null)}
         />
+      )}
+
+      {undoDelete && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg"
+          data-testid="undo-delete-drive-toast"
+        >
+          <span>Moved to trash.</span>
+          <button
+            onClick={handleUndoDriveDelete}
+            className="font-medium text-blue-400 hover:text-blue-300"
+            data-testid="undo-delete-drive-button"
+          >
+            Undo
+          </button>
+        </div>
+      )}
+
+      {trashError && (
+        <div
+          role="status"
+          data-testid="drive-trash-error-toast"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-start gap-3 bg-red-950 border border-red-800 text-red-200 text-sm px-4 py-3 rounded-xl shadow-lg max-w-md"
+        >
+          <Icon name="error" size={18} className="text-red-400 mt-0.5 flex-shrink-0" />
+          <span className="flex-1">{trashError}</span>
+          <button
+            onClick={() => setTrashError(null)}
+            className="text-slate-500 hover:text-slate-300"
+            aria-label="Dismiss"
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </div>
       )}
     </div>
   );

@@ -7,6 +7,25 @@ from typing import Any, Awaitable, Callable, Optional
 import anthropic
 from fastapi import WebSocket
 
+# Pre-warm the Google Generative AI SDK at module import time. On a cold
+# uvicorn worker the first `import google.generativeai` inside a chat
+# handler takes several seconds (transitively loads google.api_core,
+# google.auth, grpc, protobuf, pkg_resources, etc.) while emitting
+# FutureWarnings. During those seconds the chat WebSocket is blocked
+# inside `_prepare_gemini_client` and the frontend's "Thinking"
+# indicator hangs until its client side timeout closes the socket.
+# Importing it here means the first Gemini chat request never pays the
+# import cost, so stream_gemini reaches start_chat and send_message
+# immediately after the user hits Send.
+try:
+    import google.generativeai as _genai_preload  # noqa: F401
+except Exception:
+    # If google.generativeai is missing (e.g. install did not include
+    # the optional Gemini extras), fall through and let the later
+    # lazy-import path surface the error to the user with the friendly
+    # "install the Gemini package" message.
+    _genai_preload = None  # type: ignore[assignment]
+
 from config import PROJECT_ROOT
 from services import claude_code_provider
 from services.ostk import ostk
@@ -172,6 +191,27 @@ _GEMINI_MODEL_GONE_HINTS = (
 # back to a deprecated name.
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
+# Per-phase timeouts for the Gemini streaming call. Without these a bad
+# network or Google-side stall would leave ``stream_gemini`` hanging
+# silently until the frontend's 30s dead-backend timer fires, which
+# shows the generic "No response received" error with no hint of what
+# went wrong. With these, a stall fails fast on the server side and
+# sends a clear, actionable message.
+#
+# - CLIENT_READY: time to initialise the SDK client (first call only,
+#   covers configure + GenerativeModel on a cold worker).
+# - SEND_MESSAGE: time for start_chat().send_message(stream=True) to
+#   return an iterator. This is the initial network round trip before
+#   any chunks arrive.
+# - FIRST_CHUNK: time from iterator ready to first chunk. A silent
+#   Gemini (safety filter mid-processing, upstream outage) trips this.
+# - NEXT_CHUNK: time between subsequent chunks. Loose enough to cover
+#   thinking pauses on gemini-2.5 models.
+_GEMINI_CLIENT_READY_TIMEOUT_S = 30.0
+_GEMINI_SEND_MESSAGE_TIMEOUT_S = 30.0
+_GEMINI_FIRST_CHUNK_TIMEOUT_S = 20.0
+_GEMINI_NEXT_CHUNK_TIMEOUT_S = 45.0
+
 
 # System instruction for Gemini. Kept as a module-level constant so tests
 # can assert the "no self label" rule is in place and future edits do not
@@ -179,14 +219,18 @@ DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 # replies with a literal "@Gemini:" tag, which is noisy in the chat panel
 # since the bubble header already shows which model is speaking.
 GEMINI_SYSTEM_INSTRUCTION = (
-    "You are Gemini replying inside a chat panel. "
+    "You are Gemini replying inside a chat panel called myOS. "
     "Do not prefix your replies with your own name. The chat panel "
     "already shows who you are. "
     "When asked to chat with another AI, reply directly to what that "
     "other AI just said. Do not write a fake script with labels for "
     "both sides, do not narrate the exchange, do not add stage "
     "directions. Keep replies conversational and concise. "
-    "Never use em-dashes."
+    "Never use em-dashes. "
+    "IMPORTANT: You cannot create calendar events, send emails, or use any tools. "
+    "You are a chat-only model. If the user asks you to do something that requires "
+    "tools (calendar, email, tasks, files), tell them to switch to Claude using the "
+    "toggle below the chat input. Claude has access to all myOS tools."
 )
 
 
@@ -199,6 +243,63 @@ def _gemini_model_name() -> str:
     """
     override = os.environ.get("MYOS_GEMINI_MODEL", "").strip()
     return override or DEFAULT_GEMINI_MODEL
+
+
+# Module-level cache for the Gemini SDK client.
+#
+# ``genai.configure()`` and ``genai.GenerativeModel()`` re-initialize the
+# underlying gRPC/HTTP transport on every call. For inline replies this means
+# Tori pays a 2-8s cold-start penalty on the *second* and every subsequent
+# Gemini message in the same backend process, even though the SDK is already
+# imported. Caching keyed on ``(api_key, model_name)`` removes that cost.
+# The tuple is intentionally small: if the API key rotates or the model
+# override changes, the old entry is evicted naturally on the next miss
+# (the dict never grows beyond a handful of entries since model names and
+# keys rarely change at runtime).
+#
+# Thread safety: ``_prepare_gemini_client`` runs on a worker thread via
+# ``asyncio.to_thread``.  Python's GIL protects simple dict reads and writes,
+# so no explicit lock is required here.
+#
+# NOTE: we cache only ``(model_name, model_instance)`` and NOT the genai
+# module reference itself.  The caller always does a fresh
+# ``import google.generativeai`` after the cache lookup so that tests
+# that swap ``sys.modules['google.generativeai']`` with a fake still get
+# the currently-active module for ``genai.types.BlockedPromptException``
+# and similar attribute accesses.
+_GEMINI_CLIENT_CACHE: dict[tuple[str, str], tuple[str, Any]] = {}
+
+
+def _clear_gemini_client_cache() -> None:
+    """Evict all cached Gemini clients (used in tests and on key rotation)."""
+    _GEMINI_CLIENT_CACHE.clear()
+
+
+# Module-level cache for the Anthropic AsyncClient.
+#
+# ``anthropic.AsyncAnthropic(api_key=...)`` constructs a brand new httpx
+# async client on every call, which opens a fresh connection pool and
+# resolves the API host on first use. Per chat turn this adds ~50 to
+# ~200ms before the first byte goes out on the wire, depending on DNS
+# and network warmth. Caching the client keyed on ``api_key`` makes the
+# second and later turns in a session reuse the already-warm pool so the
+# only cold path is the very first turn after the backend boots.
+_ANTHROPIC_CLIENT_CACHE: dict[str, Any] = {}
+
+
+def _get_anthropic_client(api_key: str) -> Any:
+    """Return a cached ``AsyncAnthropic`` client for this api_key."""
+    cached = _ANTHROPIC_CLIENT_CACHE.get(api_key)
+    if cached is not None:
+        return cached
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    _ANTHROPIC_CLIENT_CACHE[api_key] = client
+    return client
+
+
+def _clear_anthropic_client_cache() -> None:
+    """Evict cached Anthropic clients (used in tests and on key rotation)."""
+    _ANTHROPIC_CLIENT_CACHE.clear()
 
 
 # One-time log marker so we print the active Gemini model on the first
@@ -303,7 +404,20 @@ def _friendly_gemini_error(error_text: str) -> str:
             "starting a new chat tab, or remove the last image or GIF "
             "and ask again."
         )
-    return error_text
+    # Unknown error path. Always prefix with "Gemini" so the chat bubble
+    # tells the user WHICH provider failed, even when the raw message is
+    # a Python exception string we can not translate further. Without
+    # this prefix an error like "simulated upstream failure" or "503"
+    # looks like a generic backend blip with no provider context.
+    clean = (error_text or "").strip()
+    if not clean:
+        return (
+            "Gemini returned an unknown error. Please try again in a "
+            "moment."
+        )
+    if "gemini" not in clean.lower():
+        return f"Gemini ran into a problem: {clean}. Please try again."
+    return clean
 
 
 # --- Gemini finish-reason handling ---
@@ -418,6 +532,91 @@ def _gemini_content_to_text(content: Any) -> str:
     return str(content)
 
 
+# Supported image MIME types for Gemini vision.
+_GEMINI_IMAGE_MIME_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp"}
+)
+
+
+def _gemini_content_to_parts(content: Any) -> list[Any]:
+    """Convert a chat message ``content`` field into a list of Gemini SDK Parts.
+
+    When the user pastes an image or GIF, ``transform_image_messages`` rewrites
+    the message content into a list of Anthropic-shaped blocks like::
+
+        [
+            {"type": "image", "source": {"type": "base64",
+                                          "media_type": "image/gif",
+                                          "data": "<b64>"}},
+            {"type": "text", "text": "what is this?"},
+        ]
+
+    For Claude, these blocks are sent directly. For Gemini, each block must
+    become a ``protos.Part``. Text blocks become ``Part(text=...)`` and image
+    blocks become ``Part(inline_data=Blob(mime_type=..., data=<bytes>))``.
+
+    A plain string is returned as a single text Part. Unsupported MIME types
+    fall back to a ``[image attached]`` text placeholder so the rest of the
+    conversation still makes sense to the model.
+    """
+    try:
+        import base64 as _b64
+        import google.generativeai as _genai
+        _protos = _genai.protos
+    except Exception:
+        # SDK not installed; return a best-effort text-only list.
+        return [_gemini_content_to_text(content)]
+
+    if isinstance(content, str):
+        return [_protos.Part(text=content)] if content else []
+
+    if isinstance(content, list):
+        parts: list[Any] = []
+        for block in content:
+            if not isinstance(block, dict):
+                if isinstance(block, str) and block:
+                    parts.append(_protos.Part(text=block))
+                continue
+            block_type = block.get("type")
+            if block_type == "text":
+                text = block.get("text", "")
+                if isinstance(text, str) and text:
+                    parts.append(_protos.Part(text=text))
+            elif block_type == "image":
+                source = block.get("source", {})
+                src_type = source.get("type", "")
+                mime_type = source.get("media_type", "")
+                if src_type == "base64" and mime_type in _GEMINI_IMAGE_MIME_TYPES:
+                    raw_data = source.get("data", "")
+                    if isinstance(raw_data, str) and raw_data:
+                        try:
+                            image_bytes = _b64.b64decode(raw_data)
+                            parts.append(
+                                _protos.Part(
+                                    inline_data=_protos.Blob(
+                                        mime_type=mime_type,
+                                        data=image_bytes,
+                                    )
+                                )
+                            )
+                        except Exception:
+                            parts.append(_protos.Part(text="[image attached]"))
+                    else:
+                        parts.append(_protos.Part(text="[image attached]"))
+                else:
+                    # Unsupported source type (e.g. url) or MIME type.
+                    parts.append(_protos.Part(text="[image attached]"))
+            else:
+                text = block.get("text") if isinstance(block.get("text"), str) else ""
+                parts.append(_protos.Part(text=text or "[attachment]"))
+        # Ensure at least a minimal prompt so send_message never sees an empty list.
+        return parts if parts else [_protos.Part(text="[attachment]")]
+
+    if content is None:
+        return [_protos.Part(text="")]
+    return [_protos.Part(text=str(content))]
+
+
 def _gemini_finish_reason_name(finish_reason: Any) -> str:
     """Return the finish reason as an upper-case enum name string.
 
@@ -525,7 +724,7 @@ async def _resolve_api_key(settings_key: str) -> str:
         return os.environ.get(env_name, "")
     return ""
 
-MAX_AGENT_TURNS = 10
+MAX_AGENT_TURNS = 25
 
 
 # --- Anthropic transient-error retry policy ---
@@ -549,6 +748,15 @@ MAX_AGENT_TURNS = 10
 #   thunder on Anthropic the exact same millisecond.
 _ANTHROPIC_MAX_ATTEMPTS = 3
 _ANTHROPIC_RETRY_DELAYS = (0.5, 1.5, 4.0)
+
+# Heartbeat cadence for long-running Anthropic calls. When the agent loop
+# is waiting on a non-streaming messages.create that can take 30+ seconds
+# (tool-use planning phase), or when a stream is open but emitting nothing
+# (extended thinking pause), we periodically send a small {"type":
+# "heartbeat"} frame so browser/proxy idle timers do not close the
+# WebSocket mid-turn. The frontend ignores these frames entirely, they
+# exist solely to keep bytes flowing across the socket.
+_ANTHROPIC_HEARTBEAT_INTERVAL_S = 10.0
 
 # Plain-language message shown to the user when every retry has failed.
 # No em-dashes, no raw JSON, no jargon. Matches the writing-style rules in
@@ -671,6 +879,67 @@ async def _anthropic_retry_call(
     raise last_exc
 
 
+async def _with_ws_heartbeat(
+    websocket: WebSocket,
+    coro_factory: Callable[[], Awaitable[Any]],
+    *,
+    interval_s: Optional[float] = None,
+) -> Any:
+    """Run ``coro_factory()`` while periodically sending WS heartbeat frames.
+
+    Purpose. A long non-streaming call to Anthropic (for example the
+    ``messages.create`` used in the agent-tool-use loop, or the silent
+    ``thinking`` phase at the start of a stream) can take 30+ seconds
+    without any bytes flowing over the WebSocket. Browsers, vite proxies,
+    and reverse proxies interpret that silence as an idle socket and
+    close it, which surfaces in the UI as a "Connection dropped before
+    the response finished" error and nukes the in-flight assistant
+    bubble.
+
+    Fix. While the real work runs, spawn a sibling task that sends a
+    tiny ``{"type": "heartbeat"}`` JSON frame every ``interval_s``
+    seconds. The frontend (``useWebSocket``) recognizes this type and
+    drops it on the floor, so it never reaches the chat panel. Its only
+    job is to keep the socket warm. The sibling task is always cancelled
+    when the real coroutine finishes, whether it returned or raised, so
+    we never leak background heartbeat loops.
+    """
+    # Resolve the interval at call time (not at def time) so tests that
+    # patch ``_ANTHROPIC_HEARTBEAT_INTERVAL_S`` via ``unittest.mock.patch``
+    # take effect for new invocations.
+    effective_interval = interval_s if interval_s is not None else _ANTHROPIC_HEARTBEAT_INTERVAL_S
+    stop = asyncio.Event()
+
+    async def _beat() -> None:
+        try:
+            while not stop.is_set():
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=effective_interval)
+                    return
+                except asyncio.TimeoutError:
+                    pass
+                try:
+                    await websocket.send_json({"type": "heartbeat"})
+                except Exception:
+                    # If the socket is already dead there's no point in
+                    # retrying. The real call will fail on its next write
+                    # and the outer handler will surface the real error.
+                    return
+        except asyncio.CancelledError:
+            return
+
+    beat_task = asyncio.create_task(_beat())
+    try:
+        return await coro_factory()
+    finally:
+        stop.set()
+        beat_task.cancel()
+        try:
+            await beat_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
 async def _send_friendly_anthropic_error(
     websocket: WebSocket, exc: BaseException
 ) -> None:
@@ -752,6 +1021,105 @@ def _should_use_thinking(text: str) -> bool:
 
 _BOOT_CONTEXT_CACHE: Optional[tuple[float, str]] = None
 _BOOT_CONTEXT_REFRESH_IN_FLIGHT: bool = False
+
+# Audit event types that are surfaced as "recent activity" context.
+_ACTIVITY_EVENTS = frozenset({
+    "agent.completed",
+    "agent.spawned",
+    "specs.created",
+    "spec.created",
+    "files.written",
+    "file.written",
+    "needle.closed",
+    "task.closed",
+    "chat.completion",
+})
+
+
+_ACTIVITY_CONTEXT_CACHE: Optional[tuple[float, tuple[int, int], str]] = None
+_ACTIVITY_CONTEXT_TTL_S: float = 15.0
+
+
+def _recent_activity_context(n: int = 20, max_chars: int = 1800) -> str:
+    """Return a compact summary of the last *n* notable audit events.
+
+    Reads audit.jsonl (cached), filters to activity-relevant event types,
+    and formats them as a tight bullet list capped at *max_chars*.
+    Prepended to the volatile system-prompt block so the model knows
+    what was just built, spawned, or written.
+
+    Result is cached in-process for ``_ACTIVITY_CONTEXT_TTL_S`` seconds so
+    back-to-back chat turns do not re-read the entire audit log (which
+    measured around 190ms on Tori's machine). The cache key includes
+    ``(n, max_chars)`` so callers with different args do not clobber
+    each other.
+    """
+    global _ACTIVITY_CONTEXT_CACHE
+    import time as _time
+    now = _time.monotonic()
+    key = (n, max_chars)
+    if _ACTIVITY_CONTEXT_CACHE is not None:
+        ts, cached_key, cached_value = _ACTIVITY_CONTEXT_CACHE
+        if cached_key == key and (now - ts) < _ACTIVITY_CONTEXT_TTL_S:
+            return cached_value
+    try:
+        from services.ostk import read_audit_entries
+        entries = read_audit_entries()
+    except Exception:
+        return ""
+
+    # Walk backwards through the full audit log, keeping only events the
+    # model cares about, until we have n events.
+    relevant: list[dict] = []
+    for entry in reversed(entries):
+        if entry.get("event") in _ACTIVITY_EVENTS:
+            relevant.append(entry)
+            if len(relevant) >= n:
+                break
+    if not relevant:
+        return ""
+
+    lines: list[str] = []
+    for entry in reversed(relevant):  # chronological order
+        event = entry.get("event", "")
+        name = entry.get("name", "")
+        ts_raw = entry.get("timestamp") or entry.get("ts") or ""
+        # Shorten timestamp to HH:MM
+        ts = ts_raw[11:16] if len(ts_raw) >= 16 else ts_raw
+
+        if event in ("agent.completed",):
+            summary = entry.get("summary", "")
+            line = f"[{ts}] agent '{name}' completed" + (f": {summary[:80]}" if summary else "")
+        elif event in ("agent.spawned",):
+            model = entry.get("model", "")
+            line = f"[{ts}] agent '{name}' spawned" + (f" ({model})" if model else "")
+        elif event in ("specs.created", "spec.created"):
+            line = f"[{ts}] spec created: {name}"
+        elif event in ("files.written", "file.written"):
+            path = entry.get("path", name)
+            line = f"[{ts}] file written: {path}"
+        elif event in ("needle.closed", "task.closed"):
+            title = entry.get("title", name)
+            line = f"[{ts}] task closed: {title}"
+        elif event == "chat.completion":
+            topic = entry.get("topic", "")
+            line = f"[{ts}] chat: {topic}" if topic else f"[{ts}] chat turn"
+        else:
+            line = f"[{ts}] {event}: {name}"
+
+        lines.append(line)
+
+    block = "RECENT ACTIVITY:\n" + "\n".join(lines)
+    if len(block) > max_chars:
+        block = block[:max_chars].rsplit("\n", 1)[0]
+    _ACTIVITY_CONTEXT_CACHE = (now, key, block)
+    return block
+
+
+def _clear_activity_context_cache() -> None:
+    """Evict cached recent-activity block (used in tests)."""
+    global _ACTIVITY_CONTEXT_CACHE
+    _ACTIVITY_CONTEXT_CACHE = None
 
 
 def _strip_ansi(output: str) -> str:
@@ -851,7 +1219,8 @@ def _system_prompt() -> str:
         "You have access to tools that let you read files, write files, edit files, "
         "run shell commands, search code, manage tasks, search the web, fetch web pages, "
         "run git operations, spawn background agents, create Google Calendar events, "
-        f"send emails via Gmail, and upload files to Google Drive in the workspace at {PROJECT_ROOT}. "
+        f"send emails via Gmail, delete Gmail messages (move to Trash), and upload files to Google Drive "
+        f"in the workspace at {PROJECT_ROOT}. "
         "All tools including shell commands are pre-authorized. Never ask the user to approve "
         "a shell or tool call. Just run it. "
         f"Use these tools to help {owner} with whatever they need. "
@@ -875,30 +1244,70 @@ def _system_prompt() -> str:
         "DIAGNOSE COMMAND: When the user says 'diagnose' followed by a problem, find the "
         "root cause, fix it, and write a regression test so it never happens again. "
         "Read the actual code before making any claims. Never assume.\n\n"
-        "ELIT COMMAND: When the user says 'elit' (explain like I'm Tori), explain the "
-        "topic in plain language with no code, no jargon, and keep it brief.\n\n"
-        "GOOGLE INTEGRATION: When the user's Google account is connected through Settings, "
-        "you can use these tools directly. Never tell the user to connect via /mcp when "
-        "they are already connected through Settings.\n"
+        "EXPLAIN-PLAIN COMMAND: When the user says 'explain-plain' or its alias "
+        "'elit', explain the subject in plain language so someone with no "
+        "background in the field can follow it. No jargon. Cover every relevant "
+        "point, do not skip material for brevity. Use analogies for technical "
+        "or abstract concepts. No code. No em-dashes.\n\n"
+        "GOOGLE INTEGRATION: Google Calendar, Gmail, and Drive are connected through myOS Settings, "
+        "NOT through Claude Code's MCP integrations. NEVER use mcp__claude_ai_Google_Calendar, "
+        "mcp__claude_ai_Gmail, or mcp__claude_ai_Google_Drive tools. NEVER tell the user to "
+        "connect via Claude Code Settings or /mcp. Use ONLY the myOS tools listed below:\n"
         "- create_calendar_event: Use when the user says 'add to calendar', 'schedule', "
         "'put on my calendar', or similar. For events without a specific time (field trips, "
         "birthdays), set all_day to true.\n"
         "- send_email: Use when the user says 'send an email', 'email', or 'write to'. "
         "Draft the email text and send it. Confirm what you sent.\n"
+        "- delete_emails: Use when the user says 'delete the <X> emails', "
+        "'delete emails from <Y>', 'trash the marketing emails', or similar. "
+        "ALWAYS a two-step flow. First call with just a 'query' (translate the "
+        "user's natural language into Gmail search syntax, for example "
+        "'from:amazon marketing' for 'the marketing emails from amazon'). "
+        "Show the matching count and list to the user and ask them to confirm. "
+        "Only after they say 'yes', 'delete them', 'go ahead', or similar, call "
+        "again with confirm=true and the same ids. Default is Trash, which "
+        "matches Gmail's Delete button. Pass permanent=true only if the user "
+        "explicitly said 'delete forever', 'permanently delete', or 'purge'.\n"
         "- upload_to_drive: Use when the user says 'save to Drive', 'upload to Drive', "
         "or asks to create a document in Drive.\n"
-        "- get_calendar_events: Use to check what is on the calendar today.\n\n"
-        "IDEA MANAGEMENT: You can capture, list, and delete ideas.\n"
-        "- To capture a new idea when the user mentions one in passing, use capture_idea silently.\n"
-        "- To list active ideas, use list_ideas.\n"
-        "- To list converted ideas (turned into tasks), use list_converted_ideas.\n"
-        "- To delete an idea (active or converted), use delete_idea with the text or a fragment.\n"
-        "When the user asks to remove, delete, or clean up an idea, use delete_idea. Do not suggest they do it manually. When capturing ideas in passing, do NOT announce it.\n\n"
+        "- get_calendar_events: Use to check what is on the calendar today.\n"
+        "If the user asks to create a calendar event and Google is not connected, tell them "
+        "to connect Google in the myOS Settings page: go to Settings, select Google Gemini "
+        "as the chat provider, then click 'Sign in with Google'.\n\n"
+        "TASK CREATION: When the user says 'create tasks for all of it', 'turn this into tasks', "
+        "'break this down into tasks', 'make needles for this', or anything that implies converting "
+        "a plan or list into trackable work items, you MUST actually create the tasks, not just "
+        "describe them in text. Do NOT list tasks without creating them. "
+        "If you have a create_task tool available, call it once per task and report the created IDs. "
+        "If you have a create_tasks_from_spec tool and a spec file path is known "
+        "(e.g. 'docs/spec/...' or 'docs/draft/...'), call that instead to create all tasks at once. "
+        "If you do NOT have a create_task tool (e.g. you only have Bash), use the Bash tool to POST "
+        "each task to the myOS API: "
+        "curl -sk -X POST https://127.0.0.1:8000/api/tasks "
+        "-H 'Content-Type: application/json' "
+        "-d '{\"title\": \"<title>\", \"priority\": \"P1\", \"description\": \"<desc>\"}' "
+        "Run one curl per task, then report the task IDs from the JSON responses. "
+        "When multiple tasks need to be created, create them all in sequence without stopping to ask.\n\n"
+        "myOS VOCABULARY: In myOS, a 'spec' means a row on the Specs page (app/src/pages/Specs.tsx). "
+        "Users track product specs and requirements there. When the user says 'spec' or 'specs', "
+        "they mean a Specs page entry unless they say 'technical spec', 'openapi spec', or similar "
+        "that clearly refers to something else. A 'needle' is a task in the ostk task tracker. "
+        "'saa' means spawn agent(s). "
+        "'tack' means remember this forever. 'nvrfgt' means never forget.\n\n"
+        "PATH HINTS: When the user includes a file path in their message (starting with "
+        "'file://', '/', '~/', or a relative path like 'docs/'), use that path directly "
+        "with the read_file tool first. Do not run a search when the user has already told "
+        "you where the file is. Only search if reading the direct path fails.\n\n"
         "Keep your responses brief and focused on outcomes, not process. "
         "Do NOT narrate your steps. Do NOT say 'Let me check' or 'Let me look'. "
         "Just do the work and share the result. "
         "Be action-oriented: read only what you need, then make edits quickly. "
         "Do not over-research. If you know enough to make a change, make it. "
+        "TOOL CONSERVATION: For chat questions, use the MINIMUM number of tool calls needed. "
+        "A question like 'help plan my week' should take 1-3 tool calls (fetch tasks, fetch calendar, answer), NOT 15. "
+        "Do NOT read source code files for planning or advice questions. Do NOT browse directories exploratorily. "
+        "Do NOT run multiple searches when one will do. If you can answer from context, just answer. "
+        "Only use tools when the user asks for something that requires live data (tasks, calendar, emails, files). "
         "Never use em-dashes. "
         "When the user sends a GIF, do not describe what is in the GIF. They can already see it. "
         "Just react naturally to the sentiment behind it, like you would in a text conversation."
@@ -949,7 +1358,7 @@ async def _maybe_match_template(
         return None
 
     # Only run the AI classifier when the user has added at least one
-    # custom template. Built-in templates (saa, diagnose, elit) all reach
+    # custom template. Built-in templates (saa, diagnose, explain-plain) all reach
     # via explicit triggers, so the classifier adds no value for the
     # built-in only case and would burn an extra Claude call per chat.
     enable_classifier = any(
@@ -980,16 +1389,44 @@ async def _maybe_match_template(
     return matched
 
 
+def _standing_instructions_block() -> str:
+    """Return the user's saved standing instructions, framed for the model.
+
+    Standing instructions are a free-form block the user writes once in
+    Settings. They apply to every chat turn, agent spawn, and task so the
+    AI picks up tone, tool preferences, and house rules without the user
+    having to repeat them. Returns an empty string when the setting is
+    blank so callers can no-op prepend safely.
+    """
+    try:
+        value = settings_store.get("standing_instructions", "")
+    except Exception:
+        return ""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return (
+        "STANDING INSTRUCTIONS (from the user, always apply):\n"
+        f"{text}"
+    )
+
+
 def _compose_system_prompt(matched_template: Optional[dict]) -> str:
     """Return the full system prompt as a single string.
 
     Used by the Claude Code backend fallback where we cannot split into
-    separate cached blocks. Includes boot context inline.
+    separate cached blocks. Includes boot context and recent activity inline.
     """
     base = _system_prompt()
+    standing = _standing_instructions_block()
+    if standing:
+        base = standing + "\n\n" + base
     boot_context = _get_boot_context()
     if boot_context:
         base += f"\n\nSESSION CONTEXT (from `ostk boot`, already run, do not run again):\n{boot_context}\n"
+    activity = _recent_activity_context()
+    if activity:
+        base += f"\n\n{activity}\n"
     if not matched_template:
         return base
     extra = str(matched_template.get("prompt") or "").strip()
@@ -1002,28 +1439,38 @@ def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
     """Build system prompt as separate cached blocks.
 
     Splits the system prompt into a stable instructions block (cached)
-    and a volatile boot context block (separate). This way the large,
-    mostly-static instructions stay cached even when needle counts,
-    fleet status, or other boot context changes between turns.
+    and a volatile block containing boot context and recent activity
+    (separate). This way the large, mostly-static instructions stay cached
+    even when needle counts, fleet status, or recent activity changes between
+    turns.
 
     The Anthropic API supports up to 4 cache breakpoints. We use 2 here
-    (instructions + boot context) leaving 2 for conversation prefix caching.
+    (instructions + volatile context) leaving 2 for conversation prefix caching.
     """
-    os_name = settings_store.get("os_name", "myOS")
-    user_name = settings_store.get("user_name", "")
-    owner = user_name if user_name else "the user"
-
     # Static instructions block. This text rarely changes, so it stays
     # cached across many turns and even across conversations within the
     # 5-minute TTL.
     base = _system_prompt()
+    standing = _standing_instructions_block()
+    if standing:
+        base = standing + "\n\n" + base
     if matched_template:
         extra = str(matched_template.get("prompt") or "").strip()
         if extra:
             base += "\n\n---\nACTIVE TEMPLATE: " + str(matched_template.get("name", "")) + "\n" + extra
 
     boot_context = _get_boot_context()
-    if not boot_context:
+    activity = _recent_activity_context()
+
+    volatile_parts: list[str] = []
+    if boot_context:
+        volatile_parts.append(
+            f"SESSION CONTEXT (from `ostk boot`, already run, do not run again):\n{boot_context}"
+        )
+    if activity:
+        volatile_parts.append(activity)
+
+    if not volatile_parts:
         return [
             {
                 "type": "text",
@@ -1032,8 +1479,8 @@ def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
             }
         ]
 
-    # Split: static instructions (cached) + volatile boot context (cached
-    # separately so a boot context change does not bust the instructions cache).
+    # Split: static instructions (cached) + volatile context (cached
+    # separately so a boot/activity change does not bust the instructions cache).
     return [
         {
             "type": "text",
@@ -1042,10 +1489,33 @@ def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
         },
         {
             "type": "text",
-            "text": f"SESSION CONTEXT (from `ostk boot`, already run, do not run again):\n{boot_context}",
+            "text": "\n\n".join(volatile_parts),
             "cache_control": {"type": "ephemeral"},
         },
     ]
+
+
+_WIRE_MESSAGE_ALLOWED_KEYS: frozenset[str] = frozenset({"role", "content"})
+
+
+def _sanitize_messages_for_wire(messages: list[dict]) -> list[dict]:
+    """Strip any keys that Anthropic's Messages API does not allow.
+
+    The frontend attaches extra fields to message dicts for rendering
+    (e.g. ``model`` to track which AI produced a bubble, ``image`` for
+    pasted screenshots). Anthropic's API only accepts ``role`` and
+    ``content`` on each message object. Any other key produces:
+        400 - {'type':'error','error':{'type':'invalid_request_error',
+               'message':'messages.N.model: Extra inputs are not permitted'}}
+
+    This function must be called on every messages list before it is
+    sent to any Anthropic API endpoint.
+    """
+    result = []
+    for m in messages:
+        wire_msg: dict = {k: v for k, v in m.items() if k in _WIRE_MESSAGE_ALLOWED_KEYS}
+        result.append(wire_msg)
+    return result
 
 
 def _add_conversation_prefix_cache(messages: list[dict]) -> list[dict]:
@@ -1067,7 +1537,7 @@ def _add_conversation_prefix_cache(messages: list[dict]) -> list[dict]:
     target = result[target_idx]
     content = target.get("content")
 
-    if isinstance(content, str):
+    if isinstance(content, str) and content.strip():
         result[target_idx] = {
             **target,
             "content": [
@@ -1079,14 +1549,19 @@ def _add_conversation_prefix_cache(messages: list[dict]) -> list[dict]:
             ],
         }
     elif isinstance(content, list) and len(content) > 0:
-        # Add cache_control to the last block in the content list.
+        # Add cache_control to the last non-empty text block in the content list.
         new_content = list(content)
-        last_block = dict(new_content[-1])
-        last_block["cache_control"] = {"type": "ephemeral"}
-        new_content[-1] = last_block
+        for i in range(len(new_content) - 1, -1, -1):
+            block = new_content[i]
+            if isinstance(block, dict) and block.get("type") == "text" and block.get("text", "").strip():
+                new_content[i] = {**block, "cache_control": {"type": "ephemeral"}}
+                break
         result[target_idx] = {**target, "content": new_content}
 
     return result
+
+
+_anthropic_log = logging.getLogger("myos.chat.anthropic")
 
 
 class ChatService:
@@ -1094,11 +1569,23 @@ class ChatService:
         # Run template matching up front so both backends pick up any
         # matched helper. The matcher itself uses the API key when one is
         # available, but it also handles the no-key case gracefully.
+        import time as _time
+        _t0 = _time.perf_counter()
         api_key = await _resolve_api_key("anthropic_api_key")
         matched_template = await _maybe_match_template(messages, websocket, api_key)
-        system_prompt = (
-            _compose_system_prompt(matched_template) if matched_template else None
+        _t_template = _time.perf_counter()
+        _anthropic_log.info(
+            "anthropic_phase=template_matched ms=%.0f matched=%s",
+            (_t_template - _t0) * 1000,
+            bool(matched_template),
         )
+        # Always compose the system prompt when the user has standing
+        # instructions saved, even if no template matched, so the Claude
+        # Code fallback still picks them up.
+        if matched_template or _standing_instructions_block():
+            system_prompt = _compose_system_prompt(matched_template)
+        else:
+            system_prompt = None
 
         backend = await _resolve_chat_backend()
 
@@ -1127,8 +1614,22 @@ class ChatService:
             })
             return ""
 
-        client = anthropic.AsyncAnthropic(api_key=api_key)
-        cached_messages = _add_conversation_prefix_cache(messages)
+        client = _get_anthropic_client(api_key)
+        # Label assistant messages from other models so Claude knows
+        # which responses are Gemini's vs its own. Also strip any
+        # non-API keys (the frontend attaches a ``model`` field to each
+        # message for rendering, but Anthropic's Messages API rejects
+        # unknown fields with "Extra inputs are not permitted").
+        labeled = []
+        for m in messages:
+            role = m.get("role")
+            content = m.get("content")
+            if role == "assistant" and isinstance(content, str):
+                source = (m.get("model") or "").lower()
+                if source and "gemini" in source:
+                    content = f"[Gemini's response]: {content}"
+            labeled.append({"role": role, "content": content})
+        cached_messages = _add_conversation_prefix_cache(labeled)
         stream_kwargs: dict = {
             "model": "claude-sonnet-4-20250514",
             "max_tokens": 4096,
@@ -1155,6 +1656,14 @@ class ChatService:
             )
 
         full_text = ""
+        _t_payload = _time.perf_counter()
+        _anthropic_log.info(
+            "anthropic_phase=payload_built ms=%.0f thinking=%s msgs=%d",
+            (_t_payload - _t_template) * 1000,
+            use_thinking,
+            len(cached_messages),
+        )
+        _first_token_logged = [False]
 
         async def _run_stream_once() -> Any:
             """Open the stream, pump tokens to the websocket, and return usage.
@@ -1195,6 +1704,12 @@ class ChatService:
                                     elif delta_type == "text_delta":
                                         text = getattr(delta, "text", "")
                                         if text:
+                                            if not _first_token_logged[0]:
+                                                _anthropic_log.info(
+                                                    "anthropic_phase=first_token ms=%.0f",
+                                                    (_time.perf_counter() - _t0) * 1000,
+                                                )
+                                                _first_token_logged[0] = True
                                             full_text += text
                                             await websocket.send_json({
                                                 "type": "token",
@@ -1204,6 +1719,12 @@ class ChatService:
             else:
                 async with client.messages.stream(**stream_kwargs) as stream:
                     async for text in stream.text_stream:
+                        if not _first_token_logged[0]:
+                            _anthropic_log.info(
+                                "anthropic_phase=first_token ms=%.0f",
+                                (_time.perf_counter() - _t0) * 1000,
+                            )
+                            _first_token_logged[0] = True
                         full_text += text
                         await websocket.send_json({"type": "token", "data": text})
                     return await stream.get_final_message()
@@ -1215,12 +1736,26 @@ class ChatService:
             if full_text:
                 response = await _run_stream_once()
             else:
-                response = await _anthropic_retry_call(
-                    _run_stream_once,
-                    op_name="anthropic.messages.stream",
+                # Wrap the stream with a heartbeat so the socket stays
+                # warm during extended-thinking or tool-use stalls that
+                # emit no tokens for 30+ seconds. Without this, the
+                # browser or vite proxy closes the idle socket and the
+                # chat panel surfaces a "Connection dropped" error.
+                response = await _with_ws_heartbeat(
+                    websocket,
+                    lambda: _anthropic_retry_call(
+                        _run_stream_once,
+                        op_name="anthropic.messages.stream",
+                    ),
                 )
             _cache_creation = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
             _cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+            _anthropic_log.info(
+                "anthropic_phase=stream_complete ms=%.0f chars=%d cache_read=%d",
+                (_time.perf_counter() - _t0) * 1000,
+                len(full_text),
+                _cache_read,
+            )
             await websocket.send_json({
                 "type": "done",
                 "usage": {
@@ -1327,8 +1862,8 @@ class ChatService:
             })
             return ""
 
-        client = anthropic.AsyncAnthropic(api_key=api_key)
-        conversation: list[dict] = list(messages)
+        client = _get_anthropic_client(api_key)
+        conversation: list[dict] = _sanitize_messages_for_wire(messages)
         total_input_tokens = 0
         total_output_tokens = 0
         total_cache_creation_tokens = 0
@@ -1338,10 +1873,16 @@ class ChatService:
 
         try:
             turn = 0
+            WARN_AT = 15  # Send a progress update so the user knows it's still working
             while True:
                 turn += 1
+                if turn == WARN_AT:
+                    await websocket.send_json({
+                        "type": "token",
+                        "data": f"\n\n(Still working. {turn} steps so far.)\n\n",
+                    })
                 if turn > MAX_AGENT_TURNS:
-                    msg = "Reached max turns limit."
+                    msg = f"Stopped after {MAX_AGENT_TURNS} steps. If you need more, try breaking the task into smaller pieces."
                     await websocket.send_json({"type": "token", "data": msg})
                     await websocket.send_json({
                         "type": "done",
@@ -1404,9 +1945,12 @@ class ChatService:
                             betas=["mcp-client-2025-04-04"],
                         )
 
-                    response = await _anthropic_retry_call(
-                        _mcp_create,
-                        op_name="anthropic.beta.messages.create",
+                    response = await _with_ws_heartbeat(
+                        websocket,
+                        lambda: _anthropic_retry_call(
+                            _mcp_create,
+                            op_name="anthropic.beta.messages.create",
+                        ),
                     )
                 else:
                     async def _create() -> Any:
@@ -1418,9 +1962,12 @@ class ChatService:
                             tools=TOOL_DEFINITIONS,
                         )
 
-                    response = await _anthropic_retry_call(
-                        _create,
-                        op_name="anthropic.messages.create",
+                    response = await _with_ws_heartbeat(
+                        websocket,
+                        lambda: _anthropic_retry_call(
+                            _create,
+                            op_name="anthropic.messages.create",
+                        ),
                     )
 
                 total_input_tokens += response.usage.input_tokens
@@ -1610,44 +2157,139 @@ class ChatService:
 
         full_text = ""
         try:
-            import google.generativeai as genai
-            # Always pass the API key explicitly so the SDK never falls back
-            # to ambient default credentials (ADC), which could pick up the
-            # user's Drive/Calendar OAuth token and fail with
-            # ACCESS_TOKEN_TYPE_UNSUPPORTED.
-            genai.configure(api_key=api_key)
-            model_name = _gemini_model_name()
-            _log_gemini_model_once(model_name)
-            # Pass the system instruction so Gemini stops prefixing its
-            # replies with "@Gemini:" and stops writing fake back and
-            # forth scripts when asked to chat with another AI.
+            import asyncio as _asyncio_init
+            import time as _time
+            _t0 = _time.monotonic()
+            # The google-generativeai import and configure step do
+            # grpc/ssl/auth warmup that can take 5 to 30 seconds on a
+            # cold backend. Running them on the event loop freezes every
+            # other request for that window. Push them onto a worker
+            # thread so the event loop stays responsive. Any exception
+            # surfaces the same way through the outer except.
+            def _prepare_gemini_client():
+                import google.generativeai as _genai
+                _model_name = _gemini_model_name()
+                cache_key = (api_key, _model_name)
+                cached = _GEMINI_CLIENT_CACHE.get(cache_key)
+                if cached is not None:
+                    # Return the cached model instance. configure() and
+                    # GenerativeModel() are skipped, saving 2-8s of
+                    # gRPC/HTTP transport re-initialization on every
+                    # message after the first in a session.
+                    return cached
+                _genai.configure(api_key=api_key)
+                try:
+                    _m = _genai.GenerativeModel(
+                        _model_name,
+                        system_instruction=GEMINI_SYSTEM_INSTRUCTION,
+                    )
+                except TypeError:
+                    # Older SDK builds do not accept system_instruction.
+                    _m = _genai.GenerativeModel(_model_name)
+                # Store only (model_name, model_instance). The genai module
+                # reference is NOT cached so that tests which swap
+                # sys.modules['google.generativeai'] still see the
+                # currently-active module for exception types and protos.
+                result = (_model_name, _m)
+                _GEMINI_CLIENT_CACHE[cache_key] = result
+                return result
+
             try:
-                model = genai.GenerativeModel(
-                    model_name,
-                    system_instruction=GEMINI_SYSTEM_INSTRUCTION,
+                model_name, model = await _asyncio_init.wait_for(
+                    _asyncio_init.to_thread(_prepare_gemini_client),
+                    timeout=_GEMINI_CLIENT_READY_TIMEOUT_S,
                 )
-            except TypeError:
-                # Older SDK builds do not accept system_instruction. Fall
-                # back to the no-arg constructor so we still return a
-                # usable model. The behavior rule is enforced elsewhere
-                # in the prompt body for the orchestration path.
-                model = genai.GenerativeModel(model_name)
+            except _asyncio_init.TimeoutError:
+                await _send_friendly_gemini_error(
+                    websocket,
+                    (
+                        f"Gemini did not finish starting up in "
+                        f"{int(_GEMINI_CLIENT_READY_TIMEOUT_S)} seconds. "
+                        "This usually means the network or Google's API is "
+                        "slow. Please try again."
+                    ),
+                    reason_name="CLIENT_READY_TIMEOUT",
+                )
+                return full_text
+            # Fetch the current genai module after the thread returns so
+            # tests that swap sys.modules still see the right module.
+            import google.generativeai as genai
+            _t_client_ready = _time.monotonic()
+            _gemini_log.info(
+                "gemini_phase=client_ready ms=%.0f cache_hit=%s model=%s",
+                (_t_client_ready - _t0) * 1000,
+                _GEMINI_CLIENT_CACHE.get((api_key, model_name)) is not None,
+                model_name,
+            )
+            _log_gemini_model_once(model_name)
 
             history = []
             for msg in messages[:-1]:
                 role = "user" if msg["role"] == "user" else "model"
+                text = _gemini_content_to_text(msg.get("content", ""))
+                # Label assistant messages with their source model so Gemini
+                # knows which responses came from Claude vs itself.
+                if role == "model":
+                    source = (msg.get("model") or "").lower()
+                    if source and "claude" in source:
+                        text = f"[Claude's response]: {text}"
+                    elif source and "gemini" in source:
+                        text = f"[Your previous response]: {text}"
                 history.append(
-                    {"role": role, "parts": [_gemini_content_to_text(msg.get("content", ""))]}
+                    {"role": role, "parts": [text]}
                 )
 
-            # ``send_message`` accepts a string, dict, Blob, or Image, but
-            # NOT a list of Claude style image blocks. If the last message
-            # was rewritten by ``transform_image_messages`` into a list of
-            # Anthropic-shaped blocks, flatten it back to plain text here
-            # so Gemini sees a normal prompt instead of tripping the SDK's
-            # "Could not create Blob" error.
-            last_content = _gemini_content_to_text(messages[-1].get("content", ""))
-            chat = model.start_chat(history=history)
+            # ``send_message`` accepts a string, dict, Blob, Image, or a list
+            # of Parts. Convert the last message (always the live user turn)
+            # into a list of Gemini Parts so that inline images (GIFs, pasted
+            # screenshots) are passed as ``inline_data`` blobs rather than
+            # dropped or turned into a ``[image attached]`` placeholder.
+            # History messages (prior turns) stay as plain text because Gemini
+            # vision is most useful on the current turn and the history path
+            # does not need multipart support.
+            last_content = _gemini_content_to_parts(messages[-1].get("content", ""))
+            # Gemini's start_chat requires STRICTLY ALTERNATING roles
+            # (user, model, user, model, ...). myOS prepends a role="user"
+            # context message (memory from prior tabs, calendar digest,
+            # workspace status) before the real user turn, which produces
+            # two consecutive user entries in history. The google-generativeai
+            # SDK responds by falling back to a non-streaming single-shot
+            # call that takes 25s+ to return, during which the chat panel
+            # shows "Thinking" with no tokens and the user thinks it hung.
+            # Collapse runs of the same role into one entry by joining
+            # their parts with a blank line separator. This preserves the
+            # full context while giving Gemini the alternating shape it
+            # streams against.
+            merged_history: list[dict] = []
+            for entry in history:
+                if merged_history and merged_history[-1]["role"] == entry["role"]:
+                    prev_parts = merged_history[-1].get("parts", [])
+                    new_parts = entry.get("parts", [])
+                    combined_text = "\n\n".join(
+                        p for p in (list(prev_parts) + list(new_parts)) if p
+                    )
+                    merged_history[-1] = {"role": entry["role"], "parts": [combined_text]}
+                else:
+                    merged_history.append(entry)
+            # Gemini requires history to END with a model turn so the
+            # next send_message (always a user turn) keeps alternation.
+            # If history ends with a user entry (happens when myOS
+            # prepends prior-conversation memory as role=user and the
+            # user starts a fresh tab, so the ONLY prior turn is that
+            # memory block), synthesize a tiny model acknowledgement so
+            # the alternation holds. Previously we popped the trailing
+            # user and merged it into last_content, which emptied
+            # history entirely. With empty history and a long user
+            # prompt, the deprecated google.generativeai SDK hung on
+            # send_message(stream=True) forever and the chat panel sat
+            # on "Thinking" with no tokens. The synthetic ack keeps
+            # history non-empty and alternation valid.
+            if merged_history and merged_history[-1]["role"] == "user":
+                merged_history.append({
+                    "role": "model",
+                    "parts": ["Got it. What would you like to know?"],
+                })
+            chat = model.start_chat(history=merged_history)
             # The google.generativeai SDK's streaming ``send_message(stream=True)``
             # returns a SYNCHRONOUS generator. Calling ``next()`` on it blocks
             # the current thread on each network read, and because this runs
@@ -1661,8 +2303,35 @@ class ChatService:
             # between chunks. Async-native SDK would be nicer but the
             # existing test suite mocks the sync API so we preserve it.
             import asyncio as _asyncio
-            response = await _asyncio.to_thread(
-                chat.send_message, last_content, stream=True
+            _t_send = _time.monotonic()
+            _gemini_log.info(
+                "gemini_phase=payload_built ms=%.0f history_turns=%d",
+                (_t_send - _t_client_ready) * 1000,
+                len(merged_history),
+            )
+            try:
+                response = await _asyncio.wait_for(
+                    _asyncio.to_thread(
+                        chat.send_message, last_content, stream=True
+                    ),
+                    timeout=_GEMINI_SEND_MESSAGE_TIMEOUT_S,
+                )
+            except _asyncio.TimeoutError:
+                await _send_friendly_gemini_error(
+                    websocket,
+                    (
+                        f"Gemini did not respond in "
+                        f"{int(_GEMINI_SEND_MESSAGE_TIMEOUT_S)} seconds. "
+                        "This usually means the network or Google's API is "
+                        "slow. Please try again."
+                    ),
+                    reason_name="SEND_MESSAGE_TIMEOUT",
+                )
+                return full_text
+            _t_network = _time.monotonic()
+            _gemini_log.info(
+                "gemini_phase=send_message_returned ms=%.0f",
+                (_t_network - _t_send) * 1000,
             )
 
             # Stream chunks. We guard ``chunk.text`` because the SDK's
@@ -1672,6 +2341,7 @@ class ChatService:
             # let the post-loop finish_reason check decide what to show.
             _CHUNK_STOP = object()
             _chunk_iter = iter(response)
+            _first_token_logged = False
 
             def _pull_next_chunk():
                 try:
@@ -1681,7 +2351,48 @@ class ChatService:
 
             try:
                 while True:
-                    chunk = await _asyncio.to_thread(_pull_next_chunk)
+                    # Use a tighter budget for the first chunk and a
+                    # looser one after the stream is producing content.
+                    # A silent upstream (no chunks ever) trips the first
+                    # chunk timeout. Long "thinking" pauses on 2.5
+                    # models are covered by the next-chunk budget.
+                    chunk_timeout = (
+                        _GEMINI_FIRST_CHUNK_TIMEOUT_S
+                        if not _first_token_logged
+                        else _GEMINI_NEXT_CHUNK_TIMEOUT_S
+                    )
+                    try:
+                        chunk = await _asyncio.wait_for(
+                            _asyncio.to_thread(_pull_next_chunk),
+                            timeout=chunk_timeout,
+                        )
+                    except _asyncio.TimeoutError:
+                        phase = (
+                            "first_chunk"
+                            if not _first_token_logged
+                            else "next_chunk"
+                        )
+                        if full_text:
+                            friendly = (
+                                f"[Gemini said: {full_text.strip()}] "
+                                f"before going quiet. Gemini did not "
+                                f"send any more text within "
+                                f"{int(chunk_timeout)} seconds. Please "
+                                "try again."
+                            )
+                        else:
+                            friendly = (
+                                f"Gemini did not send any text within "
+                                f"{int(chunk_timeout)} seconds. This "
+                                "usually means Google's API is slow or "
+                                "the network is flaky. Please try again."
+                            )
+                        await _send_friendly_gemini_error(
+                            websocket,
+                            friendly,
+                            reason_name=f"{phase.upper()}_TIMEOUT",
+                        )
+                        return full_text
                     if chunk is _CHUNK_STOP:
                         break
                     try:
@@ -1691,6 +2402,13 @@ class ChatService:
                         # final response which we inspect below.
                         continue
                     if text:
+                        if not _first_token_logged:
+                            _gemini_log.info(
+                                "gemini_phase=first_token ms=%.0f total_ms=%.0f",
+                                (_time.monotonic() - _t_network) * 1000,
+                                (_time.monotonic() - _t0) * 1000,
+                            )
+                            _first_token_logged = True
                         full_text += text
                         await websocket.send_json({"type": "token", "data": text})
             except genai.types.BlockedPromptException:
@@ -1793,6 +2511,11 @@ class ChatService:
                 output_tokens=_gem_output,
                 provider="gemini",
                 topic=_extract_chat_topic(messages),
+            )
+            _gemini_log.info(
+                "gemini_phase=done total_ms=%.0f tokens=%d",
+                (_time.monotonic() - _t0) * 1000,
+                _gem_output,
             )
             await websocket.send_json({"type": "done"})
         except Exception as e:

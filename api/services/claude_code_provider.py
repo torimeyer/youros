@@ -25,11 +25,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import shutil
 import time
 from typing import Any, Optional
 
 from fastapi import WebSocket
+
+
+_claude_log = logging.getLogger("myos.chat.claude_code")
 
 
 # Anthropic env vars that force API-key auth when present.
@@ -70,7 +74,12 @@ def _session_id_for_tab(tab_id: str) -> str:
 
 
 # How long to trust a cached detection result.
-_DETECTION_CACHE_TTL_SECONDS: float = 60.0
+# Bumped from 60s to 600s (10 min) so back to back agent spawns during a
+# demo reuse the same warm result. ``claude auth status`` costs ~1.5 s per
+# call on a cold shell, and the underlying state (signed in or not) only
+# changes when the user runs ``claude login``/``logout`` by hand. A 10 min
+# window keeps the freshness reasonable while cutting the per-spawn tax.
+_DETECTION_CACHE_TTL_SECONDS: float = 600.0
 
 # How long to wait on ``claude auth status`` before declaring it broken.
 _AUTH_STATUS_TIMEOUT_SECONDS: float = 3.0
@@ -110,6 +119,21 @@ def clear_detection_cache() -> None:
     """Wipe the cached detection result. Used by tests."""
     _detection_cache["result"] = None
     _detection_cache["expires_at"] = 0.0
+
+
+def has_cached_auth_status() -> bool:
+    """Return True when a non-stale cached detection result exists.
+
+    Callers that want to warm the cache (e.g. ``prewarm_fleet``) can use
+    this to skip a redundant shell-out when a very recent probe already
+    answered the question. This keeps demo-critical spawns fast even when
+    the user hits Prewarm multiple times in a row.
+    """
+    now = time.monotonic()
+    return (
+        _detection_cache["result"] is not None
+        and now < _detection_cache["expires_at"]
+    )
 
 
 def _find_claude_binary() -> Optional[str]:
@@ -158,6 +182,64 @@ async def _run_auth_status(claude_path: str) -> Optional[dict]:
         return json.loads(text)
     except json.JSONDecodeError:
         return None
+
+
+async def prewarm_cli() -> None:
+    """Fire up the local ``claude`` program once at backend boot so the first
+    user chat does not pay the cold-start penalty.
+
+    On a cold shell the first ``claude -p`` invocation takes 7 to 9 seconds
+    before the first token arrives. Subsequent invocations in the same
+    process tree are faster (measured 3.4 to 5.1 seconds) because the
+    Node.js runtime, CLI plugin loader, and network stack are already warm
+    in the OS file cache and DNS/TLS resolver cache. Running a tiny prompt
+    here at startup pays that cost while the backend boots, so the user
+    never sees it.
+
+    This is best-effort. If the program is not installed, not signed in,
+    or the subprocess errors out, we silently give up. The regular chat
+    path still works on cold start, just a few seconds slower.
+    """
+    try:
+        if not await is_claude_code_available():
+            return
+        claude_path = _find_claude_binary()
+        if not claude_path:
+            return
+        env = _build_subprocess_env()
+        proc = await asyncio.create_subprocess_exec(
+            claude_path,
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--dangerously-skip-permissions",
+            "ping",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            limit=1024 * 1024,
+        )
+        # Drain stdout so the pipe does not fill up while we wait.
+        async def _drain() -> None:
+            assert proc.stdout is not None
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+
+        try:
+            await asyncio.wait_for(_drain(), timeout=30.0)
+            await proc.wait()
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+        _claude_log.info("claude_cli_prewarm_complete")
+    except Exception:
+        # Startup warming must never break the backend. Swallow everything.
+        return
 
 
 async def is_claude_code_available(force: bool = False) -> bool:
@@ -334,6 +416,7 @@ async def stream_chat(
     line by line, forwards text fragments to the websocket, and returns
     the full assembled text.
     """
+    _t_entry = time.perf_counter()
     claude_path = _find_claude_binary()
     if not claude_path:
         await _send_safe(
@@ -437,12 +520,50 @@ async def stream_chat(
 
     env = _build_subprocess_env()
 
+    # Register this chat turn as an agent so it shows up on the Agents
+    # page and in the Activity feed. Without this, the in-app chat is
+    # invisible to both surfaces even though it is doing real work.
+    chat_agent_name = f"chat-{tab_id[:8]}" if tab_id else "chat-default"
+    last_user = ""
+    for m in reversed(messages):
+        if isinstance(m, dict) and m.get("role") == "user":
+            c = m.get("content")
+            if isinstance(c, str):
+                last_user = c
+            break
+    try:
+        from routers.agents import register_chat_session
+        await register_chat_session(
+            chat_agent_name,
+            model="claude-code-subscription",
+            prompt_preview=last_user,
+        )
+    except Exception:
+        # Registration is best-effort. A router-import glitch must not
+        # block the chat turn.
+        pass
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            # A single Claude Code stream event (e.g. a tool_result
+            # containing a large Read or Grep output) can be much
+            # larger than asyncio's default 64 KiB StreamReader limit.
+            # When that happens, proc.stdout.readline() raises
+            # LimitOverrunError("Separator is found, but chunk is
+            # longer than limit") and the whole chat turn dies with
+            # that message surfaced to the UI. 32 MiB comfortably
+            # absorbs anything the CLI emits on one line.
+            limit=32 * 1024 * 1024,
+        )
+        _t_spawn = time.perf_counter()
+        _claude_log.info(
+            "claude_phase=spawned ms=%.0f resume=%s",
+            (_t_spawn - _t_entry) * 1000,
+            bool(session_uuid and is_resume),
         )
     except (OSError, FileNotFoundError):
         await _send_safe(
@@ -452,13 +573,19 @@ async def stream_chat(
                 "data": "Your Claude subscription is not responding right now.",
             },
         )
+        try:
+            from routers.agents import complete_chat_session
+            await complete_chat_session(chat_agent_name, status="failed")
+        except Exception:
+            pass
         return ""
 
     full_text = ""
     final_usage: Optional[dict] = None
+    _first_token_logged = False
 
     async def _read_stdout() -> None:
-        nonlocal full_text, final_usage, saw_deltas
+        nonlocal full_text, final_usage, saw_deltas, _first_token_logged
         assert proc.stdout is not None
         while True:
             line = await proc.stdout.readline()
@@ -472,6 +599,12 @@ async def stream_chat(
             etype = event.get("type", "")
             text, done, usage, extra_msg = _handle_stream_event(event)
             if text:
+                if not _first_token_logged:
+                    _claude_log.info(
+                        "claude_phase=first_token ms=%.0f",
+                        (time.perf_counter() - _t_entry) * 1000,
+                    )
+                    _first_token_logged = True
                 if etype == "stream_event":
                     saw_deltas = True
                 # The "assistant" event carries the complete response text.
@@ -536,6 +669,11 @@ async def stream_chat(
                 "data": "Your Claude subscription is not responding right now.",
             },
         )
+        try:
+            from routers.agents import complete_chat_session
+            await complete_chat_session(chat_agent_name, status="failed")
+        except Exception:
+            pass
         return full_text
 
     await _send_safe(
@@ -545,6 +683,22 @@ async def stream_chat(
             "usage": final_usage or {"input_tokens": 0, "output_tokens": 0},
         },
     )
+    _claude_log.info(
+        "claude_phase=stream_complete ms=%.0f chars=%d",
+        (time.perf_counter() - _t_entry) * 1000,
+        len(full_text),
+    )
+    try:
+        from routers.agents import complete_chat_session
+        usage = final_usage or {}
+        await complete_chat_session(
+            chat_agent_name,
+            tokens_in=int(usage.get("input_tokens", 0) or 0),
+            tokens_out=int(usage.get("output_tokens", 0) or 0),
+            status="completed",
+        )
+    except Exception:
+        pass
 
     # Record the turn so `ostk metrics` can show real numbers. The boot
     # context is included in the system prompt that ostk built upstream,

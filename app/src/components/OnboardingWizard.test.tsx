@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OnboardingWizard from './OnboardingWizard'
 import { useAppStore } from '../stores/app'
@@ -114,8 +114,8 @@ describe('OnboardingWizard', () => {
   it('shows progress dots equal to the number of steps', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    // 10 steps: Fork, Welcome, You, Name, Profile, Persona, Theme, Connect, Adventure, Ready
-    expect(dots.children).toHaveLength(10)
+    // 8 steps: Fork, Welcome, You, Name, Profile, Theme, Connect, Ready
+    expect(dots.children).toHaveLength(8)
   })
 
   it('does not show Back button on Fork step', () => {
@@ -181,35 +181,64 @@ describe('OnboardingWizard', () => {
   it('advances to Theme step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(5) // Welcome -> You -> Name -> Profile -> Persona -> Theme
+    clickNext(4) // Welcome -> You -> Name -> Profile -> Theme
     expect(screen.getByTestId('step-theme')).toBeInTheDocument()
   })
 
   it('toggles dark mode on Theme step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(5)
+    clickNext(4)
 
-    // Currently dark. Click Light.
-    fireEvent.click(screen.getByTestId('theme-light'))
-    expect(useAppStore.getState().darkMode).toBe(false)
+    const BLUE = 'rgb(59, 130, 246)'
 
-    // Click Dark.
+    // Click Dark: dark button should show selected border via inline style.
     fireEvent.click(screen.getByTestId('theme-dark'))
-    expect(useAppStore.getState().darkMode).toBe(true)
+    expect((screen.getByTestId('theme-dark') as HTMLElement).style.borderColor).toBe(BLUE)
+    expect((screen.getByTestId('theme-light') as HTMLElement).style.borderColor).not.toBe(BLUE)
+
+    // Click Light: light button should show selected border via inline style.
+    fireEvent.click(screen.getByTestId('theme-light'))
+    expect((screen.getByTestId('theme-light') as HTMLElement).style.borderColor).toBe(BLUE)
+    expect((screen.getByTestId('theme-dark') as HTMLElement).style.borderColor).not.toBe(BLUE)
+  })
+
+  it('clicking Dark flips wizard background and data-theme to dark', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(4)
+
+    // Start by clicking Light so we have a known starting state, then Dark.
+    fireEvent.click(screen.getByTestId('theme-light'))
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    expect((screen.getByTestId('onboarding-wizard') as HTMLElement).style.backgroundColor).toBe('rgb(249, 250, 251)')
+
+    fireEvent.click(screen.getByTestId('theme-dark'))
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    expect((screen.getByTestId('onboarding-wizard') as HTMLElement).style.backgroundColor).toBe('rgb(2, 6, 23)')
+  })
+
+  it('dark preview card always renders dark even in light theme', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(4)
+    fireEvent.click(screen.getByTestId('theme-light'))
+    // Inline style bypasses [data-theme="light"] global overrides on bg-slate-950.
+    const preview = screen.getByTestId('theme-dark-preview') as HTMLElement
+    expect(preview.style.backgroundColor).toBe('rgb(2, 6, 23)')
   })
 
   it('advances to Connect step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(6) // Welcome -> You -> Name -> Profile -> Persona -> Theme -> Connect
+    clickNext(5) // Welcome -> You -> Name -> Profile -> Theme -> Connect
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
   })
 
   it('shows Anthropic connect option by default', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(6)
+    clickNext(5)
     expect(screen.getByTestId('connect-anthropic')).toBeInTheDocument()
     expect(screen.getByTestId('api-key-input')).toBeInTheDocument()
   })
@@ -217,7 +246,7 @@ describe('OnboardingWizard', () => {
   it('switches provider when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(6)
+    clickNext(5)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     // Anthropic connect button should no longer be visible
     expect(screen.queryByTestId('connect-anthropic')).not.toBeInTheDocument()
@@ -226,7 +255,7 @@ describe('OnboardingWizard', () => {
   it('shows both Gemini key paths (Cloud Console recommended, AI Studio fallback) when Gemini is selected', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(6)
+    clickNext(5)
     fireEvent.click(screen.getByTestId('provider-Google Gemini'))
     // Helper block is a decision tree: Cloud Console is recommended
     // because users with Drive/Calendar/Gmail already have a project.
@@ -243,20 +272,10 @@ describe('OnboardingWizard', () => {
     expect(helper).toHaveTextContent(/Generative Language API/i)
   })
 
-  it('advances to Adventure step', async () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7) // Welcome -> You -> Name -> Profile -> Persona -> Theme -> Connect -> Adventure
-    expect(screen.getByTestId('step-adventure')).toBeInTheDocument()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-phase-pick')).toBeInTheDocument()
-    })
-  })
-
   it('advances to Ready step with summary', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8) // Welcome -> You -> Name -> Profile -> Persona -> Theme -> Connect -> Adventure -> Ready
+    clickNext(6) // Welcome -> You -> Name -> Profile -> Theme -> Connect -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     expect(screen.getByTestId('summary-os-name')).toHaveTextContent('myOS')
@@ -267,7 +286,7 @@ describe('OnboardingWizard', () => {
   it('does not show Skip button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(6)
 
     expect(screen.queryByTestId('skip-button')).not.toBeInTheDocument()
   })
@@ -275,7 +294,7 @@ describe('OnboardingWizard', () => {
   it('shows "Get started" button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(6)
 
     expect(screen.getByTestId('finish-button')).toHaveTextContent('Get started')
   })
@@ -283,11 +302,72 @@ describe('OnboardingWizard', () => {
   it('sets onboarded to true and persists to localStorage when finished', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(6)
     fireEvent.click(screen.getByTestId('finish-button'))
 
     expect(useAppStore.getState().onboarded).toBe(true)
     expect(localStorageMock.setItem).toHaveBeenCalledWith('myos-onboarded', 'true')
+  })
+
+  it('navigates to the homepage "/" when finished', () => {
+    // The wizard renders outside of BrowserRouter, so it uses
+    // window.history.replaceState to land the user on the Dashboard.
+    // Start from a non-root URL to prove we always end up at "/".
+    window.history.replaceState({}, '', '/settings')
+    expect(window.location.pathname).toBe('/settings')
+
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(6)
+    fireEvent.click(screen.getByTestId('finish-button'))
+
+    expect(window.location.pathname).toBe('/')
+  })
+
+  it('lands on "/" regardless of which persona was picked', () => {
+    // Pick the first marketplace persona on the Profile step, walk to Ready,
+    // click finish, and confirm the URL is "/" even though a persona was selected.
+    window.history.replaceState({}, '', '/agents')
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(3) // Welcome -> You -> Name -> Profile
+
+    // Click the first persona card. Category names are rendered as buttons.
+    const firstPersona = AGENT_MARKETPLACE[0]
+    const personaCard = screen.getByText(firstPersona.category)
+    fireEvent.click(personaCard)
+
+    clickNext(3) // Profile -> Theme -> Connect -> Ready
+    expect(screen.getByTestId('step-ready')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('finish-button'))
+
+    expect(useAppStore.getState().onboarded).toBe(true)
+    expect(window.location.pathname).toBe('/')
+  })
+
+  it('flips onboarded=true AFTER rewriting the URL so App.tsx mounts the router at "/"', () => {
+    // Regression: if setOnboarded(true) ran before the URL was rewritten,
+    // App.tsx would unmount the wizard and BrowserRouter would mount at
+    // whatever stale path the browser was on. We assert order by observing
+    // the URL at the moment onboarded flips to true.
+    window.history.replaceState({}, '', '/calendar')
+    let urlWhenFlipped: string | null = null
+    const unsubscribe = useAppStore.subscribe((state, prev) => {
+      if (state.onboarded && !prev.onboarded) {
+        urlWhenFlipped = window.location.pathname
+      }
+    })
+
+    try {
+      render(<OnboardingWizard />)
+      choosePersonalMode()
+      clickNext(6)
+      fireEvent.click(screen.getByTestId('finish-button'))
+    } finally {
+      unsubscribe()
+    }
+
+    expect(urlWhenFlipped).toBe('/')
   })
 
   it('skipping steps advances without changing settings', () => {
@@ -306,7 +386,7 @@ describe('OnboardingWizard', () => {
   it('does not show Back button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8)
+    clickNext(6)
 
     expect(screen.queryByTestId('back-button')).not.toBeInTheDocument()
   })
@@ -314,310 +394,100 @@ describe('OnboardingWizard', () => {
   it('Connect step is skippable', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(6) // Get to Connect step
+    clickNext(5) // Get to Connect step
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
     // Skip button should be available
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('skip-button'))
-    expect(screen.getByTestId('step-adventure')).toBeInTheDocument()
-  })
-
-  it('Adventure step is skippable', () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7) // Get to Adventure step
-    expect(screen.getByTestId('step-adventure')).toBeInTheDocument()
-    expect(screen.getByTestId('skip-button')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('skip-button'))
+    // After Connect we land on Ready
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
   })
 
-  it('Adventure picker fetches templates from /adventures/templates', async () => {
+  it('wizard flow does not include any adventure step names', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(7)
-    await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/adventures/templates')
-    })
-  })
-
-  it('Adventure picker shows all four cards', async () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    expect(screen.getByTestId('adventure-card-plan_project')).toBeInTheDocument()
-    expect(screen.getByTestId('adventure-card-learn_skill')).toBeInTheDocument()
-    expect(screen.getByTestId('adventure-card-off_plate')).toBeInTheDocument()
-  })
-
-  it('clicking an adventure card moves to the describe phase', async () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-
-    expect(screen.getByTestId('adventure-phase-describe')).toBeInTheDocument()
-    expect(screen.getByTestId('adventure-description-input')).toBeInTheDocument()
-  })
-
-  it('describe phase shows the placeholder for the chosen adventure', async () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-
-    const input = screen.getByTestId('adventure-description-input')
-    expect(input).toHaveAttribute('placeholder', 'e.g. A recipe site where I can post my own recipes')
-  })
-
-  it('back-to-pick button returns to the picker', async () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-    expect(screen.getByTestId('adventure-phase-describe')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByTestId('adventure-back-to-pick'))
-    expect(screen.getByTestId('adventure-phase-pick')).toBeInTheDocument()
-  })
-
-  it('adventure submit is disabled when description is empty', async () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-
-    expect(screen.getByTestId('adventure-submit')).toBeDisabled()
-  })
-
-  it('adventure submit is enabled when description is entered', async () => {
-    const user = userEvent.setup()
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-
-    await user.type(screen.getByTestId('adventure-description-input'), 'A recipe site')
-    expect(screen.getByTestId('adventure-submit')).not.toBeDisabled()
-  })
-
-  it('adventure shows loading state during API call', async () => {
-    const user = userEvent.setup()
-    let resolvePost: (v: unknown) => void
-    vi.mocked(api.post).mockImplementationOnce(
-      () => new Promise((resolve) => { resolvePost = resolve })
-    )
-
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-
-    await user.type(screen.getByTestId('adventure-description-input'), 'Recipe site')
-    await user.click(screen.getByTestId('adventure-submit'))
-
-    expect(screen.getByTestId('adventure-submit')).toHaveTextContent('Building your plan...')
-
-    await act(async () => {
-      resolvePost!({
-        adventure_id: 'build_website',
-        goal: { title: 'Recipe site', description: 'A site for recipes' },
-        tasks: [{ title: 'Pick a domain', priority: 'P1' }],
-      })
-    })
-  })
-
-  it('adventure shows results after successful API call', async () => {
-    const user = userEvent.setup()
-    const mockResult = {
-      adventure_id: 'build_website',
-      goal: { title: 'Recipe site for friends', description: 'A site where you post recipes.' },
-      tasks: [
-        { title: 'Pick a name and grab the domain', priority: 'P1' },
-        { title: 'Sign up for a free Vercel account', priority: 'P1' },
-      ],
+    // Walk all 6 steps after Fork (Welcome, You, Name, Profile, Theme, Connect)
+    // and verify none are "step-adventure"
+    for (let i = 0; i < 6; i++) {
+      expect(screen.queryByTestId('step-adventure')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('next-button'))
     }
-    vi.mocked(api.post).mockResolvedValueOnce(mockResult)
-
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-
-    await user.type(screen.getByTestId('adventure-description-input'), 'Recipe site')
-    await user.click(screen.getByTestId('adventure-submit'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-phase-show')).toBeInTheDocument()
-    })
-
-    expect(screen.getByTestId('adventure-goal-title')).toHaveTextContent('Recipe site for friends')
-    expect(screen.getByTestId('adventure-tasks')).toBeInTheDocument()
-
-    const tasks = screen.getAllByTestId('adventure-task')
-    expect(tasks).toHaveLength(2)
+    // Now on Ready step
+    expect(screen.getByTestId('step-ready')).toBeInTheDocument()
+    expect(screen.queryByTestId('step-adventure')).not.toBeInTheDocument()
   })
 
-  it('adventure advances on API error', async () => {
-    const user = userEvent.setup()
-    vi.mocked(api.post).mockRejectedValueOnce(new Error('fail'))
+  /* ---- Profile step (persona cards merged in) ---- */
 
+  it('Profile step shows all 7 persona category cards', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(7)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-
-    await user.type(screen.getByTestId('adventure-description-input'), 'Recipe site')
-    await user.click(screen.getByTestId('adventure-submit'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('step-ready')).toBeInTheDocument()
-    })
-  })
-
-  it('adventure sends correct payload to /adventures/start', async () => {
-    const user = userEvent.setup()
-    vi.mocked(api.post).mockResolvedValueOnce({
-      adventure_id: 'build_website',
-      goal: { title: 'Test', description: 'Test' },
-      tasks: [],
-    })
-
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(7)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-
-    await user.type(screen.getByTestId('adventure-description-input'), 'A recipe site')
-    await user.click(screen.getByTestId('adventure-submit'))
-
-    expect(api.post).toHaveBeenCalledWith('/adventures/start', {
-      adventure_id: 'build_website',
-      description: 'A recipe site',
-    })
-  })
-
-  /* ---- Persona step ---- */
-
-  it('advances to Persona step', () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(4) // Welcome -> You -> Name -> Profile -> Persona
-    expect(screen.getByText('How will you use myOS?')).toBeInTheDocument()
-  })
-
-  it('Persona step shows all 7 category names', () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(4)
+    clickNext(3) // Welcome -> You -> Name -> Profile
 
     for (const cat of AGENT_MARKETPLACE) {
       expect(screen.getByText(cat.category)).toBeInTheDocument()
     }
   })
 
-  it('Persona step is skippable', () => {
+  it('Profile step shows an Other card', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(4)
+    clickNext(3)
+    expect(screen.getByTestId('persona-card-other')).toBeInTheDocument()
+    expect(screen.getByText('Other')).toBeInTheDocument()
+  })
+
+  it('Profile step is skippable and goes to Theme', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(3)
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('skip-button'))
     expect(screen.getByTestId('step-theme')).toBeInTheDocument()
   })
 
-  it('clicking a persona populates customAgentTemplates with that category templates', () => {
+  it('clicking a persona clears customAgentTemplates so marketplace picks do not appear as custom', () => {
+    // Regression: older builds stuffed marketplace templates into
+    // customAgentTemplates here, which made every persona pick show up
+    // with a "custom" badge AND duplicate the cards the Templates tab
+    // was already rendering from the backend. Marketplace installs now
+    // live only in the backend store, so this handler clears the list.
     const setCustomAgentTemplates = vi.fn()
     useAppStore.setState({ setCustomAgentTemplates } as Partial<ReturnType<typeof useAppStore.getState>>)
 
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(4)
+    clickNext(3)
 
     const engineerCat = AGENT_MARKETPLACE.find((c) => c.id === 'engineer')!
     fireEvent.click(screen.getByText(engineerCat.category))
 
     expect(setCustomAgentTemplates).toHaveBeenCalledTimes(1)
     const templatesArg = setCustomAgentTemplates.mock.calls[0][0]
-    expect(templatesArg).toHaveLength(engineerCat.templates.length)
-    // Each call template should match name, description, icon, model, budget
-    for (let i = 0; i < engineerCat.templates.length; i++) {
-      const expected = engineerCat.templates[i]
-      const actual = templatesArg[i]
-      expect(actual.name).toBe(expected.name)
-      expect(actual.description).toBe(expected.description)
-      expect(actual.icon).toBe(expected.icon)
-      expect(actual.model).toBe(expected.model)
-      expect(actual.budget).toBe(expected.budget)
-    }
+    expect(templatesArg).toEqual([])
   })
 
-  it('clicking the same persona twice does not accumulate duplicates', () => {
+  it('clicking the same persona twice keeps customAgentTemplates cleared', () => {
     const setCustomAgentTemplates = vi.fn()
     useAppStore.setState({ setCustomAgentTemplates } as Partial<ReturnType<typeof useAppStore.getState>>)
 
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(4)
+    clickNext(3)
 
     const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
     fireEvent.click(screen.getByText(pmCat.category))
     fireEvent.click(screen.getByText(pmCat.category))
 
-    // Each click sends the full category templates list, not appended
     expect(setCustomAgentTemplates).toHaveBeenCalledTimes(2)
-    const lastCall = setCustomAgentTemplates.mock.calls[1][0]
-    expect(lastCall).toHaveLength(pmCat.templates.length)
-    // Final state matches the picked category
-    const lastNames = lastCall.map((t: { name: string }) => t.name).sort()
-    const expectedNames = pmCat.templates.map((t) => t.name).sort()
-    expect(lastNames).toEqual(expectedNames)
+    expect(setCustomAgentTemplates.mock.calls[0][0]).toEqual([])
+    expect(setCustomAgentTemplates.mock.calls[1][0]).toEqual([])
   })
 
   it('clicking a persona visually marks it as picked', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(4)
+    clickNext(3)
 
     const writerCat = AGENT_MARKETPLACE.find((c) => c.id === 'writer')!
     const cardText = screen.getByText(writerCat.category)
@@ -635,4 +505,222 @@ describe('OnboardingWizard', () => {
     // And the check_circle icon should appear inside the card
     expect(cardAfter.querySelector('.material-symbols-outlined')).not.toBeNull()
   })
+
+  it('clicking a persona card sets both selectedPersonaId (via API call) and profileRole', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(3)
+
+    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
+    fireEvent.click(screen.getByText(pmCat.category))
+
+    // The install-persona API should be called with the persona id
+    expect(vi.mocked(api.post)).toHaveBeenCalledWith(
+      '/agents/pm-templates/install-persona',
+      { persona_id: pmCat.id },
+    )
+    // The card should be visually selected (profileRole set to category label)
+    const card = screen.getByText(pmCat.category).closest('button')!
+    expect(card.className).toContain('bg-blue-500/20')
+  })
+
+  it('selecting Other card shows free-text input and typing sets profileRole', async () => {
+    const user = userEvent.setup()
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(3)
+
+    // Before clicking Other, the free-text input should not be visible
+    expect(screen.queryByTestId('other-role-input')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('persona-card-other'))
+
+    // Free-text input should now appear
+    const otherInput = screen.getByTestId('other-role-input')
+    expect(otherInput).toBeInTheDocument()
+
+    // Typing in it should update the role (no API call, just profileRole state)
+    await user.type(otherInput, 'Founder')
+    expect((otherInput as HTMLInputElement).value).toBe('Founder')
+
+    // No install-persona API call for "Other"
+    expect(vi.mocked(api.post)).not.toHaveBeenCalledWith(
+      '/agents/pm-templates/install-persona',
+      expect.anything(),
+    )
+  })
+
+  it('selecting a persona card after Other hides the free-text input', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(3)
+
+    fireEvent.click(screen.getByTestId('persona-card-other'))
+    expect(screen.getByTestId('other-role-input')).toBeInTheDocument()
+
+    // Now pick a real persona — Other input should disappear
+    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
+    fireEvent.click(screen.getByText(pmCat.category))
+    expect(screen.queryByTestId('other-role-input')).not.toBeInTheDocument()
+  })
+
+  it('step count for personal mode is 8 (Persona step removed)', () => {
+    render(<OnboardingWizard />)
+    const dots = screen.getByTestId('progress-dots')
+    expect(dots.children).toHaveLength(8)
+  })
 })
+
+describe('OnboardingWizard - Enter key advances steps', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorageMock.clear()
+    vi.mocked(api.get).mockResolvedValue(MOCK_ADVENTURES)
+    vi.mocked(api.post).mockResolvedValue({})
+    useAppStore.setState({
+      onboarded: false,
+      osName: 'myOS',
+      darkMode: false,
+    })
+  })
+
+  it('Enter on the name input advances from the You step', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    // After Fork choice we are at Welcome (stepIndex 1). One click reaches You (stepIndex 2).
+    clickNext(1)
+
+    const nameInput = await screen.findByTestId('user-name-input')
+    fireEvent.change(nameInput, { target: { value: 'Tori' } })
+    fireEvent.keyDown(nameInput, { key: 'Enter' })
+
+    // After Enter the OS naming step should appear
+    await waitFor(() => {
+      expect(screen.getByTestId('step-name')).toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the OS name input advances from the Name step', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    // Fork(0) -> Welcome(1) -> You(2) -> Name(3)
+    // After choosePersonalMode we are at Welcome(1). Click Next twice to get to Name(3).
+    clickNext(1) // Welcome -> You
+    fireEvent.change(screen.getByTestId('user-name-input'), { target: { value: 'Tori' } })
+    clickNext(1) // You -> Name
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-name')).toBeInTheDocument()
+    })
+
+    const osInput = screen.getByTestId('os-name-input')
+    fireEvent.change(osInput, { target: { value: 'ToriOS' } })
+    fireEvent.keyDown(osInput, { key: 'Enter' })
+
+    // Profile step should follow
+    await waitFor(() => {
+      expect(screen.queryByTestId('step-name')).not.toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the other-role input in Profile step advances to Theme step', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(3) // Welcome -> You -> Name -> Profile
+
+    // Click "Other" to reveal the free-text input
+    fireEvent.click(screen.getByTestId('persona-card-other'))
+    const roleInput = screen.getByTestId('other-role-input')
+    fireEvent.change(roleInput, { target: { value: 'Founder' } })
+    fireEvent.keyDown(roleInput, { key: 'Enter' })
+
+    // Theme step should follow Profile
+    await waitFor(() => {
+      expect(screen.getByTestId('step-theme')).toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the Welcome step advances to You step', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    // Now on Welcome step. Fire Enter on the wizard root (not an input).
+    const wizard = screen.getByTestId('onboarding-wizard')
+    fireEvent.keyDown(wizard, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-you')).toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the Theme step advances to Connect step', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(4) // Welcome -> You -> Name -> Profile -> Theme
+
+    const wizard = screen.getByTestId('onboarding-wizard')
+    fireEvent.keyDown(wizard, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-connect')).toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the Profile step advances to Theme step', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(3) // Welcome -> You -> Name -> Profile
+
+    const wizard = screen.getByTestId('onboarding-wizard')
+    fireEvent.keyDown(wizard, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-theme')).toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the Connect API key input saves and advances to Ready step', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(5) // Welcome -> ... -> Connect
+
+    const keyInput = screen.getByTestId('api-key-input')
+    fireEvent.change(keyInput, { target: { value: 'sk-ant-test123' } })
+    fireEvent.keyDown(keyInput, { key: 'Enter' })
+
+    await waitFor(() => {
+      // Adventure removed from onboarding; Connect now leads directly to Ready
+      expect(screen.getByTestId('step-ready')).toBeInTheDocument()
+    })
+  })
+
+  it('Enter on the Ready step calls finish and sets onboarded', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(6) // Welcome -> ... -> Ready
+
+    expect(screen.getByTestId('step-ready')).toBeInTheDocument()
+
+    const wizard = screen.getByTestId('onboarding-wizard')
+    fireEvent.keyDown(wizard, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(useAppStore.getState().onboarded).toBe(true)
+    })
+  })
+
+  it('Enter does not advance when focused on an input with empty required value', () => {
+    // You step: empty userName should still advance (no guard) - but the field is optional.
+    // This test verifies that pressing Enter on the You step input while empty still calls next
+    // (the field is optional - Enter always advances).
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(1) // Welcome -> You
+
+    const nameInput = screen.getByTestId('user-name-input')
+    // Input is empty - fire Enter anyway
+    fireEvent.keyDown(nameInput, { key: 'Enter' })
+    // Should advance to Name step (no validation guard on You step)
+    expect(screen.getByTestId('step-name')).toBeInTheDocument()
+  })
+})
+

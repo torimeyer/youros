@@ -9,13 +9,25 @@
 # 3011 while the browser stays on 3010 talking to the zombie. Every
 # request hangs. Needle 287.
 #
-# Fix: skip npm entirely. exec node node_modules/.bin/vite directly
+# Fix: skip npm entirely. Run node node_modules/.bin/vite directly
 # so there is ONE process; killing it frees the port. Also kill any
 # existing listener on 3010 first as a belt-and-braces safeguard for
 # the case where an earlier run leaked a zombie.
 #
+# NOTE: do NOT use ``exec`` here. When vite.config.ts changes, Vite
+# restarts itself internally but the new child process can die if
+# there is a momentary compile error or a port-free race. With exec,
+# there is no parent to catch that exit. Without exec the shell
+# wrapper remains alive and watch-frontend.sh can restart it.
+#
 # Usage:
-#   scripts/dev-frontend.sh         # starts Vite on port 3010
+#   scripts/dev-frontend.sh         # starts Vite on port 3010 (one shot)
+#   scripts/watch-frontend.sh       # resilient loop (use for demos)
+#
+# HTTPS cert: if Chrome shows "Not Secure", run once:
+#   scripts/setup-localhost-cert.sh
+# That script installs a trusted local CA (via mkcert) or trusts the
+# existing self-signed cert via the macOS Keychain. No vite changes needed.
 
 set -e
 set +m 2>/dev/null  # suppress job-control noise ([N] PID lines)
@@ -47,6 +59,7 @@ if [ -n "$stale_pids" ]; then
 fi
 
 cd "$APP_DIR"
-# exec replaces this shell with the Vite Node process. Only ONE
-# process in the tree = interact kill frees the port every time.
-exec node "$VITE_BIN"
+# Run (not exec) so the shell wrapper stays alive. A non-zero exit from
+# Vite (e.g. after a failed config-change restart) propagates to the
+# caller, letting watch-frontend.sh detect the crash and re-launch.
+node "$VITE_BIN"

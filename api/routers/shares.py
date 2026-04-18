@@ -14,6 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from services import recent_deletes
 from services.shares import shares_store
 from services.ostk import ostk, OstkError
 from services.labels_store import labels_store
@@ -191,4 +192,5 @@ async def delete_share(token: str):
     deleted = shares_store.delete_share(token)
     if not deleted:
         raise HTTPException(status_code=404, detail="Share not found")
+    recent_deletes.record_id(f"share:{token}")
     return {"result": "revoked"}

@@ -91,12 +91,18 @@ def _build_gmail_service():
         ) from exc
 
     tokens = get_credentials()
+    client_config = {}
+    try:
+        from services.google_auth import _load_client_config
+        client_config = _load_client_config()
+    except Exception:
+        pass
     creds = Credentials(
         token=tokens.get("access_token"),
         refresh_token=tokens.get("refresh_token"),
         token_uri="https://oauth2.googleapis.com/token",
-        client_id=None,
-        client_secret=None,
+        client_id=client_config.get("client_id"),
+        client_secret=client_config.get("client_secret"),
     )
     return build("gmail", "v1", credentials=creds)
 
@@ -473,6 +479,106 @@ async def mark_read(message_id: str) -> None:
     # Invalidate both caches so the next fetch reflects the change.
     _clear_cache()
     invalidate_full_inbox_cache()
+
+
+def _trash_message_sync(message_id: str) -> None:
+    """Synchronous call to move a message to Trash.
+
+    Matches Gmail's own "Delete" button behavior. The message is removed
+    from the inbox view but can still be recovered from Trash for 30 days
+    before Gmail auto purges it.
+    """
+    service = _build_gmail_service()
+    service.users().messages().trash(
+        userId="me",
+        id=message_id,
+    ).execute()
+
+
+async def trash_message(message_id: str) -> None:
+    """Move a Gmail message to Trash (recoverable for 30 days)."""
+    await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _trash_message_sync(message_id)
+    )
+    # Invalidate both caches so the trashed message stops showing in the
+    # inbox list on the next fetch.
+    _clear_cache()
+    invalidate_full_inbox_cache()
+
+
+def _permanent_delete_sync(message_id: str) -> None:
+    """Synchronous call to permanently delete a message. No undo."""
+    service = _build_gmail_service()
+    service.users().messages().delete(
+        userId="me",
+        id=message_id,
+    ).execute()
+
+
+async def permanent_delete_message(message_id: str) -> None:
+    """Permanently delete a Gmail message. Not recoverable."""
+    await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _permanent_delete_sync(message_id)
+    )
+    _clear_cache()
+    invalidate_full_inbox_cache()
+
+
+def _search_messages_sync(query: str, max_results: int = 25) -> list[dict]:
+    """Synchronous search across the user's mailbox.
+
+    Uses Gmail's search syntax so the query can contain operators like
+    ``from:amazon subject:marketing`` as well as plain keywords. Results
+    are returned newest first with the same summary shape as the inbox
+    endpoint.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    service = _build_gmail_service()
+    list_result = (
+        service.users().messages()
+        .list(
+            userId="me",
+            q=query,
+            maxResults=max_results,
+            fields="messages(id,threadId)",
+        )
+        .execute()
+    )
+    refs = list_result.get("messages", []) or []
+    if not refs:
+        return []
+
+    def _get_one(ref: dict) -> dict | None:
+        try:
+            local_service = _build_gmail_service()
+            return (
+                local_service.users().messages()
+                .get(
+                    userId="me",
+                    id=ref["id"],
+                    format="metadata",
+                    metadataHeaders=["subject", "from", "date"],
+                    fields="id,threadId,snippet,labelIds,payload/headers",
+                )
+                .execute()
+            )
+        except Exception:
+            return None
+
+    pool_size = min(len(refs), 10)
+    raw_messages: list[dict | None] = [None] * len(refs)
+    with ThreadPoolExecutor(max_workers=pool_size) as pool:
+        for idx, raw in enumerate(pool.map(_get_one, refs)):
+            raw_messages[idx] = raw
+    return [_parse_message(r) for r in raw_messages if r is not None]
+
+
+async def search_messages(query: str, max_results: int = 25) -> list[dict]:
+    """Search Gmail using Gmail query syntax. Returns message summaries."""
+    return await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _search_messages_sync(query, max_results)
+    )
 
 
 def _fetch_message_full_sync(message_id: str) -> dict:

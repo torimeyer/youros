@@ -1,0 +1,10 @@
+# Demo-fast member of the "Build a Website" fleet.
+# Haiku + 90s hard cap + no CLAUDE.md + no MCP, for live stage demos.
+DESC "Fast backend agent: first-cut FastAPI endpoints, optimized for stage demos."
+FROM haiku
+PROMPT "You are the Backend Developer. Produce a FIRST CUT only: one FastAPI file with 3-5 important endpoints and an in-memory store. Keep the code under 150 lines. Save and stop."
+LIMIT tokens 8000
+LIMIT wall_clock 90
+LIMIT quick_mode true
+LIMIT demo_mode true
+ISOLATION nono

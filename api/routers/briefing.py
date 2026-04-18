@@ -66,13 +66,38 @@ async def _generate_in_background() -> None:
         _generating = False
 
 
+async def _maybe_regenerate_if_changed() -> None:
+    """If the task count changed since the cache was built, trigger a
+    fresh briefing generation. Runs in the background so the GET handler
+    never blocks on the ostk list_tasks subprocess spawn.
+    """
+    try:
+        if not await _task_count_changed():
+            return
+    except Exception:
+        logger.exception("task count check failed")
+        return
+    if (
+        _last_generated_at
+        and (time.monotonic() - _last_generated_at) < _REGENERATE_COOLDOWN_SECONDS
+    ):
+        return
+    asyncio.create_task(_generate_in_background())
+
+
 @router.get("/briefing")
 async def get_briefing():
     """Return today's briefing if it should be shown.
 
-    If the briefing is already cached for today, returns it instantly.
-    If not, returns show=true with briefing=null and kicks off background
-    generation. The frontend polls and picks it up within a few seconds.
+    Fast path: if a cached briefing exists for today, return it instantly
+    without awaiting anything. Staleness is checked in a background task
+    and a fresh generation is fired if the task count changed. The user
+    sees the old briefing immediately and the next GET picks up the new
+    one when it finishes.
+
+    Cold path: no cache for today. Return show=true with briefing=null and
+    kick off background generation. The frontend polls and picks it up
+    within a few seconds.
 
     Response shape: { show, briefing, action_items }
     """
@@ -81,18 +106,23 @@ async def get_briefing():
 
     cached = get_cached_briefing()
     action_items = get_cached_action_items() or []
-    if cached and not await _task_count_changed():
+
+    if cached:
+        # Return the cached briefing right now. Check for staleness and
+        # potentially regenerate in the background so this handler stays
+        # under a few milliseconds on the happy path.
+        asyncio.create_task(_maybe_regenerate_if_changed())
         return {"show": True, "briefing": cached, "action_items": action_items}
 
     # Cooldown: if we just fired a generation within the last 2 min,
-    # do not spawn another one. Return the stale cache (if any) so the
-    # UI shows something instead of spinning a second parallel Claude
-    # call that would land on top of the first.
+    # do not spawn another one. Return null briefing so the frontend
+    # keeps polling instead of spinning a second parallel Claude call
+    # that would land on top of the first.
     if (
         _last_generated_at
         and (time.monotonic() - _last_generated_at) < _REGENERATE_COOLDOWN_SECONDS
     ):
-        return {"show": True, "briefing": cached, "action_items": action_items}
+        return {"show": True, "briefing": None, "action_items": action_items}
 
     # Return immediately, generate in background
     asyncio.create_task(_generate_in_background())

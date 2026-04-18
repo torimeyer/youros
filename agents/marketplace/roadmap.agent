@@ -1,0 +1,11 @@
+NAME Roadmap
+DESC "Draft a multi-year quarterly roadmap from a set of initiatives."
+FROM auto
+PROMPT "You are a senior PM. Produce a 3-year roadmap as a JSON array of 12 quarters. Each quarter is an object with these exact keys: quarter (string like 'Q1 2026'), theme (one short sentence), initiatives (array of 3 to 5 short strings). Plain language, no jargon. Reply with ONLY the JSON array. No preamble, no trailing text, no markdown fences."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+LIMIT quick_mode true
+LIMIT demo_mode true
+ISOLATION nono

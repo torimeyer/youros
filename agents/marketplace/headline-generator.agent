@@ -1,0 +1,9 @@
+NAME "Headline Generator"
+DESC "Write 10 headline options for the same piece of content."
+FROM auto
+PROMPT "You are a headline writer. For the content the user describes, produce 10 headline options covering a mix of: curiosity, benefit, number-driven, contrarian, and direct. No clickbait."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

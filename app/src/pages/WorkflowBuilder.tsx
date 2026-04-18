@@ -20,6 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import { api } from "../lib/api";
+import { Button, LoadingState } from "../components/ui";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -336,7 +337,7 @@ export default function WorkflowBuilder() {
         );
         setWorkflowStatus(wf.status);
       } catch {
-        showMessage("Could not load automation.", "error");
+        showMessage("Could not load automation. Check that the backend is running and try again.", "error");
       }
     };
     load();
@@ -442,7 +443,7 @@ export default function WorkflowBuilder() {
         showMessage("Automation saved.");
       }
     } catch {
-      showMessage("Could not save automation.", "error");
+      showMessage("Could not save automation. Check your connection and try again.", "error");
     } finally {
       setSaving(false);
     }
@@ -476,7 +477,7 @@ export default function WorkflowBuilder() {
         setWorkflowId(wfId);
         navigate(`/workflows/builder/${wfId}`, { replace: true });
       } catch {
-        showMessage("Could not save automation.", "error");
+        showMessage("Could not save automation. Check your connection and try again.", "error");
         setSaving(false);
         return;
       } finally {
@@ -492,7 +493,7 @@ export default function WorkflowBuilder() {
       showMessage("Automation started.");
     } catch {
       setRunning(false);
-      showMessage("Could not start automation.", "error");
+      showMessage("Could not start automation. Check your connection and try again.", "error");
     }
   };
 
@@ -519,49 +520,53 @@ export default function WorkflowBuilder() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <button
+              <Button
+                variant="secondary"
+                size="md"
                 onClick={handleSave}
                 disabled={saving || isRunning}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg transition-colors disabled:opacity-40"
+                loading={saving}
               >
                 <Icon name="save" className="text-base" />
                 {saving ? "Saving..." : "Save"}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
                 onClick={handleRun}
                 disabled={isRunning || saving}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40"
+                loading={isRunning}
               >
-                <Icon name={isRunning ? "hourglass_empty" : "play_arrow"} className="text-base" />
+                <Icon name="play_arrow" className="text-base" />
                 {isRunning ? "Running..." : "Run automation"}
-              </button>
+              </Button>
             </div>
           </div>
 
           {/* Workflow status banner */}
           {workflowStatus && workflowStatus !== "pending" && (
-            <div
-              className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
-                workflowStatus === "running"
-                  ? "bg-blue-500/10 text-blue-300"
-                  : workflowStatus === "done"
-                  ? "bg-green-500/10 text-green-400"
-                  : workflowStatus === "failed"
-                  ? "bg-red-500/10 text-red-400"
-                  : "bg-slate-800 text-slate-400"
-              }`}
-            >
-              {workflowStatus === "running" && (
-                <Icon name="hourglass_empty" className="text-base animate-spin" />
-              )}
-              {workflowStatus === "done" && <Icon name="check_circle" className="text-base" />}
-              {workflowStatus === "failed" && <Icon name="error" className="text-base" />}
-              <span>
-                {workflowStatus === "running" && "Automation is running..."}
-                {workflowStatus === "done" && "Automation finished successfully."}
-                {workflowStatus === "failed" && "Automation failed. Check steps below."}
-              </span>
-            </div>
+            workflowStatus === "running" ? (
+              <div className="mb-4" data-testid="workflow-loading-state">
+                <LoadingState variant="spinner" message="Automation is running..." />
+              </div>
+            ) : (
+              <div
+                className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
+                  workflowStatus === "done"
+                    ? "bg-green-500/10 text-green-400"
+                    : workflowStatus === "failed"
+                    ? "bg-red-500/10 text-red-400"
+                    : "bg-slate-800 text-slate-400"
+                }`}
+              >
+                {workflowStatus === "done" && <Icon name="check_circle" className="text-base" />}
+                {workflowStatus === "failed" && <Icon name="error" className="text-base" />}
+                <span>
+                  {workflowStatus === "done" && "Automation finished successfully."}
+                  {workflowStatus === "failed" && "Automation failed. Check steps below."}
+                </span>
+              </div>
+            )
           )}
 
           {/* Message */}

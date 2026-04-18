@@ -19,15 +19,8 @@ interface SearchTask {
   title: string
 }
 
-interface SearchIdea {
-  straw: string
-  timestamp: string
-  converted: boolean
-}
-
 interface SearchResults {
   tasks: SearchTask[]
-  ideas: SearchIdea[]
   query: string
 }
 
@@ -57,7 +50,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const commands = useMemo<Command[]>(() => [
     { id: 'nav-home', label: 'Go to Home', icon: 'home', section: 'Navigate', action: () => { navigate('/'); onClose() } },
     { id: 'nav-tasks', label: 'Go to Tasks', icon: 'checklist', section: 'Navigate', action: () => { navigate('/tasks'); onClose() } },
-    { id: 'nav-ideas', label: 'Go to Ideas', icon: 'lightbulb', section: 'Navigate', action: () => { navigate('/ideas'); onClose() } },
     { id: 'nav-agents', label: 'Go to Agents', icon: 'smart_toy', section: 'Navigate', action: () => { navigate('/agents'); onClose() } },
     { id: 'nav-timeline', label: 'Go to Timeline', icon: 'timeline', section: 'Navigate', action: () => { navigate('/timeline'); onClose() } },
     { id: 'nav-files', label: 'Go to Files', icon: 'folder', section: 'Navigate', action: () => { navigate('/files'); onClose() } },
@@ -114,7 +106,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const totalItems = useMemo(() => {
     let count = filtered.length
     if (searchResults) {
-      count += searchResults.tasks.length + searchResults.ideas.length
+      count += searchResults.tasks.length
     }
     return count
   }, [filtered.length, searchResults])
@@ -165,13 +157,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         onClose()
         return
       }
-      // Then search result ideas
-      const ideaOffset = searchOffset - searchResults.tasks.length
-      if (ideaOffset < searchResults.ideas.length) {
-        navigate('/ideas')
-        onClose()
-        return
-      }
     }
   }, [filtered, searchResults, navigate, onClose])
 
@@ -214,7 +199,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   // Compute a flat index for each item so section headers don't break selection
   let flatIndex = 0
 
-  const hasSearchContent = searchResults && (searchResults.tasks.length > 0 || searchResults.ideas.length > 0)
+  const hasSearchContent = searchResults && searchResults.tasks.length > 0
   const showSearchSection = query.trim().length >= 2
 
   return (
@@ -336,45 +321,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 </div>
               )}
 
-              {/* Matching ideas */}
-              {searchResults && searchResults.ideas.length > 0 && (
-                <div data-testid="search-ideas-section">
-                  <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 border-t border-slate-800 mt-1 pt-2">
-                    Matching Ideas
-                  </div>
-                  {searchResults.ideas.map((idea, i) => {
-                    const idx = flatIndex++
-                    const isSelected = idx === selectedIndex
-                    return (
-                      <button
-                        key={`idea-${i}`}
-                        data-command-item
-                        onClick={() => { navigate('/ideas'); onClose() }}
-                        onMouseEnter={() => setSelectedIndex(idx)}
-                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-blue-500/20 text-blue-100'
-                            : 'text-slate-300 hover:bg-slate-800/50'
-                        }`}
-                        data-testid={`search-idea-${i}`}
-                      >
-                        <Icon name="lightbulb" className={`text-lg ${isSelected ? 'text-blue-400' : idea.converted ? 'text-green-500' : 'text-yellow-500'}`} />
-                        <span className="flex-1 text-left">
-                          {idea.straw}
-                          {idea.converted && (
-                            <span className="ml-2 text-xs text-green-500">(turned into a task)</span>
-                          )}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-
               {/* No search results */}
-              {searchResults && searchResults.tasks.length === 0 && searchResults.ideas.length === 0 && !searchLoading && (
+              {searchResults && searchResults.tasks.length === 0 && !searchLoading && (
                 <div className="px-4 py-3 text-sm text-slate-500 border-t border-slate-800 mt-1 pt-2" data-testid="search-no-results">
-                  No matching tasks or ideas found.
+                  No matching tasks found.
                 </div>
               )}
             </>

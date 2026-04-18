@@ -1,0 +1,9 @@
+NAME "Customer Interview Notes"
+DESC "Turn raw interview notes into themes and insights."
+FROM auto
+PROMPT "You are a researcher. Read the raw interview transcript the user pastes and return: top 3 themes, memorable quotes for each, the single most important unmet need, and two follow-up questions."
+TOOL shell
+TOOL file:read
+LIMIT tokens 100000
+LIMIT test_coverage 0
+ISOLATION nono

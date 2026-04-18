@@ -1,9 +1,359 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from 'react'
+import { Link } from 'react-router-dom'
 import TopBar from '../components/TopBar'
 import Icon from '../components/Icon'
+import TimeFilter, { type TimePeriod } from '../components/TimeFilter'
 import { api } from '../lib/api'
+import { useAppStore } from '../stores/app'
 
-type Period = 'today' | 'week' | 'month' | 'all'
+/** Contextual suggestions based on current numbers, ordered by severity. */
+function SuggestionTips({ savings, totalTokens }: { savings: SavingsData; totalTokens: number }) {
+  const cacheRate = savings.cache_efficiency_pct ?? 0
+  const suggestions: { icon: string; color: string; text: string }[] = []
+
+  if (totalTokens === 0) {
+    suggestions.push({
+      icon: 'tips_and_updates',
+      color: 'text-slate-400',
+      text: 'No usage yet. Spawn an agent or open chat to see stats.',
+    })
+  } else {
+    if (cacheRate < 40) {
+      suggestions.push({
+        icon: 'warning',
+        color: 'text-yellow-400',
+        text: 'Low cache reuse. The AI is re-reading the same setup every turn. Save your standing instructions in Settings so it remembers between messages.',
+      })
+    }
+    if (cacheRate >= 40) {
+      suggestions.push({
+        icon: 'check_circle',
+        color: 'text-green-400',
+        text: 'Cache reuse is healthy. Keep having longer multi-turn conversations to hold the rate high.',
+      })
+    }
+  }
+
+  // Cap at 3
+  const shown = suggestions.slice(0, 3)
+
+  return (
+    <div data-testid="suggestions-section" className="mt-5 pt-4 border-t border-slate-800">
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Suggestions</p>
+      <div className="space-y-2">
+        {shown.map((s, i) => (
+          <div key={i} className="flex items-start gap-2 text-sm text-slate-300">
+            <Icon name={s.icon} size={16} className={`${s.color} mt-0.5 shrink-0`} />
+            <p>{s.text}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Contextual tips for improving token savings. */
+function OptimizationTips({ savings }: { savings: SavingsData }) {
+  const [showTips, setShowTips] = useState(false)
+  const cacheRate = savings.cache_efficiency_pct ?? 0
+  const compressionRate = savings.compression_pct ?? 0
+  const convCache = savings.conversation_cache_pct ?? 0
+  const tips: string[] = []
+
+  if (cacheRate < 50) {
+    tips.push('Keep longer conversations instead of starting new ones. Each new chat has to send the full context from scratch.')
+  } else if (cacheRate < 80) {
+    tips.push('Your cache hit rate is good. Reuse agent templates instead of writing new prompts each time to push it higher.')
+  } else {
+    tips.push('Your cache hit rate is excellent. ostk is reusing most of your context efficiently.')
+  }
+  if (compressionRate < 10) {
+    tips.push('History compression is low right now. As your activity grows, compression kicks in automatically.')
+  } else {
+    tips.push('History compression is working well. Your audit trail is ' + compressionRate.toFixed(0) + '% smaller than raw.')
+  }
+  if (convCache < 1) {
+    tips.push('Have longer multi-turn conversations to take advantage of conversation caching. Short one-off questions can\'t be cached.')
+  } else {
+    tips.push('Conversation caching is active. Longer sessions save more tokens as turns build on each other.')
+  }
+  tips.push('Use "saa" to spawn agents for complex tasks. Agents reuse cached system prompts across their entire run.')
+  tips.push('Specs that decompose into multiple tasks get the best cache efficiency because every agent shares the spec context.')
+
+  return (
+    <div className="mt-4">
+      <button
+        onClick={() => setShowTips(!showTips)}
+        className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+      >
+        <Icon name={showTips ? 'expand_less' : 'lightbulb'} size={16} />
+        {showTips ? 'Hide tips' : 'How to save more tokens'}
+      </button>
+      {showTips && (
+        <div className="mt-3 space-y-2">
+          {tips.map((tip, i) => (
+            <div key={i} className="flex items-start gap-2 text-sm text-slate-300">
+              <Icon name="check_circle" size={16} className="text-green-400 mt-0.5 shrink-0" />
+              <p>{tip}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Info icon that opens a rich popover explaining how a Usage-tab metric is
+ * calculated. Fetches /api/costs/explain/{metric}?period={period} on first
+ * open, then renders the formula, numerator, denominator, source, and a
+ * "why this might surprise you" note.
+ *
+ * Keyboard accessible: Enter/Space toggle, Escape closes, focus returns to
+ * the trigger. Announced to screen readers via role="dialog" and
+ * aria-describedby on the content.
+ */
+interface ExplainPayload {
+  metric: string
+  formula: string
+  numerator: { value: unknown; label: string; source: string }
+  denominator: { value: unknown; label: string; source: string } | null
+  result: unknown
+  result_label: string
+  window: string
+  note?: string | null
+}
+
+function formatExplainValue(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'number') return v.toLocaleString()
+  if (typeof v === 'string') return v
+  if (typeof v === 'object') {
+    // Object breakdown (e.g. input_tokens denominator)
+    return Object.entries(v as Record<string, unknown>)
+      .map(([k, val]) => `${k.replace(/_/g, ' ')}: ${typeof val === 'number' ? val.toLocaleString() : String(val)}`)
+      .join(', ')
+  }
+  return String(v)
+}
+
+function ExplainPopover({ metric, period, label }: { metric: string; period: string; label: string }) {
+  const [open, setOpen] = useState(false)
+  const [payload, setPayload] = useState<ExplainPayload | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [position, setPosition] = useState<'above' | 'below'>('above')
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    // Fetch fresh every time it opens so the numbers stay in sync with the
+    // period pill the user chose.
+    setLoading(true)
+    setError(null)
+    api.get<ExplainPayload>(`/costs/explain/${metric}?period=${period}`)
+      .then((res) => {
+        setPayload(res)
+        setLoading(false)
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : 'Could not load explanation')
+        setLoading(false)
+      })
+  }, [open, metric, period])
+
+  // Position the popover above or below based on viewport room.
+  useEffect(() => {
+    if (!open || !triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPosition(rect.top < 360 ? 'below' : 'above')
+  }, [open])
+
+  // Close on Escape or outside click.
+  useEffect(() => {
+    if (!open) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    function onClick(e: MouseEvent) {
+      const t = e.target as Node
+      if (
+        popoverRef.current && !popoverRef.current.contains(t) &&
+        triggerRef.current && !triggerRef.current.contains(t)
+      ) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onClick)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onClick)
+    }
+  }, [open])
+
+  const popoverStyle: CSSProperties = triggerRef.current
+    ? (() => {
+        const r = triggerRef.current.getBoundingClientRect()
+        const width = 340
+        // Keep the popover inside the viewport on the horizontal axis.
+        const left = Math.max(
+          8,
+          Math.min(
+            window.innerWidth - width - 8,
+            r.left + r.width / 2 - width / 2,
+          ),
+        )
+        return position === 'above'
+          ? { bottom: window.innerHeight - r.top + 8, left, width }
+          : { top: r.bottom + 8, left, width }
+      })()
+    : {}
+
+  return (
+    <span className="relative inline-flex items-center ml-1">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label={`Show how ${label} is calculated`}
+        className="inline-flex items-center cursor-help rounded-full hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        data-testid={`explain-trigger-${metric}`}
+      >
+        <Icon name="help_outline" size={14} className="text-slate-500 hover:text-slate-300 transition-colors" />
+      </button>
+      {open && (
+        <div
+          ref={popoverRef}
+          role="dialog"
+          aria-label={`How ${label} is calculated`}
+          className="fixed z-[9999] px-4 py-3 text-sm text-slate-200 bg-slate-800 border border-slate-700 rounded-lg shadow-xl"
+          style={popoverStyle}
+          data-testid={`explain-popover-${metric}`}
+        >
+          <div className="flex items-start justify-between mb-2 gap-2">
+            <p className="font-semibold text-white">{label}</p>
+            <button
+              type="button"
+              onClick={() => { setOpen(false); triggerRef.current?.focus() }}
+              aria-label="Close"
+              className="text-slate-400 hover:text-white -mt-0.5 -mr-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+          {loading && <p className="text-xs text-slate-400">Loading the math.</p>}
+          {error && <p className="text-xs text-red-300">{error}</p>}
+          {payload && (
+            <div className="space-y-2">
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-wide">Formula</p>
+                <p className="text-xs text-slate-200 leading-relaxed">{payload.formula}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-wide">Result</p>
+                <p className="text-lg font-bold text-blue-300" data-testid={`explain-result-${metric}`}>
+                  {payload.result_label}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-wide">
+                  {payload.denominator ? 'Numerator' : 'Count'}
+                </p>
+                <p className="text-xs text-slate-200">
+                  <span className="font-medium">{formatExplainValue(payload.numerator.value)}</span>
+                  <span className="text-slate-400"> ({payload.numerator.label})</span>
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">Source: {payload.numerator.source}</p>
+              </div>
+              {payload.denominator && (
+                <div>
+                  <p className="text-xs text-slate-400 uppercase tracking-wide">Denominator</p>
+                  <p className="text-xs text-slate-200">
+                    <span className="font-medium">{formatExplainValue(payload.denominator.value)}</span>
+                    <span className="text-slate-400"> ({payload.denominator.label})</span>
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">Source: {payload.denominator.source}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-wide">Window</p>
+                <p className="text-xs text-slate-200">{payload.window}</p>
+              </div>
+              {payload.note && (
+                <div className="pt-2 border-t border-slate-700">
+                  <p className="text-xs text-slate-400 italic leading-relaxed">{payload.note}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </span>
+  )
+}
+
+/** Small info icon that shows a tooltip on hover. */
+function InfoTooltip({ text }: { text: string }) {
+  const [visible, setVisible] = useState(false)
+  const [position, setPosition] = useState<'above' | 'below'>('above')
+  const iconRef = useRef<HTMLSpanElement>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function show() {
+    // Pick direction based on viewport room
+    if (iconRef.current) {
+      const rect = iconRef.current.getBoundingClientRect()
+      setPosition(rect.top < 120 ? 'below' : 'above')
+    }
+    timerRef.current = setTimeout(() => setVisible(true), 200)
+  }
+
+  function hide() {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    setVisible(false)
+  }
+
+  return (
+    <span
+      ref={iconRef}
+      className="relative inline-flex items-center ml-1 cursor-help"
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+      tabIndex={0}
+      role="button"
+      aria-label={text}
+    >
+      <Icon name="help_outline" size={14} className="text-slate-500 hover:text-slate-300 transition-colors" />
+      {visible && (
+        <span
+          className={`fixed z-[9999] w-56 px-3 py-2 text-xs leading-relaxed text-slate-200 bg-slate-800 border border-slate-700 rounded-lg shadow-lg pointer-events-none`}
+          style={{
+            ...(iconRef.current ? (() => {
+              const r = iconRef.current.getBoundingClientRect()
+              return position === 'above'
+                ? { bottom: window.innerHeight - r.top + 8, left: r.left + r.width / 2 - 112 }
+                : { top: r.bottom + 8, left: r.left + r.width / 2 - 112 }
+            })() : {}),
+          }}
+          role="tooltip"
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  )
+}
+
+type Period = TimePeriod
 
 interface ModelBreakdown {
   model: string
@@ -42,8 +392,23 @@ interface TypeBreakdown {
 
 interface CostData {
   total_budget: number
+  total_cost_usd?: number
   total_input_tokens: number
+  // Combined input total that includes reused context (cache reads) and
+  // cache creation. When prompt caching is on, almost all input tokens route
+  // through cache reads, so this is the honest "what I actually sent in" number
+  // for the Input tokens used tile. Optional to stay compatible with older
+  // backends that do not send it yet.
+  total_input_tokens_with_cache?: number
   total_output_tokens: number
+  total_cache_read_tokens?: number
+  total_cache_creation_tokens?: number
+  // Share of inbound context that came from the prompt cache rather than being
+  // re-sent fresh. Computed across the same dataset as the other tiles
+  // (audit log + Claude Code transcripts), so "Context reuse rate" and
+  // "Input tokens used" tell a consistent story. Falls back to
+  // SavingsData.cache_efficiency_pct on older backends.
+  context_reuse_pct?: number
   event_count: number
   agent_count: number
   by_model: ModelBreakdown[]
@@ -64,6 +429,10 @@ interface SavingsData {
   conversation_cache_tokens?: number
   conversation_cache_read_tokens?: number
   conversation_cache_creation_tokens?: number
+  subscription_savings_usd?: number
+  subscription_input_tokens?: number
+  subscription_output_tokens?: number
+  squash_tokens_saved?: number
   period?: string
 }
 
@@ -143,55 +512,240 @@ function formatTimestamp(ts: string): string {
   }
 }
 
-export default function CostTracking() {
-  const [data, setData] = useState<CostData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [period, setPeriod] = useState<Period>('all')
-  const [savings, setSavings] = useState<SavingsData | null>(null)
+const COST_CACHE_KEY = 'myos_cost_data_cache'
+// Both cost and savings are cached per-period so switching pills paints
+// instantly from localStorage without waiting for the network round trip.
+const COST_CACHE_KEY_PREFIX = 'myos_cost_data_cache'
+const SAVINGS_CACHE_KEY_PREFIX = 'myos_savings_data_cache'
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+function costCacheKey(period: Period): string {
+  return `${COST_CACHE_KEY_PREFIX}_${period}`
+}
+
+function savingsCacheKey(period: Period): string {
+  return `${SAVINGS_CACHE_KEY_PREFIX}_${period}`
+}
+
+// Legacy global cache (fallback for first render on existing installs).
+function loadCachedCostData(): CostData | null {
+  try {
+    const raw = localStorage.getItem(COST_CACHE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as CostData
+  } catch {
+    return null
+  }
+}
+
+function loadCachedCostDataForPeriod(period: Period): CostData | null {
+  try {
+    const raw = localStorage.getItem(costCacheKey(period))
+    if (!raw) return loadCachedCostData()
+    return JSON.parse(raw) as CostData
+  } catch {
+    return null
+  }
+}
+
+function saveCostDataToCache(d: CostData, period?: Period) {
+  try {
+    // Write both the legacy global key (first-paint seed on fresh mounts)
+    // and the per-period key (instant paint when switching filters).
+    localStorage.setItem(COST_CACHE_KEY, JSON.stringify(d))
+    if (period) {
+      localStorage.setItem(costCacheKey(period), JSON.stringify(d))
+    }
+  } catch {
+    // localStorage may be unavailable in some environments
+  }
+}
+
+function loadCachedSavingsData(period: Period): SavingsData | null {
+  try {
+    const raw = localStorage.getItem(savingsCacheKey(period))
+    if (!raw) return null
+    return JSON.parse(raw) as SavingsData
+  } catch {
+    return null
+  }
+}
+
+function saveSavingsDataToCache(d: SavingsData, period: Period) {
+  try {
+    localStorage.setItem(savingsCacheKey(period), JSON.stringify(d))
+  } catch {
+    // localStorage may be unavailable in some environments
+  }
+}
+
+export default function CostTracking() {
+  // Period is read first so savings seed uses the correct per-period cache key.
+  const [period, setPeriod] = useState<Period>(() => {
+    const saved = localStorage.getItem('myos_cost_period') as Period | null
+    return saved === 'today' || saved === 'week' || saved === 'month' || saved === 'all' ? saved : 'week'
+  })
+  // Seed from localStorage (per-period first, then legacy global) so both
+  // first paint and every filter swap are instant.
+  const [data, setData] = useState<CostData | null>(() => loadCachedCostDataForPeriod(period))
+  // Seed savings from localStorage (per-period) so the tile paints immediately.
+  const [savings, setSavings] = useState<SavingsData | null>(() => loadCachedSavingsData(period))
+  // `loading` is only true when there is no data at all (first ever load).
+  // `refreshing` is true during subsequent fetches so we can show a subtle
+  // indicator without blanking the existing data.
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  // fetchId increments on every period change. The effect captures its
+  // own snapshot; if a newer fetch fires before an older one resolves,
+  // the older one discards its stale response instead of overwriting state.
+  const fetchIdRef = useRef(0)
+  // savingsId increments on every period change so stale savings fetches are
+  // discarded the same way stale cost fetches are.
+  const savingsIdRef = useRef(0)
+
+  const { showBudgetCaps } = useAppStore()
+
+  const fetchData = useCallback(async (opts?: { initial?: boolean }) => {
+    const myId = ++fetchIdRef.current
+    if (opts?.initial && data !== null) {
+      // We already have cached data; show a subtle refreshing spinner.
+      setRefreshing(true)
+    } else if (data === null) {
+      setLoading(true)
+    } else {
+      setRefreshing(true)
+    }
     try {
       const res = await api.get<CostData>(`/costs?period=${period}`)
+      if (fetchIdRef.current !== myId) return // stale response, discard
       setData(res)
+      saveCostDataToCache(res, period)
     } catch (e) {
+      if (fetchIdRef.current !== myId) return
       console.error('Failed to fetch cost data:', e)
     } finally {
-      setLoading(false)
+      if (fetchIdRef.current === myId) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period])
 
   useEffect(() => {
-    fetchData()
+    fetchData({ initial: true })
   }, [fetchData])
 
+  // When the period changes, paint cached data for that period instantly
+  // so the filter swap feels immediate. The background refresh then comes
+  // in via fetchData and replaces the cached paint with the live numbers.
+  // This is the bulk of the "filter swap speed" win: no network wait before
+  // the new period's numbers show up.
   useEffect(() => {
+    const cached = loadCachedCostDataForPeriod(period)
+    if (cached) setData(cached)
+    // If there is no cached data for this period, keep whatever we had
+    // on screen so the UI never blanks during the background fetch.
+  }, [period])
+
+  // Re-fetch savings whenever the period changes, keyed per period.
+  useEffect(() => {
+    const myId = ++savingsIdRef.current
     let cancelled = false
+    // Paint from per-period localStorage cache immediately.
+    const cached = loadCachedSavingsData(period)
+    if (cached !== null) setSavings(cached)
     async function loadSavings() {
       try {
-        const res = await api.get<SavingsData>('/costs/savings')
-        if (!cancelled) setSavings(res)
+        const res = await api.get<SavingsData>(`/costs/savings?period=${period}`)
+        if (!cancelled && savingsIdRef.current === myId) {
+          setSavings(res)
+          saveSavingsDataToCache(res, period)
+        }
       } catch (e) {
         console.error('Failed to fetch savings data:', e)
-        if (!cancelled) setSavings({ available: false })
+        if (!cancelled && savingsIdRef.current === myId) setSavings(prev => prev ?? { available: false })
       }
     }
     loadSavings()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [period])
 
-  // Filter out days before token tracking started (they have budget but 0 tokens)
-  const trackedDays = data?.by_date.filter(d => (d.input_tokens || 0) + (d.output_tokens || 0) > 0) ?? []
-  const maxDayTokens = trackedDays.reduce((max, d) => Math.max(max, (d.input_tokens || 0) + (d.output_tokens || 0)), 0) || 1
+  // Derived values are memoized on the data reference so a filter swap (which
+  // only replaces `data` with a cached object) does not re-run the reducers
+  // and filters on every render pass. Same input produces reference-equal
+  // output, keeping the render cost of a filter swap small.
+  const trackedDays = useMemo(
+    () => data?.by_date.filter(d => (d.input_tokens || 0) + (d.output_tokens || 0) > 0) ?? [],
+    [data]
+  )
+  const maxDayTokens = useMemo(
+    () => trackedDays.reduce((max, d) => Math.max(max, (d.input_tokens || 0) + (d.output_tokens || 0)), 0) || 1,
+    [trackedDays]
+  )
 
   const cardClass =
     'bg-slate-900/40 border border-slate-800 p-6 rounded-xl hover:border-slate-700 transition-colors'
 
+  // Compute total tokens for the summary card. Use the combined input total
+  // (raw input + cache creation + cache reads) so the output percentage in
+  // the tile below is honest. Otherwise output looks huge compared to input
+  // whenever prompt caching is on.
+  const effectiveInputTokens = useMemo(
+    () => data?.total_input_tokens_with_cache
+      ?? ((data?.total_input_tokens ?? 0)
+        + (data?.total_cache_creation_tokens ?? 0)
+        + (data?.total_cache_read_tokens ?? 0)),
+    [data]
+  )
+  const totalTokens = effectiveInputTokens + (data?.total_output_tokens ?? 0)
+  const formattedTokens = totalTokens >= 1_000_000
+    ? `${(totalTokens / 1_000_000).toFixed(1)}M`
+    : totalTokens >= 1_000
+      ? `${(totalTokens / 1_000).toFixed(0)}K`
+      : String(totalTokens)
+
+  // Reverse the agent list once per data change so the Usage History table
+  // does not re-sort a 500+ row list on every single render.
+  const reversedAgents = useMemo(
+    () => (data?.agents ?? []).slice().reverse(),
+    [data]
+  )
+
+  // Total token count across all models, used by the By Model percentages.
+  // Cached so the table does not run a reduce() on every render.
+  const modelTotalTokens = useMemo(
+    () => (data?.by_model ?? []).reduce(
+      (s, m) => s + (m.input_tokens || 0) + (m.output_tokens || 0),
+      0
+    ),
+    [data]
+  )
+
+  function formatTokenCount(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`
+    return String(n)
+  }
+
+  /** Format a token count with K/M/B suffix, one decimal place. e.g. 1500 → "1.5K" */
+  function formatTokens(n: number): string {
+    if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+    return String(n)
+  }
+
+  /** Format seconds into a human-readable time string. e.g. 65 → "1.1 min", 8 → "8 sec" */
+  function formatTimeSaved(seconds: number): string {
+    if (seconds >= 60) return `${(seconds / 60).toFixed(1)} min`
+    return `${Math.round(seconds)} sec`
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <TopBar title="Cost Tracking" />
+      <TopBar title="Usage" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         {/* Header */}
@@ -203,11 +757,12 @@ export default function CostTracking() {
             </p>
           </div>
           <button
-            onClick={fetchData}
-            className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1"
+            onClick={() => fetchData()}
+            disabled={refreshing}
+            className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1 disabled:opacity-50"
           >
-            <Icon name="refresh" size={16} />
-            Refresh
+            <Icon name="refresh" size={16} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Updating...' : 'Refresh'}
           </button>
         </div>
 
@@ -219,14 +774,13 @@ export default function CostTracking() {
               <div>
                 <p className="text-sm text-slate-300 leading-relaxed">
                   {`You've used ${data.agent_count} agents across ${data.event_count.toLocaleString()} events. `}
-                  {data.total_budget > 100
-                    ? `$${data.total_budget.toFixed(0)} in agent budgets, spread across ${data.by_model?.length || 0} AI models. `
-                    : `$${data.total_budget.toFixed(2)} in agent budgets so far. `}
-                  {data.total_input_tokens + data.total_output_tokens > 1_000_000
-                    ? `That's ${((data.total_input_tokens + data.total_output_tokens) / 1_000_000).toFixed(1)}M tokens of work done for you.`
-                    : `${((data.total_input_tokens + data.total_output_tokens) / 1000).toFixed(0)}K tokens processed.`}
-                  {savings?.savings_usd && savings.savings_usd > 0
-                    ? ` myOS saved you $${savings.savings_usd.toFixed(2)} by reusing cached work.`
+                  {totalTokens > 1_000_000
+                    ? `That's ${formattedTokens} tokens of work done for you.`
+                    : `${formattedTokens} tokens processed.`}
+                  {savings?.conversation_cache_tokens && savings.conversation_cache_tokens > 0
+                    ? ` ostk saved ${savings.conversation_cache_tokens.toLocaleString()} tokens through prompt caching and token compression.`
+                    : savings?.subscription_input_tokens && savings.subscription_input_tokens > 0
+                    ? ` ostk saved ${(savings.subscription_input_tokens).toLocaleString()} tokens through prompt caching and token compression.`
                     : ''}
                 </p>
               </div>
@@ -234,85 +788,119 @@ export default function CostTracking() {
           </div>
         )}
 
-        {/* myOS Savings Tile */}
-        <div
-          data-testid="myos-savings-tile"
-          className={`${cardClass} mb-8`}
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
-              <Icon name="savings" className="text-green-400" size={20} />
+        {/* Savings: ostk-only card. Anthropic cache values are intentionally
+            hidden so this surface reads as ostk's own coordination layer win,
+            not provider-native cache. */}
+        <div className="mb-8">
+          <div
+            data-testid="ostk-savings-card"
+            className={cardClass}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
+                <Icon name="savings" className="text-green-400" size={28} />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">ostk savings</h2>
+                <p className="text-sm text-slate-400">
+                  Tokens saved through ostk's context compression and reuse.
+                </p>
+              </div>
             </div>
-            <h2 className="text-lg font-semibold">myOS savings</h2>
+            {savings === null ? (
+              <p className="text-sm text-slate-500">Loading savings data...</p>
+            ) : !savings.available ? (
+              <p className="text-sm text-slate-400">Savings data not available yet.</p>
+            ) : (() => {
+              const compressionPct = savings.compression_pct ?? 0
+              // needle recall and hay hit are always n/a for now (no real data)
+              const hasCompression = compressionPct > 0
+
+              // Tokens saved: conversation cache tokens + squash tokens saved
+              const rawTokensSaved =
+                (savings.conversation_cache_tokens ?? 0) +
+                (savings.squash_tokens_saved ?? 0)
+              const hasTokensSaved = rawTokensSaved > 0
+
+              // Time saved: rough estimate at ~10K tokens/second of compute time
+              const TOKEN_THROUGHPUT = 10_000
+              const secondsSaved = rawTokensSaved / TOKEN_THROUGHPUT
+              const hasTimeSaved = secondsSaved >= 1
+
+              // All stats are zero/null: show empty state
+              if (!hasCompression && !hasTokensSaved) {
+                return (
+                  <div data-testid="savings-no-data">
+                    <p className="text-sm text-slate-400">
+                      Savings will appear here as ostk compresses your context.
+                    </p>
+                  </div>
+                )
+              }
+
+              // Count how many tiles will render to pick the right grid
+              const tileCount = [hasCompression, hasTokensSaved, hasTimeSaved].filter(Boolean).length
+              const gridClass = tileCount === 1
+                ? 'grid grid-cols-1 gap-4'
+                : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'
+
+              return (
+                <div className={gridClass}>
+                  {hasCompression && (
+                    <div data-testid="stat-compression">
+                      <p className="text-sm text-slate-400 mb-1">
+                        Context compression
+                        <ExplainPopover metric="context_compression" period={period} label="Context compression" />
+                      </p>
+                      <p className="text-3xl font-bold text-purple-400">
+                        {compressionPct.toFixed(1)}%
+                      </p>
+                    </div>
+                  )}
+                  {hasTokensSaved && (
+                    <div data-testid="stat-tokens-saved">
+                      <p className="text-sm text-slate-400 mb-1">
+                        Tokens saved
+                        <ExplainPopover metric="tokens_saved" period={period} label="Tokens saved" />
+                      </p>
+                      <p className="text-3xl font-bold text-green-400">
+                        {formatTokens(rawTokensSaved)}
+                      </p>
+                    </div>
+                  )}
+                  {hasTimeSaved && (
+                    <div data-testid="stat-time-saved">
+                      <p className="text-sm text-slate-400 mb-1">
+                        Time saved
+                        <ExplainPopover metric="time_saved" period={period} label="Time saved" />
+                      </p>
+                      <p className="text-3xl font-bold text-blue-400">
+                        {formatTimeSaved(secondsSaved)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+            {savings?.available && (
+              <>
+                <SuggestionTips savings={savings} totalTokens={totalTokens} />
+                <OptimizationTips savings={savings} />
+              </>
+            )}
           </div>
-          {savings === null ? (
-            <p className="text-sm text-slate-500">Loading savings data...</p>
-          ) : !savings.available ? (
-            <p className="text-sm text-slate-400">Savings data not available yet.</p>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
-              <div>
-                <p className="text-sm text-slate-400 mb-2">
-                  myOS saved you this session
-                </p>
-                <p className="text-3xl font-bold text-green-400">
-                  ${(savings.savings_usd ?? 0).toFixed(4)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-400 mb-2">
-                  Requests reused from memory
-                </p>
-                <p className="text-3xl font-bold">
-                  {(savings.cache_efficiency_pct ?? 0).toFixed(1)}%
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-400 mb-2">
-                  Space saved on stored information
-                </p>
-                <p className="text-3xl font-bold">
-                  {(savings.compression_pct ?? 0).toFixed(1)}%
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-400 mb-2">
-                  Conversation cache hits
-                </p>
-                <p className="text-3xl font-bold text-blue-400">
-                  {(savings.conversation_cache_pct ?? 0).toFixed(1)}%
-                </p>
-                {(savings.conversation_cache_tokens ?? 0) > 0 && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    {((savings.conversation_cache_tokens ?? 0) >= 1000
-                      ? `${((savings.conversation_cache_tokens ?? 0) / 1000).toFixed(0)}K`
-                      : (savings.conversation_cache_tokens ?? 0).toLocaleString())} tokens from cache
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Time Filter Buttons */}
-        <div className="flex gap-2 mb-8">
-          {(Object.keys(periodLabels) as Period[]).map((p) => (
-            <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                period === p
-                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50'
-                  : 'bg-slate-900 text-slate-400 border border-slate-800 hover:border-slate-700 hover:text-slate-300'
-              }`}
-            >
-              {periodLabels[p]}
-            </button>
-          ))}
+        {/* Time Filter */}
+        <div className="mb-8">
+          <TimeFilter
+            value={period}
+            onChange={(p) => { setPeriod(p); localStorage.setItem('myos_cost_period', p) }}
+          />
         </div>
 
         {loading && !data ? (
-          <p className="text-slate-500">Loading cost data...</p>
+          <p className="text-slate-500" data-testid="cost-loading">Loading cost data...</p>
         ) : !data || data.event_count === 0 ? (
           <div className={`${cardClass} text-center py-12`}>
             <Icon name="payments" className="text-slate-600 mx-auto mb-3" size={48} />
@@ -323,95 +911,131 @@ export default function CostTracking() {
           </div>
         ) : (
           <>
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6 mb-8">
-              {/* Total Spend */}
-              <div className={cardClass}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
-                    <Icon name="payments" className="text-blue-400" size={20} />
-                  </div>
-                  <p className="text-sm text-slate-400">Total Spend</p>
+            {/* Single Summary Card */}
+            <div data-testid="summary-card" className={`${cardClass} mb-8`}>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+                  <Icon name="insights" className="text-blue-400" size={20} />
                 </div>
-                <p className="text-3xl font-bold">${data.total_budget.toFixed(2)}</p>
-                <p className="text-xs text-slate-500 mt-1">
-                  {periodLabels[period]}
-                </p>
+                <h2 className="text-lg font-semibold">
+                  Summary
+                  <span className="ml-2 text-sm font-normal text-slate-400">
+                    {periodLabels[period]}
+                  </span>
+                </h2>
               </div>
-
-              {/* Cost per Agent */}
-              <div className={cardClass}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
-                    <Icon name="smart_toy" className="text-purple-400" size={20} />
-                  </div>
-                  <p className="text-sm text-slate-400">Cost per Agent</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
+                {/* Agents */}
+                <div>
+                  <p className="text-sm text-slate-400 mb-2">
+                    Agents spawned
+                    <ExplainPopover metric="agents_spawned" period={period} label="Agents spawned" />
+                  </p>
+                  <p className="text-3xl font-bold text-purple-400">
+                    {data.agent_count}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    across {data.event_count.toLocaleString()} total calls
+                  </p>
                 </div>
-                <p className="text-3xl font-bold">
-                  {data.agent_count > 0
-                    ? `$${(data.total_budget / data.agent_count).toFixed(2)}`
-                    : '$0.00'}
-                </p>
-                <p className="text-xs text-slate-500 mt-1">
-                  {data.agent_count} agent{data.agent_count !== 1 ? 's' : ''} spawned
-                </p>
-              </div>
 
-              {/* Cost per Call */}
-              <div className={cardClass}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
-                    <Icon name="bolt" className="text-cyan-400" size={20} />
-                  </div>
-                  <p className="text-sm text-slate-400">Cost per Call</p>
+                {/* Input tokens */}
+                <div data-testid="input-tokens-tile">
+                  <p className="text-sm text-slate-400 mb-2">
+                    Input tokens used<ExplainPopover metric="input_tokens" period={period} label="Input tokens used" />
+                  </p>
+                  <p className="text-3xl font-bold text-blue-400">
+                    {formatTokenCount(
+                      data.total_input_tokens_with_cache
+                        ?? ((data.total_input_tokens ?? 0)
+                          + (data.total_cache_creation_tokens ?? 0)
+                          + (data.total_cache_read_tokens ?? 0))
+                    )}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {totalTokens > 0
+                      ? (() => {
+                          const pct = (effectiveInputTokens / totalTokens) * 100
+                          return `${pct < 1 ? pct.toFixed(2) : pct.toFixed(1)}% of total`
+                        })()
+                      : 'from system + user messages'}
+                  </p>
                 </div>
-                <p className="text-3xl font-bold">
-                  {data.event_count > 0
-                    ? `$${(data.total_budget / data.event_count).toFixed(4)}`
-                    : '$0.00'}
-                </p>
-                <p className="text-xs text-slate-500 mt-1">
-                  {data.event_count.toLocaleString()} calls total
-                </p>
-              </div>
 
-              {/* Prompt Efficiency */}
-              {(() => {
-                const ratio = data.total_output_tokens > 0
-                  ? data.total_input_tokens / data.total_output_tokens
-                  : 0
-                const isHealthy = ratio > 0 && ratio <= 3
-                const isOk = ratio > 3 && ratio <= 5
-                return (
-                  <div className={cardClass}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                        isHealthy ? 'bg-green-500/20' : isOk ? 'bg-yellow-500/20' : 'bg-orange-500/20'
-                      }`}>
-                        <Icon name="speed" className={
-                          isHealthy ? 'text-green-400' : isOk ? 'text-yellow-400' : 'text-orange-400'
-                        } size={20} />
-                      </div>
-                      <p className="text-sm text-slate-400">Prompt Efficiency</p>
+                {/* Output tokens */}
+                <div data-testid="output-tokens-tile">
+                  <p className="text-sm text-slate-400 mb-2">
+                    Output tokens used<ExplainPopover metric="output_tokens" period={period} label="Output tokens used" />
+                  </p>
+                  <p className="text-3xl font-bold text-cyan-400">
+                    {formatTokenCount(data.total_output_tokens ?? 0)}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {totalTokens > 0
+                      ? (() => {
+                          const pct = ((data.total_output_tokens ?? 0) / totalTokens) * 100
+                          return `${pct < 1 ? pct.toFixed(2) : pct.toFixed(1)}% of total`
+                        })()
+                      : 'returned by the AI'}
+                  </p>
+                </div>
+
+                {/* Cache hit rate - only if we have real data */}
+                {(() => {
+                  // Prefer the fleet-wide context_reuse_pct from /costs because
+                  // it is computed on the same combined dataset (audit log +
+                  // Claude Code transcripts) that produced the other tiles.
+                  // Older backends do not send it, so fall back to the
+                  // /costs/savings cache_efficiency_pct field.
+                  const reuseFromCosts = data.context_reuse_pct
+                  const cacheHitPct = reuseFromCosts != null
+                    ? reuseFromCosts
+                    : (data.total_input_tokens > 0 && savings?.cache_efficiency_pct != null
+                        ? savings.cache_efficiency_pct
+                        : null)
+                  if (cacheHitPct === null) return null
+                  const isHealthy = cacheHitPct >= 50
+                  return (
+                    <div>
+                      <p className="text-sm text-slate-400 mb-2">
+                        Context reuse rate<ExplainPopover metric="context_reuse_pct" period={period} label="Context reuse rate" />
+                      </p>
+                      <p className={`text-3xl font-bold ${isHealthy ? 'text-green-400' : 'text-yellow-400'}`}>
+                        {cacheHitPct.toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {isHealthy ? 'Good reuse' : (
+                          <Link to="/settings#standing-instructions-suggest" className="underline decoration-dotted hover:text-yellow-300">
+                            Save standing instructions to raise this
+                          </Link>
+                        )}
+                      </p>
                     </div>
-                    <p className={`text-3xl font-bold ${
-                      isHealthy ? 'text-green-400' : isOk ? 'text-yellow-400' : 'text-orange-400'
-                    }`}>
-                      {ratio > 0 ? `${ratio.toFixed(1)}:1` : 'N/A'}
+                  )
+                })()}
+
+                {/* Budget caps section - only when showBudgetCaps is on */}
+                {showBudgetCaps && (
+                  <div data-testid="budget-caps-stat">
+                    <p className="text-sm text-slate-400 mb-2">
+                      Budget caps set<InfoTooltip text="Total spending limits set when each agent was spawned. This is the cap, not actual money spent." />
+                    </p>
+                    <p className="text-3xl font-bold">
+                      ${data.total_budget.toFixed(2)}
                     </p>
                     <p className="text-xs text-slate-500 mt-1">
-                      {isHealthy ? 'Healthy' : isOk ? 'Could be leaner' : 'Prompts may be bloated'}
+                      ${data.agent_count > 0 ? (data.total_budget / data.agent_count).toFixed(2) : '0.00'} avg per agent
                     </p>
                   </div>
-                )
-              })()}
+                )}
+              </div>
             </div>
 
             {/* Two Column Layout */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-8">
               {/* Spending Over Time Chart */}
               <div className={cardClass}>
-                <h2 className="text-lg font-semibold mb-4">Usage Over Time</h2>
+                <h2 className="text-lg font-semibold mb-4">Usage Over Time<InfoTooltip text="Total tokens processed and API calls made, grouped by day." /></h2>
                 {trackedDays.length === 0 ? (
                   <p className="text-sm text-slate-500">No data for this period.</p>
                 ) : (
@@ -444,22 +1068,18 @@ export default function CostTracking() {
 
               {/* Model Breakdown */}
               <div className={cardClass}>
-                <h2 className="text-lg font-semibold mb-4">By Model</h2>
+                <h2 className="text-lg font-semibold mb-4">By Model<InfoTooltip text="Breakdown of token usage by AI model." /></h2>
                 {data.by_model.length === 0 ? (
                   <p className="text-sm text-slate-500">No model data.</p>
                 ) : (
                   <div className="space-y-4">
                     {(() => {
-                      const totalTokens = data.by_model.reduce((s, m) => s + (m.input_tokens || 0) + (m.output_tokens || 0), 0)
-                      const useBudget = data.total_budget > 0
                       return data.by_model.map((m) => {
                         const modelTokens = (m.input_tokens || 0) + (m.output_tokens || 0)
-                        const pct = useBudget
-                          ? ((m.total_budget / data.total_budget) * 100).toFixed(0)
-                          : totalTokens > 0
-                            ? ((modelTokens / totalTokens) * 100).toFixed(0)
-                            : '0'
-                        const formattedTokens = modelTokens >= 1_000_000
+                        const pct = modelTotalTokens > 0
+                          ? ((modelTokens / modelTotalTokens) * 100).toFixed(0)
+                          : '0'
+                        const formattedModelTokens = modelTokens >= 1_000_000
                           ? `${(modelTokens / 1_000_000).toFixed(1)}M`
                           : modelTokens >= 1_000
                             ? `${(modelTokens / 1_000).toFixed(0)}K`
@@ -469,7 +1089,7 @@ export default function CostTracking() {
                             <div className="flex items-center justify-between mb-1.5">
                               <span className="text-sm font-medium">{shortModelName(m.model)}</span>
                               <span className="text-sm text-slate-400">
-                                {useBudget ? `$${m.total_budget.toFixed(2)}` : `${formattedTokens} tokens`} ({pct}%)
+                                {formattedModelTokens} tokens ({pct}%)
                               </span>
                             </div>
                             <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
@@ -501,14 +1121,16 @@ export default function CostTracking() {
                       <th className="text-left py-2 px-3 text-slate-400 font-medium">Type</th>
                       <th className="text-left py-2 px-3 text-slate-400 font-medium">Model</th>
                       <th className="text-right py-2 px-3 text-slate-400 font-medium">Token Usage</th>
-                      <th className="text-right py-2 px-3 text-slate-400 font-medium">Budget</th>
+                      {showBudgetCaps && (
+                        <th className="text-right py-2 px-3 text-slate-400 font-medium" data-testid="budget-col-header">Budget</th>
+                      )}
                       <th className="text-right py-2 px-3 text-slate-400 font-medium">When</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.agents.slice().reverse().map((entry, i) => {
+                    {reversedAgents.map((entry, i) => {
                       const isAgent = entry.event === 'agent.spawned'
-                      const totalTokens = (entry.input_tokens || 0) + (entry.output_tokens || 0)
+                      const totalEntryTokens = (entry.input_tokens || 0) + (entry.output_tokens || 0)
                       return (
                         <tr
                           key={`${entry.name}-${entry.timestamp}-${i}`}
@@ -546,15 +1168,17 @@ export default function CostTracking() {
                             </span>
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono text-slate-400">
-                            {totalTokens > 0
-                              ? totalTokens >= 1000
-                                ? `${(totalTokens / 1000).toFixed(0)}K`
-                                : totalTokens.toLocaleString()
+                            {totalEntryTokens > 0
+                              ? totalEntryTokens >= 1000
+                                ? `${(totalEntryTokens / 1000).toFixed(0)}K`
+                                : totalEntryTokens.toLocaleString()
                               : '-'}
                           </td>
-                          <td className="py-2.5 px-3 text-right font-mono">
-                            {entry.budget > 0 ? `$${entry.budget.toFixed(2)}` : '-'}
-                          </td>
+                          {showBudgetCaps && (
+                            <td className="py-2.5 px-3 text-right font-mono">
+                              {entry.budget > 0 ? `$${entry.budget.toFixed(2)}` : '-'}
+                            </td>
+                          )}
                           <td className="py-2.5 px-3 text-right text-slate-400">
                             {formatTimestamp(entry.timestamp)}
                           </td>

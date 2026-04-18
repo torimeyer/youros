@@ -8,8 +8,12 @@ from typing import Optional
 
 from services.google_auth import get_email, is_authenticated
 from services import calendar as calendar_service
+from services import connections_cache
 
 router = APIRouter(tags=["calendar"])
+
+# Key used for the in-memory TTL cache of the status payload.
+_CALENDAR_STATUS_CACHE_KEY = "calendar_auth_status"
 
 
 class CreateEventBody(BaseModel):
@@ -21,17 +25,8 @@ class CreateEventBody(BaseModel):
     location: str = ""
 
 
-@router.get("/calendar/auth/status")
-async def calendar_auth_status():
-    """Return whether the user has connected Google Calendar.
-
-    - authenticated: True if a Google token exists.
-    - needs_reauth: True if the token exists but the calendar scope is missing.
-    - email: the connected account email, if available.
-
-    Uses get_upcoming_events as the probe so a warm cache hit costs no Google
-    API call at all. A scope error on cold path means needs_reauth.
-    """
+def _compute_calendar_status() -> dict:
+    """Pure function that resolves the Calendar status payload from disk."""
     authed = is_authenticated()
     email = get_email() if authed else None
     reauth = False
@@ -50,6 +45,23 @@ async def calendar_auth_status():
         "needs_reauth": reauth,
         "email": email,
     }
+
+
+@router.get("/calendar/auth/status")
+async def calendar_auth_status():
+    """Return whether the user has connected Google Calendar.
+
+    - authenticated: True if a Google token exists.
+    - needs_reauth: True if the token exists but the calendar scope is missing.
+    - email: the connected account email, if available.
+
+    Payload is served from an in-memory TTL cache so repeat polls within
+    the same minute return in sub-millisecond time.
+    """
+    return connections_cache.get_or_compute(
+        _CALENDAR_STATUS_CACHE_KEY,
+        _compute_calendar_status,
+    )
 
 
 @router.get("/calendar/events")
@@ -134,6 +146,48 @@ async def calendar_create_event(body: CreateEventBody):
             "htmlLink": event.get("htmlLink"),
         },
     }
+
+
+@router.delete("/calendar/events/{event_id}")
+async def calendar_delete_event(event_id: str):
+    """Delete a single event from the user's primary Google Calendar.
+
+    Returns 401 if not authenticated. Returns 403 with needs_reauth=true
+    when the calendar write scope is missing. Treats Google "Not Found"
+    errors as success so a stale frontend cannot keep prompting for an
+    event the backend has already removed.
+    """
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Google Calendar.")
+    if not event_id.strip():
+        raise HTTPException(status_code=400, detail="Event id is required.")
+
+    try:
+        await calendar_service.delete_event(event_id)
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "not found" in msg or "404" in msg:
+            # Already gone server-side. Treat as success so the UI can
+            # converge without surfacing a confusing error.
+            calendar_service._clear_cache()
+            return {"ok": True, "already_deleted": True}
+        if "insufficientpermissions" in msg or "insufficient authentication scopes" in msg:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "needs_reauth": True,
+                    "message": (
+                        "Calendar write access has not been granted. "
+                        "Reconnect your Google account to allow deleting events."
+                    ),
+                },
+            ) from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not delete the calendar event: {exc}",
+        ) from exc
+
+    return {"ok": True}
 
 
 @router.post("/calendar/sync")
