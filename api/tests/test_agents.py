@@ -8283,7 +8283,7 @@ def test_builder_template_does_not_opt_in_to_produces_doc():
 
 # Background: the live demo fleet (fleet-build-website) was missing its 3
 # minute end-to-end budget. Demo mode is the fast path: force Haiku, skip
-# CLAUDE.md/MCP, and hard cap every agent at 90 seconds of wall clock.
+# CLAUDE.md/MCP, and hard cap every agent at 180 seconds of wall clock.
 # These tests lock in each lever so a future edit cannot silently regress.
 
 
@@ -8324,7 +8324,7 @@ async def test_spawn_agent_in_demo_mode_uses_haiku(tmp_path, monkeypatch):
 
     Demo mode must not trust the caller-supplied model. Even when the
     user-facing request says "sonnet" or "opus", the demo path must pick
-    Haiku because it is the fastest tier and the 90 second wall-clock
+    Haiku because it is the fastest tier and the 180 second wall-clock
     cap depends on it.
     """
     from routers import agents as agents_module
@@ -8383,7 +8383,7 @@ async def test_spawn_agent_in_demo_mode_uses_haiku(tmp_path, monkeypatch):
         meta = agent_metadata[agent_name]
         assert meta.get("demo_mode") is True
         assert "haiku" in meta["model"].lower()
-        assert meta.get("deadline_seconds") == 90
+        assert meta.get("deadline_seconds") == 180
         assert "force_complete_at" in meta
     finally:
         agent_metadata.pop(agent_name, None)
@@ -8786,7 +8786,7 @@ async def test_fleet_demo_run_spawns_all_members_in_parallel(monkeypatch):
     body = resp.json()
     assert body["total"] == 4
     assert len(body["agents"]) == 4
-    assert body["deadline_seconds"] == 90
+    assert body["deadline_seconds"] == 180
     assert "will_force_complete_at" in body
 
     assert len(start_times) == 4
@@ -8895,7 +8895,7 @@ async def test_spawn_with_roadmap_template_auto_routes_to_demo_mode(monkeypatch)
 
         meta = agent_metadata[agent_name]
         assert meta.get("demo_mode") is True
-        assert meta.get("deadline_seconds") == 90
+        assert meta.get("deadline_seconds") == 180
         assert "force_complete_at" in meta
     finally:
         agent_metadata.pop(agent_name, None)
@@ -8903,8 +8903,8 @@ async def test_spawn_with_roadmap_template_auto_routes_to_demo_mode(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_spawn_with_demo_mode_agentfile_gets_90s_force_complete(monkeypatch):
-    """Any spawn whose agentfile has LIMIT demo_mode true stamps a 90s wall clock.
+async def test_spawn_with_demo_mode_agentfile_gets_180s_force_complete(monkeypatch):
+    """Any spawn whose agentfile has LIMIT demo_mode true stamps a 180s wall clock.
 
     Locks in the wire-up between the demo_mode agentfile flag and the
     metadata fields the UI reads to draw the "Completed quickly for
@@ -8962,18 +8962,18 @@ async def test_spawn_with_demo_mode_agentfile_gets_90s_force_complete(monkeypatc
         assert meta.get("demo_mode") is True, (
             "agentfile with LIMIT demo_mode true must stamp demo_mode on meta"
         )
-        assert meta.get("deadline_seconds") == 90, (
-            "demo_mode must stamp the 90 second wall clock on meta"
+        assert meta.get("deadline_seconds") == 180, (
+            "demo_mode must stamp the 180 second wall clock on meta"
         )
         force_at = meta.get("force_complete_at")
         assert force_at, "demo_mode must stamp a force_complete_at ISO timestamp"
 
-        # force_complete_at should be roughly 90 seconds after spawned_at.
+        # force_complete_at should be roughly 180 seconds after spawned_at.
         spawned_at = datetime.fromisoformat(meta["spawned_at"])
         force_at_dt = datetime.fromisoformat(force_at)
         delta = (force_at_dt - spawned_at).total_seconds()
-        assert 85 <= delta <= 95, (
-            f"force_complete_at must be ~90s after spawned_at, got {delta}s"
+        assert 175 <= delta <= 185, (
+            f"force_complete_at must be ~180s after spawned_at, got {delta}s"
         )
     finally:
         agent_metadata.pop(agent_name, None)
@@ -8989,7 +8989,7 @@ async def test_spawn_respects_explicit_model_over_demo_mode_default(monkeypatch)
     ``LIMIT demo_mode true`` which normally forces Haiku. When the user
     has seen the picker and chosen Sonnet, the backend must respect that
     choice so the "Sonnet" badge the modal just showed them does not
-    silently become "Haiku" on the Agents list. The 90 second wall
+    silently become "Haiku" on the Agents list. The 180 second wall
     clock still applies so the demo budget is preserved.
     """
     from routers import agents as agents_module
@@ -9048,14 +9048,14 @@ async def test_spawn_respects_explicit_model_over_demo_mode_default(monkeypatch)
             f"even on a demo_mode template, got {chosen_model!r}"
         )
 
-        # Demo mode still enforces the 90s cap so the budget stays
+        # Demo mode still enforces the 180s cap so the budget stays
         # predictable even when a slower model is in play.
         meta = agent_metadata[agent_name]
         assert meta.get("demo_mode") is True, (
             "honor_explicit_model must not turn demo mode off, only drop "
             "the model override"
         )
-        assert meta.get("deadline_seconds") == 90
+        assert meta.get("deadline_seconds") == 180
         assert "sonnet" in meta["model"].lower()
     finally:
         agent_metadata.pop(agent_name, None)

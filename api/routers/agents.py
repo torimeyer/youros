@@ -2284,7 +2284,7 @@ MODEL_MAP = {
 # Hard wall-clock cap (seconds) for a demo-mode agent. After this, the
 # supervisor force-completes the agent with a short "Completed quickly
 # for demo." summary and SIGKILLs the subprocess if it is still alive.
-DEMO_MODE_WALL_CLOCK_SECONDS = 90
+DEMO_MODE_WALL_CLOCK_SECONDS = 180
 
 # Cap on the number of output tokens a demo-mode agent can emit. The
 # Claude CLI forwards this via --max-turns-cap / output budgeting so
