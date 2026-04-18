@@ -229,6 +229,7 @@ exec uvicorn main:app \
     --reload-exclude '**/*~' \
     --reload-exclude '**/.git/*' \
     --reload-exclude '**/.git/**/*' \
+    --reload-exclude 'routers/agents.py' \
     --reload-delay 10.0 \
     --no-access-log \
     $SSL_ARGS

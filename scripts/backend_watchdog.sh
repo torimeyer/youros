@@ -69,12 +69,14 @@ while :; do
     if probe_once; then
         continue
     fi
-    # One retry to absorb a momentarily slow response.
-    sleep 2
-    if probe_once; then
-        log "INFO transient miss, recovered on retry"
-        continue
-    fi
+    # Three spaced retries absorb the full uvicorn reload window
+    # (reload-delay 10.0 means /api/health can be briefly unanswered
+    # for up to 10 seconds). Only after three consecutive misses
+    # spaced 5 seconds apart do we consider the backend actually down.
+    # This removes most of the restart thrash caused by MCP flapping.
+    sleep 5 && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep 5 && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
+    sleep 5 && probe_once && { log "INFO transient miss, recovered on retry"; continue; }
     restarts=$((restarts + 1))
     if [ "$restarts" -gt "$MAX_RESTARTS" ]; then
         log "ERROR exceeded max restarts ($MAX_RESTARTS), exiting"
