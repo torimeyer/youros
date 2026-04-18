@@ -432,11 +432,11 @@ export function ChatPanel() {
   const processedMessageRef = useRef<unknown>(null)
   // Tracked background agents spawned from chat via the spawn_agent
   // tool. Each entry is polled every ~30s; on a terminal transition
-  // we append a plain-language bubble and flip `announced` so the
+  // we append a plain-language bubble and drop the entry so the
   // effect stops polling. Without this the chat goes silent after the
   // "Spawn agent" card until the user asks manually, which was the
   // feedback regression Tori saw on optimize-inline-chat-speed.
-  type TrackedAgent = { name: string; announced: boolean }
+  type TrackedAgent = { name: string }
   const [trackedAgents, setTrackedAgents] = useState<TrackedAgent[]>([])
 
   const { connect, disconnect, send, lastMessage, isConnected } = useWebSocket('/ws/chat')
@@ -663,7 +663,7 @@ export function ChatPanel() {
         if (agentName) {
           setTrackedAgents(prev => {
             if (prev.some(a => a.name === agentName)) return prev
-            return [...prev, { name: agentName, announced: false }]
+            return [...prev, { name: agentName }]
           })
         }
       }
@@ -958,13 +958,13 @@ export function ChatPanel() {
   // tracked agent (populated from the spawn_agent tool_use handler)
   // gets polled once every 30 seconds. On the first terminal status
   // we append a plain-language assistant bubble (completed / failed /
-  // cancelled / stale) and flag the row announced=true so the effect
-  // does not post again. The bubble uses the server's `feedback`
+  // cancelled / stale) and drop the row so the effect does not post
+  // again. The bubble uses the server's `feedback`
   // string, which already weaves in the agent's own summary or the
   // specific reason it stopped.
   useEffect(() => {
-    const pending = trackedAgents.filter(a => !a.announced)
-    if (pending.length === 0) return
+    if (trackedAgents.length === 0) return
+    const pending = trackedAgents
     let cancelled = false
     const pollOnce = async () => {
       for (const agent of pending) {
@@ -980,11 +980,7 @@ export function ChatPanel() {
           // Unknown name: stop polling so we do not loop forever on a
           // typo or an agent the backend never recorded.
           if (!resp.exists) {
-            setTrackedAgents(prev =>
-              prev.map(a =>
-                a.name === agent.name ? { ...a, announced: true } : a,
-              ),
-            )
+            setTrackedAgents(prev => prev.filter(a => a.name !== agent.name))
             continue
           }
           if (resp.terminal && resp.feedback) {
@@ -997,11 +993,7 @@ export function ChatPanel() {
                 model: 'myos',
               },
             ])
-            setTrackedAgents(prev =>
-              prev.map(a =>
-                a.name === agent.name ? { ...a, announced: true } : a,
-              ),
-            )
+            setTrackedAgents(prev => prev.filter(a => a.name !== agent.name))
           }
         } catch {
           // Network/backend down; try again on next tick.
