@@ -103,6 +103,15 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/complete-agent.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash|Read|Edit|Write|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/native-block-recovery.sh"
+          }
+        ]
       }
     ]
   }
