@@ -16,7 +16,9 @@ __pycache__/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
-.mcp.json
+# .mcp.json is tracked so the ostk MCP server config (including
+# OSTK_TRUST_TIER=T1 needed for demo app/src/** writes) ships with the repo.
+# .mcp.json  -- intentionally tracked
 lego-app/
 taxes/
 transcripts/
