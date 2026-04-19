@@ -26,6 +26,26 @@ TRANSCRIPT_IDLE_SECONDS=120
 
 INPUT=$(cat)
 
+# Debug: capture the raw PreToolUse payload so we can verify whether
+# Claude Code emits tool_use_id in practice. The by-tool-use fix only
+# works if the harness puts tool_use_id on the PreToolUse JSON. Ring-
+# buffer the last 20 payloads at ~/.myos/subagents/register-debug.log
+# (truncate to 5000 bytes each) so this never grows unbounded.
+_DBG_LOG="$HOME/.myos/subagents/register-debug.log"
+mkdir -p "$(dirname "$_DBG_LOG")" 2>/dev/null || true
+{
+    printf '=== %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '%s' "$INPUT" | head -c 5000
+    printf '\n'
+} >> "$_DBG_LOG" 2>/dev/null || true
+# Trim log to last 400 lines so it never blows up disk.
+if [ -f "$_DBG_LOG" ]; then
+    _DBG_LINES=$(wc -l < "$_DBG_LOG" 2>/dev/null || echo 0)
+    if [ "${_DBG_LINES:-0}" -gt 400 ]; then
+        tail -n 400 "$_DBG_LOG" > "$_DBG_LOG.tmp" 2>/dev/null && mv "$_DBG_LOG.tmp" "$_DBG_LOG" 2>/dev/null || true
+    fi
+fi
+
 PARSED=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
 import os, sys, json, re, secrets
 raw = os.environ.get("INPUT_JSON", "")
@@ -40,7 +60,22 @@ subagent = (ti.get("subagent_type") or "").strip()
 # Tool-use-id lets the PostToolUse hook find the exact name we registered
 # here, even when several Task calls are in flight concurrently (last.name
 # is a single shared file that gets clobbered by the newest spawn).
-tool_use_id = (d.get("tool_use_id") or "").strip()
+# Claude Code hook payloads have varied across versions: top-level
+# tool_use_id is the documented key, but older/newer builds have used
+# nested locations (tool_use.id, id, toolUseId). Try all of them so the
+# race-free handoff works across harness versions.
+tool_use_id = ""
+for key in ("tool_use_id", "toolUseId", "id"):
+    v = d.get(key)
+    if isinstance(v, str) and v.strip():
+        tool_use_id = v.strip()
+        break
+if not tool_use_id:
+    tu = d.get("tool_use") or {}
+    if isinstance(tu, dict):
+        v = tu.get("id") or tu.get("tool_use_id") or ""
+        if isinstance(v, str) and v.strip():
+            tool_use_id = v.strip()
 
 name = re.sub(r"[^a-z0-9-]", "", desc.lower().replace(" ", "-"))[:40]
 name = re.sub(r"-+", "-", name).strip("-")
@@ -77,7 +112,19 @@ if not model:
 short_desc = desc or (prompt[:140] if prompt else subagent or "claude-code subagent")
 short_prompt = prompt[:500] if prompt else short_desc
 
-sys.stdout.write(f"{name}\t{model}\t{short_desc}\t{short_prompt}\t{tool_use_id}")
+# Flatten embedded newlines and tabs in every field before piping
+# through `read -r ... <<<"$PARSED"`. Bash's `read` stops at the
+# first newline and our multi-line user prompts contain many, which
+# caused TOOL_USE_ID to be parsed as empty for every real subagent
+# spawn (prompt body swallowed the tabs that followed it). Replace
+# any whitespace run with a single space so every field arrives on
+# one line, then delimit with tabs.
+def flat(s):
+    return " ".join((s or "").split())
+
+sys.stdout.write(
+    f"{flat(name)}\t{flat(model)}\t{flat(short_desc)}\t{flat(short_prompt)}\t{flat(tool_use_id)}"
+)
 PY
 )
 

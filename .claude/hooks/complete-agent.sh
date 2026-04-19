@@ -67,7 +67,21 @@ try:
     d = json.loads(raw)
 except Exception:
     sys.exit(0)
-sys.stdout.write((d.get("tool_use_id") or "").strip())
+# Match register-agent.sh: Claude Code has used several key names
+# across versions (tool_use_id, toolUseId, id, nested tool_use.id).
+val = ""
+for key in ("tool_use_id", "toolUseId", "id"):
+    v = d.get(key)
+    if isinstance(v, str) and v.strip():
+        val = v.strip()
+        break
+if not val:
+    tu = d.get("tool_use") or {}
+    if isinstance(tu, dict):
+        v = tu.get("id") or tu.get("tool_use_id") or ""
+        if isinstance(v, str) and v.strip():
+            val = v.strip()
+sys.stdout.write(val)
 PY
 )
 
@@ -135,7 +149,7 @@ fi
 # Retry with backoff. Transient backend unavailability (uvicorn reload,
 # MCP flap, brief socket error) is the direct cause of zombie rows
 # before this change. Three attempts total 7 seconds at most.
-COMPLETE_URL="https://127.0.0.1:8000/api/agents/${AGENT_NAME}/complete"
+COMPLETE_URL="${MYOS_COMPLETE_URL_BASE:-https://127.0.0.1:8000/api/agents}/${AGENT_NAME}/complete"
 COMPLETE_OK=0
 for delay in 1 2 4; do
     if curl -sSk --connect-timeout 2 -m 5 \
