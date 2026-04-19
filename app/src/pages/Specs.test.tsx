@@ -43,7 +43,11 @@ const mockDocsResponse = {
       status: 'draft',
       created_at: '2026-04-01T00:00:00Z',
       promoted_at: '',
-      body: 'Plan the onboarding experience.',
+      body: 'Plan the onboarding experience.\n\n- [ ] wizard shows on first launch\n- [ ] user can skip',
+      acceptance_criteria: [
+        { text: 'wizard shows on first launch', checked: false },
+        { text: 'user can skip', checked: false },
+      ],
     },
     {
       path: 'docs/spec/auth-system.md',
@@ -53,6 +57,7 @@ const mockDocsResponse = {
       created_at: '2026-03-15T00:00:00Z',
       promoted_at: '2026-03-20T00:00:00Z',
       body: '## Overview\nAuth system design.\n\n- [ ] sign in flow\n- [ ] sign out flow',
+      task_summary: { total: 2, open: 2, closed: 0 },
     },
     {
       path: 'docs/spec/dashboard-redesign.md',
@@ -405,6 +410,142 @@ describe('Specs page', () => {
         path: 'docs/draft/onboarding-flow.md',
       })
     })
+  })
+
+  // Regression: a draft without any "- [ ]" checklist items must not be
+  // promotable. Clicking would produce a predictable "Make sure it has
+  // acceptance criteria" error, which is bad UX. The button is disabled
+  // with a tooltip explaining what the user is waiting for.
+  it('Promote to Spec is disabled when a draft has no acceptance criteria', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') {
+        return Promise.resolve({
+          docs: [
+            {
+              path: 'docs/draft/no-ac.md',
+              filename: 'no-ac.md',
+              title: 'no ac draft',
+              status: 'draft',
+              created_at: '2026-04-01T00:00:00Z',
+              promoted_at: '',
+              body: 'Still generating acceptance criteria, so no checkboxes yet.',
+            },
+          ],
+        })
+      }
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('no ac draft')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const draftCard = cards.find(c => c.textContent?.includes('no ac draft'))!
+    fireEvent.click(draftCard)
+
+    const promoteBtn = await screen.findByTestId('promote-button')
+    expect(promoteBtn).toBeDisabled()
+    expect(promoteBtn).toHaveAttribute(
+      'title',
+      expect.stringMatching(/Waiting for acceptance criteria/i) as unknown as string
+    )
+    // Clicking the disabled button must not fire the promote request.
+    fireEvent.click(promoteBtn)
+    expect(mockedApiPost).not.toHaveBeenCalledWith(
+      '/specs/promote',
+      expect.anything()
+    )
+  })
+
+  // Regression: once acceptance criteria appear in the draft body, the
+  // Promote to Spec button must become clickable. This asserts the
+  // fallback that parses "- [ ]" lines out of the body works before the
+  // server has populated acceptance_criteria.
+  it('Promote to Spec is enabled once at least one "- [ ]" line exists', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') {
+        return Promise.resolve({
+          docs: [
+            {
+              path: 'docs/draft/has-ac.md',
+              filename: 'has-ac.md',
+              title: 'has ac draft',
+              status: 'draft',
+              created_at: '2026-04-01T00:00:00Z',
+              promoted_at: '',
+              body: 'Do the thing.\n\n- [ ] first acceptance criterion',
+            },
+          ],
+        })
+      }
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('has ac draft')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const draftCard = cards.find(c => c.textContent?.includes('has ac draft'))!
+    fireEvent.click(draftCard)
+
+    const promoteBtn = await screen.findByTestId('promote-button')
+    expect(promoteBtn).not.toBeDisabled()
+  })
+
+  // Regression: clicking Verify on a ready spec that has no linked tasks
+  // used to produce a "no linked tasks" error. The button is disabled
+  // until at least one task exists.
+  it('Verify is disabled on a ready spec with zero linked tasks', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') {
+        return Promise.resolve({
+          docs: [
+            {
+              path: 'docs/spec/no-tasks.md',
+              filename: 'no-tasks.md',
+              title: 'no tasks spec',
+              status: 'ready',
+              created_at: '2026-04-01T00:00:00Z',
+              promoted_at: '2026-04-02T00:00:00Z',
+              body: '- [ ] ready but no tasks',
+              acceptance_criteria: [
+                { text: 'ready but no tasks', checked: false },
+              ],
+            },
+          ],
+        })
+      }
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('no tasks spec')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const card = cards.find(c => c.textContent?.includes('no tasks spec'))!
+    fireEvent.click(card)
+
+    const verifyBtn = await screen.findByTestId('verify-button')
+    expect(verifyBtn).toBeDisabled()
+    expect(verifyBtn).toHaveAttribute(
+      'title',
+      expect.stringMatching(/Click Build it first/i) as unknown as string
+    )
   })
 
   // Wave 2: "Break into Tasks" button is removed from Ready. Decompose

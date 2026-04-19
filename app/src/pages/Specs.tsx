@@ -1074,70 +1074,107 @@ export default function Specs() {
                             regardless of status. Same label, same
                             tooltip, same endpoint. Disabled visual
                             state when a build is currently running. */}
-                        <div className="flex flex-wrap gap-2">
-                        {doc.status === "draft" && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handlePromote(doc.path); }}
-                            disabled={loading}
-                            className="bg-green-500/20 text-green-400 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                          >
-                            <Icon name="verified" size={16} />
-                            Promote to Spec
-                          </button>
-                        )}
-                        {(doc.status === "ready" || doc.status === "spec" as string) && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleBuild(doc.path); }}
-                            disabled={loading || buildingSpec === doc.path}
-                            className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                            data-testid="build-button"
-                            title="Turns this plan into tasks and starts a builder agent for each one."
-                          >
-                            <Icon name="rocket_launch" size={16} />
-                            {buildingSpec === doc.path ? "Building..." : "Build it"}
-                          </button>
-                        )}
-                        {doc.status === "in-progress" && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleBuild(doc.path); }}
-                            disabled={loading || buildingSpec === doc.path}
-                            className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                            data-testid="build-button"
-                            title="Turns this plan into tasks and starts a builder agent for each one."
-                          >
-                            <Icon name="rocket_launch" size={16} />
-                            {buildingSpec === doc.path ? "Building..." : "Build it"}
-                          </button>
-                        )}
-                        {doc.status !== "draft" && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleVerify(doc.path); }}
-                            disabled={
-                              loading ||
-                              verifyingSpec === doc.path ||
-                              (doc.status === "in-progress" && buildingSpec === doc.path)
-                            }
-                            className="border border-slate-600 text-slate-300 hover:border-slate-500 hover:text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                            data-testid="verify-button"
-                            title="Runs the acceptance checks"
-                          >
-                            <Icon name="fact_check" size={16} />
-                            {verifyingSpec === doc.path ? "Verifying..." : "Verify"}
-                          </button>
-                        )}
-                        {(doc.status === "ready" || doc.status === "spec" as string) && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleUnlock(doc.path); }}
-                            disabled={loading}
-                            className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                            data-testid="unlock-spec-button"
-                            title="Reopen this plan so you can change the acceptance criteria."
-                          >
-                            <Icon name="lock_open" size={16} />
-                            Unlock and edit
-                          </button>
-                        )}
-                        </div>
+                        {/* Gate clickability for buttons that would
+                            otherwise produce a predictable error. Each
+                            disabled branch has a tooltip explaining what
+                            the user is waiting on, so the button does not
+                            look broken. */}
+                        {(() => {
+                          // Promote is valid only when the draft has at
+                          // least one acceptance-criterion checklist item.
+                          // Trust the server array first, fall back to
+                          // parsing "- [ ]" / "- [x]" lines out of the body
+                          // so the UI flips to enabled the moment the
+                          // checkboxes appear.
+                          const parsedAc = getAcceptanceCriteria(doc);
+                          const hasAc =
+                            (doc.acceptance_criteria?.length ?? 0) > 0 ||
+                            parsedAc.length > 0;
+                          // In-progress specs already have linked tasks.
+                          // If every task is closed there is nothing to
+                          // build, so Build would only surface the
+                          // "No open tasks to build" error.
+                          const totalTasks = doc.task_summary?.total ?? 0;
+                          const openTasks = doc.task_summary?.open ?? 0;
+                          const allClosed =
+                            totalTasks > 0 && openTasks === 0;
+                          // Verify hits /verify which fails fast when no
+                          // tasks are linked. ready/spec can appear before
+                          // decomposition, so guard on task presence.
+                          const verifyBlocked =
+                            (doc.status === "ready" ||
+                              (doc.status as string) === "spec") &&
+                            totalTasks === 0;
+                          return (
+                            <div className="flex flex-wrap gap-2">
+                              {doc.status === "draft" && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handlePromote(doc.path); }}
+                                  disabled={loading || !hasAc}
+                                  className="bg-green-500/20 text-green-400 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-green-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                  data-testid="promote-button"
+                                  title={hasAc ? "Promote this draft to a spec." : "Waiting for acceptance criteria. This button unlocks once at least one checklist item appears."}
+                                >
+                                  <Icon name="verified" size={16} />
+                                  Promote to Spec
+                                </button>
+                              )}
+                              {(doc.status === "ready" || doc.status === "spec" as string) && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleBuild(doc.path); }}
+                                  disabled={loading || buildingSpec === doc.path}
+                                  className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                  data-testid="build-button"
+                                  title="Turns this plan into tasks and starts a builder agent for each one."
+                                >
+                                  <Icon name="rocket_launch" size={16} />
+                                  {buildingSpec === doc.path ? "Building..." : "Build it"}
+                                </button>
+                              )}
+                              {doc.status === "in-progress" && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleBuild(doc.path); }}
+                                  disabled={loading || buildingSpec === doc.path || allClosed}
+                                  className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                  data-testid="build-button"
+                                  title={allClosed ? "Every task is already closed. Click Verify to check the work." : "Turns this plan into tasks and starts a builder agent for each one."}
+                                >
+                                  <Icon name="rocket_launch" size={16} />
+                                  {buildingSpec === doc.path ? "Building..." : "Build it"}
+                                </button>
+                              )}
+                              {doc.status !== "draft" && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleVerify(doc.path); }}
+                                  disabled={
+                                    loading ||
+                                    verifyingSpec === doc.path ||
+                                    (doc.status === "in-progress" && buildingSpec === doc.path) ||
+                                    verifyBlocked
+                                  }
+                                  className="border border-slate-600 text-slate-300 hover:border-slate-500 hover:text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                  data-testid="verify-button"
+                                  title={verifyBlocked ? "Click Build it first. Verify runs after the plan has linked tasks." : "Runs the acceptance checks"}
+                                >
+                                  <Icon name="fact_check" size={16} />
+                                  {verifyingSpec === doc.path ? "Verifying..." : "Verify"}
+                                </button>
+                              )}
+                              {(doc.status === "ready" || doc.status === "spec" as string) && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleUnlock(doc.path); }}
+                                  disabled={loading}
+                                  className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                  data-testid="unlock-spec-button"
+                                  title="Reopen this plan so you can change the acceptance criteria."
+                                >
+                                  <Icon name="lock_open" size={16} />
+                                  Unlock and edit
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {buildResult[doc.path] && (
                           <div
                             className="mt-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-slate-200"
