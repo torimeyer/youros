@@ -191,6 +191,36 @@ def _pin_prewarm_roadmap_to_tmp(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _pin_myos_files_dir_to_tmp(tmp_path, monkeypatch):
+    """Redirect ``MYOS_FILES_DIR`` to a tmp path for every test.
+
+    The real dir is ``~/.myos/files/`` and is where user-facing artifacts
+    live (roadmap.md, fleet outputs, etc.). Any test that exercises a
+    spawn path which calls ``_save_agent_output_to_files`` (for example
+    ``test_roadmap_prewarm_replay_when_file_exists_and_demo_mode``) would
+    otherwise overwrite the user's real roadmap.md with the test's fake
+    prewarm content. That is exactly what clobbered Tori's 4229-byte
+    roadmap.md with a 160-byte "ship the thing" placeholder the morning
+    of the demo.
+
+    Individual tests that specifically want to inspect a write can still
+    re-patch the attribute themselves (patterns like
+    ``with patch.object(agents_module, "MYOS_FILES_DIR", ...)`` in
+    test_agents.py already do this locally). The autouse default just
+    guarantees the user's real home is never the write target.
+    """
+    try:
+        from routers import agents as _agents_mod
+    except Exception:
+        yield
+        return
+    fake_files = tmp_path / "myos-files"
+    fake_files.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(_agents_mod, "MYOS_FILES_DIR", fake_files)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _isolate_external_data_sources():
     """Prevent tests from reading real Claude Code transcripts or live agent state.
 

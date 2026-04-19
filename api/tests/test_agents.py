@@ -241,6 +241,114 @@ async def test_list_agents_endpoint_merges_sources():
 
 
 @pytest.mark.asyncio
+async def test_list_agents_summary_mode_is_compact_for_hook_polling():
+    """``GET /api/agents?summary=1`` returns a compact shape under ~5KB.
+
+    Regression test for the hook-flapping bug: the full ``/api/agents``
+    payload routinely exceeds 600KB on a busy fleet, which tripped the
+    3s curl timeout in the UserPromptSubmit standing-rules hook and
+    caused it to emit "couldn't reach myOS backend" even when the
+    backend was healthy. The compact summary mode must:
+
+    1. Drop heavy fields (transcript, budget_details, tokens_used, etc.)
+       so the payload stays tiny even with thousands of agents.
+    2. Keep the fields the hook renders (name, source, status,
+       spawned_at, transcript_bytes, last_heartbeat_at).
+    3. Respect server-side ``status``, ``source``, and ``limit`` filters
+       so the caller does not have to download-then-filter.
+    4. Omit the expensive top-level fields (``daemon_running``, ``active``,
+       ``avg_min_per_dollar``) that the hook does not need.
+    """
+    from routers.agents import agent_metadata, active_agents
+
+    # Seed 1000 synthetic agents: 500 running claude-code, 500 completed api.
+    # This is the scale at which the full payload trips the hook timeout.
+    saved_metadata = dict(agent_metadata)
+    saved_active = dict(active_agents)
+    agent_metadata.clear()
+    active_agents.clear()
+    # Use fresh timestamps (now-ish) so the list_agents stale-sweep does
+    # not demote our synthetic "running" rows to terminated_stale before
+    # the summary filter sees them. The sweep kicks in at 8 minutes for
+    # claude-code subagents.
+    now = datetime.now(timezone.utc)
+    fresh_spawn = (now - timedelta(minutes=1)).isoformat()
+    fresh_heartbeat = (now - timedelta(seconds=10)).isoformat()
+    try:
+        for i in range(500):
+            agent_metadata[f"cc-running-{i:04d}"] = {
+                "source": "claude-code",
+                "status": "running",
+                "spawned_at": fresh_spawn,
+                "last_heartbeat_at": fresh_heartbeat,
+                "model": "sonnet",
+                "budget": "1.00",
+                # Simulate the heavy fields that bloat the full response.
+                "budget_details": {"tokens_in": i * 1000, "tokens_out": i * 500},
+                "transcript_tail": "x" * 500,
+            }
+        for i in range(500):
+            agent_metadata[f"api-done-{i:04d}"] = {
+                "source": "api",
+                "status": "completed",
+                "spawned_at": fresh_spawn,
+                "completed_at": fresh_heartbeat,
+                "model": "sonnet",
+                "budget": "1.00",
+            }
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            mock_ps = {"raw": "no daemon", "daemon_running": False, "agents": []}
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.kernel_ps = AsyncMock(return_value=mock_ps)
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+
+                resp = await client.get(
+                    "/api/agents?summary=1&status=running&source=claude-code&limit=20"
+                )
+
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Full-response keys must be absent in summary mode.
+        assert "daemon_running" not in data
+        assert "active" not in data
+        assert "avg_min_per_dollar" not in data
+        assert "agents" in data
+
+        # Filter + limit should cap at 20 rows even though 500 match.
+        agents = data["agents"]
+        assert len(agents) == 20
+
+        # Compact shape: heavy fields must be dropped.
+        compact_allowed = {
+            "name", "source", "status", "spawned_at",
+            "transcript_bytes", "last_heartbeat_at",
+        }
+        for a in agents:
+            assert a.get("status") == "running"
+            assert a.get("source") == "claude-code"
+            unexpected = set(a.keys()) - compact_allowed
+            assert not unexpected, (
+                f"summary-mode row leaked heavy fields: {unexpected}"
+            )
+            assert "budget_details" not in a
+            assert "transcript_tail" not in a
+
+        # Size budget: must fit comfortably under the 5KB hook target.
+        body_bytes = len(resp.content)
+        assert body_bytes < 5000, (
+            f"summary-mode body is {body_bytes} bytes (over 5KB budget)"
+        )
+    finally:
+        agent_metadata.clear()
+        agent_metadata.update(saved_metadata)
+        active_agents.clear()
+        active_agents.update(saved_active)
+
+
+@pytest.mark.asyncio
 async def test_nudge_writes_file_and_returns_record():
     """POST /api/agents/{name}/nudge should write a nudge file and return record."""
     from routers.agents import agent_metadata
@@ -10153,6 +10261,149 @@ async def test_roadmap_prewarm_replay_when_file_exists_and_demo_mode(
         assert transcript.exists(), "transcript file must be written"
         assert "ship the thing" in transcript.read_text()
         assert (agent_metadata.get(agent_name) or {}).get("status") == "completed"
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_roadmap_prewarm_replay_writes_full_content_and_does_not_touch_user_home(
+    tmp_path, monkeypatch
+):
+    """Replay writes the full cached prewarm content AND never touches ~/.myos/files/.
+
+    Regression guard for the demo-day bug where the live Roadmap click
+    produced a 160-byte "ship the thing" placeholder at
+    ``~/.myos/files/roadmap.md``. Root cause was two-fold:
+
+      1. ``test_roadmap_prewarm_replay_when_file_exists_and_demo_mode``
+         did not patch ``MYOS_FILES_DIR``, so the test's fake
+         "ship the thing" prewarm content was saved to the user's real
+         ``~/.myos/files/roadmap.md`` via
+         ``_save_agent_output_to_files`` inside the drip task.
+      2. There was no test covering the real 12-quarter prewarm asset,
+         so the shrinking roadmap.md was invisible.
+
+    This test exercises a realistic prewarm file (≥4000 bytes with the
+    Q3 2026 JSON array) and asserts:
+      - transcript contains the full content
+      - the auto-patched ``MYOS_FILES_DIR`` (conftest fixture) is where
+        roadmap.md lands, not the user's ``~/.myos/files``.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    # Realistic prewarm: the first Q3 2026 entry from the real asset
+    # plus enough padding to clear the 4000-byte bar.
+    json_block = (
+        '[\n'
+        '  {\n'
+        '    "quarter": "Q3 2026",\n'
+        '    "theme": "Close the gap between chat models and your real data",\n'
+        '    "initiatives": [\n'
+        '      "In progress tasks panel showing live agent work",\n'
+        '      "Multi model side by side chat answers",\n'
+        '      "Live fleet activity feed with spawns and completions",\n'
+        '      "Agent timeline gantt across the day",\n'
+        '      "Briefing read aloud with text to speech"\n'
+        '    ]\n'
+        '  }\n'
+        ']\n'
+    )
+    # Pad with plausible roadmap narrative so the total clears 4000 bytes.
+    padding = ("\n## Notes\n\n" + "This quarter focuses on closing the loop "
+               "between chat answers and the live data they cite.\n") * 40
+    fake_prewarm = tmp_path / "prewarm" / "roadmap.md"
+    fake_prewarm.parent.mkdir(parents=True)
+    fake_prewarm.write_text(
+        "---\nsource: roadmap\ntemplate: Roadmap\nkind: roadmap\n---\n\n"
+        "# Roadmap\n\n" + json_block + padding
+    )
+    assert fake_prewarm.stat().st_size >= 4000
+
+    monkeypatch.setattr(agents_module, "PREWARM_ROADMAP_PATH", fake_prewarm)
+    monkeypatch.setattr(agents_module, "_PREWARM_TARGET_SECONDS", 0.2)
+    monkeypatch.setattr(agents_module, "_PREWARM_CHUNK_DELAY_SECONDS", 0.001)
+
+    import config as _config_mod
+    monkeypatch.setattr(_config_mod, "PROJECT_ROOT", tmp_path)
+
+    async def _exploding_subprocess(*args, **kwargs):
+        raise AssertionError(
+            "create_subprocess_exec must NOT be called when replay fires"
+        )
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _exploding_subprocess,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module, "_schedule_demo_force_complete", _noop_force_complete
+    )
+
+    # Snapshot the user's real home path BEFORE the spawn so we can
+    # assert we never wrote there. The conftest autouse fixture redirects
+    # ``MYOS_FILES_DIR`` to a tmp path. Read the patched value and make
+    # sure it is NOT the user's real ``~/.myos/files``.
+    real_user_files = Path.home() / ".myos" / "files"
+    patched_files_dir = agents_module.MYOS_FILES_DIR
+    assert patched_files_dir != real_user_files, (
+        "conftest must have redirected MYOS_FILES_DIR away from user home"
+    )
+
+    agent_name = "demo-roadmap-replay-full-content"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Draft a 3-year roadmap.",
+                    "template": "Roadmap",
+                    "budget": 3.0,
+                    "demo_mode": True,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        # Wait for the drip to finish.
+        for _ in range(100):
+            await asyncio.sleep(0.05)
+            if (agent_metadata.get(agent_name) or {}).get("status") == "completed":
+                break
+        assert (agent_metadata.get(agent_name) or {}).get("status") == "completed"
+
+        transcript = tmp_path / "transcripts" / f"{agent_name}.md"
+        transcript_body = transcript.read_text()
+        assert len(transcript_body) >= 4000, (
+            f"transcript must be ≥4000 bytes, got {len(transcript_body)}"
+        )
+        assert "In progress tasks panel" in transcript_body
+        assert "Multi model side by side" in transcript_body
+
+        # And the patched files dir must contain roadmap.md with the
+        # same markers. The REAL user home must not have been touched
+        # (we cannot delete the user's real file, but we can at least
+        # assert the patched dir was the write target).
+        patched_roadmap = patched_files_dir / "roadmap.md"
+        assert patched_roadmap.exists(), (
+            "replay must write roadmap.md to the patched MYOS_FILES_DIR"
+        )
+        body = patched_roadmap.read_text()
+        assert len(body) >= 4000
+        assert "In progress tasks panel" in body
     finally:
         agent_metadata.pop(agent_name, None)
         active_agents.pop(agent_name, None)
