@@ -85,13 +85,24 @@ async def get_dashboard():
     if isinstance(hay_result, Exception):
         hay_result = {"clusters": [], "unclustered": []}
 
-    # Build focus list from P0 + P1 tasks (session tasks already excluded above)
+    # Build focus list from ALL visible open tasks, sorted by priority.
+    # The open count in the header and this body list must describe the
+    # same set of tasks so the widget never reads "N open" with an empty
+    # "No focus tasks" body. A task without a P0/P1 label still shows up
+    # when it is the only open task the user has. Capped at 4 rows so the
+    # widget stays scannable on smaller screens; the "N open" badge tells
+    # the user when there is more to see on the Tasks page.
+    _priority_rank = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+    sorted_open = sorted(
+        open_tasks,
+        key=lambda t: _priority_rank.get(t.get("priority") or "", 4),
+    )
     focus = []
-    for t in (p0 + p1)[:4]:
+    for t in sorted_open[:4]:
         focus.append({
             "title": t.get("title", ""),
             "id": t.get("id", ""),
-            "priority": t.get("priority", "P1"),
+            "priority": t.get("priority") or "P2",
         })
 
     return {

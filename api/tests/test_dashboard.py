@@ -59,11 +59,14 @@ async def test_dashboard_counts_computed_correctly(client):
 
 
 @pytest.mark.asyncio
-async def test_dashboard_focus_contains_p0_and_p1(client):
+async def test_dashboard_focus_sorted_by_priority(client):
+    # Focus returns ALL visible open tasks sorted by priority so the
+    # widget body always agrees with the "N open" count in the header.
+    # P0 comes first, then P1, P2, P3, then anything without a priority.
     mock_tasks = [
+        _make_task("t-3", "Nice to have", "P2", "open"),
         _make_task("t-1", "Critical fix", "P0", "open"),
         _make_task("t-2", "Important feature", "P1", "open"),
-        _make_task("t-3", "Nice to have", "P2", "open"),
     ]
     mock_hay = {"clusters": [], "unclustered": []}
 
@@ -73,13 +76,58 @@ async def test_dashboard_focus_contains_p0_and_p1(client):
         mock_ostk.list_hay = AsyncMock(return_value=mock_hay)
         resp = await client.get("/api/dashboard")
 
-    focus = resp.json()["focus"]
-    focus_ids = [f["id"] for f in focus]
-    # P0 and P1 should be in focus
-    assert "t-1" in focus_ids
-    assert "t-2" in focus_ids
-    # P2 should not be in focus
-    assert "t-3" not in focus_ids
+    data = resp.json()
+    focus_ids = [f["id"] for f in data["focus"]]
+    # All three visible open tasks appear in focus, sorted P0 -> P1 -> P2.
+    assert focus_ids == ["t-1", "t-2", "t-3"]
+    # And the open count agrees with the number of focus rows when the
+    # total fits under the 4-row cap.
+    assert data["counts"]["open"] == len(data["focus"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_dashboard_focus_body_matches_open_count(client):
+    # Regression: when the only open tasks are P2 (no P0 or P1), the
+    # "N open" count and the body list must still agree. Previously the
+    # count said "2 open" and the body said "No focus tasks right now."
+    mock_tasks = [
+        _make_task("t-1", "Write docs", "P2", "open"),
+        _make_task("t-2", "Chase vendor", "P2", "open"),
+    ]
+    mock_hay = {"clusters": [], "unclustered": []}
+
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        mock_ostk.os_status = AsyncMock(return_value="ok")
+        mock_ostk.list_hay = AsyncMock(return_value=mock_hay)
+        resp = await client.get("/api/dashboard")
+
+    data = resp.json()
+    assert data["counts"]["open"] == 2
+    assert len(data["focus"]) == 2
+    assert {f["id"] for f in data["focus"]} == {"t-1", "t-2"}
+
+
+@pytest.mark.asyncio
+async def test_dashboard_focus_includes_unprioritized_tasks(client):
+    # A task with no priority set should still appear in focus when it
+    # is the only open task, so the body never stays empty while the
+    # count shows a non-zero number.
+    mock_tasks = [
+        {"id": "t-1", "title": "Unlabeled task", "status": "open"},
+    ]
+    mock_hay = {"clusters": [], "unclustered": []}
+
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        mock_ostk.os_status = AsyncMock(return_value="ok")
+        mock_ostk.list_hay = AsyncMock(return_value=mock_hay)
+        resp = await client.get("/api/dashboard")
+
+    data = resp.json()
+    assert data["counts"]["open"] == 1
+    assert len(data["focus"]) == 1
+    assert data["focus"][0]["id"] == "t-1"
 
 
 @pytest.mark.asyncio

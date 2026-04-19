@@ -665,6 +665,50 @@ describe("Today's Focus session task filter", () => {
     const focusWidget = screen.getByTestId('widget-todays-focus')
     expect(within(focusWidget).getByText('2 open')).toBeInTheDocument()
   })
+
+  it('count badge matches the rendered focus list length (regression)', async () => {
+    // Regression: the header once read "2 open" while the body said
+    // "No focus tasks right now." because the body filtered to P0/P1
+    // while the count included every open task. The backend now sends
+    // all open tasks in `focus` sorted by priority, capped at 4, so
+    // the count and the list describe the same set.
+    const alignedData = {
+      counts: { open: 2, closed: 485, p0: 0, p1: 0, p2: 2 },
+      focus: [
+        { title: 'Write quarterly update', id: '\u2192501', priority: 'P2' },
+        { title: 'Chase vendor follow-up', id: '\u2192502', priority: 'P2' },
+      ],
+      recent_tasks: [
+        { id: '\u2192501', title: 'Write quarterly update', priority: 'P2' },
+        { id: '\u2192502', title: 'Chase vendor follow-up', priority: 'P2' },
+      ],
+      hay_count: 0,
+      ostk_status: 'no daemon running',
+    }
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(alignedData)
+      if (path === '/dashboard/summary') return Promise.resolve({ bullets: [] })
+      if (path === '/dashboard/compounds') return Promise.resolve({ top: null, all: [] })
+      if (path === '/dashboard/diff') return Promise.resolve({ files_changed: [], needles_filed: [], audit_events: [], audit_total: 0 })
+      if (path.startsWith('/costs')) return Promise.resolve({ total_budget: 0, agent_count: 0 })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+
+    useAppStore.setState({ dashboardWidgets: ['todays_focus'] })
+    renderDashboard()
+
+    const focusWidget = await waitFor(() => screen.getByTestId('widget-todays-focus'))
+    // Header says 2 open.
+    expect(within(focusWidget).getByText('2 open')).toBeInTheDocument()
+    // Body lists both of those 2 tasks (not the empty state).
+    expect(within(focusWidget).getByText('Write quarterly update')).toBeInTheDocument()
+    expect(within(focusWidget).getByText('Chase vendor follow-up')).toBeInTheDocument()
+    expect(within(focusWidget).queryByText(/No focus tasks right now/i)).toBeNull()
+  })
 })
 
 const MOCK_ADVENTURES = {
