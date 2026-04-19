@@ -1421,23 +1421,11 @@ describe('Specs page', () => {
     expect(screen.getByTestId('plan-template-build-a-website')).toBeInTheDocument()
     expect(screen.getByTestId('plan-template-launch-announcement')).toBeInTheDocument()
 
-    // Clicking a template card opens the details modal instead of
-    // applying the template directly. The user can adjust the plan
-    // name, add an optional note, and then click Create plan.
     fireEvent.click(screen.getByTestId('plan-template-build-a-website'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('spec-template-details-modal')).toBeInTheDocument()
-    })
-
-    // Submit with the pre-filled plan name unchanged.
-    fireEvent.click(screen.getByTestId('spec-template-apply'))
 
     await waitFor(() => {
       expect(mockedApiPost).toHaveBeenCalledWith('/specs/from-template', {
         template_id: 'build-a-website',
-        title: 'Build a Website',
-        note: '',
       })
     })
 
