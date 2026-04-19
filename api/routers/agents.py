@@ -2520,9 +2520,16 @@ async def list_agents(
         )[:limit]
 
     if summary:
+        # description + model are required by the frontend's
+        # isUserSpawnedAgent filter (app/src/lib/agentUtils.ts): description
+        # feeds isMainSession detection and model excludes subscription
+        # sessions. Without these the user's own claude-code-* main-session
+        # row slips through, producing a "1" Agents nav badge when Active
+        # Sessions correctly shows 0.
         compact_keys = (
             "name", "source", "status", "spawned_at",
             "transcript_bytes", "last_heartbeat_at",
+            "description", "model",
         )
         compact_agents = [
             {k: a.get(k) for k in compact_keys if a.get(k) is not None}

@@ -290,6 +290,11 @@ async def test_list_agents_summary_mode_is_compact_for_hook_polling():
                 "spawned_at": fresh_spawn,
                 "last_heartbeat_at": fresh_heartbeat,
                 "model": "sonnet",
+                # description is used by the frontend isUserSpawnedAgent
+                # filter (via isMainSession detection). It must round-trip
+                # through summary mode or the Agents nav badge drifts from
+                # the Active Sessions count.
+                "description": f"fix demo bug {i}",
                 "budget": "1.00",
                 # Simulate the heavy fields that bloat the full response.
                 "budget_details": {"tokens_in": i * 1000, "tokens_out": i * 500},
@@ -329,10 +334,13 @@ async def test_list_agents_summary_mode_is_compact_for_hook_polling():
         agents = data["agents"]
         assert len(agents) == 20
 
-        # Compact shape: heavy fields must be dropped.
+        # Compact shape: heavy fields must be dropped. description + model
+        # are required by the frontend isUserSpawnedAgent filter so the
+        # Agents nav badge matches the Active Sessions count.
         compact_allowed = {
             "name", "source", "status", "spawned_at",
             "transcript_bytes", "last_heartbeat_at",
+            "description", "model",
         }
         for a in agents:
             assert a.get("status") == "running"
@@ -343,11 +351,40 @@ async def test_list_agents_summary_mode_is_compact_for_hook_polling():
             )
             assert "budget_details" not in a
             assert "transcript_tail" not in a
+            # description + model must round-trip so the frontend filter
+            # can detect main-session rows and exclude subscription agents.
+            assert "description" in a, (
+                "summary-mode row missing description (isUserSpawnedAgent "
+                "filter uses it for isMainSession detection)"
+            )
+            assert "model" in a, (
+                "summary-mode row missing model (isUserSpawnedAgent "
+                "filter uses it to exclude subscription sessions)"
+            )
 
-        # Size budget: must fit comfortably under the 5KB hook target.
+        # Size budget: must fit comfortably under the 5KB hook target even
+        # with description + model added.
         body_bytes = len(resp.content)
         assert body_bytes < 5000, (
             f"summary-mode body is {body_bytes} bytes (over 5KB budget)"
+        )
+        # Cap at 100 rows: must stay well under 50KB even with description
+        # + model fields. Catches regressions where a heavy field like
+        # transcript_tail or budget_details accidentally leaks into the
+        # compact projection (those would blow well past this cap).
+        transport2 = ASGITransport(app=app)
+        async with AsyncClient(transport=transport2, base_url="http://test") as client2:
+            with patch("routers.agents.ostk") as mock_ostk2:
+                mock_ostk2.kernel_ps = AsyncMock(return_value=mock_ps)
+                mock_ostk2.audit_agents = AsyncMock(return_value=[])
+                resp100 = await client2.get(
+                    "/api/agents?summary=1&status=running&source=claude-code&limit=100"
+                )
+        assert resp100.status_code == 200
+        body100 = len(resp100.content)
+        assert body100 < 50000, (
+            f"summary-mode body with 100 rows is {body100} bytes "
+            "(over 50KB cap, heavy field probably leaked)"
         )
     finally:
         patch_save.stop()
