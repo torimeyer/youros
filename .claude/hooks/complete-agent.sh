@@ -85,6 +85,34 @@ sys.stdout.write(val)
 PY
 )
 
+# Background subagents: Claude Code fires PostToolUse the moment the Agent
+# tool CALL returns, not when the subagent's work actually finishes. For
+# run_in_background:true the call returns immediately while the subagent
+# keeps running in the background, so closing the row here would mark the
+# agent completed within seconds of spawn and the torios UI would always
+# show 0 running. Skip /complete when the original tool_input had
+# run_in_background:true - the register-agent.sh heartbeat loop already
+# watches the subagent's transcript file and will emit /complete when the
+# jsonl actually goes idle (TRANSCRIPT_IDLE_SECONDS).
+RUN_IN_BACKGROUND=$(INPUT_JSON="$INPUT" python3 <<'INNERPY' 2>/dev/null || true
+import os, sys, json
+raw = os.environ.get("INPUT_JSON", "") or "{}"
+try:
+    d = json.loads(raw)
+except Exception:
+    sys.exit(0)
+ti = d.get("tool_input") or {}
+if isinstance(ti, dict) and ti.get("run_in_background") is True:
+    sys.stdout.write("1")
+INNERPY
+)
+if [ "$RUN_IN_BACKGROUND" = "1" ]; then
+    # Keep the per-tool-use pointer and last.name so the heartbeat
+    # idle-detector branch inside register-agent.sh still has a name
+    # to /complete when the transcript goes idle.
+    exit 0
+fi
+
 AGENT_NAME=""
 PER_ID_FILE=""
 if [ -n "$TOOL_USE_ID" ]; then
