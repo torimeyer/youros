@@ -5942,3 +5942,109 @@ describe('Agents page - Roadmap card opens modal (no direct-spawn, no suffix)', 
   })
 })
 
+
+describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    preExpandAgents(
+      'summary-runner',
+      'summary-ghost',
+      'summary-completed',
+    )
+  })
+
+  it('renders ONLY rows whose names appear in the summary endpoint response', async () => {
+    // Scenario: the full /agents payload still has three rows (one
+    // running, one running-but-server-says-stale, one completed). The
+    // compact summary endpoint authoritatively says only
+    // "summary-runner" is running. The Active Sessions tab must render
+    // exactly one row, regardless of what allAgents thinks, so that its
+    // count and the Sidebar nav-badge count always agree.
+    const fullAgents = {
+      daemon_running: true,
+      status: 'ok',
+      active: ['summary-runner', 'summary-ghost'],
+      agents: [
+        {
+          name: 'summary-runner',
+          status: 'running',
+          source: 'claude-code',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date(Date.now() - 30000).toISOString(),
+        },
+        {
+          // Legacy /agents payload still reports this as running but
+          // the summary endpoint has already dropped it (terminated
+          // upstream). The fix must trust the summary set.
+          name: 'summary-ghost',
+          status: 'running',
+          source: 'claude-code',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date(Date.now() - 60000).toISOString(),
+        },
+        {
+          name: 'summary-completed',
+          status: 'completed',
+          source: 'claude-code',
+          model: 'sonnet',
+          budget: '2.00',
+          spawned_at: new Date(Date.now() - 120000).toISOString(),
+        },
+      ],
+    }
+    // Compact summary: lean response shape (only running, server-filtered).
+    const summaryResponse = {
+      agents: [
+        {
+          name: 'summary-runner',
+          status: 'running',
+          source: 'claude-code',
+          spawned_at: new Date(Date.now() - 30000).toISOString(),
+        },
+      ],
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path.startsWith('/agents?summary=1')) return summaryResponse
+      if (path === '/agents') return fullAgents
+      if (path === '/agents/templates') return { templates: [] }
+      if (path.includes('/nudges')) return { agent: '', nudges: [], session_nudges: [] }
+      return {}
+    })
+
+    render(
+      <MemoryRouter>
+        <Agents />
+      </MemoryRouter>
+    )
+
+    // Wait for the summary endpoint to have been called AND the list to
+    // have reconciled to exactly one running row.
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith(
+        '/agents?summary=1&status=running&source=claude-code&limit=20'
+      )
+    })
+
+    // summary-runner must render.
+    await waitFor(() => {
+      expect(screen.getByTitle('summary-runner')).toBeInTheDocument()
+    })
+
+    // summary-ghost must NOT render even though the full /agents
+    // payload still reports it as running. The summary set is the
+    // source of truth.
+    await waitFor(() => {
+      expect(screen.queryByTitle('summary-ghost')).toBeNull()
+    })
+
+    // summary-completed has never been active; it must not appear in
+    // the Active Sessions list either.
+    expect(screen.queryByTitle('summary-completed')).toBeNull()
+  })
+})

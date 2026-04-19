@@ -64,7 +64,7 @@ describe('Sidebar', () => {
       features: DEFAULT_FEATURES,
     })
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({ active: [], agents: [] })
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
@@ -147,11 +147,15 @@ describe('Sidebar', () => {
   })
 
   it('does not show agent badge when activeAgents is 0', async () => {
-    mockedApiGet.mockResolvedValue({ active: [], agents: [] })
+    mockedApiGet.mockResolvedValue({ agents: [] })
     renderSidebar()
 
+    // Sidebar badge now hits the compact summary endpoint so it can
+    // share a server-filtered set with the Agents page.
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/agents')
+      expect(mockedApiGet).toHaveBeenCalledWith(
+        '/agents?summary=1&status=running&source=claude-code&limit=20'
+      )
     })
 
     const agentsLink = screen.getByText('Agents').closest('a')
@@ -159,11 +163,13 @@ describe('Sidebar', () => {
   })
 
   it('shows agent badge when activeAgents > 0 (only user-spawned running agents)', async () => {
+    // Summary endpoint is already filtered server-side to running +
+    // source=claude-code, so the sidebar just has to count the rows it
+    // gets back (minus locally dismissed and non-user-spawned rows).
     mockedApiGet.mockResolvedValue({
-      active: ['agent-1', 'agent-2'],
       agents: [
         { name: 'agent-1', status: 'running', source: 'claude-code' },
-        { name: 'agent-2', status: 'running', source: 'api' },
+        { name: 'agent-2', status: 'running', source: 'claude-code' },
       ],
     })
     renderSidebar()
@@ -174,13 +180,14 @@ describe('Sidebar', () => {
   })
 
   it('shows correct count for multiple active agents', async () => {
+    // Summary endpoint returns only running + source=claude-code rows
+    // so the sidebar badge is the length of the server response.
     mockedApiGet.mockResolvedValue({
-      active: ['a1', 'a2', 'a3', 'a4', 'a5'],
       agents: [
         { name: 'a1', status: 'running', source: 'claude-code' },
         { name: 'a2', status: 'running', source: 'claude-code' },
-        { name: 'a3', status: 'running', source: 'api' },
-        { name: 'a4', status: 'spawned', source: 'claude-code' },
+        { name: 'a3', status: 'running', source: 'claude-code' },
+        { name: 'a4', status: 'running', source: 'claude-code' },
         { name: 'a5', status: 'running', source: 'claude-code' },
       ],
     })
@@ -197,7 +204,6 @@ describe('Sidebar', () => {
     // should drop to 2 on the next refetch even though the backend still
     // returns all three.
     mockedApiGet.mockResolvedValue({
-      active: ['a1', 'a2', 'a3'],
       agents: [
         { name: 'a1', status: 'running', source: 'claude-code' },
         { name: 'a2', status: 'running', source: 'claude-code' },
@@ -220,7 +226,7 @@ describe('Sidebar', () => {
 
   it('Sidebar renders a count badge on the Tasks nav when there are open tasks', async () => {
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({ active: [], agents: [] })
+      if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 7 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
@@ -246,7 +252,7 @@ describe('Sidebar', () => {
 
   it('Sidebar does NOT render a badge on Tasks when count is 0', async () => {
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({ active: [], agents: [] })
+      if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
@@ -272,7 +278,7 @@ describe('Sidebar', () => {
     // Tasks page.
     let countsCalls = 0
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({ active: [], agents: [] })
+      if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') {
         countsCalls++
         // Backend already filtered to open only: 4 remain out of a
@@ -298,7 +304,7 @@ describe('Sidebar', () => {
     renderSidebar()
 
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/agents')
+      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringMatching(/^\/agents/))
     })
 
     expect(screen.getByText('Agents')).toBeInTheDocument()
@@ -309,19 +315,19 @@ describe('Sidebar', () => {
     renderSidebar()
 
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/agents')
+      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringMatching(/^\/agents/))
     })
   })
 
   it('polls agents every 2 seconds so the badge stays up to date', async () => {
     vi.useFakeTimers()
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({ active: [] })
+      if (url.startsWith('/agents')) return Promise.resolve({ active: [] })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
     renderSidebar()
 
-    const agentCalls = () => mockedApiGet.mock.calls.filter(c => c[0] === '/agents').length
+    const agentCalls = () => mockedApiGet.mock.calls.filter(c => typeof c[0] === 'string' && c[0].startsWith('/agents')).length
 
     await vi.advanceTimersByTimeAsync(0)
     expect(agentCalls()).toBe(1)
@@ -339,7 +345,7 @@ describe('Sidebar', () => {
   it('polls tasks every 2 seconds so the badge stays up to date', async () => {
     vi.useFakeTimers()
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({ active: [], agents: [] })
+      if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
@@ -362,14 +368,14 @@ describe('Sidebar', () => {
   it('bumpAgents triggers an immediate agents refetch without waiting for the poll', async () => {
     vi.useFakeTimers()
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({ active: [], agents: [] })
+      if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
     const { bumpAgents } = await import('../lib/sidebarBus')
 
     renderSidebar()
-    const agentCalls = () => mockedApiGet.mock.calls.filter(c => c[0] === '/agents').length
+    const agentCalls = () => mockedApiGet.mock.calls.filter(c => typeof c[0] === 'string' && c[0].startsWith('/agents')).length
 
     await vi.advanceTimersByTimeAsync(0)
     expect(agentCalls()).toBe(1)
@@ -387,7 +393,7 @@ describe('Sidebar', () => {
   it('bumpTasks triggers an immediate tasks refetch without waiting for the poll', async () => {
     vi.useFakeTimers()
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({ active: [], agents: [] })
+      if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
@@ -409,7 +415,7 @@ describe('Sidebar', () => {
 
   it('sidebar badge counts only user-spawned running agents, not main session', async () => {
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({
+      if (url.startsWith('/agents')) return Promise.resolve({
         active: ['claude-code-31808c4b-5', 'tasks-health-autofix', 'fix-agents-parse-error'],
         agents: [
           { name: 'claude-code-31808c4b-5', status: 'running', source: 'claude-code', description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)' },
@@ -428,7 +434,7 @@ describe('Sidebar', () => {
 
   it('sidebar badge excludes chat, audit, hook, and subscription agents', async () => {
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({
+      if (url.startsWith('/agents')) return Promise.resolve({
         active: ['chat-abc', 'audit-row', 'hook-row', 'sub-row', 'real-agent'],
         agents: [
           { name: 'chat-abc', status: 'running', source: 'chat' },
@@ -449,7 +455,7 @@ describe('Sidebar', () => {
 
   it('sidebar badge is hidden when only main session is running', async () => {
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({
+      if (url.startsWith('/agents')) return Promise.resolve({
         active: ['claude-code-31808c4b-5'],
         agents: [
           { name: 'claude-code-31808c4b-5', status: 'running', source: 'claude-code', description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)' },
@@ -460,7 +466,7 @@ describe('Sidebar', () => {
     })
     renderSidebar()
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/agents')
+      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringMatching(/^\/agents/))
     })
     const agentsLink = screen.getByText('Agents').closest('a')
     expect(agentsLink?.querySelector('.animate-pulse')).toBeNull()
@@ -573,7 +579,7 @@ describe('Sidebar', () => {
   it('updates badge count when API response changes between polls', async () => {
     let agentCallCount = 0
     mockedApiGet.mockImplementation(async (url: string) => {
-      if (url === '/agents') {
+      if (url.startsWith('/agents')) {
         agentCallCount++
         if (agentCallCount === 1) return { active: [], agents: [] }
         return {
@@ -613,7 +619,7 @@ describe('Sidebar grouped nav', () => {
       features: DEFAULT_FEATURES,
     })
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({ active: [], agents: [] })
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
@@ -802,7 +808,7 @@ describe('Sidebar grouped nav', () => {
 
   it('Comms group header shows rolled-up gmail badge when collapsed and gmail unread > 0', async () => {
     mockedApiGet.mockImplementation((url: string) => {
-      if (url === '/agents') return Promise.resolve({ active: [], agents: [] })
+      if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
       if (url === '/gmail/auth/status') return Promise.resolve({ authenticated: true, unread_count: 5 })
       return Promise.resolve({})
@@ -875,7 +881,7 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
         if (clockCalls === 2) throw new Error('Upstream unavailable')
         return { kernel: 'v2.5.0' }
       }
-      if (url === '/agents') return { active: [], agents: [] }
+      if (url.startsWith('/agents')) return { active: [], agents: [] }
       if (url === '/gmail/auth/status') return { authenticated: false, unread_count: 0 }
       if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
       return {}
@@ -908,7 +914,7 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
       if (url === '/status/clock') {
         throw new Error('ECONNREFUSED')
       }
-      if (url === '/agents') return { active: [], agents: [] }
+      if (url.startsWith('/agents')) return { active: [], agents: [] }
       if (url === '/gmail/auth/status') return { authenticated: false, unread_count: 0 }
       if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
       return {}
@@ -940,7 +946,7 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
         if (clockCalls === 4) throw new Error('Upstream unavailable')
         return { kernel: 'v2.5.0' }
       }
-      if (url === '/agents') return { active: [], agents: [] }
+      if (url.startsWith('/agents')) return { active: [], agents: [] }
       if (url === '/gmail/auth/status') return { authenticated: false, unread_count: 0 }
       if (url === '/upgrade/status') return { myos: { current: 'v1.0.0' } }
       return {}

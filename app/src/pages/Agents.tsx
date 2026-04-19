@@ -1804,6 +1804,14 @@ export default function Agents() {
     () => readAgentsCache().length > 0,
   );
   const [, setActiveAgents] = useState<string[]>([]);
+  // Authoritative "is running?" set, sourced from the compact summary
+  // endpoint /api/agents?summary=1&status=running&source=claude-code.
+  // Both this page and the Sidebar badge consume the same server-filtered
+  // list so the two counts can never disagree by one tick. The full
+  // /agents fetch still populates allAgents for rich row details
+  // (model, budget, cost, transcript bytes) and for the Recent tab,
+  // which needs terminal-status rows.
+  const [runningAgentNames, setRunningAgentNames] = useState<Set<string>>(() => new Set());
   const [, setConnectionStatus] = useState("Connecting...");
   const [, setDaemonRunning] = useState(false);
   // Rolling median of recent agent durations, used by AgentStatusBar
@@ -2735,6 +2743,41 @@ export default function Agents() {
     return () => clearInterval(interval);
   }, []);
 
+  // Authoritative "is running?" poll. Hits the compact summary endpoint
+  // so the payload is ~430 bytes instead of the full ~337KB /agents
+  // response. Runs in parallel with fetchAgents so both the Active
+  // Sessions list and the Sidebar nav badge converge on the same
+  // server-filtered set within one poll tick, eliminating the 0-vs-1
+  // render race the two surfaces used to show.
+  useEffect(() => {
+    let cancelled = false;
+    const fetchRunningSummary = async () => {
+      try {
+        interface SummaryAgent { name: string; status: string; source?: string; model?: string; description?: string; spawned_at?: string; last_heartbeat_at?: string }
+        const res = await api.get<{ agents: SummaryAgent[] }>(
+          "/agents?summary=1&status=running&source=claude-code&limit=20"
+        );
+        if (cancelled) return;
+        const names = new Set<string>();
+        for (const a of res.agents || []) {
+          if (isUserSpawnedAgent(a)) names.add(a.name);
+        }
+        setRunningAgentNames(names);
+      } catch {
+        // Swallow. The fallback path in isVisibleActive uses the
+        // legacy isAgentActive heuristic until the next successful
+        // fetch lands, so a single transient failure does not wipe
+        // the Active Sessions list.
+      }
+    };
+    fetchRunningSummary();
+    const interval = setInterval(fetchRunningSummary, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Clean up stale customAgentTemplates entries. Older onboarding builds
   // stuffed persona marketplace templates into this list, which made the
   // Templates page render them twice (once here with a "custom" badge,
@@ -2814,19 +2857,22 @@ export default function Agents() {
   // Fetch context pressure for running agents (needle 337)
   useEffect(() => {
     if (activeTab === "Active") {
-      const running = allAgents.filter((a) => isAgentActive(a));
-      for (const agent of running) {
+      const hasSummary = runningAgentNames.size > 0;
+      const pickRunning = () =>
+        hasSummary
+          ? allAgents.filter((a) => runningAgentNames.has(a.name))
+          : allAgents.filter((a) => isAgentActive(a));
+      for (const agent of pickRunning()) {
         fetchContextPressure(agent.name);
       }
       const interval = setInterval(() => {
-        const current = allAgents.filter((a) => isAgentActive(a));
-        for (const agent of current) {
+        for (const agent of pickRunning()) {
           fetchContextPressure(agent.name);
         }
       }, 30000); // Check every 30 seconds
       return () => clearInterval(interval);
     }
-  }, [activeTab, allAgents, fetchContextPressure]);
+  }, [activeTab, allAgents, runningAgentNames, fetchContextPressure]);
 
   // Fetch workspace messages when the Workspace tab is selected
   useEffect(() => {
@@ -2938,8 +2984,13 @@ export default function Agents() {
 
   const handleCancelAll = async () => {
     // Count agents eligible for bulk cancel: same filter as Active Sessions list.
+    // Uses the server-derived runningAgentNames so this button agrees with
+    // what the user actually sees above it.
+    const hasSummary = runningAgentNames.size > 0;
     const eligible = allAgents.filter(
-      (a) => isAgentActive(a) && isUserSpawnedAgent(a)
+      (a) =>
+        isUserSpawnedAgent(a) &&
+        (hasSummary ? runningAgentNames.has(a.name) : isAgentActive(a))
     );
     if (eligible.length === 0) return;
     const confirmed = await confirm({
@@ -3249,8 +3300,11 @@ export default function Agents() {
               </h2>
               {(() => {
                 // Same filter as Active Sessions list and handleCancelAll.
+                const hasSummary = runningAgentNames.size > 0;
                 const runningCount = allAgents.filter(
-                  (a) => isAgentActive(a) && isUserSpawnedAgent(a)
+                  (a) =>
+                    isUserSpawnedAgent(a) &&
+                    (hasSummary ? runningAgentNames.has(a.name) : isAgentActive(a))
                 ).length;
                 return (
                   <button
@@ -3284,8 +3338,16 @@ export default function Agents() {
               // last heartbeat is fresher than 2 minutes (covers the race
               // where the stale-sweep flips the row moments before the
               // agent's next heartbeat lands). cancelled stays hidden.
+              // Membership test uses the server-filtered runningAgentNames
+              // set so this page and the Sidebar badge always agree. Falls
+              // back to the legacy isAgentActive heuristic only while the
+              // summary fetch has not resolved yet (set is empty AND we
+              // are still in the first poll window) so the list is not
+              // blank on first paint.
+              const hasSummary = runningAgentNames.size > 0;
               const isVisibleActive = (a: typeof allAgents[number]) =>
-                isUserSpawnedAgent(a) && isAgentActive(a);
+                isUserSpawnedAgent(a) &&
+                (hasSummary ? runningAgentNames.has(a.name) : isAgentActive(a));
 
               const visibleAgents = allAgents.filter(isVisibleActive);
 

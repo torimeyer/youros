@@ -21,7 +21,7 @@ import { useAppStore } from '../stores/app'
 import AdminSection from './AdminSection'
 import { api } from '../lib/api'
 import { onAgentsChange, onTasksChange, isDismissed } from '../lib/sidebarBus'
-import { isAgentActive, isUserSpawnedAgent } from '../lib/agentUtils'
+import { isUserSpawnedAgent } from '../lib/agentUtils'
 
 // ------------- types -------------
 
@@ -353,14 +353,21 @@ export function Sidebar() {
   useEffect(() => {
     const fetchAgents = async () => {
       try {
-        interface AgentInfo { name: string; status: string; source?: string; model?: string; description?: string; spawned_at?: string; completed_at?: string; last_heartbeat_at?: string }
-        const res = await api.get<{ active: string[]; agents: AgentInfo[] }>('/agents')
-        // Also exclude locally-dismissed agents so the badge matches what
-        // the Agents page shows. Without this filter, the sidebar keeps
-        // counting an agent for one or two poll ticks after the user
-        // cancels it.
+        // Compact server-side summary endpoint: already filters to
+        // status=running, source=claude-code, limit=20. Avoids pulling
+        // the full ~337KB /agents payload just to compute a count, and
+        // eliminates the 0-vs-1 render race between sidebar and the
+        // Active Sessions page by making both read from the same
+        // server-filtered set. Keeps isUserSpawnedAgent + isDismissed
+        // client-side because the server does not know about
+        // locally-dismissed agents and the server filter does not
+        // re-check isMainSession.
+        interface SummaryAgent { name: string; status: string; source?: string; model?: string; description?: string; spawned_at?: string; last_heartbeat_at?: string }
+        const res = await api.get<{ agents: SummaryAgent[] }>(
+          '/agents?summary=1&status=running&source=claude-code&limit=20'
+        )
         const userSpawnedRunning = (res.agents || []).filter(
-          (a) => isAgentActive(a) && isUserSpawnedAgent(a) && !isDismissed(a.name)
+          (a) => isUserSpawnedAgent(a) && !isDismissed(a.name)
         )
         setActiveAgents(userSpawnedRunning.length)
       } catch {
