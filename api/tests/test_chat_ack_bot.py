@@ -541,3 +541,283 @@ async def test_ack_bot_writes_only_one_reply_per_unique_nudge(tmp_path, monkeypa
         "new in_reply_to must produce a fresh reply file"
     )
     assert other["in_reply_to"] == "2026-04-15T12:00:05+00:00"
+
+
+# ---------------------------------------------------------------------------
+# Honest ack copy: no invented time estimates
+# ---------------------------------------------------------------------------
+
+
+def test_ack_copy_without_timing_data_never_promises_a_time():
+    """With no measurements on file, the ack must not quote a number.
+
+    This is the anchor test for the honest-ack contract. When the
+    latency store is empty the helper must fall back to one of the
+    no-estimate canned strings. No "seconds", no "minutes", no "within
+    Ns" phrasing. The user reading this line should understand we are
+    working on it and nothing more.
+    """
+    msg = chat_ack_bot.build_ack_message(None)
+    assert msg in chat_ack_bot._ACK_RESPONSES_NO_ESTIMATE
+    lowered = msg.lower()
+    assert "second" not in lowered
+    assert "minute" not in lowered
+    assert "within" not in lowered
+
+
+def test_ack_copy_for_fast_agent_does_not_quote_a_number():
+    """If the measured reply is already under ten seconds, the ack
+    should stay plain. Quoting "within 2 seconds" would be noise and
+    could still be wrong by a factor of two on the next turn.
+    """
+    msg = chat_ack_bot.build_ack_message(2.0)
+    assert msg in chat_ack_bot._ACK_RESPONSES_NO_ESTIMATE
+    assert "second" not in msg.lower()
+
+
+def test_ack_copy_for_slow_agent_quotes_rounded_up_seconds():
+    """When the measurement is in the "usually under Ns" band the ack
+    must quote a number that is at least the measured value. Rounding
+    is always UP so we never promise a ceiling we cannot hit.
+    """
+    # 12 measured seconds rounds up to 15.
+    msg = chat_ack_bot.build_ack_message(12.0)
+    assert "15 seconds" in msg
+    # 31 measured seconds lands in the 10-step band and rounds up to 40.
+    msg = chat_ack_bot.build_ack_message(31.0)
+    assert "40 seconds" in msg
+
+
+def test_ack_copy_for_slow_agent_uses_minutes_when_over_90s():
+    """A reply that regularly takes more than 90 seconds should be
+    phrased in minutes, rounded up. Anything else feels like
+    engineer-speak ("120 seconds").
+    """
+    msg = chat_ack_bot.build_ack_message(125.0)
+    assert "minute" in msg
+    # 125s rounds up to 150s, which is 3 minutes (ceiling of 2.5).
+    assert "3 minutes" in msg
+
+
+def test_ack_copy_for_very_slow_agent_says_may_take_a_while():
+    """If the measurement is above the long-tail cap we must not quote
+    a number, because we do not have enough confidence that the cap is
+    representative. Promise the user we are on it and nothing more.
+    """
+    msg = chat_ack_bot.build_ack_message(600.0)
+    assert "may take a while" in msg.lower()
+    assert "minute" not in msg.lower()
+    assert "second" not in msg.lower()
+
+
+def test_ack_copy_never_contains_em_dash():
+    """Project rule: no em-dashes in user-facing strings. Check every
+    candidate path."""
+    for measured in [None, 2.0, 15.0, 120.0, 600.0]:
+        msg = chat_ack_bot.build_ack_message(measured)
+        assert "\u2014" not in msg, f"em-dash in ack copy for {measured}s: {msg!r}"
+
+
+def test_measured_p95_returns_none_until_enough_samples():
+    """With fewer than the minimum samples, the aggregate must be
+    ``None`` so the ack falls back to no-estimate copy. Guessing off
+    one sample is what "inventing a number" looks like.
+    """
+    chat_ack_bot.reset_latency_store()
+    name = "p95-coldstart"
+    # No samples.
+    assert chat_ack_bot.measured_p95_seconds(name) is None
+    # One sample is still not enough.
+    chat_ack_bot.record_reply_latency(name, 5.0)
+    assert chat_ack_bot.measured_p95_seconds(name) is None
+    # Two samples cross the floor.
+    chat_ack_bot.record_reply_latency(name, 8.0)
+    p95 = chat_ack_bot.measured_p95_seconds(name)
+    assert p95 is not None
+    assert 5.0 <= p95 <= 8.0
+    chat_ack_bot.reset_latency_store()
+
+
+def test_measured_p95_matches_rough_rank():
+    """With a populated store the p95 must land near the top of the
+    distribution. This anchors the rank math so we do not accidentally
+    regress to a mean or a median.
+    """
+    chat_ack_bot.reset_latency_store()
+    name = "p95-rank"
+    for value in [1, 2, 3, 4, 5, 6, 7, 8, 9, 100]:
+        chat_ack_bot.record_reply_latency(name, float(value))
+    p95 = chat_ack_bot.measured_p95_seconds(name)
+    # The tail value is 100s; 95th percentile on nearest-rank lands on
+    # the top of the sorted list for a 10-sample set.
+    assert p95 == 100.0
+    chat_ack_bot.reset_latency_store()
+
+
+def test_build_ack_grounded_in_measured_p95_end_to_end():
+    """Given a measured 8s aggregate, the ack must stay plain (fast
+    path). Given a measured 45s aggregate it must quote seconds. Given
+    a measured 200s aggregate it must quote minutes. This is the full
+    contract the product team wrote the rule for: any number the user
+    sees corresponds to a real number in our telemetry.
+    """
+    chat_ack_bot.reset_latency_store()
+    fast = "end-to-end-fast"
+    slow = "end-to-end-slow"
+    very_slow = "end-to-end-very-slow"
+    # Fast agent: two samples under the floor.
+    for v in [3.0, 8.0]:
+        chat_ack_bot.record_reply_latency(fast, v)
+    # Slow agent: samples that round up to 45s band.
+    for v in [30.0, 40.0, 45.0]:
+        chat_ack_bot.record_reply_latency(slow, v)
+    # Very slow agent: samples in the minute range.
+    for v in [180.0, 200.0, 210.0]:
+        chat_ack_bot.record_reply_latency(very_slow, v)
+
+    fast_msg = chat_ack_bot.build_ack_message(chat_ack_bot.measured_p95_seconds(fast))
+    slow_msg = chat_ack_bot.build_ack_message(chat_ack_bot.measured_p95_seconds(slow))
+    very_slow_msg = chat_ack_bot.build_ack_message(
+        chat_ack_bot.measured_p95_seconds(very_slow)
+    )
+
+    assert fast_msg in chat_ack_bot._ACK_RESPONSES_NO_ESTIMATE
+    assert "second" in slow_msg.lower() and "minute" not in slow_msg.lower()
+    assert "minute" in very_slow_msg.lower()
+    chat_ack_bot.reset_latency_store()
+
+
+def test_infer_latency_from_reply_skips_ack_kind_and_missing_fields():
+    """The router only feeds the store with real (not ack) replies that
+    carry an ``in_reply_to``. Anything else must return ``None`` so a
+    stray ack or an orphan real reply cannot poison the aggregate.
+    """
+    # ack kind: ignored.
+    assert chat_ack_bot._infer_latency_from_reply([], {
+        "kind": "ack",
+        "timestamp": "2026-04-15T12:00:10+00:00",
+        "in_reply_to": "2026-04-15T12:00:00+00:00",
+    }) is None
+    # Missing in_reply_to: ignored.
+    assert chat_ack_bot._infer_latency_from_reply([], {
+        "kind": "real",
+        "timestamp": "2026-04-15T12:00:10+00:00",
+    }) is None
+    # Clock skew (reply before nudge): ignored.
+    assert chat_ack_bot._infer_latency_from_reply([], {
+        "kind": "real",
+        "timestamp": "2026-04-15T12:00:00+00:00",
+        "in_reply_to": "2026-04-15T12:00:10+00:00",
+    }) is None
+    # Happy path.
+    delta = chat_ack_bot._infer_latency_from_reply([], {
+        "kind": "real",
+        "timestamp": "2026-04-15T12:00:15+00:00",
+        "in_reply_to": "2026-04-15T12:00:00+00:00",
+    })
+    assert delta == 15.0
+
+
+@pytest.mark.asyncio
+async def test_ack_bot_with_measured_slow_p95_ships_honest_time():
+    """End-to-end: the bot running for an agent whose measured p95 is
+    45 seconds must write an ack bubble that quotes a specific number
+    (rounded up from 45s). This is the regression test that catches
+    "the ack says 'give me a sec' but the real reply takes a minute".
+    """
+    import itertools
+
+    name = "ack-measured-slow"
+    _reset(name)
+    chat_ack_bot.reset_latency_store()
+    for v in [30.0, 40.0, 45.0]:
+        chat_ack_bot.record_reply_latency(name, v)
+
+    agents_router.agent_metadata[name] = {"status": "running", "source": "claude-code"}
+    captured: list[str] = []
+
+    async def _append(agent, message, in_reply_to=None, kind=None):
+        captured.append(message)
+        return {
+            "message": message,
+            "timestamp": "2026-04-15T12:00:46+00:00",
+            "in_reply_to": in_reply_to,
+            "source": "agent",
+        }
+
+    try:
+        with patch.object(agents_router.ostk, "list_nudges", new=AsyncMock(return_value=[])):
+            with patch.object(
+                agents_router.ostk,
+                "append_nudge_reply",
+                new=AsyncMock(side_effect=_append),
+            ):
+                agents_router.nudge_history[name] = [
+                    {
+                        "message": "how's it going?",
+                        "timestamp": "2026-04-15T12:00:00+00:00",
+                        "source": "ui",
+                    }
+                ]
+                await chat_ack_bot._ack_once(name, itertools.count())
+    finally:
+        _reset(name)
+        chat_ack_bot.reset_latency_store()
+
+    assert captured, "bot did not post an ack"
+    msg = captured[0]
+    # The quoted number is the rounded-up p95. 45s rounds up to 50s.
+    assert "50 seconds" in msg, f"expected a 50s promise, got: {msg!r}"
+    assert "minute" not in msg.lower()
+
+
+@pytest.mark.asyncio
+async def test_ack_bot_with_no_measurement_never_promises_a_time():
+    """The regression test for the original bug: a cold-start agent
+    with no latency history on file must NEVER land an ack bubble that
+    quotes a specific time. The bot must read ``None`` from the store
+    and pick a no-estimate string.
+    """
+    import itertools
+
+    name = "ack-measured-cold"
+    _reset(name)
+    chat_ack_bot.reset_latency_store()
+
+    agents_router.agent_metadata[name] = {"status": "running", "source": "claude-code"}
+    captured: list[str] = []
+
+    async def _append(agent, message, in_reply_to=None, kind=None):
+        captured.append(message)
+        return {
+            "message": message,
+            "timestamp": "2026-04-15T12:00:01+00:00",
+            "in_reply_to": in_reply_to,
+            "source": "agent",
+        }
+
+    try:
+        with patch.object(agents_router.ostk, "list_nudges", new=AsyncMock(return_value=[])):
+            with patch.object(
+                agents_router.ostk,
+                "append_nudge_reply",
+                new=AsyncMock(side_effect=_append),
+            ):
+                agents_router.nudge_history[name] = [
+                    {
+                        "message": "quick one",
+                        "timestamp": "2026-04-15T12:00:00+00:00",
+                        "source": "ui",
+                    }
+                ]
+                await chat_ack_bot._ack_once(name, itertools.count())
+    finally:
+        _reset(name)
+        chat_ack_bot.reset_latency_store()
+
+    assert captured, "bot did not post an ack"
+    msg = captured[0]
+    lowered = msg.lower()
+    assert "second" not in lowered, f"no-data ack must not quote seconds: {msg!r}"
+    assert "minute" not in lowered, f"no-data ack must not quote minutes: {msg!r}"
+    assert msg in chat_ack_bot._ACK_RESPONSES_NO_ESTIMATE

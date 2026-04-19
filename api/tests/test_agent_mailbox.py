@@ -624,11 +624,11 @@ def test_mailbox_instruction_tells_agent_to_reply_warmly_then_resume():
         agent_mailbox_instruction_short("demo-agent"),
     ):
         lower = block.lower()
-        # Warmth cue: at least one of the canonical example phrases lands.
+        # Warmth cue: the prompt must tell the agent to reply warmly
+        # and show an example that is warm without inventing a time.
         assert (
-            "still crunching" in lower
-            or "hang tight" in lower
-            or "warm and conversational" in lower
+            "warm" in lower
+            and ("conversational" in lower or "honest" in lower)
         ), "prompt must model a warm, conversational reply"
         # Do-not-wait cue: agent must resume immediately after /reply.
         assert (
@@ -637,6 +637,18 @@ def test_mailbox_instruction_tells_agent_to_reply_warmly_then_resume():
         ), "prompt must tell the agent not to wait on Tori"
         # No em dashes in the prompt (project style rule).
         assert "\u2014" not in block
+        # Honest-time regression guard: the prompt must explicitly tell
+        # the agent not to fabricate a time estimate. Before this fix
+        # the prompt SUGGESTED fake times like "On it, give me two
+        # minutes" which the model then repeated verbatim to Tori.
+        assert (
+            "do not invent" in lower
+            or "never fabricate" in lower
+            or "do not fabricate" in lower
+        ), (
+            "prompt must explicitly forbid inventing time estimates, "
+            "so the model does not echo a made-up number back to Tori"
+        )
 
 
 def test_agent_chat_banner_shows_estimated_wait_based_on_poll_recency():

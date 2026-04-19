@@ -38,17 +38,27 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Rotation of warm, conversational canned acknowledgments. The rotation
-# keeps every nudge from getting the identical sentence back so the
-# chat does not feel robotic. Kept short: two seconds of latency is
-# already impressive, a long canned reply would undo the effect.
-ACK_RESPONSES: tuple[str, ...] = (
-    "On it, give me a sec.",
-    "Heard you, working on it.",
-    "Got your message, still processing.",
-    "Yep, I see it. Hang tight while I finish this step.",
-    "Noted. I will fold that in as soon as I surface.",
+# Honest ack copy. Every string here is safe to ship when we have NO
+# real measurement of reply latency for the agent, because nothing here
+# promises a specific number of seconds or minutes. The old list had
+# "On it, give me a sec." and "I will fold that in as soon as I surface."
+# which either implied a one-second reply or invented a vague but still
+# concrete time window. If the real agent was mid-pytest the user saw a
+# promise the backend could not keep. Every candidate string here can
+# stand on its own with no timing data.
+_ACK_RESPONSES_NO_ESTIMATE: tuple[str, ...] = (
+    "Got your message. Working on this now.",
+    "Heard you. Still working on your last request.",
+    "Got it. I will reply as soon as I finish this step.",
+    "Thanks, I see your message. Picking it up next.",
+    "Noted. I will fold this in on the next turn.",
 )
+
+# Kept for backwards compatibility with existing tests and callers that
+# imported the old symbol. The tuple now holds honest copy only. Any
+# time-bearing text is produced by ``build_ack_message`` with a measured
+# estimate; it never comes from this list.
+ACK_RESPONSES: tuple[str, ...] = _ACK_RESPONSES_NO_ESTIMATE
 
 # How often the bot polls /nudges. Two seconds is the contract we
 # quote to the user in the UI banner. Tighter would hammer the API
@@ -136,6 +146,179 @@ def _pick_ack(index: int) -> str:
     return ACK_RESPONSES[index % len(ACK_RESPONSES)]
 
 
+# Below this floor (in seconds) we treat the agent as "fast enough"
+# that quoting a number would feel silly and could still be wrong by
+# a factor of two. A plain acknowledgement is honest and enough.
+_FAST_ENOUGH_FLOOR_SECONDS: float = 10.0
+
+# Above this cap we stop quoting a specific minute count because we do
+# not have enough samples to be confident it is representative. We say
+# "this may take a while" instead. Better to under-promise than invent
+# a number we did not actually measure.
+_LONG_TAIL_CAP_SECONDS: float = 300.0
+
+
+def _round_up_seconds(seconds: float) -> int:
+    """Round a positive latency up to a user-friendly whole number.
+
+    We always round up so the number we quote is a ceiling, never a
+    lower bound the user will feel cheated by. Steps match what a
+    person would say out loud: nearest 5s up to 30s, nearest 10s up to
+    60s, nearest 30s after that. The result is an integer number of
+    seconds; the caller decides whether to phrase it in seconds or
+    minutes.
+    """
+    if seconds <= 0:
+        return 0
+    if seconds <= 30:
+        step = 5
+    elif seconds <= 60:
+        step = 10
+    else:
+        step = 30
+    return int(((int(seconds) + step - 1) // step) * step)
+
+
+def build_ack_message(
+    measured_seconds: Optional[float],
+    *,
+    rotation_index: int = 0,
+) -> str:
+    """Return an ack string that is honest about expected reply time.
+
+    The ack bot calls this on every new nudge. The contract:
+
+    * If ``measured_seconds`` is ``None``, we have no data. Return a
+      canned acknowledgement that makes no time promise.
+    * If the measurement is under the fast-enough floor, return a
+      canned acknowledgement that makes no time promise. The real
+      reply is already coming in seconds; quoting a number is noise.
+    * If the measurement is in the "usually under N seconds" band,
+      return a line that quotes N, where N is rounded UP from the
+      measured value. The rounding is generous on purpose: a promise
+      that is slightly too long keeps.
+    * If the measurement is above the long-tail cap, return a line
+      that says the wait may be long, without inventing a number.
+
+    No path here fabricates a time. Every number the user reads maps
+    back one-to-one to a value the caller passed in after looking at
+    real reply-latency telemetry.
+    """
+    base = _ACK_RESPONSES_NO_ESTIMATE[rotation_index % len(_ACK_RESPONSES_NO_ESTIMATE)]
+    if measured_seconds is None:
+        return base
+    if measured_seconds <= 0:
+        return base
+    if measured_seconds < _FAST_ENOUGH_FLOOR_SECONDS:
+        return base
+    if measured_seconds >= _LONG_TAIL_CAP_SECONDS:
+        return (
+            "Got your message. This one may take a while. "
+            "I will reply as soon as I can."
+        )
+    rounded = _round_up_seconds(measured_seconds)
+    if rounded >= 90:
+        minutes = (rounded + 59) // 60
+        unit = "minute" if minutes == 1 else "minutes"
+        return (
+            f"Got your message. Replies usually come within "
+            f"about {minutes} {unit}."
+        )
+    return (
+        f"Got your message. Replies usually come within "
+        f"about {rounded} seconds."
+    )
+
+
+# Rolling store of (nudge_timestamp, reply_timestamp) pairs per agent,
+# measured in wall-clock seconds. Populated by ``record_reply_latency``
+# which is called from the agent /reply router whenever a ``kind=real``
+# reply lands with a matching ``in_reply_to``. The list is bounded to
+# the most recent ``_MAX_LATENCY_SAMPLES`` entries so a long-lived
+# agent does not grow this unbounded. The bot reads the aggregate
+# through ``measured_p95_seconds`` to decide whether to quote a number
+# in the ack text. No other code path should read this directly.
+_reply_latencies_seconds: dict[str, list[float]] = {}
+_MAX_LATENCY_SAMPLES: int = 50
+
+# Minimum number of samples before we trust the aggregate enough to
+# quote a specific number. Under this floor we fall through to the
+# no-estimate acknowledgement. Two samples is enough to catch a wild
+# outlier; one sample is not. Tunable.
+_MIN_SAMPLES_FOR_ESTIMATE: int = 2
+
+
+def record_reply_latency(name: str, seconds: float) -> None:
+    """Append a measured nudge-to-reply latency for ``name``.
+
+    Silently ignores non-positive values (clock skew, same-second
+    replies) and anything larger than the long-tail cap (the agent
+    was probably off doing something unrelated to the last nudge).
+    """
+    if seconds <= 0:
+        return
+    if seconds > _LONG_TAIL_CAP_SECONDS * 4:
+        # Treat an hour-plus gap as unrelated to the triggering nudge.
+        return
+    bucket = _reply_latencies_seconds.setdefault(name, [])
+    bucket.append(float(seconds))
+    if len(bucket) > _MAX_LATENCY_SAMPLES:
+        del bucket[: len(bucket) - _MAX_LATENCY_SAMPLES]
+
+
+def measured_p95_seconds(name: str) -> Optional[float]:
+    """Return the agent's measured p95 reply latency, or ``None``.
+
+    Returns ``None`` when we have fewer than ``_MIN_SAMPLES_FOR_ESTIMATE``
+    samples. ``build_ack_message`` treats ``None`` as "no data, do not
+    quote a number" so the ack stays honest until we have proof.
+    """
+    samples = _reply_latencies_seconds.get(name) or []
+    if len(samples) < _MIN_SAMPLES_FOR_ESTIMATE:
+        return None
+    ordered = sorted(samples)
+    # 95th percentile via nearest-rank. For small sample counts this
+    # is conservative (biased toward the slowest seen), which is what
+    # we want for a time we are about to quote to the user.
+    rank = max(0, int(round(0.95 * (len(ordered) - 1))))
+    return ordered[rank]
+
+
+def _infer_latency_from_reply(
+    replies: list[dict],
+    new_reply: dict,
+) -> Optional[float]:
+    """Return the seconds between ``new_reply.in_reply_to`` and its
+    own timestamp, or ``None`` if either field is missing or unparseable.
+
+    Used by the /reply handler to push a sample into the rolling store
+    the instant a real subagent reply lands. Kept as a helper so the
+    router stays thin and the parsing rules live next to the store.
+    """
+    if not isinstance(new_reply, dict):
+        return None
+    if new_reply.get("kind") != "real":
+        return None
+    ts_raw = str(new_reply.get("timestamp") or "")
+    nudge_ts_raw = str(new_reply.get("in_reply_to") or "")
+    if not ts_raw or not nudge_ts_raw:
+        return None
+    try:
+        reply_dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+        nudge_dt = datetime.fromisoformat(nudge_ts_raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    delta = (reply_dt - nudge_dt).total_seconds()
+    if delta <= 0:
+        return None
+    return delta
+
+
+def reset_latency_store() -> None:
+    """Clear the rolling latency store. Used by tests to get a fresh view."""
+    _reply_latencies_seconds.clear()
+
+
 def _is_terminal(meta: Optional[dict]) -> bool:
     """Return True if the agent's metadata says it has stopped.
 
@@ -215,7 +398,14 @@ async def _ack_once(
     newest = max(candidates, key=lambda e: str(e.get("timestamp", "")))
     newest_ts = str(newest.get("timestamp", ""))
 
-    message = _pick_ack(next(counter))
+    # Build the ack text. When we have real measurements for this
+    # agent we may quote an honest "usually under Ns" line. When we
+    # do not, the message falls back to one of the canned strings
+    # that makes no time promise. Either path is grounded in telemetry
+    # (or the lack of it); neither invents a number.
+    rotation_index = next(counter)
+    p95 = measured_p95_seconds(name)
+    message = build_ack_message(p95, rotation_index=rotation_index)
 
     # Go through the same HTTP-layer helper the real router uses so
     # the reply lands in nudge_replies, the on-disk store, and wakes

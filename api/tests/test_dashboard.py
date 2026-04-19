@@ -149,38 +149,55 @@ async def test_dashboard_focus_limited_to_4(client):
 
 
 @pytest.mark.asyncio
-async def test_dashboard_hay_count_includes_clusters_and_unclustered(client):
+async def test_dashboard_hay_count_field_present(client):
+    # hay_count is kept in the response for schema back-compat, but the
+    # frontend never reads it, so /api/dashboard no longer spawns the
+    # hay subprocess. The field just reports 0.
     mock_tasks = []
-    mock_hay = {
-        "clusters": [
-            {"name": "design", "count": 3, "items": []},
-            {"name": "api", "count": 2, "items": []},
-        ],
-        "unclustered": ["idea1", "idea2", "idea3"],
-    }
 
     with patch("routers.dashboard.ostk") as mock_ostk:
         mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
-        mock_ostk.os_status = AsyncMock(return_value="ok")
-        mock_ostk.list_hay = AsyncMock(return_value=mock_hay)
         resp = await client.get("/api/dashboard")
 
-    # 3 + 2 cluster items + 3 unclustered = 8
-    assert resp.json()["hay_count"] == 8
+    assert resp.json()["hay_count"] == 0
 
 
 @pytest.mark.asyncio
-async def test_dashboard_ostk_status_included(client):
+async def test_dashboard_ostk_status_field_present(client):
+    # ostk_status is kept in the response for schema back-compat, but the
+    # frontend never reads it, so /api/dashboard no longer spawns the
+    # status subprocess. The field is an empty string.
     mock_tasks = []
-    mock_hay = {"clusters": [], "unclustered": []}
+
+    with patch("routers.dashboard.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
+        resp = await client.get("/api/dashboard")
+
+    assert "ostk_status" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_dashboard_skips_os_status_and_list_hay_subprocesses(client):
+    # Regression: the Today's Focus card kept saying "Loading..." for
+    # several seconds because /api/dashboard used to spawn ostk os status
+    # and ostk work hay subprocesses in parallel on every call. Neither
+    # field is read by the frontend, so this test enforces that the
+    # endpoint no longer calls those two methods.
+    mock_tasks = [
+        _make_task("t-1", "Build UI", "P0", "open"),
+    ]
 
     with patch("routers.dashboard.ostk") as mock_ostk:
         mock_ostk.list_tasks = AsyncMock(return_value=mock_tasks)
         mock_ostk.os_status = AsyncMock(return_value="daemon running")
-        mock_ostk.list_hay = AsyncMock(return_value=mock_hay)
+        mock_ostk.list_hay = AsyncMock(return_value={"clusters": [], "unclustered": []})
         resp = await client.get("/api/dashboard")
 
-    assert resp.json()["ostk_status"] == "daemon running"
+    assert resp.status_code == 200
+    # list_tasks stays. os_status and list_hay must never be called.
+    assert mock_ostk.list_tasks.await_count == 1
+    assert mock_ostk.os_status.await_count == 0
+    assert mock_ostk.list_hay.await_count == 0
 
 
 @pytest.mark.asyncio

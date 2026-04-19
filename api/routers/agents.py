@@ -350,9 +350,10 @@ def agent_mailbox_instruction_short(agent_name: str) -> str:
         f"curl --connect-timeout 3 -m 35 -sSk "
         f'"{base}/{agent_name}/nudges?wait=30&since=<latest_ts>"\n'
         "If a nudge is waiting, POST /reply within 2 seconds with 1-2 "
-        "warm, conversational sentences acknowledging Tori and a rough "
-        "status (examples: 'Still crunching, about halfway!' or 'Yep, "
-        "almost done, hang tight.'), then immediately resume your task. "
+        "warm, conversational sentences acknowledging Tori and a HONEST "
+        "status (examples: 'Still working on this.' or 'Got it, looking "
+        "now.'). Do NOT invent a time estimate you cannot keep. Then "
+        "immediately resume your task. "
         "Never wait for a response. Minimum cadence: check /nudges at "
         "least every 30 seconds of wall-clock work. Before any long tool "
         "call (pytest, tsc, large write) poll first, and poll again the "
@@ -458,12 +459,16 @@ def agent_mailbox_instruction(agent_name: str) -> str:
         f"https://127.0.0.1:8000/api/agents/{agent_name}/reply"
         " -H 'Content-Type: application/json' -d '{\"message\": \"<your reply>\"}'`\n"
         "   Post a /reply every time a nudge arrives, even if the reply "
-        "is short like 'On it' or 'Still working, about 2 minutes left'. "
-        "Post another /reply when the work the nudge asked about is done.\n"
-        "   Your reply must be warm and conversational, not formal. Good "
-        "examples: 'Still crunching, about halfway!' or 'Yep, almost "
-        "done, hang tight.' or 'On it, give me two minutes.' Bad "
-        "examples: 'Acknowledged.' or 'Request received, processing.'\n"
+        "is short like 'On it' or 'Still working on this.'. Post another "
+        "/reply when the work the nudge asked about is done.\n"
+        "   Your reply must be warm, conversational, and HONEST. Do NOT "
+        "invent a time estimate. If you do not know exactly how long "
+        "your current step will take, do not promise one. Good examples: "
+        "'Still working on this, I will update when I have an answer.' "
+        "or 'Almost done with the current step.' or 'Got it, looking "
+        "now.' Bad examples: 'Acknowledged.' or 'Request received, "
+        "processing.' or 'Give me two minutes.' (unless you actually "
+        "know it is two minutes). Never fabricate a number.\n"
         "   Never wait for a response from Tori. Post /reply and "
         "immediately resume your task. She does not want the agent to "
         "stall waiting on her next message.\n"
@@ -5972,6 +5977,21 @@ async def post_agent_reply(name: str, body: AgentNudgeReply):
     if name not in nudge_replies:
         nudge_replies[name] = []
     nudge_replies[name].append(reply_data)
+
+    # Feed the rolling reply-latency store when this is a real reply
+    # (not an ack-bot ack) and the reply carries an in_reply_to marker
+    # we can subtract against. The ack bot reads the aggregate to
+    # decide whether its next acknowledgement can honestly quote a
+    # "usually under Ns" number. Any skipped path (missing fields,
+    # clock skew, ack kind) silently declines to push a sample so
+    # the aggregate stays clean.
+    if reply_kind == "real":
+        from services import chat_ack_bot as _ack_bot_for_latency
+        latency = _ack_bot_for_latency._infer_latency_from_reply(
+            nudge_replies[name], reply_data
+        )
+        if latency is not None:
+            _ack_bot_for_latency.record_reply_latency(name, latency)
 
     # Needle 300: a live /reply is proof the agent is alive and working.
     # Refresh last_heartbeat_at so the sweep cannot mark an actively

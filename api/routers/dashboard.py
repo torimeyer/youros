@@ -69,21 +69,9 @@ async def get_dashboard():
     p2 = [t for t in open_tasks if t.get("priority") == "P2"]
     p3 = [t for t in open_tasks if t.get("priority") == "P3"]
 
-    # Get status and hay in parallel
-    try:
-        status_result, hay_result = await asyncio.gather(
-            ostk.os_status(),
-            ostk.list_hay(),
-            return_exceptions=True,
-        )
-    except Exception:
-        status_result = "unavailable"
-        hay_result = {"clusters": [], "unclustered": []}
-
-    if isinstance(status_result, Exception):
-        status_result = "unavailable"
-    if isinstance(hay_result, Exception):
-        hay_result = {"clusters": [], "unclustered": []}
+    # status/hay fields kept in response for back-compat
+    status_result = ""
+    hay_result = {"clusters": [], "unclustered": []}
 
     # Build focus list from ALL visible open tasks, sorted by priority.
     # The open count in the header and this body list must describe the
