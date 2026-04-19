@@ -14,7 +14,12 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+vi.mock('../lib/sidebarBus', () => ({
+  bumpSpecs: vi.fn(),
+}))
+
 import { api } from '../lib/api'
+import { bumpSpecs } from '../lib/sidebarBus'
 
 const mockedApiGet = vi.mocked(api.get)
 
@@ -575,5 +580,55 @@ describe('Roadmap renderer', () => {
     // The + Make spec button for that bullet is now gone (replaced by
     // the pill). No duplicate promote paths.
     expect(screen.queryByTestId('roadmap-make-spec-button')).not.toBeInTheDocument()
+  })
+
+  it('handleMakeSpec fires bumpSpecs on successful POST', async () => {
+    // Regression: the Specs page listens on the specs bus so it can
+    // refetch without waiting on a page refresh. If handleMakeSpec ever
+    // stops bumping the bus, the new plan will silently not appear on
+    // that page.
+    const content =
+      '---\nkind: roadmap\n---\n\n# Roadmap\n\n' +
+      JSON.stringify([
+        {
+          quarter: 'Q1 2026',
+          theme: 'Launch',
+          initiatives: ['Ship guided onboarding'],
+        },
+      ])
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (typeof path === 'string' && path.startsWith('/specs')) {
+        return { docs: [] }
+      }
+      return { content, type: 'text', size: content.length }
+    })
+
+    const mockedApiPost = vi.mocked(api.post)
+    mockedApiPost.mockResolvedValue({
+      title: 'Ship guided onboarding',
+      promoted_path: 'docs/spec/ship-guided-onboarding.md',
+      status: 'ready',
+    })
+
+    const bumpSpy = vi.mocked(bumpSpecs)
+    bumpSpy.mockClear()
+
+    render(
+      <FilePreviewPane
+        entry={{ name: 'roadmap.md', path: '/tmp/roadmap.md', size_display: '1 KB' }}
+        onClose={() => {}}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('roadmap-preview')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('roadmap-make-spec-button'))
+
+    await waitFor(() => {
+      expect(bumpSpy).toHaveBeenCalledTimes(1)
+    })
   })
 })

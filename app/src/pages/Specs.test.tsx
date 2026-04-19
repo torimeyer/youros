@@ -1572,3 +1572,40 @@ describe('Specs page', () => {
     expect(displayStatus('')).toBe('Draft')
   })
 })
+
+
+describe('Specs page real-time bus', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+  })
+
+  it('refetches /specs when bumpSpecs fires', async () => {
+    const { bumpSpecs, _resetSidebarBus } = await import('../lib/sidebarBus')
+    _resetSidebarBus()
+    renderSpecs()
+
+    // Wait for the initial mount fetch.
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/specs')
+    })
+    const initialCalls = mockedApiGet.mock.calls.filter(
+      (c) => c[0] === '/specs'
+    ).length
+
+    // Fire the bus. The Specs page should refetch.
+    bumpSpecs()
+
+    await waitFor(() => {
+      const after = mockedApiGet.mock.calls.filter(
+        (c) => c[0] === '/specs'
+      ).length
+      expect(after).toBeGreaterThan(initialCalls)
+    })
+  })
+})

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import Icon from './Icon';
 import { api } from '../lib/api';
+import { bumpSpecs } from '../lib/sidebarBus';
 import SlideBeautifier from './SlideBeautifier';
 
 // --- Types shared with the backend ---
@@ -989,6 +990,9 @@ export function RoadmapPreview({ content, filePath, onSpecCreated }: RoadmapPrev
           },
         }));
         setToast({ title: res.title, promotedPath: res.promoted_path });
+        // Tell any open Specs tab / page to refetch so the new plan
+        // appears without waiting on a page refresh.
+        bumpSpecs();
         if (onSpecCreated) onSpecCreated({ title: res.title, promotedPath: res.promoted_path });
       } catch {
         setStatusByBullet((prev) => ({

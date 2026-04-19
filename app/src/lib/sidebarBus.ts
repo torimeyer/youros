@@ -1,16 +1,17 @@
 // Tiny in-app pub/sub that lets any page tell the sidebar "I just changed
-// agents" or "I just changed tasks" so the badges can refetch immediately
-// instead of waiting out the next poll tick.
+// agents" or "I just changed tasks" (or "I just created a spec") so the
+// badges and pages can refetch immediately instead of waiting out the next
+// poll tick.
 //
-// This is the fallback for near-real-time badge updates when the server has
-// no general broadcast channel for agent/task lifecycle events. Pages that
-// mutate state (spawn an agent, create a task, close a task, etc.) call
-// bumpAgents() or bumpTasks(). The sidebar subscribes and refetches on each
-// bump.
+// This is the fallback for near-real-time updates when the server has no
+// general broadcast channel for lifecycle events. Pages that mutate state
+// (spawn an agent, create a task, make a spec, etc.) call bumpAgents(),
+// bumpTasks(), or bumpSpecs(). Subscribers refetch on each bump.
 //
 // The api wrapper calls these automatically for any non-GET request whose
-// path starts with /agents or /tasks, so most callers do not need to do
-// anything. Direct callers (tests, edge cases) can still bump manually.
+// path starts with /agents, /tasks, or /specs, so most callers do not need
+// to do anything. Direct callers (tests, edge cases) can still bump
+// manually.
 //
 // Cross-tab delivery: when the browser supports BroadcastChannel, bumps
 // are also fanned out to every other tab on the same origin so the
@@ -24,6 +25,7 @@ type Listener = () => void
 
 const agentsListeners = new Set<Listener>()
 const tasksListeners = new Set<Listener>()
+const specsListeners = new Set<Listener>()
 
 // Names the user has locally dismissed (cancelled or deleted from the
 // Agents page). Shared at module scope so BOTH the Agents page and the
@@ -35,7 +37,7 @@ const tasksListeners = new Set<Listener>()
 const dismissedAgents = new Set<string>()
 
 type BroadcastPayload =
-  | { kind: 'agents' | 'tasks' }
+  | { kind: 'agents' | 'tasks' | 'specs' }
   | { kind: 'dismiss'; name: string }
 
 // BroadcastChannel is wrapped in a try/catch because some environments
@@ -51,6 +53,8 @@ try {
         fanOut(agentsListeners)
       } else if (kind === 'tasks') {
         fanOut(tasksListeners)
+      } else if (kind === 'specs') {
+        fanOut(specsListeners)
       } else if (kind === 'dismiss') {
         // Another tab just dismissed an agent locally. Mirror it into this
         // tab's set so our Sidebar badge and Agents list filter match.
@@ -89,6 +93,13 @@ export function onTasksChange(fn: Listener): () => void {
   }
 }
 
+export function onSpecsChange(fn: Listener): () => void {
+  specsListeners.add(fn)
+  return () => {
+    specsListeners.delete(fn)
+  }
+}
+
 export function bumpAgents(): void {
   fanOut(agentsListeners)
   // Notify other tabs. postMessage never fires onmessage in the sender,
@@ -109,10 +120,20 @@ export function bumpTasks(): void {
   }
 }
 
+export function bumpSpecs(): void {
+  fanOut(specsListeners)
+  try {
+    channel?.postMessage({ kind: 'specs' } satisfies BroadcastPayload)
+  } catch {
+    // ignore
+  }
+}
+
 // Test-only helper.
 export function _resetSidebarBus(): void {
   agentsListeners.clear()
   tasksListeners.clear()
+  specsListeners.clear()
   dismissedAgents.clear()
 }
 

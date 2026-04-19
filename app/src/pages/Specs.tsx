@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import { api } from "../lib/api";
+import { onSpecsChange } from "../lib/sidebarBus";
 import { Button, EmptyState, ErrorBanner } from "../components/ui";
 
 // --- Data types ---
@@ -467,6 +468,13 @@ export default function Specs() {
     if (expandParam) {
       setExpandedPath(decodeURIComponent(expandParam));
     }
+    // Refetch whenever any other surface (FilePreviewPane's "Make spec",
+    // another tab, etc.) bumps the specs channel. This keeps the Specs
+    // page in sync in real time without polling.
+    const off = onSpecsChange(() => {
+      fetchDocs();
+    });
+    return off;
   }, []);
 
   useEffect(() => {

@@ -124,6 +124,39 @@ describe('sidebarBus BroadcastChannel', () => {
       off()
     }
   })
+
+  it('bumpSpecs posts a specs payload on the channel and fires local listeners', async () => {
+    const bus = await import('./sidebarBus')
+    const listener = vi.fn()
+    const off = bus.onSpecsChange(listener)
+    try {
+      bus.bumpSpecs()
+      expect(postSpy).toHaveBeenCalledWith({ kind: 'specs' })
+      expect(listener).toHaveBeenCalledTimes(1)
+    } finally {
+      off()
+    }
+  })
+
+  it('an incoming specs message fans out to local onSpecsChange listeners only', async () => {
+    const bus = await import('./sidebarBus')
+    const specsListener = vi.fn()
+    const agentsListener = vi.fn()
+    const tasksListener = vi.fn()
+    const offS = bus.onSpecsChange(specsListener)
+    const offA = bus.onAgentsChange(agentsListener)
+    const offT = bus.onTasksChange(tasksListener)
+    try {
+      channelOnMessage!({ data: { kind: 'specs' } } as MessageEvent)
+      expect(specsListener).toHaveBeenCalledTimes(1)
+      expect(agentsListener).not.toHaveBeenCalled()
+      expect(tasksListener).not.toHaveBeenCalled()
+    } finally {
+      offS()
+      offA()
+      offT()
+    }
+  })
 })
 
 describe('sidebarBus without BroadcastChannel', () => {

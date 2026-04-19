@@ -1,4 +1,4 @@
-import { bumpAgents, bumpTasks } from './sidebarBus'
+import { bumpAgents, bumpTasks, bumpSpecs } from './sidebarBus'
 
 const BASE = '/api'
 
@@ -63,6 +63,10 @@ function notifySidebarOnWrite(method: string, path: string): void {
     // Some task mutations also spawn an agent (e.g. POST /tasks/:id/commit
     // runs an agent). Bumping agents too is cheap and covers those cases.
     bumpAgents()
+    return
+  }
+  if (seg === 'specs') {
+    bumpSpecs()
   }
 }
 
