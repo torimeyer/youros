@@ -37,6 +37,10 @@ ti = d.get("tool_input", {}) or {}
 desc = (ti.get("description") or "").strip()
 prompt = (ti.get("prompt") or "").strip()
 subagent = (ti.get("subagent_type") or "").strip()
+# Tool-use-id lets the PostToolUse hook find the exact name we registered
+# here, even when several Task calls are in flight concurrently (last.name
+# is a single shared file that gets clobbered by the newest spawn).
+tool_use_id = (d.get("tool_use_id") or "").strip()
 
 name = re.sub(r"[^a-z0-9-]", "", desc.lower().replace(" ", "-"))[:40]
 name = re.sub(r"-+", "-", name).strip("-")
@@ -73,7 +77,7 @@ if not model:
 short_desc = desc or (prompt[:140] if prompt else subagent or "claude-code subagent")
 short_prompt = prompt[:500] if prompt else short_desc
 
-sys.stdout.write(f"{name}\t{model}\t{short_desc}\t{short_prompt}")
+sys.stdout.write(f"{name}\t{model}\t{short_desc}\t{short_prompt}\t{tool_use_id}")
 PY
 )
 
@@ -81,7 +85,7 @@ if [ -z "$PARSED" ]; then
     exit 0
 fi
 
-IFS=$'\t' read -r AGENT_NAME MODEL DESCRIPTION PROMPT <<<"$PARSED"
+IFS=$'\t' read -r AGENT_NAME MODEL DESCRIPTION PROMPT TOOL_USE_ID <<<"$PARSED"
 
 if [ -z "$AGENT_NAME" ]; then
     exit 0
@@ -137,19 +141,31 @@ if [ "$REGISTER_OK" -eq 0 ]; then
     printf '%s\n' "$BODY" >> "$PENDING_QUEUE" 2>/dev/null || true
 else
     # Piggyback: the backend is live right now, so replay any parked
-    # register bodies while we have a working connection. Throttled
-    # inside the lib so the heartbeat hook and this path share state.
+    # register bodies AND any parked /complete bodies while we have a
+    # working connection. Throttled inside the lib so the heartbeat
+    # hook and this path share state.
     HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     if [ -f "$HOOKS_DIR/lib/drain-pending.sh" ]; then
         # shellcheck source=lib/drain-pending.sh
         . "$HOOKS_DIR/lib/drain-pending.sh"
         myos_drain_pending >/dev/null 2>&1 || true
+        myos_drain_pending_complete >/dev/null 2>&1 || true
     fi
 fi
 
 REGISTERED_AT=$(date +%s)
 
 printf '%s' "$AGENT_NAME" > "$HOME/.myos/subagents/last.name" 2>/dev/null || true
+# Per-tool-use-id pointer: complete-agent.sh reads the matching file so
+# parallel Task calls (three at once during the demo) never complete the
+# wrong row just because last.name got clobbered by the newest spawn.
+if [ -n "$TOOL_USE_ID" ]; then
+    mkdir -p "$HOME/.myos/subagents/by-tool-use" 2>/dev/null || true
+    # Sanitize tool_use_id: keep a-z0-9_- only to prevent path escapes.
+    SAFE_TUI=$(printf '%s' "$TOOL_USE_ID" | tr -c 'a-zA-Z0-9_-' '_' | cut -c1-128)
+    printf '%s' "$AGENT_NAME" \
+        > "$HOME/.myos/subagents/by-tool-use/$SAFE_TUI.name" 2>/dev/null || true
+fi
 printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AGENT_NAME" \
     >> "$HOME/.myos/subagents/history.log" 2>/dev/null || true
 

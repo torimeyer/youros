@@ -14,32 +14,83 @@
 # definitively done, and we can close the row from a place that the
 # subagent's behavior cannot break.
 #
-# Name handoff:
-# register-agent.sh writes the agent name to ~/.myos/subagents/last.name
-# at spawn time. We read it here and POST /complete. If the file does
-# not exist, exit cleanly: better to let the stale sweep handle it
-# than to crash the hook chain.
+# Name handoff (two-tier, newer first):
+#   1. Per-tool-use: register-agent.sh writes the name to
+#      ~/.myos/subagents/by-tool-use/<tool_use_id>.name at spawn.
+#      We read that file using the same tool_use_id the Claude Code
+#      harness passes in the PostToolUse payload. This is the only
+#      lookup that survives parallel Task calls: last.name is a
+#      single shared file and the newest spawn wins that race,
+#      which would cause two subagents finishing together to both
+#      /complete the newer row instead of their own.
+#   2. Fallback: ~/.myos/subagents/last.name, for back-compat with
+#      older hook runs that did not key by tool_use_id and for the
+#      common single-agent case where the per-id file was never
+#      written (e.g. Claude Code builds that do not emit tool_use_id).
+#
+# If neither file exists, exit cleanly: better to let the stale
+# sweep handle it than to crash the hook chain.
 #
 # Idempotency:
 # /api/agents/{name}/complete is idempotent server-side: a second call
 # returns 200 with "already completed". Racing with a subagent that
 # DID call /complete on its own is harmless.
+#
+# Transient-failure handling:
+# complete-agent.sh runs on the parent's hot path and must not block,
+# but a silent curl failure here was the root cause of the zombie
+# running-agents list before the demo. We now:
+#   * Retry the POST up to 3 times (1s, 2s, 4s backoff) so a brief
+#     backend reload or MCP flap does not leave the row "running"
+#     forever. Total wall-clock budget stays under 10s.
+#   * On exhaustion, park the target name in
+#     ~/.myos/subagents/pending-complete.jsonl so the next
+#     register-agent.sh / heartbeat-agent.sh hook fires off the
+#     drain and replays it as soon as the backend is reachable.
 
 set -u
 
+PER_ID_DIR="$HOME/.myos/subagents/by-tool-use"
 NAME_FILE="$HOME/.myos/subagents/last.name"
+PENDING_COMPLETE="$HOME/.myos/subagents/pending-complete.jsonl"
 
-if [ ! -f "$NAME_FILE" ]; then
-    exit 0
+# Drain stdin so the hook system does not hold the pipe open, then
+# derive tool_use_id, summary, and the AGENT_NAME to complete.
+INPUT=$(cat 2>/dev/null || true)
+
+# Extract tool_use_id from the hook payload. Used to resolve the
+# per-tool-use name file written by register-agent.sh.
+TOOL_USE_ID=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null || true
+import os, sys, json
+raw = os.environ.get("INPUT_JSON", "") or "{}"
+try:
+    d = json.loads(raw)
+except Exception:
+    sys.exit(0)
+sys.stdout.write((d.get("tool_use_id") or "").strip())
+PY
+)
+
+AGENT_NAME=""
+PER_ID_FILE=""
+if [ -n "$TOOL_USE_ID" ]; then
+    # Sanitize the same way register-agent.sh did so lookup matches.
+    SAFE_TUI=$(printf '%s' "$TOOL_USE_ID" | tr -c 'a-zA-Z0-9_-' '_' | cut -c1-128)
+    PER_ID_FILE="$PER_ID_DIR/$SAFE_TUI.name"
+    if [ -f "$PER_ID_FILE" ]; then
+        AGENT_NAME=$(cat "$PER_ID_FILE" 2>/dev/null | tr -d '[:space:]')
+    fi
 fi
 
-AGENT_NAME=$(cat "$NAME_FILE" 2>/dev/null | tr -d '[:space:]')
+# Fallback to the legacy last.name pointer. Safe for single-agent
+# flows; racy for parallel Task calls but no worse than before.
+if [ -z "$AGENT_NAME" ] && [ -f "$NAME_FILE" ]; then
+    AGENT_NAME=$(cat "$NAME_FILE" 2>/dev/null | tr -d '[:space:]')
+fi
+
 if [ -z "$AGENT_NAME" ]; then
     exit 0
 fi
-
-# Drain stdin so the hook system does not hold the pipe open.
-INPUT=$(cat 2>/dev/null || true)
 
 SUMMARY=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null || true
 import os, sys, json
@@ -81,18 +132,50 @@ if [ -z "$BODY" ]; then
     BODY='{"summary":"Agent tool returned"}'
 fi
 
-curl -sSk --connect-timeout 2 -m 5 \
-    -X POST "https://127.0.0.1:8000/api/agents/${AGENT_NAME}/complete" \
-    -H 'Content-Type: application/json' \
-    -d "$BODY" > /dev/null 2>&1 || true
+# Retry with backoff. Transient backend unavailability (uvicorn reload,
+# MCP flap, brief socket error) is the direct cause of zombie rows
+# before this change. Three attempts total 7 seconds at most.
+COMPLETE_URL="https://127.0.0.1:8000/api/agents/${AGENT_NAME}/complete"
+COMPLETE_OK=0
+for delay in 1 2 4; do
+    if curl -sSk --connect-timeout 2 -m 5 \
+            -X POST "$COMPLETE_URL" \
+            -H 'Content-Type: application/json' \
+            -d "$BODY" > /dev/null 2>&1; then
+        COMPLETE_OK=1
+        break
+    fi
+    sleep "$delay"
+done
+
+if [ "$COMPLETE_OK" -eq 0 ]; then
+    # Park the failed complete so a later hook or session-start
+    # replay can finish the job. Store the fields needed to replay:
+    # name (URL path) and the JSON body.
+    mkdir -p "$(dirname "$PENDING_COMPLETE")" 2>/dev/null || true
+    QUEUE_LINE=$(AGENT_NAME="$AGENT_NAME" BODY="$BODY" python3 -c '
+import os, json
+print(json.dumps({
+    "name": os.environ["AGENT_NAME"],
+    "body": os.environ["BODY"],
+}))
+' 2>/dev/null)
+    if [ -n "$QUEUE_LINE" ]; then
+        printf '%s\n' "$QUEUE_LINE" >> "$PENDING_COMPLETE" 2>/dev/null || true
+    fi
+fi
 
 mkdir -p "$HOME/.myos/subagents" 2>/dev/null || true
 printf '%s\t%s\tcompleted\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AGENT_NAME" \
     >> "$HOME/.myos/subagents/history.log" 2>/dev/null || true
 
-# Clear the last.name pointer so a stale value cannot misfire the next
-# /complete if the next Agent tool call fails before register-agent.sh
-# updates the file.
+# Clear the per-tool-use pointer so a retry on the same id cannot
+# double-fire, and clear last.name so a stale value cannot misfire
+# the next /complete if the next Agent tool call fails before
+# register-agent.sh updates the file.
+if [ -n "$PER_ID_FILE" ] && [ -f "$PER_ID_FILE" ]; then
+    rm -f "$PER_ID_FILE" 2>/dev/null || true
+fi
 : > "$NAME_FILE" 2>/dev/null || true
 
 exit 0

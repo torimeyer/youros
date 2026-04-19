@@ -75,6 +75,7 @@ if [ -f "$HOOKS_DIR/lib/drain-pending.sh" ]; then
     # shellcheck source=lib/drain-pending.sh
     . "$HOOKS_DIR/lib/drain-pending.sh"
     myos_drain_pending >/dev/null 2>&1 || true
+    myos_drain_pending_complete >/dev/null 2>&1 || true
 fi
 
 # Fully detached heartbeat. setsid + nohup + background + stdin redirect
