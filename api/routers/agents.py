@@ -5463,7 +5463,12 @@ async def cancel_all_agents():
 
 
 # How often the background reconciliation loop runs (seconds).
-RECONCILE_INTERVAL_SECONDS = 300  # 5 minutes
+# Tightened from 300s to 60s so zombie "running" rows (agents that died
+# without calling /complete) clear within a minute instead of sitting in
+# the demo for 5+ minutes. The actual stale-cutoff is still governed by
+# STALE_AGENT_TIMEOUT_SECONDS / STALE_CLAUDE_CODE_SUBAGENT_SECONDS; this
+# only controls how often we check.
+RECONCILE_INTERVAL_SECONDS = 60  # 1 minute
 
 
 @router.post("/agents/reconcile")
@@ -5529,10 +5534,37 @@ async def reconcile_agents():
 
 
 async def _reconcile_loop():
-    """Background loop that calls reconcile_agents every RECONCILE_INTERVAL_SECONDS."""
+    """Background loop that reaps zombie "running" rows every minute.
+
+    Runs the same three passes GET /api/agents runs so the UI does not have
+    to be open for stale rows to clear:
+
+      1. ``_sweep_stale_running_agents``      - demotes running rows whose
+         heartbeat has been silent past STALE_AGENT_TIMEOUT_SECONDS (15 min
+         for most sources; 8 min for Claude Code subagents) to
+         ``terminated_stale`` / ``completed_timeout``.
+      2. ``_autocomplete_exited_subagents``   - flips Claude Code subagents
+         whose transcript stopped growing (>2 min idle, no live PID) to
+         ``completed``.
+      3. ``reconcile_agents``                 - backstop for agents with no
+         live proc and no recent heartbeat; marks them ``stopped``.
+
+    Writing the reaper into a background task (instead of only piggybacking
+    on GET /api/agents) is the whole point: if the Agents page is not open,
+    the lazy sweep never fires and zombie rows show up in the nav badge,
+    inline-chat running-agents snapshot, and workflow views for far longer
+    than any user should have to see them.
+    """
     # Wait a bit on startup so agents have time to register.
     await asyncio.sleep(1)
     while True:
+        try:
+            stale_changed = _sweep_stale_running_agents()
+            ac_changed = _autocomplete_exited_subagents()
+            if stale_changed or ac_changed:
+                _save_agent_state()
+        except Exception:
+            pass
         try:
             await reconcile_agents()
         except Exception:

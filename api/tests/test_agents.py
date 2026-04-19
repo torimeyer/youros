@@ -12342,3 +12342,87 @@ def test_stale_sweep_summary_when_nothing_done(tmp_path):
         assert summary == _STALE_SWEEP_SUMMARY_NO_WORK
     finally:
         agent_metadata.pop("read-only-agent", None)
+
+
+# ── Background reaper loop ──────────────────────────────────────────
+#
+# Regression guard for the stale-agent reaper. Root cause: `_reconcile_loop`
+# used to run every 300s and only called `reconcile_agents`, which uses a
+# narrower predicate than the list-endpoint sweep. So a Claude Code subagent
+# that died without calling /complete stayed in status="running" for up to
+# 8 minutes (the frontend never polls /api/agents when the Agents page is
+# closed, so the on-demand sweep never fires). The fix tightens the loop
+# to 60s and runs the same `_sweep_stale_running_agents` +
+# `_autocomplete_exited_subagents` passes the list endpoint runs.
+
+
+@pytest.mark.asyncio
+async def test_background_reaper_loop_reaps_without_list_endpoint():
+    """A running agent with a stale heartbeat must flip to a terminal
+    status when the background reaper runs, even if nothing ever calls
+    GET /api/agents.
+
+    This is the core regression: the demo surfaces (nav badge, running-
+    agents snapshot) read ``agent_metadata`` directly, so if the lazy
+    list-endpoint sweep is the only thing that can flip rows, zombies
+    sit in "running" forever when the Agents page is closed.
+    """
+    from routers.agents import (
+        agent_metadata,
+        active_agents,
+        _sweep_stale_running_agents,
+        _autocomplete_exited_subagents,
+        STALE_AGENT_TIMEOUT_SECONDS,
+    )
+
+    name = "reaper-zombie-api-agent"
+    active_agents.pop(name, None)
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_TIMEOUT_SECONDS + 120)
+    ).isoformat()
+    # source="api" exercises the legacy 900s terminated_stale path. The
+    # claude-code 480s completed_timeout path has its own coverage above.
+    agent_metadata[name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "api",
+        "status": "running",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+    }
+    try:
+        # Invoke the two passes the background loop runs. No GET request
+        # to /api/agents happens anywhere in this test.
+        with patch("routers.agents._save_agent_state"):
+            stale_changed = _sweep_stale_running_agents()
+            ac_changed = _autocomplete_exited_subagents()
+
+        assert stale_changed is True, (
+            "sweep must flip stale rows without a list-endpoint call"
+        )
+        assert agent_metadata[name]["status"] == "terminated_stale", (
+            "background reaper left zombie running: "
+            f"{agent_metadata[name]}"
+        )
+        # Reason should mention the heartbeat age so operators can diag
+        # why the row was demoted.
+        assert "No heartbeat" in agent_metadata[name].get(
+            "terminated_reason", ""
+        )
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_loop_interval_is_demo_tight():
+    """The background reaper must run at least once per minute. A longer
+    interval means zombies sit in the demo for minutes. Any future
+    performance work that loosens this must add explicit demo-safe
+    coverage."""
+    from routers.agents import RECONCILE_INTERVAL_SECONDS
+    assert RECONCILE_INTERVAL_SECONDS <= 60, (
+        f"reaper interval {RECONCILE_INTERVAL_SECONDS}s is too loose; "
+        "demo zombies will linger for up to this many seconds after "
+        "they die"
+    )
