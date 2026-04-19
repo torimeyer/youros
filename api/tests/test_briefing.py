@@ -460,43 +460,84 @@ def test_settings_migrates_morning_briefing_time(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_briefing_prompt_mentions_compounds():
-    """The generate_briefing function should fetch compounds for context."""
-    import services.briefing as bf
-    import inspect
-
-    src = inspect.getsource(bf.generate_briefing)
-    # Should call get_compounds to get high-leverage tasks
-    assert "get_compounds" in src
-    # Should include compounds context in the prompt
-    assert "highest-leverage" in src.lower() or "Highest-leverage" in src
-
-
-def test_briefing_prompt_prioritizes_blocking_tasks():
-    """The briefing prompt should instruct Claude to prioritize blocking tasks."""
-    import services.briefing as bf
-    import inspect
-
-    src = inspect.getsource(bf.generate_briefing)
-    # The prompt should mention unblocking as a priority signal
-    assert "unblock" in src.lower()
-
-
-def test_briefing_prompt_forbids_api_paths_in_user_copy():
-    """Regression guard: the briefing once said 'review them at /api/agents'
-    in the user-facing morning briefing because nothing in the prompt
-    forbade raw API paths. The prompt must instruct the model to refer to
-    features by their visible page name (the Agents page, the Tasks page,
-    the Plans page, etc.) instead of API routes or localhost URLs.
+def test_briefing_uses_compounds_as_facts():
+    """The grounded renderer must fetch compounds so the 'highest
+    leverage task' line can point at a real compound. The briefing is
+    now templated from a facts dict, so we check the gatherer pulls the
+    compound and the renderer consumes it.
     """
     import services.briefing as bf
     import inspect
 
-    src = inspect.getsource(bf.generate_briefing)
-    # The prompt MUST forbid raw API paths and localhost URLs.
-    assert "Never mention API paths" in src or "api paths" in src.lower()
-    # And it should call out the Agents page by its visible name.
-    assert "Agents page" in src
+    gather_src = inspect.getsource(bf._gather_briefing_facts)
+    render_src = inspect.getsource(bf._render_briefing_from_facts)
+    # Gather must fetch compounds.
+    assert "get_compounds" in gather_src
+    # Render must use the compound fact.
+    assert "top_compound" in render_src
+    assert "highest-leverage" in render_src.lower()
+
+
+def test_briefing_renderer_prioritizes_blocking_tasks():
+    """When a compound unblocks more than one other task, the renderer
+    must pick it as the top recommendation. This replaces the earlier
+    test that checked prompt text, since there is no prompt any more.
+    """
+    import services.briefing as bf
+
+    facts = {
+        "events": [],
+        "priority_tasks": [
+            {
+                "id": "t1",
+                "title": "Plain P0",
+                "priority": "P0",
+                "age_days": 5,
+                "unblocks": 0,
+            }
+        ],
+        "top_compound": {"title": "Big unblocker", "blocks_count": 4},
+        "closed_yesterday": [],
+    }
+    text = bf._render_briefing_from_facts(facts)
+    assert "Big unblocker" in text
+    assert "unblocks 4 other tasks" in text
+    # The plain P0 is subordinate when a compound outranks it.
+    assert "Plain P0" not in text
+
+
+def test_briefing_renders_no_api_paths_or_urls():
+    """Regression guard: the briefing once said 'review them at
+    /api/agents' because a model wrote free text. With grounded
+    rendering, we assert the OUTPUT contains no API paths or localhost
+    URLs across a wide sample of facts dicts.
+    """
+    import services.briefing as bf
+
+    samples = [
+        {"events": [], "priority_tasks": [], "top_compound": None, "closed_yesterday": []},
+        {
+            "events": [{"title": "Standup", "time": "9:00 am"}],
+            "priority_tasks": [
+                {"id": "a", "title": "Fix login", "priority": "P0", "age_days": 2, "unblocks": 0}
+            ],
+            "top_compound": None,
+            "closed_yesterday": ["Docs update", "Ship roadmap"],
+        },
+        {
+            "events": [],
+            "priority_tasks": [],
+            "top_compound": {"title": "Key unblocker", "blocks_count": 3},
+            "closed_yesterday": [],
+        },
+    ]
+    forbidden = ("/api/", "localhost", "http://", "https://")
+    for facts in samples:
+        text = bf._render_briefing_from_facts(facts)
+        for token in forbidden:
+            assert token not in text, (
+                f"briefing output must not contain {token!r}. Output was:\n{text}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -524,9 +565,12 @@ def test_is_active_task_includes_in_progress():
 
 @pytest.mark.asyncio
 async def test_generate_briefing_counts_in_progress_p0_tasks(tmp_path):
-    """Full integration-style test: when list_tasks returns a mix of
-    open, in_progress, and closed P0 tasks, the briefing context must
-    include the P0 in_progress one instead of saying 'no high priority'.
+    """When list_tasks returns a mix of open, in_progress, and closed
+    P0 tasks, the rendered briefing must surface the P0 in_progress one
+    and must not claim there are no high-priority tasks.
+
+    The briefing is now rendered deterministically, so we assert
+    against the returned text directly instead of inspecting a prompt.
     """
     import services.briefing as bf
     import services.ostk as ostk_module
@@ -538,13 +582,12 @@ async def test_generate_briefing_counts_in_progress_p0_tasks(tmp_path):
         {"id": "→103", "title": "Done thing",    "priority": "P0", "status": "closed",      "created_at": "2026-03-01T00:00:00Z"},
     ]
 
-    captured_prompt = {"text": ""}
-
     async def fake_list_tasks(status=None, priority=None):
         # The fix requires this function be called without a status
         # filter so in_progress rows flow through. If someone reverts
-        # the fix, they'll pass status="open" here and the test fails
-        # because the in_progress P0 will be missing from the prompt.
+        # the fix, they will pass status="open" here and the test
+        # fails because the in_progress P0 will be missing from the
+        # rendered briefing.
         assert status is None, (
             "generate_briefing must call list_tasks() unfiltered so "
             "in_progress rows stay in the result set"
@@ -554,30 +597,20 @@ async def test_generate_briefing_counts_in_progress_p0_tasks(tmp_path):
     async def fake_get_compounds():
         return []
 
-    async def fake_call_claude(prompt: str) -> str:
-        captured_prompt["text"] = prompt
-        return "briefing text"
-
-    # Point briefing state at a tmp path so the test run does not
-    # clobber ~/.myos/briefing_state.json.
     with patch.object(bf, "BRIEFING_STATE_PATH", tmp_path / "state.json"), \
          patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks), \
          patch.object(ostk_module.ostk, "get_compounds", new=fake_get_compounds), \
-         patch("services.briefing._call_claude", new=fake_call_claude):
-        await bf.generate_briefing()
+         patch("services.google_auth.is_authenticated", return_value=False):
+        briefing = await bf.generate_briefing()
 
-    prompt = captured_prompt["text"]
-    # The P0 in_progress task MUST appear in the top-tasks context.
-    assert "P0 in progress" in prompt, (
-        "briefing prompt must include the P0 in_progress task. "
-        "Full prompt was:\n" + prompt
+    # The P0 in_progress task MUST appear as the top recommendation.
+    assert "P0 in progress" in briefing, (
+        "briefing must surface the P0 in_progress task. Got:\n" + briefing
     )
-    # The P1 open task too.
-    assert "P1 open" in prompt
     # The closed P0 must NOT appear.
-    assert "Done thing" not in prompt
+    assert "Done thing" not in briefing
     # And the briefing must not claim there are no high-priority tasks.
-    assert "No high-priority tasks open right now" not in prompt
+    assert "No high-priority tasks are open right now" not in briefing
 
 
 # ---------------------------------------------------------------------------
@@ -805,40 +838,33 @@ async def test_briefing_action_items_use_visible_task_filter(tmp_path):
         },
     ]
 
-    captured_prompt = {"text": ""}
-
     async def fake_list_tasks(status=None, priority=None):
         return list(mixed_tasks)
 
     async def fake_get_compounds():
         return []
 
-    async def fake_call_claude(prompt: str) -> str:
-        captured_prompt["text"] = prompt
-        return "briefing text"
-
     with patch.object(bf, "BRIEFING_STATE_PATH", tmp_path / "state.json"), \
          patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks), \
          patch.object(ostk_module.ostk, "get_compounds", new=fake_get_compounds), \
-         patch("services.briefing._call_claude", new=fake_call_claude):
-        await bf.generate_briefing()
+         patch("services.google_auth.is_authenticated", return_value=False):
+        briefing = await bf.generate_briefing()
 
-    prompt = captured_prompt["text"]
-    # The real task MUST be in the top-tasks context.
-    assert "Real user work" in prompt, (
-        "generate_briefing must surface user-facing tasks in the prompt. "
-        "Full prompt was:\n" + prompt
+    # The real task MUST appear in the rendered briefing.
+    assert "Real user work" in briefing, (
+        "generate_briefing must surface user-facing tasks. "
+        "Full output was:\n" + briefing
     )
-    # The session task MUST NOT appear anywhere in the prompt. This is
+    # The session task MUST NOT appear anywhere in the output. This is
     # the whole point of the fix.
-    assert "Session in torios" not in prompt, (
+    assert "Session in torios" not in briefing, (
         "generate_briefing must filter out session tasks. "
-        "Full prompt was:\n" + prompt
+        "Full output was:\n" + briefing
     )
     # The e2e smoke task MUST NOT appear either.
-    assert "e2e-smoke-run" not in prompt, (
+    assert "e2e-smoke-run" not in briefing, (
         "generate_briefing must filter out e2e tasks. "
-        "Full prompt was:\n" + prompt
+        "Full output was:\n" + briefing
     )
 
 
@@ -906,33 +932,26 @@ async def test_briefing_regen_after_all_tasks_closed_shows_no_top_task(tmp_path)
         "sits on stale text naming a closed task as 'top open'."
     )
 
-    # Now run the regeneration and confirm the new prompt names no
+    # Now run the regeneration and confirm the rendered text names no
     # top task instead of pulling the session task forward.
-    captured_prompt = {"text": ""}
-
     async def fake_get_compounds():
         return []
-
-    async def fake_call_claude(prompt: str) -> str:
-        captured_prompt["text"] = prompt
-        return "fresh briefing text"
 
     with patch.object(bf, "BRIEFING_STATE_PATH", state_path), \
          patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks), \
          patch.object(ostk_module.ostk, "get_compounds", new=fake_get_compounds), \
-         patch("services.briefing._call_claude", new=fake_call_claude):
-        await bf.generate_briefing()
+         patch("services.google_auth.is_authenticated", return_value=False):
+        briefing = await bf.generate_briefing()
 
-    prompt = captured_prompt["text"]
     # No mention of the session task.
-    assert "Session in torios" not in prompt, (
+    assert "Session in torios" not in briefing, (
         "Regenerated briefing must not name a session task as top open. "
-        "Full prompt was:\n" + prompt
+        "Full output was:\n" + briefing
     )
-    # The prompt must say there are no high-priority tasks.
-    assert "No high-priority tasks open right now" in prompt, (
-        "Regenerated briefing must explicitly tell the model that no "
-        "high-priority tasks are open. Full prompt was:\n" + prompt
+    # The output must say there are no high-priority tasks.
+    assert "No high-priority tasks are open right now" in briefing, (
+        "Regenerated briefing must explicitly say no high-priority "
+        "tasks are open. Full output was:\n" + briefing
     )
 
 
@@ -1430,3 +1449,140 @@ async def test_generate_action_items_filters_transactional_reply_cards(tmp_path)
         assert "receipt" not in item.get("label", "").lower(), (
             f"A receipt leaked into action items: {item}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Hallucination guard (Okta incident)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_briefing_cannot_invent_tasks_when_nothing_happened(tmp_path):
+    """CRITICAL: the briefing once claimed the team completed nine tasks
+    about Okta sign-in when zero Okta work existed in the repo. The
+    fabrication came from a free-form language model call that was
+    asked to "recap what was completed yesterday" with thin context.
+
+    With grounded rendering, no free-form text is produced. This test
+    proves it: feed the generator an empty task list, empty calendar,
+    and empty closed-yesterday set. Assert the output contains none of
+    the hallucination phrases and no unexpected task-like nouns.
+
+    If anyone reintroduces an LLM call to write briefing text, this
+    test will almost certainly fail because the model will invent
+    content to fill the void. That is the point.
+    """
+    import services.briefing as bf
+    import services.ostk as ostk_module
+
+    async def empty_list_tasks(status=None, priority=None):
+        return []
+
+    async def empty_compounds():
+        return []
+
+    with patch.object(bf, "BRIEFING_STATE_PATH", tmp_path / "state.json"), \
+         patch.object(ostk_module.ostk, "list_tasks", new=empty_list_tasks), \
+         patch.object(ostk_module.ostk, "get_compounds", new=empty_compounds), \
+         patch("services.google_auth.is_authenticated", return_value=False):
+        briefing = await bf.generate_briefing()
+
+    # The fabricated claims from the original incident must be absent.
+    forbidden_claims = [
+        "Okta",
+        "okta",
+        "sign-in",
+        "sign in",
+        "nine tasks",
+        "the team completed",
+        "the team finished",
+        "the team delivered",
+        "automatically logging",
+        "creating accounts",
+    ]
+    for phrase in forbidden_claims:
+        assert phrase not in briefing, (
+            f"briefing hallucinated the phrase {phrase!r}. Full output:\n{briefing}"
+        )
+
+    # With nothing happening, the output should explicitly say so, not
+    # try to fill space.
+    assert "No tasks closed yesterday" in briefing
+    assert "No high-priority tasks are open right now" in briefing
+
+
+@pytest.mark.asyncio
+async def test_briefing_only_mentions_tasks_that_actually_exist(tmp_path):
+    """Positive-space version of the no-hallucination guard. The
+    briefing output must only contain task titles that came from the
+    tasks list we fed into list_tasks. Any other capitalised phrase
+    that looks like a task name is a regression.
+    """
+    import re
+    import services.briefing as bf
+    import services.ostk as ostk_module
+
+    real_tasks = [
+        {
+            "id": "→500",
+            "title": "Fix roadmap prewarm",
+            "priority": "P0",
+            "status": "open",
+            "created_at": "2026-04-10T00:00:00Z",
+        },
+    ]
+    closed_yesterday = [
+        {
+            "id": "→501",
+            "title": "Ship cost tracking",
+            "priority": "P1",
+            "status": "closed",
+            "created_at": "2026-04-01T00:00:00Z",
+            "closed_at": "2026-04-18T12:00:00Z",
+        },
+    ]
+
+    async def fake_list_tasks(status=None, priority=None):
+        return list(real_tasks) + list(closed_yesterday)
+
+    async def fake_compounds():
+        return []
+
+    # Freeze "yesterday" to 2026-04-18 so the closed_at filter matches.
+    with patch.object(bf, "BRIEFING_STATE_PATH", tmp_path / "state.json"), \
+         patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks), \
+         patch.object(ostk_module.ostk, "get_compounds", new=fake_compounds), \
+         patch("services.google_auth.is_authenticated", return_value=False), \
+         patch("services.briefing.datetime", _make_datetime_for_2026_04_19()):
+        briefing = await bf.generate_briefing()
+
+    # Only the real titles should appear as quoted task names.
+    assert "Fix roadmap prewarm" in briefing
+    assert "Ship cost tracking" in briefing
+
+    # Any other quoted phrase is a fabrication. Extract everything in
+    # double quotes and assert it matches a real title.
+    quoted = re.findall(r'"([^"]+)"', briefing)
+    real_titles = {"Fix roadmap prewarm", "Ship cost tracking"}
+    for q in quoted:
+        assert q in real_titles, (
+            f"briefing mentioned quoted phrase {q!r} that is not a real task "
+            f"title. This is a hallucination. Full output:\n{briefing}"
+        )
+
+
+def _make_datetime_for_2026_04_19():
+    """Datetime subclass pinned so ``yesterday`` resolves to 2026-04-18.
+
+    Used by the positive-space hallucination guard above so the
+    closed_at='2026-04-18T12:00:00Z' row is actually counted as
+    yesterday's work.
+    """
+    from datetime import datetime as _real_datetime
+    class FakeDt(_real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return cls(2026, 4, 19, 9, 0, 0)
+            return cls(2026, 4, 19, 9, 0, 0, tzinfo=tz)
+    return FakeDt

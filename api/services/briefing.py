@@ -138,60 +138,50 @@ async def _task_count_changed() -> bool:
         return False
 
 
-async def generate_briefing() -> str:
-    """Generate a briefing using Claude and cache it.
+async def _gather_briefing_facts() -> dict:
+    """Gather ONLY verified, grounded facts for the briefing.
 
-    First calls ostk to get a local activity summary (fast, no LLM cost).
-    Then enriches with calendar events, open tasks, and compounds.
-    Falls back to the full Claude-only approach if ostk data is empty.
+    Returns a dict with:
+      - events: list of today's calendar events (title + time string)
+      - priority_tasks: sorted P0/P1 open tasks with age and unblock count
+      - top_compound: highest-leverage task dict or None
+      - closed_yesterday: list of task titles closed yesterday
+      - p0p1_count: count of open P0/P1 tasks (for staleness cache)
+
+    Nothing in this dict is invented. If a data source fails, the key is
+    set to an empty list so the renderer knows there is no data there.
     """
     from services.ostk import ostk, OstkError
 
-    # Gather context pieces
-    context_parts: list[str] = []
+    facts: dict = {
+        "events": [],
+        "priority_tasks": [],
+        "top_compound": None,
+        "closed_yesterday": [],
+        "p0p1_count": 0,
+    }
 
-    # Start with ostk activity summary (local, fast, free)
-    try:
-        activity_summary = await ostk.get_activity_summary()
-        if activity_summary.strip():
-            context_parts.append(f"ostk activity summary:\n{activity_summary}")
-    except (OstkError, Exception):
-        pass
-
-    # Calendar events (best effort)
+    # Calendar events
     try:
         from services.google_auth import is_authenticated
         if is_authenticated():
             from services import calendar as cal_service
             events = await cal_service.get_today_events()
-            if events:
-                parts = []
-                for ev in events:
-                    title = ev.get("summary", "Untitled")
-                    start = (ev.get("start", {}).get("dateTime") or ev.get("start", {}).get("date") or "")
-                    if start:
-                        try:
-                            dt = datetime.fromisoformat(start)
-                            time_str = dt.strftime("%-I:%M %p").lower()
-                            parts.append(f"{time_str}: {title}")
-                        except Exception:
-                            parts.append(title)
-                    else:
-                        parts.append(title)
-                context_parts.append("Today's meetings: " + ", ".join(parts))
-            else:
-                context_parts.append("No meetings on your calendar today.")
+            for ev in events or []:
+                title = ev.get("summary", "Untitled")
+                start = (ev.get("start", {}).get("dateTime") or ev.get("start", {}).get("date") or "")
+                time_str = ""
+                if start:
+                    try:
+                        dt = datetime.fromisoformat(start)
+                        time_str = dt.strftime("%-I:%M %p").lower()
+                    except Exception:
+                        time_str = ""
+                facts["events"].append({"title": title, "time": time_str})
     except Exception:
         pass
 
-    # Open P0 and P1 tasks, sorted by priority then age (best effort).
-    # IMPORTANT: pull every task (no status filter) so in_progress rows
-    # still show up. ostk returns both 'open' and 'in_progress' as
-    # distinct statuses and the briefing must treat both as active.
-    # Also run every candidate through ``_is_briefing_task`` so session
-    # tasks and e2e leftovers never bubble up as 'top open task'. The
-    # Tasks page hides them; the briefing must agree.
-    p0p1_count = 0
+    # Open P0 and P1 tasks, sorted by priority then age
     try:
         all_tasks = await ostk.list_tasks()
         active_tasks = [t for t in all_tasks if _is_briefing_task(t)]
@@ -200,15 +190,12 @@ async def generate_briefing() -> str:
             [t for t in active_tasks if t.get("priority") in ("P0", "P1")],
             key=lambda t: (
                 priority_order.get(t.get("priority", "P1"), 1),
-                t.get("created_at", "9999"),  # oldest first
+                t.get("created_at", "9999"),
             ),
         )
-        p0p1_count = len(priority_tasks)
+        facts["p0p1_count"] = len(priority_tasks)
 
-        # Compute compound scores (which tasks unblock the most).
-        # Use the same active-task filter so an in_progress task can
-        # still show up as high-leverage, and so session tasks never
-        # pollute the unblock graph.
+        # Compute compound scores for display.
         open_ids = {t.get("id", "") for t in active_tasks}
         blocks_graph: dict[str, set] = {}
         for t in all_tasks:
@@ -232,101 +219,160 @@ async def generate_briefing() -> str:
             if count > 0:
                 compound_scores[tid] = count
 
-        if priority_tasks:
-            today = datetime.now(timezone.utc)
-            task_lines = []
-            for t in priority_tasks[:10]:
-                age = ""
-                created = t.get("created_at", "")
-                if created:
-                    try:
-                        days = (today - datetime.fromisoformat(created)).days
-                        age = f" (open {days}d)" if days > 0 else " (new today)"
-                    except Exception:
-                        pass
-                unblocks = compound_scores.get(t.get("id", ""), 0)
-                unblocks_str = f" [unblocks {unblocks} tasks]" if unblocks > 0 else ""
-                task_lines.append(
-                    f"  [{t.get('priority')}] {t.get('title', 'Untitled')}{age}{unblocks_str}"
-                )
-            context_parts.append("Top open tasks (sorted by priority, then oldest first):\n" + "\n".join(task_lines))
-        else:
-            context_parts.append("No high-priority tasks open right now.")
+        today = datetime.now(timezone.utc)
+        for t in priority_tasks[:5]:
+            age_days = 0
+            created = t.get("created_at", "")
+            if created:
+                try:
+                    age_days = (today - datetime.fromisoformat(created)).days
+                except Exception:
+                    age_days = 0
+            facts["priority_tasks"].append({
+                "id": t.get("id", ""),
+                "title": t.get("title", "Untitled"),
+                "priority": t.get("priority", ""),
+                "age_days": age_days,
+                "unblocks": compound_scores.get(t.get("id", ""), 0),
+            })
     except OstkError:
         pass
 
-    # High-leverage tasks (compounds) that unblock the most other work
+    # Highest-leverage compound
     try:
         compounds = await ostk.get_compounds()
         if compounds:
             top = compounds[0]
-            context_parts.append(
-                f"Highest-leverage task: \"{top.get('title', 'Untitled')}\" "
-                f"(finishing it unblocks {top.get('blocks_count', 0)} other "
-                f"{'task' if top.get('blocks_count', 0) == 1 else 'tasks'})"
-            )
+            facts["top_compound"] = {
+                "title": top.get("title", "Untitled"),
+                "blocks_count": top.get("blocks_count", 0),
+            }
     except OstkError:
         pass
 
-    # Yesterday's activity (closed tasks, agents run). Exclude session
-    # tasks and e2e leftovers so the recap matches what the user would
-    # recognise as real work. Session tasks churn constantly (one per
-    # Claude Code session) and would otherwise dominate the summary.
+    # Yesterday's closed tasks (titles only, filtered)
     try:
         from datetime import timedelta
         from services.task_visibility import is_e2e_task, is_session_task
         yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         all_tasks_full = await ostk.list_tasks()
-        closed_yesterday = [
+        closed = [
             t for t in all_tasks_full
             if t.get("status") == "closed"
             and (t.get("closed_at", "") or "").startswith(yesterday_str)
             and not is_session_task(t)
             and not is_e2e_task(t)
         ]
-        if closed_yesterday:
-            context_parts.append(
-                f"Yesterday you closed {len(closed_yesterday)} task(s): "
-                + ", ".join(t.get("title", "Untitled") for t in closed_yesterday[:3])
-            )
-        else:
-            context_parts.append("No tasks were closed yesterday.")
+        facts["closed_yesterday"] = [t.get("title", "Untitled") for t in closed]
     except Exception:
         pass
 
-    context_block = "\n\n".join(context_parts) if context_parts else "No context available."
+    return facts
 
-    today_display = datetime.now().strftime("%A, %B %-d")
-    prompt = (
-        f"Today is {today_display}. Here is the user's workspace context:\n\n"
-        f"{context_block}\n\n"
-        "Write a short briefing in 2 short paragraphs, separated by blank lines. "
-        "Plain factual language, no jargon, no bullet points, no motivational phrases.\n\n"
-        "Paragraph 1: What is on the calendar today (if anything) and a quick "
-        "recap of what was completed yesterday.\n\n"
-        "Paragraph 2: The single most important task to work on and why. "
-        "Use these rules to pick it: if the context includes a highest-leverage task "
-        "that unblocks multiple other tasks, that is the top recommendation regardless "
-        "of priority. Otherwise, P0 always beats P1. Among the same priority, "
-        "the task that has been open the longest is the most important. If a task is "
-        "a bug that users are hitting, it beats a feature request at the same priority "
-        "and age. Name the specific task.\n\n"
-        "Keep it concise and factual. Do not use em-dashes. Do not use encouraging or "
-        "motivational language. Do not assume a time of day, so avoid phrases like "
-        "good morning, this morning, or your morning. "
-        "Never mention API paths or raw URLs (for example `/api/agents`, `/api/tasks`, "
-        "or `localhost:8000`). Refer to features by their visible page name in the app: "
-        "the Agents page, the Tasks page, the Briefing, the Plans page, the Files page, "
-        "the Calendar, Gmail, Drive, GitHub, Slack, iMessage, Activity, Search, Settings."
-    )
 
-    briefing = await _call_claude(prompt)
+def _render_briefing_from_facts(facts: dict) -> str:
+    """Render the briefing text deterministically from verified facts.
 
-    # Cache it
+    This is the grounding gate. Every sentence here is built by string
+    templating from the facts dict. No free-form text, no LLM call, no
+    possibility of invented task names, fabricated features, or made-up
+    recap claims. If the facts dict does not contain a fact, we do not
+    write a sentence about it.
+    """
+    paragraphs: list[str] = []
+
+    # Paragraph 1: calendar + yesterday recap.
+    p1_parts: list[str] = []
+    events = facts.get("events") or []
+    if events:
+        pieces = []
+        for ev in events:
+            if ev.get("time"):
+                pieces.append(f"{ev['time']}: {ev['title']}")
+            else:
+                pieces.append(ev["title"])
+        if len(pieces) == 1:
+            p1_parts.append(f"You have one event on the calendar today. {pieces[0]}.")
+        else:
+            p1_parts.append(
+                f"You have {len(pieces)} events on the calendar today. "
+                + "; ".join(pieces) + "."
+            )
+    else:
+        p1_parts.append("Your calendar is clear today.")
+
+    closed = facts.get("closed_yesterday") or []
+    if closed:
+        if len(closed) == 1:
+            p1_parts.append(f"One task closed yesterday: {closed[0]}.")
+        else:
+            shown = closed[:3]
+            rest = len(closed) - len(shown)
+            title_list = ", ".join(shown)
+            if rest > 0:
+                p1_parts.append(
+                    f"{len(closed)} tasks closed yesterday, including {title_list}, "
+                    f"and {rest} more."
+                )
+            else:
+                p1_parts.append(f"{len(closed)} tasks closed yesterday: {title_list}.")
+    else:
+        p1_parts.append("No tasks closed yesterday.")
+
+    paragraphs.append(" ".join(p1_parts))
+
+    # Paragraph 2: top task to work on.
+    p2_parts: list[str] = []
+    priority_tasks = facts.get("priority_tasks") or []
+    top_compound = facts.get("top_compound")
+
+    if top_compound and top_compound.get("blocks_count", 0) > 1:
+        count = top_compound["blocks_count"]
+        task_word = "task" if count == 1 else "tasks"
+        p2_parts.append(
+            f"The highest-leverage task is \"{top_compound['title']}\". "
+            f"Finishing it unblocks {count} other {task_word}."
+        )
+    elif priority_tasks:
+        top = priority_tasks[0]
+        age = top["age_days"]
+        age_str = (
+            "new today" if age == 0
+            else f"open for {age} day" if age == 1
+            else f"open for {age} days"
+        )
+        p2_parts.append(
+            f"The top task to work on is \"{top['title']}\". "
+            f"It is a {top['priority']} and has been {age_str}."
+        )
+    else:
+        p2_parts.append("No high-priority tasks are open right now.")
+
+    paragraphs.append(" ".join(p2_parts))
+
+    return "\n\n".join(paragraphs)
+
+
+async def generate_briefing() -> str:
+    """Generate a grounded briefing from verified data and cache it.
+
+    The briefing is rendered deterministically from a facts dict built
+    by _gather_briefing_facts(). No free-form language model call is
+    made in this path. Every sentence in the output is templated from
+    ostk data, calendar data, or filtered task data. This is the fix
+    for the Okta hallucination: if we never ask a model to write free
+    text, a model cannot invent tasks, features, or recap claims.
+
+    Kept the function name and cache shape so callers and tests that
+    import generate_briefing do not break.
+    """
+    facts = await _gather_briefing_facts()
+    briefing = _render_briefing_from_facts(facts)
+
     state = _load_state()
     state["last_shown"] = _today_str()
     state["briefing"] = briefing
-    state["task_count"] = p0p1_count
+    state["task_count"] = facts.get("p0p1_count", 0)
     state.pop("dismissed_date", None)
     _save_state(state)
 
