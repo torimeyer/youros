@@ -279,15 +279,69 @@ async def drive_auth_callback(
             status_code=302,
         )
 
-    # After saving the token, immediately cache the file list.
+    # After saving the token, prewarm the caches for every Google service
+    # that shares these credentials: Drive files, Gmail inbox, and
+    # Calendar events. All three run in parallel so the user lands on
+    # their target page (Drive, Gmail, or Calendar) and sees data
+    # immediately instead of waiting 5 to 10 seconds for a cold fetch.
+    # Each prewarm swallows its own exceptions so a single service
+    # failing (for example Gmail API not enabled) cannot block the
+    # others from populating or the redirect from completing.
     try:
-        await _sync_file_list()
+        await _prewarm_all_google_caches()
     except Exception:
         pass
 
     return RedirectResponse(
         url=f"{return_to}?connected=true",
         status_code=302,
+    )
+
+
+async def _prewarm_all_google_caches() -> None:
+    """Warm Drive, Gmail, and Calendar caches in parallel after OAuth.
+
+    Runs after a successful token exchange so the first page load on
+    any of the three Google-backed pages serves from disk instead of
+    paying the 5 to 10 second cold fetch cost. Each prewarm catches
+    its own exceptions: one service failing (API not enabled, scope
+    missing, transient network error) must not block the others.
+    """
+    import asyncio
+
+    async def _safe_drive() -> None:
+        try:
+            await _sync_file_list()
+        except Exception:
+            pass
+
+    async def _safe_gmail() -> None:
+        try:
+            from services import gmail as gmail_service
+            from services.google_auth import has_gmail_scope
+            if not has_gmail_scope():
+                return
+            # get_inbox_messages writes _save_full_inbox_cache internally,
+            # so the first GET /gmail/messages after redirect is a cache hit.
+            await gmail_service.get_inbox_messages()
+        except Exception:
+            pass
+
+    async def _safe_calendar() -> None:
+        try:
+            from services import calendar as calendar_service
+            from services.google_auth import has_calendar_scope
+            if not has_calendar_scope():
+                return
+            # get_upcoming_events writes _save_cache internally.
+            await calendar_service.get_upcoming_events(days=7)
+        except Exception:
+            pass
+
+    await asyncio.gather(
+        _safe_drive(),
+        _safe_gmail(),
+        _safe_calendar(),
     )
 
 

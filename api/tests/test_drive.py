@@ -280,6 +280,173 @@ async def test_drive_auth_callback_success(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_drive_auth_callback_prewarms_gmail_and_calendar(client, tmp_path):
+    """After a successful token exchange the callback should prewarm
+    Drive, Gmail, and Calendar caches in parallel so the first page
+    load after OAuth serves from cache instead of paying the cold
+    fetch cost. Regression guard for the "Connect Gmail feels laggy"
+    demo bug.
+    """
+    from routers.drive import _drive_oauth_states
+
+    _drive_oauth_states["prewarm-state"] = {
+        "return_to": "http://localhost:3010/gmail",
+        "expires": 9999999999,
+    }
+
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        json.dumps({"installed": {"client_id": "cid", "client_secret": "csec"}})
+    )
+    token_path = tmp_path / "google_token.json"
+
+    mock_drive = AsyncMock(return_value=[])
+    mock_gmail = AsyncMock(return_value=[])
+    mock_calendar = AsyncMock(return_value=[])
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+        patch("services.google_auth.DRIVE_CACHE_DIR", tmp_path / "drive_cache"),
+        patch("services.google_auth.has_gmail_scope", return_value=True),
+        patch("services.google_auth.has_calendar_scope", return_value=True),
+        patch("routers.drive._sync_file_list", mock_drive),
+        patch("services.gmail.get_inbox_messages", mock_gmail),
+        patch("services.calendar.get_upcoming_events", mock_calendar),
+        patch("urllib.request.urlopen") as mock_urlopen,
+    ):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(
+            {"access_token": "ya29.ok", "refresh_token": "1//ok"}
+        ).encode()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        resp = await client.get(
+            "/api/drive/auth/callback?code=good-code&state=prewarm-state",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    assert "connected=true" in resp.headers["location"]
+    # All three prewarms ran in parallel as part of the callback.
+    assert mock_drive.await_count == 1
+    assert mock_gmail.await_count == 1
+    assert mock_calendar.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_callback_prewarm_skips_missing_scopes(client, tmp_path):
+    """If a Google scope is missing (for example the user connected only
+    for Drive), the prewarm must skip the corresponding service so we
+    never make a blocking API call that is guaranteed to fail with a
+    scope error. Drive still prewarms because the token itself
+    unlocked Drive.
+    """
+    from routers.drive import _drive_oauth_states
+
+    _drive_oauth_states["scope-state"] = {
+        "return_to": "http://localhost:3010/drive",
+        "expires": 9999999999,
+    }
+
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        json.dumps({"installed": {"client_id": "cid", "client_secret": "csec"}})
+    )
+    token_path = tmp_path / "google_token.json"
+
+    mock_drive = AsyncMock(return_value=[])
+    mock_gmail = AsyncMock(return_value=[])
+    mock_calendar = AsyncMock(return_value=[])
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+        patch("services.google_auth.DRIVE_CACHE_DIR", tmp_path / "drive_cache"),
+        patch("services.google_auth.has_gmail_scope", return_value=False),
+        patch("services.google_auth.has_calendar_scope", return_value=False),
+        patch("routers.drive._sync_file_list", mock_drive),
+        patch("services.gmail.get_inbox_messages", mock_gmail),
+        patch("services.calendar.get_upcoming_events", mock_calendar),
+        patch("urllib.request.urlopen") as mock_urlopen,
+    ):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(
+            {"access_token": "ya29.ok", "refresh_token": "1//ok"}
+        ).encode()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        resp = await client.get(
+            "/api/drive/auth/callback?code=good-code&state=scope-state",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    assert mock_drive.await_count == 1
+    assert mock_gmail.await_count == 0
+    assert mock_calendar.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_drive_auth_callback_prewarm_isolates_failures(client, tmp_path):
+    """One prewarm throwing must not stop the others or fail the
+    redirect. The user must still land back on the page with
+    ?connected=true even if (say) Gmail API is not enabled.
+    """
+    from routers.drive import _drive_oauth_states
+
+    _drive_oauth_states["isolate-state"] = {
+        "return_to": "http://localhost:3010/gmail",
+        "expires": 9999999999,
+    }
+
+    creds_path = tmp_path / "google_credentials.json"
+    creds_path.write_text(
+        json.dumps({"installed": {"client_id": "cid", "client_secret": "csec"}})
+    )
+    token_path = tmp_path / "google_token.json"
+
+    mock_drive = AsyncMock(return_value=[])
+    # Gmail prewarm throws, Calendar still runs, redirect still works.
+    mock_gmail = AsyncMock(side_effect=RuntimeError("Gmail API not enabled"))
+    mock_calendar = AsyncMock(return_value=[])
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.google_auth.CREDENTIALS_PATH", creds_path),
+        patch("services.google_auth.DRIVE_CACHE_DIR", tmp_path / "drive_cache"),
+        patch("services.google_auth.has_gmail_scope", return_value=True),
+        patch("services.google_auth.has_calendar_scope", return_value=True),
+        patch("routers.drive._sync_file_list", mock_drive),
+        patch("services.gmail.get_inbox_messages", mock_gmail),
+        patch("services.calendar.get_upcoming_events", mock_calendar),
+        patch("urllib.request.urlopen") as mock_urlopen,
+    ):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(
+            {"access_token": "ya29.ok", "refresh_token": "1//ok"}
+        ).encode()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        resp = await client.get(
+            "/api/drive/auth/callback?code=good-code&state=isolate-state",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    assert "connected=true" in resp.headers["location"]
+    assert mock_drive.await_count == 1
+    assert mock_gmail.await_count == 1
+    assert mock_calendar.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_drive_auth_callback_token_exchange_failure(client, tmp_path):
     """When token exchange fails, redirect with ?error= instead of a 500."""
     from routers.drive import _drive_oauth_states
