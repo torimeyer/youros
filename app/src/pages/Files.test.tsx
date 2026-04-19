@@ -4,13 +4,17 @@ import { MemoryRouter } from 'react-router-dom'
 import Files from './Files'
 import { useAppStore } from '../stores/app'
 
-vi.mock('../lib/api', () => ({
-  api: {
-    get: vi.fn(),
-    post: vi.fn(),
-    delete: vi.fn(),
-  },
-}))
+vi.mock('../lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/api')>()
+  return {
+    ...actual,
+    api: {
+      get: vi.fn(),
+      post: vi.fn(),
+      delete: vi.fn(),
+    },
+  }
+})
 
 // jsdom does not provide window.matchMedia. Provide a minimal stub
 // so components that use responsive breakpoints do not crash.
@@ -28,7 +32,7 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
 const mockedApiPost = vi.mocked(api.post)
@@ -280,6 +284,38 @@ describe('Files page', () => {
     })
     expect(screen.getByText('README.md')).toBeInTheDocument()
     expect(screen.getByText('index.ts')).toBeInTheDocument()
+  })
+
+  // Regression: a 403 from /projects/browse used to show a generic
+  // red error, making Tori think the Files page was broken or stuck.
+  // It should render a calm "this folder can't be browsed" empty state
+  // with no spinner and no scary error banner.
+  it('renders a forbidden empty state (not a spinner) when browse returns 403', async () => {
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/projects') return mockProjectsResponse
+      if (path.startsWith('/projects/browse')) {
+        throw new ApiError(403, '{"detail":"Path is outside the workspace."}')
+      }
+      return {}
+    })
+
+    renderFiles()
+
+    await waitFor(() => {
+      expect(screen.getByText('my-app')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('my-app').closest('button')!)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('files-forbidden-empty-state')).toBeInTheDocument()
+    })
+    // The generic red error must NOT render for a 403.
+    expect(
+      screen.queryByText('Could not load this folder. It may not exist or the API may be down.')
+    ).not.toBeInTheDocument()
+    // The loading spinner text must NOT still be on screen.
+    expect(screen.queryByText('Loading folder contents...')).not.toBeInTheDocument()
   })
 
   it('shows breadcrumb navigation when browsing a directory', async () => {

@@ -42,6 +42,18 @@ async def test_browse_rejects_path_traversal(client):
 
 
 @pytest.mark.asyncio
+async def test_browse_rejects_absolute_home_path(client):
+    """Absolute paths outside the workspace (e.g. the user's home dir)
+    must stay 403. The Files page relies on this contract to render a
+    friendly "this folder can't be browsed" empty state instead of
+    widening the server safelist."""
+    resp = await client.get("/api/projects/browse?path=/Users")
+    assert resp.status_code == 403
+    resp = await client.get("/api/projects/browse?path=/etc")
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_browse_returns_404_for_missing(client):
     resp = await client.get("/api/projects/browse?path=this-does-not-exist-abc123")
     assert resp.status_code == 404

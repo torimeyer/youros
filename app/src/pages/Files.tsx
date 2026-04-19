@@ -4,7 +4,7 @@ import TopBar from '../components/TopBar';
 import FilePreviewPane from '../components/FilePreviewPane';
 import ConfirmModal from '../components/ConfirmModal';
 import { useConfirm } from '../hooks/useConfirm';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 
 // --- Types ---
 
@@ -150,6 +150,10 @@ export default function Files() {
   const [browseData, setBrowseData] = useState<BrowseResponse | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
   const [browseError, setBrowseError] = useState<string | null>(null);
+  // browseForbidden is distinct from browseError: a 403 means the
+  // path is outside the browseable safelist, which is a plain empty
+  // state, not a scary red "something broke" card.
+  const [browseForbidden, setBrowseForbidden] = useState(false);
 
   // Preview state: the file currently being previewed in the side pane.
   const [previewEntry, setPreviewEntry] = useState<BrowseEntry | null>(null);
@@ -202,15 +206,25 @@ export default function Files() {
     }
   }, []);
 
-  // Fetch directory contents
+  // Fetch directory contents.
+  // A 403 from the server means the folder is outside the browseable
+  // safelist (e.g. the user typed an absolute path like /Users/...).
+  // That is not a failure, it is an expected "can't show this" state,
+  // so we render a calm empty-state card instead of a red error.
   const fetchDirectory = useCallback(async (path: string) => {
     setBrowseLoading(true);
     setBrowseError(null);
+    setBrowseForbidden(false);
+    setBrowseData(null);
     try {
       const res = await api.get<BrowseResponse>(`/projects/browse?path=${encodeURIComponent(path)}`);
       setBrowseData(res);
-    } catch {
-      setBrowseError('Could not load this folder. It may not exist or the API may be down.');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        setBrowseForbidden(true);
+      } else {
+        setBrowseError('Could not load this folder. It may not exist or the API may be down.');
+      }
     } finally {
       setBrowseLoading(false);
     }
@@ -498,6 +512,23 @@ export default function Files() {
               <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4">
                 <Icon name="error" className="text-lg" />
                 <span>{browseError}</span>
+              </div>
+            )}
+
+            {browseForbidden && !browseLoading && (
+              <div
+                className="text-center py-12 text-slate-500"
+                data-testid="files-forbidden-empty-state"
+              >
+                <Icon name="lock" className="text-4xl mb-2" />
+                <p className="text-slate-300 text-sm font-medium mb-1">
+                  This folder can't be browsed.
+                </p>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Files only shows folders inside your workspace and
+                  ~/.myos/files. Pick a project from the list to browse its
+                  contents.
+                </p>
               </div>
             )}
 
