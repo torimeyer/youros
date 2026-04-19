@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +19,23 @@ NOTIFICATIONS_FILE = MYOS_DIR / "notifications.json"
 # drop the oldest entries so the bell never shows hundreds of unread items
 # and the JSON file stays small.
 MAX_NOTIFICATIONS = 100
+
+# Types that represent a single user-facing event which must never fan out
+# to multiple rows per underlying completion, even if the caller fires
+# ``add()`` from several code paths with different ``target`` values. For
+# these types a recent unread row of the same type collapses the new
+# call into the existing entry (timestamp refresh + count bump) no matter
+# what the target looks like. This is the backstop for upstream callers
+# like ``_save_agent_output_to_files`` that can legitimately run multiple
+# times per agent completion (once per retry / file write).
+_SINGLETON_EVENT_TYPES: frozenset = frozenset({"roadmap_ready"})
+
+# How long after the last unread row of a singleton-event type we still
+# treat an incoming duplicate as "the same event" and collapse it. Long
+# enough to swallow a burst of near-simultaneous saves, short enough that
+# a legitimately new roadmap run an hour later still surfaces a fresh
+# toast.
+_SINGLETON_EVENT_WINDOW = timedelta(seconds=60)
 
 
 class Notification:
@@ -153,6 +170,37 @@ class NotificationsService:
             created_at=now_iso,
             metadata=merged_metadata,
         )
+
+        # Singleton-event dedup: for types that represent a single
+        # user-facing event (e.g. ``roadmap_ready``), collapse any
+        # recent unread row of the same type into the incoming one no
+        # matter what target it carries. Upstream callers can legitimately
+        # fire these from multiple code paths per completion, and users
+        # must see at most one toast per burst.
+        if type in _SINGLETON_EVENT_TYPES:
+            now_dt = datetime.now(timezone.utc)
+            for existing in notifications:
+                if existing.type != type or existing.read:
+                    continue
+                try:
+                    existing_dt = datetime.fromisoformat(existing.created_at)
+                except (TypeError, ValueError):
+                    continue
+                if now_dt - existing_dt > _SINGLETON_EVENT_WINDOW:
+                    continue
+                existing.created_at = now_iso
+                existing.title = title
+                existing.body = body
+                existing.action_label = action_label
+                existing.action_url = action_url
+                prev_count = int(existing.metadata.get("count", 1) or 1)
+                existing.metadata = {
+                    **existing.metadata,
+                    **merged_metadata,
+                    "count": prev_count + 1,
+                }
+                self._save(notifications)
+                return existing
 
         # Dedup: if an unread notification with the same (type, target)
         # already exists, refresh its timestamp and bump a count instead of

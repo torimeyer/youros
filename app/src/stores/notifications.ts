@@ -8,6 +8,13 @@ export interface AppNotification {
   status: string
   timestamp: string
   read: boolean
+  /** Human-readable body shown under the title in the toast. Set when
+   *  the notification originates from a backend-persistent row so the
+   *  toast can show "Open roadmap.md. Type 'create tasks' in chat to
+   *  break it down." instead of the raw type string. Agent
+   *  status-change toasts leave this undefined and fall back to the
+   *  generic "Agent finished / failed / ..." message. */
+  body?: string
 }
 
 /**
@@ -126,11 +133,33 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
     // across polls for a given notification row.
     if (get().persistentToastIds.has(notif.id)) return
 
+    // Second line of defence: if the BACKEND produced several rows with
+    // different ids but identical (type + title + body) content in quick
+    // succession (e.g. an agent completion code path fires the same
+    // notification from multiple save hooks), collapse them to a single
+    // toast. Without this, the user sees "Roadmap ready" three times in
+    // a row. The content key is recorded in ``persistentToastIds`` so a
+    // later, legitimately-new notification with different content still
+    // toasts on its own.
+    const contentKey = `content:${notif.type}|${notif.title}|${notif.body}`
+    if (get().persistentToastIds.has(contentKey)) {
+      // Still record the id so we do not reconsider it on the next poll.
+      set((s) => {
+        const persistentToastIds = new Set(s.persistentToastIds)
+        persistentToastIds.add(notif.id)
+        return { persistentToastIds }
+      })
+      return
+    }
+
     // Reuse the AppNotification shape so the existing NotificationToasts
     // renderer (which reads from notifications + toastIds) picks it up
     // without a second render path. agentName holds the human-readable
-    // title; status holds the notification type which drives icon choice
-    // in NotificationToast (unknown types fall through to the info icon).
+    // title; body holds the human-readable message so the toast renders
+    // "Open roadmap.md. Type 'create tasks' ..." instead of the raw
+    // type string; status holds the notification type which drives icon
+    // choice in NotificationToast (unknown types fall through to the
+    // info icon).
     const toastEntry: AppNotification = {
       id: notif.id,
       agentName: notif.title || notif.body || notif.type,
@@ -138,10 +167,12 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       status: notif.type,
       timestamp: new Date().toISOString(),
       read: false,
+      body: notif.body || undefined,
     }
     set((s) => {
       const persistentToastIds = new Set(s.persistentToastIds)
       persistentToastIds.add(notif.id)
+      persistentToastIds.add(contentKey)
       return {
         notifications: [toastEntry, ...s.notifications].slice(0, 50),
         toastIds: [...s.toastIds, notif.id],

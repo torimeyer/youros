@@ -37,6 +37,23 @@ function statusMessage(status: string): string {
   }
 }
 
+// Returns true for statuses whose ``statusMessage`` is a real English
+// verb (finished / failed / was cancelled / stopped / started). Used by
+// the toast body to decide whether to fall back to the generic
+// "Agent <verb>" message, or show a neutral "New notification" so a
+// persistent notification type like ``roadmap_ready`` never leaks its
+// raw identifier into the toast.
+function isKnownAgentStatus(status: string): boolean {
+  return (
+    status === 'completed' ||
+    status === 'failed' ||
+    status === 'killed' ||
+    status === 'stopped' ||
+    status === 'running' ||
+    status === 'spawned'
+  )
+}
+
 function Toast({
   notification,
   onDismiss,
@@ -45,12 +62,26 @@ function Toast({
   onDismiss: () => void
 }) {
   const { icon, color } = statusIcon(notification.status)
+  // Persistent notifications (roadmap_ready, upgrade, sync, etc.) come
+  // through ``addPersistentToast`` and carry a human-readable ``body``
+  // from the backend. Use that verbatim so the toast reads like
+  // "Open roadmap.md. Type 'create tasks' in chat to break it down."
+  // instead of the raw type string. Agent status-change toasts leave
+  // ``body`` undefined and fall back to the generic message. Fail-safe:
+  // if a persistent notification somehow arrives with no body and its
+  // status does not map to a known agent status message, show a plain
+  // "New notification" instead of surfacing "Agent roadmap_ready".
+  const bodyText = notification.body
+    ? notification.body
+    : isKnownAgentStatus(notification.status)
+      ? `Agent ${statusMessage(notification.status)}`
+      : 'New notification'
   return (
     <div className="flex items-start gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 shadow-xl w-72 animate-toast-in">
       <Icon name={icon} size={20} className={`${color} mt-0.5 shrink-0`} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-white truncate">{notification.agentName}</p>
-        <p className="text-xs text-slate-400">Agent {statusMessage(notification.status)}</p>
+        <p className="text-xs text-slate-400 leading-relaxed">{bodyText}</p>
       </div>
       <button
         onClick={onDismiss}

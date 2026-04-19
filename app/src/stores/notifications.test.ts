@@ -8,6 +8,7 @@ beforeEach(() => {
     notifications: [],
     toastIds: [],
     firedKeys: new Set<string>(),
+    persistentToastIds: new Set<string>(),
   })
   vi.useRealTimers()
 })
@@ -203,6 +204,86 @@ describe('notifications store', () => {
         action_url: null,
       })
       expect(useNotificationStore.getState().notifications).toHaveLength(1)
+    })
+
+    it('test_duplicate_content_with_different_ids_collapses_to_one_toast', () => {
+      // Root-cause regression: the backend was fanning out a single
+      // "Roadmap ready" completion into several notification rows with
+      // different ids but identical content. The store's id-only dedupe
+      // let each one through, so the user saw three toasts back-to-back.
+      // With the content-level dedupe, only the first one toasts.
+      const { addPersistentToast } = useNotificationStore.getState()
+      addPersistentToast({
+        id: 'roadmap-1',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: "Open roadmap.md. Type 'create tasks' in chat to break it down.",
+        action_url: '/files',
+      })
+      addPersistentToast({
+        id: 'roadmap-2',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: "Open roadmap.md. Type 'create tasks' in chat to break it down.",
+        action_url: '/files',
+      })
+      addPersistentToast({
+        id: 'roadmap-3',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: "Open roadmap.md. Type 'create tasks' in chat to break it down.",
+        action_url: '/files',
+      })
+
+      const s = useNotificationStore.getState()
+      expect(s.notifications).toHaveLength(1)
+      expect(s.toastIds).toHaveLength(1)
+      // All three ids must be recorded so a later poll does not replay them.
+      expect(s.persistentToastIds.has('roadmap-1')).toBe(true)
+      expect(s.persistentToastIds.has('roadmap-2')).toBe(true)
+      expect(s.persistentToastIds.has('roadmap-3')).toBe(true)
+    })
+
+    it('test_different_content_still_toasts_after_first_one', () => {
+      // The content-level dedupe must not suppress a later, legitimately-new
+      // notification whose title or body differs from the first one.
+      const { addPersistentToast } = useNotificationStore.getState()
+      addPersistentToast({
+        id: 'a',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: 'First body',
+        action_url: '/files',
+      })
+      addPersistentToast({
+        id: 'b',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: 'A completely different body',
+        action_url: '/files',
+      })
+
+      expect(useNotificationStore.getState().notifications).toHaveLength(2)
+    })
+
+    it('test_persistent_toast_stores_body_on_notification_entry', () => {
+      // The Toast renderer reads ``notification.body`` to show a human
+      // message like "Open roadmap.md. Type 'create tasks' ...". Without
+      // it the toast falls back to "Agent roadmap_ready" (the bug the
+      // user reported).
+      useNotificationStore.getState().addPersistentToast({
+        id: 'body-test',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: "Open roadmap.md. Type 'create tasks' in chat to break it down.",
+        action_url: '/files',
+      })
+
+      const n = useNotificationStore.getState().notifications[0]
+      expect(n.body).toBe(
+        "Open roadmap.md. Type 'create tasks' in chat to break it down.",
+      )
+      expect(n.agentName).toBe('Roadmap ready')
     })
   })
 })

@@ -217,6 +217,64 @@ class TestNotificationsService:
         )
         assert len(svc.list_all()) == 2
 
+    def test_roadmap_ready_dedupes_across_different_targets(self, tmp_path):
+        """Regression: the backend was fanning out a single user-visible
+        roadmap completion into multiple notification rows because the
+        upstream caller fires from several code paths, each with a
+        different target (e.g. timestamped roadmap path vs. stable
+        roadmap.md). With the singleton-event dedupe, the second add()
+        collapses into the first one regardless of the target."""
+        svc = self._patched_service(tmp_path)
+        first = svc.add(
+            type="roadmap_ready",
+            title="Roadmap ready",
+            body="Open roadmap.md.",
+            target="roadmap:/path/one.md",
+            metadata={"source_agent": "foo"},
+        )
+        second = svc.add(
+            type="roadmap_ready",
+            title="Roadmap ready",
+            body="Open roadmap.md.",
+            target="roadmap:/path/two.md",
+            metadata={"source_agent": "foo"},
+        )
+        third = svc.add(
+            type="roadmap_ready",
+            title="Roadmap ready",
+            body="Open roadmap.md.",
+            target="roadmap:/path/three.md",
+            metadata={"source_agent": "foo"},
+        )
+
+        assert first.id == second.id == third.id
+        all_notifs = svc.list_all()
+        assert len(all_notifs) == 1
+        assert all_notifs[0].metadata.get("count") == 3
+
+    def test_roadmap_ready_after_read_creates_new_row(self, tmp_path):
+        """A fresh roadmap completion after the user read the previous
+        one must still surface as a new toast."""
+        svc = self._patched_service(tmp_path)
+        first = svc.add(
+            type="roadmap_ready",
+            title="Roadmap ready",
+            body="Open roadmap.md.",
+            target="roadmap:/path/one.md",
+        )
+        svc.mark_read(first.id)
+        svc.add(
+            type="roadmap_ready",
+            title="Roadmap ready",
+            body="Open roadmap.md.",
+            target="roadmap:/path/two.md",
+        )
+
+        all_notifs = svc.list_all()
+        assert len(all_notifs) == 2
+        # Exactly one unread row so the bell badge says "1".
+        assert sum(1 for n in all_notifs if not n.read) == 1
+
     def test_explicit_target_param_dedupes(self, tmp_path):
         svc = self._patched_service(tmp_path)
         svc.add(type="sync", title="Synced", body="ok", target="settings")
