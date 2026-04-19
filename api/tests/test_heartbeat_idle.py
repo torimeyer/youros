@@ -229,3 +229,134 @@ async def test_active_agent_not_auto_completed(tmp_path):
     os.utime(transcript, (recent, recent))
 
     assert decide_to_complete(transcript, threshold_seconds=120) is False
+
+
+# ---------------------------------------------------------------------------
+# Regression: substring false match + spawn-age ceiling
+# Fixes the zombie-agent bug where find_transcript would latch onto an
+# unrelated subagent's JSONL whose 4KB head happened to contain the agent
+# name as a plain substring, causing the idle-sweep to never close the row.
+# ---------------------------------------------------------------------------
+
+
+def test_find_transcript_rejects_substring_false_match(tmp_path):
+    """An agent whose name is ONLY a substring of a larger identifier in the
+    candidate file must NOT match — this was the root cause of the zombie bug.
+
+    If ``probe-test-register-2`` appears only as a prefix of
+    ``probe-test-register-20-xyz`` in another subagent's transcript, we used
+    to match and latch on. That made the probe look perpetually active and
+    the idle-sweep could never close its row.
+    """
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    label = str(repo_root).replace("/", "-").lstrip("-")
+
+    fake_home = tmp_path / "home"
+    projects_dir = fake_home / ".claude" / "projects" / f"-{label}"
+    session_dir = projects_dir / "sess-xyz"
+    subagents_dir = session_dir / "subagents"
+    subagents_dir.mkdir(parents=True)
+
+    # An unrelated subagent JSONL that happens to include a LONGER name
+    # with our probe's name as a prefix.
+    unrelated = subagents_dir / "agent-unrelated.jsonl"
+    unrelated.write_text(
+        json.dumps({"type": "user", "content": "spawning probe-test-register-20-other-agent"}) + "\n"
+    )
+
+    with patch("services.heartbeat_idle.Path.home", return_value=fake_home):
+        result = find_transcript("probe-test-register-2", repo_root=repo_root)
+
+    assert result is None, (
+        "find_transcript must not return a file where the agent name is only a "
+        "substring of a larger identifier — that is the zombie-agent root cause."
+    )
+
+
+def test_find_transcript_allows_quoted_name(tmp_path):
+    """The strict match must still succeed when the name is a full JSON value."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    label = str(repo_root).replace("/", "-").lstrip("-")
+
+    fake_home = tmp_path / "home"
+    projects_dir = fake_home / ".claude" / "projects" / f"-{label}"
+    session_dir = projects_dir / "sess-abc"
+    subagents_dir = session_dir / "subagents"
+    subagents_dir.mkdir(parents=True)
+
+    transcript = subagents_dir / "agent-real.jsonl"
+    transcript.write_text(
+        json.dumps({"type": "user", "content": '"name":"probe-test-register-2",'}) + "\n"
+    )
+
+    with patch("services.heartbeat_idle.Path.home", return_value=fake_home):
+        result = find_transcript("probe-test-register-2", repo_root=repo_root)
+
+    assert result == transcript
+
+
+def test_decide_to_complete_fires_on_spawn_age_ceiling_without_transcript():
+    """Belt-and-suspenders: even when no transcript is found, an agent older
+    than the spawn-age ceiling must be marked for completion so zombies can
+    never live forever."""
+    now = time.time()
+    assert decide_to_complete(
+        None,
+        threshold_seconds=120,
+        spawned_at_epoch=now - 1000,
+        spawn_age_ceiling_seconds=900,
+        _now=now,
+    ) is True
+
+
+def test_decide_to_complete_fires_on_spawn_age_ceiling_even_with_active_transcript(tmp_path):
+    """If the transcript looks active but the agent is past the spawn-age
+    ceiling, still complete. This is the exact case the live bug hit:
+    a busy unrelated JSONL was masquerading as the probe's transcript, so the
+    idle-check alone could never trip. The ceiling trips regardless."""
+    f = tmp_path / "active_but_wrong.jsonl"
+    f.write_text("{}\n")
+    now = time.time()
+    # Transcript mtime is "now" (active), but agent is 1000s old.
+    import os
+    os.utime(f, (now, now))
+    assert decide_to_complete(
+        f,
+        threshold_seconds=120,
+        spawned_at_epoch=now - 1000,
+        spawn_age_ceiling_seconds=900,
+        _now=now,
+    ) is True
+
+
+def test_decide_to_complete_no_ceiling_when_agent_young():
+    """A fresh agent with no transcript must NOT be completed — that's the
+    spawn-grace period."""
+    now = time.time()
+    assert decide_to_complete(
+        None,
+        threshold_seconds=120,
+        spawned_at_epoch=now - 30,  # young
+        spawn_age_ceiling_seconds=900,
+        _now=now,
+    ) is False
+
+
+def test_parse_epoch_arg_iso_and_numeric():
+    """The CLI accepts both ISO-8601 (from /api/agents JSON) and epoch seconds."""
+    from services.heartbeat_idle import _parse_epoch_arg
+    assert _parse_epoch_arg("1776569728") == 1776569728.0
+    assert _parse_epoch_arg("1776569728.5") == 1776569728.5
+    # ISO-8601 with "+00:00" (Python datetime's native format).
+    v = _parse_epoch_arg("2026-04-19T03:26:11.034340+00:00")
+    assert v is not None and v > 0
+    # ISO-8601 with trailing Z (common in JS serialization).
+    v2 = _parse_epoch_arg("2026-04-19T03:26:11Z")
+    assert v2 is not None and v2 > 0
+    # Empty / dash / junk -> None.
+    assert _parse_epoch_arg("") is None
+    assert _parse_epoch_arg("-") is None
+    assert _parse_epoch_arg("not-a-date") is None
+

@@ -133,7 +133,10 @@ disown 2>/dev/null || true
         exit 0
     fi
 
-    # Fetch running-agent names. 3s total budget.
+    # Fetch running-agent names + spawned_at so the helper can enforce a
+    # spawn-age ceiling in addition to the transcript-idle check. Tab-separated
+    # ("<name>\t<spawned_at>") because names are [a-z0-9-] and ISO timestamps
+    # never contain tabs. 3s total budget.
     running_names=$(curl -sSk --connect-timeout 1 -m 3 "$AGENTS_URL" 2>/dev/null \
         | python3 -c "
 import sys, json
@@ -145,7 +148,7 @@ for a in d.get('agents', []) or []:
     if a.get('status') == 'running':
         n = a.get('name') or ''
         if n:
-            print(n)
+            print(f\"{n}\t{a.get('spawned_at') or ''}\")
 " 2>/dev/null)
 
     if [ -z "$running_names" ]; then
@@ -153,11 +156,11 @@ for a in d.get('agents', []) or []:
     fi
 
     # For each running agent, ask heartbeat_idle.py whether its
-    # transcript has been silent too long. Exit 1 from the helper
-    # means YES, complete it.
-    while IFS= read -r agent_name; do
+    # transcript has been silent too long OR it has been running past the
+    # spawn-age ceiling. Exit 1 from the helper means YES, complete it.
+    while IFS=$'\t' read -r agent_name agent_spawned_at; do
         [ -z "$agent_name" ] && continue
-        python3 "$HEARTBEAT_IDLE_PY" "$agent_name" "$IDLE_COMPLETE_SECONDS" >/dev/null 2>&1
+        python3 "$HEARTBEAT_IDLE_PY" "$agent_name" "$IDLE_COMPLETE_SECONDS" "$agent_spawned_at" >/dev/null 2>&1
         rc=$?
         if [ $rc -eq 1 ]; then
             if curl -sSk --connect-timeout 1 -m 3 \
