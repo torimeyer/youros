@@ -22,6 +22,7 @@ from services.task_labeling import (
 )
 from services import session_task_map
 from services import recent_deletes
+from services.task_visibility import is_session_task
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +178,7 @@ async def list_tasks(
     status: Optional[str] = None,
     priority: Optional[str] = None,
     include_test_data: bool = False,
+    include_session_tasks: bool = False,
 ):
     try:
         tasks = await ostk.list_tasks(status=status, priority=priority)
@@ -207,6 +209,16 @@ async def list_tasks(
                 t for t in tasks
                 if not t.get("title", "").lower().startswith("e2e-")
             ]
+        # Hide session-lifecycle bookkeeping tasks ("Session in <cwd>") by
+        # default. These are telemetry rows auto-filed by the SessionStart
+        # hook so the session_task_map can link a transcript back to its
+        # task. They have no user meaning and were previously leaking
+        # through this endpoint even though the Dashboard and Tasks page
+        # already hide them. Callers that need the full set (admin UIs,
+        # the backfill script, enrichment tests) pass
+        # ?include_session_tasks=true explicitly.
+        if not include_session_tasks:
+            tasks = [t for t in tasks if not is_session_task(t)]
         # Add compound scores (how many tasks each one unblocks)
         compound_scores = _compute_compound_scores(tasks)
         for t in tasks:

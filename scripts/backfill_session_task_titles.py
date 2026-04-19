@@ -68,7 +68,13 @@ def _build_new_title(cwd_basename: str) -> str:
 
 
 def _fetch_tasks(client: httpx.Client) -> list[dict]:
-    resp = client.get(f"{API_BASE}/api/tasks?include_test_data=true")
+    # The backfill rewrites session-task titles, so it must see session
+    # tasks in the response. Pass include_session_tasks=true to bypass the
+    # default filter that hides them from user-facing surfaces.
+    resp = client.get(
+        f"{API_BASE}/api/tasks"
+        "?include_test_data=true&include_session_tasks=true"
+    )
     resp.raise_for_status()
     data = resp.json()
     return data.get("tasks", [])

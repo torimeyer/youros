@@ -2894,6 +2894,58 @@ async def test_e2e_tasks_hidden_by_default(client):
 
 
 @pytest.mark.asyncio
+async def test_session_lifecycle_tasks_hidden_by_default(client):
+    """Session-lifecycle bookkeeping tasks ("Session in <cwd>") must not
+    appear in the default /api/tasks response.
+
+    The SessionStart hook files one of these rows per Claude Code boot so
+    the session_to_task map can link a transcript back to its row. They
+    are telemetry, not user work, and had previously leaked through this
+    endpoint even though the Dashboard and Tasks page both hide them. A
+    caller that needs them (the backfill script, enrichment tests) must
+    pass ?include_session_tasks=true explicitly.
+    """
+    mock_tasks = [
+        _make_task(id="t-real", title="Real user task"),
+        _make_task(
+            id="t-sess-desc",
+            title="Session in torios",
+            description="session-task: Work happening in /repo",
+        ),
+        _make_task(
+            id="t-sess-legacy",
+            title="Claude Code session claude-code-abc",
+            description="old-format telemetry row",
+        ),
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+        # Default call: session-lifecycle rows are filtered out.
+        resp_default = await client.get("/api/tasks")
+        # Opt-in call: session-lifecycle rows are included for admin surfaces.
+        resp_opt_in = await client.get(
+            "/api/tasks?include_session_tasks=true"
+        )
+
+    assert resp_default.status_code == 200
+    default_ids = [t["id"] for t in resp_default.json()["tasks"]]
+    assert "t-real" in default_ids
+    assert "t-sess-desc" not in default_ids, (
+        "session-task: description row must be hidden by default"
+    )
+    assert "t-sess-legacy" not in default_ids, (
+        "Legacy 'Claude Code session ...' title row must be hidden by default"
+    )
+
+    assert resp_opt_in.status_code == 200
+    opt_in_ids = [t["id"] for t in resp_opt_in.json()["tasks"]]
+    assert "t-real" in opt_in_ids
+    assert "t-sess-desc" in opt_in_ids, (
+        "?include_session_tasks=true must surface session-lifecycle rows"
+    )
+    assert "t-sess-legacy" in opt_in_ids
+
+
+@pytest.mark.asyncio
 async def test_e2e_tasks_visible_with_include_test_data(client):
     """Tasks with e2e- prefix are visible when ?include_test_data=true."""
     mock_tasks = [
@@ -2985,7 +3037,10 @@ async def test_list_tasks_enriches_with_session_id_and_child_count(client, _isol
         _make_task(id="t-other", title="Unrelated task"),
     ]
     with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
-        resp = await client.get("/api/tasks")
+        # Session-lifecycle rows are hidden from the default /api/tasks
+        # response. Pass include_session_tasks=true so we can assert the
+        # enrichment fields on the session-task row itself.
+        resp = await client.get("/api/tasks?include_session_tasks=true")
 
     assert resp.status_code == 200
     by_id = {t["id"]: t for t in resp.json()["tasks"]}
