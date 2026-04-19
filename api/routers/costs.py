@@ -742,6 +742,132 @@ _savings_cache: dict[str, tuple] = {}
 # while still reflecting new sessions within one refresh cycle.
 _SAVINGS_TTL_SECS = 300.0
 
+# Disk-backed "last known good" snapshot so the very first request after a
+# backend restart can return in milliseconds instead of doing a cold compute
+# (which reads a 500 MB metrics.jsonl + 30 MB audit.jsonl + shells out to the
+# ostk binary, taking 3-6 s). The snapshot is keyed by period.
+#
+# The path is resolved through a function rather than a module constant so
+# tests can monkeypatch it at a tmp location without clobbering the real
+# user snapshot under ~/.myos/.
+def _savings_snapshot_path() -> Path:
+    return Path.home() / ".myos" / "savings_snapshot.json"
+
+
+# Guard so we only ever have one background refresh in flight per period.
+_savings_refresh_in_flight: set[str] = set()
+
+
+def _read_savings_snapshot(period: Optional[str]) -> Optional[dict]:
+    """Return the on-disk snapshot for this period, or None if missing."""
+    try:
+        path = _savings_snapshot_path()
+        if not path.exists():
+            return None
+        data = _json.loads(path.read_text())
+        key = period or "all"
+        entry = data.get(key)
+        if not isinstance(entry, dict):
+            return None
+        return entry
+    except (OSError, ValueError, _json.JSONDecodeError):
+        return None
+
+
+def _write_savings_snapshot(period: Optional[str], result: dict) -> None:
+    """Persist the latest savings result so the next cold call is instant.
+
+    Stores one entry per period in a small JSON file under ~/.myos/. Writes
+    are best-effort; failures are swallowed because the in-memory cache is
+    still the primary fast path.
+    """
+    try:
+        path = _savings_snapshot_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data: dict = {}
+        if path.exists():
+            try:
+                data = _json.loads(path.read_text()) or {}
+                if not isinstance(data, dict):
+                    data = {}
+            except (ValueError, _json.JSONDecodeError):
+                data = {}
+        data[period or "all"] = result
+        path.write_text(_json.dumps(data))
+    except OSError:
+        pass
+
+
+def _refresh_savings_async(period: Optional[str]) -> None:
+    """Recompute savings in a background thread and update cache + snapshot.
+
+    Used when we served a stale snapshot so the next request gets fresh
+    numbers without the user ever seeing a spinner. A per-period guard
+    prevents piling up parallel recomputes on rapid clicks.
+    """
+    import threading
+    import time as _time
+
+    key = period or "all"
+    if key in _savings_refresh_in_flight:
+        return
+    _savings_refresh_in_flight.add(key)
+
+    def _worker():
+        try:
+            fresh = _compute_savings_for_period(period)
+            now_mono = _time.monotonic()
+            _savings_cache[key] = (fresh, now_mono + _SAVINGS_TTL_SECS)
+            _write_savings_snapshot(period, fresh)
+        except Exception:
+            # Swallow errors: the stale value we served is still fine and
+            # the next request will retry the refresh.
+            pass
+        finally:
+            _savings_refresh_in_flight.discard(key)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def _get_savings_cached(period: Optional[str]) -> dict:
+    """Return savings for a period using the fastest available source.
+
+    Resolution order:
+    1. In-memory cache hit within TTL -> return instantly.
+    2. On-disk snapshot -> return instantly AND kick off a background
+       refresh so the next request sees fresh numbers.
+    3. Cold compute -> run the full pipeline, cache the result, persist a
+       snapshot so future cold starts hit step 2.
+
+    This guarantees the /costs/explain/time_saved popover shows a real
+    number within milliseconds on every call after the very first one on
+    a fresh machine.
+    """
+    import time as _time
+
+    key = period or "all"
+    cached = _savings_cache.get(key)
+    if cached is not None:
+        cached_result, expires_at = cached
+        if _time.monotonic() < expires_at:
+            return cached_result
+
+    snapshot = _read_savings_snapshot(period)
+    if snapshot is not None:
+        # Serve stale immediately, refresh in the background.
+        _refresh_savings_async(period)
+        return snapshot
+
+    # Cold compute (first run on this machine, or snapshot was wiped).
+    result = _compute_savings_for_period(period)
+    now_mono = _time.monotonic()
+    stale = [k for k, v in list(_savings_cache.items()) if now_mono >= v[1]]
+    for k in stale:
+        _savings_cache.pop(k, None)
+    _savings_cache[key] = (result, now_mono + _SAVINGS_TTL_SECS)
+    _write_savings_snapshot(period, result)
+    return result
+
 
 def _compute_savings_for_period(period: Optional[str]) -> dict:
     """Build the savings payload for a given time window.
@@ -989,25 +1115,7 @@ async def get_costs_savings(
     Results are cached per period key for 30 seconds so rapid filter
     clicks do not hammer the backend.
     """
-    import time as _time
-
-    cache_key = period or "all"
-    cached = _savings_cache.get(cache_key)
-    if cached is not None:
-        cached_result, expires_at = cached
-        if _time.monotonic() < expires_at:
-            return cached_result
-
-    result = _compute_savings_for_period(period)
-
-    # Evict stale period entries so the dict stays bounded (at most 4 entries).
-    now_mono = _time.monotonic()
-    stale = [k for k, v in list(_savings_cache.items()) if now_mono >= v[1]]
-    for k in stale:
-        _savings_cache.pop(k, None)
-
-    _savings_cache[cache_key] = (result, now_mono + _SAVINGS_TTL_SECS)
-    return result
+    return _get_savings_cached(period)
 
 
 # ---------------------------------------------------------------------------
@@ -1070,13 +1178,20 @@ def _build_explain(metric: str, period: Optional[str]) -> dict:
     # re-reads every event in metrics.jsonl and was making the popover hang
     # for 10 to 20 seconds on metrics that never use the savings payload
     # (agents_spawned, input_tokens, output_tokens, context_reuse_pct).
+    #
+    # When savings ARE needed we route through _get_savings_cached so the
+    # popover is served from the shared TTL cache (or the disk snapshot) in
+    # milliseconds. Previously this function shadowed _savings_cache with a
+    # local dict and called _compute_savings_for_period directly, which
+    # meant every "Time saved" popover open did a full metrics.jsonl +
+    # audit.jsonl + ostk-binary scan (3-6 s).
     costs = _get_costs_cached(period)
-    _savings_cache: dict = {}
+    _local_savings: dict = {}
 
     def _savings() -> dict:
-        if "value" not in _savings_cache:
-            _savings_cache["value"] = _compute_savings_for_period(period)
-        return _savings_cache["value"]
+        if "value" not in _local_savings:
+            _local_savings["value"] = _get_savings_cached(period)
+        return _local_savings["value"]
 
     input_tok = int(costs.get("total_input_tokens", 0) or 0)
     output_tok = int(costs.get("total_output_tokens", 0) or 0)

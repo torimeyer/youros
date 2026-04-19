@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
+import SpecTemplateDetailsModal, {
+  type SpecTemplateDetailsValues,
+} from "../components/SpecTemplateDetailsModal";
 import { api } from "../lib/api";
 import { onSpecsChange } from "../lib/sidebarBus";
 import { Button, EmptyState, ErrorBanner } from "../components/ui";
@@ -404,6 +407,10 @@ export default function Specs() {
   const [verifyingSpec, setVerifyingSpec] = useState<string | null>(null);
   const [templates, setTemplates] = useState<SpecTemplate[]>([]);
   const [templateLoading, setTemplateLoading] = useState<string | null>(null);
+  // The template the user picked from the grid. Holding it in state
+  // opens the details modal. Null means the modal is closed.
+  const [selectedTemplate, setSelectedTemplate] = useState<SpecTemplate | null>(null);
+  const [templateError, setTemplateError] = useState<string>("");
   const [undoDelete, setUndoDelete] = useState<{
     spec: Spec;
     timer: ReturnType<typeof setTimeout>;
@@ -484,14 +491,36 @@ export default function Specs() {
       .catch(() => setTemplates([]));
   }, []);
 
-  const handleCreateFromTemplate = async (template: SpecTemplate) => {
+  // Clicking a template card no longer immediately calls the API. It
+  // opens the details modal so the user can tweak the plan name and
+  // add a short note before applying. Mirrors the agent-template flow
+  // on the Agents page.
+  const handleOpenTemplateDetails = (template: SpecTemplate) => {
+    setTemplateError("");
+    setSelectedTemplate(template);
+  };
+
+  const handleCloseTemplateDetails = () => {
+    setSelectedTemplate(null);
+    setTemplateError("");
+  };
+
+  // Called from the modal when the user clicks Create plan.
+  const handleApplyTemplate = async (values: SpecTemplateDetailsValues) => {
+    const template = selectedTemplate;
+    if (!template) return;
     setTemplateLoading(template.id);
+    setTemplateError("");
     try {
       const res = await api.post<{
         result: string;
         status?: string;
         promoted_path?: string | null;
-      }>("/specs/from-template", { template_id: template.id });
+      }>("/specs/from-template", {
+        template_id: template.id,
+        title: values.title,
+        note: values.note,
+      });
       await fetchDocs();
       // Open the new plan expanded so the user can see the pre-written
       // goal and acceptance criteria right away.
@@ -500,8 +529,11 @@ export default function Specs() {
         setExpandedPath(openPath);
       }
       showMessage(`Spec created from "${template.name}". Ready to build.`);
+      setSelectedTemplate(null);
     } catch {
-      showMessage(`Could not create plan from "${template.name}". Try again.`, "error");
+      setTemplateError(
+        `Could not create plan from "${template.name}". Try again.`,
+      );
     } finally {
       setTemplateLoading(null);
     }
@@ -596,6 +628,25 @@ export default function Specs() {
 
   const handleBuild = async (path: string) => {
     setBuildingSpec(path);
+    // Optimistic: auto-expand the spec card and show a "Starting agents..."
+    // placeholder row immediately so the user sees motion on the exact
+    // card they clicked, not just a disabled button. The real task list
+    // replaces this the moment the first /tasks poll returns (~500 ms).
+    if (expandedPath !== path) {
+      setExpandedPath(path);
+    }
+    setLinkedTasks((prev) => {
+      if ((prev[path] || []).length > 0) return prev;
+      return {
+        ...prev,
+        [path]: [{
+          id: "starting",
+          title: "Starting builder agents...",
+          status: "open" as const,
+          assigned_agent: null,
+        }],
+      };
+    });
     try {
       const encodedPath = encodeURIComponent(path);
       const res = await api.post<BuildResponse>(`/specs/${encodedPath}/build`);
@@ -608,12 +659,29 @@ export default function Specs() {
       if (agents.length > 0) {
         showMessage(`Started ${agents.length} agent${agents.length === 1 ? "" : "s"}. Watch the Agents tab.`);
         // Fetch immediately so spinners and agent chips appear without
-        // waiting for the first poll tick.
+        // waiting for the first poll tick. Then fetch once more at
+        // 500 ms to catch builder status changes that the backend
+        // stamps right after spawn returns (assigned_agent, initial
+        // open/closed flip). The 2 s recurring poll takes over after
+        // that.
         fetchLinkedTasks(path);
+        setTimeout(() => { fetchLinkedTasks(path); }, 500);
       } else {
+        // Clear the optimistic "Starting..." placeholder on failure so
+        // the card does not look stuck.
+        setLinkedTasks((prev) => {
+          const next = { ...prev };
+          delete next[path];
+          return next;
+        });
         showMessage(res.message || "No open tasks to build.", "error");
       }
     } catch {
+      setLinkedTasks((prev) => {
+        const next = { ...prev };
+        delete next[path];
+        return next;
+      });
       showMessage("Could not start build. The backend may not support this yet.", "error");
     } finally {
       setBuildingSpec(null);
@@ -824,7 +892,7 @@ export default function Specs() {
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => handleCreateFromTemplate(t)}
+                    onClick={() => handleOpenTemplateDetails(t)}
                     disabled={loading}
                     data-testid={`plan-template-${t.id}`}
                     className="flex items-start gap-3 text-left bg-slate-900/40 border border-slate-800 rounded-xl p-4 hover:border-blue-500 hover:bg-slate-800/40 transition-colors disabled:opacity-60 disabled:cursor-wait"
@@ -1267,6 +1335,17 @@ export default function Specs() {
           </button>
         </div>
       )}
+
+      <SpecTemplateDetailsModal
+        open={selectedTemplate !== null}
+        template={selectedTemplate}
+        submitting={
+          selectedTemplate !== null && templateLoading === selectedTemplate.id
+        }
+        error={templateError}
+        onClose={handleCloseTemplateDetails}
+        onSubmit={handleApplyTemplate}
+      />
     </>
   );
 }

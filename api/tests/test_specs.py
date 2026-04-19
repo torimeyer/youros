@@ -246,6 +246,117 @@ async def test_build_auto_decomposes_when_plan_has_no_tasks(
 
 
 @pytest.mark.asyncio
+async def test_build_spawns_builders_in_parallel_and_assigns_tasks_up_front(
+    client, tmp_path, monkeypatch
+):
+    """Build it fans out spawns in parallel and records task assignments
+    before spawn_agent returns, so the demo shows progress in under three
+    seconds even with slow per-spawn setup.
+
+    The regression targets two past bugs:
+      1. Serial for-loop spawning meant N slow subprocess starts stacked
+         up end to end, which blew the ~3 s demo budget.
+      2. Task assignments were only written AFTER await spawn_agent
+         returned, so GET /specs/{path}/tasks showed assigned_agent=None
+         on every poll while the subprocess warmed up.
+    This test simulates three slow spawns and asserts the total wall
+    time is close to a single spawn (parallel), and that assignments
+    land before spawn_agent resolves.
+    """
+    import asyncio
+    import time
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_file = tmp_path / "docs" / "spec" / "parallel-build.md"
+    spec_file.write_text(
+        "---\ntitle: parallel\nstatus: spec\n---\n\n- [ ] a\n"
+    )
+
+    agent_configs = [
+        {"name": "spec-parallel-a", "task_id": "1001",
+         "task_title": "A", "prompt": "build A"},
+        {"name": "spec-parallel-b", "task_id": "1002",
+         "task_title": "B", "prompt": "build B"},
+        {"name": "spec-parallel-c", "task_id": "1003",
+         "task_title": "C", "prompt": "build C"},
+    ]
+
+    async def fake_spec_build(path):
+        return {"agents": agent_configs}
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", fake_spec_build)
+
+    # Observed assignments at the exact moment the spawn coroutine is
+    # first scheduled (not after it completes). If the route records
+    # _task_assignments up front, all three should be visible on each
+    # call. Each fake spawn sleeps 200 ms to simulate subprocess setup.
+    observed_assignments: list[dict] = []
+    call_count = {"n": 0}
+
+    async def fake_spawn(body):
+        call_count["n"] += 1
+        # Snapshot assignments the instant we enter the spawn. Parallel
+        # dispatch means all three entries should be present on all
+        # three calls (or at minimum by the second call).
+        observed_assignments.append(dict(specs_router._task_assignments))
+        await asyncio.sleep(0.2)
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn)
+
+    # Reset assignments so we measure this run only.
+    specs_router._task_assignments.clear()
+
+    t0 = time.perf_counter()
+    resp = await client.post(
+        "/api/specs/docs/spec/parallel-build.md/build"
+    )
+    elapsed = time.perf_counter() - t0
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert sorted(data["agents"]) == [
+        "spec-parallel-a", "spec-parallel-b", "spec-parallel-c",
+    ]
+    assert call_count["n"] == 3
+
+    # Parallel: three 200 ms spawns should finish in ~0.2 s plus
+    # per-task overhead. Budget 0.6 s here; serial would be 0.6 s
+    # minimum (3 x 0.2) and almost always higher. The strict bound
+    # catches any future regression back to a serial for-loop.
+    assert elapsed < 0.5, (
+        f"build took {elapsed:.2f}s; expected <0.5s with parallel spawn"
+    )
+
+    # Assignments recorded up front: each spawn coroutine stamps its
+    # own task_id into _task_assignments BEFORE awaiting spawn_agent.
+    # That means by the time the final spawn enters, every prior
+    # assignment is already visible. The UI's /tasks poll only needs
+    # to see the assignment for task K before spawn K completes, which
+    # this guarantees because gather starts every coroutine before
+    # awaiting any of them.
+    #
+    # Strongest observable guarantee: the last snapshot (taken just
+    # before the final sleep) contains every assignment. The earlier
+    # snapshots each contain their own assignment, and any that ran
+    # before them. Serial for-loop code would NOT show all three at
+    # the end before spawn_agent returned; it would record them one
+    # at a time in the previous call's finally block.
+    assert len(observed_assignments) == 3
+    assert set(observed_assignments[-1].keys()) == {"1001", "1002", "1003"}
+    assert specs_router._task_assignments["1001"] == "spec-parallel-a"
+    assert specs_router._task_assignments["1002"] == "spec-parallel-b"
+    assert specs_router._task_assignments["1003"] == "spec-parallel-c"
+
+
+@pytest.mark.asyncio
 async def test_unlock_moves_spec_back_to_draft(client, tmp_path, monkeypatch):
     """Unlock and edit: ready plan returns to draft with status flipped."""
     from services import ostk as ostk_module

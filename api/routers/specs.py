@@ -298,6 +298,10 @@ async def create_draft(body: SpecDraft):
 class SpecFromTemplate(BaseModel):
     template_id: str
     title: Optional[str] = None
+    # Optional free-text note the user typed when applying the template.
+    # When set, it is prepended to the template's goal body so the new
+    # plan captures any extra context the user wanted to carry forward.
+    note: Optional[str] = None
 
 
 @router.get("/specs/templates")
@@ -359,7 +363,17 @@ async def create_from_template(body: SpecFromTemplate):
     if checklist_lines:
         ac_block = "## Acceptance criteria\n" + "\n".join(checklist_lines) + "\n"
 
+    # The user may have entered a short note while applying the template.
+    # Prepend it so the plan captures their intent (e.g. audience,
+    # deadline, constraints) alongside the template's pre-written body.
+    note_block = ""
+    note_text = (body.note or "").strip()
+    if note_text:
+        note_block = "## Your notes\n" + note_text + "\n\n"
+
     appended_body = ""
+    if note_block:
+        appended_body += note_block
     if goal_body:
         appended_body += goal_body + "\n\n"
     if ac_block:
@@ -779,18 +793,31 @@ async def build_spec(spec_path: str):
     # spawn_agent() directly (same pattern as workflows.py) so we get the
     # full mailbox block, policy checks, and transcript wiring without
     # any curl-in-subprocess overhead.
+    #
+    # Speed: spawn all builders in parallel with asyncio.gather so the
+    # total wall time is ~one spawn, not N. Each spawn does a subprocess
+    # fork, a stdin drain, a chat-state purge, and an audit write. Serial
+    # with 3 tasks measured at ~3 to 6 s end to end; parallel lands in
+    # well under a second. Same pattern fleet_spawn uses
+    # (api/routers/agents.py fleet_spawn_agents gather).
+    #
+    # Progress visibility: we stamp _task_assignments BEFORE awaiting
+    # each spawn, so GET /specs/{path}/tasks already shows the agent
+    # name on the very first poll even while the subprocess is still
+    # warming up. If the spawn then errors, we pop the assignment so
+    # the UI does not attach a broken builder to the row.
+    import asyncio as _asyncio
     from routers.agents import spawn_agent
     from models.schemas import AgentSpawn
 
-    spawned: list[str] = []
-    failures: list[str] = []
-    for cfg in agent_configs:
+    async def _spawn_one(cfg: dict) -> tuple[str, Optional[str]]:
+        """Spawn one builder. Returns (name, error_or_none)."""
         name = cfg.get("name")
         prompt = cfg.get("prompt", "")
         task_id = cfg.get("task_id", "")
         task_title = cfg.get("task_title", "")
         if not name:
-            continue
+            return ("", "missing agent name")
         # Append a clear close instruction so the agent hits the Tasks
         # API when it finishes instead of only running ostk locally.
         prompt_with_close = (
@@ -822,17 +849,38 @@ async def build_spec(spec_path: str):
             # adds the Haiku coercion and force-complete supervisor.
             demo_mode=True,
         )
+        # Record assignment up front so the first poll after the HTTP
+        # return already shows the agent-to-task mapping.
+        norm_tid = str(task_id).lstrip("\u2192") if task_id else ""
+        if norm_tid:
+            _task_assignments[norm_tid] = name
         try:
             await spawn_agent(body)
-            spawned.append(name)
-            # Remember which agent was spawned for which task so
-            # GET /specs/{path}/tasks can expose live progress.
-            if task_id:
-                _task_assignments[str(task_id).lstrip("\u2192")] = name
+            return (name, None)
         except HTTPException as e:
-            failures.append(f"{name}: {e.detail}")
+            if norm_tid:
+                _task_assignments.pop(norm_tid, None)
+            return (name, str(e.detail))
         except Exception as e:  # noqa: BLE001
-            failures.append(f"{name}: {e}")
+            if norm_tid:
+                _task_assignments.pop(norm_tid, None)
+            return (name, str(e))
+
+    # Parallelize every builder spawn. asyncio.gather preserves input
+    # order, so results zip back cleanly into success and failure lists.
+    results = await _asyncio.gather(
+        *(_spawn_one(cfg) for cfg in agent_configs)
+    )
+
+    spawned: list[str] = []
+    failures: list[str] = []
+    for name, err in results:
+        if not name:
+            continue
+        if err is None:
+            spawned.append(name)
+        else:
+            failures.append(f"{name}: {err}")
 
     count = len(spawned)
     if count == 0:

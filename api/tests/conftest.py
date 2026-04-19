@@ -86,13 +86,32 @@ def clear_costs_caches():
     test (which patches subprocess or the audit path) to see stale data
     instead of the fresh result it expects.
     """
-    from routers.costs import _agg_cache
+    import tempfile
+    from pathlib import Path
+    from routers import costs as costs_router
     from services.token_metrics import invalidate_savings_cache
-    _agg_cache.clear()
+    costs_router._agg_cache.clear()
+    costs_router._savings_cache.clear()
+    # Redirect the savings disk snapshot to a per-test tmp file so cold-path
+    # tests that patch _compute_savings_for_period still see a cache miss,
+    # and so we never clobber the real user snapshot under ~/.myos/.
+    tmp_snapshot = Path(tempfile.mkdtemp()) / "savings_snapshot.json"
+    original_path_fn = costs_router._savings_snapshot_path
+    costs_router._savings_snapshot_path = lambda: tmp_snapshot
     invalidate_savings_cache()
-    yield
-    _agg_cache.clear()
-    invalidate_savings_cache()
+    try:
+        yield
+    finally:
+        costs_router._savings_snapshot_path = original_path_fn
+        costs_router._agg_cache.clear()
+        costs_router._savings_cache.clear()
+        invalidate_savings_cache()
+        try:
+            if tmp_snapshot.exists():
+                tmp_snapshot.unlink()
+            tmp_snapshot.parent.rmdir()
+        except OSError:
+            pass
 
 
 @pytest.fixture(autouse=True)

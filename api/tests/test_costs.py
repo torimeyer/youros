@@ -1507,6 +1507,19 @@ async def test_explain_context_reuse_skips_savings_compute(client):
                     f"{spy.call_count} times"
                 )
             for metric in uses:
+                # Clear the shared savings TTL cache + the disk snapshot
+                # between iterations so each metric's patch actually gets
+                # exercised. Otherwise the previous metric's mocked result
+                # is served from cache or the snapshot, and the patched
+                # _compute_savings_for_period is never called.
+                from routers import costs as _costs_mod
+                _costs_mod._savings_cache.clear()
+                try:
+                    snap = _costs_mod._savings_snapshot_path()
+                    if snap.exists():
+                        snap.unlink()
+                except OSError:
+                    pass
                 with patch(
                     "routers.costs._compute_savings_for_period",
                     return_value={"available": False},
@@ -1517,3 +1530,84 @@ async def test_explain_context_reuse_skips_savings_compute(client):
                     f"{metric} should compute savings exactly once; called "
                     f"{spy.call_count} times"
                 )
+
+
+@pytest.mark.asyncio
+async def test_explain_time_saved_second_call_uses_cache(client):
+    """Regression: /costs/explain/time_saved must serve from the shared
+    savings cache on the second request so the popover never sits on
+    "Loading the math." for the demo user.
+
+    Previously _build_explain shadowed the module-level _savings_cache with
+    a local dict, so every popover open re-ran _compute_savings_for_period
+    (which reads a 500 MB metrics.jsonl + 30 MB audit.jsonl + shells out
+    to the ostk binary) and hung for 3-6 seconds.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        audit_path = _write_audit(EXPLAIN_SAMPLE_AUDIT, Path(tmpdir))
+        with patch("routers.costs.AUDIT_PATH", audit_path):
+            with patch(
+                "routers.costs._compute_savings_for_period",
+                return_value={
+                    "available": True,
+                    "conversation_cache_tokens": 100_000,
+                    "squash_tokens_saved": 20_000,
+                },
+            ) as spy:
+                resp_a = await client.get("/api/costs/explain/time_saved")
+                resp_b = await client.get("/api/costs/explain/time_saved")
+                resp_c = await client.get("/api/costs/explain/time_saved")
+
+    assert resp_a.status_code == 200
+    assert resp_b.status_code == 200
+    assert resp_c.status_code == 200
+    # Exactly one compute across three requests: first populates the
+    # TTL cache, next two hit it. If this count climbs, the popover is
+    # back to doing a cold scan on every open.
+    assert spy.call_count == 1, (
+        f"time_saved should compute savings once per TTL window; called "
+        f"{spy.call_count} times across 3 requests"
+    )
+    # Sanity: the result reflects the mocked numerator (100k + 20k = 120k
+    # tokens at 10k tokens/sec = 12.0 sec).
+    body = resp_a.json()
+    assert body["numerator"]["value"] == 120_000
+    assert body["result"] == pytest.approx(12.0)
+
+
+@pytest.mark.asyncio
+async def test_explain_time_saved_uses_disk_snapshot(client, tmp_path):
+    """Regression: a cold request after backend restart (in-memory cache
+    empty) must serve from the on-disk snapshot at
+    ~/.myos/savings_snapshot.json in milliseconds, not recompute.
+    """
+    import json as _json
+    from routers import costs as costs_router
+
+    snapshot_path = tmp_path / "savings_snapshot.json"
+    snapshot_path.write_text(_json.dumps({
+        "all": {
+            "available": True,
+            "conversation_cache_tokens": 50_000,
+            "squash_tokens_saved": 10_000,
+        },
+    }))
+    costs_router._savings_snapshot_path = lambda: snapshot_path
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        audit_path = _write_audit(EXPLAIN_SAMPLE_AUDIT, Path(tmpdir))
+        with patch("routers.costs.AUDIT_PATH", audit_path):
+            # Raise if the compute path is taken on the synchronous request.
+            # A background refresh thread may still call it, but the user
+            # request itself must be served from the snapshot.
+            with patch(
+                "routers.costs._compute_savings_for_period",
+                return_value={"available": False},
+            ):
+                resp = await client.get("/api/costs/explain/time_saved")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    # Snapshot had 50k + 10k = 60k tokens at 10k/sec = 6.0 sec.
+    assert body["numerator"]["value"] == 60_000
+    assert body["result"] == pytest.approx(6.0)
