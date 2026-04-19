@@ -1183,4 +1183,69 @@ describe('CostTracking page', () => {
     const popover = screen.getByTestId('explain-popover-context_reuse_pct')
     expect(popover).toHaveTextContent(/4,992,110,291/)
   })
+
+  // Regression (tooltip viewport clip): when the explain-popover trigger is
+  // near the top of the viewport (i.e. not enough room above for the ~420px
+  // popover), the popover must flip BELOW the trigger. Otherwise its top
+  // edge gets clipped by the browser chrome / address bar.
+  it('explain popover flips below the trigger when there is not enough room above', async () => {
+    const mockExplainTokensSaved = {
+      metric: 'tokens_saved',
+      formula: 'conversation cache tokens plus squash tokens saved',
+      numerator: { value: 204000, label: 'Tokens saved', source: '/costs/savings' },
+      denominator: null,
+      result: 204000,
+      result_label: '204,000 tokens',
+      window: 'This Week',
+      note: null,
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.startsWith('/costs/savings')) return Promise.resolve(mockSavingsData)
+      if (path.startsWith('/costs/explain/tokens_saved')) return Promise.resolve(mockExplainTokensSaved)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      return Promise.resolve({})
+    })
+
+    // Force jsdom to report a viewport that is shallow up top: the trigger
+    // sits at y=40, so spaceAbove=40 which is far less than the 420px the
+    // popover needs. Expected behavior: position='below', meaning the
+    // popover's inline style uses `top` (not `bottom`) and that top is
+    // clamped to at least 8.
+    const originalGetRect = Element.prototype.getBoundingClientRect
+    Element.prototype.getBoundingClientRect = function () {
+      // The trigger button carries data-testid="explain-trigger-..." so we
+      // return a near-top rect for it. Everything else gets the default.
+      if (this instanceof HTMLElement && this.getAttribute?.('data-testid')?.startsWith('explain-trigger-')) {
+        return {
+          top: 40, bottom: 54, left: 200, right: 214, width: 14, height: 14, x: 200, y: 40,
+          toJSON() { return this },
+        } as DOMRect
+      }
+      return originalGetRect.call(this) as DOMRect
+    }
+    // Give jsdom a real viewport height so window.innerHeight is meaningful.
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true })
+    Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true })
+
+    try {
+      renderCostTracking()
+      await waitFor(() => {
+        expect(screen.getByTestId('explain-trigger-tokens_saved')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByTestId('explain-trigger-tokens_saved'))
+
+      const popover = await screen.findByTestId('explain-popover-tokens_saved')
+      // Flipped-below means the popover positions with `top`, not `bottom`.
+      const topStr = (popover as HTMLElement).style.top
+      const bottomStr = (popover as HTMLElement).style.bottom
+      expect(topStr).not.toBe('')
+      expect(bottomStr).toBe('')
+      // And that top must be safely inside the viewport (>= 0, clamped to 8).
+      const topPx = parseFloat(topStr)
+      expect(topPx).toBeGreaterThanOrEqual(0)
+    } finally {
+      Element.prototype.getBoundingClientRect = originalGetRect
+    }
+  })
 })

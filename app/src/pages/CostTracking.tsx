@@ -163,11 +163,26 @@ function ExplainPopover({ metric, period, label }: { metric: string; period: str
       })
   }, [open, metric, period])
 
-  // Position the popover above or below based on viewport room.
+  // Position the popover above or below based on actual viewport room.
+  // The popover is tall (~420px when fully populated). Pick "above" only
+  // when there is at least EXPLAIN_POPOVER_HEIGHT px of space above the
+  // trigger. Otherwise flip below, so we never get clipped by the top of
+  // the browser viewport (the address bar area).
   useEffect(() => {
     if (!open || !triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
-    setPosition(rect.top < 360 ? 'below' : 'above')
+    const spaceAbove = rect.top
+    const spaceBelow = window.innerHeight - rect.bottom
+    const EXPLAIN_POPOVER_HEIGHT = 420
+    if (spaceAbove >= EXPLAIN_POPOVER_HEIGHT) {
+      setPosition('above')
+    } else if (spaceBelow >= EXPLAIN_POPOVER_HEIGHT) {
+      setPosition('below')
+    } else {
+      // Neither side fits cleanly. Pick whichever has more room; the
+      // clamp in popoverStyle keeps the top edge inside the viewport.
+      setPosition(spaceBelow > spaceAbove ? 'below' : 'above')
+    }
   }, [open])
 
   // Close on Escape or outside click.
@@ -208,9 +223,21 @@ function ExplainPopover({ metric, period, label }: { metric: string; period: str
             r.left + r.width / 2 - width / 2,
           ),
         )
-        return position === 'above'
-          ? { bottom: window.innerHeight - r.top + 8, left, width }
-          : { top: r.bottom + 8, left, width }
+        if (position === 'above') {
+          // "bottom: window.innerHeight - r.top + 8" would let the popover
+          // grow upward past y=0 when it is taller than the space above the
+          // trigger. Clamp so its top edge stays at least 8px from the top
+          // of the viewport.
+          const bottom = Math.min(
+            window.innerHeight - r.top + 8,
+            window.innerHeight - 8, // guarantees top >= 8
+          )
+          return { bottom, left, width, maxHeight: window.innerHeight - 16 }
+        }
+        // Below: guarantee the popover's top is at least 8px from the top
+        // and capped so it does not overflow the viewport bottom either.
+        const top = Math.max(8, r.bottom + 8)
+        return { top, left, width, maxHeight: window.innerHeight - top - 8 }
       })()
     : {}
 
@@ -307,10 +334,22 @@ function InfoTooltip({ text }: { text: string }) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function show() {
-    // Pick direction based on viewport room
+    // Pick direction based on actual viewport room. The tooltip is ~80px
+    // tall (short text, 2-3 lines). Flip below only when there is not
+    // enough space above, so it cannot get clipped by the top of the
+    // viewport (e.g. tooltips at the top of the page).
     if (iconRef.current) {
       const rect = iconRef.current.getBoundingClientRect()
-      setPosition(rect.top < 120 ? 'below' : 'above')
+      const spaceAbove = rect.top
+      const spaceBelow = window.innerHeight - rect.bottom
+      const INFO_TOOLTIP_HEIGHT = 80
+      if (spaceAbove >= INFO_TOOLTIP_HEIGHT) {
+        setPosition('above')
+      } else if (spaceBelow >= INFO_TOOLTIP_HEIGHT) {
+        setPosition('below')
+      } else {
+        setPosition(spaceBelow > spaceAbove ? 'below' : 'above')
+      }
     }
     timerRef.current = setTimeout(() => setVisible(true), 200)
   }
@@ -339,9 +378,24 @@ function InfoTooltip({ text }: { text: string }) {
           style={{
             ...(iconRef.current ? (() => {
               const r = iconRef.current.getBoundingClientRect()
-              return position === 'above'
-                ? { bottom: window.innerHeight - r.top + 8, left: r.left + r.width / 2 - 112 }
-                : { top: r.bottom + 8, left: r.left + r.width / 2 - 112 }
+              // Clamp the horizontal position so the tooltip never spills
+              // past either edge of the viewport (width is w-56 = 224px).
+              const left = Math.max(
+                8,
+                Math.min(window.innerWidth - 224 - 8, r.left + r.width / 2 - 112),
+              )
+              if (position === 'above') {
+                // Clamp "bottom" so the tooltip's top edge never goes
+                // above y=8 even if the trigger is near the top of the
+                // viewport.
+                const bottom = Math.min(
+                  window.innerHeight - r.top + 8,
+                  window.innerHeight - 8,
+                )
+                return { bottom, left }
+              }
+              const top = Math.max(8, r.bottom + 8)
+              return { top, left }
             })() : {}),
           }}
           role="tooltip"
