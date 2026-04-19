@@ -8750,6 +8750,109 @@ async def test_spawn_agent_in_demo_mode_adds_bare_when_api_key_set(
 
 
 @pytest.mark.asyncio
+async def test_builder_template_demo_mode_inherits_ostk_mcp(monkeypatch):
+    """Builder-template demo spawns must carry the project's ostk MCP.
+
+    Regression guard for the spec-build pipeline demo-blocker: spec
+    /build spawns Builder agents with ``demo_mode=True``. The old path
+    passed ``--mcp-config '{"mcpServers":{}}'`` which stripped MCP, but
+    the project-level ``.claude/hooks/ostk-first.sh`` still fires on any
+    Bash/Read/Edit/Grep/Write call and demands ``mcp__ostk__*``. With
+    MCP stripped, those tools are not available, so every Builder froze
+    on its first tool call until the 180s wall-clock force-complete.
+    Zero tokens used, zero files written, spec stuck at 0/N tasks built.
+
+    The fix reads the project's ``.mcp.json`` at spawn time and injects
+    only the ``ostk`` server entry for Builder-template demo spawns. This
+    test locks that in: the subprocess argv must contain a ``--mcp-config``
+    value whose parsed ``mcpServers`` has an ``ostk`` entry. Other demo
+    spawns (no template, fleet members) keep the empty MCP config; that
+    path is covered by ``test_spawn_agent_in_demo_mode_uses_valid_mcp_config``
+    above.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured_args: dict = {"argv": None}
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured_args["argv"] = list(args)
+        return _DemoFakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module,
+        "_schedule_demo_force_complete",
+        _noop_force_complete,
+    )
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    agent_name = "builder-spec-probe-mcp-inject"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Build task 999.",
+                    "model": "sonnet",
+                    "budget": 0.25,
+                    "template": "builder",
+                    "source": "spec-build",
+                    "demo_mode": True,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        argv = captured_args["argv"]
+        assert argv is not None
+        assert "--mcp-config" in argv, (
+            f"builder demo spawn must pass --mcp-config, got {argv}"
+        )
+        mcp_idx = argv.index("--mcp-config")
+        mcp_val = argv[mcp_idx + 1]
+        # Still schema-valid (the CLI requires the mcpServers key and
+        # well-formed JSON) and still uses --strict-mcp-config so only
+        # the servers we inject are loaded.
+        import json as _json
+        parsed = _json.loads(mcp_val)
+        assert "mcpServers" in parsed, (
+            f"builder demo spawn passed mcp-config without mcpServers key: "
+            f"{mcp_val!r}"
+        )
+        assert "ostk" in parsed["mcpServers"], (
+            "builder demo spawn must inject the ostk MCP server so the "
+            "ostk-first hook can fall through to mcp__ostk__* tools. "
+            f"Got {mcp_val!r}"
+        )
+        ostk_server = parsed["mcpServers"]["ostk"]
+        # Sanity: the injected entry came from .mcp.json verbatim, which
+        # has a command+args shape. Anything else would mean we loaded
+        # the wrong server or mangled the shape.
+        assert isinstance(ostk_server, dict) and "command" in ostk_server, (
+            f"ostk server entry missing expected 'command' key: {ostk_server!r}"
+        )
+        assert "--strict-mcp-config" in argv
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
 async def test_demo_agent_is_force_completed_after_90_seconds(monkeypatch):
     """The 90 second supervisor SIGKILLs stragglers and flips status.
 

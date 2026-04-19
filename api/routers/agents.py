@@ -2509,6 +2509,50 @@ DEMO_MODE_WALL_CLOCK_SECONDS = 180
 DEMO_MODE_MAX_OUTPUT_TOKENS = 800
 
 
+def _load_project_mcp_servers_for_demo() -> Optional[str]:
+    """Return a schema-valid ``--mcp-config`` JSON string with ostk only.
+
+    Builder-template demo agents spawned by the spec-build pipeline need
+    real ostk MCP tools. The project-level ``.claude/hooks/ostk-first.sh``
+    fires whenever the backend or ostk kernel is running and blocks every
+    native Bash/Read/Edit/Grep/Write tool call with "use mcp__ostk__*".
+    Stripping MCP via ``--mcp-config '{"mcpServers":{}}'`` leaves the
+    subagent with no way to satisfy the hook, so the agent freezes on
+    the first tool call until the 180s wall-clock force-complete. To
+    avoid that, this helper loads the project's ``.mcp.json`` at spawn
+    time, extracts only the ``ostk`` server entry (other servers like
+    ``stitch`` are demo-irrelevant and slow the spawn), and returns a
+    compact JSON string suitable for passing to ``--mcp-config``.
+
+    Returns ``None`` when the file does not exist, cannot be parsed, or
+    does not contain an ``ostk`` server. The caller falls back to the
+    empty ``{"mcpServers":{}}`` config in that case so the spawn still
+    succeeds (just without ostk tools, same as before this fix).
+    """
+    try:
+        from config import PROJECT_ROOT
+    except Exception:
+        return None
+    mcp_path = PROJECT_ROOT / ".mcp.json"
+    if not mcp_path.is_file():
+        return None
+    try:
+        with open(mcp_path, "r") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    servers = (data or {}).get("mcpServers") or {}
+    ostk_entry = servers.get("ostk")
+    if not ostk_entry:
+        return None
+    # Compact separators so the argv stays short; the CLI validator only
+    # cares about schema, not whitespace.
+    return json.dumps(
+        {"mcpServers": {"ostk": ostk_entry}},
+        separators=(",", ":"),
+    )
+
+
 def _spawn_demo_mode(body: "AgentSpawn") -> bool:
     """Return True when the spawn target opts into demo mode.
 
@@ -3254,7 +3298,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     ]
     if _demo_mode:
         # Speed flags: skip MCP tool registration and skill/slash-command
-        # loading. Two past footguns fixed here and locked in by tests:
+        # loading. Three past footguns fixed here and locked in by tests:
         #
         # 1. ``--mcp-config '{}'`` is schema-invalid. The CLI validator
         #    rejects it with "mcpServers: Does not adhere to MCP server
@@ -3267,15 +3311,36 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         #
         # 2. ``--bare`` disables keychain OAuth reads. Without
         #    ``ANTHROPIC_API_KEY`` set in the uvicorn environment the
-        #    CLI prints "Not logged in · Please run /login" and exits
+        #    CLI prints "Not logged in \u00b7 Please run /login" and exits
         #    1. Only add --bare when an API key is actually present so
         #    the demo path still authenticates in every developer
         #    setup. We lose the CLAUDE.md / hooks / plugin-sync skip
         #    when falling back, but we keep the MCP + skills skip which
         #    is the bulk of first-byte latency.
+        #
+        # 3. Builder template needs ostk MCP. When the spec-build pipeline
+        #    (POST /specs/{path}/build) spawns a Builder agent in demo
+        #    mode, stripping all MCP servers breaks the demo. The backend
+        #    and ostk kernel are still running, so the project-level
+        #    .claude/hooks/ostk-first.sh hook fires on every Bash/Read/
+        #    Edit/Grep/Write tool call and blocks it with "use mcp__ostk__*".
+        #    But the subagent does not have those tools (we stripped
+        #    MCP). Result: the Builder agent is frozen on the first tool
+        #    call until the 180s wall-clock force-complete. The spec
+        #    stays at 0/3 tasks built and the demo narrative collapses.
+        #    Fix: load the project's .mcp.json and inject just the ostk
+        #    server entry for Builder-template demo spawns, so they have
+        #    real ostk tools that the hook expects. Other demo-mode
+        #    spawns (fleet members, chat "build it" chain) keep the empty
+        #    MCP config since they do not invoke file-writing tools.
+        _mcp_config_arg = '{"mcpServers":{}}'
+        if (body.template or "").strip().lower() == "builder":
+            injected = _load_project_mcp_servers_for_demo()
+            if injected is not None:
+                _mcp_config_arg = injected
         cmd.extend([
             "--strict-mcp-config",
-            "--mcp-config", '{"mcpServers":{}}',
+            "--mcp-config", _mcp_config_arg,
             "--disable-slash-commands",
         ])
         if os.environ.get("ANTHROPIC_API_KEY"):
