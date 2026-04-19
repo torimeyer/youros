@@ -125,4 +125,84 @@ describe('notifications store', () => {
     addNotification({ name: 'agent-a', source: 'claude-code' }, 'running', 'completed')
     expect(useNotificationStore.getState().notifications).toHaveLength(1)
   })
+
+  describe('addPersistentToast', () => {
+    it('pushes a toast for a new persistent notification id', () => {
+      useNotificationStore.getState().addPersistentToast({
+        id: 'notif-1',
+        type: 'roadmap_ready',
+        title: 'Your roadmap is ready',
+        body: 'See /files/roadmap.md',
+        action_url: '/files',
+      })
+
+      const s = useNotificationStore.getState()
+      expect(s.notifications).toHaveLength(1)
+      expect(s.toastIds).toContain('notif-1')
+      expect(s.notifications[0].agentName).toBe('Your roadmap is ready')
+      expect(s.notifications[0].status).toBe('roadmap_ready')
+      expect(s.persistentToastIds.has('notif-1')).toBe(true)
+    })
+
+    it('does NOT push twice for the same persistent id', () => {
+      const { addPersistentToast } = useNotificationStore.getState()
+      const payload = {
+        id: 'notif-2',
+        type: 'agent',
+        title: 'Agent finished',
+        body: 'fix-bug completed',
+        action_url: null,
+      }
+      addPersistentToast(payload)
+      addPersistentToast(payload)
+      addPersistentToast(payload)
+
+      const s = useNotificationStore.getState()
+      expect(s.notifications).toHaveLength(1)
+      expect(s.toastIds.filter((id) => id === 'notif-2')).toHaveLength(1)
+    })
+
+    it('auto-dismisses the toast after 5 seconds', () => {
+      vi.useFakeTimers()
+      useNotificationStore.getState().addPersistentToast({
+        id: 'notif-3',
+        type: 'roadmap_ready',
+        title: 'Ready',
+        body: '',
+        action_url: null,
+      })
+      expect(useNotificationStore.getState().toastIds).toContain('notif-3')
+
+      vi.advanceTimersByTime(5000)
+      expect(useNotificationStore.getState().toastIds).not.toContain('notif-3')
+      // The notification row itself lives on in the drawer; only the
+      // toast is dismissed.
+      expect(useNotificationStore.getState().notifications).toHaveLength(1)
+      vi.useRealTimers()
+    })
+
+    it('clearAll resets persistentToastIds so the same row can toast again', () => {
+      const { addPersistentToast, clearAll } = useNotificationStore.getState()
+      addPersistentToast({
+        id: 'notif-4',
+        type: 'roadmap_ready',
+        title: 'Ready',
+        body: '',
+        action_url: null,
+      })
+      expect(useNotificationStore.getState().notifications).toHaveLength(1)
+
+      clearAll()
+      expect(useNotificationStore.getState().persistentToastIds.size).toBe(0)
+
+      addPersistentToast({
+        id: 'notif-4',
+        type: 'roadmap_ready',
+        title: 'Ready',
+        body: '',
+        action_url: null,
+      })
+      expect(useNotificationStore.getState().notifications).toHaveLength(1)
+    })
+  })
 })

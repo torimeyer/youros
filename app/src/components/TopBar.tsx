@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from './Icon'
 import { useAppStore } from '../stores/app'
@@ -22,6 +22,19 @@ interface PersistentNotification {
 interface TopBarProps {
   title: string
 }
+
+// Persistent notifications whose type should pop a toast as soon as the
+// TopBar poll discovers them. Anything outside this set still lands in
+// the bell drawer but does not interrupt the user. Kept broad enough to
+// cover the common demo flows (roadmap generation, agent finished,
+// sync-status, task overdue) without toasting chatter.
+const TOAST_WORTHY_PERSISTENT_TYPES = new Set<string>([
+  'roadmap_ready',
+  'agent',
+  'sync',
+  'task_overdue',
+  'upgrade',
+])
 
 function statusIcon(status: string): { icon: string; color: string } {
   switch (status) {
@@ -151,6 +164,7 @@ export default function TopBar({ title }: TopBarProps) {
 
   const notifications = useNotificationStore((s) => s.notifications)
   const markAllRead = useNotificationStore((s) => s.markAllRead)
+  const addPersistentToast = useNotificationStore((s) => s.addPersistentToast)
   const clearAll = useNotificationStore((s) => s.clearAll)
 
   // Single source of truth. The badge count and the dropdown body must read
@@ -167,14 +181,45 @@ export default function TopBar({ title }: TopBarProps) {
   )
   const unreadCount = agentUnreadCount + persistentUnread
 
+  // Track which persistent notification ids we've already observed on a
+  // previous poll so we can diff each response and fire a toast only for
+  // genuinely new rows. Seeded on the very first poll so a user who
+  // visits the page mid-session does not get slammed with toasts for
+  // notifications that were already sitting in the drawer.
+  const seenNotifIdsRef = useRef<Set<string> | null>(null)
+
   const fetchPersistentNotifs = useCallback(async () => {
     try {
       const data = await api.get<PersistentNotification[]>('/notifications')
-      setPersistentNotifs(Array.isArray(data) ? data : [])
+      const list = Array.isArray(data) ? data : []
+      setPersistentNotifs(list)
+
+      // Diff against the previous poll. On the first poll just seed the
+      // ref so we do not retroactively toast existing rows.
+      if (seenNotifIdsRef.current === null) {
+        seenNotifIdsRef.current = new Set(list.map((n) => n.id))
+      } else {
+        const seen = seenNotifIdsRef.current
+        for (const n of list) {
+          if (seen.has(n.id)) continue
+          seen.add(n.id)
+          // Only toast unread rows whose type is in the allow-list. The
+          // store dedupes on id as a second line of defence.
+          if (!n.read && TOAST_WORTHY_PERSISTENT_TYPES.has(n.type)) {
+            addPersistentToast({
+              id: n.id,
+              type: n.type,
+              title: n.title,
+              body: n.body,
+              action_url: n.action_url,
+            })
+          }
+        }
+      }
     } catch {
       // ignore
     }
-  }, [])
+  }, [addPersistentToast])
 
   // Re-render every minute so "X min ago" stays fresh
   useEffect(() => {
@@ -182,12 +227,15 @@ export default function TopBar({ title }: TopBarProps) {
     return () => clearInterval(interval)
   }, [])
 
-  // Proactively fetch the persistent notifications list on mount and poll
-  // every 60 seconds. The badge count is derived from this list, so the
-  // badge and the dropdown can never disagree.
+  // Proactively fetch the persistent notifications list on mount and
+  // poll every 10 seconds so backend-driven events (e.g. a roadmap
+  // agent finishing) surface as a toast within ~10s instead of up to a
+  // full minute. The diff inside fetchPersistentNotifs guarantees we
+  // only toast rows we have not seen before, so tighter polling does
+  // not spam the toast stack.
   useEffect(() => {
     fetchPersistentNotifs()
-    const interval = setInterval(fetchPersistentNotifs, 60_000)
+    const interval = setInterval(fetchPersistentNotifs, 10_000)
     return () => clearInterval(interval)
   }, [fetchPersistentNotifs])
 

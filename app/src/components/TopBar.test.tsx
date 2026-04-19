@@ -670,3 +670,167 @@ describe('TopBar What\'s New button', () => {
     expect(whatsNewButton).toBeNull()
   })
 })
+
+
+describe('TopBar persistent-notification toast', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useRealTimers()
+    useNotificationStore.setState({
+      notifications: [],
+      toastIds: [],
+      firedKeys: new Set<string>(),
+      persistentToastIds: new Set<string>(),
+    })
+    useAppStore.setState({
+      osName: 'myOS',
+      chatOpen: false,
+      chatWidth: 400,
+    })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  it('does not toast rows that were already on screen at mount', async () => {
+    // First poll returns an existing roadmap_ready notification. The
+    // component should seed its seen-set on the initial fetch and NOT
+    // toast rows that predate the render.
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/notifications')
+        return [
+          {
+            id: 'existing-1',
+            type: 'roadmap_ready',
+            title: 'Roadmap ready',
+            body: '',
+            action_label: null,
+            action_url: '/files',
+            read: false,
+            created_at: new Date().toISOString(),
+            metadata: {},
+          },
+        ]
+      return {}
+    })
+
+    renderTopBar()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
+    })
+
+    const state = useNotificationStore.getState()
+    // The row existed before mount, so no toast should have fired.
+    expect(state.toastIds).toHaveLength(0)
+    expect(state.persistentToastIds.has('existing-1')).toBe(false)
+  })
+
+  it('fires a toast when a new roadmap_ready row appears between polls', async () => {
+    // Start with no notifications, then return one on the next poll.
+    // After the 10s interval the diff should detect the new id and
+    // push it into the toast store.
+    let pollCount = 0
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/notifications') {
+        pollCount += 1
+        if (pollCount === 1) return []
+        return [
+          {
+            id: 'new-roadmap-1',
+            type: 'roadmap_ready',
+            title: 'Your roadmap is ready',
+            body: 'See /files/roadmap.md',
+            action_label: 'Open',
+            action_url: '/files',
+            read: false,
+            created_at: new Date().toISOString(),
+            metadata: {},
+          },
+        ]
+      }
+      return {}
+    })
+
+    vi.useFakeTimers()
+    renderTopBar()
+
+    // Initial fetch resolves and seeds the seen-set.
+    await vi.waitFor(() => {
+      expect(pollCount).toBeGreaterThanOrEqual(1)
+    })
+
+    // Advance past the 10s poll interval.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+
+    await vi.waitFor(() => {
+      expect(pollCount).toBeGreaterThanOrEqual(2)
+    })
+
+    // Wait for the toast push to land in the store.
+    await vi.waitFor(() => {
+      const s = useNotificationStore.getState()
+      expect(s.persistentToastIds.has('new-roadmap-1')).toBe(true)
+    })
+
+    const s = useNotificationStore.getState()
+    expect(s.toastIds).toContain('new-roadmap-1')
+    expect(s.notifications[0].agentName).toBe('Your roadmap is ready')
+    expect(s.notifications[0].status).toBe('roadmap_ready')
+
+    vi.useRealTimers()
+  })
+
+  it('does not toast notification types outside the allow-list', async () => {
+    // "other" is not in TOAST_WORTHY_PERSISTENT_TYPES, so it should
+    // land in the drawer silently without a toast.
+    let pollCount = 0
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/notifications') {
+        pollCount += 1
+        if (pollCount === 1) return []
+        return [
+          {
+            id: 'other-1',
+            type: 'other',
+            title: 'Something minor',
+            body: '',
+            action_label: null,
+            action_url: null,
+            read: false,
+            created_at: new Date().toISOString(),
+            metadata: {},
+          },
+        ]
+      }
+      return {}
+    })
+
+    vi.useFakeTimers()
+    renderTopBar()
+
+    await vi.waitFor(() => {
+      expect(pollCount).toBeGreaterThanOrEqual(1)
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+
+    await vi.waitFor(() => {
+      expect(pollCount).toBeGreaterThanOrEqual(2)
+    })
+
+    // Give the effect a tick to settle.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50)
+    })
+
+    const s = useNotificationStore.getState()
+    expect(s.persistentToastIds.has('other-1')).toBe(false)
+    expect(s.toastIds).not.toContain('other-1')
+
+    vi.useRealTimers()
+  })
+})
+

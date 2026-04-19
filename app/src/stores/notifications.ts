@@ -37,6 +37,20 @@ export function shouldSuppressAgentToast(agent: NotificationAgent): boolean {
   return false
 }
 
+/**
+ * Shape of a persistent backend notification (the kind served by
+ * ``GET /api/notifications``) at the minimum set of fields we need to
+ * render a toast. Anything beyond id/type/title/body/action_url is
+ * ignored by the toast layer.
+ */
+export interface PersistentToastInput {
+  id: string
+  type: string
+  title: string
+  body: string
+  action_url?: string | null
+}
+
 interface NotificationStore {
   notifications: AppNotification[]
   toastIds: string[]
@@ -45,11 +59,20 @@ interface NotificationStore {
    *  terminal transition more than once from spamming the toast stack.
    */
   firedKeys: Set<string>
+  /** Set of persistent notification ids that have already been surfaced
+   *  as a toast. Keeps the TopBar poll loop from re-firing the same row
+   *  on every tick.
+   */
+  persistentToastIds: Set<string>
   addNotification: (
     agent: NotificationAgent,
     prevStatus: string,
     status: string,
   ) => void
+  /** Push a backend-persistent notification (e.g. ``roadmap_ready``,
+   *  ``agent``) onto the toast stack. Dedupes on ``notif.id`` so the
+   *  same row polled twice does not toast twice. */
+  addPersistentToast: (notif: PersistentToastInput) => void
   dismissToast: (id: string) => void
   markAllRead: () => void
   clearAll: () => void
@@ -59,6 +82,7 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   notifications: [],
   toastIds: [],
   firedKeys: new Set<string>(),
+  persistentToastIds: new Set<string>(),
 
   addNotification: (agent, prevStatus, status) => {
     // Bug 1: never fire "Agent finished" toasts for chat sessions, audit
@@ -96,6 +120,40 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
     }, 5000)
   },
 
+  addPersistentToast: (notif) => {
+    // Dedupe on the backend-assigned id so the TopBar poll can call this
+    // repeatedly without stacking duplicate toasts. The id is stable
+    // across polls for a given notification row.
+    if (get().persistentToastIds.has(notif.id)) return
+
+    // Reuse the AppNotification shape so the existing NotificationToasts
+    // renderer (which reads from notifications + toastIds) picks it up
+    // without a second render path. agentName holds the human-readable
+    // title; status holds the notification type which drives icon choice
+    // in NotificationToast (unknown types fall through to the info icon).
+    const toastEntry: AppNotification = {
+      id: notif.id,
+      agentName: notif.title || notif.body || notif.type,
+      prevStatus: '',
+      status: notif.type,
+      timestamp: new Date().toISOString(),
+      read: false,
+    }
+    set((s) => {
+      const persistentToastIds = new Set(s.persistentToastIds)
+      persistentToastIds.add(notif.id)
+      return {
+        notifications: [toastEntry, ...s.notifications].slice(0, 50),
+        toastIds: [...s.toastIds, notif.id],
+        persistentToastIds,
+      }
+    })
+    // Auto-dismiss after 5s to match the existing agent-finished toast.
+    setTimeout(() => {
+      set((s) => ({ toastIds: s.toastIds.filter((t) => t !== notif.id) }))
+    }, 5000)
+  },
+
   dismissToast: (id) =>
     set((s) => ({ toastIds: s.toastIds.filter((t) => t !== id) })),
 
@@ -105,5 +163,10 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
     })),
 
   clearAll: () =>
-    set({ notifications: [], toastIds: [], firedKeys: new Set<string>() }),
+    set({
+      notifications: [],
+      toastIds: [],
+      firedKeys: new Set<string>(),
+      persistentToastIds: new Set<string>(),
+    }),
 }))
