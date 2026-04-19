@@ -47,6 +47,20 @@ export default function OnboardingWizard() {
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
   const [otherSelected, setOtherSelected] = useState(false)
 
+  // Reset osName to empty on wizard mount so a new user always starts with
+  // an empty "Name your OS" field. This prevents stale values from
+  // localStorage or prior test runs (e.g. e2e_browser.sh writes
+  // "e2e-browser-os" via the Settings page and e2e_smoke.sh writes
+  // "e2e-test-os" via PATCH) from pre-filling the field. The wizard only
+  // mounts when onboarded=false, so the user has not confirmed a name yet
+  // and nothing of theirs is being clobbered.
+  useEffect(() => {
+    if (osName !== '') {
+      setOsName('')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Profile (HUMANFILE) step state
   const [profileRole, setProfileRole] = useState('')
   const [profileGoals, setProfileGoals] = useState('')

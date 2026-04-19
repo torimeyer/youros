@@ -379,8 +379,21 @@ describe('OnboardingWizard', () => {
     fireEvent.click(screen.getByTestId('skip-button'))
     // Should be on Name step
     expect(screen.getByTestId('step-name')).toBeInTheDocument()
-    // OS name should still be default
-    expect(useAppStore.getState().osName).toBe('myOS')
+    // OS name should be empty. The wizard resets osName to '' on mount so
+    // stale values from localStorage or prior e2e test runs (e.g.
+    // "e2e-browser-os" from scripts/e2e_browser.sh, "e2e-test-os" from
+    // scripts/e2e_smoke.sh) do not pre-fill the "Name your OS" field.
+    expect(useAppStore.getState().osName).toBe('')
+  })
+
+  it('clears a stale leftover osName from localStorage or the store on mount', () => {
+    // Simulate a prior e2e test run or an aborted onboarding attempt that
+    // wrote a value into the store. The wizard must not show that value
+    // on step 4 (Name your OS).
+    useAppStore.getState().setOsName('e2e-test-os')
+    expect(useAppStore.getState().osName).toBe('e2e-test-os')
+    render(<OnboardingWizard />)
+    expect(useAppStore.getState().osName).toBe('')
   })
 
   it('does not show Back button on Ready step', () => {
