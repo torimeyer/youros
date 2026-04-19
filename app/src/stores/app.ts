@@ -25,7 +25,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   adventure: 'Try an Adventure',
   todays_focus: "Today's Focus",
   quick_launch: 'Quick Launch',
-  next_meeting: 'Next Meeting',
+  next_meeting: 'Next Event',
   day_summary: 'Day Summary',
   live_sessions: 'Live Sessions',
   recent_specs: 'Recent Specs',

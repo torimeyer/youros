@@ -745,7 +745,7 @@ export default function Dashboard() {
               <Icon name="calendar_month" className="text-blue-400" size={20} />
             </div>
             <div>
-              <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-0.5">Next meeting</p>
+              <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-0.5">Next event</p>
               <p className="text-sm text-slate-400">No upcoming meetings on your calendar.</p>
             </div>
           </div>
@@ -767,7 +767,7 @@ export default function Dashboard() {
               <Icon name="calendar_month" className="text-blue-400" size={20} />
             </div>
             <div>
-              <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-0.5">Next meeting</p>
+              <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-0.5">Next event</p>
               <p className="font-semibold">{nextMeeting.summary || 'Untitled'}</p>
               {(() => {
                 const startStr = nextMeeting.start?.dateTime || nextMeeting.start?.date;

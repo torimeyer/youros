@@ -567,7 +567,7 @@ describe('Dashboard widget customization', () => {
     expect(useAppStore.getState().dashboardWidgets).toContain('quick_launch')
   })
 
-  it('toggling on Next Meeting shows an empty-state card when there are no meetings', async () => {
+  it('toggling on Next Event shows an empty-state card when there are no meetings', async () => {
     useAppStore.setState({ dashboardWidgets: ['todays_focus'] })
     renderDashboard()
     await waitFor(() => expect(screen.getByText("Today's Focus")).toBeInTheDocument())
@@ -575,7 +575,7 @@ describe('Dashboard widget customization', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Customize dashboard/i }))
     const dialog = screen.getByRole('dialog', { name: /Customize dashboard/i })
-    fireEvent.click(within(dialog).getByRole('switch', { name: /Show Next Meeting/i }))
+    fireEvent.click(within(dialog).getByRole('switch', { name: /Show Next Event/i }))
     fireEvent.click(within(dialog).getByRole('button', { name: /^Save$/ }))
 
     await waitFor(() => {
