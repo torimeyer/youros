@@ -513,4 +513,67 @@ describe('Roadmap renderer', () => {
       'Ship guided onboarding'
     )
   })
+
+  it('renders an inline spec-status pill next to the bullet after + Make spec (draft text + View spec link)', async () => {
+    // The new UX answers "what is the spec doing now?" inline, without
+    // forcing the user to navigate away. The pill shows the returned
+    // status and a View spec link while the old toast still fires as a
+    // transient confirmation.
+    const content =
+      '---\nkind: roadmap\n---\n\n# Roadmap\n\n' +
+      JSON.stringify([
+        {
+          quarter: 'Q1 2026',
+          theme: 'Launch',
+          initiatives: ['Ship guided onboarding'],
+        },
+      ])
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (typeof path === 'string' && path.startsWith('/specs')) {
+        return { docs: [] }
+      }
+      return {
+        content,
+        type: 'text',
+        size: content.length,
+      }
+    })
+
+    const mockedApiPost = vi.mocked(api.post)
+    mockedApiPost.mockResolvedValue({
+      title: 'Ship guided onboarding',
+      promoted_path: 'docs/spec/ship-guided-onboarding.md',
+      status: 'draft',
+    })
+
+    render(
+      <FilePreviewPane
+        entry={{ name: 'roadmap.md', path: '/tmp/roadmap.md', size_display: '1 KB' }}
+        onClose={() => {}}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('roadmap-preview')).toBeInTheDocument()
+    })
+
+    const button = screen.getByTestId('roadmap-make-spec-button')
+    fireEvent.click(button)
+
+    // Inline pill replaces the button with the status string.
+    await waitFor(() => {
+      expect(screen.getByTestId('roadmap-spec-status-pill')).toBeInTheDocument()
+    })
+    const pill = screen.getByTestId('roadmap-spec-status-pill')
+    expect(pill.getAttribute('data-status')).toBe('draft')
+    expect(pill.textContent).toContain('Spec: draft')
+
+    // Deep-link to the spec detail remains reachable.
+    expect(screen.getByTestId('roadmap-spec-view-link')).toBeInTheDocument()
+
+    // The + Make spec button for that bullet is now gone (replaced by
+    // the pill). No duplicate promote paths.
+    expect(screen.queryByTestId('roadmap-make-spec-button')).not.toBeInTheDocument()
+  })
 })

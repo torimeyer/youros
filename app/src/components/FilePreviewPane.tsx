@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import Icon from './Icon';
 import { api } from '../lib/api';
 import SlideBeautifier from './SlideBeautifier';
@@ -721,10 +721,16 @@ export function parseRoadmap(content: string): ParsedRoadmap {
 // injecting a "+ Make spec" button next to each bullet that looks like an
 // initiative (3+ words). Preserves the document's structure so the reader
 // sees Year/Theme/Goals/Milestones in context, not a flat list.
+//
+// The per-bullet status map drives an inline "Spec: <state>" pill that
+// appears after the user promotes that bullet. The pill keeps the user
+// in context (no nav required) and answers "what is this spec doing now?"
 function renderRoadmapStructured(
   content: string,
   onMakeSpec: (text: string) => void,
-  busy: string | null
+  busy: string | null,
+  statusByBullet: Record<string, SpecRowState>,
+  onViewSpec: (promotedPath: string) => void
 ): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   const lines = content.split(/\r?\n/);
@@ -787,6 +793,7 @@ function renderRoadmapStructured(
       const bulletText = trimmed.replace(/^[-*]\s+/, '').trim();
       const words = bulletText.split(/\s+/).length;
       if (words >= 3) {
+        const row = statusByBullet[bulletText];
         nodes.push(
           <div
             key={`rp-li-${key++}`}
@@ -795,17 +802,21 @@ function renderRoadmapStructured(
           >
             <span className="text-slate-500 mt-1 flex-shrink-0">•</span>
             <span className="text-sm text-slate-300 flex-1">{bulletText}</span>
-            <button
-              type="button"
-              onClick={() => onMakeSpec(bulletText)}
-              disabled={busy !== null}
-              className="flex-shrink-0 text-xs px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-600/40 rounded text-blue-200 disabled:opacity-50"
-              title="Make a spec from this initiative"
-              data-testid="roadmap-make-spec-button"
-              aria-label={`Make a spec from "${bulletText}"`}
-            >
-              {busy === bulletText ? '...' : '+ Make spec'}
-            </button>
+            {row ? (
+              <SpecStatusChip row={row} onView={onViewSpec} />
+            ) : (
+              <button
+                type="button"
+                onClick={() => onMakeSpec(bulletText)}
+                disabled={busy !== null}
+                className="flex-shrink-0 text-xs px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-600/40 rounded text-blue-200 disabled:opacity-50"
+                title="Make a spec from this initiative"
+                data-testid="roadmap-make-spec-button"
+                aria-label={`Make a spec from "${bulletText}"`}
+              >
+                {busy === bulletText ? '...' : '+ Make spec'}
+              </button>
+            )}
           </div>
         );
       } else {
@@ -827,6 +838,102 @@ function renderRoadmapStructured(
   return nodes;
 }
 
+// Per-bullet row state. Written after a successful POST to
+// /specs/from-roadmap-line and refreshed by a light /specs poll while
+// any tracked row is still in a non-terminal state.
+//
+// status values map to the backend's computed spec status:
+//   draft        - acceptance criteria generation failed, file is a draft
+//   ready        - promoted to plan, waiting for the user to click Build
+//   in-progress  - one or more linked tasks are still open
+//   complete     - all linked tasks closed and AC ticked
+//   failed       - POST itself errored (shown as a red pill)
+interface SpecRowState {
+  status: string;
+  promotedPath: string | null;
+  title: string;
+}
+
+// Map the backend status string to a color-coded pill style and a
+// human-readable label. Keeps all color/label decisions in one place.
+function specStatusStyle(status: string): { label: string; classes: string } {
+  switch (status) {
+    case 'draft':
+      return {
+        label: 'Spec: draft',
+        classes: 'bg-slate-700/60 border-slate-500/50 text-slate-200',
+      };
+    case 'ready':
+      return {
+        label: 'Spec: ready',
+        classes: 'bg-blue-600/20 border-blue-500/50 text-blue-200',
+      };
+    case 'in-progress':
+    case 'building':
+      return {
+        label: 'Spec: building',
+        classes: 'bg-amber-600/20 border-amber-500/50 text-amber-200',
+      };
+    case 'complete':
+    case 'done':
+      return {
+        label: 'Spec: done',
+        classes: 'bg-emerald-600/20 border-emerald-500/50 text-emerald-200',
+      };
+    case 'failed':
+      return {
+        label: 'Spec: failed',
+        classes: 'bg-red-600/20 border-red-500/50 text-red-200',
+      };
+    default:
+      return {
+        label: `Spec: ${status}`,
+        classes: 'bg-slate-700/60 border-slate-500/50 text-slate-200',
+      };
+  }
+}
+
+// Inline pill that appears next to a roadmap bullet once the user has
+// promoted it. Shows the current status with a color cue and a "View
+// spec" link for deeper inspection.
+function SpecStatusChip({
+  row,
+  onView,
+}: {
+  row: SpecRowState;
+  onView: (promotedPath: string) => void;
+}) {
+  const { label, classes } = specStatusStyle(row.status);
+  return (
+    <span
+      className="flex-shrink-0 inline-flex items-center gap-2"
+      data-testid="roadmap-spec-status-pill"
+      data-status={row.status}
+    >
+      <span
+        className={`text-xs px-2 py-0.5 rounded border ${classes}`}
+        title={row.title}
+      >
+        {label}
+      </span>
+      {row.promotedPath && (
+        <button
+          type="button"
+          onClick={() => onView(row.promotedPath as string)}
+          className="text-xs text-blue-300 hover:text-blue-200 underline"
+          data-testid="roadmap-spec-view-link"
+        >
+          View spec
+        </button>
+      )}
+    </span>
+  );
+}
+
+// Terminal states stop the poller so we never leave an interval running
+// for a spec that the user has finished with.
+const TERMINAL_SPEC_STATUSES = new Set(['complete', 'done', 'failed']);
+
 interface RoadmapPreviewProps {
   content: string;
   filePath: string;
@@ -836,9 +943,30 @@ interface RoadmapPreviewProps {
 export function RoadmapPreview({ content, filePath, onSpecCreated }: RoadmapPreviewProps) {
   const parsed = useMemo(() => parseRoadmap(content), [content]);
   const [busy, setBusy] = useState<string | null>(null);
+  // Per-bullet status: updates on POST, then refreshed by the poller.
+  const [statusByBullet, setStatusByBullet] = useState<
+    Record<string, SpecRowState>
+  >({});
+  // One-shot toast kept from the old flow so success is obvious even
+  // when the user scrolled past the bullet. The inline pill is the
+  // durable signal; the toast is a transient confirmation.
   const [toast, setToast] = useState<
     { title: string; promotedPath: string | null } | null
   >(null);
+
+  // Ref mirror of statusByBullet so the poll tick can decide whether to
+  // keep polling without re-registering the interval on every change.
+  const statusRef = useRef(statusByBullet);
+  statusRef.current = statusByBullet;
+
+  const viewSpec = useCallback((promotedPath: string) => {
+    // Full page nav so this works even when the pane is mounted outside
+    // a router context. ?expand lets the Specs page auto-open the row.
+    const qp = promotedPath
+      ? `?expand=${encodeURIComponent(promotedPath)}`
+      : '';
+    window.location.href = `/specs${qp}`;
+  }, []);
 
   const handleMakeSpec = useCallback(
     async (initiativeText: string) => {
@@ -852,9 +980,25 @@ export function RoadmapPreview({ content, filePath, onSpecCreated }: RoadmapPrev
           roadmap_path: filePath,
           initiative_text: initiativeText,
         });
+        setStatusByBullet((prev) => ({
+          ...prev,
+          [initiativeText]: {
+            status: res.status || 'ready',
+            promotedPath: res.promoted_path,
+            title: res.title,
+          },
+        }));
         setToast({ title: res.title, promotedPath: res.promoted_path });
         if (onSpecCreated) onSpecCreated({ title: res.title, promotedPath: res.promoted_path });
       } catch {
+        setStatusByBullet((prev) => ({
+          ...prev,
+          [initiativeText]: {
+            status: 'failed',
+            promotedPath: null,
+            title: initiativeText,
+          },
+        }));
         setToast({ title: 'Could not create plan', promotedPath: null });
       } finally {
         setBusy(null);
@@ -863,38 +1007,91 @@ export function RoadmapPreview({ content, filePath, onSpecCreated }: RoadmapPrev
     [filePath, onSpecCreated]
   );
 
+  // Poll /specs every 5s while any tracked row is non-terminal. Stops
+  // cleanly on unmount or when every tracked spec has reached a
+  // terminal state (complete/done/failed). Uses a ref to avoid
+  // re-registering the interval on every status update.
+  useEffect(() => {
+    const anyTracked = Object.keys(statusByBullet).length > 0;
+    if (!anyTracked) return;
+    const anyNonTerminal = Object.values(statusByBullet).some(
+      (row) => !TERMINAL_SPEC_STATUSES.has(row.status)
+    );
+    if (!anyNonTerminal) return;
+
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await api.get<{
+          docs: Array<{ path?: string; status?: string; title?: string }>;
+        }>('/specs');
+        if (cancelled) return;
+        const docs = res.docs || [];
+        setStatusByBullet((prev) => {
+          const next = { ...prev };
+          let changed = false;
+          for (const [bullet, row] of Object.entries(prev)) {
+            if (!row.promotedPath) continue;
+            const match = docs.find((d) => d.path === row.promotedPath);
+            if (!match || !match.status) continue;
+            if (match.status !== row.status) {
+              next[bullet] = { ...row, status: match.status };
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
+      } catch {
+        // Transient poll failure is not fatal; next tick will retry.
+      }
+    };
+
+    const id = window.setInterval(tick, 5000);
+    // Kick one off immediately so a refresh picks up late state too.
+    tick();
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+    // statusByBullet intentionally in deps: when it changes from
+    // "has non-terminal" to "all terminal", we tear down the interval.
+  }, [statusByBullet]);
+
   const goToSpec = useCallback(() => {
     if (!toast) return;
-    // Navigate to the Specs page with a query param so the target
-    // spec can expand itself. Full page nav keeps this robust when
-    // used outside a router context (the FilePreviewPane is mounted
-    // from multiple surfaces).
     const qp = toast.promotedPath
       ? `?expand=${encodeURIComponent(toast.promotedPath)}`
       : '';
     window.location.href = `/specs${qp}`;
   }, [toast]);
 
-  const renderInitiativeRow = (text: string, keyPrefix: string) => (
-    <li
-      key={`${keyPrefix}-${text}`}
-      className="flex items-start gap-2 group"
-      data-testid="roadmap-initiative"
-    >
-      <span className="text-slate-300 flex-1">{text}</span>
-      <button
-        type="button"
-        onClick={() => handleMakeSpec(text)}
-        disabled={busy !== null}
-        className="flex-shrink-0 text-xs px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-600/40 rounded text-blue-200 disabled:opacity-50"
-        title="Make a spec from this initiative"
-        data-testid="roadmap-make-spec-button"
-        aria-label={`Make a spec from "${text}"`}
+  const renderInitiativeRow = (text: string, keyPrefix: string) => {
+    const row = statusByBullet[text];
+    return (
+      <li
+        key={`${keyPrefix}-${text}`}
+        className="flex items-start gap-2 group"
+        data-testid="roadmap-initiative"
       >
-        {busy === text ? '...' : '+ Make spec'}
-      </button>
-    </li>
-  );
+        <span className="text-slate-300 flex-1">{text}</span>
+        {row ? (
+          <SpecStatusChip row={row} onView={viewSpec} />
+        ) : (
+          <button
+            type="button"
+            onClick={() => handleMakeSpec(text)}
+            disabled={busy !== null}
+            className="flex-shrink-0 text-xs px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-600/40 rounded text-blue-200 disabled:opacity-50"
+            title="Make a spec from this initiative"
+            data-testid="roadmap-make-spec-button"
+            aria-label={`Make a spec from "${text}"`}
+          >
+            {busy === text ? '...' : '+ Make spec'}
+          </button>
+        )}
+      </li>
+    );
+  };
 
   return (
     <div className="space-y-4" data-testid="roadmap-preview">
@@ -920,7 +1117,13 @@ export function RoadmapPreview({ content, filePath, onSpecCreated }: RoadmapPrev
 
       {parsed.quarters.length === 0 && parsed.bullets.length > 0 && (
         <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
-          {renderRoadmapStructured(content, handleMakeSpec, busy)}
+          {renderRoadmapStructured(
+            content,
+            handleMakeSpec,
+            busy,
+            statusByBullet,
+            viewSpec
+          )}
         </div>
       )}
 
