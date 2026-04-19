@@ -5,6 +5,7 @@ import { ChatPanel } from './ChatPanel'
 import { CommandPalette } from './CommandPalette'
 import GuidedTour from './GuidedTour'
 import NotificationToasts from './NotificationToast'
+import { useUserActivity } from '../hooks/useUserActivity'
 import { useAppStore } from '../stores/app'
 
 // Sidebar page order for Cmd+1 through Cmd+8
@@ -50,6 +51,13 @@ export function Layout() {
   const setShowTour = useAppStore((s) => s.setShowTour)
   const tourComplete = useAppStore((s) => s.tourComplete)
   const navigate = useNavigate()
+
+  // Refresh sidebar buses on any user activity (keystroke, mouse
+  // move, focus, tab return). Throttled inside the hook to <=1/s
+  // so rapid typing does not spam subscribers. Makes every part of
+  // the app feel responsive the moment the user interacts, instead
+  // of waiting for the next 2s poll tick.
+  useUserActivity()
 
   // Track whether the viewport is at desktop width so we can decide
   // whether the chat panel should push main content or overlay it.

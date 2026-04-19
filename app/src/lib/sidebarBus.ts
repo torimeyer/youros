@@ -129,6 +129,19 @@ export function bumpSpecs(): void {
   }
 }
 
+// Fire every channel at once. Used by the global freshness hooks
+// (window focus, tab visibility, resume-from-idle) so the whole app
+// "perks up" the moment the user returns or resumes activity. Every
+// existing subscriber refetches on its own channel, so this is enough
+// to refresh agents/tasks/specs badges, the running-agents panel, and
+// any page that listens on these buses, without scattering refetch
+// calls across components.
+export function bumpAll(): void {
+  bumpAgents()
+  bumpTasks()
+  bumpSpecs()
+}
+
 // Test-only helper.
 export function _resetSidebarBus(): void {
   agentsListeners.clear()
