@@ -57,6 +57,13 @@ ti = d.get("tool_input", {}) or {}
 desc = (ti.get("description") or "").strip()
 prompt = (ti.get("prompt") or "").strip()
 subagent = (ti.get("subagent_type") or "").strip()
+# Background-task flag. Claude Code's PostToolUse payload often strips
+# tool_input entirely, which means complete-agent.sh cannot tell whether
+# the parent Task call was run_in_background=true at PostToolUse time.
+# We stash the flag here and complete-agent.sh reads it back via the
+# tool_use_id so the bg-skip guard stays reliable even when the harness
+# drops tool_input from PostToolUse.
+run_in_background = "1" if ti.get("run_in_background") is True else ""
 # Tool-use-id lets the PostToolUse hook find the exact name we registered
 # here, even when several Task calls are in flight concurrently (last.name
 # is a single shared file that gets clobbered by the newest spawn).
@@ -123,7 +130,7 @@ def flat(s):
     return " ".join((s or "").split())
 
 sys.stdout.write(
-    f"{flat(name)}\t{flat(model)}\t{flat(short_desc)}\t{flat(short_prompt)}\t{flat(tool_use_id)}"
+    f"{flat(name)}\t{flat(model)}\t{flat(short_desc)}\t{flat(short_prompt)}\t{flat(tool_use_id)}\t{run_in_background}"
 )
 PY
 )
@@ -132,7 +139,7 @@ if [ -z "$PARSED" ]; then
     exit 0
 fi
 
-IFS=$'\t' read -r AGENT_NAME MODEL DESCRIPTION PROMPT TOOL_USE_ID <<<"$PARSED"
+IFS=$'\t' read -r AGENT_NAME MODEL DESCRIPTION PROMPT TOOL_USE_ID RUN_IN_BACKGROUND <<<"$PARSED"
 
 if [ -z "$AGENT_NAME" ]; then
     exit 0
@@ -203,6 +210,18 @@ fi
 REGISTERED_AT=$(date +%s)
 
 printf '%s' "$AGENT_NAME" > "$HOME/.myos/subagents/last.name" 2>/dev/null || true
+# Fallback bg-flag file keyed by name (last.bg): used by complete-agent.sh
+# when Claude Code's PostToolUse payload omits tool_use_id (which breaks
+# the per-id side-channel). Single shared file so a newer bg spawn may
+# clobber an older non-bg spawn's flag, but that's acceptable: the cost
+# of a false positive (skipping a non-bg /complete) is at most 120s of
+# stale "running" while the heartbeat idle loop catches up, which is
+# strictly better than the bug we're fixing.
+if [ "$RUN_IN_BACKGROUND" = "1" ]; then
+    printf '1' > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
+else
+    : > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
+fi
 # Per-tool-use-id pointer: complete-agent.sh reads the matching file so
 # parallel Task calls (three at once during the demo) never complete the
 # wrong row just because last.name got clobbered by the newest spawn.
@@ -212,6 +231,15 @@ if [ -n "$TOOL_USE_ID" ]; then
     SAFE_TUI=$(printf '%s' "$TOOL_USE_ID" | tr -c 'a-zA-Z0-9_-' '_' | cut -c1-128)
     printf '%s' "$AGENT_NAME" \
         > "$HOME/.myos/subagents/by-tool-use/$SAFE_TUI.name" 2>/dev/null || true
+    # Per-tool-use-id bg flag. complete-agent.sh reads this to skip the
+    # /complete POST for background Task calls when Claude Code's
+    # PostToolUse payload has dropped tool_input (which the current
+    # in-process guard depends on). File present with content "1" means
+    # the parent set run_in_background:true; empty/missing means not bg.
+    if [ "$RUN_IN_BACKGROUND" = "1" ]; then
+        printf '1' \
+            > "$HOME/.myos/subagents/by-tool-use/$SAFE_TUI.bg" 2>/dev/null || true
+    fi
 fi
 printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AGENT_NAME" \
     >> "$HOME/.myos/subagents/history.log" 2>/dev/null || true

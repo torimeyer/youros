@@ -58,6 +58,27 @@ PENDING_COMPLETE="$HOME/.myos/subagents/pending-complete.jsonl"
 # derive tool_use_id, summary, and the AGENT_NAME to complete.
 INPUT=$(cat 2>/dev/null || true)
 
+# Debug: capture the PostToolUse payload so we can verify whether
+# Claude Code echoes tool_input.run_in_background back in PostToolUse.
+# The run_in_background guard below only skips /complete when we can
+# see that flag; if the harness strips tool_input from PostToolUse we
+# need to detect the background case some other way. Ring-buffer the
+# last 200 lines (each payload truncated to 5000 bytes) at
+# ~/.myos/subagents/complete-debug.log.
+_DBG_LOG="$HOME/.myos/subagents/complete-debug.log"
+mkdir -p "$(dirname "$_DBG_LOG")" 2>/dev/null || true
+{
+    printf '=== %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '%s' "$INPUT" | head -c 5000
+    printf '\n'
+} >> "$_DBG_LOG" 2>/dev/null || true
+if [ -f "$_DBG_LOG" ]; then
+    _DBG_LINES=$(wc -l < "$_DBG_LOG" 2>/dev/null || echo 0)
+    if [ "${_DBG_LINES:-0}" -gt 400 ]; then
+        tail -n 400 "$_DBG_LOG" > "$_DBG_LOG.tmp" 2>/dev/null && mv "$_DBG_LOG.tmp" "$_DBG_LOG" 2>/dev/null || true
+    fi
+fi
+
 # Extract tool_use_id from the hook payload. Used to resolve the
 # per-tool-use name file written by register-agent.sh.
 TOOL_USE_ID=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null || true
@@ -90,10 +111,23 @@ PY
 # run_in_background:true the call returns immediately while the subagent
 # keeps running in the background, so closing the row here would mark the
 # agent completed within seconds of spawn and the torios UI would always
-# show 0 running. Skip /complete when the original tool_input had
+# show 0 running. Skip /complete when we can prove the parent set
 # run_in_background:true - the register-agent.sh heartbeat loop already
 # watches the subagent's transcript file and will emit /complete when the
 # jsonl actually goes idle (TRANSCRIPT_IDLE_SECONDS).
+#
+# Two independent signals, because Claude Code's PostToolUse payload for
+# Agent in some builds DROPS the tool_input field entirely (leaving only
+# tool_response + tool_use_id). When that happens the in-payload check
+# always says False and every bg subagent gets prematurely completed -
+# this was the 4-in-CC-vs-1-in-torios bug class.
+#
+# Belt (in-payload check): authoritative when tool_input is present.
+# Suspenders (side-channel file): register-agent.sh writes
+#   ~/.myos/subagents/by-tool-use/<tool_use_id>.bg (content "1") for every
+#   bg spawn at PreToolUse time, plus a legacy-fallback last.bg pointer
+#   for the tool_use_id-less payload case. Reading that file here means
+#   we can tell bg from fg even when the PostToolUse payload is gutted.
 RUN_IN_BACKGROUND=$(INPUT_JSON="$INPUT" python3 <<'INNERPY' 2>/dev/null || true
 import os, sys, json
 raw = os.environ.get("INPUT_JSON", "") or "{}"
@@ -106,10 +140,36 @@ if isinstance(ti, dict) and ti.get("run_in_background") is True:
     sys.stdout.write("1")
 INNERPY
 )
+
+# Suspenders: fall back to the register-written bg flag files when the
+# in-payload check could not prove bg. Per-tool-use file first (race-
+# safe for parallel Task calls), then last.bg (single-agent / legacy).
+if [ -z "$RUN_IN_BACKGROUND" ] && [ -n "$TOOL_USE_ID" ]; then
+    SAFE_TUI_BG=$(printf '%s' "$TOOL_USE_ID" | tr -c 'a-zA-Z0-9_-' '_' | cut -c1-128)
+    BG_FILE="$PER_ID_DIR/$SAFE_TUI_BG.bg"
+    if [ -f "$BG_FILE" ] && [ -s "$BG_FILE" ]; then
+        RUN_IN_BACKGROUND="1"
+    fi
+fi
+if [ -z "$RUN_IN_BACKGROUND" ]; then
+    LAST_BG_FILE="$HOME/.myos/subagents/last.bg"
+    if [ -f "$LAST_BG_FILE" ] && [ -s "$LAST_BG_FILE" ]; then
+        RUN_IN_BACKGROUND="1"
+    fi
+fi
+
 if [ "$RUN_IN_BACKGROUND" = "1" ]; then
-    # Keep the per-tool-use pointer and last.name so the heartbeat
+    # Keep the per-tool-use .name pointer and last.name so the heartbeat
     # idle-detector branch inside register-agent.sh still has a name
-    # to /complete when the transcript goes idle.
+    # to /complete when the transcript goes idle. But DO clear the .bg
+    # flag files: a single tool_use_id only ever fires PostToolUse once,
+    # so leaving the flag would only matter if a later fg /complete
+    # collided by name reuse, which the .bg would then falsely skip.
+    if [ -n "$TOOL_USE_ID" ]; then
+        SAFE_TUI_BG_CLEANUP=$(printf '%s' "$TOOL_USE_ID" | tr -c 'a-zA-Z0-9_-' '_' | cut -c1-128)
+        rm -f "$PER_ID_DIR/$SAFE_TUI_BG_CLEANUP.bg" 2>/dev/null || true
+    fi
+    : > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
     exit 0
 fi
 
@@ -214,10 +274,17 @@ printf '%s\t%s\tcompleted\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AGENT_NAME" \
 # Clear the per-tool-use pointer so a retry on the same id cannot
 # double-fire, and clear last.name so a stale value cannot misfire
 # the next /complete if the next Agent tool call fails before
-# register-agent.sh updates the file.
+# register-agent.sh updates the file. Also clear the matching .bg
+# files so a stale bg marker cannot cause a later fg /complete to
+# be skipped.
 if [ -n "$PER_ID_FILE" ] && [ -f "$PER_ID_FILE" ]; then
     rm -f "$PER_ID_FILE" 2>/dev/null || true
 fi
+if [ -n "$TOOL_USE_ID" ]; then
+    SAFE_TUI_CLEANUP=$(printf '%s' "$TOOL_USE_ID" | tr -c 'a-zA-Z0-9_-' '_' | cut -c1-128)
+    rm -f "$PER_ID_DIR/$SAFE_TUI_CLEANUP.bg" 2>/dev/null || true
+fi
 : > "$NAME_FILE" 2>/dev/null || true
+: > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
 
 exit 0
