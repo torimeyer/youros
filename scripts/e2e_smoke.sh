@@ -85,10 +85,11 @@ _e2e_sweep_artifacts() {
     # Must use ?include_test_data=true so the backend filter does not hide them.
     # Reports the deleted count so the test author can confirm teardown worked.
     python3 -c "
-import sys, json, urllib.request, urllib.parse
+import sys, json, urllib.request, urllib.parse, ssl
+ctx = ssl._create_unverified_context() if '${API_BASE}'.startswith('https://') else None
 deleted = 0
 try:
-    resp = urllib.request.urlopen('${API_BASE}/api/tasks?include_test_data=true', timeout=3)
+    resp = urllib.request.urlopen('${API_BASE}/api/tasks?include_test_data=true', timeout=3, context=ctx)
     tasks = json.loads(resp.read()).get('tasks', [])
     for t in tasks:
         title = t.get('title', '')
@@ -98,7 +99,7 @@ try:
                 '${API_BASE}/api/tasks/' + urllib.parse.quote(tid, safe=''),
                 method='DELETE')
             try:
-                urllib.request.urlopen(req, timeout=3)
+                urllib.request.urlopen(req, timeout=3, context=ctx)
                 deleted += 1
             except Exception:
                 pass
@@ -110,9 +111,10 @@ if deleted:
 
     # Delete any labels whose name starts with "e2e-"
     python3 -c "
-import sys, json, urllib.request
+import sys, json, urllib.request, ssl
+ctx = ssl._create_unverified_context() if '${API_BASE}'.startswith('https://') else None
 try:
-    resp = urllib.request.urlopen('${API_BASE}/api/labels', timeout=3)
+    resp = urllib.request.urlopen('${API_BASE}/api/labels', timeout=3, context=ctx)
     labels = json.loads(resp.read()).get('labels', [])
     for l in labels:
         name = l.get('name', '')
@@ -122,7 +124,7 @@ try:
                 '${API_BASE}/api/labels/' + lid,
                 method='DELETE')
             try:
-                urllib.request.urlopen(req, timeout=3)
+                urllib.request.urlopen(req, timeout=3, context=ctx)
             except Exception:
                 pass
 except Exception:
@@ -198,9 +200,10 @@ PY
 
     # Delete any shared links whose title starts with "e2e"
     python3 -c "
-import sys, json, urllib.request
+import sys, json, urllib.request, ssl
+ctx = ssl._create_unverified_context() if '${API_BASE}'.startswith('https://') else None
 try:
-    resp = urllib.request.urlopen('${API_BASE}/api/shares', timeout=3)
+    resp = urllib.request.urlopen('${API_BASE}/api/shares', timeout=3, context=ctx)
     shares = json.loads(resp.read()).get('shares', [])
     for s in shares:
         title = s.get('title', '')
@@ -210,7 +213,7 @@ try:
                 '${API_BASE}/api/shares/' + token,
                 method='DELETE')
             try:
-                urllib.request.urlopen(req, timeout=3)
+                urllib.request.urlopen(req, timeout=3, context=ctx)
             except Exception:
                 pass
 except Exception:
@@ -245,6 +248,179 @@ for name in os.listdir(root):
                 pass
             break
 PY
+
+    # ------------------------------------------------------------------
+    # Extended teardown (diagnosis 2026-04-18).
+    # A prior sweep had to remove 225 e2e-prefixed artifacts that had
+    # built up from many past smoke runs: 167 agents, 38 transcripts,
+    # 12 agent_memory files, 3 workflows, 2 labels, 1 thread, 1 knowledge
+    # note, 1 recurring task, 1 share. Labels and shares were already
+    # covered above. The rest are covered below so no e2e-* artifact
+    # survives a successful run. All calls are idempotent: DELETE on a
+    # missing id is a no-op.
+    # Surfaces covered below:
+    #   - Agents (API) — DELETE /api/agents/<name>
+    #   - Workflows (API) — DELETE /api/workflows/<id>
+    #   - Threads (API) — DELETE /api/threads/<id>
+    #   - Knowledge (API) — DELETE /api/knowledge/<note_id>
+    #   - Recurring rules (API) — DELETE /api/recurring/<rule_id>
+    #   - Agent memory files (disk) — rm ~/.myos/agent_memory/e2e-*.json
+    #   - Transcripts (disk) — rm <repo>/transcripts/e2e-*
+    # ------------------------------------------------------------------
+
+    # Delete any agents whose name starts with "e2e-" or "e2e" via the API.
+    # The smoke creates e2e-nudge-*, e2e-memory-*, e2e-spawn-*, e2e-lifecycle-*,
+    # e2e-chat-filter-*, e2e-real-filter-*, plus any fleet members that register
+    # themselves. DELETE /api/agents/<name> removes the registry row so the
+    # Agents page and running-agents panel stay clean.
+    python3 -c "
+import json, urllib.request, urllib.parse, ssl
+ctx = ssl._create_unverified_context() if '${API_BASE}'.startswith('https://') else None
+try:
+    resp = urllib.request.urlopen('${API_BASE}/api/agents', timeout=3, context=ctx)
+    agents = json.loads(resp.read()).get('agents', [])
+    for a in agents:
+        name = (a.get('name') or '').strip()
+        if name.lower().startswith('e2e-') or name.lower().startswith('e2e'):
+            req = urllib.request.Request(
+                '${API_BASE}/api/agents/' + urllib.parse.quote(name, safe=''),
+                method='DELETE')
+            try:
+                urllib.request.urlopen(req, timeout=3, context=ctx)
+            except Exception:
+                pass
+except Exception:
+    pass
+" 2>/dev/null || true
+
+    # Delete any workflows whose name starts with "e2e-". The workflows
+    # list returns {workflows: [{id, name, ...}, ...]}.
+    python3 -c "
+import json, urllib.request, ssl
+ctx = ssl._create_unverified_context() if '${API_BASE}'.startswith('https://') else None
+try:
+    resp = urllib.request.urlopen('${API_BASE}/api/workflows', timeout=3, context=ctx)
+    wfs = json.loads(resp.read()).get('workflows', [])
+    for w in wfs:
+        name = (w.get('name') or '').lower()
+        wid = w.get('id') or ''
+        if name.startswith('e2e-') and wid:
+            req = urllib.request.Request(
+                '${API_BASE}/api/workflows/' + wid,
+                method='DELETE')
+            try:
+                urllib.request.urlopen(req, timeout=3, context=ctx)
+            except Exception:
+                pass
+except Exception:
+    pass
+" 2>/dev/null || true
+
+    # Delete any threads whose name starts with "e2e-".
+    python3 -c "
+import json, urllib.request, ssl
+ctx = ssl._create_unverified_context() if '${API_BASE}'.startswith('https://') else None
+try:
+    resp = urllib.request.urlopen('${API_BASE}/api/threads', timeout=3, context=ctx)
+    threads = json.loads(resp.read()).get('threads', [])
+    for t in threads:
+        name = (t.get('name') or '').lower()
+        tid = t.get('id') or ''
+        if name.startswith('e2e-') and tid:
+            req = urllib.request.Request(
+                '${API_BASE}/api/threads/' + tid,
+                method='DELETE')
+            try:
+                urllib.request.urlopen(req, timeout=3, context=ctx)
+            except Exception:
+                pass
+except Exception:
+    pass
+" 2>/dev/null || true
+
+    # Delete any knowledge notes whose title starts with "e2e-".
+    python3 -c "
+import json, urllib.request, ssl
+ctx = ssl._create_unverified_context() if '${API_BASE}'.startswith('https://') else None
+try:
+    resp = urllib.request.urlopen('${API_BASE}/api/knowledge', timeout=3, context=ctx)
+    notes = json.loads(resp.read()).get('notes', [])
+    for n in notes:
+        title = (n.get('title') or '').lower()
+        nid = n.get('id') or ''
+        if title.startswith('e2e-') and nid:
+            req = urllib.request.Request(
+                '${API_BASE}/api/knowledge/' + nid,
+                method='DELETE')
+            try:
+                urllib.request.urlopen(req, timeout=3, context=ctx)
+            except Exception:
+                pass
+except Exception:
+    pass
+" 2>/dev/null || true
+
+    # Delete any recurring-task rules whose template title starts with "e2e-".
+    python3 -c "
+import json, urllib.request, ssl
+ctx = ssl._create_unverified_context() if '${API_BASE}'.startswith('https://') else None
+try:
+    resp = urllib.request.urlopen('${API_BASE}/api/recurring', timeout=3, context=ctx)
+    rules = json.loads(resp.read()).get('rules', [])
+    for r in rules:
+        tpl = r.get('task_template') or {}
+        title = (tpl.get('title') or '').lower()
+        rid = r.get('id') or ''
+        if title.startswith('e2e-') and rid:
+            req = urllib.request.Request(
+                '${API_BASE}/api/recurring/' + rid,
+                method='DELETE')
+            try:
+                urllib.request.urlopen(req, timeout=3, context=ctx)
+            except Exception:
+                pass
+except Exception:
+    pass
+" 2>/dev/null || true
+
+    # Disk sweep: ~/.myos/agent_memory/e2e-*.json. Agent memory files
+    # are written by the /api/agents/<name>/memory endpoint the smoke
+    # exercises, and also by any live agent the smoke registers. They
+    # are not always removed by DELETE /memory because the smoke can
+    # race the backend under --reload. This catches any stragglers.
+    python3 - <<'PY' 2>/dev/null || true
+import os, re
+from pathlib import Path
+root = Path(os.path.expanduser("~/.myos/agent_memory"))
+if not root.is_dir():
+    raise SystemExit(0)
+pat = re.compile(r'^e2e[-_]', re.IGNORECASE)
+for name in os.listdir(root):
+    if pat.search(name):
+        try:
+            (root / name).unlink()
+        except OSError:
+            pass
+PY
+
+    # Disk sweep: <repo>/transcripts/e2e-*. Transcripts accumulate when
+    # agents register + complete inside the smoke (nudge, memory, spawn,
+    # lifecycle, etc.). The transcripts router only reads the directory
+    # so there is no API delete; remove files directly.
+    python3 - "${REPO_DIR}" <<'PY' 2>/dev/null || true
+import os, re, sys
+from pathlib import Path
+root = Path(sys.argv[1]) / "transcripts"
+if not root.is_dir():
+    raise SystemExit(0)
+pat = re.compile(r'^e2e[-_]', re.IGNORECASE)
+for name in os.listdir(root):
+    if pat.search(name):
+        try:
+            (root / name).unlink()
+        except OSError:
+            pass
+PY
 }
 
 _e2e_cleanup() {
@@ -255,7 +431,7 @@ _e2e_cleanup() {
             -d "{\"os_name\":\"$_E2E_ORIGINAL_OS_NAME\"}" > /dev/null 2>&1 || true
     fi
 }
-trap _e2e_cleanup EXIT INT TERM HUP
+trap _e2e_cleanup EXIT ERR INT TERM HUP
 
 # Clean up leftovers from any prior failed run before starting.
 _e2e_sweep_artifacts
