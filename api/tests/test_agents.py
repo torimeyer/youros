@@ -274,6 +274,14 @@ async def test_list_agents_summary_mode_is_compact_for_hook_polling():
     now = datetime.now(timezone.utc)
     fresh_spawn = (now - timedelta(minutes=1)).isoformat()
     fresh_heartbeat = (now - timedelta(seconds=10)).isoformat()
+    # Critically: the list_agents endpoint calls _save_agent_state on
+    # several paths (stale-sweep, auto-complete, bulk-cancel recovery,
+    # workflow reconcile). Without neutralising this, our synthetic
+    # 1000-agent seed gets persisted to the real ``agent_state.json``
+    # and poisons every subsequent test run. Patch the module-level
+    # _save_agent_state to a no-op for the duration of this test.
+    patch_save = patch("routers.agents._save_agent_state", lambda: None)
+    patch_save.start()
     try:
         for i in range(500):
             agent_metadata[f"cc-running-{i:04d}"] = {
@@ -342,6 +350,7 @@ async def test_list_agents_summary_mode_is_compact_for_hook_polling():
             f"summary-mode body is {body_bytes} bytes (over 5KB budget)"
         )
     finally:
+        patch_save.stop()
         agent_metadata.clear()
         agent_metadata.update(saved_metadata)
         active_agents.clear()

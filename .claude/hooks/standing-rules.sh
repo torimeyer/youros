@@ -14,13 +14,21 @@ EOF
 # Override via MYOS_BACKEND_URL for tests or alternate hosts.
 BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
 
+# Use the compact summary-mode query so the 660KB+ full payload never
+# trips the curl timeout. Server-side filter matches what the python
+# renderer below expects (source=claude-code, status=running), capped
+# at 20 rows so the payload stays under 5KB even on a busy fleet.
+SUMMARY_PATH="/api/agents?summary=1&status=running&source=claude-code&limit=20"
+
 # Spool curl output to a temp file so we keep binary fidelity (the payload
 # can contain embedded control bytes that bash `echo "$var"` corrupts).
 TMP_JSON="$(mktemp -t standing-rules-agents.XXXXXX 2>/dev/null)" || TMP_JSON="/tmp/standing-rules-agents.$$"
 trap 'rm -f "$TMP_JSON"' EXIT
 
-# 2s connect, 3s total. On failure we emit a graceful note.
-if ! curl -sSk --connect-timeout 2 -m 3 "${BACKEND_URL}/api/agents" -o "$TMP_JSON" 2>/dev/null; then
+# 3s connect, 5s total. Safe now that summary-mode keeps the payload
+# tiny; the old 2s/3s budget kept tripping on the full 660KB response
+# even when the backend was healthy.
+if ! curl -sSk --connect-timeout 3 -m 5 "${BACKEND_URL}${SUMMARY_PATH}" -o "$TMP_JSON" 2>/dev/null; then
   cat <<'EOF'
 
 CURRENT RUNNING AGENTS: couldn't reach myOS backend to confirm current agents. Your in-memory list of running agents may be stale. Verify before reporting status.

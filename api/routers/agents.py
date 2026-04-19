@@ -2000,7 +2000,13 @@ async def agent_duration_stats():
 
 
 @router.get("/agents")
-async def list_agents(user_spawned_only: bool = False):
+async def list_agents(
+    user_spawned_only: bool = False,
+    summary: int = 0,
+    filter_status: Optional[str] = Query(None, alias="status"),
+    filter_source: Optional[str] = Query(None, alias="source"),
+    limit: Optional[int] = None,
+):
     """List every agent known to myOS.
 
     Pass ``user_spawned_only=true`` to get just the rows the Agents page
@@ -2008,6 +2014,25 @@ async def list_agents(user_spawned_only: bool = False):
     ``app/src/lib/agentUtils.ts`` and lives in
     ``services.agent_filters.is_user_spawned_agent`` so CLI status loops
     and shell scripts never have to re-implement it.
+
+    Compact-mode params (for hook polling; kept backwards-compatible,
+    no params = full behavior):
+      - ``summary=1``: return a trimmed ``agents`` array containing only
+        ``{name, source, status, spawned_at, transcript_bytes, last_heartbeat_at}``.
+        Drops transcripts, budget_details, tokens_used, cost_estimate, etc.
+        Full-response fields ``daemon_running`` and ``active`` are omitted
+        so the payload stays under ~5KB even with a few dozen rows.
+      - ``status=<str>``: server-side filter on the final ``status`` field
+        (e.g. ``running``). Applied after all merge/sweep passes so the
+        caller sees the same effective status the UI would. Exposed as
+        the ``status`` query-string key but bound internally to
+        ``filter_status`` so it does not collide with FastAPI's
+        status-code handling.
+      - ``source=<str>``: server-side filter on ``source``
+        (e.g. ``claude-code``). Bound internally to ``filter_source``
+        for the same reason.
+      - ``limit=<n>``: cap the returned agent list at N rows (applied last,
+        after filters and sort-by-spawned_at so the oldest rows win).
     """
     ps_result = await ostk.kernel_ps()
     audit_agents_list = await ostk.audit_agents()
@@ -2475,6 +2500,35 @@ async def list_agents(user_spawned_only: bool = False):
     if user_spawned_only:
         from services.agent_filters import is_user_spawned_agent
         filtered_agents = [a for a in filtered_agents if is_user_spawned_agent(a)]
+
+    # Compact-mode params (summary/status/source/limit). These are used by
+    # the UserPromptSubmit standing-rules hook so it can poll the backend
+    # on every turn without pulling the full 600KB+ payload. Hook timeout
+    # is 5s and the full response routinely exceeds that on transfer
+    # alone, which was falsely tripping the "couldn't reach myOS backend"
+    # fallback even when the backend was healthy.
+    if filter_status:
+        filtered_agents = [a for a in filtered_agents if a.get("status") == filter_status]
+    if filter_source:
+        filtered_agents = [a for a in filtered_agents if a.get("source") == filter_source]
+    if limit is not None and limit >= 0:
+        # Sort oldest-first on spawned_at so long-runners surface at the top,
+        # matching the standing-rules hook's display order.
+        filtered_agents = sorted(
+            filtered_agents,
+            key=lambda a: a.get("spawned_at") or "",
+        )[:limit]
+
+    if summary:
+        compact_keys = (
+            "name", "source", "status", "spawned_at",
+            "transcript_bytes", "last_heartbeat_at",
+        )
+        compact_agents = [
+            {k: a.get(k) for k in compact_keys if a.get(k) is not None}
+            for a in filtered_agents
+        ]
+        return {"agents": compact_agents}
 
     return {
         "daemon_running": daemon_running,
