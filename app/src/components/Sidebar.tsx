@@ -20,7 +20,7 @@ import WhatsNew from './WhatsNew'
 import { useAppStore } from '../stores/app'
 import AdminSection from './AdminSection'
 import { api } from '../lib/api'
-import { onAgentsChange, onTasksChange, isDismissed } from '../lib/sidebarBus'
+import { onAgentsChange, onTasksChange, onSpecsChange, isDismissed } from '../lib/sidebarBus'
 import { isUserSpawnedAgent } from '../lib/agentUtils'
 
 // ------------- types -------------
@@ -33,6 +33,7 @@ interface NavItem {
   badge?: boolean
   gmailBadge?: boolean
   tasksBadge?: boolean
+  specsBadge?: boolean
 }
 
 interface NavGroup {
@@ -58,7 +59,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
       { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
-      { to: '/specs', icon: 'description', label: 'Specs', featureLabel: 'Specs' },
+      { to: '/specs', icon: 'description', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
     ],
   },
   {
@@ -111,12 +112,13 @@ function groupForPath(pathname: string): string | null {
 
 // ------------- SortableNavItem (unchanged logic) -------------
 
-function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, openTasksCount, onNavigate, iconFilled }: {
+function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, openTasksCount, unfinishedSpecs, onNavigate, iconFilled }: {
   item: NavItem
   linkClass: (isActive: boolean) => string
   activeAgents: number
   gmailUnread: number
   openTasksCount: number
+  unfinishedSpecs: number
   onNavigate?: () => void
   iconFilled: 'filled' | 'outlined'
 }) {
@@ -164,6 +166,12 @@ function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, openTasks
                 {openTasksCount}
               </span>
             )}
+            {item.specsBadge && unfinishedSpecs > 0 && (
+              <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                {unfinishedSpecs}
+              </span>
+            )}
           </>
         )}
       </NavLink>
@@ -182,6 +190,7 @@ interface SidebarGroupProps {
   activeAgents: number
   gmailUnread: number
   openTasksCount: number
+  unfinishedSpecs: number
   onNavigate?: () => void
   iconFilled: 'filled' | 'outlined'
   features: { label: string; enabled: boolean }[]
@@ -197,6 +206,7 @@ function SidebarGroup({
   activeAgents,
   gmailUnread,
   openTasksCount,
+  unfinishedSpecs,
   onNavigate,
   iconFilled,
   features,
@@ -214,6 +224,8 @@ function SidebarGroup({
   })() : 0
 
   const rolledAgents = collapsed && group.items.some((i) => i.badge) && activeAgents > 0 ? activeAgents : 0
+
+  const rolledSpecs = collapsed && group.items.some((i) => i.specsBadge) && unfinishedSpecs > 0 ? unfinishedSpecs : 0
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
@@ -254,6 +266,12 @@ function SidebarGroup({
             {rolledAgents}
           </span>
         )}
+        {(rolledSpecs > 0) && (
+          <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            {rolledSpecs}
+          </span>
+        )}
         <Icon
           name="chevron_right"
           className={`text-base transition-transform duration-200 ${collapsed ? '' : 'rotate-90'}`}
@@ -280,6 +298,7 @@ function SidebarGroup({
                   activeAgents={activeAgents}
                   gmailUnread={gmailUnread}
                   openTasksCount={openTasksCount}
+                  unfinishedSpecs={unfinishedSpecs}
                   onNavigate={onNavigate}
                   iconFilled={iconFilled}
                 />
@@ -310,6 +329,7 @@ export function Sidebar() {
 
   const [activeAgents, setActiveAgents] = useState(0)
   const [openTasksCount, setOpenTasksCount] = useState(0)
+  const [unfinishedSpecs, setUnfinishedSpecs] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
   const [version, setVersion] = useState('')
   const [backendUp, setBackendUp] = useState<boolean | null>(null)
@@ -402,6 +422,32 @@ export function Sidebar() {
     // tab also triggers an immediate refetch via the sidebar bus.
     const interval = setInterval(fetchTaskCounts, 2000)
     const unsubscribe = onTasksChange(() => { fetchTaskCounts() })
+    return () => {
+      clearInterval(interval)
+      unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    const fetchSpecCounts = async () => {
+      try {
+        // Backend-filtered count of specs that have not reached the
+        // terminal "complete" state (covers draft + ready + in-progress).
+        // Same shape pattern as /tasks/counts so the badge stays in sync
+        // with the Specs page default view without the frontend having
+        // to know the spec lifecycle vocabulary.
+        const res = await api.get<{ unfinished: number }>('/specs/counts')
+        setUnfinishedSpecs(res.unfinished ?? 0)
+      } catch {
+        // ignore
+      }
+    }
+    fetchSpecCounts()
+    // Poll every 2 seconds to match the Agents and Tasks badges so all
+    // three refresh on the same cadence. Any write to /specs/* in this
+    // tab also bumps the bus for immediate refresh.
+    const interval = setInterval(fetchSpecCounts, 2000)
+    const unsubscribe = onSpecsChange(() => { fetchSpecCounts() })
     return () => {
       clearInterval(interval)
       unsubscribe()
@@ -600,6 +646,7 @@ export function Sidebar() {
               activeAgents={activeAgents}
               gmailUnread={gmailUnread}
               openTasksCount={openTasksCount}
+              unfinishedSpecs={unfinishedSpecs}
               onNavigate={() => setMobileOpen(false)}
               iconFilled={iconStyle}
               features={features}

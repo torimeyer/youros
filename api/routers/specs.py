@@ -190,6 +190,32 @@ async def get_recent_specs():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/specs/counts")
+async def spec_counts():
+    """Return a count of unfinished specs for the sidebar badge.
+
+    A spec is "unfinished" when its computed status is anything other
+    than ``complete``. That covers ``draft``, ``ready``, ``in-progress``,
+    and any future status we have not yet named. Mirrors the shape of
+    /tasks/counts so the Sidebar can treat both badges the same way.
+
+    Returns ``{"unfinished": N, "total": M}``. A spec counts as
+    unfinished as soon as it exists in docs/draft or docs/spec and has
+    not been verified complete (Verify flipped all acceptance criteria
+    and all its tasks are closed). This matches the definition the
+    Specs page uses for its default "not yet done" view.
+    """
+    try:
+        docs = await ostk.list_docs()
+        total = len(docs)
+        unfinished = sum(
+            1 for d in docs if d.get("status") != "complete"
+        )
+        return {"unfinished": unfinished, "total": total}
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/specs/draft")
 async def create_draft(body: SpecDraft):
     """Create a new draft document, auto-generate acceptance criteria, then promote to a plan.

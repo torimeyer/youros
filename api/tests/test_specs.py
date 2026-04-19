@@ -680,3 +680,51 @@ def test_ac_prompt_from_roadmap_reframes_subject():
     # Still carries the shared grounding.
     assert "ALREADY SHIPS" in prompt
     assert "Exactly 3 criteria" in prompt
+
+
+@pytest.mark.asyncio
+async def test_spec_counts_returns_unfinished_and_total(
+    client, tmp_path, monkeypatch
+):
+    """GET /api/specs/counts returns unfinished = non-complete specs.
+
+    Anchors the Sidebar badge semantics: draft, ready, and in-progress
+    all count as unfinished; only complete falls off the badge. If this
+    ever drifts (for example, somebody excludes drafts or adds a new
+    terminal state without updating the badge), the Sidebar count will
+    diverge from the Specs page and the user will see a stale badge.
+    """
+    from services import ostk as ostk_module
+
+    async def fake_list_docs():
+        return [
+            {"path": "docs/draft/a.md", "status": "draft"},
+            {"path": "docs/spec/b.md", "status": "ready"},
+            {"path": "docs/spec/c.md", "status": "in-progress"},
+            {"path": "docs/spec/d.md", "status": "complete"},
+            {"path": "docs/spec/e.md", "status": "complete"},
+        ]
+
+    monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
+
+    res = await client.get("/api/specs/counts")
+    assert res.status_code == 200
+    body = res.json()
+    assert body == {"unfinished": 3, "total": 5}
+
+
+@pytest.mark.asyncio
+async def test_spec_counts_zero_when_no_specs(
+    client, tmp_path, monkeypatch
+):
+    """An empty workspace returns zero for both counts (badge hides)."""
+    from services import ostk as ostk_module
+
+    async def fake_list_docs():
+        return []
+
+    monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
+
+    res = await client.get("/api/specs/counts")
+    assert res.status_code == 200
+    assert res.json() == {"unfinished": 0, "total": 0}

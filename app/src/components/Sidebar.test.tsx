@@ -66,6 +66,7 @@ describe('Sidebar', () => {
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
   })
@@ -576,7 +577,129 @@ describe('Sidebar', () => {
     })
   })
 
-  it('updates badge count when API response changes between polls', async () => {
+  it('Sidebar renders a count badge on the Specs nav when there are unfinished specs', async () => {
+    // Specs are nested inside the Files & Docs group, so expand it first.
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 3, total: 5 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+    renderSidebar()
+    expandAllGroups()
+
+    await waitFor(() => {
+      const specsLink = screen.getByText('Specs').closest('a')
+      expect(specsLink?.textContent).toContain('3')
+    })
+
+    // Styling must match the Agents and Tasks badges: green pill, pulsing
+    // green dot, tiny bold text. Guards against one badge drifting out of
+    // visual sync with the others.
+    const specsLink = screen.getByText('Specs').closest('a')
+    const badge = specsLink?.querySelector('.bg-green-500\\/20')
+    expect(badge).not.toBeNull()
+    expect(badge?.className).toContain('text-green-400')
+    expect(badge?.className).toContain('text-[10px]')
+    expect(badge?.className).toContain('font-bold')
+    expect(badge?.querySelector('.animate-pulse')).not.toBeNull()
+  })
+
+  it('Sidebar does NOT render a badge on Specs when unfinished count is 0', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 4 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+    renderSidebar()
+    expandAllGroups()
+
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/specs/counts')
+    })
+
+    const specsLink = screen.getByText('Specs').closest('a')
+    // No count pill should render when there's nothing unfinished.
+    expect(specsLink?.querySelectorAll('.rounded-full').length).toBe(0)
+    expect(specsLink?.textContent).toContain('Specs')
+    expect(specsLink?.textContent).not.toMatch(/\d/)
+  })
+
+  it('polls specs every 2 seconds so the badge stays up to date', async () => {
+    vi.useFakeTimers()
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+    renderSidebar()
+
+    const specCalls = () => mockedApiGet.mock.calls.filter(c => c[0] === '/specs/counts').length
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(specCalls()).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(specCalls()).toBe(2)
+
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(specCalls()).toBe(3)
+
+    vi.useRealTimers()
+  })
+
+  it('bumpSpecs triggers an immediate specs refetch without waiting for the poll', async () => {
+    vi.useFakeTimers()
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+    const { bumpSpecs } = await import('../lib/sidebarBus')
+
+    renderSidebar()
+    const specCalls = () => mockedApiGet.mock.calls.filter(c => c[0] === '/specs/counts').length
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(specCalls()).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(100)
+    bumpSpecs()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(specCalls()).toBe(2)
+
+    vi.useRealTimers()
+  })
+
+  it('three badges (Agents, Tasks, Specs) all render correct counts from their own endpoints', async () => {
+    // This is the deep-dive check: all three badges wired up, counts from
+    // three separate endpoints, no crosstalk. If one endpoint fails or is
+    // miswired, only that badge is affected.
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({
+        agents: [{ name: 'a1', status: 'running', source: 'claude-code' }],
+      })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 2 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 3, total: 3 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+    renderSidebar()
+    expandAllGroups()
+
+    await waitFor(() => {
+      const agentsLink = screen.getByText('Agents').closest('a')
+      expect(agentsLink?.textContent).toContain('1')
+      const tasksLink = screen.getByText('Tasks').closest('a')
+      expect(tasksLink?.textContent).toContain('2')
+      const specsLink = screen.getByText('Specs').closest('a')
+      expect(specsLink?.textContent).toContain('3')
+    })
+  })
+
+    it('updates badge count when API response changes between polls', async () => {
     let agentCallCount = 0
     mockedApiGet.mockImplementation(async (url: string) => {
       if (url.startsWith('/agents')) {
@@ -621,6 +744,7 @@ describe('Sidebar grouped nav', () => {
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
     })
   })
