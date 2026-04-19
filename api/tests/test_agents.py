@@ -10456,6 +10456,153 @@ async def test_roadmap_prewarm_replay_writes_full_content_and_does_not_touch_use
 
 
 @pytest.mark.asyncio
+async def test_roadmap_prewarm_replay_finishes_in_five_seconds_with_no_prewarm_markers(
+    tmp_path, monkeypatch
+):
+    """The Roadmap prewarm replay must land ~5s AND leak no demo markers.
+
+    Regression guard for two promises made to Tori:
+      1. Spawn -> roadmap.md (≥4000 bytes) takes ~5 seconds total. We
+         assert <=6s so a loaded CI box still has headroom. Anything
+         close to the old 20s budget would fail here.
+      2. The saved roadmap.md contains no prewarm / demo indicator that
+         a viewer could spot. The asset's internal ``source:`` /
+         ``template:`` frontmatter must be stripped before write so the
+         user sees only the neutral wrapper the backend composes.
+    """
+    import time
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    # Build a realistic 4KB+ prewarm asset with a ``source: roadmap``
+    # style header the fix must strip.
+    json_block = (
+        '[\n'
+        '  {\n'
+        '    "quarter": "Q3 2026",\n'
+        '    "theme": "Close the gap between chat models and data",\n'
+        '    "initiatives": [\n'
+        '      "Live fleet activity feed with spawns and completions",\n'
+        '      "Multi model side by side chat answers"\n'
+        '    ]\n'
+        '  }\n'
+        ']\n'
+    )
+    padding = (
+        "\n## Notes\n\n"
+        + "Body text describing roadmap rationale for the quarter.\n"
+    ) * 70
+    fake_prewarm = tmp_path / "prewarm" / "roadmap.md"
+    fake_prewarm.parent.mkdir(parents=True)
+    fake_prewarm.write_text(
+        "---\n"
+        "source: roadmap\n"
+        "template: Roadmap\n"
+        "kind: roadmap\n"
+        "generated_at: 2026-04-18T04:00:00+00:00\n"
+        "---\n\n"
+        "# Roadmap\n\n" + json_block + padding
+    )
+    assert fake_prewarm.stat().st_size >= 4000
+
+    monkeypatch.setattr(agents_module, "PREWARM_ROADMAP_PATH", fake_prewarm)
+    # Leave the real cadence constants in place: we are measuring them.
+
+    import config as _config_mod
+    monkeypatch.setattr(_config_mod, "PROJECT_ROOT", tmp_path)
+
+    async def _exploding_subprocess(*args, **kwargs):
+        raise AssertionError(
+            "create_subprocess_exec must NOT be called when replay fires"
+        )
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    async def _noop_force_complete(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        agents_module.asyncio, "create_subprocess_exec", _exploding_subprocess
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(
+        agents_module, "_schedule_demo_force_complete", _noop_force_complete
+    )
+
+    patched_files_dir = agents_module.MYOS_FILES_DIR
+
+    # Use the same agent name the real UI sends (template name lowercased
+    # with spaces -> dashes). Anything else would mask the production
+    # header shape where ``source:`` echoes the agent name.
+    agent_name = "roadmap"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        start = time.monotonic()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Draft a 3-year roadmap.",
+                    "template": "Roadmap",
+                    "budget": 3.0,
+                    "demo_mode": True,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        # Wait up to 7s for the drip + file write. Target is ~5s.
+        roadmap_path = patched_files_dir / "roadmap.md"
+        for _ in range(140):
+            await asyncio.sleep(0.05)
+            if (
+                roadmap_path.exists()
+                and roadmap_path.stat().st_size >= 4000
+                and (agent_metadata.get(agent_name) or {}).get("status")
+                == "completed"
+            ):
+                break
+        elapsed = time.monotonic() - start
+
+        assert roadmap_path.exists(), "roadmap.md must be written"
+        size = roadmap_path.stat().st_size
+        assert size >= 4000, (
+            f"roadmap.md must be ≥4000 bytes, got {size}"
+        )
+        assert elapsed <= 6.0, (
+            f"spawn -> roadmap.md must finish in ~5s, took {elapsed:.2f}s"
+        )
+
+        body = roadmap_path.read_text()
+        # Header must not carry any prewarm/demo indicator a viewer
+        # could spot. We only look at the header (first 400 chars) so a
+        # legitimate body mention of, say, "template marketplace" is
+        # not flagged.
+        header = body[:400].lower()
+        assert "prewarm" not in header, (
+            f"header must not mention prewarm: {header!r}"
+        )
+        assert "demo" not in header, (
+            f"header must not mention demo: {header!r}"
+        )
+        # The writer composes a neutral ``kind: roadmap`` wrapper. That
+        # is fine and expected.
+        assert "kind: roadmap" in header
+        # And the duplicate ``template: Roadmap`` line from the prewarm
+        # asset must be gone from the header region.
+        assert "template: roadmap" not in header, (
+            "prewarm template: header leaked to roadmap.md"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
 async def test_roadmap_prewarm_ignored_when_no_demo_mode(tmp_path, monkeypatch):
     """Roadmap spawn without demo_mode takes the normal subprocess path.
 

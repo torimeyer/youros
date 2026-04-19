@@ -2863,20 +2863,17 @@ async def _schedule_demo_force_complete(
 PREWARM_DIR = Path.home() / ".myos" / "prewarm"
 PREWARM_ROADMAP_PATH = PREWARM_DIR / "roadmap.md"
 
-# Target wall time for the replay stream. Tori's demo story beats fit
-# between 18 and 22 seconds: long enough to read like a real run and
-# comfortably catch at least eight Agents-page polls (polling at 2 s)
-# so the Active Sessions list shows the row even under backend load.
-# The older 10 to 15 second window was too tight: a saturated backend
-# (for example when many Claude Code subagents are heartbeating at once)
-# could push two consecutive GET /agents responses past the 12 s mark
-# and the UI would never see the running state at all. The chunked
-# writer divides the prewarm content into small writes and aims for
-# this midpoint, with per-chunk fsync overhead absorbed inside the
-# budget so the wall time stays inside the range regardless of
-# filesystem speed.
-_PREWARM_TARGET_SECONDS = 20.0
-_PREWARM_CHUNK_DELAY_SECONDS = 0.08
+# Target wall time for the replay stream. Aim for ~5 seconds total so
+# the Roadmap answer feels snappy while still showing visible token-by-
+# token growth (instead of an instant paste). A ~4KB prewarm over 5s is
+# ~800 bytes/s which reads as "the agent is typing" to the viewer.
+# The chunked writer divides the prewarm content into small writes and
+# aims for this budget, with per-chunk fsync overhead absorbed inside
+# it so the wall time stays near target regardless of filesystem speed.
+# Two Agents-page polls (polling at 2 s) still land inside 5s so the
+# Active Sessions list catches the running row at least once.
+_PREWARM_TARGET_SECONDS = 5.0
+_PREWARM_CHUNK_DELAY_SECONDS = 0.04
 
 
 def _is_roadmap_template_request(body: "AgentSpawn") -> bool:
@@ -2891,6 +2888,33 @@ def _is_roadmap_template_request(body: "AgentSpawn") -> bool:
     if not template_raw:
         return False
     return template_raw in {"roadmap", "pm-roadmap", "builtin-pm-roadmap"}
+
+
+def _strip_leading_frontmatter(text: str) -> str:
+    """Drop a leading ``---\\n...\\n---\\n`` YAML block if present.
+
+    Only strips the first block and only when it begins on the very
+    first line. Idempotent: text without a frontmatter block is
+    returned unchanged. The goal is to avoid leaking the prewarm
+    asset's internal metadata (``source:``, ``template:``) into the
+    user-facing roadmap.md when the replay writer composes its own
+    wrapper.
+    """
+    if not text.startswith("---\n"):
+        return text
+    end = text.find("\n---", 4)
+    if end == -1:
+        return text
+    # Consume the closing fence line plus its trailing newline(s).
+    after = end + len("\n---")
+    # Skip the newline right after ``---`` if present.
+    if after < len(text) and text[after] == "\n":
+        after += 1
+    # Also consume one more leading blank line so the body does not
+    # start with a stray empty line.
+    if after < len(text) and text[after] == "\n":
+        after += 1
+    return text[after:]
 
 
 async def _stream_prewarm_roadmap_replay(
@@ -2912,6 +2936,15 @@ async def _stream_prewarm_roadmap_replay(
     # Read the cached roadmap. Safe to assume it exists: the gate check
     # in spawn_agent only enters this function when the file is present.
     content = PREWARM_ROADMAP_PATH.read_text()
+
+    # Strip any leading YAML front matter so the downstream writer's own
+    # wrapper does not produce a duplicate ``---\n...\n---`` block in
+    # the saved artifact. The prewarm asset on disk is a developer file
+    # and its ``source:`` / ``template:`` fields are internal metadata
+    # the viewer does not need to see. _save_agent_output_to_files
+    # composes a neutral wrapper (source=<agent_name>, kind=roadmap)
+    # which is all the frontend parser needs.
+    content = _strip_leading_frontmatter(content)
 
     # Register the running agent so the UI shows a live row immediately.
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
