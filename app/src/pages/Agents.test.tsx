@@ -3029,6 +3029,68 @@ describe('Agents page - Template capabilities panel', () => {
     const spawnButton = screen.getByTestId('template-spawn-Broken') as HTMLButtonElement
     expect(spawnButton).toBeDisabled()
   })
+
+  // Regression for 2026-04-18 screenshot: Tori opened a built-in template
+  // detail modal and the capabilities grid still read "Budget / $5". The
+  // relabel in 54fa249 updated the Active Sessions status bar, compact
+  // summary, agent detail panel, and template editor input, but missed
+  // the TemplateEditorModal capabilities grid. This test asserts the grid
+  // renders the shared formatTokenBudget helper output for subscription
+  // users, not the raw dollar string from build_capabilities_summary.
+  it('template detail modal capabilities grid shows token budget, never $', async () => {
+    const templatesWithCaps = {
+      templates: [
+        {
+          name: 'demo',
+          file: 'demo.agent',
+          content: '',
+          description: 'Demo template',
+          capabilities: {
+            writes_to: 'src/',
+            cannot_touch: '.env',
+            // Backend still formats budget as dollars. The frontend must
+            // override this surface with a token figure.
+            budget: '$5',
+            time_limit: '30 minutes',
+            sandbox: 'docker container',
+          },
+          parse_error: null,
+        },
+      ],
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents')
+        return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return templatesWithCaps
+      if (path.startsWith('/agents/persona-templates')) return { templates: [], persona: 'pm' }
+      if (path === '/agents/user-templates') return { templates: [] }
+      if (path === '/settings') return { persona: 'pm' }
+      if (path.includes('/alias')) return { alias: null }
+      return {}
+    })
+
+    renderAgents()
+
+    // Switch to the Templates tab so the cards render.
+    await waitFor(() => {
+      expect(screen.getByText('Templates')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Templates'))
+
+    // Click the template card action to open the detail modal.
+    const useBtn = await screen.findByTestId('template-card-Demo-action')
+    fireEvent.click(useBtn)
+
+    // The capabilities section appears in the detail modal.
+    const caps = await screen.findByTestId('template-capabilities-section')
+    // Token budget label replaces the old "Budget" label, and the value
+    // renders via formatTokenBudgetApprox (e.g. "~300k tokens" for $2 at
+    // the default sonnet rate) rather than the raw "$5" string.
+    expect(caps.textContent).toContain('Token budget')
+    expect(caps.textContent).toContain('tokens')
+    expect(caps.textContent).not.toContain('$5')
+  })
 })
 
 // Regression for Tori's screenshot: the Agents Templates grid rendered

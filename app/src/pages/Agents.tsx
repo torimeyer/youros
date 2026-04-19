@@ -658,8 +658,8 @@ function TemplateEditorModal({
                     {capabilities.writes_to}
                   </div>
                   <div className="bg-slate-800/60 rounded-lg px-3 py-2">
-                    <span className="text-slate-500 block text-[10px]">Budget</span>
-                    {capabilities.budget}
+                    <span className="text-slate-500 block text-[10px]">Token budget</span>
+                    {formatTokenBudgetApprox(budget, model) || capabilities.budget}
                   </div>
                   <div className="bg-slate-800/60 rounded-lg px-3 py-2">
                     <span className="text-slate-500 block text-[10px]">Time limit</span>
@@ -1748,7 +1748,7 @@ function PMTemplateEditorForm({
           </select>
         </div>
         <div className="flex-1">
-          <label className="block text-sm text-slate-400 mb-1">Budget ($)</label>
+          <label className="block text-sm text-slate-400 mb-1">Token budget</label>
           <input
             type="number"
             min={0}
