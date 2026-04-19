@@ -1013,6 +1013,26 @@ def _autocomplete_exited_subagents() -> bool:
             continue
 
         # Path B: no transcript -- fall back to heartbeat-age threshold.
+        #
+        # Hook-preregistered rows (created by the PreToolUse Agent hook before
+        # the subagent self-registers) derive their name from the parent's
+        # ``description`` slug, which frequently differs from the ``Name:`` the
+        # user hand-wrote inside the Task prompt. When the two diverge,
+        # ``_resolve_transcript_source`` cannot match the subagent's JSONL and
+        # returns None. If we then fall through to Path B we will mark the
+        # agent completed on its first 5-minute heartbeat gap even though it
+        # is still writing its transcript. That is the "7 live subagents, 0
+        # shown in torios" bug.
+        #
+        # Safer policy: for a hook-preregister row with no transcript match,
+        # leave the row alone. The 15-minute ``_sweep_stale_running_agents``
+        # (STALE_AGENT_TIMEOUT_SECONDS) is the only mechanism that should
+        # close these rows, and only when both the heartbeat AND the transcript
+        # are stale. The heartbeat-agent.sh parent idle sweep also feeds the
+        # same transcript-match check, so a true zombie still gets closed at
+        # its 15-minute ceiling.
+        if meta.get("hook_preregister"):
+            continue
         last_seen_raw = meta.get("last_heartbeat_at") or meta.get("spawned_at")
         last_seen = _parse_iso(last_seen_raw) if isinstance(last_seen_raw, str) else None
         if last_seen is None:
@@ -5544,6 +5564,15 @@ async def reconcile_agents():
 
         # If the transcript was written recently, the agent is alive.
         if _transcript_recently_active(name, now):
+            still_running += 1
+            continue
+
+        # Hook-preregistered rows whose transcript we cannot locate must not
+        # be stopped here. Their name is description-derived and may not match
+        # the subagent's actual transcript first line; the 15-minute stale
+        # sweep is the only mechanism allowed to close them. See the matching
+        # guard inside _autocomplete_exited_subagents for the full rationale.
+        if meta.get("hook_preregister") and _resolve_transcript_source(name) is None:
             still_running += 1
             continue
 

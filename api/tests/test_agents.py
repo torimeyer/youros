@@ -12610,3 +12610,109 @@ async def test_reconcile_loop_interval_is_demo_tight():
         "demo zombies will linger for up to this many seconds after "
         "they die"
     )
+
+
+# -----------------------------------------------------------------------------
+# Hook-preregister rows must not be stopped by Path B when transcript cannot
+# be found. See "zero agents shown bug" diagnosis: the PreToolUse register
+# hook derives the agent name from the parent Task's ``description`` slug,
+# which does not always match the ``Name:`` the user hand-wrote inside the
+# prompt body. Once the two diverge ``_resolve_transcript_source`` returns
+# None for the row, even though the subagent's JSONL is live and growing.
+# Before this fix, Path B of ``_autocomplete_exited_subagents`` marked the
+# row completed at the 5-minute heartbeat staleness threshold and the UI
+# showed 0 running agents while ~7 subagents were still producing commits.
+# -----------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_autocomplete_skips_hook_preregister_with_no_transcript(tmp_path):
+    """A hook_preregister=True row with stale heartbeat and NO resolvable
+    transcript must stay running. The 15-minute stale sweep owns these
+    rows, not the 5-minute auto-complete pass.
+    """
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_AUTOCOMPLETE_SECONDS,
+        _autocomplete_exited_subagents,
+    )
+
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_AUTOCOMPLETE_SECONDS + 60)
+    ).isoformat()
+
+    agent_name = "todays-focus-load-speed"  # description-derived slug
+    agent_metadata[agent_name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        "hook_preregister": True,
+        # No transcript_path: _resolve_transcript_source will scan the
+        # project dir and return None because no JSONL first-line mentions
+        # the description-derived name.
+    }
+
+    try:
+        with patch("routers.agents._is_pid_alive", return_value=False), \
+             patch("routers.agents._proc_handle_is_alive", return_value=False), \
+             patch("routers.agents._resolve_transcript_source", return_value=None), \
+             patch("routers.agents._save_agent_state"):
+            _autocomplete_exited_subagents()
+
+        assert agent_metadata[agent_name]["status"] == "running", (
+            "A hook-preregistered row with stale heartbeat and no resolvable "
+            "transcript must NOT be auto-completed by Path B. The description-"
+            "derived name often does not match the prompt's Name: field, so "
+            "the transcript resolver returning None does not mean the agent "
+            "is dead. Only the 15-minute stale sweep may close these rows. "
+            f"Got status={agent_metadata[agent_name]['status']!r}."
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_autocomplete_completes_non_preregister_with_no_transcript(tmp_path):
+    """Symmetric case: a row WITHOUT hook_preregister=True should still be
+    Path-B-completed at the 5-minute threshold. The new guard must not
+    leak and block legitimate auto-completes.
+    """
+    from routers.agents import (
+        agent_metadata,
+        STALE_AGENT_AUTOCOMPLETE_SECONDS,
+        _autocomplete_exited_subagents,
+    )
+
+    stale_ts = (
+        datetime.now(timezone.utc)
+        - timedelta(seconds=STALE_AGENT_AUTOCOMPLETE_SECONDS + 60)
+    ).isoformat()
+
+    agent_name = "non-preregister-dead-agent"
+    agent_metadata[agent_name] = {
+        "spawned_at": stale_ts,
+        "last_heartbeat_at": stale_ts,
+        "source": "claude-code",
+        "status": "running",
+        "budget": "1.0",
+        "model": "claude-sonnet-4-6",
+        # hook_preregister NOT set / False
+    }
+
+    try:
+        with patch("routers.agents._is_pid_alive", return_value=False), \
+             patch("routers.agents._proc_handle_is_alive", return_value=False), \
+             patch("routers.agents._resolve_transcript_source", return_value=None), \
+             patch("routers.agents._save_agent_state"):
+            _autocomplete_exited_subagents()
+
+        assert agent_metadata[agent_name]["status"] == "completed", (
+            "A non-hook-preregister claude-code row with stale heartbeat and "
+            "no transcript must still auto-complete via Path B. The guard is "
+            "specific to hook_preregister rows. Got status="
+            f"{agent_metadata[agent_name]['status']!r}."
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
