@@ -5,6 +5,7 @@ import FilePreviewPane, {
   renderMarkdown,
   parseRoadmap,
   isRoadmapDoc,
+  canonicalizeSpecStatus,
 } from './FilePreviewPane'
 
 vi.mock('../lib/api', () => ({
@@ -630,5 +631,190 @@ describe('Roadmap renderer', () => {
     await waitFor(() => {
       expect(bumpSpy).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+describe('Spec status dedupe', () => {
+  // Historical note: the backend has carried two aliases for the same
+  // state ("complete" vs "done", "in-progress" vs "building"). When two
+  // chips sit next to each other on a roadmap preview, they must read
+  // as the same single state, never as visually identical but internally
+  // distinct "statuses". canonicalizeSpecStatus is the single collapse
+  // point that everything downstream relies on, so it gets a direct unit
+  // test plus a render-level assertion covering the chip pipeline end-to-end.
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('canonicalizeSpecStatus collapses done to complete and building to in-progress', () => {
+    expect(canonicalizeSpecStatus('done')).toBe('complete')
+    expect(canonicalizeSpecStatus('complete')).toBe('complete')
+    expect(canonicalizeSpecStatus('building')).toBe('in-progress')
+    expect(canonicalizeSpecStatus('in-progress')).toBe('in-progress')
+    // Unknown and passthrough states are left alone so debugging still works.
+    expect(canonicalizeSpecStatus('draft')).toBe('draft')
+    expect(canonicalizeSpecStatus('ready')).toBe('ready')
+    expect(canonicalizeSpecStatus('failed')).toBe('failed')
+    expect(canonicalizeSpecStatus('mystery')).toBe('mystery')
+  })
+
+  it('renders one Spec: done label for a chip whose backend status is "done"', async () => {
+    // The poll returns the raw backend status. The chip must render the
+    // canonical label "Spec: done" exactly once and expose the canonical
+    // data-status "complete" so upstream code that filters or counts by
+    // data-status sees one bucket, not two.
+    const content =
+      '---\nkind: roadmap\n---\n\n# Roadmap\n\n' +
+      JSON.stringify([
+        {
+          quarter: 'Q1 2026',
+          theme: 'Launch',
+          initiatives: ['Ship guided onboarding'],
+        },
+      ])
+
+    // Pre-load the poll response with the legacy "done" alias. The poll
+    // effect fires an immediate tick after the promote click, so if the
+    // data is already in place the chip transitions from "ready" to the
+    // canonical "complete" rendering on the first tick.
+    const specsResponse = {
+      docs: [
+        { path: 'docs/spec/ship-guided-onboarding.md', status: 'done' },
+      ] as Array<{ path: string; status: string }>,
+    }
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (typeof path === 'string' && path.startsWith('/specs')) {
+        return specsResponse
+      }
+      return { content, type: 'text', size: content.length }
+    })
+
+    const mockedApiPost = vi.mocked(api.post)
+    mockedApiPost.mockResolvedValue({
+      title: 'Ship guided onboarding',
+      promoted_path: 'docs/spec/ship-guided-onboarding.md',
+      status: 'ready',
+    })
+
+    render(
+      <FilePreviewPane
+        entry={{ name: 'roadmap.md', path: '/tmp/roadmap.md', size_display: '1 KB' }}
+        onClose={() => {}}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('roadmap-preview')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('roadmap-make-spec-button'))
+
+    await waitFor(() => {
+      const pill = screen.getByTestId('roadmap-spec-status-pill')
+      expect(pill.textContent).toContain('Spec: done')
+      expect(pill.getAttribute('data-status')).toBe('complete')
+    })
+
+    // Only one pill, only one label. If a stale raw status leaked through
+    // we would see two pill nodes (one for complete, one for done) with
+    // the same visible text.
+    const allPills = screen.getAllByTestId('roadmap-spec-status-pill')
+    expect(allPills).toHaveLength(1)
+    const doneLabels = allPills.filter((p) =>
+      p.textContent?.includes('Spec: done')
+    )
+    expect(doneLabels).toHaveLength(1)
+  })
+
+  it('collapses complete and done to one bucket when two chips render together', async () => {
+    // Two bullets, two promoted specs. Backend returns one as "complete"
+    // and the other as "done". Both chips must render the same label
+    // "Spec: done" and share the same canonical data-status so callers
+    // cannot double-count the terminal state.
+    const content =
+      '---\nkind: roadmap\n---\n\n# Roadmap\n\n' +
+      JSON.stringify([
+        {
+          quarter: 'Q1 2026',
+          theme: 'Launch',
+          initiatives: [
+            'Ship guided onboarding alpha',
+            'Ship guided onboarding beta',
+          ],
+        },
+      ])
+
+    // Pre-load the poll response with one "complete" row and one "done"
+    // row so each chip's first post-promote tick transitions to its
+    // terminal raw status. The dedupe layer then collapses both to the
+    // same canonical rendering.
+    const specsResponse = {
+      docs: [
+        { path: 'docs/spec/ship-guided-onboarding-alpha.md', status: 'complete' },
+        { path: 'docs/spec/ship-guided-onboarding-beta.md', status: 'done' },
+      ] as Array<{ path: string; status: string }>,
+    }
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (typeof path === 'string' && path.startsWith('/specs')) {
+        return specsResponse
+      }
+      return { content, type: 'text', size: content.length }
+    })
+
+    const mockedApiPost = vi.mocked(api.post)
+    mockedApiPost.mockImplementation(async (_path, body: unknown) => {
+      const payload = body as { initiative_text: string }
+      const slug = payload.initiative_text.toLowerCase().replace(/\s+/g, '-')
+      return {
+        title: payload.initiative_text,
+        promoted_path: `docs/spec/${slug}.md`,
+        status: 'ready',
+      }
+    })
+
+    render(
+      <FilePreviewPane
+        entry={{ name: 'roadmap.md', path: '/tmp/roadmap.md', size_display: '1 KB' }}
+        onClose={() => {}}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('roadmap-preview')).toBeInTheDocument()
+    })
+
+    const buttons = screen.getAllByTestId('roadmap-make-spec-button')
+    expect(buttons).toHaveLength(2)
+    fireEvent.click(buttons[0])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('roadmap-spec-status-pill')).toHaveLength(1)
+    })
+    fireEvent.click(screen.getByTestId('roadmap-make-spec-button'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('roadmap-spec-status-pill')).toHaveLength(2)
+    })
+
+    // The poll response (pre-loaded above) marks one spec "complete" and
+    // the other "done". Both chips must converge on the same canonical
+    // rendering.
+    await waitFor(() => {
+      const pills = screen.getAllByTestId('roadmap-spec-status-pill')
+      expect(pills).toHaveLength(2)
+      for (const pill of pills) {
+        expect(pill.textContent).toContain('Spec: done')
+        expect(pill.getAttribute('data-status')).toBe('complete')
+      }
+    })
+
+    // Dedupe check: after canonicalization, every terminal pill shares a
+    // single data-status value. If the UI were leaking raw statuses, we
+    // would see a "done" bucket next to a "complete" bucket.
+    const pills = screen.getAllByTestId('roadmap-spec-status-pill')
+    const uniqueStatuses = new Set(
+      pills.map((p) => p.getAttribute('data-status'))
+    )
+    expect(uniqueStatuses.size).toBe(1)
+    expect(uniqueStatuses.has('complete')).toBe(true)
   })
 })

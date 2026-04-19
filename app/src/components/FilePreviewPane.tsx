@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import Icon from './Icon';
 import { api } from '../lib/api';
 import { bumpSpecs } from '../lib/sidebarBus';
@@ -855,10 +855,27 @@ interface SpecRowState {
   title: string;
 }
 
+// Collapse backend status aliases to a single canonical form BEFORE
+// the pill is styled or rendered. The backend has historically used
+// both "complete" and "done" for the same terminal state, and both
+// "in-progress" and "building" for the work-in-flight state. Without
+// this step, two chips sitting next to each other could show the same
+// label while carrying different data-status attributes, making the
+// DOM look like it contains duplicate states when it really only has
+// one. Anything unknown passes through so callers can still debug.
+export function canonicalizeSpecStatus(status: string): string {
+  if (status === 'done') return 'complete';
+  if (status === 'building') return 'in-progress';
+  return status;
+}
+
 // Map the backend status string to a color-coded pill style and a
 // human-readable label. Keeps all color/label decisions in one place.
+// Input is run through canonicalizeSpecStatus first so aliases cannot
+// produce duplicate labels with different underlying states.
 function specStatusStyle(status: string): { label: string; classes: string } {
-  switch (status) {
+  const canonical = canonicalizeSpecStatus(status);
+  switch (canonical) {
     case 'draft':
       return {
         label: 'Spec: draft',
@@ -870,13 +887,11 @@ function specStatusStyle(status: string): { label: string; classes: string } {
         classes: 'bg-blue-600/20 border-blue-500/50 text-blue-200',
       };
     case 'in-progress':
-    case 'building':
       return {
         label: 'Spec: building',
         classes: 'bg-amber-600/20 border-amber-500/50 text-amber-200',
       };
     case 'complete':
-    case 'done':
       return {
         label: 'Spec: done',
         classes: 'bg-emerald-600/20 border-emerald-500/50 text-emerald-200',
@@ -888,7 +903,7 @@ function specStatusStyle(status: string): { label: string; classes: string } {
       };
     default:
       return {
-        label: `Spec: ${status}`,
+        label: `Spec: ${canonical}`,
         classes: 'bg-slate-700/60 border-slate-500/50 text-slate-200',
       };
   }
@@ -897,19 +912,20 @@ function specStatusStyle(status: string): { label: string; classes: string } {
 // Inline pill that appears next to a roadmap bullet once the user has
 // promoted it. Shows the current status with a color cue and a "View
 // spec" link for deeper inspection.
-function SpecStatusChip({
+const SpecStatusChip = memo(function SpecStatusChip({
   row,
   onView,
 }: {
   row: SpecRowState;
   onView: (promotedPath: string) => void;
 }) {
+  const canonical = canonicalizeSpecStatus(row.status);
   const { label, classes } = specStatusStyle(row.status);
   return (
     <span
       className="flex-shrink-0 inline-flex items-center gap-2"
       data-testid="roadmap-spec-status-pill"
-      data-status={row.status}
+      data-status={canonical}
     >
       <span
         className={`text-xs px-2 py-0.5 rounded border ${classes}`}
@@ -929,11 +945,55 @@ function SpecStatusChip({
       )}
     </span>
   );
-}
+});
 
 // Terminal states stop the poller so we never leave an interval running
 // for a spec that the user has finished with.
 const TERMINAL_SPEC_STATUSES = new Set(['complete', 'done', 'failed']);
+
+// Memoized so a status change on one bullet does not re-render the
+// other 71 rows on a roadmap. React.memo's shallow compare hits because
+// row references from statusByBullet stay stable when unchanged and the
+// handlers from the parent are useCallback-stable.
+const InitiativeRow = memo(function InitiativeRow({
+  text,
+  row,
+  busyThis,
+  anyBusy,
+  onMakeSpec,
+  onView,
+}: {
+  text: string;
+  row: SpecRowState | undefined;
+  busyThis: boolean;
+  anyBusy: boolean;
+  onMakeSpec: (text: string) => void;
+  onView: (promotedPath: string) => void;
+}) {
+  return (
+    <li
+      className="flex items-start gap-2 group"
+      data-testid="roadmap-initiative"
+    >
+      <span className="text-slate-300 flex-1">{text}</span>
+      {row ? (
+        <SpecStatusChip row={row} onView={onView} />
+      ) : (
+        <button
+          type="button"
+          onClick={() => onMakeSpec(text)}
+          disabled={anyBusy}
+          className="flex-shrink-0 text-xs px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-600/40 rounded text-blue-200 disabled:opacity-50"
+          title="Make a spec from this initiative"
+          data-testid="roadmap-make-spec-button"
+          aria-label={`Make a spec from "${text}"`}
+        >
+          {busyThis ? '...' : '+ Make spec'}
+        </button>
+      )}
+    </li>
+  );
+});
 
 interface RoadmapPreviewProps {
   content: string;
@@ -1069,34 +1129,6 @@ export function RoadmapPreview({ content, filePath, onSpecCreated }: RoadmapPrev
     window.location.href = `/specs${qp}`;
   }, [toast]);
 
-  const renderInitiativeRow = (text: string, keyPrefix: string) => {
-    const row = statusByBullet[text];
-    return (
-      <li
-        key={`${keyPrefix}-${text}`}
-        className="flex items-start gap-2 group"
-        data-testid="roadmap-initiative"
-      >
-        <span className="text-slate-300 flex-1">{text}</span>
-        {row ? (
-          <SpecStatusChip row={row} onView={viewSpec} />
-        ) : (
-          <button
-            type="button"
-            onClick={() => handleMakeSpec(text)}
-            disabled={busy !== null}
-            className="flex-shrink-0 text-xs px-2 py-0.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-600/40 rounded text-blue-200 disabled:opacity-50"
-            title="Make a spec from this initiative"
-            data-testid="roadmap-make-spec-button"
-            aria-label={`Make a spec from "${text}"`}
-          >
-            {busy === text ? '...' : '+ Make spec'}
-          </button>
-        )}
-      </li>
-    );
-  };
-
   return (
     <div className="space-y-4" data-testid="roadmap-preview">
       {parsed.quarters.length > 0 &&
@@ -1114,7 +1146,17 @@ export function RoadmapPreview({ content, filePath, onSpecCreated }: RoadmapPrev
               </h3>
             )}
             <ul className="space-y-2 text-sm">
-              {q.initiatives.map((init) => renderInitiativeRow(init, q.quarter))}
+              {q.initiatives.map((init) => (
+                <InitiativeRow
+                  key={`${q.quarter}-${init}`}
+                  text={init}
+                  row={statusByBullet[init]}
+                  busyThis={busy === init}
+                  anyBusy={busy !== null}
+                  onMakeSpec={handleMakeSpec}
+                  onView={viewSpec}
+                />
+              ))}
             </ul>
           </div>
         ))}
