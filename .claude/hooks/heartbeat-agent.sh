@@ -92,4 +92,90 @@ fi
 ) </dev/null >/dev/null 2>&1 &
 disown 2>/dev/null || true
 
+# Idle-transcript sweep: some subagent rows (direct POSTs, crashed
+# spawns, test harness registrations) never get a paired /complete
+# call because the PostToolUse Agent hook never fires for them. They
+# sit at status=running forever. Walk every currently-running agent
+# and, if its transcript has been silent longer than
+# IDLE_COMPLETE_SECONDS, POST /complete with a reason that tells the
+# UI "this was closed by the idle watchdog, not by the subagent
+# itself".
+#
+# Fully detached so it cannot block the tool call. The sweep runs
+# in the same 2s-max budget as the primary heartbeat curl.
+(
+    IDLE_COMPLETE_SECONDS="${MYOS_IDLE_COMPLETE_SECONDS:-300}"
+    IDLE_SWEEP_STAMP="$HOME/.myos/subagents/last-idle-sweep.stamp"
+    IDLE_SWEEP_INTERVAL="${MYOS_IDLE_SWEEP_INTERVAL:-60}"
+    IDLE_LOG="${MYOS_IDLE_COMPLETE_LOG:-/tmp/idle-complete.log}"
+    AGENTS_URL="${MYOS_AGENTS_URL:-https://127.0.0.1:8000/api/agents}"
+    HEARTBEAT_IDLE_PY="${MYOS_HEARTBEAT_IDLE_PY:-${CLAUDE_PROJECT_DIR:-$HOME/claude/torios}/api/services/heartbeat_idle.py}"
+
+    # Throttle. Skip unless force-flag set or stamp is older than
+    # interval. Every parent tool call fires this hook, so without
+    # the throttle we'd walk all running agents dozens of times a
+    # minute.
+    if [ "${MYOS_IDLE_SWEEP_FORCE:-0}" != "1" ] && [ -f "$IDLE_SWEEP_STAMP" ]; then
+        now=$(date +%s)
+        last_run=$(cat "$IDLE_SWEEP_STAMP" 2>/dev/null)
+        case "$last_run" in
+            ''|*[!0-9]*) last_run=0 ;;
+        esac
+        if [ $((now - last_run)) -lt "$IDLE_SWEEP_INTERVAL" ]; then
+            exit 0
+        fi
+    fi
+    mkdir -p "$(dirname "$IDLE_SWEEP_STAMP")" 2>/dev/null || true
+    date +%s > "$IDLE_SWEEP_STAMP" 2>/dev/null || true
+
+    # Python helper missing means nothing to do (pre-heartbeat_idle.py builds).
+    if [ ! -f "$HEARTBEAT_IDLE_PY" ]; then
+        exit 0
+    fi
+
+    # Fetch running-agent names. 3s total budget.
+    running_names=$(curl -sSk --connect-timeout 1 -m 3 "$AGENTS_URL" 2>/dev/null \
+        | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for a in d.get('agents', []) or []:
+    if a.get('status') == 'running':
+        n = a.get('name') or ''
+        if n:
+            print(n)
+" 2>/dev/null)
+
+    if [ -z "$running_names" ]; then
+        exit 0
+    fi
+
+    # For each running agent, ask heartbeat_idle.py whether its
+    # transcript has been silent too long. Exit 1 from the helper
+    # means YES, complete it.
+    while IFS= read -r agent_name; do
+        [ -z "$agent_name" ] && continue
+        python3 "$HEARTBEAT_IDLE_PY" "$agent_name" "$IDLE_COMPLETE_SECONDS" >/dev/null 2>&1
+        rc=$?
+        if [ $rc -eq 1 ]; then
+            if curl -sSk --connect-timeout 1 -m 3 \
+                    -X POST "$AGENTS_URL/${agent_name}/complete" \
+                    -H 'Content-Type: application/json' \
+                    -d '{"summary":"completed via idle detection"}' \
+                    > /dev/null 2>&1; then
+                printf '%s\tcompleted-idle\t%s\n' \
+                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$agent_name" \
+                    >> "$IDLE_LOG" 2>/dev/null || true
+            else
+                printf '%s\tidle-complete-failed\t%s\n' \
+                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$agent_name" \
+                    >> "$IDLE_LOG" 2>/dev/null || true
+            fi
+        fi
+    done <<< "$running_names"
+) </dev/null >/dev/null 2>&1 &
+disown 2>/dev/null || true
+
 exit 0
