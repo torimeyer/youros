@@ -17,11 +17,76 @@ set +m 2>/dev/null  # suppress job-control noise ([N] PID lines)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-API_DIR="$REPO_DIR/api"
-UVICORN_PORT=8000
+# Allow the caller to override API_DIR (useful when this script runs from
+# a git worktree that does not carry its own api/.venv; tests set this
+# to the main repo's api/ directory).
+API_DIR="${MYOS_API_DIR:-$REPO_DIR/api}"
+UVICORN_PORT="${PORT:-${UVICORN_PORT:-8000}}"
+
+# Pidfile + launcher lock live in /tmp and are scoped by port so parallel
+# ports (e.g. :8001 in tests, :8000 in dev) do not clobber each other.
+PIDFILE="/tmp/myos-backend-${UVICORN_PORT}.pid"
+LAUNCHER_LOCK="/tmp/myos-backend-launcher-${UVICORN_PORT}.lock"
 
 if [ ! -f "$API_DIR/.venv/bin/activate" ]; then
     echo "Python virtualenv not found at $API_DIR/.venv. Run install.sh first." >&2
+    exit 1
+fi
+
+# Serialize concurrent dev-backend.sh invocations. Without this lock, the
+# operator and the watchdog (scripts/backend_watchdog.sh) can both run
+# dev-backend.sh at the same time: each sees a live uvicorn, each kills
+# it, and whoever reaches `exec uvicorn` first wins. In the narrow window
+# where the socket is freed but not yet re-bound, a second uvicorn can
+# briefly coexist with the first and cause intermittent empty-body
+# responses before one of them exits with EADDRINUSE.
+#
+# The lock is a pidfile containing the bash PID of the in-flight launcher.
+# A stale lock from a crashed script is reclaimed automatically when the
+# recorded PID is no longer alive. We wait up to 15 seconds for an
+# in-flight launcher to finish (uvicorn startup takes 2 to 5 seconds)
+# before giving up and exiting non-zero so the caller sees a clear message.
+acquire_launcher_lock() {
+    local waited=0
+    while [ -f "$LAUNCHER_LOCK" ]; do
+        local holder
+        holder=$(cat "$LAUNCHER_LOCK" 2>/dev/null || true)
+        if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+            if [ "$waited" -ge 15 ]; then
+                echo "Another dev-backend.sh launcher (pid $holder) is holding $LAUNCHER_LOCK after 15s. Exiting." >&2
+                return 1
+            fi
+            sleep 1
+            waited=$((waited + 1))
+            continue
+        fi
+        # Stale lock: the recorded pid is gone. Reclaim it.
+        rm -f "$LAUNCHER_LOCK" 2>/dev/null || true
+        break
+    done
+    echo $$ > "$LAUNCHER_LOCK"
+    return 0
+}
+
+release_launcher_lock() {
+    # Only remove the lock if we own it. Avoid deleting another launcher's
+    # lock if we exit early and the slot has already been claimed.
+    if [ -f "$LAUNCHER_LOCK" ]; then
+        local holder
+        holder=$(cat "$LAUNCHER_LOCK" 2>/dev/null || true)
+        if [ "$holder" = "$$" ]; then
+            rm -f "$LAUNCHER_LOCK" 2>/dev/null || true
+        fi
+    fi
+}
+
+# Release the launcher lock on any exit except a successful `exec uvicorn`
+# (exec replaces the process, taking our PID over, so the lock naturally
+# stays pointed at a live pid until uvicorn exits; we clean it up in the
+# watchdog instead when the uvicorn pid is found dead).
+trap release_launcher_lock EXIT INT TERM
+
+if ! acquire_launcher_lock; then
     exit 1
 fi
 
@@ -218,6 +283,21 @@ fi
 # Exclude globs use fnmatch-style patterns relative to the watched
 # dir. Belt-and-braces: cover swap files, DS_Store, backup files,
 # and .git noise explicitly so watchfiles never sees them.
+# Write PID to pidfile right before exec. `exec` replaces this shell with
+# uvicorn, so the pid in PIDFILE is the live uvicorn reloader parent.
+# backend_watchdog.sh reads this file and uses `kill -0` to verify the
+# backend is actually alive before deciding to restart.
+echo $$ > "$PIDFILE"
+
+# Release the launcher lock now. The kill-and-wait phase is complete and
+# uvicorn is about to take over the socket. Leaving the lock held beyond
+# this point would block legitimate manual restarts (operator hits
+# Ctrl-C on a running uvicorn and re-runs dev-backend.sh to pick up a
+# code change). The PIDFILE remains the source of truth for "is the
+# backend alive"; the lock only serializes concurrent LAUNCHERS.
+release_launcher_lock
+trap - EXIT INT TERM
+
 if [ "${RELEASE_MODE:-0}" = "1" ]; then
     echo "RELEASE_MODE=1 detected. Starting uvicorn with reload DISABLED."
     echo "This prevents the watchfiles thrash loop during release verification."

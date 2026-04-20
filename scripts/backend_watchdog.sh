@@ -30,6 +30,15 @@ INTERVAL="${MYOS_WATCHDOG_INTERVAL:-30}"
 HEALTH_URL="${MYOS_WATCHDOG_HEALTH_URL:-https://127.0.0.1:8000/api/health}"
 MAX_RESTARTS="${MYOS_WATCHDOG_MAX_RESTARTS:-50}"
 
+# Port the backend listens on. The watchdog reads the matching pidfile
+# (/tmp/myos-backend-<port>.pid) to verify whether a backend process is
+# actually running before attempting a restart. Default 8000; tests pass
+# a different port via env var so they don't collide with a live dev
+# backend on :8000.
+BACKEND_PORT="${MYOS_WATCHDOG_BACKEND_PORT:-8000}"
+BACKEND_PIDFILE="/tmp/myos-backend-${BACKEND_PORT}.pid"
+LAUNCHER_LOCK="/tmp/myos-backend-launcher-${BACKEND_PORT}.lock"
+
 # Always keep the freshest pid in the pidfile, even when invoked directly.
 echo $$ > "$PIDFILE"
 
@@ -48,15 +57,63 @@ probe_once() {
     [ "$code" = "200" ]
 }
 
+backend_pid_alive() {
+    # Returns 0 if the pid recorded in BACKEND_PIDFILE is a live process.
+    if [ ! -f "$BACKEND_PIDFILE" ]; then
+        return 1
+    fi
+    local pid
+    pid=$(cat "$BACKEND_PIDFILE" 2>/dev/null || true)
+    if [ -z "$pid" ]; then
+        return 1
+    fi
+    if kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+launcher_lock_held() {
+    # Returns 0 if the launcher lock is held by a live process. Used to
+    # avoid stacking a second dev-backend.sh on top of one that is
+    # already in flight (e.g. the operator just re-ran the script).
+    if [ ! -f "$LAUNCHER_LOCK" ]; then
+        return 1
+    fi
+    local holder
+    holder=$(cat "$LAUNCHER_LOCK" 2>/dev/null || true)
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
 restart_backend() {
-    log "WARNING backend unreachable, restarting via $DEV_BACKEND"
+    # Before spawning a new dev-backend.sh, confirm there really is no
+    # live backend AND no in-flight launcher. The health endpoint can
+    # briefly stop answering during a uvicorn reload or under MCP
+    # flapping even when the uvicorn parent pid is still alive and the
+    # server is about to recover. If the pid is alive we skip the
+    # restart entirely to avoid stacking a second uvicorn next to the
+    # one that is just slow to respond.
+    if backend_pid_alive; then
+        log "INFO health probe failed but backend pid ($(cat "$BACKEND_PIDFILE" 2>/dev/null)) still alive; skipping restart"
+        return 0
+    fi
+    if launcher_lock_held; then
+        log "INFO dev-backend.sh launcher lock held by pid $(cat "$LAUNCHER_LOCK" 2>/dev/null); skipping restart"
+        return 0
+    fi
+    log "WARNING backend unreachable and pid dead, restarting via $DEV_BACKEND"
     if [ ! -x "$DEV_BACKEND" ]; then
         log "ERROR dev-backend.sh not executable at $DEV_BACKEND, cannot restart"
         return 1
     fi
     # Launch the backend detached so this watchdog stays parent of nothing
     # but itself. The watchdog itself stays alive across restarts so a
-    # second crash inside the same dev session also gets caught.
+    # second crash inside the same dev session also gets caught. The
+    # launcher lock in dev-backend.sh serializes this invocation against
+    # any concurrent manual run.
     MYOS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" >> /tmp/dev-backend.log 2>&1 &
     log "INFO restart launched, dev-backend.sh pid=$!"
 }
