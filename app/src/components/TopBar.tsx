@@ -6,6 +6,7 @@ import { useNotificationStore } from '../stores/notifications'
 import type { AppNotification } from '../stores/notifications'
 import { api } from '../lib/api'
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications'
+import ChatHistoryDropdown from './ChatHistoryDropdown'
 
 interface PersistentNotification {
   id: string
@@ -354,6 +355,7 @@ export default function TopBar({ title }: TopBarProps) {
         >
           <Icon name="chat" />
         </button>
+        <ChatHistoryDropdown />
         <div className="relative">
           <button
             onClick={handleOpenNotifications}
