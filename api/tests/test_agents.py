@@ -12716,3 +12716,158 @@ async def test_autocomplete_completes_non_preregister_with_no_transcript(tmp_pat
         )
     finally:
         agent_metadata.pop(agent_name, None)
+
+
+# -----------------------------------------------------------------------------
+# Description-match fallback for name-divergent hook-preregister rows.
+#
+# When the hook pre-registers a row, its name comes from the Task tool's
+# description slug (e.g. "e2e-demo-path-test-worktree"). The subagent's
+# prompt body may hand-write a different ``Name:`` (e.g. "e2e-demo-path-v2"),
+# which is common for isolation="worktree" subagents where the Task slug
+# and the internal name are not expected to match.
+#
+# Before the fix, _resolve_transcript_source strict-matched only on the row
+# name inside the prompt first line, so a name divergence returned None and
+# the Agents list reported 0 transcript bytes for an agent actively writing
+# ~500 KB of JSONL. The fix adds a description-based fallback: read the
+# sibling .meta.json that Claude Code writes next to each subagent JSONL
+# and match its ``description`` field against the agent row's description.
+# -----------------------------------------------------------------------------
+def test_resolve_transcript_description_match_rescues_name_divergence(tmp_path):
+    """When the agent row name does not appear in the prompt first line but
+    the sibling ``agent-<id>.meta.json`` ``description`` matches the row's
+    description, the resolver returns the JSONL.
+    """
+    import json
+    from routers import agents as agents_module
+    from routers.agents import (
+        _resolve_transcript_source,
+        _reset_candidates_cache,
+        _reset_meta_candidates_cache,
+        agent_metadata,
+        _resolve_cache,
+    )
+
+    fake_home = tmp_path / "home"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
+    subagents_dir = project_dir / "session-x" / "subagents"
+    subagents_dir.mkdir(parents=True)
+
+    # The on-disk JSONL uses the INTERNAL name "inner-name", not the row
+    # name. Strict-needle match on the row's name will fail here.
+    jsonl = subagents_dir / "agent-abc123.jsonl"
+    jsonl.write_text(_build_jsonl_session("inner-name"))
+    meta = subagents_dir / "agent-abc123.meta.json"
+    meta.write_text(json.dumps({
+        "agentType": "general-purpose",
+        "description": "E2E demo path test (worktree)",
+    }))
+
+    # Row name diverges from the internal name.
+    row_name = "e2e-demo-path-test-worktree"
+    agent_metadata[row_name] = {
+        "source": "claude-code",
+        "status": "running",
+        "hook_preregister": True,
+        "description": "E2E demo path test (worktree)",
+    }
+    # Drop resolver caches from any prior test.
+    _resolve_cache.clear()
+    _reset_candidates_cache()
+    _reset_meta_candidates_cache()
+
+    try:
+        with patch.object(
+            agents_module,
+            "_claude_code_projects_dir",
+            return_value=fake_home / ".claude" / "projects",
+        ), patch.object(
+            agents_module,
+            "_claude_code_tasks_root",
+            return_value=tmp_path / "tasks-root",
+        ), patch("config.PROJECT_ROOT", fake_repo):
+            source = _resolve_transcript_source(row_name)
+
+        assert source == jsonl, (
+            "Resolver must fall back to the sibling meta.json description "
+            "match when the row name does not appear in the prompt first "
+            "line. This is the visibility fix for worktree-isolated and "
+            "hand-named subagents whose Task slug diverges from their "
+            f"internal Name. Got {source!r}."
+        )
+    finally:
+        agent_metadata.pop(row_name, None)
+        _resolve_cache.clear()
+        _reset_candidates_cache()
+        _reset_meta_candidates_cache()
+
+
+def test_resolve_transcript_description_match_ignores_wrong_description(tmp_path):
+    """The description fallback must not fire when no meta.json description
+    matches the agent row. Otherwise a freshly-spawned unrelated subagent
+    would be misattributed to a row whose real transcript is missing.
+    """
+    import json
+    from routers import agents as agents_module
+    from routers.agents import (
+        _resolve_transcript_source,
+        _reset_candidates_cache,
+        _reset_meta_candidates_cache,
+        agent_metadata,
+        _resolve_cache,
+    )
+
+    fake_home = tmp_path / "home"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir()
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
+    subagents_dir = project_dir / "session-x" / "subagents"
+    subagents_dir.mkdir(parents=True)
+
+    jsonl = subagents_dir / "agent-xyz.jsonl"
+    jsonl.write_text(_build_jsonl_session("some-other-agent"))
+    meta = subagents_dir / "agent-xyz.meta.json"
+    meta.write_text(json.dumps({
+        "agentType": "general-purpose",
+        "description": "Unrelated task",
+    }))
+
+    row_name = "my-missing-row"
+    agent_metadata[row_name] = {
+        "source": "claude-code",
+        "status": "running",
+        "hook_preregister": True,
+        "description": "Some completely different description",
+    }
+    _resolve_cache.clear()
+    _reset_candidates_cache()
+    _reset_meta_candidates_cache()
+
+    try:
+        with patch.object(
+            agents_module,
+            "_claude_code_projects_dir",
+            return_value=fake_home / ".claude" / "projects",
+        ), patch.object(
+            agents_module,
+            "_claude_code_tasks_root",
+            return_value=tmp_path / "tasks-root",
+        ), patch("config.PROJECT_ROOT", fake_repo):
+            source = _resolve_transcript_source(row_name)
+
+        assert source is None, (
+            "Description fallback must be strict: when the row's description "
+            "does not match any meta.json description, the resolver must "
+            "return None rather than picking any random subagent transcript. "
+            f"Got {source!r}."
+        )
+    finally:
+        agent_metadata.pop(row_name, None)
+        _resolve_cache.clear()
+        _reset_candidates_cache()
+        _reset_meta_candidates_cache()

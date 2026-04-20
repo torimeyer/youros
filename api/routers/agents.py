@@ -1528,6 +1528,30 @@ def _resolve_transcript_source_uncached(name: str) -> Optional[Path]:
             "*/subagents/agent-*.jsonl",
         )
 
+    # 3b. Description-matched fallback.
+    #
+    # When the hook pre-registers a row it derives the name from the Task
+    # tool's description slug (e.g. "e2e-demo-path-test-worktree") while
+    # the subagent's prompt body hand-writes a different name (e.g.
+    # "Name: e2e-demo-path-v2"). Step 3 strict-matches on the row's name
+    # inside the prompt's first line, so that divergence returns None and
+    # the Agents list reports 0 transcript bytes for an agent that is
+    # actively writing hundreds of KB of JSONL.
+    #
+    # Claude Code writes a sibling ``agent-<id>.meta.json`` next to each
+    # subagent JSONL that records the Task tool's ``description`` verbatim.
+    # That description matches the agent row's ``description`` field 1:1
+    # because both come from the same Task call. Falling back to a
+    # meta.description match when strict-name fails rescues worktree-
+    # isolated subagents and any other case where the user-written Name:
+    # diverges from the description slug.
+    if subagent_hit is None and project_dir.exists():
+        row_description = (agent_metadata.get(name) or {}).get("description")
+        if row_description:
+            subagent_hit = _find_subagent_by_meta_description(
+                project_dir, row_description
+            )
+
     # Prefer whichever of (legacy_md, subagent_hit) has the fresher mtime.
     # This is the core fix for the "agent marked completed 20s after spawn"
     # bug: a live JSONL must beat a stale legacy .md from a prior run with
@@ -1657,6 +1681,89 @@ def _first_line_matches_needle(first_line_lower: str, needle_lower: str) -> bool
     if any(p in first_line_lower for p in intro_patterns):
         return True
     return False
+
+
+# (project_dir, row_mtime_ns) -> (expires_at_monotonic, [(mtime, jsonl_path, description)])
+# Same shape as ``_candidates_cache`` but keyed on description rather than
+# first-line content. Used by the meta.description fallback path when the
+# strict needle match fails.
+_meta_candidates_cache: dict[tuple[str, int], tuple[float, list[tuple[float, Path, str]]]] = {}
+_META_CANDIDATES_TTL_SECONDS = 30.0
+
+
+def _reset_meta_candidates_cache() -> None:
+    """Test hook. Drop the cached meta.json index."""
+    _meta_candidates_cache.clear()
+
+
+def _load_meta_candidates(project_dir: Path) -> list[tuple[float, Path, str]]:
+    """Return a cached list of ``(mtime, jsonl_path, description)`` tuples
+    for every ``agent-<id>.meta.json`` under ``project_dir``.
+
+    Sorted freshest-first so callers can stop at the first match.
+    """
+    import time as _time
+    now = _time.monotonic()
+    root_mtime = _dir_mtime_ns(project_dir)
+    key = (str(project_dir), root_mtime)
+    entry = _meta_candidates_cache.get(key)
+    if entry is not None and entry[0] > now:
+        return entry[1]
+
+    candidates: list[tuple[float, Path, str]] = []
+    try:
+        for meta_path in project_dir.glob("*/subagents/agent-*.meta.json"):
+            jsonl_path = meta_path.with_suffix("")  # strips ".json"
+            if jsonl_path.suffix != ".meta":
+                continue
+            jsonl_path = jsonl_path.with_suffix(".jsonl")
+            try:
+                stat = jsonl_path.stat()
+            except OSError:
+                continue
+            try:
+                with open(meta_path, "r", errors="replace") as f:
+                    meta_obj = json.load(f)
+            except (OSError, json.JSONDecodeError, ValueError):
+                continue
+            if not isinstance(meta_obj, dict):
+                continue
+            desc = meta_obj.get("description")
+            if not isinstance(desc, str) or not desc.strip():
+                continue
+            candidates.append((stat.st_mtime, jsonl_path, desc.strip()))
+            if len(candidates) >= _MAX_GLOB_FILES:
+                break
+    except OSError:
+        candidates = []
+
+    candidates.sort(key=lambda t: t[0], reverse=True)
+    _meta_candidates_cache[key] = (now + _META_CANDIDATES_TTL_SECONDS, candidates)
+    return candidates
+
+
+def _find_subagent_by_meta_description(
+    project_dir: Path,
+    description: str,
+) -> Optional[Path]:
+    """Return the freshest ``agent-<id>.jsonl`` under ``project_dir`` whose
+    sibling ``.meta.json`` ``description`` field matches ``description``
+    exactly (case-insensitive, trimmed).
+
+    Used as a fallback when the strict-needle match on the prompt's first
+    line fails because the agent row's name (derived from the Task tool's
+    description slug) does not match the ``Name:`` the user hand-wrote
+    inside the prompt body. The description stored in the meta.json is
+    the same string both the agent row and the Task call carry, so it
+    disambiguates the name divergence cleanly.
+    """
+    target = description.strip().lower()
+    if not target:
+        return None
+    for _mtime, jsonl_path, desc in _load_meta_candidates(project_dir):
+        if desc.lower() == target:
+            return jsonl_path
+    return None
 
 
 def _find_freshest_matching_jsonl(
