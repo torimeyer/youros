@@ -1009,3 +1009,110 @@ async def test_from_roadmap_line_p95_under_demo_budget(
         "per-call file scan, settings reload, or sync write before raising "
         "this threshold."
     )
+
+
+@pytest.mark.asyncio
+async def test_delete_spec_sweeps_builder_tasks_it_spawned(
+    client, tmp_path, monkeypatch
+):
+    """Deleting a spec deletes every builder task that spec spawned.
+
+    Regression for the demo-residue bug: after a Build it run, the 2 or
+    more builder agent tasks (one per acceptance criterion) stayed on
+    the Tasks page even after the spec file itself was deleted. The
+    cleanup pass only swept the spec file, never the task rows, so every
+    demo ended with 6 orphan tasks (three specs x two tasks). Fix:
+    delete_spec now sweeps _spec_task_origin for any task id tied to the
+    spec being deleted and calls ostk.delete_task on each.
+
+    The test exercises the full path: build the spec (records the map),
+    then delete the spec (drains the map + fires delete_task). Asserts
+    on both the response payload and the observed delete_task calls so
+    a future refactor that drops either side of the mapping fails loudly.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_rel = "docs/spec/cleanup-residue.md"
+    spec_file = tmp_path / spec_rel
+    spec_file.write_text(
+        "---\ntitle: cleanup residue\nstatus: spec\n---\n\n"
+        "- [ ] Alpha\n- [ ] Beta\n"
+    )
+
+    async def fake_spec_build(path):
+        return {
+            "agents": [
+                {
+                    "name": "spec-cleanup-901",
+                    "task_id": "\u2192901",
+                    "task_title": "Alpha",
+                    "prompt": "Build alpha",
+                },
+                {
+                    "name": "spec-cleanup-902",
+                    "task_id": "\u2192902",
+                    "task_title": "Beta",
+                    "prompt": "Build beta",
+                },
+            ]
+        }
+
+    async def fake_doc_decompose(path):
+        return {"result": "ok", "task_ids": ["901", "902"]}
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", fake_spec_build)
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", fake_doc_decompose)
+
+    # Record every task_id the delete path hands to ostk.
+    deleted_task_ids: list[str] = []
+
+    async def fake_delete_task(task_id):
+        deleted_task_ids.append(task_id)
+        return "deleted"
+
+    monkeypatch.setattr(ostk_module.ostk, "delete_task", fake_delete_task)
+
+    # Stub the spawn call. We do NOT care what the builder does; we just
+    # need build_spec to populate _spec_task_origin before we delete.
+    async def fake_spawn_agent(body):
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    # Clear the module-level maps so a previous test cannot leak origin
+    # rows into this one and produce a false pass.
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    build = await client.post(f"/api/specs/{spec_rel}/build")
+    assert build.status_code == 200, build.text
+    assert build.json()["agents"] == ["spec-cleanup-901", "spec-cleanup-902"]
+    # Both tasks were recorded against this spec path.
+    assert specs_router._spec_task_origin == {
+        "901": spec_rel,
+        "902": spec_rel,
+    }
+
+    # Now delete the spec. This must sweep BOTH builder rows.
+    delete = await client.request(
+        "DELETE", f"/api/specs/{spec_rel}"
+    )
+    assert delete.status_code == 200, delete.text
+    payload = delete.json()
+    assert payload["result"] == "deleted"
+    # Response echoes which builder tasks got swept so the caller can log it.
+    assert sorted(payload["cleaned_builder_tasks"]) == ["901", "902"]
+    # And the ostk service actually received the delete calls.
+    assert sorted(deleted_task_ids) == ["901", "902"]
+    # After the sweep both maps are empty: the spec and its tasks are gone
+    # together so a fresh Build it on the same path starts clean.
+    assert specs_router._spec_task_origin == {}
+    assert "901" not in specs_router._task_assignments
+    assert "902" not in specs_router._task_assignments
