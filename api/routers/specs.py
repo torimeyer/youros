@@ -37,6 +37,40 @@ AC_DRAFT_MODEL = "claude-haiku-4-5"
 _task_assignments: dict[str, str] = {}
 
 
+# In-memory map: task_id -> spec_path, populated alongside _task_assignments
+# when /specs/{path}/build spawns per-task builder agents. Used by
+# delete_spec() to clean up any leftover builder task rows when the spec
+# file is removed, and by the per-task cleanup helper so builders that
+# finish successfully remove their originating task row rather than only
+# closing it. Kept as a sibling of _task_assignments so the pair stays in
+# sync and the existing loose-coupling between specs.py and tasks.py is
+# preserved (no agents.py changes, no cross-router imports at call time).
+_spec_task_origin: dict[str, str] = {}
+
+
+async def _delete_builder_task(task_id: str) -> bool:
+    """Delete one builder-spawned task row. Returns True on success.
+
+    Called on two paths: when a spec file is deleted (residue cleanup) and
+    from the explicit cleanup endpoint below when a builder agent finishes
+    its work. Swallows OstkError so a missing or already-deleted task does
+    not break the wider deletion flow; logs a warning so the audit trail
+    still reflects the miss.
+    """
+    try:
+        await ostk.delete_task(task_id)
+    except OstkError as exc:
+        logger.warning(
+            "builder-task cleanup: could not delete %s: %s", task_id, exc
+        )
+        return False
+    # Clear both local maps so a later delete_spec on the same path does
+    # not re-attempt the deletion and log a spurious warning.
+    _task_assignments.pop(task_id, None)
+    _spec_task_origin.pop(task_id, None)
+    return True
+
+
 # --- Acceptance-criteria generation prompt ---------------------------------
 #
 # Grounds the AC-drafting LLM call in what myOS already ships, caps the
@@ -830,15 +864,21 @@ async def build_spec(spec_path: str):
         task_title = cfg.get("task_title", "")
         if not name:
             return ("", "missing agent name")
-        # Append a clear close instruction so the agent hits the Tasks
-        # API when it finishes instead of only running ostk locally.
+        # Append a clear finish instruction so the agent hits the Tasks
+        # API when it finishes instead of only running ostk locally. The
+        # task row is a per-build artifact (the spec IS the source of
+        # truth for this work), so we delete the row rather than close it.
+        # Closing leaves a "completed" bullet behind on the Tasks page
+        # that Tori then has to hand-sweep after every demo run. DELETE
+        # fires the same progress-bar update and keeps the Tasks page
+        # clean of spec-build residue.
         prompt_with_close = (
             prompt
             + "\n\n## When done\n\n"
-            + f"Close task {task_id} via `curl -sSk --connect-timeout 3 -m 5 "
-            + f"-X POST https://127.0.0.1:8000/api/tasks/{task_id}/close` so "
-            + "the spec's progress bar updates and the Tasks page reflects "
-            + "the completion immediately.\n"
+            + f"Delete task {task_id} via `curl -sSk --connect-timeout 3 -m 5 "
+            + f"-X DELETE https://127.0.0.1:8000/api/tasks/{task_id}` so "
+            + "the spec's progress bar updates and the Tasks page does not "
+            + "keep the spec-build row around after the work is done.\n"
         )
         # Build a friendly task label so the Agents page shows what each
         # builder is working on instead of the opaque agent name.
@@ -862,20 +902,28 @@ async def build_spec(spec_path: str):
             demo_mode=True,
         )
         # Record assignment up front so the first poll after the HTTP
-        # return already shows the agent-to-task mapping.
+        # return already shows the agent-to-task mapping. Also record the
+        # spec path so delete_spec can sweep any leftover builder rows if
+        # the spec is removed before every builder has finished.
+        # Needles use both "→728" and "728" as keys at different layers,
+        # so we store both forms and the origin map keys off the bare id
+        # that ostk.delete_task accepts.
         norm_tid = str(task_id).lstrip("\u2192") if task_id else ""
         if norm_tid:
             _task_assignments[norm_tid] = name
+            _spec_task_origin[norm_tid] = spec_path
         try:
             await spawn_agent(body)
             return (name, None)
         except HTTPException as e:
             if norm_tid:
                 _task_assignments.pop(norm_tid, None)
+                _spec_task_origin.pop(norm_tid, None)
             return (name, str(e.detail))
         except Exception as e:  # noqa: BLE001
             if norm_tid:
                 _task_assignments.pop(norm_tid, None)
+                _spec_task_origin.pop(norm_tid, None)
             return (name, str(e))
 
     # Parallelize every builder spawn. asyncio.gather preserves input
@@ -935,7 +983,32 @@ async def delete_spec(doc_path: str):
     if not target.exists():
         raise HTTPException(status_code=404, detail="Document not found")
     target.unlink()
-    return {"result": "deleted"}
+
+    # Residue cleanup: every task row that was spawned from this spec is
+    # an in-flight build artifact, not a free-standing task. Once the
+    # spec file is gone, the tasks have nothing to build against, so
+    # sweep them. Without this, the Tasks page keeps 2 to 6 orphan
+    # "Build X / Ship Y" rows per demo run, and the demo script's
+    # separate cleanup pass has to paper over the gap. We iterate over a
+    # snapshot of the map because _delete_builder_task mutates it.
+    # We compare on the stored spec_path verbatim; build_spec records
+    # that exact string, and delete_spec normalises doc_path above to
+    # the same "docs/..." prefix, so equality is the right match.
+    stranded = [
+        tid for tid, sp in list(_spec_task_origin.items()) if sp == doc_path
+    ]
+    deleted_tasks: list[str] = []
+    for tid in stranded:
+        if await _delete_builder_task(tid):
+            deleted_tasks.append(tid)
+    if deleted_tasks:
+        logger.info(
+            "delete_spec: swept %d builder task(s) for %s: %s",
+            len(deleted_tasks),
+            doc_path,
+            deleted_tasks,
+        )
+    return {"result": "deleted", "cleaned_builder_tasks": deleted_tasks}
 
 
 @router.post("/specs/cleanup-test-artifacts")
