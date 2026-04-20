@@ -1949,12 +1949,12 @@ export function ChatPanel() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setDefaultChatModel(defaultChatModel === 'claude' ? 'gemini' : 'claude')}
-            className={`shrink-0 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+            className={`shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
               defaultChatModel === 'claude'
-                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                ? 'bg-blue-500/15 border-blue-500/40 text-blue-300 hover:bg-blue-500/25 hover:border-blue-500/60'
+                : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25 hover:border-emerald-500/60'
             }`}
-            title={`Talking to ${defaultChatModel}. Click to switch.`}
+            title={`Click to switch to ${defaultChatModel === 'claude' ? 'Gemini' : 'Claude'}`}
             data-testid="chat-model-toggle"
           >
             {defaultChatModel === 'claude' ? 'Claude' : 'Gemini'}
