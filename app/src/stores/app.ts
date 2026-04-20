@@ -84,6 +84,7 @@ interface AppState {
   setOnboarded: (v: boolean) => void
   chatOpen: boolean
   toggleChat: () => void
+  setChatOpen: (open: boolean) => void
   chatWidth: number
   setChatWidth: (w: number) => void
   isResizing: boolean
@@ -330,6 +331,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   chatOpen: true,
   toggleChat: () => set((s) => ({ chatOpen: !s.chatOpen })),
+  setChatOpen: (chatOpen) => set({ chatOpen }),
   chatWidth: readInitialChatWidth(),
   setChatWidth: (chatWidth) => {
     const viewport = typeof window !== 'undefined' ? window.innerWidth : 1200

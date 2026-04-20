@@ -5,6 +5,7 @@ import { ChatPanel } from './ChatPanel'
 import { CommandPalette } from './CommandPalette'
 import GuidedTour from './GuidedTour'
 import NotificationToasts from './NotificationToast'
+import { ProbeFailureBanner } from './ProbeFailureBanner'
 import { useUserActivity } from '../hooks/useUserActivity'
 import { useAppStore } from '../stores/app'
 
@@ -47,6 +48,7 @@ export function Layout() {
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
   const toggleCommandPalette = useAppStore((s) => s.toggleCommandPalette)
   const toggleChat = useAppStore((s) => s.toggleChat)
+  const setChatOpen = useAppStore((s) => s.setChatOpen)
   const showTour = useAppStore((s) => s.showTour)
   const setShowTour = useAppStore((s) => s.setShowTour)
   const tourComplete = useAppStore((s) => s.tourComplete)
@@ -106,6 +108,13 @@ export function Layout() {
           e.preventDefault()
           navigate('/tasks?new=1')
           break
+        case 'm':
+        case 'M':
+          if (e.shiftKey) {
+            e.preventDefault()
+            setChatOpen(true)
+          }
+          break
         case '1':
         case '2':
         case '3':
@@ -125,7 +134,7 @@ export function Layout() {
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [toggleCommandPalette, toggleChat, navigate])
+  }, [toggleCommandPalette, toggleChat, setChatOpen, navigate])
 
   // Apply dark/light mode to the document element
   useEffect(() => {
@@ -169,6 +178,7 @@ export function Layout() {
   return (
     <div data-theme={darkMode ? 'dark' : 'light'}>
       <Sidebar />
+      <ProbeFailureBanner />
       <ChatPanel />
       <CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} />
       {showTour && <GuidedTour onComplete={() => setShowTour(false)} />}
