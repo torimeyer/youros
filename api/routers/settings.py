@@ -130,3 +130,19 @@ async def list_mcp_servers():
         "ostk_servers": ostk_servers,
         "manual_servers": manual_servers,
     }
+
+
+@router.get("/settings/probe")
+async def get_probe_status():
+    """Get the last probe result from settings."""
+    result = settings_store.get("last_probe_result")
+    return {"last_probe_result": result}
+
+
+@router.post("/settings/probe/run")
+async def run_probe():
+    """Run a health check probe and save the result."""
+    from services.probe_runner import run_probe
+    result = await run_probe()
+    settings_store.update({"last_probe_result": result})
+    return result
