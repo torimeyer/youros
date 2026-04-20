@@ -54,7 +54,7 @@ case "$TOOL" in
   Bash)  EQ="mcp__ostk__shell" ;;
   Read)  EQ="mcp__ostk__fs_read" ;;
   Edit)  EQ="mcp__ostk__edit" ;;
-  Write) EQ="mcp__ostk__fs_write" ;;
+  Write) trace "write-no-ostk-equivalent-allowed" "$TOOL"; exit 0 ;;
   Grep|Glob) EQ="mcp__ostk__search" ;;
   *) trace "non-matching-allowed" "$TOOL"; exit 0 ;;
 esac
