@@ -78,13 +78,142 @@ def _resolve_agent_name(name: str) -> str:
 _HOOK_PREREGISTER_MERGE_WINDOW_SECONDS = 120
 
 
-def _find_recent_hook_preregister(now_iso: str):
+# Stop tokens dropped before similarity comparison so two agents that
+# both happen to mention "the", "for", or "a" do not count as matching.
+# Kept deliberately small. The real signal is domain words (the verb,
+# the slug, the topic) not English filler.
+_HOOK_PREREGISTER_MERGE_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "do", "does",
+    "for", "from", "get", "has", "have", "how", "if", "in", "into",
+    "is", "it", "its", "not", "of", "on", "or", "so", "that", "the",
+    "then", "there", "this", "to", "was", "what", "when", "where",
+    "why", "will", "with", "agent", "subagent", "claude", "code",
+    "claude-code", "run", "running", "task",
+})
+
+
+def _hook_preregister_tokens(text) -> set:
+    """Lowercase the string, split on non-word chars, drop stopwords
+    and one-char tokens. Returns the set of content tokens used by the
+    merge matcher. Safe on None and empty input.
+    """
+    if not text:
+        return set()
+    if not isinstance(text, str):
+        try:
+            text = str(text)
+        except Exception:
+            return set()
+    import re as _re
+    tokens = _re.split(r"[^a-z0-9]+", text.lower())
+    return {
+        t for t in tokens
+        if t and len(t) > 1 and t not in _HOOK_PREREGISTER_MERGE_STOPWORDS
+    }
+
+
+def _hook_preregister_matches_register(
+    hook_name: str,
+    hook_meta: dict,
+    body_name: str,
+    body_description: str,
+    body_prompt: str,
+) -> bool:
+    """Return True when the hook-preregister row (``hook_name`` /
+    ``hook_meta``) is textually close enough to the incoming /register
+    call that merging is safe.
+
+    The time window alone is not sufficient. Two subagents spawned
+    within 120 seconds of each other produce two hook rows and two
+    self-register calls. Without a name/description check the second
+    self-register silently lands on the first hook row, making the
+    second subagent invisible under its chosen name. This was the
+    demo-blocking bug: a "diagnose-probe-agent-<uuid>" self-register
+    got absorbed into an unrelated "fix-testagents-ordering-pollution"
+    hook row.
+
+    A match is any one of:
+
+    * exact name equality (``hook_name == body_name``)
+    * one name is a substring of the other (catches "-v2" / "-retry"
+      suffix divergence the hook cannot predict)
+    * two or more content tokens shared between either pair of
+      (hook name, hook description, hook prompt) and
+      (body name, body description, body prompt)
+    * the hook's slug-of-description name appears inside the body's
+      description or prompt (the common case: hook names the row
+      "fix-foo-bar-baz", the subagent's prompt mentions "fix foo")
+
+    Stopwords and single-character tokens are dropped before the
+    token overlap count so "the", "and", "a" do not create spurious
+    matches.
+    """
+    if not isinstance(hook_meta, dict):
+        return False
+    hook_name = hook_name or ""
+    body_name = body_name or ""
+    hook_description = str(hook_meta.get("description") or "")
+    hook_prompt = str(hook_meta.get("prompt") or "")
+    body_description = body_description or ""
+    body_prompt = body_prompt or ""
+
+    # 1. Exact or substring name match.
+    if hook_name and body_name:
+        if hook_name == body_name:
+            return True
+        h_lower = hook_name.lower()
+        b_lower = body_name.lower()
+        if h_lower in b_lower or b_lower in h_lower:
+            return True
+
+    # 2. Hook's slug-of-description name appears inside body text.
+    # Hook names are slugged descriptions, so finding that slug in the
+    # subagent's own description or prompt is a strong signal.
+    h_slug = hook_name.lower().replace("_", "-") if hook_name else ""
+    if h_slug and len(h_slug) >= 6:
+        combined_body = (body_description + " " + body_prompt).lower()
+        # Replace spaces with dashes so "fix foo bar" matches slug
+        # "fix-foo-bar" and vice versa.
+        combined_body_dashed = combined_body.replace(" ", "-")
+        if h_slug in combined_body_dashed:
+            return True
+
+    # 3. Token overlap. Build the content-token sets for each side
+    # across name + description + prompt, then require at least 2
+    # shared tokens. Two is enough to weed out coincidental single
+    # word overlaps ("test" or "fix") while staying permissive for
+    # hand-written subagents whose internal name diverges from the
+    # Task description slug.
+    hook_tokens = (
+        _hook_preregister_tokens(hook_name)
+        | _hook_preregister_tokens(hook_description)
+        | _hook_preregister_tokens(hook_prompt)
+    )
+    body_tokens = (
+        _hook_preregister_tokens(body_name)
+        | _hook_preregister_tokens(body_description)
+        | _hook_preregister_tokens(body_prompt)
+    )
+    if len(hook_tokens & body_tokens) >= 2:
+        return True
+
+    return False
+
+
+def _find_recent_hook_preregister(
+    now_iso: str,
+    *,
+    body_name: str = "",
+    body_description: str = "",
+    body_prompt: str = "",
+):
     """Find a recently spawned running claude-code row that was created
     by the PreToolUse hook and is still awaiting its subagent's own
     self-register.
 
     Returns ``(name, meta)`` for the best match, or ``None`` if no
-    candidate is within the merge window. A candidate must be:
+    candidate is within the merge window AND textually similar enough
+    to the incoming register call. A candidate must be:
 
     * explicitly flagged ``hook_preregister: True`` by the hook
     * ``source == 'claude-code'``
@@ -92,11 +221,14 @@ def _find_recent_hook_preregister(now_iso: str):
     * spawned within ``_HOOK_PREREGISTER_MERGE_WINDOW_SECONDS`` of now
     * not already merged into by another alias (so two back-to-back
       subagent spawns cannot both claim the same hook row)
+    * textually close to the register body (name / description /
+      prompt overlap). See ``_hook_preregister_matches_register``.
 
-    Requiring the explicit flag avoids accidentally merging a fresh
-    subagent register into an unrelated recent claude-code session
-    row that just happened to be running. Returns the newest matching
-    row so a fresh spawn always wins over a stale one.
+    Requiring BOTH the explicit flag AND a textual match prevents the
+    silent-absorb bug where a fresh subagent's self-register got
+    merged into an unrelated pre-existing hook row just because it
+    arrived within the time window. Returns the newest matching row
+    so a fresh spawn always wins over a stale one.
     """
     try:
         now = datetime.fromisoformat(now_iso)
@@ -126,6 +258,14 @@ def _find_recent_hook_preregister(now_iso: str):
             continue
         delta = (now - spawned).total_seconds()
         if delta < 0 or delta > _HOOK_PREREGISTER_MERGE_WINDOW_SECONDS:
+            continue
+        # Textual similarity guard. Without this the matcher picks the
+        # newest in-window hook row regardless of whether it has
+        # anything to do with the incoming self-register, producing the
+        # "merged into unrelated row" bug.
+        if not _hook_preregister_matches_register(
+            name, meta, body_name, body_description, body_prompt,
+        ):
             continue
         if best_spawned is None or spawned > best_spawned:
             best_name = name
@@ -4350,7 +4490,12 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         and (status or "running") == "running"
         and not body.hook_preregister
     ):
-        merge_target = _find_recent_hook_preregister(now_iso)
+        merge_target = _find_recent_hook_preregister(
+            now_iso,
+            body_name=body.name or "",
+            body_description=body.description or "",
+            body_prompt=body.prompt or "",
+        )
         if merge_target is not None:
             existing_name, existing_meta = merge_target
             # Refresh heartbeat so the merged row does not get swept as
