@@ -12997,3 +12997,74 @@ async def test_list_agents_no_pid_running_not_reconciled():
         assert agent_metadata[name]["status"] == "running"
     finally:
         agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_list_agents_single_save_per_request_even_with_many_reconciles():
+    """10 stale-running rows must produce at most ONE _save_agent_state call.
+
+    Pre-fix, the persisted-metadata branch (step 2b of list_agents) called
+    _save_agent_state() inline for each dead row it flipped to
+    ``terminated_stale`` or ``abandoned``. With 100+ rows in
+    ``.ostk/agent_state.json`` that collapsed the FastAPI event loop under
+    concurrent /api/agents polls: every inline atomic_write_json blocked
+    other coroutines until the sync disk write completed, and the queued
+    SSL handshakes hit the 5s timeout. The fix batches all mutations into
+    a single save at the end of the request, combined with the sweep.
+
+    Invariant: for N rows that each look "stale, no heartbeat, >20 min
+    old", _save_agent_state is called at MOST once per /api/agents poll.
+    """
+    from routers import agents as agents_module
+
+    stale_spawn = (datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat()
+    # 10 claude-code rows, each stale-running with no heartbeat.
+    seed: dict[str, dict] = {}
+    for i in range(10):
+        seed[f"regr-stale-{i}"] = {
+            "source": "claude-code",
+            "status": "running",
+            "spawned_at": stale_spawn,
+            "model": "claude-sonnet-4-6",
+            "budget": 5.0,
+            "pid": None,
+        }
+
+    save_calls = 0
+
+    def counting_save():
+        nonlocal save_calls
+        save_calls += 1
+
+    with patch.dict(agents_module.agent_metadata, seed, clear=True), \
+         patch.dict(agents_module.active_agents, {}, clear=True), \
+         patch.object(agents_module, "_save_agent_state", counting_save), \
+         patch.object(
+             agents_module.ostk,
+             "kernel_ps",
+             new=AsyncMock(return_value={
+                 "raw": "no daemon running",
+                 "daemon_running": False,
+                 "agents": [],
+             }),
+         ), \
+         patch.object(
+             agents_module.ostk,
+             "audit_agents",
+             new=AsyncMock(return_value=[]),
+         ):
+        result = await agents_module.list_agents()
+
+    # Invariant: at most ONE save no matter how many rows were reconciled.
+    assert save_calls <= 1, (
+        f"Expected <=1 _save_agent_state call for 10 stale rows, got "
+        f"{save_calls}. Regression: inline saves inside the reconcile "
+        f"loop will collapse the event loop under concurrent /api/agents "
+        f"polls and trip the 5s SSL handshake timeout."
+    )
+    # Sanity: the endpoint completed without raising and returned the
+    # expected envelope. (Whether every seeded row survives downstream
+    # filters is out of scope; the batch-save invariant above is what
+    # this test is guarding.)
+    assert isinstance(result, dict)
+    assert "agents" in result

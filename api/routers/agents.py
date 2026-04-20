@@ -2386,7 +2386,15 @@ async def list_agents(
                 "status": effective_status,
             }
 
-    # 2b. Persisted metadata (agents from previous server sessions)
+    # 2b. Persisted metadata (agents from previous server sessions).
+    # Any mutations discovered during this pass are flagged in
+    # ``persisted_pass_changed`` and saved exactly once at the end of the
+    # request, combined with the sweep below. Calling _save_agent_state()
+    # inside the loop would do one full-file atomic JSON write per dead
+    # row, which on a 100+ row state file serializes concurrent /api/agents
+    # requests in the asyncio loop long enough for the SSL handshake
+    # timeout to trip on queued requests.
+    persisted_pass_changed = False
     for name, meta in agent_metadata.items():
         if name in active_agents:
             continue  # in-memory process, step 2 already handled it
@@ -2425,7 +2433,7 @@ async def list_agents(
                     "PID exited (list endpoint reconciled on read)"
                 )
                 agent_metadata[name] = meta
-                _save_agent_state()
+                persisted_pass_changed = True
                 agents_map[name] = {
                     "name": name,
                     "source": meta.get("source", "api"),
@@ -2491,7 +2499,7 @@ async def list_agents(
                     "PID exited (list endpoint reconciled on read)"
                 )
                 agent_metadata[name] = meta
-                _save_agent_state()
+                persisted_pass_changed = True
                 agents_map[name] = {
                     "name": name,
                     "source": meta.get("source", "api"),
@@ -2522,7 +2530,7 @@ async def list_agents(
                     "(legacy record, swept by list endpoint)"
                 )
                 agent_metadata[name] = meta
-                _save_agent_state()
+                persisted_pass_changed = True
                 agents_map[name] = {
                     "name": name,
                     "source": meta.get("source", "api"),
@@ -2595,7 +2603,7 @@ async def list_agents(
                     # Persist the abandoned status so we do not keep recomputing.
                     meta["status"] = "abandoned"
                     agent_metadata[name] = meta
-                    _save_agent_state()
+                    persisted_pass_changed = True
                     agents_map[name] = {
                         "name": name,
                         "source": "claude-code",
@@ -2689,7 +2697,12 @@ async def list_agents(
             if is_cc_subagent:
                 meta["completed_at"] = terminated_at
             sweep_changed = True
-    if sweep_changed:
+    # Single persistence point for everything mutated during the request:
+    # step 2b transitions (PID-death reconciles, legacy-stale-no-heartbeat,
+    # abandoned-on-age) AND the sweep above. One atomic disk write
+    # regardless of how many rows changed, so concurrent pollers do not
+    # serialize on disk I/O.
+    if sweep_changed or persisted_pass_changed:
         _save_agent_state()
 
     # Auto-complete pass: flip source='claude-code' agents that exited
