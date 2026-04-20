@@ -12871,3 +12871,129 @@ def test_resolve_transcript_description_match_ignores_wrong_description(tmp_path
         _resolve_cache.clear()
         _reset_candidates_cache()
         _reset_meta_candidates_cache()
+
+
+# --- Registry reconciler regression tests (demo-facing staleness) ---
+#
+# Ported from worktree branch worktree-agent-a713163f (commit 92246e7).
+# Before the fix: the /api/agents list endpoint trusted persisted
+# ``status="running"`` without PID-checking, so a process that had
+# already exited (e.g. reaped by ostk) would keep showing as ``running``
+# in the UI for up to 900 seconds. After the fix: in the list handler,
+# when a persisted row has ``status="running"`` and a recorded ``pid``
+# that is NOT alive, flip it to ``completed`` on the same request.
+
+
+@pytest.mark.asyncio
+async def test_list_agents_flips_dead_pid_running_to_completed_on_read():
+    """A persisted running agent whose PID exited must flip to completed in one call.
+
+    Repros the demo bug: ``reap`` marked builders dead at the OS level,
+    but GET /api/agents kept returning them as running until the 15-min
+    sweep. After the fix the flip happens on the same request.
+    """
+    from routers.agents import agent_metadata, active_agents
+    name = "reconciler-dead-pid-agent"
+    active_agents.pop(name, None)
+    agent_metadata[name] = {
+        "name": name,
+        "source": "api",
+        "status": "running",
+        "pid": 999999999,  # implausible PID; os.kill(pid, 0) will raise
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        "model": "sonnet",
+        "budget": "1.00",
+    }
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                resp = await client.get("/api/agents")
+        assert resp.status_code == 200
+        data = resp.json()
+        rows = [a for a in data["agents"] if a["name"] == name]
+        assert rows, "agent row missing from list"
+        assert rows[0]["status"] == "completed", (
+            f"expected completed, got {rows[0]['status']!r}. "
+            "Dead-PID reconcile on list endpoint did not fire."
+        )
+        # The in-memory registry must also be flipped so subsequent
+        # reads do not have to re-reconcile.
+        assert agent_metadata[name]["status"] == "completed"
+        assert "completed_at" in agent_metadata[name]
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_list_agents_keeps_live_pid_running():
+    """Sanity test: a live PID must NOT get flipped to completed."""
+    import os
+    from routers.agents import agent_metadata, active_agents
+    name = "reconciler-live-pid-agent"
+    active_agents.pop(name, None)
+    agent_metadata[name] = {
+        "name": name,
+        "source": "api",
+        "status": "running",
+        "pid": os.getpid(),  # the test process itself is alive
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                resp = await client.get("/api/agents")
+        assert resp.status_code == 200
+        data = resp.json()
+        rows = [a for a in data["agents"] if a["name"] == name]
+        assert rows and rows[0]["status"] == "running"
+        assert agent_metadata[name]["status"] == "running"
+    finally:
+        agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_list_agents_no_pid_running_not_reconciled():
+    """A running row with no PID recorded must NOT be reconciled by this path.
+
+    Claude Code subagents register over HTTP with no local PID, so the
+    PID-death check must only trip when an actual pid is present. The
+    heartbeat-staleness sweep still covers no-PID rows separately.
+    """
+    from routers.agents import agent_metadata, active_agents
+    name = "reconciler-no-pid-agent"
+    active_agents.pop(name, None)
+    agent_metadata[name] = {
+        "name": name,
+        "source": "claude-code",
+        "status": "running",
+        "spawned_at": datetime.now(timezone.utc).isoformat(),
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("routers.agents.ostk") as mock_ostk:
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                resp = await client.get("/api/agents")
+        assert resp.status_code == 200
+        data = resp.json()
+        rows = [a for a in data["agents"] if a["name"] == name]
+        assert rows and rows[0]["status"] == "running"
+        assert agent_metadata[name]["status"] == "running"
+    finally:
+        agent_metadata.pop(name, None)

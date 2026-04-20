@@ -2408,6 +2408,31 @@ async def list_agents(
         }
         persisted_status_check = meta.get("status")
         if name in agents_map and persisted_status_check in _AUTHORITATIVE_STATUSES:
+            # Fast PID-death reconcile: if metadata says running but the
+            # pid has exited, flip to completed before overriding the
+            # audit log. Prevents dead rows from re-stamping themselves
+            # as running via this merge path.
+            override_pid = meta.get("pid")
+            if (
+                persisted_status_check == "running"
+                and override_pid
+                and not _is_pid_alive(int(override_pid))
+            ):
+                now_iso = datetime.now(timezone.utc).isoformat()
+                meta["status"] = "completed"
+                meta["completed_at"] = now_iso
+                meta["completion_reason"] = (
+                    "PID exited (list endpoint reconciled on read)"
+                )
+                agent_metadata[name] = meta
+                _save_agent_state()
+                agents_map[name] = {
+                    "name": name,
+                    "source": meta.get("source", "api"),
+                    **meta,
+                    "status": "completed",
+                }
+                continue
             agents_map[name] = {
                 "name": name,
                 "source": meta.get("source", "api"),
@@ -2451,6 +2476,29 @@ async def list_agents(
         # below still wins for any record that does have last_heartbeat_at,
         # so nothing regresses on the good path.
         elif persisted_status == "running":
+            # Fast PID-death reconcile (needle: demo staleness).
+            # If the record carries a pid and that pid is NOT alive, the
+            # process has exited. Flip to "completed" now rather than
+            # waiting the 900s heartbeat sweep. This removes the lag
+            # that made reaped builders keep showing as running in the
+            # Agents page for up to 15 minutes after they finished.
+            pid_for_check = meta.get("pid")
+            if pid_for_check and not _is_pid_alive(int(pid_for_check)):
+                now_iso = datetime.now(timezone.utc).isoformat()
+                meta["status"] = "completed"
+                meta["completed_at"] = now_iso
+                meta["completion_reason"] = (
+                    "PID exited (list endpoint reconciled on read)"
+                )
+                agent_metadata[name] = meta
+                _save_agent_state()
+                agents_map[name] = {
+                    "name": name,
+                    "source": meta.get("source", "api"),
+                    **meta,
+                    "status": "completed",
+                }
+                continue
             spawned_at_str = meta.get("spawned_at", "")
             has_heartbeat = isinstance(meta.get("last_heartbeat_at"), str)
             is_stale_no_heartbeat = False
