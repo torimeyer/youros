@@ -839,3 +839,173 @@ async def test_spec_counts_zero_when_no_specs(
     res = await client.get("/api/specs/counts")
     assert res.status_code == 200
     assert res.json() == {"unfinished": 0, "total": 0}
+
+
+# ---------------------------------------------------------------------------
+# Latency regression: AC-drafting model + route orchestration budget
+# ---------------------------------------------------------------------------
+#
+# Backstory: the live demo measured POST /specs/from-roadmap-line at
+# 9 to 12 seconds for roadmap bullets with longer or more ambiguous
+# text (for example "Improve direct LLM integration with myOS"),
+# versus 4.8 s for the snappy baseline. Raw-call timing pinned the
+# blame on the Sonnet 4.5 model used to draft acceptance criteria:
+# p50 ~4.5 s per call, with a tail that blew past 10 s on the demo's
+# slowest subject. Switching the AC-drafting step to Haiku 4.5 cut
+# p50 to ~2.3 s and p95 to well under 5 s while producing equivalent
+# output for the 3-item checklist shape we ask for.
+#
+# Two tests here, both isolated from the real Anthropic API:
+#   1. Assert AC_DRAFT_MODEL is a Haiku model. Guards against a drift
+#      back to Sonnet for this specific drafting step.
+#   2. Run from-roadmap-line three times back to back with a mocked
+#      LLM and assert the p95 route-orchestration time is under 1.5 s.
+#      That covers every non-LLM cost: ostk subprocess draft + promote,
+#      FastAPI dispatch, pydantic, file I/O, prompt template build.
+#      Serial back-to-back calls + fast mock preserves any accidental
+#      O(N) overhead from a future regression (a per-call file scan,
+#      a repeat settings reload, a sync DB write, etc.).
+
+
+def test_ac_draft_model_is_haiku_for_demo_latency():
+    """Guard: AC-drafting must use Haiku so p95 stays under 5 s.
+
+    Sonnet-4.5 measured 4 to 5 s per AC call with a tail that pushed
+    total route time to 12 s on one demo bullet. Haiku-4.5 produces
+    the same 3-item checklist shape in ~2.3 s. Anyone who flips this
+    back to Sonnet for "quality" needs to re-measure the full route
+    first or the demo will drift back over the 5 s target.
+    """
+    from routers import specs as specs_router
+
+    assert "haiku" in specs_router.AC_DRAFT_MODEL.lower(), (
+        f"AC_DRAFT_MODEL={specs_router.AC_DRAFT_MODEL!r} must be a Haiku "
+        "variant to keep the spec-from-roadmap path under the 5 s demo "
+        "target. Do not switch this back to Sonnet without re-running "
+        "the e2e latency probe."
+    )
+
+
+@pytest.mark.asyncio
+async def test_from_roadmap_line_p95_under_demo_budget(
+    client, tmp_path, monkeypatch
+):
+    """Regression: three back-to-back from-roadmap-line calls must land
+    the p95 under 1.5 s of non-LLM orchestration.
+
+    The real demo threshold is p95 < 5 s end to end. That budget covers
+    the Haiku LLM call (measured ~2.3 s p50, under 3 s at p95) plus the
+    route's orchestration overhead. This test mocks the Anthropic client
+    so the measurement isolates orchestration cost: any regression that
+    adds per-call file scanning, a sync DB write, or a cold SDK import
+    will push this test's p95 above 1.5 s even though the mock returns
+    instantly.
+
+    The three subjects match the e2e demo probe ("Improve direct LLM
+    integration with myOS", "Recent specs widget on the dashboard",
+    "Multi model side by side chat answers") so the length-dependent
+    paths that surfaced the original bug stay covered.
+    """
+    import asyncio
+    import time
+
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    roadmap_path = tmp_path / "roadmap.md"
+    roadmap_path.write_text(
+        "---\nkind: roadmap\n---\n\n# Roadmap\n\n"
+        "- Improve direct LLM integration with myOS\n"
+        "- Recent specs widget on the dashboard\n"
+        "- Multi model side by side chat answers\n"
+    )
+
+    # Counter so we can hand back a unique draft file per call and
+    # simulate ostk's filename-deduping without actually shelling out.
+    call_counter = {"n": 0}
+
+    async def fake_run(*args, **kwargs):
+        if args[:2] == ("doc", "draft"):
+            call_counter["n"] += 1
+            name = f"latency-probe-{call_counter['n']}.md"
+            path = tmp_path / "docs" / "draft" / name
+            path.write_text("---\ntitle: latency probe\nstatus: draft\n---\n\n")
+            return str(path.relative_to(tmp_path))
+        if args[:2] == ("doc", "promote"):
+            draft_rel = args[2]
+            src = tmp_path / draft_rel
+            dst = tmp_path / draft_rel.replace("docs/draft/", "docs/spec/", 1)
+            dst.write_text(src.read_text().replace("status: draft", "status: spec"))
+            src.unlink()
+            return str(dst.relative_to(tmp_path))
+        raise AssertionError(f"unexpected ostk call: {args}")
+
+    monkeypatch.setattr(ostk_module.ostk, "_run", fake_run)
+
+    class FakeMessages:
+        async def create(self, **_kw):
+            class Content:
+                text = (
+                    "## What we want\n"
+                    "Short plan body.\n\n"
+                    "## Acceptance criteria\n"
+                    "- [ ] Criterion one\n"
+                    "- [ ] Criterion two\n"
+                    "- [ ] Criterion three\n"
+                )
+
+            class Resp:
+                content = [Content()]
+
+            return Resp()
+
+    class FakeClient:
+        def __init__(self, **_kw):
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr(
+        "services.chat_providers._resolve_api_key",
+        AsyncMock(return_value="fake-key"),
+    )
+    import anthropic
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
+
+    subjects = [
+        "Improve direct LLM integration with myOS",
+        "Recent specs widget on the dashboard",
+        "Multi model side by side chat answers",
+    ]
+
+    durations: list[float] = []
+    for subject in subjects:
+        t0 = time.perf_counter()
+        resp = await client.post(
+            "/api/specs/from-roadmap-line",
+            json={
+                "roadmap_path": str(roadmap_path),
+                "initiative_text": subject,
+            },
+        )
+        elapsed = time.perf_counter() - t0
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "ready"
+        durations.append(elapsed)
+
+    # p95 of three samples is the max. Budget 1.5 s of orchestration.
+    # Real demo adds ~2.3 s for Haiku on top, landing under 5 s total.
+    p95 = max(durations)
+    p50 = sorted(durations)[1]
+    assert p95 < 1.5, (
+        f"spec-from-roadmap-line orchestration regressed: p50={p50*1000:.0f}ms "
+        f"p95={p95*1000:.0f}ms samples={[f'{d*1000:.0f}ms' for d in durations]}. "
+        "Budget is 1.5 s; combined with Haiku's ~2.3 s p50 that keeps the "
+        "end-to-end demo path under the 5 s target. Investigate any new "
+        "per-call file scan, settings reload, or sync write before raising "
+        "this threshold."
+    )

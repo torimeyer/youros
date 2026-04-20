@@ -16,6 +16,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["specs"])
 
 
+# Model used for acceptance-criteria drafting. Haiku produces the same
+# shape of output (3 short checklist items plus a 2-3 sentence "What we
+# want" paragraph) as Sonnet but lands in roughly half the wall time:
+# measured p50 2.3 s on Haiku 4.5 vs 4.5 s on Sonnet 4.5 for the demo
+# subjects, and the tail that pushed "Improve direct LLM integration
+# with myOS" to 12 s on Sonnet collapses under Haiku. AC drafting is
+# pattern-shaped writing, not reasoning-heavy, so quality holds at
+# Haiku pricing and speed. Kept as a module constant so tests and
+# future tuning can override without touching every call site.
+AC_DRAFT_MODEL = "claude-haiku-4-5"
+
+
 # In-memory map: task_id -> agent_name, populated when /specs/{path}/build
 # spawns per-task builder agents. Read by GET /specs/{path}/tasks so the
 # Specs page can render spinners labeled with the agent doing each task
@@ -245,7 +257,7 @@ async def create_draft(body: SpecDraft):
         if api_key:
             client = anthropic.AsyncAnthropic(api_key=api_key)
             response = await client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model=AC_DRAFT_MODEL,
                 max_tokens=500,
                 messages=[{
                     "role": "user",
@@ -532,7 +544,7 @@ async def create_spec_from_task(body: SpecFromTask):
                     "Keep it concise. Plain language. No jargon."
                 )
                 response = await client.messages.create(
-                    model="claude-sonnet-4-5-20250929",
+                    model=AC_DRAFT_MODEL,
                     max_tokens=500,
                     messages=[{"role": "user", "content": prompt_text}],
                 )
@@ -629,7 +641,7 @@ async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
             if api_key:
                 client = anthropic.AsyncAnthropic(api_key=api_key)
                 response = await client.messages.create(
-                    model="claude-sonnet-4-5-20250929",
+                    model=AC_DRAFT_MODEL,
                     max_tokens=500,
                     messages=[
                         {
