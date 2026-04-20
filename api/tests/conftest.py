@@ -42,6 +42,76 @@ async def client():
         yield c
 
 
+@pytest_asyncio.fixture
+async def live_task_tracker(client):
+    """Records task IDs created during a test and deletes them on teardown.
+
+    Use this in any test that calls POST /api/tasks against a real or
+    in-process backend without mocking ostk. Without the fixture, a
+    failing assertion leaves the created task behind where it surfaces
+    on the Tasks page until somebody notices and hand-deletes it. With
+    the fixture, teardown runs even when the test raises, so the repo
+    never carries a smoke-run ghost forward.
+
+    Contract:
+      tracker.track(task_id)       — record a single ID for cleanup
+      tracker.track_all([id, id])  — bulk record
+      tracker.create(title, **kw)  — POST /api/tasks and auto-track
+
+    The fixture always attempts DELETE /api/tasks/{id} for every tracked
+    ID, ignoring 404s (already gone) and logging any other failure so
+    the test output is never silently swallowing leaks.
+    """
+    created: list[str] = []
+
+    class _Tracker:
+        def track(self, task_id: str) -> None:
+            if task_id and task_id not in created:
+                created.append(task_id)
+
+        def track_all(self, ids) -> None:
+            for tid in ids or []:
+                self.track(tid)
+
+        async def create(self, title: str, **kwargs) -> str:
+            payload = {"title": title, **kwargs}
+            resp = await client.post(
+                "/api/tasks",
+                params={"include_test_data": "true"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            tid = body.get("task_id") or (body.get("task") or {}).get("id") or body.get("id")
+            if not tid:
+                raise RuntimeError(f"POST /api/tasks did not return a task id: {body}")
+            self.track(tid)
+            return tid
+
+        @property
+        def tracked(self) -> list[str]:
+            return list(created)
+
+    tracker = _Tracker()
+    try:
+        yield tracker
+    finally:
+        # Teardown runs even on test failure. Delete every tracked ID.
+        # A 404 means the task was already removed (by the test itself
+        # or by a downstream cleanup) and is not a leak. Other errors
+        # are logged but not raised, so one stuck ID does not mask the
+        # rest of the suite's results.
+        for tid in list(created):
+            try:
+                await client.delete(f"/api/tasks/{tid}")
+            except Exception as exc:  # noqa: BLE001
+                import sys
+                print(
+                    f"[live_task_tracker] failed to delete {tid}: {exc}",
+                    file=sys.stderr,
+                )
+
+
 @pytest.fixture(autouse=True)
 def _reset_connections_cache():
     """Drop every cached connection-status payload before and after each test.
