@@ -25,6 +25,7 @@ async def test_register_endpoint_returns_body_with_required_keys(client, monkeyp
     payload = {
         "name": "test_register_endpoint_returns_body_probe",
         "prompt": "regression probe for register endpoint body",
+        "source": "claude-code",
     }
     resp = await client.post("/api/agents/register", json=payload)
 
@@ -68,7 +69,10 @@ async def test_register_endpoint_returns_body_when_only_name_supplied(client, mo
 
     resp = await client.post(
         "/api/agents/register",
-        json={"name": "test_register_endpoint_returns_body_bare"},
+        json={
+            "name": "test_register_endpoint_returns_body_bare",
+            "source": "claude-code",
+        },
     )
 
     # On this branch the register handler accepts a bare name. Whichever
