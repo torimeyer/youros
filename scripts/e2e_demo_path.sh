@@ -69,7 +69,125 @@ fail() {
 CREATED_AGENTS=()
 CREATED_SPEC=""
 
+# Repo-relative paths used by purge_demo_residue. Tests override these by
+# exporting AGENT_STATE_FILE and TRANSCRIPTS_DIR before sourcing this script.
+: "${AGENT_STATE_FILE:=/Users/torimeyer/claude/torios/.ostk/agent_state.json}"
+: "${TRANSCRIPTS_DIR:=/Users/torimeyer/claude/torios/transcripts}"
+
+# Purge demo-seeded rows from agent_state.json and their 0-token transcripts.
+# Safe to call multiple times (idempotent). Never touches rows that are not
+# demo-flagged AND do not come from a demo source AND do not have a demo name.
+purge_demo_residue() {
+  local state_file="${AGENT_STATE_FILE}"
+  local transcripts_dir="${TRANSCRIPTS_DIR}"
+  if [ ! -f "$state_file" ]; then
+    return 0
+  fi
+  python3 - "$state_file" "$transcripts_dir" <<'PYEOF'
+import json, os, sys, pathlib, tempfile
+
+state_path = pathlib.Path(sys.argv[1])
+transcripts_dir = pathlib.Path(sys.argv[2])
+
+try:
+    data = json.loads(state_path.read_text())
+except Exception as e:
+    print(f"[purge] could not parse {state_path}: {e}", file=sys.stderr)
+    sys.exit(0)
+
+if not isinstance(data, dict):
+    print(f"[purge] unexpected shape in {state_path}; skipping", file=sys.stderr)
+    sys.exit(0)
+
+DEMO_NAME_PREFIXES = ("spec-e2e-demo-smoke-", "e2e-demo-path-", "e2e-verify-")
+DEMO_SOURCE_SUBSTR = ("e2e-demo-path", "e2e-verify")
+
+def is_demo(name, row):
+    if not isinstance(row, dict):
+        return False
+    if row.get("demo_mode") is True:
+        return True
+    src = row.get("source") or ""
+    if isinstance(src, str):
+        for marker in DEMO_SOURCE_SUBSTR:
+            if marker in src:
+                return True
+    for prefix in DEMO_NAME_PREFIXES:
+        if name.startswith(prefix):
+            return True
+    return False
+
+before = sum(1 for v in data.values() if isinstance(v, dict))
+purged_names = [n for n, r in list(data.items()) if is_demo(n, r)]
+for n in purged_names:
+    del data[n]
+after = sum(1 for v in data.values() if isinstance(v, dict))
+
+tmp = tempfile.NamedTemporaryFile(
+    "w", delete=False, dir=str(state_path.parent), prefix=".agent_state.", suffix=".tmp"
+)
+try:
+    json.dump(data, tmp, indent=2, sort_keys=True)
+    tmp.write("\n")
+    tmp.flush()
+    os.fsync(tmp.fileno())
+    tmp.close()
+    os.replace(tmp.name, state_path)
+except Exception:
+    try:
+        os.unlink(tmp.name)
+    except Exception:
+        pass
+    raise
+
+deleted_transcripts = 0
+orphan_transcripts = 0
+if transcripts_dir.is_dir():
+    # First: delete transcripts whose agent row we just purged.
+    for n in purged_names:
+        tpath = transcripts_dir / f"{n}.md"
+        if tpath.exists():
+            try:
+                tpath.unlink()
+                deleted_transcripts += 1
+            except Exception:
+                pass
+    # Second: sweep orphan transcripts (and their stderr sidecars) that
+    # match demo name patterns but have no corresponding row in
+    # agent_state.json. These are stragglers from prior demo runs that
+    # the old cleanup never removed. Skipping them lets cancelled demo
+    # agents keep gaslighting chat history with fake authorship.
+    for tpath in transcripts_dir.iterdir():
+        if not tpath.is_file():
+            continue
+        fname = tpath.name
+        # Derive the agent stem by stripping a trailing ".md" or ".md.*"
+        # (e.g. ".md.stderr.log"). If the filename contains ".md" use
+        # the substring before it as the candidate agent name.
+        if ".md" in fname:
+            stem = fname.split(".md", 1)[0]
+        else:
+            stem = tpath.stem
+        if stem in data:
+            continue
+        matched_prefix = any(stem.startswith(p) for p in DEMO_NAME_PREFIXES)
+        if matched_prefix:
+            try:
+                tpath.unlink()
+                orphan_transcripts += 1
+            except Exception:
+                pass
+
+print(
+    f"[purge] state rows: {before} -> {after} "
+    f"(removed {len(purged_names)}); transcripts deleted: {deleted_transcripts} "
+    f"(+{orphan_transcripts} orphan demo transcripts)"
+)
+PYEOF
+}
+
 cleanup() {
+  # Idempotent. Called on EXIT (incl. SIGINT/SIGTERM via traps below).
   local a
   if [ "${#CREATED_AGENTS[@]}" -gt 0 ]; then
     log_info "cleanup: cancelling ${#CREATED_AGENTS[@]} spawned agent(s)"
@@ -84,8 +202,20 @@ cleanup() {
     $CURL -m 5 -X DELETE "${API_BASE}/api/specs/${CREATED_SPEC}" >/dev/null 2>&1 || true
   fi
   rm -f "/Users/torimeyer/claude/torios/transcripts/${ROADMAP_AGENT}.md" 2>/dev/null || true
+  purge_demo_residue || true
 }
 trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+
+# Teardown-only mode: run the purge against the configured state file and
+# transcripts dir, then exit. Used by the regression test to exercise the
+# purge function in isolation without spinning up the full demo path.
+if [ "${TEARDOWN_ONLY:-0}" = "1" ]; then
+  purge_demo_residue
+  trap - EXIT INT TERM
+  exit 0
+fi
 
 echo ""
 echo "=== e2e_demo_path  ${API_BASE}  $(date '+%H:%M:%S') ==="
