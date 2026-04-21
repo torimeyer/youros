@@ -15,7 +15,10 @@
 
 set -u
 
-ZSHRC="${ZSHRC:-$HOME/.zshrc}"
+# Default to the tracked canonical tori.zsh so CI + fresh setups guard
+# the real source. Override with TORI_ZSH=... or ZSHRC=... if needed.
+TORI_ZSH="${TORI_ZSH:-${ZSHRC:-$(cd "$(dirname "$0")" && pwd)/tori.zsh}}"
+ZSHRC="$TORI_ZSH"
 
 if [[ ! -f "$ZSHRC" ]]; then
   echo "FAIL: $ZSHRC not found" >&2
