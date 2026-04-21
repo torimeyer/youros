@@ -25,6 +25,19 @@ import pytest
 class TestRecentActivityContext:
     """_recent_activity_context builds a compact summary from audit events."""
 
+    @pytest.fixture(autouse=True)
+    def _reset_activity_cache(self):
+        """Drop the 15-second in-process cache before/after every test.
+
+        Without this the first test (no relevant events) caches an empty
+        string, and every subsequent test sees the empty cached result
+        regardless of the audit file it wrote.
+        """
+        from services import chat_providers
+        chat_providers._clear_activity_context_cache()
+        yield
+        chat_providers._clear_activity_context_cache()
+
     def _make_audit(self, entries: list[dict], path: Path) -> None:
         with open(path, "w") as f:
             for e in entries:

@@ -1104,26 +1104,30 @@ def _agent_is_non_authoring(meta: dict) -> bool:
 
     Two signals:
       - status is in ``_NON_AUTHORING_AGENT_STATUSES`` (cancelled, failed, etc.)
-      - tokens_used is zero (agent never produced output)
+      - tokens_used is explicitly zero (agent never produced output)
 
-    Either trips the filter. Callers pass ``{}`` for unknown agents,
-    which returns False (unknown means we leave the activity row
-    alone rather than dropping it).
+    Either trips the filter. An empty dict (agent not in
+    ``agent_state.json`` at all) returns False so the audit row is
+    shown unfiltered; we only suppress rows we have direct evidence
+    are non-authoring.
     """
-    if not isinstance(meta, dict):
+    if not isinstance(meta, dict) or not meta:
         return False
     status = str(meta.get("status") or "").lower()
     if status in _NON_AUTHORING_AGENT_STATUSES:
         return True
-    # tokens_used of 0 with any status is the quota-cap / instant-cancel
-    # shape. No tokens means no work landed regardless of how the
-    # status was stamped.
-    try:
-        tokens_used = int(meta.get("tokens_used") or 0)
-    except (TypeError, ValueError):
-        tokens_used = 0
-    if tokens_used == 0:
-        return True
+    # tokens_used of 0 when the key is explicitly set is the quota-cap
+    # / instant-cancel shape. No tokens means no work landed
+    # regardless of how the status was stamped. But a missing key is
+    # NOT evidence of non-authoring work, so only filter when the
+    # field is present.
+    if "tokens_used" in meta:
+        try:
+            tokens_used = int(meta.get("tokens_used") or 0)
+        except (TypeError, ValueError):
+            tokens_used = 0
+        if tokens_used == 0:
+            return True
     return False
 
 
