@@ -35,11 +35,16 @@ def test_atomic_write_text_overwrites_existing_file(tmp_path: Path) -> None:
 
 
 def test_atomic_write_text_leaves_no_tmp_file_on_success(tmp_path: Path) -> None:
-    target = tmp_path / "file.json"
+    # Use a dedicated subdir so autouse fixtures in conftest.py (which
+    # also write into tmp_path, e.g. MYOS_FILES_DIR) do not leak into
+    # the directory listing we assert on.
+    work = tmp_path / "atomic_write"
+    work.mkdir()
+    target = work / "file.json"
     atomic_write_text(target, "payload")
     # No .tmp sibling should remain after a successful write.
-    assert not (tmp_path / "file.json.tmp").exists()
-    assert list(tmp_path.iterdir()) == [target]
+    assert not (work / "file.json.tmp").exists()
+    assert list(work.iterdir()) == [target]
 
 
 def test_atomic_write_text_preserves_original_when_write_fails(tmp_path: Path) -> None:
