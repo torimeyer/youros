@@ -130,6 +130,20 @@ else
   fail "STANDING RULES block missing"
 fi
 
+# ACTIVE HUMANFILE RULES block present (re-injected every turn).
+if echo "$OUT_HAPPY" | grep -q "ACTIVE HUMANFILE RULES (read every turn):"; then
+  pass "ACTIVE HUMANFILE RULES block present"
+else
+  fail "ACTIVE HUMANFILE RULES block missing"
+fi
+
+# Spot check: a high-signal HUMANFILE rule made it through.
+if echo "$OUT_HAPPY" | grep -q "saa = spawn for everything"; then
+  pass "curated HUMANFILE rule rendered"
+else
+  fail "curated HUMANFILE rule missing"
+fi
+
 # Both user-spawned agents appear.
 if echo "$OUT_HAPPY" | grep -q "diagnose-alpha"; then
   pass "diagnose-alpha listed"
@@ -177,14 +191,21 @@ else
   fail "STANDING RULES block missing when backend is down"
 fi
 
+if echo "$OUT_DOWN" | grep -q "ACTIVE HUMANFILE RULES"; then
+  pass "ACTIVE HUMANFILE RULES block present when backend is down"
+else
+  fail "ACTIVE HUMANFILE RULES block missing when backend is down"
+fi
+
 if echo "$OUT_DOWN" | grep -q "couldn't reach myOS backend"; then
   pass "graceful backend-down note present"
 else
   fail "graceful backend-down note missing"
 fi
 
-# No traceback leaked.
-if echo "$OUT_DOWN" | grep -qiE "traceback|error:|exception"; then
+# No traceback leaked. Use whole-word boundaries so benign words in the
+# HUMANFILE excerpt (e.g. "No exceptions") don't trip the check.
+if echo "$OUT_DOWN" | grep -qE "Traceback \(most recent|Error: |Exception: |bash:.*:.*error|curl:.*error"; then
   fail "error bomb leaked when backend is down"
 else
   pass "no error bomb when backend is down"

@@ -10,6 +10,75 @@ STANDING RULES (non-negotiable this turn):
 3. If ostk MCP drops, tell the user immediately. Reload via ToolSearch, do not silently fall back.
 EOF
 
+# --- Curated HUMANFILE excerpt ---
+# Re-inject high-signal behavioral rules from ~/.ostk/HUMANFILE every turn.
+# The session-start hook loads HUMANFILE once, but by turn 20 of a long session
+# those rules blur into noise and default Claude behavior creeps back. The fix:
+# re-emit the curated subset on every UserPromptSubmit so the rules stay in the
+# model's active decision context, not just its session-start memory.
+# Skips: vault, long standing-instructions catalog, technical probes, memory-layer infra.
+HUMANFILE_PATH="${HOME}/.ostk/HUMANFILE"
+if [ -f "$HUMANFILE_PATH" ]; then
+  cat <<'EOF'
+
+ACTIVE HUMANFILE RULES (read every turn):
+
+## Communication style
+- Warm, direct, brief. Lowercase casual is fine. Never use her name.
+- No preambles like "no vibes" or "honest read." Announcing the absence of vibes is itself a vibe. Just give the calibrated answer.
+- No em-dashes. Periods, commas, or rewrite.
+- Plain language for user-facing text. No finance or engineering jargon.
+- Lead with the recommendation and main tradeoff. Present it as redirectable, not decided.
+- ADHD plus fast feedback. Silence reads as agent died. 60s check-ins when work is in flight.
+
+## Autonomy grants
+- File writes, test runs, needle filing: act, do not ask.
+- Git commits: only when explicitly requested.
+- Destructive ops (rm, force push, deleting branches, dropping tables): confirm first.
+- External API calls that spend money or send messages: confirm first.
+
+## Vocabulary
+- saa = spawn agent(s). Every item to its own subagent. Tests required.
+- diagnose = root cause + fix + tests + commit. Not "find the bug and stop."
+- fix = same as diagnose when it is code. Spawn a builder.
+- elit = explain in plain language with analogies, no jargon.
+- arrive / arrival = emergence. Not location, not completion.
+- needle = tracked unit of work. hay = unfiled insight. set = parallel work bucket.
+- shut down = ostk kernel shutdown.
+
+## Agent rules
+- saa = spawn for everything. No exceptions, even for small items.
+- Scope is my call. Never ask "should I split this?"
+- Tests required on every saa. Never ship without green tests.
+- Do NOT include /register or /heartbeat instructions in subagent briefs. Hooks handle it.
+- Verify agent status before reporting. Curl /api/agents. Absence of notification is not proof of running.
+
+## Task state hygiene
+- in_progress = actively working this turn or next. Not parked, not waiting.
+- Waiting on user answer = pending, not in_progress.
+- Completed = deliverable done AND verified. Completing without verifying is lying.
+- Abandoned = delete.
+
+## Slow-down signals (stop spawning when ANY fire)
+- Meta-question about pacing or state ("you good?", "take a step back"). Stop. Summarize. Ask ONE question. Wait.
+- Same bug recurs after a fix I claimed landed. READ the prior diff before respawning.
+- 3+ agents spawned in last 30 min. Batch or sequence the next round.
+- Torios interrupts a tool call. Interrupt = reconsider scope, not retry.
+- About to answer an exploratory question by spawning. Spawn only when code changes.
+- Two consecutive saa on related scope. Consolidate.
+- A single subagent runs past 5 min wall-clock. Summarize and check the approach.
+- 3+ fix-repro-fix cycles on the same bug. Not a surface bug. New hypothesis before spawning again.
+
+## Positioning
+- ostk value = coordination at kernel level, work compounding across sessions, invisible infrastructure.
+- NOT "we call Claude too." Lead with coordination demos.
+- ostk should make model choice mostly irrelevant for routine work. Opus on a normal task means ostk is underperforming.
+EOF
+else
+  echo ""
+  echo "ACTIVE HUMANFILE RULES: ~/.ostk/HUMANFILE not found. Session-start rules may be stale."
+fi
+
 # Live agent snapshot. Backed by /api/agents on the myOS backend.
 # Override via MYOS_BACKEND_URL for tests or alternate hosts.
 BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
