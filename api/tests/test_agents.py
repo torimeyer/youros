@@ -2008,6 +2008,72 @@ async def test_registered_agent_in_active_list(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_list_agents_active_excludes_main_session_inferred_rows(tmp_path):
+    """Inferred main-session rows (the user's own Claude Code tab) must
+    never appear in the Agents page Active Sessions list.
+
+    The inferred-session merge synthesises a status='running' row for every
+    recently-touched Claude Code jsonl transcript. These rows have no PID,
+    no register trail, and cannot be closed by /complete because they are
+    regenerated on every list read. Including them would make Tori's own
+    tab show up as a running agent she has to clean up, which is the bug
+    the Active Sessions tab was showing for hours after her Task-tool
+    subagents already finished.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Simulate one user-spawned claude-code subagent (should appear in
+        # active) plus one main-session inferred row (should NOT appear).
+        from routers.agents import agent_metadata
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
+        agent_metadata["real-subagent-task-tool"] = {
+            "status": "running",
+            "spawned_at": now_iso,
+            "last_heartbeat_at": now_iso,
+            "budget": "2.0",
+            "model": "claude-opus-4-6",
+            "source": "claude-code",
+        }
+        # Inferred main-session rows look like this when the list endpoint
+        # synthesises them from jsonl mtime (see the merge block in
+        # list_agents). Seed one directly in metadata so the test does not
+        # depend on filesystem jsonl discovery.
+        agent_metadata["claude-code-deadbeef99"] = {
+            "status": "running",
+            "spawned_at": now_iso,
+            "last_heartbeat_at": now_iso,
+            "model": "claude-code",
+            "source": "claude-code",
+            "description": "Claude Code session (inferred from transcript mtime)",
+        }
+
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "no daemon running",
+                    "daemon_running": False,
+                    "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                transcripts_dir = tmp_path / "transcripts"
+                transcripts_dir.mkdir(parents=True, exist_ok=True)
+                resp = await client.get("/api/agents")
+        finally:
+            agent_metadata.pop("real-subagent-task-tool", None)
+            agent_metadata.pop("claude-code-deadbeef99", None)
+
+        data = resp.json()
+        # The real Task-tool subagent row stays in active.
+        assert "real-subagent-task-tool" in data["active"]
+        # The inferred main-session row must NOT appear in active even
+        # though its status is 'running'. Tori's own tab is not a running
+        # agent.
+        assert "claude-code-deadbeef99" not in data["active"]
+
+
+@pytest.mark.asyncio
 async def test_registered_agent_completed_with_transcript(tmp_path):
     """A registered agent that has a non-empty transcript should show as 'completed'."""
     transport = ASGITransport(app=app)

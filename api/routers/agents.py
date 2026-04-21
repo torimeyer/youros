@@ -2949,12 +2949,21 @@ async def list_agents(
         ]
         return {"agents": compact_agents}
 
+    # The "active" list drives the Agents page Active Sessions tab. We
+    # deliberately drop synthetic main-session rows (the parent Claude Code
+    # tab inferred from jsonl mtime) so the user's own tab never shows up
+    # as a running agent she has to clean up. Those rows have no PID and
+    # cannot be flipped via /complete because they are synthesised on every
+    # list read from transcript mtime, so filter them at the source.
+    # Other user-spawned-filter exclusions (chat/audit/hook/subscription)
+    # are applied too for consistency with the Agents page count.
+    from services.agent_filters import is_user_spawned_agent as _is_user_spawned
     return {
         "daemon_running": daemon_running,
         "status": ps_result.get("raw", "unknown"),
         "active": [
             a["name"] for a in filtered_agents
-            if a.get("status") == "running"
+            if a.get("status") == "running" and _is_user_spawned(a)
         ],
         "agents": filtered_agents,
         "avg_min_per_dollar": _avg_minutes_per_dollar(),
