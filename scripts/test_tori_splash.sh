@@ -65,9 +65,25 @@ for var in _p0 _p1 _open; do
   fi
 done
 
+# Invariant 4: splash status line must NOT display Claude.
+# myOS is generic by default. Not every user is on Claude, so Claude-specific
+# version lookups do not belong in the default splash panel.
+if grep -qE "printf .* claude " <<<"$tori_body"; then
+  echo "FAIL: splash status line references 'claude'. myOS must be generic;" >&2
+  echo "      Claude-specific status has no place in the default splash." >&2
+  fail=1
+fi
+
+if grep -qE 'cc_current|claude --version' <<<"$tori_body"; then
+  echo "FAIL: tori() still probes the Claude CLI version for splash display." >&2
+  echo "      Remove cc_current and any 'command claude --version' call tied" >&2
+  echo "      to the status line." >&2
+  fail=1
+fi
+
 if [[ "$fail" -ne 0 ]]; then
   exit 1
 fi
 
-echo "PASS: tori() needle summary uses safe grep -c pattern (no 0\\n0 bug)."
+echo "PASS: tori() needle summary uses safe grep -c pattern (no 0\\n0 bug); splash has no Claude line."
 exit 0

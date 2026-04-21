@@ -72,9 +72,8 @@ tori() {
   rm -f "$_ostk_tmp" "$_git_tmp"
 
   # --- Splash ---
-  local myos_version cc_current
+  local myos_version
   myos_version=$(git -C ~/claude/torios describe --tags --abbrev=0 2>/dev/null)
-  cc_current=$(command claude --version 2>/dev/null | awk '{print $1}')
 
   printf '\n'
   printf '\033[38;2;255;105;180m  ████████╗ \033[38;2;255;140;50m ██████╗  \033[38;2;180;100;255m██████╗  \033[38;2;100;149;237m██╗  \033[38;2;255;105;180m ██████╗  \033[38;2;255;140;50m███████╗\033[0m\n'
@@ -85,7 +84,7 @@ tori() {
   printf '\033[38;2;255;105;180m     ╚═╝    \033[38;2;255;140;50m ╚═════╝ \033[38;2;180;100;255m╚═╝  ╚═╝ \033[38;2;100;149;237m╚═╝  \033[38;2;255;105;180m ╚═════╝ \033[38;2;255;140;50m╚══════╝\033[0m\n'
   printf '\n'
   printf '\033[38;2;180;100;255m          ░▒▓ \033[38;2;255;105;180mYour personal OS \033[38;2;100;149;237m· \033[38;2;255;140;50mpowered by ostk \033[38;2;180;100;255m▓▒░\033[0m\n'
-  printf '\033[38;2;140;140;140m          myOS %s · ostk %s · claude %s\033[0m\n' "$myos_version" "$ostk_current" "$cc_current"
+  printf '\033[38;2;140;140;140m          myOS %s · ostk %s\033[0m\n' "$myos_version" "$ostk_current"
   printf '\n'
 
   # --- Start ToriOS servers ---
