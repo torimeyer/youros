@@ -834,31 +834,6 @@ export default function Specs() {
           </div>
         </div>
 
-        {/* Workflow summary */}
-        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 mb-6">
-          <div className="flex items-center gap-6 text-sm text-slate-400 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Icon name="edit_note" className="text-slate-400" />
-              <span><strong className="text-white">{drafts.length}</strong> {drafts.length === 1 ? "draft" : "drafts"}</span>
-            </div>
-            <Icon name="arrow_forward" className="text-slate-600" />
-            <div className="flex items-center gap-2">
-              <Icon name="verified" className="text-blue-400" />
-              <span><strong className="text-white">{readySpecs.length}</strong> ready</span>
-            </div>
-            <Icon name="arrow_forward" className="text-slate-600" />
-            <div className="flex items-center gap-2">
-              <Icon name="engineering" className="text-yellow-400" />
-              <span><strong className="text-white">{inProgressSpecs.length}</strong> building</span>
-            </div>
-            <Icon name="arrow_forward" className="text-slate-600" />
-            <div className="flex items-center gap-2">
-              <Icon name="check_circle" className="text-green-400" />
-              <span><strong className="text-white">{completeSpecs.length}</strong> done</span>
-            </div>
-          </div>
-        </div>
-
         {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-slate-900/60 rounded-lg p-1 w-fit flex-wrap">
           {tabItems.map((t) => (

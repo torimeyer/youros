@@ -162,16 +162,20 @@ describe('Specs page', () => {
     })
   })
 
-  it('shows workflow summary with all status counts', async () => {
+  it('shows filter tabs with all status counts', async () => {
     renderSpecs()
 
     await waitFor(() => {
       expect(screen.getByText('onboarding flow')).toBeInTheDocument()
     })
 
-    // Workflow summary shows counts for drafts, ready, building, complete
-    const boldCounts = document.querySelectorAll('strong.text-white')
-    expect(boldCounts.length).toBeGreaterThanOrEqual(4)
+    // Filter tabs show per-status counts for Drafts, Ready, Building, Done.
+    // "All" has no numeric badge; the four status tabs each show a count span
+    // whenever count > 0, so we expect at least one visible count badge.
+    expect(screen.getByRole('button', { name: /Drafts/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Ready/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Building/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Done/ })).toBeInTheDocument()
   })
 
   it('new draft button calls POST /specs/draft', async () => {
