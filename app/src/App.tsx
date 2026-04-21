@@ -56,7 +56,32 @@ export default function App() {
   // Wait for server settings before deciding which post-onboarding view to
   // mount. Without this, localStorage can say "onboarded=true" while the
   // server says false, causing the wizard to flash then disappear.
-  if (!hydrated) return null
+  if (!hydrated) {
+    // Render a minimal loading screen instead of a blank page so the user
+    // sees something during the brief server hydration window after hard
+    // reload. Uses inline styles to avoid any CSS load dependency.
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#0b0d10',
+          color: '#9ca3af',
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          fontSize: 14,
+          letterSpacing: 0.3,
+        }}
+      >
+        Loading torios...
+      </div>
+    )
+  }
 
   return (
     <BrowserRouter>
