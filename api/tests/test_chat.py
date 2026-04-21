@@ -2972,3 +2972,139 @@ class TestExtendedThinking:
     def test_budget_constant_is_10000(self):
         from services.chat_providers import EXTENDED_THINKING_BUDGET_TOKENS
         assert EXTENDED_THINKING_BUDGET_TOKENS == 10000
+
+
+# --- Authorship grounding regression ---
+
+class TestChatAuthorshipGrounding:
+    """Protect against the 2026-04-20 chat confabulation regression.
+
+    The in-app chat asserted that "a background agent added
+    ChatHistoryDropdown.tsx" when the user herself authored that
+    commit. The root cause was two-part:
+      1. ``_recent_activity_context`` surfaced cancelled 0-token demo
+         agents as if they had completed real work, including their
+         free-form ``summary`` text.
+      2. The system prompt had no clause forbidding authorship
+         attribution from agent transcripts / activity context alone.
+
+    These tests assert both defenses are in place. Do not loosen them
+    without reading
+    ``/Users/torimeyer/.claude/projects/-Users-torimeyer-claude-torios/memory/MEMORY.md``
+    first to understand why this matters for the demo.
+    """
+
+    def test_chat_does_not_attribute_authorship_without_git_grounding(
+        self, monkeypatch, tmp_path
+    ):
+        """Cancelled 0-token agent transcripts must not leak as authorship evidence.
+
+        Seeds a fake audit log with an ``agent.completed`` event whose
+        summary claims to have built ChatHistoryDropdown, seeds an
+        ``agent_state.json`` showing the agent was cancelled with zero
+        tokens, then asserts:
+          - The agent row is filtered out of the recent-activity block.
+          - The agent's self-reported summary never appears in the
+            block (even if the agent somehow survived the filter).
+          - The base system prompt contains the authorship-grounding
+            clause that tells the model to cite git, not transcripts.
+        """
+        from services import chat_providers as cp
+
+        # Seed a fake agent_state.json that marks the demo agent as
+        # cancelled with zero tokens. This is the exact shape the bug
+        # relied on: a demo-mode agent that was cancelled before any
+        # real work landed.
+        agent_state_path = tmp_path / "agent_state.json"
+        agent_state_path.write_text(
+            '{"display-last-5-chat-messages-in-dropdown": '
+            '{"status": "cancelled", "tokens_used": 0, '
+            '"summary": "I successfully implemented ChatHistoryDropdown.tsx"}}'
+        )
+        # Point the filter at our temp file. Using a closure avoids
+        # having to monkeypatch the routers.agents module itself.
+        monkeypatch.setattr(
+            cp,
+            "_load_agent_state_for_filter",
+            lambda: {
+                "display-last-5-chat-messages-in-dropdown": {
+                    "status": "cancelled",
+                    "tokens_used": 0,
+                    "summary": "I successfully implemented ChatHistoryDropdown.tsx",
+                }
+            },
+        )
+
+        # Seed the audit log with one filtered row (the cancelled agent)
+        # and one that should pass (a real file write).
+        fake_entries = [
+            {
+                "event": "agent.completed",
+                "name": "display-last-5-chat-messages-in-dropdown",
+                "timestamp": "2026-04-20T12:00:00Z",
+                "summary": "I successfully implemented ChatHistoryDropdown.tsx",
+            },
+            {
+                "event": "file.written",
+                "name": "roadmap.md",
+                "path": "/Users/torimeyer/.myos/files/roadmap.md",
+                "timestamp": "2026-04-20T12:05:00Z",
+            },
+        ]
+        import services.ostk as _ostk
+        monkeypatch.setattr(_ostk, "read_audit_entries", lambda: fake_entries)
+
+        # Clear the activity-context cache so the stubbed reader is
+        # actually consulted on this call.
+        cp._clear_activity_context_cache()
+
+        block = cp._recent_activity_context(n=20, max_chars=2000)
+
+        # Filter defense: the cancelled agent must not appear, and its
+        # self-reported summary must never be in the block.
+        assert "display-last-5-chat-messages-in-dropdown" not in block, (
+            "Cancelled 0-token agent leaked into chat activity context. "
+            "See test_chat.TestChatAuthorshipGrounding for why this matters."
+        )
+        assert "I successfully implemented ChatHistoryDropdown" not in block, (
+            "Agent self-reported summary leaked into chat context. "
+            "Summaries must never be surfaced as authorship evidence."
+        )
+        # The real file-write row should still come through so the chat
+        # panel keeps its legitimate signal.
+        assert "roadmap.md" in block
+
+        # Clause defense: the base system prompt must tell the model to
+        # cite git rather than attribute code to agents based on
+        # transcripts or activity rows.
+        prompt = cp._system_prompt()
+        assert "AUTHORSHIP GROUNDING" in prompt
+        assert "git log" in prompt
+        assert "transcript" in prompt.lower()
+
+        # Cleanup so other tests using _recent_activity_context see a
+        # fresh cache.
+        cp._clear_activity_context_cache()
+
+    def test_agent_is_non_authoring_filter_semantics(self):
+        """The filter trips on cancelled status OR zero tokens, tolerates unknowns."""
+        from services.chat_providers import _agent_is_non_authoring
+
+        # Cancelled with tokens: still filtered, the run did not land.
+        assert _agent_is_non_authoring(
+            {"status": "cancelled", "tokens_used": 12000}
+        ) is True
+        # Zero tokens with completed status: filtered (instant-cancel shape).
+        assert _agent_is_non_authoring(
+            {"status": "completed", "tokens_used": 0}
+        ) is True
+        # Completed with real tokens: passes.
+        assert _agent_is_non_authoring(
+            {"status": "completed", "tokens_used": 12345}
+        ) is False
+        # Empty / unknown meta: does not trip the filter (tolerant default).
+        # Empty dict still has tokens_used == 0 so it does filter, which
+        # is the desired belt-and-suspenders behavior.
+        assert _agent_is_non_authoring({}) is True
+        # Non-dict input: never trips (defensive).
+        assert _agent_is_non_authoring(None) is False  # type: ignore[arg-type]

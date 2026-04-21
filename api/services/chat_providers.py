@@ -1061,6 +1061,72 @@ _ACTIVITY_CONTEXT_CACHE: Optional[tuple[float, tuple[int, int], str]] = None
 _ACTIVITY_CONTEXT_TTL_S: float = 15.0
 
 
+# Agent statuses that mean "no real work landed". The chat context must
+# never surface these as evidence of authorship, because their transcripts
+# and summaries reflect unfinished or aborted runs. See the authorship
+# hallucination regression: a cancelled 0-token demo agent was shown to
+# the chat model as if it had actually built a UI feature.
+_NON_AUTHORING_AGENT_STATUSES: frozenset[str] = frozenset({
+    "cancelled",
+    "failed",
+    "terminated_stale",
+    "killed",
+    "stopped",
+    "abandoned",
+})
+
+
+def _load_agent_state_for_filter() -> dict:
+    """Return ``agent_state.json`` keyed by agent name, or ``{}`` on error.
+
+    Used by ``_recent_activity_context`` to drop cancelled / 0-token
+    agents from the system-prompt context so the chat model never
+    mistakes an aborted run for a real code change. The loader is
+    deliberately tolerant: any failure returns an empty dict and the
+    caller falls back to showing the audit row unfiltered.
+    """
+    try:
+        from routers.agents import AGENT_STATE_PATH  # type: ignore
+        import json as _json
+        path = AGENT_STATE_PATH
+        if not path.exists():
+            return {}
+        data = _json.loads(path.read_text() or "{}")
+        if isinstance(data, dict):
+            return data
+        return {}
+    except Exception:
+        return {}
+
+
+def _agent_is_non_authoring(meta: dict) -> bool:
+    """Return True when an agent's meta means its output is not real work.
+
+    Two signals:
+      - status is in ``_NON_AUTHORING_AGENT_STATUSES`` (cancelled, failed, etc.)
+      - tokens_used is zero (agent never produced output)
+
+    Either trips the filter. Callers pass ``{}`` for unknown agents,
+    which returns False (unknown means we leave the activity row
+    alone rather than dropping it).
+    """
+    if not isinstance(meta, dict):
+        return False
+    status = str(meta.get("status") or "").lower()
+    if status in _NON_AUTHORING_AGENT_STATUSES:
+        return True
+    # tokens_used of 0 with any status is the quota-cap / instant-cancel
+    # shape. No tokens means no work landed regardless of how the
+    # status was stamped.
+    try:
+        tokens_used = int(meta.get("tokens_used") or 0)
+    except (TypeError, ValueError):
+        tokens_used = 0
+    if tokens_used == 0:
+        return True
+    return False
+
+
 def _recent_activity_context(n: int = 20, max_chars: int = 1800) -> str:
     """Return a compact summary of the last *n* notable audit events.
 
@@ -1068,6 +1134,14 @@ def _recent_activity_context(n: int = 20, max_chars: int = 1800) -> str:
     and formats them as a tight bullet list capped at *max_chars*.
     Prepended to the volatile system-prompt block so the model knows
     what was just built, spawned, or written.
+
+    Safety filter: ``agent.completed`` and ``agent.spawned`` rows for
+    cancelled or 0-token agents are dropped, and the free-form
+    ``summary`` text is NEVER surfaced to the chat model. Agent
+    transcripts can claim "I implemented X" even when the run was
+    cancelled or never wrote code, and the chat model will treat that
+    claim as ground truth authorship. Git is the only source of
+    truth for code authorship, see ``_system_prompt``.
 
     Result is cached in-process for ``_ACTIVITY_CONTEXT_TTL_S`` seconds so
     back-to-back chat turns do not re-read the entire audit log (which
@@ -1089,14 +1163,30 @@ def _recent_activity_context(n: int = 20, max_chars: int = 1800) -> str:
     except Exception:
         return ""
 
+    # Load agent metadata once so the authorship filter can skip
+    # cancelled / 0-token agent rows without re-reading the file on
+    # each entry. Missing file or parse errors return ``{}`` and the
+    # filter falls back to a tolerant pass-through for those rows.
+    agent_meta = _load_agent_state_for_filter()
+
     # Walk backwards through the full audit log, keeping only events the
     # model cares about, until we have n events.
     relevant: list[dict] = []
     for entry in reversed(entries):
-        if entry.get("event") in _ACTIVITY_EVENTS:
-            relevant.append(entry)
-            if len(relevant) >= n:
-                break
+        event = entry.get("event")
+        if event not in _ACTIVITY_EVENTS:
+            continue
+        # Authorship filter: for agent rows, skip when the agent was
+        # cancelled / failed / 0-token. The chat model should never see
+        # these as evidence of completed work.
+        if event in ("agent.completed", "agent.spawned"):
+            name = entry.get("name", "")
+            meta = agent_meta.get(name) if name else None
+            if _agent_is_non_authoring(meta or {}):
+                continue
+        relevant.append(entry)
+        if len(relevant) >= n:
+            break
     if not relevant:
         return ""
 
@@ -1109,8 +1199,11 @@ def _recent_activity_context(n: int = 20, max_chars: int = 1800) -> str:
         ts = ts_raw[11:16] if len(ts_raw) >= 16 else ts_raw
 
         if event in ("agent.completed",):
-            summary = entry.get("summary", "")
-            line = f"[{ts}] agent '{name}' completed" + (f": {summary[:80]}" if summary else "")
+            # Deliberately DO NOT surface the free-form ``summary``
+            # field. Summaries are self-reported by agents and are not
+            # ground truth for authorship. Grounding authorship
+            # requires git, not agent claims.
+            line = f"[{ts}] agent '{name}' completed"
         elif event in ("agent.spawned",):
             model = entry.get("model", "")
             line = f"[{ts}] agent '{name}' spawned" + (f" ({model})" if model else "")
@@ -1331,7 +1424,19 @@ def _system_prompt() -> str:
         "Only use tools when the user asks for something that requires live data (tasks, calendar, emails, files). "
         "Never use em-dashes. "
         "When the user sends a GIF, do not describe what is in the GIF. They can already see it. "
-        "Just react naturally to the sentiment behind it, like you would in a text conversation."
+        "Just react naturally to the sentiment behind it, like you would in a text conversation.\n\n"
+        "AUTHORSHIP GROUNDING: When the user asks who added, who built, who wrote, "
+        "or why a specific file, component, or feature exists, you MUST verify the "
+        "answer with git before responding. Run `git log -n 5 --format='%h %an %s' "
+        "-- <path>` (or `git blame <path>`) and cite the real author and commit. "
+        "NEVER attribute code to an agent based on its transcript, its activity "
+        "row, or the RECENT ACTIVITY block in this prompt. Agent transcripts and "
+        "summaries are self-reported and frequently reflect cancelled, failed, or "
+        "uncommitted runs. The RECENT ACTIVITY block lists agents that ran but is "
+        "not evidence that any code landed. Git is the only source of truth for "
+        "authorship. If git log shows the user (torimeyer) authored a file, say so "
+        "plainly; do not invent an agent as the author. If no path is obvious from "
+        "the question, ask the user which file they mean before answering."
     )
 
 
