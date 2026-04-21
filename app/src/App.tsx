@@ -45,14 +45,18 @@ export default function App() {
     hydrateFromServer()
   }, [hydrateFromServer])
 
-  // Wait for server settings before deciding whether to show onboarding.
-  // Without this, localStorage can say "onboarded=true" while the server
-  // says false, causing the wizard to flash then disappear.
-  if (!hydrated) return null
-
+  // Show the wizard immediately when the initial onboarded flag is false.
+  // If we waited for hydration here, a slow or unreachable backend would
+  // leave a blank screen on hard reload. For a not-yet-onboarded user there
+  // is nothing to hydrate into anyway, so render the wizard right away.
   if (!onboarded) {
     return <OnboardingWizard />
   }
+
+  // Wait for server settings before deciding which post-onboarding view to
+  // mount. Without this, localStorage can say "onboarded=true" while the
+  // server says false, causing the wizard to flash then disappear.
+  if (!hydrated) return null
 
   return (
     <BrowserRouter>
