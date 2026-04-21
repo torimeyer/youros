@@ -722,10 +722,11 @@ describe('Specs page', () => {
     expect(screen.getByTestId('build-agents-link')).toBeInTheDocument()
   })
 
-  it('Build This shows empty message when no open tasks', async () => {
+  it('Build It shows no-ACs info card when spec has no unchecked acceptance criteria', async () => {
     mockedApiPost.mockResolvedValue({
       agents: [],
-      message: 'This spec has no open tasks to build. Break it into tasks first, or all tasks may already be closed.',
+      message: 'This plan has no unchecked acceptance criteria. Add at least one, then click Build.',
+      has_unchecked_acs: false,
     })
 
     renderSpecs()
@@ -745,9 +746,13 @@ describe('Specs page', () => {
     fireEvent.click(screen.getByText('Build it'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('build-empty-message')).toBeInTheDocument()
+      expect(screen.getByTestId('build-no-acs-info')).toBeInTheDocument()
     })
     expect(screen.queryByTestId('build-agent-name')).not.toBeInTheDocument()
+    // The info card must be muted (slate), never red.
+    const card = screen.getByTestId('build-no-acs-info')
+    expect(card.className).not.toContain('red')
+    expect(card.className).toContain('slate')
   })
 
   it('Verify calls POST /specs/{encodedPath}/verify', async () => {

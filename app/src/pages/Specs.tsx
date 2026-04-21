@@ -7,6 +7,7 @@ import SpecTemplateDetailsModal, {
 } from "../components/SpecTemplateDetailsModal";
 import { api } from "../lib/api";
 import { onSpecsChange } from "../lib/sidebarBus";
+import { useAppStore } from "../stores/app";
 import { Button, EmptyState, ErrorBanner } from "../components/ui";
 
 // --- Data types ---
@@ -68,6 +69,17 @@ interface SpecTasksResponse {
 interface BuildResponse {
   agents: string[];
   message: string;
+  // Optional hint from the backend: when false, the plan literally has
+  // no unchecked acceptance criteria (the user checked them all or
+  // edited them out). When true, tasks should have been created and
+  // the empty agents list is the backend-internal failure case. The
+  // Specs page uses this flag to decide whether to render the "no
+  // open tasks" banner at all.
+  has_unchecked_acs?: boolean;
+  // When spawn succeeds the backend echoes the task ids the builders
+  // are working on so the frontend can line up progress spinners
+  // before /specs/{path}/tasks reports them.
+  task_ids?: string[];
 }
 
 interface VerifyResponse {
@@ -391,6 +403,14 @@ export default function Specs() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("all");
   const [docs, setDocs] = useState<Spec[]>([]);
+  // Pending specs that were optimistically navigated here from
+  // FilePreviewPane's "Make spec" click. The skeleton rows render in the
+  // "all" and "drafts" tabs so the user sees motion the instant they
+  // arrive, without waiting for backend AC generation (3-12 seconds on
+  // Haiku). The cleanup effect below removes a pending row once the real
+  // spec appears in docs.
+  const pendingSpecsMap = useAppStore((s) => s.pendingSpecs);
+  const removePendingSpec = useAppStore((s) => s.removePendingSpec);
   const [titleInput, setTitleInput] = useState("");
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
@@ -403,7 +423,7 @@ export default function Specs() {
   const [expandedPath, setExpandedPath] = useState<string | null>(null);
   const [linkedTasks, setLinkedTasks] = useState<Record<string, LinkedTask[]>>({});
   const [buildingSpec, setBuildingSpec] = useState<string | null>(null);
-  const [buildResult, setBuildResult] = useState<Record<string, { agents: string[]; message: string }>>({});
+  const [buildResult, setBuildResult] = useState<Record<string, { agents: string[]; message: string; has_unchecked_acs?: boolean }>>({});
   const [verifyingSpec, setVerifyingSpec] = useState<string | null>(null);
   const [templates, setTemplates] = useState<SpecTemplate[]>([]);
   const [templateLoading, setTemplateLoading] = useState<string | null>(null);
@@ -654,7 +674,11 @@ export default function Specs() {
       const agents = res.agents || [];
       setBuildResult((prev) => ({
         ...prev,
-        [path]: { agents, message: res.message || "" },
+        [path]: {
+          agents,
+          message: res.message || "",
+          has_unchecked_acs: res.has_unchecked_acs,
+        },
       }));
       if (agents.length > 0) {
         showMessage(`Started ${agents.length} agent${agents.length === 1 ? "" : "s"}. Watch the Agents tab.`);
@@ -793,6 +817,24 @@ export default function Specs() {
     }
     return criteria;
   };
+
+  // Clean up pending skeleton rows once the real spec they stand in for
+  // shows up in docs. Match on promotedPath when the backend returned one,
+  // otherwise on title. This is the hand-off: the skeleton vanishes in the
+  // same render tick the real row appears, so there is never a duplicate.
+  useEffect(() => {
+    for (const pending of Object.values(pendingSpecsMap)) {
+      if (pending.status === "error") continue;
+      const match = docs.find(
+        (d) =>
+          (pending.promotedPath && d.path === pending.promotedPath) ||
+          (!pending.promotedPath && d.title === pending.title)
+      );
+      if (match) removePendingSpec(pending.tempId);
+    }
+  }, [docs, pendingSpecsMap, removePendingSpec]);
+
+  const pendingList = Object.values(pendingSpecsMap);
 
   // Group specs by status for counts
   const drafts = docs.filter((d) => d.status === "draft");
@@ -934,14 +976,79 @@ export default function Specs() {
           </div>
         )}
 
+        {/* Pending skeleton rows (optimistic "Make spec" clicks).
+            Rendered above the real list in the "all" and "drafts" tabs
+            so the user arrives here from FilePreviewPane and immediately
+            sees the in-flight spec instead of an empty list. Each row
+            shows the initiative title, a shimmer, and a generating
+            message so the wait feels grounded. */}
+        {(tab === "all" || tab === "drafts") && pendingList.length > 0 && (
+          <div className="space-y-3 mb-3" data-testid="pending-specs-list">
+            {pendingList.map((p) => (
+              <div
+                key={p.tempId}
+                className="bg-slate-900/40 border border-slate-800 rounded-xl p-5"
+                data-testid="pending-spec-card"
+                data-status={p.status}
+              >
+                <div className="flex items-center gap-3">
+                  {p.status === "generating" && (
+                    <span
+                      className="block w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin flex-shrink-0"
+                      role="status"
+                      aria-label="Generating"
+                    />
+                  )}
+                  {p.status === "error" && (
+                    <Icon name="error" className="text-red-400" size={18} />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-base font-medium truncate">
+                      {p.title}
+                    </p>
+                    {p.status === "generating" && (
+                      <p className="text-xs text-slate-400 mt-1">
+                        Generating acceptance criteria...
+                      </p>
+                    )}
+                    {p.status === "error" && (
+                      <p className="text-xs text-red-300 mt-1">
+                        {p.errorMsg || "Could not create the spec. Try again."}
+                      </p>
+                    )}
+                  </div>
+                  {p.status === "generating" && (
+                    <span
+                      className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/20 text-slate-300"
+                      data-testid="pending-spec-status"
+                    >
+                      Generating...
+                    </span>
+                  )}
+                  {p.status === "error" && (
+                    <button
+                      type="button"
+                      onClick={() => removePendingSpec(p.tempId)}
+                      className="text-xs text-slate-400 hover:text-slate-200 underline"
+                      data-testid="dismiss-pending-spec"
+                    >
+                      Dismiss
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Spec list */}
-        {filtered.length === 0 ? (
+        {filtered.length === 0 && pendingList.length === 0 ? (
           <EmptyState
             icon="description"
             title="No specs yet"
             description="Create a draft to start planning."
           />
-        ) : (
+        ) : filtered.length === 0 ? null : (
           <div className="space-y-3">
             {filtered.map((doc) => {
               const isExpanded = expandedPath === doc.path;
@@ -1226,46 +1333,48 @@ export default function Specs() {
                             </div>
                           );
                         })()}
-                        {buildResult[doc.path] && (
+                        {buildResult[doc.path] && buildResult[doc.path].agents.length > 0 && (
                           <div
                             className="mt-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-slate-200"
                             data-testid="build-result"
                           >
-                            {buildResult[doc.path].agents.length > 0 ? (
-                              <>
-                                <div className="mb-1 font-semibold text-blue-300">
-                                  Started {buildResult[doc.path].agents.length} agent
-                                  {buildResult[doc.path].agents.length === 1 ? "" : "s"}.
-                                </div>
-                                <div className="mb-2 flex flex-wrap gap-1.5">
-                                  {buildResult[doc.path].agents.map((name) => (
-                                    <span
-                                      key={name}
-                                      className="rounded bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-300"
-                                      data-testid="build-agent-name"
-                                    >
-                                      {name}
-                                    </span>
-                                  ))}
-                                </div>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    navigate("/agents");
-                                  }}
-                                  className="font-semibold text-blue-400 hover:text-blue-300"
-                                  data-testid="build-agents-link"
+                            <div className="mb-1 font-semibold text-blue-300">
+                              Started {buildResult[doc.path].agents.length} agent
+                              {buildResult[doc.path].agents.length === 1 ? "" : "s"}.
+                            </div>
+                            <div className="mb-2 flex flex-wrap gap-1.5">
+                              {buildResult[doc.path].agents.map((name) => (
+                                <span
+                                  key={name}
+                                  className="rounded bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-300"
+                                  data-testid="build-agent-name"
                                 >
-                                  Watch in the Agents tab -&gt;
-                                </button>
-                              </>
-                            ) : (
-                              <div className="text-slate-400" data-testid="build-empty-message">
-                                {buildResult[doc.path].message}
-                              </div>
-                            )}
+                                  {name}
+                                </span>
+                              ))}
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate("/agents");
+                              }}
+                              className="font-semibold text-blue-400 hover:text-blue-300"
+                              data-testid="build-agents-link"
+                            >
+                              Watch in the Agents tab -&gt;
+                            </button>
                           </div>
                         )}
+                        {buildResult[doc.path] &&
+                          buildResult[doc.path].agents.length === 0 &&
+                          buildResult[doc.path].has_unchecked_acs === false && (
+                            <div
+                              className="mt-3 rounded-lg border border-slate-700 bg-slate-800/40 p-3 text-xs text-slate-300"
+                              data-testid="build-no-acs-info"
+                            >
+                              This plan has no unchecked acceptance criteria. Add at least one and click Build.
+                            </div>
+                          )}
                       </div>
                     </div>
                   )}

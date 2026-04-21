@@ -1684,3 +1684,293 @@ async def test_builder_spawns_without_demo_mode_and_with_real_deadline(
     # present and the user has not picked a default.
     assert body.model != "haiku"
     assert "haiku" not in str(body.model).lower()
+
+
+# --------------------------------------------------------------------------
+# Unified Build it cascade (stage 2 of moonlit-foraging-panda plan)
+#
+# These tests guard the single-path resolver:
+#   step 1: ostk.spec_build
+#   step 2: ostk.doc_decompose + retry
+#   step 3: AC-checklist fallback
+#
+# The handler must always land on (a) non-empty agents list, or (b)
+# has_unchecked_acs=False. The old middle "Could not create builder
+# tasks for this plan" branch is deleted.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_with_indented_ac_checkbox(client, tmp_path, monkeypatch):
+    """Indented ``  - [ ]`` bullets must still become builder tasks.
+
+    The old regex required ``- [ ]`` to be the very first non-space on
+    the line. Users writing nested lists in their Acceptance Criteria
+    section hit that edge case and ended up with missing tasks. The
+    broadened regex is anchored to ``^\\s*[-*]`` so any leading
+    whitespace passes through.
+    """
+    from services import ostk as ostk_module
+    from services.ostk import OstkError
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/indented-ac.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: indented ac\n"
+        "status: spec\n"
+        "---\n\n"
+        "## Acceptance criteria\n"
+        "  - [ ] foo\n"
+        "- [ ] bar\n"
+    )
+
+    async def broken(path):
+        raise OstkError("unreachable")
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", broken)
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", broken)
+
+    created: list[str] = []
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        created.append(title)
+        return f"\u21925{len(created):03d} {title}"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    async def fake_spawn_agent(body):
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Both the indented and flush bullets must land in the task list.
+    assert created == ["foo", "bar"]
+    assert len(data["agents"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_build_with_asterisk_ac_checkbox(client, tmp_path, monkeypatch):
+    """``* [ ]`` bullets must also become builder tasks.
+
+    Markdown lets bullets start with ``-`` or ``*``. Specs authored
+    from templates that use the ``*`` flavor used to silently drop
+    every AC. The broadened regex accepts either marker.
+    """
+    from services import ostk as ostk_module
+    from services.ostk import OstkError
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/asterisk-ac.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: asterisk ac\n"
+        "status: spec\n"
+        "---\n\n"
+        "## Acceptance criteria\n"
+        "* [ ] foo\n"
+    )
+
+    async def broken(path):
+        raise OstkError("unreachable")
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", broken)
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", broken)
+
+    created: list[str] = []
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        created.append(title)
+        return f"\u21926{len(created):03d} {title}"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    async def fake_spawn_agent(body):
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert created == ["foo"]
+    assert len(data["agents"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_build_never_returns_could_not_create_when_acs_exist(
+    client, tmp_path, monkeypatch
+):
+    """The middle "Could not create builder tasks" branch is deleted.
+
+    With all three cascade steps stubbed to produce zero configs in
+    turn, the handler must fall through cleanly to the AC fallback.
+    When the spec DOES have unchecked ACs, the AC fallback creates
+    tasks. When the spec has NONE, the response reports
+    ``has_unchecked_acs=False``. Never the old middle state.
+    """
+    from services import ostk as ostk_module
+    from services.ostk import OstkError
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/no-middle-state.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: no middle state\n"
+        "status: spec\n"
+        "---\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] real ac\n"
+    )
+
+    # Step 1 and 2 both come back empty.
+    async def empty_spec_build(path):
+        return {"agents": []}
+
+    async def empty_doc_decompose(path):
+        return {"result": "empty", "task_ids": []}
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", empty_spec_build)
+    monkeypatch.setattr(
+        ostk_module.ostk, "doc_decompose", empty_doc_decompose
+    )
+
+    created: list[str] = []
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        created.append(title)
+        return f"\u21927{len(created):03d} {title}"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    async def fake_spawn_agent(body):
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    # The message must never be the old middle-state string.
+    assert "Could not create builder tasks" not in (data.get("message") or "")
+
+    # The response is either agents>0 (AC fallback fired) OR
+    # has_unchecked_acs=False (no ACs). Never the middle.
+    agents_created = len(data.get("agents", []))
+    has_unchecked = data.get("has_unchecked_acs", None)
+    if agents_created > 0:
+        assert created == ["real ac"]
+    else:
+        assert has_unchecked is False, (
+            "build response hit the middle 'gave up' state: "
+            f"data={data}"
+        )
+
+    # Repeat with a spec that has zero ACs to confirm the
+    # has_unchecked_acs=False branch.
+    empty_spec_rel = "docs/spec/no-acs.md"
+    (tmp_path / empty_spec_rel).write_text(
+        "---\ntitle: no acs\nstatus: spec\n---\n\n"
+        "## What we want\nJust prose, no criteria.\n"
+    )
+    resp2 = await client.post(f"/api/specs/{empty_spec_rel}/build")
+    assert resp2.status_code == 200, resp2.text
+    data2 = resp2.json()
+    assert data2["agents"] == []
+    assert data2["has_unchecked_acs"] is False
+    assert "Could not create builder tasks" not in data2.get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_build_scopes_to_acceptance_criteria_heading(
+    client, tmp_path, monkeypatch
+):
+    """Prose bullets above ``## Acceptance Criteria`` must not become tasks.
+
+    A common spec layout includes a "What we want" section with its own
+    bullets; those are narrative, not work items. The parser must scope
+    itself to the Acceptance Criteria section when that heading is
+    present, so only real ACs become builder tasks.
+    """
+    from services import ostk as ostk_module
+    from services.ostk import OstkError
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/heading-scope.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: heading scope\n"
+        "status: spec\n"
+        "---\n\n"
+        "## What we want\n"
+        "- [ ] prose_bullet\n\n"
+        "## Acceptance Criteria\n"
+        "- [ ] real_ac\n"
+    )
+
+    async def broken(path):
+        raise OstkError("unreachable")
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", broken)
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", broken)
+
+    created: list[str] = []
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        created.append(title)
+        return f"\u21928{len(created):03d} {title}"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    async def fake_spawn_agent(body):
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Only the AC-section bullet must become a task.
+    assert created == ["real_ac"]
+    assert "prose_bullet" not in created
+    assert len(data["agents"]) == 1

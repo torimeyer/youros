@@ -784,23 +784,66 @@ async def verify_spec(spec_path: str):
     return result
 
 
-def _parse_unchecked_ac_bullets(spec_body: str) -> list[str]:
-    """Return the text of every ``- [ ]`` bullet in a spec body.
+# Matches a markdown unchecked checkbox bullet. Permissive so specs
+# authored with varying indentation or ``*`` bullets still yield tasks:
+#
+#   - leading whitespace allowed (nested lists, soft-wrapped templates)
+#   - ``-`` or ``*`` as the bullet marker
+#   - any amount of whitespace between the marker and ``[ ]``
+#   - at least one space after ``[ ]`` before the bullet text
+#
+# The captured group is the bullet text with surrounding whitespace.
+_UNCHECKED_AC_RE = re.compile(r"^\s*[-*]\s*\[ \]\s+(.+)")
 
-    Scans the body top to bottom and collects every line whose stripped
-    form starts with ``- [ ]``. Already-checked ``- [x]`` bullets are
-    skipped because the fallback only needs to create builders for
-    work that is still open. Headings are not required because every
-    real spec we ship places the checklist under an "Acceptance
-    criteria" heading and that heading itself does not match the bullet
-    shape, so a plain line-scan is safe and also tolerates template
-    specs that forget the heading.
+# Matches a markdown ``## Acceptance criteria`` heading (case-insensitive,
+# any heading depth >= 2). Used to scope the bullet scan to the section
+# the user intends as criteria, so prose bullets that happen to live
+# elsewhere in the spec body do not become builder tasks.
+_AC_HEADING_RE = re.compile(r"^\s{0,3}#{2,}\s+acceptance\s+criteria\b", re.I)
+
+# Matches any subsequent ``##`` heading; used to bound the AC section.
+_ANY_HEADING_RE = re.compile(r"^\s{0,3}#{2,}\s+")
+
+
+def _parse_unchecked_ac_bullets(spec_body: str) -> list[str]:
+    """Return the text of every unchecked AC checkbox bullet in a spec body.
+
+    Scoping: if the body contains a ``## Acceptance Criteria`` heading
+    (case-insensitive), only the lines between that heading and the
+    next ``##`` heading are scanned. Otherwise the whole body is
+    scanned. This keeps prose ``- [ ]`` bullets from earlier sections
+    (for example, checklists in a "What we want" narrative) out of the
+    task list the AC fallback creates.
+
+    Regex: see ``_UNCHECKED_AC_RE`` above. Already-checked ``- [x]``
+    bullets are skipped because the fallback only needs to create
+    builders for work that is still open.
     """
+    lines = spec_body.split("\n")
+
+    # Find the "## Acceptance Criteria" heading, if any, and scope the
+    # scan to its section. If no such heading is present, fall back to
+    # scanning the entire body so template specs that forget the
+    # heading still produce tasks.
+    start = 0
+    end = len(lines)
+    ac_start: Optional[int] = None
+    for idx, line in enumerate(lines):
+        if _AC_HEADING_RE.match(line):
+            ac_start = idx + 1
+            break
+    if ac_start is not None:
+        start = ac_start
+        for idx in range(ac_start, len(lines)):
+            if _ANY_HEADING_RE.match(lines[idx]):
+                end = idx
+                break
+
     bullets: list[str] = []
-    for line in spec_body.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("- [ ]"):
-            text = stripped[5:].strip()
+    for line in lines[start:end]:
+        match = _UNCHECKED_AC_RE.match(line)
+        if match:
+            text = match.group(1).strip()
             if text:
                 bullets.append(text)
     return bullets
@@ -1072,6 +1115,61 @@ def _set_spec_status(spec_path: str, new_status: str) -> Optional[str]:
         return None
 
 
+async def _resolve_task_configs(spec_path: str) -> list[dict]:
+    """Run the ordered Build it cascade once and return builder configs.
+
+    One ordered path, three steps, always terminates:
+
+    1. ``ostk.spec_build`` first. Any OstkError (CLI missing, non-zero
+       exit, parse error) is caught and turned into an empty list so
+       the next step can run.
+    2. If still empty: ``ostk.doc_decompose`` + retry ``spec_build``.
+       Covers the case where the spec has never been decomposed.
+    3. If still empty: ``_build_fallback_from_acceptance_criteria``
+       parses the spec's Acceptance Criteria checklist directly and
+       creates one builder task per unchecked bullet. Guarantees Build
+       it always has something to spawn when the spec has unchecked ACs.
+
+    Returns ``[]`` only when the spec literally has no unchecked AC
+    bullets. Callers treat that as "no work to do" rather than a
+    failure.
+    """
+    # Step 1: spec_build.
+    try:
+        result = await ostk.spec_build(spec_path)
+        configs = result.get("agents", []) or []
+        if configs:
+            return configs
+    except OstkError as e:
+        logger.warning(
+            "build_spec: ostk.spec_build failed for %s: %s", spec_path, e
+        )
+
+    # Step 2: decompose + retry spec_build. decompose can fail if the
+    # spec was already decomposed; that is fine. spec_build still
+    # running empty falls through to the AC fallback below.
+    try:
+        await ostk.doc_decompose(spec_path)
+        result = await ostk.spec_build(spec_path)
+        configs = result.get("agents", []) or []
+        if configs:
+            return configs
+    except OstkError:
+        pass
+
+    # Step 3: parse the AC checklist ourselves. Never raises to
+    # callers; any exception is swallowed so the cascade can return a
+    # clean empty list and the handler lands on the "no unchecked ACs"
+    # message instead of a 500.
+    try:
+        return await _build_fallback_from_acceptance_criteria(spec_path)
+    except Exception:
+        logger.exception(
+            "build_spec: AC fallback failed for %s", spec_path
+        )
+        return []
+
+
 @router.post("/specs/{spec_path:path}/build")
 async def build_spec(spec_path: str):
     """One-click build: decompose if needed, then spawn a builder per open task.
@@ -1081,15 +1179,16 @@ async def build_spec(spec_path: str):
     via POST /api/agents/spawn. The Builder agentfile runs in quick_mode
     so the mailbox block stays compact and the spawn is fast.
 
-    If the plan has never been decomposed (no linked task IDs), this
-    endpoint runs ``doc_decompose`` first so the user only ever has to
-    click one button. The decompose-then-build flow returns the same
-    shape as a plain build call.
+    The resolver runs one ordered cascade (``_resolve_task_configs``)
+    that terminates in either a non-empty list of builder configs or
+    an empty list meaning "the spec has no unchecked acceptance
+    criteria". There is no middle "gave up" state: if ostk is
+    unreachable AND the AC checklist is empty, the spec genuinely has
+    no work to build and the frontend shows an informational card, not
+    an error.
 
-    Returns ``{"agents": [names...], "message": "..."}``. When the plan
-    still has no open tasks after a decompose attempt (for example,
-    every task was already closed), returns an empty agent list with a
-    helpful message instead of spawning anything.
+    Returns ``{"agents": [names...], "message": "...",
+    "has_unchecked_acs": bool}``.
     """
     _validate_doc_path(spec_path)
     # Hard-reject only paths that point at a missing file. A broken or
@@ -1103,92 +1202,18 @@ async def build_spec(spec_path: str):
             status_code=404, detail=f"Spec not found: {spec_path}"
         )
 
-    # Try ostk.spec_build first. Any failure (ostk missing, non-zero
-    # exit, parse error, etc.) is caught and turned into an empty agent
-    # list so the AC-parsing fallback can run. The user's intent is
-    # "saa to build this": we must ALWAYS create tasks and spawn
-    # builders if the spec has unchecked ACs, regardless of whether the
-    # ostk binary is reachable.
-    agent_configs: list[dict] = []
-    try:
-        result = await ostk.spec_build(spec_path)
-        agent_configs = result.get("agents", []) or []
-    except OstkError as e:
-        logger.warning(
-            "build_spec: ostk.spec_build failed for %s: %s", spec_path, e
-        )
-
-    # One-click path: if this plan has no agents to build (meaning no
-    # open tasks), try running decompose once so the user does not have
-    # to click "Break into Tasks" first. If decompose still produces
-    # nothing, fall through to the AC-parsing fallback below so Build it
-    # always has SOMETHING to spawn when the spec has unchecked ACs.
-    if not agent_configs:
-        try:
-            await ostk.doc_decompose(spec_path)
-            result = await ostk.spec_build(spec_path)
-            agent_configs = result.get("agents", []) or []
-        except OstkError:
-            # Decompose can fail if the spec was already decomposed; in
-            # that case spec_build still returned no agents, so the
-            # AC-fallback branch below handles it cleanly.
-            pass
-
-    # AC-fallback path: when ostk.spec_build and doc_decompose both come
-    # back empty (every task already closed, or decompose silently
-    # produced nothing), parse the spec body's Acceptance Criteria
-    # checklist ourselves and create one builder task per unchecked
-    # bullet. This guarantees Build it always spawns something when the
-    # user still has open ACs to satisfy, instead of returning "no open
-    # tasks" and making the user manually recreate the work.
-    if not agent_configs:
-        try:
-            agent_configs = await _build_fallback_from_acceptance_criteria(
-                spec_path
-            )
-        except Exception:
-            logger.exception(
-                "build_spec: AC fallback failed for %s", spec_path
-            )
-            agent_configs = []
+    agent_configs = await _resolve_task_configs(spec_path)
 
     if not agent_configs:
-        # Distinguish "no ACs on the spec" (user edited them all out)
-        # from "we tried and could not create tasks". Read the body
-        # once more so the message reflects the real state. A genuinely
-        # empty spec gets a clearer prompt and the frontend hides the
-        # red banner for plans that DO still have ACs.
-        try:
-            text = spec_full_path.read_text()
-            body_start = 0
-            body_lines = text.split("\n")
-            if body_lines and body_lines[0].strip() == "---":
-                for i, ln in enumerate(body_lines[1:], 1):
-                    if ln.strip() == "---":
-                        body_start = i + 1
-                        break
-            body_tail = "\n".join(body_lines[body_start:])
-            has_any_unchecked = any(
-                ln.strip().startswith("- [ ]")
-                for ln in body_tail.split("\n")
-            )
-        except OSError:
-            has_any_unchecked = False
-        if has_any_unchecked:
-            return {
-                "agents": [],
-                "message": (
-                    "Could not create builder tasks for this plan. "
-                    "Check that the spec still has unchecked acceptance "
-                    "criteria and try again."
-                ),
-                "has_unchecked_acs": True,
-            }
+        # Cascade returned empty -> the spec has no unchecked ACs.
+        # (Any transient failure mid-cascade either produced a config
+        # list by step 3 or was logged above; there is no "gave up"
+        # middle state.)
         return {
             "agents": [],
             "message": (
                 "This plan has no unchecked acceptance criteria. Add "
-                "at least one acceptance criterion, then click Build it."
+                "at least one, then click Build."
             ),
             "has_unchecked_acs": False,
         }
