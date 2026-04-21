@@ -25,6 +25,7 @@ import HealthCheckView from "../components/HealthCheckView";
 import type { Label } from "../components/LabelsView";
 import { api } from "../lib/api";
 import { isSessionTask } from "../lib/tasks";
+import { onTasksChange } from "../lib/sidebarBus";
 import SharePopover from "../components/SharePopover";
 import ExportButton from "../components/ExportButton";
 import TasksAuditModal from "../components/TasksAuditModal";
@@ -510,6 +511,32 @@ export default function Tasks() {
     fetchLabels();
     fetchThreads();
   }, [fetchTasks, fetchLabels, fetchThreads]);
+
+  // Live updates for new tasks. Two channels:
+  //
+  //  1. sidebarBus: any frontend-initiated task mutation (POST /tasks, close,
+  //     reorder, delete, quick-spawn, Calendar add, Slack reply-to-task, etc.)
+  //     goes through api.ts which calls bumpTasks() on success. Subscribing
+  //     here means the Tasks page refetches within milliseconds of the user
+  //     clicking "Add task" anywhere in the app.
+  //
+  //  2. Safety-net poll every 3 s: backend-initiated creations (AC fallback,
+  //     builders, session-task auto-file) never touch the frontend api wrapper
+  //     and therefore never bump the bus. Without a poll they would stay
+  //     invisible until the user manually navigated away and back. 3 s keeps
+  //     the page feeling live without hammering the API.
+  useEffect(() => {
+    const off = onTasksChange(() => {
+      fetchTasks();
+    });
+    const interval = setInterval(() => {
+      fetchTasks();
+    }, 3000);
+    return () => {
+      off();
+      clearInterval(interval);
+    };
+  }, [fetchTasks]);
 
   // Deep-link handler: when ?focus=<id> is in the URL, auto-select that task,
   // switch to the correct tab if needed, scroll it into view, then clear the

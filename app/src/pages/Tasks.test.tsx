@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Tasks from './Tasks'
@@ -2681,6 +2681,65 @@ describe('Tasks page - session transcript link and child task count', () => {
         expect(screen.queryByText('Closed one')).not.toBeInTheDocument()
       })
       expect(screen.getByTestId('status-chip-open')).toBeInTheDocument()
+    })
+  })
+})
+
+describe('Tasks page - live updates (bus + 3s poll)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('renders a backend-initiated task within 3.5s without user action', async () => {
+    // First call: no tasks. Second call onward: one task present.
+    // This simulates a backend-initiated creation (e.g. builder, AC
+    // fallback, session-task auto-file) that never touches the frontend
+    // api wrapper and therefore never bumps the sidebar bus.
+    const emptyTasks: typeof mockTasks = []
+    const newTasks = [
+      {
+        id: 'nt1',
+        title: 'Backend added this task',
+        priority: 'P1',
+        status: 'open',
+        created_at: new Date().toISOString(),
+        goal: null,
+        label_ids: [],
+      },
+    ]
+
+    let tasksPayload: typeof mockTasks = emptyTasks
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: tasksPayload })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderTasks()
+
+    // Empty state paints first.
+    await waitFor(() => {
+      expect(screen.queryByText('Backend added this task')).not.toBeInTheDocument()
+    })
+
+    // Backend-side creation happens while the user sits on the page.
+    tasksPayload = newTasks
+
+    // Advance past the 3s poll interval. The poll tick fires and refetches
+    // without the user doing anything.
+    await vi.advanceTimersByTimeAsync(3500)
+
+    await waitFor(() => {
+      expect(screen.getByText('Backend added this task')).toBeInTheDocument()
     })
   })
 })
