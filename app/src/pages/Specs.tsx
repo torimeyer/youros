@@ -682,6 +682,12 @@ export default function Specs() {
       }));
       if (agents.length > 0) {
         showMessage(`Started ${agents.length} agent${agents.length === 1 ? "" : "s"}. Watch the Agents tab.`);
+        // Auto-switch to the Building tab so the user lands on the
+        // filtered list that contains the spec they just built. The
+        // spec's status flips to "in-progress" on the backend when
+        // agents spawn, so leaving the user on "all" or "drafts"
+        // would hide the card they were just interacting with.
+        setTab("in-progress");
         // Fetch immediately so spinners and agent chips appear without
         // waiting for the first poll tick. Then fetch once more at
         // 500 ms to catch builder status changes that the backend
@@ -895,44 +901,6 @@ export default function Specs() {
             </button>
           ))}
         </div>
-
-        {/* Start from a template grid */}
-        {templates.length > 0 && (
-          <div className="mb-6" data-testid="plan-templates">
-            <h2 className="text-sm font-semibold text-slate-300 mb-3">
-              Start from a template
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {templates.map((t) => {
-                const loading = templateLoading === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => handleOpenTemplateDetails(t)}
-                    disabled={loading}
-                    data-testid={`plan-template-${t.id}`}
-                    className="flex items-start gap-3 text-left bg-slate-900/40 border border-slate-800 rounded-xl p-4 hover:border-blue-500 hover:bg-slate-800/40 transition-colors disabled:opacity-60 disabled:cursor-wait"
-                  >
-                    <Icon
-                      name={t.icon || "description"}
-                      className="text-2xl text-blue-400 mt-0.5 shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium">{t.name}</p>
-                      <p className="text-slate-400 text-xs mt-0.5 line-clamp-2">
-                        {t.description}
-                      </p>
-                      {loading && (
-                        <p className="text-xs text-blue-300 mt-2">Creating plan...</p>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Create new draft */}
         <div className="flex gap-3 mb-8">
@@ -1381,6 +1349,47 @@ export default function Specs() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Start from a template grid.
+            Rendered after the spec list so the user sees their own plans
+            first and only scrolls past them when they want to start a
+            new one from scratch. */}
+        {templates.length > 0 && (
+          <div className="mt-8 mb-6" data-testid="plan-templates">
+            <h2 className="text-sm font-semibold text-slate-300 mb-3">
+              Start from a template
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {templates.map((t) => {
+                const loading = templateLoading === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => handleOpenTemplateDetails(t)}
+                    disabled={loading}
+                    data-testid={`plan-template-${t.id}`}
+                    className="flex items-start gap-3 text-left bg-slate-900/40 border border-slate-800 rounded-xl p-4 hover:border-blue-500 hover:bg-slate-800/40 transition-colors disabled:opacity-60 disabled:cursor-wait"
+                  >
+                    <Icon
+                      name={t.icon || "description"}
+                      className="text-2xl text-blue-400 mt-0.5 shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium">{t.name}</p>
+                      <p className="text-slate-400 text-xs mt-0.5 line-clamp-2">
+                        {t.description}
+                      </p>
+                      {loading && (
+                        <p className="text-xs text-blue-300 mt-2">Creating plan...</p>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>

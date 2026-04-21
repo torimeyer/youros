@@ -696,6 +696,27 @@ describe('Specs page', () => {
       agents: ['spec-auth-01', 'spec-auth-02', 'spec-auth-03'],
       message: 'Spawned 3 agents to build this spec. Watch the Agents tab.',
     })
+    // After a successful build, the real backend flips the spec's
+    // status to "in-progress" and the UI auto-switches to the Building
+    // tab. Mirror that here so the spec remains visible under the new
+    // tab filter.
+    let specsCallCount = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') {
+        specsCallCount += 1
+        if (specsCallCount === 1) return Promise.resolve(mockDocsResponse)
+        return Promise.resolve({
+          docs: mockDocsResponse.docs.map((d) =>
+            d.path === 'docs/spec/auth-system.md'
+              ? { ...d, status: 'in-progress' }
+              : d
+          ),
+        })
+      }
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
 
     renderSpecs()
 
@@ -1219,8 +1240,21 @@ describe('Specs page', () => {
       message: 'Spawned 2 agents to build this spec.',
     })
     // The tasks endpoint returns two open tasks, each assigned to an agent.
+    // Second /specs fetch flips auth-system to in-progress so it stays
+    // visible once the UI auto-switches to the Building tab.
+    let specsCallCount = 0
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs') {
+        specsCallCount += 1
+        if (specsCallCount === 1) return Promise.resolve(mockDocsResponse)
+        return Promise.resolve({
+          docs: mockDocsResponse.docs.map((d) =>
+            d.path === 'docs/spec/auth-system.md'
+              ? { ...d, status: 'in-progress' }
+              : d
+          ),
+        })
+      }
       if (path.endsWith('/tasks')) {
         return Promise.resolve({
           tasks: [
@@ -1264,8 +1298,21 @@ describe('Specs page', () => {
     })
 
     let taskStatus: 'open' | 'closed' = 'open'
+    // Second /specs fetch flips auth-system to in-progress so it
+    // stays visible once the UI auto-switches to the Building tab.
+    let specsCallCount = 0
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs') {
+        specsCallCount += 1
+        if (specsCallCount === 1) return Promise.resolve(mockDocsResponse)
+        return Promise.resolve({
+          docs: mockDocsResponse.docs.map((d) =>
+            d.path === 'docs/spec/auth-system.md'
+              ? { ...d, status: 'in-progress' }
+              : d
+          ),
+        })
+      }
       if (path.endsWith('/tasks')) {
         return Promise.resolve({
           tasks: [
@@ -1322,8 +1369,21 @@ describe('Specs page', () => {
       agents: ['spec-auth-42'],
       message: 'Spawned 1 agent.',
     })
+    // Second /specs fetch flips auth-system to in-progress so it
+    // stays visible once the UI auto-switches to the Building tab.
+    let specsCallCount = 0
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs') {
+        specsCallCount += 1
+        if (specsCallCount === 1) return Promise.resolve(mockDocsResponse)
+        return Promise.resolve({
+          docs: mockDocsResponse.docs.map((d) =>
+            d.path === 'docs/spec/auth-system.md'
+              ? { ...d, status: 'in-progress' }
+              : d
+          ),
+        })
+      }
       if (path.endsWith('/tasks')) {
         return Promise.resolve({
           tasks: [
@@ -1627,6 +1687,89 @@ describe('Specs page real-time bus', () => {
         (c) => c[0] === '/specs'
       ).length
       expect(after).toBeGreaterThan(initialCalls)
+    })
+  })
+
+  // Layout regression: the spec list must render above the "Start from a
+  // template" grid so returning users see their own plans first and only
+  // scroll past them to start a new plan from a template.
+  it('specs list renders above template grid', async () => {
+    const templates = [
+      {
+        id: 'build-a-website',
+        name: 'Build a Website',
+        description: 'Plan, design, build, and review a new website end to end.',
+        icon: 'web',
+        goal_markdown: 'body',
+        acceptance_criteria: ['ac1'],
+        tasks: ['Write the PRD'],
+      },
+    ]
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(mockDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+
+    // Wait for both the ready spec and the template grid to mount.
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('plan-templates')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
+    const templatesGrid = screen.getByTestId('plan-templates')
+
+    // compareDocumentPosition returns a bitmask. FOLLOWING (0x04) means
+    // the arg node comes after the reference node in document order.
+    const relation = authCard.compareDocumentPosition(templatesGrid)
+    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  // Auto-switch: a successful Build it on a spec should move the user
+  // to the Building tab so they land on the filtered list that contains
+  // the plan they just built instead of staring at their old tab.
+  it('Build it switches to Building tab on success', async () => {
+    mockedApiPost.mockResolvedValue({
+      agents: ['agent-a', 'agent-b'],
+      message: 'Spawned 2 agents.',
+    })
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    // Default tab is "All". Confirm the Building tab does NOT yet have
+    // the selected styling before Build fires.
+    const buildingTabBefore = screen.getByRole('button', { name: /^Building/ })
+    expect(buildingTabBefore.className).not.toContain('bg-blue-500')
+
+    // Expand the ready spec and click Build it.
+    const cards = screen.getAllByTestId('spec-card')
+    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
+    fireEvent.click(authCard)
+
+    await waitFor(() => {
+      expect(screen.getByText('Build it')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Build it'))
+
+    // After the build POST resolves with agents, the Building tab
+    // button should carry the selected-tab classes.
+    await waitFor(() => {
+      const buildingTab = screen.getByRole('button', { name: /^Building/ })
+      expect(buildingTab.className).toContain('bg-blue-500')
+      expect(buildingTab.className).toContain('text-white')
     })
   })
 })
