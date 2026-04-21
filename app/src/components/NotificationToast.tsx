@@ -54,6 +54,28 @@ function isKnownAgentStatus(status: string): boolean {
   )
 }
 
+// The backend emits persistent agent-completion rows with a title
+// shaped like ``Agent done: <name>`` and a body set to the agent's
+// description. The raw title, when truncated by a narrow toast, turns
+// into ``Agent done: diagnose-me...``, and when the agent's name itself
+// contains a word like "failure" the body then reads as a status
+// report of failure. Split the prefix off here so the toast can render
+// a neutral label ("Finished") alongside the full name on its own line.
+const AGENT_DONE_PREFIX = 'Agent done: '
+
+function splitAgentDoneTitle(raw: string): {
+  statusLabel: string | null
+  name: string
+} {
+  if (raw.startsWith(AGENT_DONE_PREFIX)) {
+    return {
+      statusLabel: 'Finished',
+      name: raw.slice(AGENT_DONE_PREFIX.length),
+    }
+  }
+  return { statusLabel: null, name: raw }
+}
+
 function Toast({
   notification,
   onDismiss,
@@ -62,6 +84,7 @@ function Toast({
   onDismiss: () => void
 }) {
   const { icon, color } = statusIcon(notification.status)
+  const { statusLabel, name } = splitAgentDoneTitle(notification.agentName)
   // Persistent notifications (roadmap_ready, upgrade, sync, etc.) come
   // through ``addPersistentToast`` and carry a human-readable ``body``
   // from the backend. Use that verbatim so the toast reads like
@@ -76,12 +99,29 @@ function Toast({
     : isKnownAgentStatus(notification.status)
       ? `Agent ${statusMessage(notification.status)}`
       : 'New notification'
+  // For agent-completion toasts the full name lives on its own line and
+  // is allowed to wrap to two lines so names like
+  // "Diagnose memory consistency failure" never get cut to
+  // "Agent done: diagnose-me..." which reads as a failure report.
+  // The body (agent description) is suppressed because it typically
+  // just repeats the name in the completion case.
   return (
     <div className="flex items-start gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 shadow-xl w-72 animate-toast-in">
       <Icon name={icon} size={20} className={`${color} mt-0.5 shrink-0`} />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-white truncate">{notification.agentName}</p>
-        <p className="text-xs text-slate-400 leading-relaxed">{bodyText}</p>
+        {statusLabel ? (
+          <>
+            <p className="text-sm font-medium text-white">{statusLabel}</p>
+            <p className="text-xs text-slate-400 leading-relaxed break-words line-clamp-2">
+              {name}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-medium text-white truncate">{name}</p>
+            <p className="text-xs text-slate-400 leading-relaxed">{bodyText}</p>
+          </>
+        )}
       </div>
       <button
         onClick={onDismiss}

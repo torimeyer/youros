@@ -53,6 +53,41 @@ describe('NotificationToasts', () => {
     expect(screen.getByText('Agent finished')).toBeInTheDocument()
   })
 
+  it('test_agent_done_toast_does_not_read_as_failure_report', () => {
+    // Regression: the backend emits persistent rows shaped
+    //   title: "Agent done: <full-name>"
+    //   body:  "<full-name>"
+    // A narrow toast used to render the truncated title
+    // ("Agent done: diagnose-me...") stacked over the body
+    // ("Diagnose memory consistency failure"), which read as a status
+    // report of failure even though the agent completed successfully.
+    // The toast must now show a neutral "Finished" label with the
+    // untruncated name on its own line (up to 2 wrapped lines).
+    const fullName = 'Diagnose memory consistency failure'
+    useNotificationStore.getState().addPersistentToast({
+      id: 'agent-done-failure-named',
+      type: 'agent',
+      title: `Agent done: ${fullName}`,
+      body: fullName,
+      action_url: '/agents',
+    })
+
+    render(<NotificationToasts />)
+
+    // Neutral label, not the raw "Agent done: ..." concatenation.
+    expect(screen.getByText('Finished')).toBeInTheDocument()
+    expect(screen.queryByText(/Agent done: /)).not.toBeInTheDocument()
+    expect(screen.queryByText(/diagnose-me\.\.\./i)).not.toBeInTheDocument()
+
+    // The full agent name renders intact (no truncation class) so the
+    // meaningful tail of the name is never hidden, and "failure" here
+    // is unambiguously part of the agent's name rather than a status.
+    const nameEl = screen.getByText(fullName)
+    expect(nameEl).toBeInTheDocument()
+    expect(nameEl.className).not.toContain('truncate')
+    expect(nameEl.className).toContain('line-clamp-2')
+  })
+
   it('test_persistent_toast_without_body_shows_generic_fallback', () => {
     // Defensive path: if a persistent notification arrives with an empty
     // body and an unknown status, the toast must never surface the raw
