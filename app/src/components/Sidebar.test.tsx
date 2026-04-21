@@ -1098,3 +1098,59 @@ describe('Sidebar health dot debouncing (needle 293)', () => {
     vi.useRealTimers()
   })
 })
+
+describe('Sidebar status panel does not expose Claude indicator', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    _resetSidebarBus()
+    useAppStore.setState({
+      osName: 'myOS',
+      features: DEFAULT_FEATURES,
+      defaultChatModel: 'claude',
+    })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      if (url === '/sessions/active') return Promise.resolve({ active_count: 0 })
+      if (url === '/status/clock') return Promise.resolve({ kernel: 'v4.0.0' })
+      if (url === '/upgrade/status') return Promise.resolve({ myos: { current: 'v4.0.0' } })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+  })
+
+  it('shows Backend, System, and sessions rows but NOT a Claude row', async () => {
+    renderSidebar()
+
+    // Backend + System rows are rendered.
+    await waitFor(() => {
+      expect(screen.getByText('Backend')).toBeTruthy()
+    })
+    const systemRow = screen.getByText((_content, node) => {
+      return !!node && node.tagName === 'SPAN' && (node.textContent ?? '').startsWith('System')
+    })
+    expect(systemRow).toBeTruthy()
+
+    // Sessions row is rendered.
+    expect(screen.getByText('No sessions')).toBeTruthy()
+
+    // Claude row must not be present. Even though the configured chat
+    // model is "claude", the status panel must stay provider-generic.
+    expect(screen.queryByText('Claude')).toBeNull()
+    expect(screen.queryByText('LLM')).toBeNull()
+    expect(screen.queryByText('Gemini')).toBeNull()
+  })
+
+  it('does not call /settings/probe on mount', async () => {
+    renderSidebar()
+    // Give effects a chance to run.
+    await waitFor(() => {
+      expect(screen.getByText('Backend')).toBeTruthy()
+    })
+    const probeCalls = mockedApiGet.mock.calls.filter(
+      ([url]) => typeof url === 'string' && url.startsWith('/settings/probe')
+    )
+    expect(probeCalls).toHaveLength(0)
+  })
+})

@@ -336,18 +336,6 @@ export function Sidebar() {
   const [ostkUp, setOstkUp] = useState<boolean | null>(null)
   const [ostkKernel, setOstkKernel] = useState('')
   const [sessionCount, setSessionCount] = useState(0)
-  const [llmOk, setLlmOk] = useState<boolean | null>(null)
-
-  // Pull the configured chat model from the store so the dot can label
-  // itself with the active provider ("Claude", "Gemini", etc.). The
-  // store keeps this as a bare key like "claude" or "gemini".
-  const defaultChatModel = useAppStore((s) => s.defaultChatModel)
-  const llmProviderLabel = (() => {
-    const m = (defaultChatModel || '').toLowerCase()
-    if (m.includes('claude')) return 'Claude'
-    if (m.includes('gemini')) return 'Gemini'
-    return 'LLM'
-  })()
 
   // Collapsed state per group. Initialized from localStorage; active group
   // is forced open if it would otherwise be collapsed.
@@ -500,33 +488,6 @@ export function Sidebar() {
     api.get<{ myos: { current: string } }>('/upgrade/status')
       .then((res) => setVersion(res.myos?.current ?? ''))
       .catch(() => {})
-  }, [])
-
-  // Fetch the most recent LLM probe result once on mount. The backend
-  // already persists the last run in settings, so we reuse that cached
-  // value and piggyback on the backend/ostk health cycle instead of
-  // introducing a new polling loop. The user can rerun the probe from
-  // Settings if they need a fresh check.
-  useEffect(() => {
-    let cancelled = false
-    api
-      .get<{ last_probe_result: { status?: string } | null }>('/settings/probe')
-      .then((res) => {
-        if (cancelled) return
-        const status = res.last_probe_result?.status
-        if (!status) {
-          setLlmOk(null)
-          return
-        }
-        // Accept "ok" (probe_runner shape) or "pass" (probes shape)
-        setLlmOk(status === 'ok' || status === 'pass')
-      })
-      .catch(() => {
-        if (!cancelled) setLlmOk(null)
-      })
-    return () => {
-      cancelled = true
-    }
   }, [])
 
   useEffect(() => {
@@ -789,9 +750,6 @@ export function Sidebar() {
             <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${ostkUp === null ? 'bg-slate-700 text-slate-400' : ostkUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
               System{ostkKernel ? ` ${ostkKernel}` : ''} {ostkUp === null ? '' : ostkUp ? 'running' : 'offline'}
             </span>
-            <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${llmOk === null ? 'bg-slate-700 text-slate-400' : llmOk ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-              {llmProviderLabel} {llmOk === null ? '' : llmOk ? 'ready' : 'not responding'}
-            </span>
             <NavLink
               to="/activity"
               className="hover:opacity-80 transition-opacity"
@@ -811,10 +769,6 @@ export function Sidebar() {
             <div className="flex items-center gap-2">
               <span className={`w-1.5 h-1.5 rounded-full ${ostkUp === null ? 'bg-slate-600' : ostkUp ? 'bg-green-400' : 'bg-red-400'}`} />
               <span className="text-[10px] text-slate-500">System{ostkKernel ? ` ${ostkKernel}` : ''}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`w-1.5 h-1.5 rounded-full ${llmOk === null ? 'bg-slate-600' : llmOk ? 'bg-green-400' : 'bg-red-400'}`} />
-              <span className="text-[10px] text-slate-500">{llmProviderLabel}</span>
             </div>
             <NavLink
               to="/activity"
