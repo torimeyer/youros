@@ -9,16 +9,25 @@
 #   file directly via the TORI_ZSH env var, so a broken tori() fails
 #   CI instead of only being caught on the author's laptop.
 #
-# Parallel updates, then splash, then servers, then Claude.
+# Agent launch is OPT-IN. myOS is generic by default. Set
+# TORI_LAUNCH_AGENT=claude to auto-run `claude update` during startup
+# and launch the Claude CLI after the splash. Unset or any other value
+# exits cleanly after the readiness probes with no agent launched.
+#
+# Parallel updates, then splash, then servers, then (optional) agent.
 tori() {
   cd ~/claude/torios || return 1
   setopt LOCAL_OPTIONS NO_MONITOR
 
   # --- Updates (parallel, non-blocking) ---
   # Claude update takes ~60s but only applies next launch.
+  # Opt-in: only runs when TORI_LAUNCH_AGENT=claude, matching the
+  # launch gate below. Default tori stays agent-agnostic.
   # Fire-and-forget: script(1) gives the child its own pty so
   # /dev/tty writes don't cause "suspended (tty output)".
-  /usr/bin/script -q /dev/null sh -c 'command claude update' </dev/null >/dev/null 2>&1 &!
+  if [[ "${TORI_LAUNCH_AGENT:-}" == "claude" ]]; then
+    /usr/bin/script -q /dev/null sh -c 'command claude update' </dev/null >/dev/null 2>&1 &!
+  fi
 
   # ostk + git checks run in parallel (~0.5s each).
   local _ostk_tmp=$(mktemp) _git_tmp=$(mktemp)
@@ -183,11 +192,18 @@ tori() {
   fi
   printf '\n'
 
-  command claude --dangerously-skip-permissions
+  # --- Optional agent launch ---
+  # Opt-in via TORI_LAUNCH_AGENT. Default tori exits cleanly after the
+  # splash so myOS stays generic (Claude/Codex/Cursor/plain shell all
+  # work). When no agent is requested, leave the dev servers running
+  # in the background (the user may still want to hit the UI).
+  if [[ "${TORI_LAUNCH_AGENT:-}" == "claude" ]]; then
+    command claude --dangerously-skip-permissions
 
-  # When Claude exits, clean up the servers
-  echo "Shutting down ToriOS servers..."
-  kill $be_pid $fe_pid 2>/dev/null
-  wait $be_pid $fe_pid 2>/dev/null
-  echo "ToriOS shut down."
+    # When Claude exits, clean up the servers
+    echo "Shutting down ToriOS servers..."
+    kill $be_pid $fe_pid 2>/dev/null
+    wait $be_pid $fe_pid 2>/dev/null
+    echo "ToriOS shut down."
+  fi
 }
