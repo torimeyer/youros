@@ -144,14 +144,24 @@ def test_hook_body_has_required_fields():
     assert body.get("description"), body
     assert body.get("prompt"), body
 
-    # Name must be slugified from the description plus a random suffix.
+    # Name must be slugified from the description. The hook no longer
+    # appends a random suffix because random slugs cluttered the Agents
+    # page (e.g. "Roadmap G3egyo"). Real name collisions are handled by
+    # the /register endpoint returning 409.
     name = body.get("name", "")
-    assert name.startswith("my-sub-task-"), name
-    assert len(name) > len("my-sub-task-"), name
+    assert name == "my-sub-task", name
 
 
-def test_hook_name_has_unique_suffix():
-    """Repeated identical descriptions must register with distinct names."""
+def test_hook_name_is_stable_across_identical_descriptions():
+    """The hook derives names deterministically from the description.
+
+    Earlier versions of the hook appended a random suffix so every
+    spawn had a unique name. That was removed because the random slug
+    cluttered the Agents page for the common case of a single spawn.
+    Collisions across concurrent identical descriptions are now
+    resolved by the /register endpoint (409 on terminal rows; merge
+    into the pre-registration on pending rows).
+    """
     payload = {
         "tool_name": "Agent",
         "tool_input": {"description": "identical task", "prompt": "x"},
@@ -160,7 +170,9 @@ def test_hook_name_has_unique_suffix():
     a = _run_hook_dry(payload, backend_url=None)
     b = _run_hook_dry(payload, backend_url=None)
     assert a["body"] and b["body"]
-    assert a["body"]["name"] != b["body"]["name"], (a["body"], b["body"])
+    assert a["body"]["name"] == b["body"]["name"] == "identical-task", (
+        a["body"], b["body"],
+    )
 
 
 @pytest.mark.asyncio

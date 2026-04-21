@@ -211,8 +211,13 @@ async def test_register_does_not_reset_completed_to_running(tmp_path):
                 json={"name": bot_name, "model": "sonnet", "budget": 2,
                       "task": "test terminal guard", "source": "claude-code"},
             )
-        assert resp.status_code == 200, resp.text
-        # Status must remain completed, not "running"
+        # Either response shape is acceptable as long as the terminal row
+        # is preserved. Historically the endpoint returned 200 and
+        # silently kept the terminal status. The current contract
+        # returns 409 telling the caller to register under a fresh name.
+        # Both outcomes satisfy the "never flip completed back to running"
+        # invariant this test was written to guard.
+        assert resp.status_code in (200, 409), resp.text
         meta = agents_module.agent_metadata.get(bot_name, {})
         assert meta.get("status") == "completed", (
             f"Status was reset to '{meta.get('status')}', expected 'completed'"
