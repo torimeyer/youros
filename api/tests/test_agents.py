@@ -13081,3 +13081,146 @@ async def test_list_agents_single_save_per_request_even_with_many_reconciles():
     # this test is guarding.)
     assert isinstance(result, dict)
     assert "agents" in result
+
+
+# ---------------------------------------------------------------------------
+# Transcript 0-token gate: cancelled agents that never produced any tokens
+# must not leave a transcripts/<name>.md file that downstream tools
+# (inline chat, audit) could mistake for a completed run. See
+# ``_terminated_without_work`` in routers/agents.py.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cancelled_zero_token_agent_does_not_write_transcript(tmp_path, monkeypatch):
+    """A cancelled agent with tokens_used=0 must not leave a /complete
+    stub on disk.
+
+    Reproduces the forensic case: a subagent was cancelled via
+    ``POST /agents/cancel-all`` before it ever produced tokens, but a
+    later zombie ``/complete`` would write an ``Agent X completed`` stub
+    to ``transcripts/<name>.md``. The inline chat assistant then parsed
+    that stub as proof of completion and attributed work the agent never
+    did. Gate: /complete is a no-op on transcripts for cancelled rows
+    whose token counter stayed at zero, and cancel paths actively
+    overwrite any pre-existing content with a TERMINATED banner.
+    """
+    import routers.agents as agents_mod
+    from routers.agents import agent_metadata
+
+    transcripts_dir = tmp_path / "transcripts"
+    transcripts_dir.mkdir()
+    # The /complete handler re-imports PROJECT_ROOT via
+    # ``from config import PROJECT_ROOT`` inside the function body, so
+    # patching config.PROJECT_ROOT is what actually redirects writes.
+    import config as config_mod
+    monkeypatch.setattr(config_mod, "PROJECT_ROOT", tmp_path)
+
+    name = "zero-token-cancel-agent"
+    agent_metadata[name] = {
+        "spawned_at": "2026-04-20T00:00:00+00:00",
+        "source": "claude-code",
+        "status": "running",
+        "tokens_used": 0,
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"):
+                mock_ostk._run = AsyncMock(return_value="")
+                # 1. Cancel the agent. The row should flip to cancelled
+                # with tokens_used=0 still intact.
+                resp = await client.post(
+                    f"/api/agents/{name}/cancel",
+                    json={"reason": "bulk cancel"},
+                )
+                assert resp.status_code == 200
+                assert agent_metadata[name]["status"] == "cancelled"
+                assert agent_metadata[name].get("tokens_used", 0) == 0
+
+                transcript_path = tmp_path / "transcripts" / f"{name}.md"
+                # Cancel path either skipped the write (file absent) OR
+                # wrote the terminated banner. Either outcome is
+                # acceptable; what must NOT be present is a stub that
+                # claims completion.
+                if transcript_path.exists():
+                    content = transcript_path.read_text()
+                    assert agents_mod.TERMINATED_WITHOUT_WORK_BANNER in content, (
+                        f"Cancelled 0-token transcript missing banner, got: {content!r}"
+                    )
+                    # The specific misleading phrase a zombie /complete
+                    # would otherwise write: "Agent '<name>' completed".
+                    assert f"Agent '{name}' completed" not in content, (
+                        "Cancelled 0-token transcript must not contain "
+                        "a completion stub that could fool chat attribution"
+                    )
+
+                # 2. A late /complete arriving after cancel must be
+                # treated as a no-op (idempotent-terminal guard) AND
+                # must not write a stub file that masks the cancellation.
+                resp2 = await client.post(
+                    f"/api/agents/{name}/complete",
+                    json={"summary": "late summary"},
+                )
+                assert resp2.status_code == 200
+                # Status stays cancelled.
+                assert agent_metadata[name]["status"] == "cancelled"
+                # No misleading "Agent X completed" stub was dropped.
+                if transcript_path.exists():
+                    tail = transcript_path.read_text()
+                    assert "completed (registered externally)" not in tail
+        finally:
+            agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_completed_agent_with_tokens_writes_transcript(tmp_path, monkeypatch):
+    """Positive case: a normal agent that completed with a token count
+    greater than zero must still receive its legacy transcript stub when
+    no other transcript source exists. This guards against an
+    over-eager gate that silently drops transcripts for the healthy
+    happy-path completion flow."""
+    import routers.agents as agents_mod
+    from routers.agents import agent_metadata
+
+    (tmp_path / "transcripts").mkdir()
+    import config as config_mod
+    monkeypatch.setattr(config_mod, "PROJECT_ROOT", tmp_path)
+
+    name = "token-positive-agent"
+    agent_metadata[name] = {
+        "spawned_at": "2026-04-20T00:00:00+00:00",
+        "source": "claude-code",
+        "status": "running",
+        "tokens_used": 1234,
+    }
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch(
+                     "routers.agents._resolve_transcript_source",
+                     return_value=None,
+                 ):
+                mock_ostk._run = AsyncMock(return_value="")
+                resp = await client.post(
+                    f"/api/agents/{name}/complete",
+                    json={"summary": "did the work"},
+                )
+                assert resp.status_code == 200
+                assert agent_metadata[name]["status"] == "completed"
+
+                transcript_path = tmp_path / "transcripts" / f"{name}.md"
+                assert transcript_path.exists(), (
+                    "Non-zero-token /complete must still write the "
+                    "legacy transcript stub when no real source exists"
+                )
+                content = transcript_path.read_text()
+                assert "completed" in content.lower()
+                assert agents_mod.TERMINATED_WITHOUT_WORK_BANNER not in content
+        finally:
+            agent_metadata.pop(name, None)

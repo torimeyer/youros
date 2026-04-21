@@ -833,6 +833,85 @@ def _parse_iso(value: str) -> Optional[datetime]:
         return None
 
 
+# Marker written at the top of any transcript whose owning agent terminated
+# without producing real work (tokens_used == 0 and a terminated_reason is
+# set, or explicit cancel). Non-obvious invariant: a cancelled 0-token agent
+# can still leave subprocess stdout in transcripts/<name>.md that looks like
+# a completed run ("Task is complete. I've implemented..."). Downstream
+# consumers (inline chat assistant, audit tools) then attribute work that
+# never happened to that agent. This banner gives them a reliable signal
+# to filter on, and ``_transcript_is_stub`` below uses it to overwrite
+# rather than append when a fresh run reuses the same name.
+TERMINATED_WITHOUT_WORK_BANNER = "# TERMINATED WITHOUT WORK"
+
+
+def _terminated_without_work(meta: dict) -> bool:
+    """Return True when agent metadata says no real work was done.
+
+    A cancelled or externally-terminated agent whose token counter stayed
+    at zero never produced output we can trust. The transcript file on
+    disk may contain subprocess stdout text that LOOKS like a completed
+    run, so callers use this gate to decide whether to skip the transcript
+    write entirely (for /complete stubs) or prepend the banner (for
+    cancel paths that need to neutralize a misleading file).
+    """
+    if not isinstance(meta, dict):
+        return False
+    tokens = meta.get("tokens_used", 0) or 0
+    status = (meta.get("status") or "").strip().lower()
+    reason = (meta.get("terminated_reason") or "").strip()
+    if tokens != 0:
+        return False
+    return status == "cancelled" or bool(reason)
+
+
+def _transcript_is_stub(path) -> bool:
+    """Return True when an existing transcript file is a TERMINATED stub.
+
+    Callers that are about to write a real transcript for a reused name
+    use this to decide: overwrite the stub rather than letting a rename
+    race leave the banner next to real work.
+    """
+    try:
+        from pathlib import Path as _Path
+        p = _Path(path)
+        if not p.exists():
+            return False
+        if p.stat().st_size == 0:
+            return False
+        with open(str(p), "r", encoding="utf-8", errors="replace") as fh:
+            head = fh.read(256)
+        return head.startswith(TERMINATED_WITHOUT_WORK_BANNER)
+    except (OSError, ValueError):
+        return False
+
+
+def _write_terminated_banner(path, name: str, reason: str) -> bool:
+    """Overwrite transcript at ``path`` with the terminated-without-work banner.
+
+    Replaces any prior content so that cancelled/bulk-cancelled agents
+    cannot leave misleading subprocess stdout on disk. Best-effort;
+    filesystem errors are swallowed so a failed write never blocks the
+    cancel path itself. Returns True on success.
+    """
+    try:
+        from pathlib import Path as _Path
+        p = _Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        body = (
+            f"{TERMINATED_WITHOUT_WORK_BANNER} tokens=0 reason={reason or 'unknown'}\n\n"
+            f"Agent '{name}' terminated without producing real work. "
+            "Any prior content in this file was subprocess stdout from a "
+            "run that was cancelled or externally killed before the agent "
+            "recorded any token usage, and must not be attributed as a "
+            "completed result.\n"
+        )
+        p.write_text(body)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 # Maximum number of automatic recovery attempts before giving up. Prevents
 # infinite loops where a consistently crashing agent gets re-spawned forever.
 MAX_RECOVERY_ATTEMPTS = 3
@@ -5485,7 +5564,20 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     from config import PROJECT_ROOT
     transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
     transcript.parent.mkdir(parents=True, exist_ok=True)
-    should_write_stub = not transcript.exists() or transcript.stat().st_size == 0
+    # Chat-attribution gate: a cancelled 0-token agent must not leave a
+    # stub that reads "completed" on disk. Downstream the inline chat
+    # assistant treats transcripts/<name>.md as authoritative work, and a
+    # happy-path stub confuses it into crediting work the agent never did.
+    _final_meta = agent_metadata.get(name, {})
+    if _terminated_without_work(_final_meta):
+        should_write_stub = False
+    else:
+        should_write_stub = not transcript.exists() or transcript.stat().st_size == 0
+        # Cleanup: if a previous terminated-without-work stub still lives
+        # here from an earlier cancel, overwrite it with the real stub so
+        # the stale banner does not mask a now-legitimate completion.
+        if not should_write_stub and _transcript_is_stub(transcript):
+            should_write_stub = True
     if should_write_stub:
         # Does the resolver already know where the real transcript lives?
         # Run in a thread with a short timeout: scanning 100+ Claude session
@@ -5790,6 +5882,19 @@ async def cancel_agent(name: str, body: Optional[AgentCancel] = None):
     if proc is not None:
         killed = await _terminate_with_sigkill_fallback(proc)
 
+    # Chat-attribution gate: if this agent never recorded any tokens, any
+    # text in transcripts/<name>.md is subprocess stdout that was already
+    # mid-stream when we cancelled. Overwrite it with the terminated
+    # banner so downstream consumers (inline chat, audit tools) cannot
+    # attribute invented completions to this row.
+    if _terminated_without_work(meta):
+        try:
+            from config import PROJECT_ROOT
+            _t_path = PROJECT_ROOT / "transcripts" / f"{name}.md"
+            _write_terminated_banner(_t_path, name, reason)
+        except Exception:
+            pass
+
     # Audit so the audit log reflects the cancel.
     _emit_audit_event("agent.cancelled", {"name": name, "reason": reason})
 
@@ -5866,6 +5971,24 @@ async def cancel_all_agents():
             _agent_stdin_writers.pop(name, None)
             if proc is not None:
                 await _terminate_with_sigkill_fallback(proc)
+        # Chat-attribution gate: neutralize transcripts for any
+        # bulk-cancelled row whose token counter stayed at zero. Without
+        # this, a subprocess that was mid-stream when cancelled leaves
+        # plausible-looking "Task is complete" stdout in
+        # transcripts/<name>.md and the inline chat treats that as real
+        # work. See _terminated_without_work for the invariant.
+        try:
+            from config import PROJECT_ROOT
+            for name in cancelled_names:
+                meta_row = agent_metadata.get(name, {})
+                if _terminated_without_work(meta_row):
+                    _write_terminated_banner(
+                        PROJECT_ROOT / "transcripts" / f"{name}.md",
+                        name,
+                        "bulk cancel",
+                    )
+        except Exception:
+            pass
 
     return {"cancelled": len(cancelled_names), "names": cancelled_names}
 
