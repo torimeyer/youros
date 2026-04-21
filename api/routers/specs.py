@@ -784,6 +784,250 @@ async def verify_spec(spec_path: str):
     return result
 
 
+def _parse_unchecked_ac_bullets(spec_body: str) -> list[str]:
+    """Return the text of every ``- [ ]`` bullet in a spec body.
+
+    Scans the body top to bottom and collects every line whose stripped
+    form starts with ``- [ ]``. Already-checked ``- [x]`` bullets are
+    skipped because the fallback only needs to create builders for
+    work that is still open. Headings are not required because every
+    real spec we ship places the checklist under an "Acceptance
+    criteria" heading and that heading itself does not match the bullet
+    shape, so a plain line-scan is safe and also tolerates template
+    specs that forget the heading.
+    """
+    bullets: list[str] = []
+    for line in spec_body.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("- [ ]"):
+            text = stripped[5:].strip()
+            if text:
+                bullets.append(text)
+    return bullets
+
+
+async def _build_fallback_from_acceptance_criteria(
+    spec_path: str,
+) -> list[dict]:
+    """Create one builder task per unchecked AC bullet and return configs.
+
+    Reads the spec file, parses the body for ``- [ ]`` bullets, calls
+    ``ostk.add_task`` per bullet (capturing the returned task id),
+    writes the new ids back to the spec's frontmatter via
+    ``ostk._write_tasks_to_frontmatter`` so state stays consistent, and
+    returns a list of agent-config dicts in the same shape that
+    ``ostk.spec_build`` emits so the existing spawn loop can consume
+    them unchanged.
+    """
+    full = Path(PROJECT_ROOT) / spec_path
+    if not full.exists():
+        return []
+
+    # Parse body out of the file so we do not re-run frontmatter logic
+    # from ostk. The body is everything after the closing "---" line of
+    # the YAML front matter; if no front matter is present, the entire
+    # file is the body.
+    text = full.read_text()
+    lines = text.split("\n")
+    body = text
+    if lines and lines[0].strip() == "---":
+        end = None
+        for i, line in enumerate(lines[1:], 1):
+            if line.strip() == "---":
+                end = i
+                break
+        if end is not None:
+            body = "\n".join(lines[end + 1:])
+
+    bullets = _parse_unchecked_ac_bullets(body)
+    if not bullets:
+        return []
+
+    spec_name = Path(spec_path).stem
+    configs: list[dict] = []
+    created_ids: list[str] = []
+    for idx, bullet_text in enumerate(bullets):
+        # ostk.add_task returns a string like "→407 Title" or just the
+        # raw output. Extract the numeric id via the same "→" / "->"
+        # grammar doc_decompose uses so callers see a bare id.
+        description = f"AC for spec {spec_path}: {bullet_text}"
+        try:
+            raw = await ostk.add_task(
+                title=bullet_text,
+                priority="P1",
+                description=description,
+                ac=bullet_text,
+            )
+        except OstkError as exc:
+            logger.warning(
+                "build_spec AC fallback: add_task failed for '%s': %s",
+                bullet_text,
+                exc,
+            )
+            continue
+        task_id = ""
+        for line in (raw or "").split("\n"):
+            stripped = line.strip()
+            match = re.match(r"(?:->|\u2192)(\d+)", stripped)
+            if match:
+                task_id = match.group(1)
+                break
+        if not task_id:
+            # Some ostk builds return just the bare id; accept digits too.
+            stripped_raw = (raw or "").strip().lstrip("\u2192").lstrip("-> ")
+            if stripped_raw.isdigit():
+                task_id = stripped_raw
+        if not task_id:
+            logger.warning(
+                "build_spec AC fallback: could not parse task id from '%s'",
+                raw,
+            )
+            continue
+        created_ids.append(task_id)
+        agent_name = f"spec-{spec_name}-{task_id}"
+        prompt = (
+            f"You are building task {task_id}: {bullet_text}\n\n"
+            f"## Spec\n\n{body.strip()}\n\n"
+            "## Instructions\n\n"
+            "- Complete the task described above.\n"
+            "- Edit files directly. Do NOT run `ostk commit` or "
+            "`ostk work close` .  those calls can lag under load. The "
+            "spec router closes the task for you via HTTP when you "
+            "finish.\n"
+        )
+        configs.append({
+            "name": agent_name,
+            "task_id": task_id,
+            "task_title": bullet_text,
+            "prompt": prompt,
+            "ac_index": idx,
+        })
+
+    # Persist the new ids into the spec's frontmatter so subsequent
+    # list_docs / spec_tasks calls see the link and do not double-create
+    # on a second Build it click.
+    if created_ids:
+        try:
+            ostk._write_tasks_to_frontmatter(spec_path, created_ids)
+        except Exception:
+            logger.exception(
+                "build_spec AC fallback: frontmatter write failed for %s",
+                spec_path,
+            )
+
+    return configs
+
+
+def _advance_spec_status_if_all_builder_tasks_closed(task_id: str) -> None:
+    """Flip a spec's frontmatter status to ``done`` when every builder
+    task recorded for that spec in ``_spec_task_origin`` has been
+    closed.
+
+    Called from the Tasks router after a task is closed. ``task_id`` is
+    the id that was just flipped to closed. We look up the spec the
+    task came from, gather every sibling builder task for that spec
+    from ``_spec_task_origin``, and ask ostk for their statuses. If
+    ALL are closed, we rewrite the frontmatter ``status:`` line to
+    ``done`` so the Specs page lands on the build-complete state
+    without waiting for the user to run Verify first.
+    """
+    norm_tid = str(task_id or "").lstrip("\u2192")
+    spec_path = _spec_task_origin.get(norm_tid)
+    if not spec_path:
+        return
+
+    # Collect every task_id the build for this spec produced.
+    sibling_ids = [
+        tid for tid, sp in _spec_task_origin.items() if sp == spec_path
+    ]
+    if not sibling_ids:
+        return
+
+    # We need task statuses. Since this helper is called from a sync
+    # closure inside an async route in tasks.py, fetch them via a small
+    # blocking wrapper: we rely on the caller to await us if they want
+    # the real async path. For the code path in tasks.close_task, the
+    # route is already async and calls the async variant below. This
+    # sync shell exists only to keep the helper importable and tested.
+    raise RuntimeError(
+        "use _advance_spec_status_if_all_builder_tasks_closed_async instead"
+    )
+
+
+async def _advance_spec_status_if_all_builder_tasks_closed_async(
+    task_id: str,
+) -> Optional[str]:
+    """Async version of the spec-status advancer. See sync docstring.
+
+    Returns the spec path whose status was flipped to ``done``, or
+    ``None`` if the flip did not fire. Never raises to callers; swallows
+    IO errors so task close always succeeds even if the status write
+    fails (the next list_docs run will still render an accurate
+    computed status from task state).
+    """
+    norm_tid = str(task_id or "").lstrip("\u2192")
+    spec_path = _spec_task_origin.get(norm_tid)
+    if not spec_path:
+        return None
+
+    sibling_ids = [
+        tid for tid, sp in _spec_task_origin.items() if sp == spec_path
+    ]
+    if not sibling_ids:
+        return None
+
+    try:
+        all_tasks = await ostk.list_tasks()
+    except OstkError:
+        return None
+    status_by_id: dict[str, str] = {}
+    for t in all_tasks:
+        raw = t.get("id")
+        norm = str(raw or "").lstrip("\u2192")
+        if norm:
+            status_by_id[norm] = t.get("status", "open")
+
+    for tid in sibling_ids:
+        if status_by_id.get(tid, "open") != "closed":
+            return None
+
+    # Every sibling closed. Rewrite the spec frontmatter.
+    full = Path(PROJECT_ROOT) / spec_path
+    if not full.exists():
+        return None
+    try:
+        text = full.read_text()
+    except OSError:
+        return None
+    lines = text.split("\n")
+    if not (lines and lines[0].strip() == "---"):
+        return None
+    new_lines: list[str] = []
+    flipped = False
+    in_fm = True
+    saw_fm_end = False
+    for line in lines:
+        if in_fm and not saw_fm_end:
+            stripped = line.strip()
+            if stripped.startswith("status:") and not flipped:
+                indent = line[: len(line) - len(line.lstrip())]
+                new_lines.append(f"{indent}status: done")
+                flipped = True
+                continue
+            if stripped == "---" and new_lines:
+                # Second --- closes the frontmatter block.
+                saw_fm_end = True
+                in_fm = False
+        new_lines.append(line)
+    if flipped:
+        try:
+            full.write_text("\n".join(new_lines))
+            return spec_path
+        except OSError:
+            return None
+    return None
+
+
 @router.post("/specs/{spec_path:path}/build")
 async def build_spec(spec_path: str):
     """One-click build: decompose if needed, then spawn a builder per open task.
@@ -814,7 +1058,8 @@ async def build_spec(spec_path: str):
     # One-click path: if this plan has no agents to build (meaning no
     # open tasks), try running decompose once so the user does not have
     # to click "Break into Tasks" first. If decompose still produces
-    # nothing, fall through to the empty-message response.
+    # nothing, fall through to the AC-parsing fallback below so Build it
+    # always has SOMETHING to spawn when the spec has unchecked ACs.
     if not agent_configs:
         try:
             await ostk.doc_decompose(spec_path)
@@ -823,8 +1068,26 @@ async def build_spec(spec_path: str):
         except OstkError:
             # Decompose can fail if the spec was already decomposed; in
             # that case spec_build still returned no agents, so the
-            # empty-message branch below handles it cleanly.
+            # AC-fallback branch below handles it cleanly.
             pass
+
+    # AC-fallback path: when ostk.spec_build and doc_decompose both come
+    # back empty (every task already closed, or decompose silently
+    # produced nothing), parse the spec body's Acceptance Criteria
+    # checklist ourselves and create one builder task per unchecked
+    # bullet. This guarantees Build it always spawns something when the
+    # user still has open ACs to satisfy, instead of returning "no open
+    # tasks" and making the user manually recreate the work.
+    if not agent_configs:
+        try:
+            agent_configs = await _build_fallback_from_acceptance_criteria(
+                spec_path
+            )
+        except Exception:
+            logger.exception(
+                "build_spec: AC fallback failed for %s", spec_path
+            )
+            agent_configs = []
 
     if not agent_configs:
         return {

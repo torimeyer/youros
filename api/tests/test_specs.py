@@ -1116,3 +1116,247 @@ async def test_delete_spec_sweeps_builder_tasks_it_spawned(
     assert specs_router._spec_task_origin == {}
     assert "901" not in specs_router._task_assignments
     assert "902" not in specs_router._task_assignments
+
+
+@pytest.mark.asyncio
+async def test_build_it_falls_back_to_ac_parsing_when_ostk_returns_empty(
+    client, tmp_path, monkeypatch
+):
+    """When ostk.spec_build AND doc_decompose both return empty, Build
+    it should parse the spec's unchecked AC bullets and create one
+    builder task per bullet instead of surfacing the "no open tasks"
+    message.
+
+    This regression guards the user-reported bug: a Ready spec whose
+    tasks have all been closed (or whose decompose silently produces
+    nothing) used to hit the empty-message branch, leaving Tori with a
+    dead Build it button. The fallback restores Build it as a reliable
+    one click regardless of prior state.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/ac-fallback.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: ac fallback\n"
+        "status: spec\n"
+        "---\n\n"
+        "## What we want\nTest the fallback.\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] First criterion\n"
+        "- [ ] Second criterion\n"
+        "- [ ] Third criterion\n"
+    )
+
+    async def empty_spec_build(path):
+        return {"agents": []}
+
+    async def empty_doc_decompose(path):
+        return {"result": "nothing created", "task_ids": []}
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", empty_spec_build)
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", empty_doc_decompose)
+
+    add_task_calls: list[dict] = []
+    next_id = {"n": 7000}
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        next_id["n"] += 1
+        add_task_calls.append({
+            "title": title, "priority": priority,
+            "description": description, "ac": ac,
+        })
+        return f"\u2192{next_id['n']} {title}"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    spawned: list[str] = []
+
+    async def fake_spawn_agent(body):
+        spawned.append(body.name)
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    # Clean state so assertions below only see this run's work.
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Three AC bullets -> three add_task calls -> three spawned builders.
+    assert len(add_task_calls) == 3
+    assert [c["title"] for c in add_task_calls] == [
+        "First criterion", "Second criterion", "Third criterion",
+    ]
+    assert len(spawned) == 3
+    assert len(data["agents"]) == 3
+    # Assignments are recorded for every created task.
+    assert len(specs_router._spec_task_origin) == 3
+    for tid, sp in specs_router._spec_task_origin.items():
+        assert sp == spec_path_rel
+        assert tid in specs_router._task_assignments
+
+    # The spec's frontmatter was updated with the new task ids so
+    # subsequent Build it clicks do not double-create.
+    updated_text = spec_file.read_text()
+    assert "tasks:" in updated_text
+    assert '"7001"' in updated_text
+    assert '"7002"' in updated_text
+    assert '"7003"' in updated_text
+
+
+@pytest.mark.asyncio
+async def test_build_it_happy_path_still_uses_ostk_spec_build(
+    client, tmp_path, monkeypatch
+):
+    """The AC-parsing fallback must NOT fire when ostk.spec_build
+    already returns agent configs. Otherwise we would double-create
+    tasks every time the happy path runs.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/happy-path.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: happy path\n"
+        "status: spec\n"
+        "tasks:\n"
+        '  - "5001"\n'
+        '  - "5002"\n'
+        "---\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] Alpha\n"
+        "- [ ] Beta\n"
+    )
+
+    async def ok_spec_build(path):
+        return {
+            "agents": [
+                {"name": "spec-happy-5001", "task_id": "5001",
+                 "task_title": "Alpha", "prompt": "build alpha"},
+                {"name": "spec-happy-5002", "task_id": "5002",
+                 "task_title": "Beta", "prompt": "build beta"},
+            ]
+        }
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", ok_spec_build)
+
+    add_task_fired = {"n": 0}
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        add_task_fired["n"] += 1
+        return f"\u21929999 {title}"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    async def fake_spawn_agent(body):
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Happy path: two agents spawned from spec_build, no fallback.
+    assert sorted(data["agents"]) == ["spec-happy-5001", "spec-happy-5002"]
+    assert add_task_fired["n"] == 0, (
+        "fallback fired but ostk.spec_build already produced agents; "
+        "this would double-create tasks on every Build it click"
+    )
+
+
+@pytest.mark.asyncio
+async def test_spec_status_flips_to_done_when_all_builder_tasks_close(
+    client, tmp_path, monkeypatch
+):
+    """After every builder task recorded for a spec closes, the spec's
+    frontmatter ``status:`` should advance to ``done`` automatically so
+    the Specs page lands on the build-complete state without waiting
+    for a manual Verify click.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+    from routers import tasks as tasks_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/status-flip.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: status flip\n"
+        "status: spec\n"
+        "tasks:\n"
+        '  - "8001"\n'
+        '  - "8002"\n'
+        "---\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] do thing one\n"
+        "- [ ] do thing two\n"
+    )
+
+    # Record that both tasks came from this spec (as build_spec would have).
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+    specs_router._spec_task_origin["8001"] = spec_path_rel
+    specs_router._spec_task_origin["8002"] = spec_path_rel
+    specs_router._task_assignments["8001"] = "spec-status-8001"
+    specs_router._task_assignments["8002"] = "spec-status-8002"
+
+    # Simulated task store. close_task flips a task's status in-place.
+    task_store = {
+        "8001": {"id": "\u21928001", "title": "do thing one", "status": "open"},
+        "8002": {"id": "\u21928002", "title": "do thing two", "status": "open"},
+    }
+
+    async def fake_list_tasks():
+        return list(task_store.values())
+
+    async def fake_close_task(tid, closed_reason=None):
+        norm = str(tid).lstrip("\u2192")
+        if norm in task_store:
+            task_store[norm]["status"] = "closed"
+        return "closed"
+
+    monkeypatch.setattr(ostk_module.ostk, "list_tasks", fake_list_tasks)
+    monkeypatch.setattr(ostk_module.ostk, "close_task", fake_close_task)
+
+    # Reset the burst-guard so sequential closes in this test do not 429.
+    tasks_router._recent_closes.clear()
+
+    # Close the first task: spec status must stay as 'spec' since one
+    # builder is still open.
+    resp1 = await client.post("/api/tasks/8001/close")
+    assert resp1.status_code == 200
+    assert "status: spec" in spec_file.read_text()
+    assert "status: done" not in spec_file.read_text()
+
+    # Close the second (and final) task: the spec now flips to 'done'.
+    resp2 = await client.post("/api/tasks/8002/close")
+    assert resp2.status_code == 200
+    updated = spec_file.read_text()
+    assert "status: done" in updated
+    assert "status: spec" not in updated

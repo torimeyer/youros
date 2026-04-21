@@ -915,9 +915,25 @@ async def close_task(task_id: str, body: TaskClose = TaskClose()):
     try:
         result = await ostk.close_task(task_id, closed_reason=structured_reason)
         _recent_closes.append(now)
-        return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Advance the spec frontmatter status when this was the last open
+    # builder task for a spec. Import inside the call so we do not
+    # introduce a cross-router circular import at module load. Errors
+    # here are swallowed so a flaky disk never breaks the close call
+    # that already succeeded.
+    try:
+        from routers.specs import (
+            _advance_spec_status_if_all_builder_tasks_closed_async,
+        )
+        await _advance_spec_status_if_all_builder_tasks_closed_async(task_id)
+    except Exception:
+        logger.exception(
+            "close_task: spec-status advance failed for task %s", task_id
+        )
+
+    return {"result": result}
 
 
 @router.post("/tasks/{task_id}/reopen")
