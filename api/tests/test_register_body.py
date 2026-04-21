@@ -268,10 +268,18 @@ async def test_matching_name_register_merges_into_hook_preregister(
         "matching-name self-register must merge into the hook row; "
         f"got body={body}"
     )
-    assert self_name not in agents_router.agent_metadata, (
-        "merged self-register name must not create a second row"
+    # After the subagent-name-wins inversion, the merged row is rekeyed
+    # under the subagent's name so GET /api/agents surfaces it under the
+    # real name. The old hook-slug key is removed from agent_metadata
+    # and aliased forward so stale callers still resolve.
+    assert self_name in agents_router.agent_metadata, (
+        "merged row must be rekeyed under the subagent's name so the "
+        "Agents page can render row.name as the real subagent name"
     )
-    assert agents_router.agent_aliases.get(self_name) == hook_name
+    assert hook_name not in agents_router.agent_metadata, (
+        "old hook-slug key must be removed to avoid a duplicate row"
+    )
+    assert agents_router.agent_aliases.get(hook_name) == self_name
 
 
 @pytest.mark.asyncio
@@ -324,7 +332,12 @@ async def test_matching_description_register_merges_into_hook_preregister(
         "description-overlap self-register must merge into the hook row; "
         f"got body={body}"
     )
-    assert agents_router.agent_aliases.get(self_name) == hook_name
+    # Post-inversion: the merged row is rekeyed under self_name (the
+    # subagent's chosen name) and the hook slug is aliased to the new
+    # key so later calls to either name still resolve.
+    assert self_name in agents_router.agent_metadata
+    assert hook_name not in agents_router.agent_metadata
+    assert agents_router.agent_aliases.get(hook_name) == self_name
 
 
 @pytest.mark.asyncio
@@ -375,4 +388,86 @@ async def test_response_body_never_leaks_unrelated_merged_into(
     assert body.get("merged_into") is None, (
         "unrelated register must not return a stale merged_into pointer; "
         f"got merged_into={body.get('merged_into')!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_hook_preregister_plus_subagent_register_keeps_subagent_visible(
+    client, monkeypatch,
+):
+    """Regression: when the PreToolUse hook preregisters a row under the Task
+    description slug AND the subagent itself then POSTs /api/agents/register
+    under a different, prompt-derived name, the subagent's chosen name MUST
+    remain reachable via GET /api/agents (either as its own row or via the
+    agent_aliases map).
+
+    Demo-blocker: torios's headline feature is the Agents page lighting up
+    live as soon as a Task-spawned subagent starts. A naive merge that
+    silently absorbs the subagent's real name into the hook preregister row
+    hides the subagent from the UI under an unexpected slug. This test pins
+    the invariant so a future reintroduction of the aggressive merge does
+    not regress visibility.
+    """
+    from routers import agents as agents_router
+    monkeypatch.setattr(agents_router, "_save_agent_state", lambda: None)
+
+    hook_name = "diagnose-subagent-visibility-gap"
+    real_name = "agent-visibility-probe-xyz"
+    for n in (hook_name, real_name):
+        agents_router.agent_metadata.pop(n, None)
+        agents_router.agent_aliases.pop(n, None)
+
+    # Step 1: PreToolUse hook preregisters under the Task description slug
+    # (this is what .claude/hooks/register-agent.sh does today).
+    r1 = await client.post(
+        "/api/agents/register",
+        json={
+            "name": hook_name,
+            "source": "claude-code",
+            "status": "running",
+            "hook_preregister": True,
+            "description": "Diagnose subagent visibility gap",
+            "prompt": "diagnose why Task-spawned subagents are invisible",
+            "budget": 5,
+        },
+    )
+    assert r1.status_code == 200, r1.text
+
+    # Step 2: the subagent itself then registers under its own,
+    # prompt-derived name. This is the call the subagent's internal
+    # register-yourself instruction issues (see agent_mailbox_instruction).
+    r2 = await client.post(
+        "/api/agents/register",
+        json={
+            "name": real_name,
+            "source": "claude-code",
+            "status": "running",
+            "description": "visibility probe subagent",
+            "prompt": "diagnose why Task-spawned subagents are invisible",
+            "budget": 5,
+        },
+    )
+    assert r2.status_code == 200, r2.text
+
+    # Step 3: the subagent's row MUST be reachable. Either it remains as
+    # its own row (no merge happened) OR it was merged into the hook row
+    # and an alias maps its chosen name back. Both satisfy visibility.
+    r3 = await client.get("/api/agents")
+    assert r3.status_code == 200, r3.text
+    payload = r3.json()
+    rows = payload.get("agents", payload) if isinstance(payload, dict) else payload
+    names = {row.get("name") for row in rows if isinstance(row, dict)}
+
+    # Stronger invariant: the subagent's real name must appear as a row's
+    # name field in the list response, not only as an alias key. The UI
+    # (app/src/pages/Agents.tsx) renders row.name directly and has no
+    # awareness of the alias map. If the list only surfaces the hook slug
+    # name, the subagent is invisible to the user even though the alias
+    # map could technically resolve the name server-side.
+    assert real_name in names, (
+        f"Subagent's chosen name {real_name!r} is NOT the name of any row "
+        f"returned by GET /api/agents. The UI renders row.name and will "
+        f"show only the hook-preregister slug, hiding the subagent. "
+        f"Visible names sample: {sorted(n for n in names if n)[:10]} "
+        f"aliases: {dict(getattr(agents_router, 'agent_aliases', {}) or {})}"
     )

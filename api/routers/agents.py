@@ -4566,11 +4566,41 @@ async def register_agent(body: AgentSpawn, request: Request = None):
             # the subagent's prompt if the hook did not capture one.
             if body.prompt and not existing_meta.get("prompt"):
                 existing_meta["prompt"] = body.prompt[:500]
-            # Record the alias so later /heartbeat, /status, and /complete
-            # calls under the subagent-chosen name route back to the
-            # existing row without 404-ing.
-            agent_aliases[body.name] = existing_name
-            agent_metadata[existing_name] = existing_meta
+            # Subagent-name-wins: if the subagent's chosen name differs
+            # from the hook-preregister slug, rekey the merged row under
+            # the subagent's name so GET /api/agents surfaces row.name
+            # as the real subagent name (what the UI renders) instead of
+            # the generic Task-description slug. Keep the hook slug as an
+            # alias so late heartbeat/status/complete calls under either
+            # name still resolve. This inverts the earlier merge direction
+            # (hook name wins) which hid subagents from the Agents page
+            # under an unrecognised slug, the demo-blocking visibility bug.
+            # The merged row is tagged with ``hook_preregister_name`` so
+            # audit tooling can still trace the original preregistration.
+            if body.name and body.name != existing_name:
+                existing_meta["hook_preregister_name"] = existing_name
+                # Drop the explicit hook_preregister flag so a second
+                # subagent self-register later cannot re-merge into this
+                # row (it is no longer "awaiting a subagent"; one arrived).
+                existing_meta.pop("hook_preregister", None)
+                # Move the metadata entry: new key wins, old key is
+                # removed so the list endpoint does not render two rows.
+                agent_metadata.pop(existing_name, None)
+                agent_metadata[body.name] = existing_meta
+                # Alias the hook slug -> subagent name so calls still
+                # landing on the old key keep resolving.
+                agent_aliases[existing_name] = body.name
+                # Remove any stale alias under body.name that might have
+                # pointed at the old key.
+                if agent_aliases.get(body.name) == existing_name:
+                    agent_aliases.pop(body.name, None)
+                canonical_name = body.name
+            else:
+                # Names already match (or body.name is empty): preserve
+                # the pre-existing behaviour, alias body.name -> row.
+                agent_aliases[body.name] = existing_name
+                agent_metadata[existing_name] = existing_meta
+                canonical_name = existing_name
             _save_agent_state()
             return {
                 "result": (
@@ -4580,7 +4610,7 @@ async def register_agent(body: AgentSpawn, request: Request = None):
                 "source": "claude-code",
                 "status": existing_meta.get("status", "running"),
                 "merged_into": existing_name,
-                "mailbox_instruction": agent_mailbox_instruction(existing_name),
+                "mailbox_instruction": agent_mailbox_instruction(canonical_name),
                 "mailbox_check_interval_seconds": MAILBOX_CHECK_INTERVAL_SECONDS,
             }
 

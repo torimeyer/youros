@@ -12381,14 +12381,26 @@ async def test_register_merges_with_hook_preregister():
                 resp = await client.post("/api/agents/register", json=body)
                 assert resp.status_code == 200, resp.text
                 payload = resp.json()
-                # The response tells the caller which canonical row was
-                # merged into, and does NOT create a new record.
+                # The response reports which hook preregistration this
+                # self-register merged into (for audit/trace), and the
+                # merged row is now keyed under the subagent's chosen
+                # name so GET /api/agents surfaces it under row.name.
                 assert payload.get("merged_into") == hook_name
-                assert self_name not in agent_metadata
-                assert agent_aliases.get(self_name) == hook_name
-                # The hook row picked up the self-register's prompt since
-                # its own prompt was empty.
-                assert agent_metadata[hook_name]["prompt"] == "root cause + fix"
+                assert self_name in agent_metadata, (
+                    "merged row must be rekeyed under the subagent's "
+                    "chosen name so the Agents page shows it under the "
+                    "real name, not the hook-description slug"
+                )
+                assert hook_name not in agent_metadata, (
+                    "old hook-slug key must be removed on merge so the "
+                    "list endpoint does not render a duplicate row"
+                )
+                # Hook slug aliases forward to the subagent's name so
+                # late calls still resolve either name.
+                assert agent_aliases.get(hook_name) == self_name
+                # The rekeyed row picked up the self-register's prompt
+                # since the hook's own prompt was empty.
+                assert agent_metadata[self_name]["prompt"] == "root cause + fix"
 
                 # A later /heartbeat under the subagent's chosen name
                 # still finds and refreshes the merged row.
@@ -12399,6 +12411,7 @@ async def test_register_merges_with_hook_preregister():
         agent_metadata.pop(hook_name, None)
         agent_metadata.pop(self_name, None)
         agent_aliases.pop(self_name, None)
+        agent_aliases.pop(hook_name, None)
 
 
 def _write_stale_sweep_jsonl(project_dir: Path, agent_name: str, *, with_edit: bool) -> Path:
