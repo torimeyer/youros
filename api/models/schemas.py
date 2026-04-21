@@ -122,6 +122,11 @@ class Settings(BaseModel):
     # every chat, agent spawn, and task follows. Prepended to the system
     # prompt in chat and to the agent prompt at spawn time. Empty by default.
     standing_instructions: str = ""
+    # Wall-clock cap (in seconds) applied to each builder subagent spawned
+    # when the user presses Build it on a spec. Default of 600 (10 minutes)
+    # gives a normal run enough headroom for real work. Power users can
+    # tighten this for faster feedback or loosen it for long-running specs.
+    spec_build_deadline_s: int = 600
 
 
 class MCPServer(BaseModel):

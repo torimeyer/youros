@@ -1028,6 +1028,50 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
     return None
 
 
+def _set_spec_status(spec_path: str, new_status: str) -> Optional[str]:
+    """Rewrite a spec's frontmatter ``status:`` line.
+
+    Returns the spec_path on a successful write, ``None`` otherwise.
+    Best-effort: swallows IO errors so callers (typically build_spec
+    right after a successful spawn) never break the response because a
+    status flip failed. The sibling _advance_spec_status_if_all_builder_
+    tasks_closed_async helper uses the same pattern for ``done``.
+    """
+    full = Path(PROJECT_ROOT) / spec_path
+    if not full.exists():
+        return None
+    try:
+        text = full.read_text()
+    except OSError:
+        return None
+    lines = text.split("\n")
+    if not (lines and lines[0].strip() == "---"):
+        return None
+    new_lines: list[str] = []
+    flipped = False
+    in_fm = True
+    saw_fm_end = False
+    for line in lines:
+        if in_fm and not saw_fm_end:
+            stripped = line.strip()
+            if stripped.startswith("status:") and not flipped:
+                indent = line[: len(line) - len(line.lstrip())]
+                new_lines.append(f"{indent}status: {new_status}")
+                flipped = True
+                continue
+            if stripped == "---" and new_lines:
+                saw_fm_end = True
+                in_fm = False
+        new_lines.append(line)
+    if not flipped:
+        return None
+    try:
+        full.write_text("\n".join(new_lines))
+        return spec_path
+    except OSError:
+        return None
+
+
 @router.post("/specs/{spec_path:path}/build")
 async def build_spec(spec_path: str):
     """One-click build: decompose if needed, then spawn a builder per open task.
@@ -1048,12 +1092,31 @@ async def build_spec(spec_path: str):
     helpful message instead of spawning anything.
     """
     _validate_doc_path(spec_path)
+    # Hard-reject only paths that point at a missing file. A broken or
+    # uninstalled ostk CLI must NOT bubble up as 404 here; that kills
+    # the AC fallback before it has a chance to run. We detect the
+    # missing-file case via a direct fs check instead of relying on
+    # ostk's error text.
+    spec_full_path = Path(PROJECT_ROOT) / spec_path
+    if not spec_full_path.exists():
+        raise HTTPException(
+            status_code=404, detail=f"Spec not found: {spec_path}"
+        )
+
+    # Try ostk.spec_build first. Any failure (ostk missing, non-zero
+    # exit, parse error, etc.) is caught and turned into an empty agent
+    # list so the AC-parsing fallback can run. The user's intent is
+    # "saa to build this": we must ALWAYS create tasks and spawn
+    # builders if the spec has unchecked ACs, regardless of whether the
+    # ostk binary is reachable.
+    agent_configs: list[dict] = []
     try:
         result = await ostk.spec_build(spec_path)
+        agent_configs = result.get("agents", []) or []
     except OstkError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-    agent_configs = result.get("agents", []) or []
+        logger.warning(
+            "build_spec: ostk.spec_build failed for %s: %s", spec_path, e
+        )
 
     # One-click path: if this plan has no agents to build (meaning no
     # open tasks), try running decompose once so the user does not have
@@ -1090,12 +1153,44 @@ async def build_spec(spec_path: str):
             agent_configs = []
 
     if not agent_configs:
+        # Distinguish "no ACs on the spec" (user edited them all out)
+        # from "we tried and could not create tasks". Read the body
+        # once more so the message reflects the real state. A genuinely
+        # empty spec gets a clearer prompt and the frontend hides the
+        # red banner for plans that DO still have ACs.
+        try:
+            text = spec_full_path.read_text()
+            body_start = 0
+            body_lines = text.split("\n")
+            if body_lines and body_lines[0].strip() == "---":
+                for i, ln in enumerate(body_lines[1:], 1):
+                    if ln.strip() == "---":
+                        body_start = i + 1
+                        break
+            body_tail = "\n".join(body_lines[body_start:])
+            has_any_unchecked = any(
+                ln.strip().startswith("- [ ]")
+                for ln in body_tail.split("\n")
+            )
+        except OSError:
+            has_any_unchecked = False
+        if has_any_unchecked:
+            return {
+                "agents": [],
+                "message": (
+                    "Could not create builder tasks for this plan. "
+                    "Check that the spec still has unchecked acceptance "
+                    "criteria and try again."
+                ),
+                "has_unchecked_acs": True,
+            }
         return {
             "agents": [],
             "message": (
-                "This plan has no open tasks to build. Every task may "
-                "already be closed."
+                "This plan has no unchecked acceptance criteria. Add "
+                "at least one acceptance criterion, then click Build it."
             ),
+            "has_unchecked_acs": False,
         }
 
     # Spawn a Builder subagent for each open task. We call the in-process
@@ -1149,20 +1244,35 @@ async def build_spec(spec_path: str):
             friendly_task = f"Build task {task_id}: {task_title}"
         else:
             friendly_task = f"Build task {task_id} for spec {spec_path}"
+        # Pick the model: caller-supplied cfg wins, then the user's
+        # default_model from Settings, then "sonnet" as a final fallback.
+        # No Haiku coercion. The builder agentfile already opts into
+        # quick_mode so the compact mailbox block is applied downstream.
+        cfg_model = cfg.get("model")
+        try:
+            from services.settings_store import settings_store as _settings
+            default_model = _settings.get("default_model") or "sonnet"
+        except Exception:
+            default_model = "sonnet"
+        chosen_model = cfg_model or default_model or "sonnet"
+        # Wall-clock cap: read the user-configurable setting with a
+        # 600 second (10 minute) default so a normal Build it run has
+        # enough headroom for real work. Demo surfaces can tighten this
+        # by overriding the setting; we do NOT hardcode a demo cap here.
+        try:
+            from services.settings_store import settings_store as _settings
+            deadline_s = int(_settings.get("spec_build_deadline_s") or 600)
+        except Exception:
+            deadline_s = 600
         body = AgentSpawn(
             name=name,
             prompt=prompt_with_close,
-            model="sonnet",
+            model=chosen_model,
             budget=2.0,
             template="builder",
             source="spec-build",
             task=friendly_task,
-            # Demo budget: cap each Builder at 90 seconds so a fan-out
-            # spec build (one Builder per task) never hangs the demo
-            # past the wall-clock window. Builder agentfile already opts
-            # into quick_mode for the compact mailbox block; demo_mode
-            # adds the Haiku coercion and force-complete supervisor.
-            demo_mode=True,
+            deadline_seconds=deadline_s,
         )
         # Record assignment up front so the first poll after the HTTP
         # return already shows the agent-to-task mapping. Also record the
@@ -1211,10 +1321,26 @@ async def build_spec(spec_path: str):
             "agents": [],
             "message": f"Could not spawn any agents. {'; '.join(failures)}",
         }
+
+    # Flip the spec's frontmatter status to ``building`` so the Specs
+    # page renders an in-flight state instead of the old "ready" badge
+    # while the builder subagents run. Best-effort: a write error does
+    # not block the spawn response, since the sibling
+    # _advance_spec_status_if_all_builder_tasks_closed_async helper
+    # will also reconcile the file once every task closes.
+    try:
+        _set_spec_status(spec_path, "building")
+    except Exception:
+        logger.exception(
+            "build_spec: failed to flip status to building for %s", spec_path
+        )
+
     message = f"Spawned {count} agent{'s' if count != 1 else ''} to build this spec. Watch the Agents tab."
     if failures:
         message += f" {len(failures)} failed: {'; '.join(failures)}"
-    return {"agents": spawned, "message": message}
+    return {"agents": spawned, "message": message, "task_ids": [
+        cfg.get("task_id") for cfg in agent_configs if cfg.get("task_id")
+    ]}
 
 
 @router.delete("/specs/{doc_path:path}")

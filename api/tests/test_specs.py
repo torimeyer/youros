@@ -1360,3 +1360,327 @@ async def test_spec_status_flips_to_done_when_all_builder_tasks_close(
     updated = spec_file.read_text()
     assert "status: done" in updated
     assert "status: spec" not in updated
+
+
+@pytest.mark.asyncio
+async def test_build_it_always_creates_tasks_for_unchecked_acs(
+    client, tmp_path, monkeypatch
+):
+    """Build it must always create one task per unchecked AC, even when
+    ostk.spec_build raises OstkError (ostk CLI missing or broken).
+
+    Reproduces the user-reported regression where the red "no open
+    tasks" banner fired whenever the ostk CLI was not installed on the
+    machine. The AC fallback exists exactly for that environment, and
+    the handler must not short-circuit to 404 before the fallback can
+    run.
+    """
+    from services import ostk as ostk_module
+    from services.ostk import OstkError
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/ostk-missing.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: ostk missing\n"
+        "status: spec\n"
+        "---\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] alpha\n"
+        "- [ ] beta\n"
+    )
+
+    async def broken_spec_build(path):
+        raise OstkError("ostk: command not found")
+
+    async def broken_doc_decompose(path):
+        raise OstkError("ostk: command not found")
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", broken_spec_build)
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", broken_doc_decompose)
+
+    created: list[str] = []
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        created.append(title)
+        return f"\u21924{len(created):03d} {title}"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    spawned: list[str] = []
+
+    async def fake_spawn_agent(body):
+        spawned.append(body.name)
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Even though ostk is unreachable, the AC fallback produced tasks.
+    assert created == ["alpha", "beta"]
+    assert len(data["agents"]) == 2
+    assert len(spawned) == 2
+    # Spec status flips to building so the UI stops rendering Ready.
+    assert "status: building" in spec_file.read_text()
+
+
+@pytest.mark.asyncio
+async def test_build_it_spawns_one_builder_per_task(
+    client, tmp_path, monkeypatch
+):
+    """Each created task must get its own builder subagent spawn.
+
+    The user intent is "saa to build this": a spec with N unchecked
+    ACs yields N tasks and N builder subagents, one per task. The
+    agent-to-task map records each assignment so the Specs page can
+    render a spinner per row.
+    """
+    from services import ostk as ostk_module
+    from services.ostk import OstkError
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/one-per-ac.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: one per ac\n"
+        "status: spec\n"
+        "---\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] first\n"
+        "- [ ] second\n"
+        "- [ ] third\n"
+        "- [ ] fourth\n"
+    )
+
+    async def broken_spec_build(path):
+        raise OstkError("unreachable")
+
+    async def broken_doc_decompose(path):
+        raise OstkError("unreachable")
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", broken_spec_build)
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", broken_doc_decompose)
+
+    next_id = {"n": 5500}
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        next_id["n"] += 1
+        return f"\u2192{next_id['n']} {title}"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    spawned: list[str] = []
+
+    async def fake_spawn_agent(body):
+        spawned.append(body.name)
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Four AC bullets, four builders, four agent-to-task assignments,
+    # four spec-origin records. No double-counting, no drops.
+    assert len(data["agents"]) == 4
+    assert len(spawned) == 4
+    assert len(specs_router._task_assignments) == 4
+    assert len(specs_router._spec_task_origin) == 4
+    # Every assigned task traces back to this spec.
+    for sp in specs_router._spec_task_origin.values():
+        assert sp == spec_path_rel
+
+
+@pytest.mark.asyncio
+async def test_build_it_rebuild_creates_fresh_round_when_prior_closed(
+    client, tmp_path, monkeypatch
+):
+    """After every prior builder task is closed, Build it must start a
+    fresh round and spawn new builders, not surface the "no open tasks"
+    banner.
+
+    A Ready spec with tasks already recorded in the frontmatter whose
+    status is closed used to fall into the empty-response branch. The
+    AC-parsing fallback handles that state by creating fresh tasks for
+    every bullet that is still unchecked, so Build it acts as a
+    rebuild trigger just like the user expects.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/rebuild.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: rebuild\n"
+        "status: spec\n"
+        "tasks:\n"
+        '  - "3001"\n'
+        '  - "3002"\n'
+        "---\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] one more time\n"
+        "- [ ] and again\n"
+    )
+
+    # ostk.spec_build returns empty (all linked tasks already closed)
+    # and ostk.doc_decompose noops because the spec was decomposed
+    # before.
+    async def empty_spec_build(path):
+        return {"agents": []}
+
+    async def noop_doc_decompose(path):
+        return {"result": "", "task_ids": []}
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", empty_spec_build)
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", noop_doc_decompose)
+
+    created: list[str] = []
+    next_id = {"n": 9100}
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        next_id["n"] += 1
+        created.append(title)
+        return f"\u2192{next_id['n']} {title}"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    spawned: list[str] = []
+
+    async def fake_spawn_agent(body):
+        spawned.append(body.name)
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Rebuild created fresh tasks for every unchecked AC bullet.
+    assert created == ["one more time", "and again"]
+    assert len(data["agents"]) == 2
+    assert len(spawned) == 2
+    # The brand new task ids sit alongside the prior closed ones in
+    # the frontmatter, not replacing them (history preserved).
+    updated = spec_file.read_text()
+    assert '"3001"' in updated
+    assert '"3002"' in updated
+    assert '"9101"' in updated
+    assert '"9102"' in updated
+    # And the spec status flipped to building so the UI knows builders
+    # are running again.
+    assert "status: building" in updated
+
+
+@pytest.mark.asyncio
+async def test_builder_spawns_without_demo_mode_and_with_real_deadline(
+    client, tmp_path, monkeypatch
+):
+    """Regression: Build it must NOT hardcode demo_mode=True on builder spawn.
+
+    The old code forced demo_mode=True for every Build it run, which
+    coerced the model to Haiku and capped each builder at 90 seconds.
+    That hurt normal users: a 10 minute real task was getting force
+    completed after 90 s with a Haiku-produced stub.
+
+    The fix: the AgentSpawn body carries NO demo_mode flag, the model
+    falls back to the user's default_model (or "sonnet"), and the
+    deadline reads from the spec_build_deadline_s setting with a 10
+    minute (600 s) default. This test captures each spawned body and
+    asserts those three properties.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "draft").mkdir(parents=True)
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_file = tmp_path / "docs" / "spec" / "no-demo-mode.md"
+    spec_file.write_text(
+        "---\ntitle: no demo mode\nstatus: spec\n---\n\n- [ ] one\n"
+    )
+
+    async def fake_spec_build(path):
+        return {"agents": [
+            {"name": "spec-no-demo-a", "task_id": "7001",
+             "task_title": "A", "prompt": "build A"},
+        ]}
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", fake_spec_build)
+
+    captured_bodies: list = []
+
+    async def fake_spawn(body):
+        captured_bodies.append(body)
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn)
+
+    # Stub settings_store.get so the test does not depend on any
+    # on-disk settings file. Return None for both keys so the code
+    # falls through to its own defaults (sonnet model, 600 s deadline).
+    from services import settings_store as settings_store_module
+
+    def fake_get(key, default=None):
+        return default
+
+    monkeypatch.setattr(
+        settings_store_module.settings_store, "get", fake_get
+    )
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post("/api/specs/docs/spec/no-demo-mode.md/build")
+    assert resp.status_code == 200
+    assert len(captured_bodies) == 1
+    body = captured_bodies[0]
+
+    # Regression: demo_mode must not be set on the spawn body. The
+    # Pydantic field is Optional so it can be None or absent; what
+    # matters is that it is NOT True.
+    assert getattr(body, "demo_mode", None) is not True, (
+        "builder spawn still forces demo_mode=True; that coerces the "
+        "model to Haiku and caps each builder at 90 seconds"
+    )
+
+    # Deadline defaults to 10 minutes, not the old 90 s demo cap.
+    assert body.deadline_seconds == 600
+
+    # Model never silently downgrades to Haiku when no cfg override is
+    # present and the user has not picked a default.
+    assert body.model != "haiku"
+    assert "haiku" not in str(body.model).lower()
