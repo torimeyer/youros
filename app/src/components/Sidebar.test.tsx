@@ -1154,3 +1154,65 @@ describe('Sidebar status panel does not expose Claude indicator', () => {
     expect(probeCalls).toHaveLength(0)
   })
 })
+
+describe('Sidebar sessions count reflects live sessions, not just active-window ones', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    _resetSidebarBus()
+    useAppStore.setState({
+      osName: 'myOS',
+      features: DEFAULT_FEATURES,
+    })
+  })
+
+  function mockSessions(payload: Record<string, unknown>) {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      if (url === '/sessions/active') return Promise.resolve(payload)
+      if (url === '/status/clock') return Promise.resolve({ kernel: 'v4.0.0' })
+      if (url === '/upgrade/status') return Promise.resolve({ myos: { current: 'v4.0.0' } })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+  }
+
+  it('renders "1 session" when backend reports a single idle but live session', async () => {
+    // The user is sitting in a Claude Code tab that has not written an
+    // event in the last 5 minutes. Backend counts it under `count` but
+    // excludes it from `active_count`. The sidebar must still show it.
+    mockSessions({ count: 1, active_count: 0, idle_count: 1 })
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.getByText('1 session')).toBeTruthy()
+    })
+    expect(screen.queryByText('No sessions')).toBeNull()
+  })
+
+  it('renders "3 sessions" (plural) when backend reports three live sessions', async () => {
+    mockSessions({ count: 3, active_count: 2, idle_count: 1 })
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.getByText('3 sessions')).toBeTruthy()
+    })
+    expect(screen.queryByText('No sessions')).toBeNull()
+  })
+
+  it('renders "No sessions" only when `count` is genuinely zero', async () => {
+    mockSessions({ count: 0, active_count: 0, idle_count: 0 })
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.getByText('No sessions')).toBeTruthy()
+    })
+  })
+
+  it('falls back to `active_count` when backend does not return `count`', async () => {
+    // Older backends only expose active_count. The UI should still work.
+    mockSessions({ active_count: 2, idle_count: 0 })
+    renderSidebar()
+    await waitFor(() => {
+      expect(screen.getByText('2 sessions')).toBeTruthy()
+    })
+  })
+})
