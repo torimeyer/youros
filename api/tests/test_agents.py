@@ -13294,3 +13294,189 @@ async def test_completed_agent_with_tokens_writes_transcript(tmp_path, monkeypat
                 assert agents_mod.TERMINATED_WITHOUT_WORK_BANNER not in content
         finally:
             agent_metadata.pop(name, None)
+
+
+
+# ── ENOENT / stale CLAUDE_BIN regression (→ fix for Errno 2 on /spawn) ──
+#
+# Root cause: the module-level ``CLAUDE_BIN = shutil.which("claude")`` is
+# evaluated once at import time. If the shell that launched uvicorn had
+# a tmp dir first on PATH (e.g. ``tori()`` prepends one at shell init)
+# and ``claude`` happened to be resolvable only through that tmp dir,
+# the cached CLAUDE_BIN later points at a deleted path. Every spawn
+# after that raised ``FileNotFoundError`` inside
+# ``asyncio.create_subprocess_exec``. The outer ``except Exception``
+# then collapsed it into ``HTTPException(400, str(e))``, producing the
+# opaque ``{"detail":"[Errno 2] No such file or directory"}`` that the
+# e2e smoke caught.
+#
+# The fix: catch ``FileNotFoundError`` explicitly, log the full stack,
+# re-resolve ``claude`` from the current PATH, retry once, and surface
+# an actionable 500 error if the retry still fails. These tests lock
+# in each branch so a future refactor cannot silently regress to the
+# opaque 400.
+
+
+@pytest.mark.asyncio
+async def test_spawn_filenotfound_returns_actionable_500_not_opaque_400(
+    tmp_path, monkeypatch
+):
+    """When the claude binary is missing (ENOENT on exec), POST
+    /agents/spawn must return an actionable 500 that names the missing
+    path. NEVER a bare 400 with ``[Errno 2] No such file or directory``
+    and no filename (the original bug)."""
+    import routers.agents as agents_mod
+
+    # Force create_subprocess_exec to raise FileNotFoundError with no
+    # filename, exactly matching the production failure mode where the
+    # cached CLAUDE_BIN points at a vanished path.
+    async def _boom(*args, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory")
+
+    # Point CLAUDE_BIN at a non-existent path so the retry branch does
+    # not run (we want the no-retry outcome in this test).
+    monkeypatch.setattr(agents_mod, "CLAUDE_BIN", "/nonexistent/claude-xyz")
+
+    # Also make shutil.which return None so the retry guard short-circuits.
+    import shutil as _shutil
+    monkeypatch.setattr(_shutil, "which", lambda name: None)
+
+    monkeypatch.setattr(
+        agents_mod, "PROJECT_ROOT", tmp_path, raising=False
+    )
+    (tmp_path / "transcripts").mkdir(exist_ok=True)
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_boom):
+        with patch("routers.agents.ostk._run", new_callable=AsyncMock):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
+                resp = await client.post(
+                    "/api/agents/spawn",
+                    json={
+                        "name": "enoent-regression-1",
+                        "prompt": "hi",
+                        "model": "haiku",
+                        "budget": 1.0,
+                    },
+                )
+
+    # Primary regression: NEVER a bare 400 with opaque ENOENT detail.
+    assert resp.status_code != 400, (
+        f"ENOENT on spawn must not collapse into HTTP 400. Got: {resp.text}"
+    )
+    assert resp.status_code == 500, resp.text
+    detail = resp.json()["detail"]
+    # The error must be actionable: mention the missing path and the
+    # claude CLI so the operator knows what to fix.
+    assert "file not found" in detail.lower()
+    assert "claude" in detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_spawn_retries_with_fresh_claude_bin_when_cached_path_is_stale(
+    tmp_path, monkeypatch
+):
+    """When CLAUDE_BIN cached a stale path but shutil.which resolves a
+    fresh one, spawn must retry once with the fresh path and return
+    200 instead of failing. Locks in the auto-recovery branch so a
+    future refactor cannot silently drop the retry and force every
+    developer to restart uvicorn after a PATH change."""
+    import routers.agents as agents_mod
+
+    # First exec raises ENOENT (stale path), second succeeds.
+    call_count = {"n": 0}
+    fresh_path = "/usr/local/bin/fresh-claude-shim"
+
+    async def _flaky(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise FileNotFoundError(2, "No such file or directory")
+        # Second call: return a fake live proc.
+        class _P:
+            pid = 99999
+            stdin = None
+            stderr = None
+            returncode = None
+            def terminate(self):
+                pass
+        return _P()
+
+    monkeypatch.setattr(agents_mod, "CLAUDE_BIN", "/stale/path/claude")
+    import shutil as _shutil
+    monkeypatch.setattr(_shutil, "which", lambda name: fresh_path)
+    monkeypatch.setattr(
+        agents_mod, "PROJECT_ROOT", tmp_path, raising=False
+    )
+    (tmp_path / "transcripts").mkdir(exist_ok=True)
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_flaky):
+        with patch("routers.agents.ostk._run", new_callable=AsyncMock):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
+                resp = await client.post(
+                    "/api/agents/spawn",
+                    json={
+                        "name": "stale-bin-retry-1",
+                        "prompt": "hi",
+                        "model": "haiku",
+                        "budget": 1.0,
+                    },
+                )
+
+    # Retry must have succeeded.
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["name"] == "stale-bin-retry-1"
+    assert body["pid"] == 99999
+    # Exactly two exec calls: the stale one, then the retry.
+    assert call_count["n"] == 2, call_count
+    # Module-level CLAUDE_BIN must have been refreshed so subsequent
+    # spawns hit the fresh path directly.
+    assert agents_mod.CLAUDE_BIN == fresh_path
+
+    # Cleanup in-memory state the handler wrote.
+    agents_mod.agent_metadata.pop("stale-bin-retry-1", None)
+    agents_mod.active_agents.pop("stale-bin-retry-1", None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_explicit_httpexception_preserves_original_status(
+    tmp_path, monkeypatch
+):
+    """Explicit HTTPException raised inside the spawn try block (e.g.
+    unknown template -> 400 with Available templates list) must keep
+    its original status code and detail. Regression guard: before the
+    fix, the catch-all ``except Exception`` clobbered every
+    HTTPException with a fresh ``HTTPException(400, str(e))`` and
+    stripped the structured detail into a bare str."""
+    _patch_build_templates(monkeypatch, tmp_path / "agents")
+
+    async def _returner(*args, **kwargs):
+        return _FakeProc()
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_returner):
+        with patch("routers.agents.ostk._run", new_callable=AsyncMock):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
+                resp = await client.post(
+                    "/api/agents/spawn",
+                    json={
+                        "name": "preserve-httpexc-1",
+                        "prompt": "hi",
+                        "model": "haiku",
+                        "budget": 1.0,
+                        "template": "doesnotexist",
+                    },
+                )
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    # Structured detail from the template handler must survive.
+    assert "doesnotexist" in detail
+    assert "Available templates" in detail

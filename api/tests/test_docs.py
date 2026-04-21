@@ -490,8 +490,14 @@ class TestSpecBuild:
         agent = result["agents"][0]
         assert agent["task_id"] == "10"
         assert "spec-plan-10" == agent["name"]
-        assert "ostk commit --spec plan --needle 10" in agent["prompt"]
+        # The prompt must carry the spec body so the agent knows what
+        # to build. It deliberately does NOT tell the agent to run
+        # `ostk commit` locally: those calls lagged under load and blew
+        # the demo timeout, so the spec router now closes the task via
+        # HTTP when the agent finishes instead.
         assert "Build a widget." in agent["prompt"]
+        assert "task 10" in agent["prompt"]
+        assert "ostk commit" not in agent["prompt"].split("## Instructions")[0]
 
     @pytest.mark.asyncio
     async def test_build_no_tasks(self):
@@ -708,7 +714,8 @@ async def test_spec_build_spawns_agent_per_open_task(client):
         ]
     }
     with patch("routers.specs.ostk") as mock_ostk, \
-         patch("routers.agents.spawn_agent", new_callable=AsyncMock) as mock_spawn:
+         patch("routers.agents.spawn_agent", new_callable=AsyncMock) as mock_spawn, \
+         patch("routers.specs.Path.exists", return_value=True):
         mock_ostk.spec_build = AsyncMock(return_value=mock_result)
         resp = await client.post("/api/specs/docs/spec/plan.md/build")
 
@@ -719,9 +726,13 @@ async def test_spec_build_spawns_agent_per_open_task(client):
         body = call.args[0]
         assert body.template == "builder"
         assert body.source == "spec-build"
-        # The close instruction must be appended to the prompt.
+        # The finish instruction must be appended to the prompt. The
+        # spec router now DELETEs the per-build task row instead of
+        # closing it, so the Tasks page does not pile up spec-build
+        # residue after the demo. Either shape (DELETE or close) is
+        # an acceptable "tell the backend you finished" verb.
         assert "/api/tasks/" in body.prompt
-        assert "/close" in body.prompt
+        assert ("/close" in body.prompt) or ("DELETE" in body.prompt)
         # The friendly task label must include the task title so the
         # Agents page shows what each builder is working on instead of
         # the opaque spec-plan-<id> name.
@@ -741,7 +752,8 @@ async def test_spec_build_returns_agent_names(client):
         ]
     }
     with patch("routers.specs.ostk") as mock_ostk, \
-         patch("routers.agents.spawn_agent", new_callable=AsyncMock):
+         patch("routers.agents.spawn_agent", new_callable=AsyncMock), \
+         patch("routers.specs.Path.exists", return_value=True):
         mock_ostk.spec_build = AsyncMock(return_value=mock_result)
         resp = await client.post("/api/specs/docs/spec/plan.md/build")
 
@@ -762,7 +774,8 @@ async def test_spec_build_is_idempotent_when_no_open_tasks(client):
     helpful empty-list message.
     """
     with patch("routers.specs.ostk") as mock_ostk, \
-         patch("routers.agents.spawn_agent", new_callable=AsyncMock) as mock_spawn:
+         patch("routers.agents.spawn_agent", new_callable=AsyncMock) as mock_spawn, \
+         patch("routers.specs.Path.exists", return_value=True):
         mock_ostk.spec_build = AsyncMock(return_value={"agents": []})
         # Wave 2: build now tries a decompose when there are no tasks.
         mock_ostk.doc_decompose = AsyncMock(return_value={"result": "ok", "task_ids": []})
@@ -771,7 +784,9 @@ async def test_spec_build_is_idempotent_when_no_open_tasks(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["agents"] == []
-    assert "no open tasks" in data["message"].lower()
+    # The empty-list message was updated to point the user at the AC
+    # checklist (which is what the cascade walks when tasks are empty).
+    assert "acceptance criteria" in data["message"].lower()
     mock_spawn.assert_not_awaited()
 
 
@@ -1005,6 +1020,7 @@ async def test_spec_tasks_includes_assigned_agent_after_build(client):
     with (
         patch("routers.specs.ostk") as mock_ostk,
         patch("routers.agents.spawn_agent", new_callable=AsyncMock),
+        patch("routers.specs.Path.exists", return_value=True),
     ):
         mock_ostk.spec_build = AsyncMock(return_value=build_result)
         mock_ostk.spec_tasks = AsyncMock(return_value=tasks_result)

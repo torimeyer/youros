@@ -4118,8 +4118,92 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             "pid": proc.pid,
             "transcript": str(transcript_path),
         }
+    except HTTPException:
+        # Preserve explicit HTTPException codes raised inside the try
+        # block (template lookup 400s, etc.). Without this the catch-all
+        # below would clobber the real status code.
+        raise
+    except FileNotFoundError as fnf:
+        # ENOENT inside spawn is almost always a stale CLAUDE_BIN path:
+        # ``tori()`` puts a tmp dir first on PATH at shell init, the
+        # backend imports this module and caches CLAUDE_BIN from that
+        # PATH, then the tmp dir gets cleaned up. The subprocess exec
+        # then fails with the opaque "[Errno 2] No such file or
+        # directory" and no filename. Surface the real path and retry
+        # once with a freshly resolved claude binary.
+        logger.exception(
+            "spawn.enoent name=%s cmd0=%s cwd=%s filename=%s",
+            body.name,
+            cmd[0] if cmd else None,
+            str(PROJECT_ROOT),
+            getattr(fnf, "filename", None),
+        )
+        missing = getattr(fnf, "filename", None) or (cmd[0] if cmd else "unknown")
+        import shutil as _shutil_retry
+        fresh_claude = _shutil_retry.which("claude")
+        if (
+            fresh_claude
+            and cmd
+            and (cmd[0] == CLAUDE_BIN or "claude" in str(cmd[0]).lower())
+            and fresh_claude != cmd[0]
+        ):
+            logger.warning(
+                "spawn.claude_bin_stale old=%s fresh=%s name=%s",
+                cmd[0], fresh_claude, body.name,
+            )
+            try:
+                cmd[0] = fresh_claude
+                # Update module-level CLAUDE_BIN so later spawns in this
+                # process hit the fresh path directly instead of retry.
+                globals()["CLAUDE_BIN"] = fresh_claude
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=open(str(transcript_path), "w"),
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(PROJECT_ROOT),
+                )
+                active_agents[body.name] = proc
+                now_iso = datetime.now(timezone.utc).isoformat()
+                agent_metadata[body.name] = {
+                    "status": "running",
+                    "spawned_at": now_iso,
+                    "last_heartbeat_at": now_iso,
+                    "budget": str(body.budget),
+                    "model": model,
+                    "pid": proc.pid,
+                    "tokens_used": 0,
+                    "source": body.source or "api",
+                    "recovery_note": "claude_bin_stale_retry",
+                }
+                _save_agent_state()
+                return {
+                    "result": f"Agent '{body.name}' spawned (retry)",
+                    "name": body.name,
+                    "pid": proc.pid,
+                    "transcript": str(transcript_path),
+                }
+            except Exception as retry_exc:
+                logger.exception(
+                    "spawn.retry_failed name=%s err=%s",
+                    body.name, retry_exc,
+                )
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Spawn failed: file not found ({missing}). "
+                f"Check that the claude CLI is installed and on PATH."
+            ),
+        )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Log with full traceback so the operator can diagnose without
+        # re-running under strace. Include the exception type so a bare
+        # OSError with empty message still identifies the failure class.
+        logger.exception("spawn.failed name=%s err=%s", body.name, e)
+        raise HTTPException(
+            status_code=400,
+            detail=f"{type(e).__name__}: {e}" if str(e) else type(e).__name__,
+        )
 
 
 class FleetSpawn(BaseModel):
