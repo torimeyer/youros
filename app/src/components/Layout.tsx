@@ -5,7 +5,6 @@ import { ChatPanel } from './ChatPanel'
 import { CommandPalette } from './CommandPalette'
 import GuidedTour from './GuidedTour'
 import NotificationToasts from './NotificationToast'
-import { ProbeFailureBanner } from './ProbeFailureBanner'
 import { useUserActivity } from '../hooks/useUserActivity'
 import { useAppStore } from '../stores/app'
 
@@ -178,7 +177,6 @@ export function Layout() {
   return (
     <div data-theme={darkMode ? 'dark' : 'light'}>
       <Sidebar />
-      <ProbeFailureBanner />
       <ChatPanel />
       <CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} />
       {showTour && <GuidedTour onComplete={() => setShowTour(false)} />}

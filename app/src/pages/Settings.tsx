@@ -5,7 +5,6 @@ import TopBar from '../components/TopBar';
 import { PageHeader } from '../components/ui';
 import { api } from '../lib/api';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
-import { HealthCheckSection } from './HealthCheckSection';
 
 interface MCPServer {
   name: string;
@@ -1946,9 +1945,6 @@ export default function Settings() {
           </div>
         </div>
         </div>
-
-        {/* System health */}
-        <HealthCheckSection />
 
         {/* Row 5: Shared Links + Shortcuts */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
