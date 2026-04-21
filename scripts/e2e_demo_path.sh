@@ -310,6 +310,11 @@ print(json.dumps({'roadmap_path': sys.argv[1], 'initiative_text': sys.argv[2]}))
 t1=$(ts_ms)
 STEP2_SPEC_MS=$(( t1 - t0 ))
 
+# The python3 except branch already prints an empty string on parse
+# failure so the variables capture an empty string cleanly. The
+# shell-level silent-swallow pattern (redirect stderr to null + echo
+# empty fallback) is banned by test_retro_prevention; let python3
+# carry the fallback instead. See feedback_no_silent_swallow.md.
 promoted_path=$(echo "$spec_resp" | python3 -c "
 import sys, json
 try:
@@ -317,7 +322,7 @@ try:
   print(d.get('promoted_path') or '')
 except Exception:
   print('')
-" 2>/dev/null || echo "")
+")
 spec_status=$(echo "$spec_resp" | python3 -c "
 import sys, json
 try:
@@ -325,7 +330,7 @@ try:
   print(d.get('status') or '')
 except Exception:
   print('')
-" 2>/dev/null || echo "")
+")
 
 if [ -z "$promoted_path" ] || [ "$spec_status" != "ready" ]; then
   fail "step 2 spec creation did not return a promoted ready spec: ${spec_resp}"
@@ -344,6 +349,8 @@ else
 fi
 
 tasks_before=$($CURL -m 5 "${API_BASE}/api/specs/${SPEC_PATH}/tasks" 2>&1 || echo "")
+# python3 already prints 0 on parse failure; no shell-level fallback
+# needed.
 tb_count=$(echo "$tasks_before" | python3 -c "
 import sys, json
 try:
@@ -351,7 +358,7 @@ try:
   print(len(d.get('tasks', [])))
 except Exception:
   print(0)
-" 2>/dev/null || echo 0)
+")
 if (( tb_count < 1 )); then
   log_warn "step 2 spec has ${tb_count} tasks before build. Build will call decompose before spawning."
 else
@@ -365,6 +372,9 @@ build_resp=$($CURL -m 30 -X POST "${API_BASE}/api/specs/${SPEC_PATH}/build" 2>&1
 t1=$(ts_ms)
 STEP3_BUILD_MS=$(( t1 - t0 ))
 
+# python3's except branch yields no output on parse failure so
+# builder_names captures an empty string cleanly. No shell-level
+# fallback needed.
 builder_names=$(echo "$build_resp" | python3 -c "
 import sys, json
 try:
@@ -373,7 +383,7 @@ try:
   print('\n'.join(names))
 except Exception:
   pass
-" 2>/dev/null || echo "")
+")
 builder_count=0
 if [ -n "$builder_names" ]; then
   builder_count=$(echo "$builder_names" | wc -l | tr -d ' ')
