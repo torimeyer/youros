@@ -2975,8 +2975,8 @@ CLAUDE_BIN = shutil.which("claude") or "claude"
 
 MODEL_MAP = {
     "sonnet": "claude-sonnet-4-6",
-    "opus": "claude-opus-4-6",
-    "haiku": "claude-haiku-4-5",
+    "opus": "claude-opus-4-7",
+    "haiku": "claude-haiku-4-5-20251001",
 }
 
 
@@ -3283,6 +3283,34 @@ async def _schedule_demo_force_complete(
 # Documented here so operators know exactly where the demo asset lives.
 PREWARM_DIR = Path.home() / ".myos" / "prewarm"
 PREWARM_ROADMAP_PATH = PREWARM_DIR / "roadmap.md"
+# Demo prewarm for the Build it flow. Mirrors the roadmap replay idea
+# but also applies real file edits so the spec's feature visibly lands
+# in the repo while each builder "works" for ~30 seconds. Layout:
+#
+#   ~/.myos/prewarm/builds/<spec-stem>/manifest.json
+#   ~/.myos/prewarm/builds/<spec-stem>/files/<repo-relative-path>
+#
+# manifest.json shape:
+#   {
+#     "target_seconds": 30,
+#     "tasks": [
+#       {"match": "<substring of task title>",
+#        "transcript": "plain text the agent's transcript will stream",
+#        "write_files": [
+#          {"dest": "app/src/...", "from": "files/app/src/..."}
+#        ]}
+#     ]
+#   }
+#
+# Matching: when a spec-build spawn arrives, we take body.task (the
+# friendly task label) and pick the FIRST manifest entry whose "match"
+# substring appears in it. That lets the prewarm track AC order without
+# depending on needle ids, which change across demo runs.
+PREWARM_BUILDS_DIR = PREWARM_DIR / "builds"
+# Per-task replay wall time. The user wants each agent to feel like real
+# work even when the content is canned, so we drip the transcript over
+# this many seconds and apply the file edits right at the end.
+_PREWARM_BUILD_TARGET_SECONDS = 30.0
 
 # Target wall time for the replay stream. Aim for ~5 seconds total so
 # the Roadmap answer feels snappy while still showing visible token-by-
@@ -3295,6 +3323,306 @@ PREWARM_ROADMAP_PATH = PREWARM_DIR / "roadmap.md"
 # Active Sessions list catches the running row at least once.
 _PREWARM_TARGET_SECONDS = 5.0
 _PREWARM_CHUNK_DELAY_SECONDS = 0.04
+
+
+def _spec_stem_from_builder_name(name: str) -> Optional[str]:
+    """Extract the spec stem from a builder agent name.
+
+    Builder names are formatted ``spec-<spec-stem>-<task-id>`` by
+    ``routers.specs.build_spec``. Returns the stem portion, or ``None``
+    if the name does not match the builder pattern. The task-id suffix
+    is the last segment after the final hyphen and is either a bare
+    numeric id (``751``) or an arrow-prefixed one (``→751``).
+    """
+    if not name or not name.startswith("spec-"):
+        return None
+    trimmed = name[len("spec-"):]
+    # Last hyphen separates task id from stem.
+    idx = trimmed.rfind("-")
+    if idx <= 0:
+        return None
+    return trimmed[:idx]
+
+
+def _lookup_build_prewarm_entry(body: "AgentSpawn") -> Optional[dict]:
+    """Return the prewarm manifest entry that matches this builder spawn.
+
+    A match means: body.source == 'spec-build', the agent name decodes
+    to a known spec stem, the manifest.json for that stem exists, and
+    one of its ``tasks`` entries has a ``match`` substring that appears
+    in ``body.task``. Returns the enriched entry dict (with a
+    ``_manifest_dir`` key added so the replay function can resolve the
+    file paths under ``files/``), or ``None`` if any check fails.
+    Never raises; any IO or parse error returns ``None`` so a busted
+    prewarm asset can never block a real spawn.
+    """
+    try:
+        source = (getattr(body, "source", "") or "").lower()
+        if source != "spec-build":
+            return None
+        stem = _spec_stem_from_builder_name(body.name)
+        if not stem:
+            return None
+        manifest_dir = PREWARM_BUILDS_DIR / stem
+        manifest_path = manifest_dir / "manifest.json"
+        if not manifest_path.exists():
+            return None
+        manifest = json.loads(manifest_path.read_text())
+        tasks = manifest.get("tasks") or []
+        task_label = str(getattr(body, "task", "") or "")
+        ac_index = getattr(body, "ac_index", None)
+        target_s = float(
+            manifest.get("target_seconds") or _PREWARM_BUILD_TARGET_SECONDS
+        )
+
+        def _enrich(entry: dict) -> dict:
+            enriched = dict(entry)
+            enriched["_manifest_dir"] = str(manifest_dir)
+            enriched["_target_seconds"] = target_s
+            return enriched
+
+        # Pass 1: task-title substring match. Substrings are closer to
+        # the AC's meaning than its ordinal, so this wins for the normal
+        # case where the LLM regenerates slightly different wording but
+        # keeps the core concept ("toggle", "both", "column"). Order
+        # drift between runs does not break this pass.
+        for entry in tasks:
+            m = str(entry.get("match") or "").strip()
+            if m and m in task_label:
+                return _enrich(entry)
+        # Pass 2: fall back to ac_index when substring matching fails
+        # (the AC was reworded enough that the phrase disappeared).
+        # Works as long as the LLM kept the ACs in the same order.
+        if isinstance(ac_index, int):
+            for entry in tasks:
+                entry_idx = entry.get("ac_index")
+                if isinstance(entry_idx, int) and entry_idx == ac_index:
+                    return _enrich(entry)
+        return None
+    except Exception:
+        logger.exception(
+            "prewarm_build.lookup.failed name=%s", getattr(body, "name", "?")
+        )
+        return None
+
+
+async def _stream_prewarm_build_replay(
+    body: "AgentSpawn",
+    transcript_path: Path,
+    model: str,
+    entry: dict,
+) -> dict:
+    """Replay a cached Build-it run as if a real builder were working.
+
+    Streams the manifest's ``transcript`` text to ``transcript_path`` in
+    small flushed chunks so the UI's transcript poll sees real growth
+    over ~``target_seconds``. At the end, copies every ``write_files``
+    entry from the manifest's ``files/`` dir into the actual project
+    root, marks the agent completed, and calls ``close_spec_builder_task``
+    so the builder task closes and the spec advances to ``done`` just
+    like a natural completion would.
+
+    Returns the same response shape as the real spawn path so callers
+    cannot tell replay from reality.
+    """
+    from config import PROJECT_ROOT
+    manifest_dir = Path(entry.get("_manifest_dir") or "")
+    transcript_text = str(entry.get("transcript") or "")
+    target_s = float(entry.get("_target_seconds") or _PREWARM_BUILD_TARGET_SECONDS)
+    write_files = entry.get("write_files") or []
+
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path.write_text("")
+
+    now_spawn = datetime.now(timezone.utc).isoformat()
+    spawn_meta: dict = {
+        "status": "running",
+        "spawned_at": now_spawn,
+        "last_heartbeat_at": now_spawn,
+        "budget": str(body.budget),
+        "model": model,
+        "pid": 0,
+        "tokens_used": 0,
+        "demo_mode": True,
+        "prewarm_replay": True,
+        "prewarm_build": True,
+        "source": body.source or "spec-build",
+    }
+    if body.task:
+        spawn_meta["task"] = body.task
+    if body.description:
+        spawn_meta["description"] = body.description
+    if body.template:
+        spawn_meta["template"] = body.template
+    agent_metadata[body.name] = spawn_meta
+    try:
+        _save_agent_state()
+    except Exception:
+        pass
+
+    # Drip schedule: write transcript in equal chunks over target_s.
+    # Clamp chunk count so very short transcripts still stream (not
+    # one-shot) and very long ones do not fsync per byte.
+    total = max(1, len(transcript_text))
+    n_chunks = max(15, min(120, total // 40 + 15))
+    chunk_size = max(1, (total + n_chunks - 1) // n_chunks)
+    per_chunk_s = max(0.05, target_s / n_chunks)
+
+    async def _drip() -> None:
+        try:
+            written = 0
+            with open(str(transcript_path), "w") as fh:
+                while written < total:
+                    end = min(total, written + chunk_size)
+                    fh.write(transcript_text[written:end])
+                    fh.flush()
+                    try:
+                        os.fsync(fh.fileno())
+                    except OSError:
+                        pass
+                    written = end
+                    if written < total:
+                        await asyncio.sleep(per_chunk_s)
+
+            # Apply the cached file edits. Each spec is either a
+            # whole-file copy (``from``) or a list of string-replace
+            # edits (``edits``). Edits are preferred for big files like
+            # ChatPanel.tsx where a wholesale overwrite would clobber
+            # unrelated changes. Both modes resolve paths under
+            # PROJECT_ROOT and reject any path that escapes.
+            root = Path(PROJECT_ROOT).resolve()
+            for spec in write_files:
+                dest_rel = str(spec.get("dest") or "").strip()
+                if not dest_rel:
+                    continue
+                dest = (root / dest_rel).resolve()
+                try:
+                    dest.relative_to(root)
+                except ValueError:
+                    logger.warning(
+                        "prewarm_build.dest_escape name=%s dest=%s",
+                        body.name, dest,
+                    )
+                    continue
+                edits = spec.get("edits")
+                if isinstance(edits, list):
+                    # Incremental string-replace edits.
+                    if not dest.exists():
+                        logger.warning(
+                            "prewarm_build.edit_target_missing name=%s dest=%s",
+                            body.name, dest,
+                        )
+                        continue
+                    try:
+                        text = dest.read_text()
+                    except OSError as exc:
+                        logger.exception(
+                            "prewarm_build.read.failed name=%s dest=%s err=%s",
+                            body.name, dest, exc,
+                        )
+                        continue
+                    applied = 0
+                    skipped = 0
+                    for edit in edits:
+                        old = str(edit.get("old_str") or "")
+                        new = str(edit.get("new_str") or "")
+                        if not old:
+                            continue
+                        # Idempotency: check ``new in text`` FIRST. A
+                        # common insert-after shape has new_str = old_str
+                        # + addition, so old_str is STILL in text after
+                        # the first apply and a naive ``old in text``
+                        # check would replace-then-re-apply, inserting
+                        # the addition a second time. The user-visible
+                        # symptom was two side-by-side toggle buttons
+                        # after a second demo run on the same repo.
+                        # Checking new first makes the replay truly
+                        # idempotent regardless of insert shape.
+                        if new and new in text:
+                            skipped += 1
+                            continue
+                        if old in text:
+                            text = text.replace(old, new, 1)
+                            applied += 1
+                        else:
+                            logger.warning(
+                                "prewarm_build.edit_no_match name=%s dest=%s "
+                                "old_head=%r",
+                                body.name, dest, old[:80],
+                            )
+                    try:
+                        dest.write_text(text)
+                    except OSError as exc:
+                        logger.exception(
+                            "prewarm_build.write.failed name=%s dest=%s err=%s",
+                            body.name, dest, exc,
+                        )
+                    logger.info(
+                        "prewarm_build.edits name=%s dest=%s applied=%d skipped=%d",
+                        body.name, dest_rel, applied, skipped,
+                    )
+                    continue
+                # Whole-file copy path (``from``).
+                src_rel = str(spec.get("from") or "").strip()
+                if not src_rel:
+                    continue
+                src = (manifest_dir / src_rel).resolve()
+                if not src.exists():
+                    logger.warning(
+                        "prewarm_build.source_missing name=%s src=%s",
+                        body.name, src,
+                    )
+                    continue
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    dest.write_bytes(src.read_bytes())
+                except OSError as exc:
+                    logger.exception(
+                        "prewarm_build.write.failed name=%s dest=%s err=%s",
+                        body.name, dest, exc,
+                    )
+
+            # Mark completed and run the same auto-close as a real run.
+            now_done = datetime.now(timezone.utc).isoformat()
+            meta = agent_metadata.get(body.name) or {}
+            meta["status"] = "completed"
+            meta["summary"] = transcript_text
+            meta["completed_at"] = now_done
+            meta["last_heartbeat_at"] = now_done
+            meta["transcript_bytes"] = total
+            agent_metadata[body.name] = meta
+            try:
+                _save_agent_state()
+            except Exception:
+                pass
+            # Close the spec builder task via the existing auto-close
+            # helper. This triggers the spec-status flip to done when
+            # the last sibling closes.
+            try:
+                from routers.specs import close_spec_builder_task
+                await close_spec_builder_task(body.name)
+            except Exception:
+                logger.exception(
+                    "prewarm_build.close_task.failed name=%s", body.name
+                )
+        except Exception:
+            logger.exception(
+                "prewarm_build.stream.failed name=%s", body.name
+            )
+
+    try:
+        asyncio.create_task(_drip())
+    except Exception:
+        logger.exception(
+            "prewarm_build.schedule.failed name=%s", body.name
+        )
+
+    return {
+        "result": f"Agent '{body.name}' spawned (prewarm build replay)",
+        "name": body.name,
+        "pid": 0,
+        "transcript": str(transcript_path),
+    }
 
 
 def _is_roadmap_template_request(body: "AgentSpawn") -> bool:
@@ -3609,7 +3937,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         # Force the fastest tier regardless of what the caller asked for.
         model = MODEL_MAP["haiku"]
     else:
-        model = MODEL_MAP.get(body.model, body.model)
+        # model_tier takes precedence over model when both are set.
+        # resolve_model handles unknown tiers and full model ids.
+        from services.model_routing import resolve_model as _resolve_model
+        if getattr(body, "model_tier", None):
+            model = _resolve_model(body.model_tier)
+        else:
+            model = MODEL_MAP.get(body.model, body.model)
         if _demo_mode and _honor_explicit_model and "haiku" not in str(model).lower():
             logger.warning(
                 "demo_mode.explicit_model name=%s model=%s cap=%ds "
@@ -3676,6 +4010,22 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             # the subprocess path so the demo still gets an answer.
             logger.exception(
                 "prewarm_replay.entry.failed name=%s", body.name
+            )
+
+    # Build-it prewarm replay gate. When source == "spec-build" and a
+    # manifest exists for this spec with a matching task entry, replay
+    # the cached run over ~30s and apply its file edits. Any failure
+    # falls through to the real subprocess path so a busted prewarm
+    # asset cannot silently break Build it.
+    _build_prewarm_entry = _lookup_build_prewarm_entry(body)
+    if _build_prewarm_entry is not None:
+        try:
+            return await _stream_prewarm_build_replay(
+                body, transcript_path, model, _build_prewarm_entry
+            )
+        except Exception:
+            logger.exception(
+                "prewarm_build.entry.failed name=%s", body.name
             )
 
     # Prepend past memory context so the agent picks up where it left off.
@@ -5645,6 +5995,21 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             "source": "claude-code",
         }
     _save_agent_state()
+
+    # Auto-close the spec builder task if this agent was spawned from a
+    # Build it click. The spec_build prompt tells the agent to edit
+    # files directly and NOT run `ostk work close` itself, so /complete
+    # is the only signal we get. Without this, builder tasks stay open
+    # forever and the spec never advances past in-progress. Imported
+    # lazily to avoid a cross-router circular import at module load.
+    try:
+        from routers.specs import close_spec_builder_task
+        await close_spec_builder_task(name)
+    except Exception:
+        logger.exception(
+            "mark_agent_complete: spec builder auto-close failed for %s",
+            name,
+        )
 
     # Log to audit so the audit_agents() helper also reflects completion
     _emit_audit_event("agent.completed", {"name": name})

@@ -93,6 +93,10 @@ class Settings(BaseModel):
     chat_backend_preference: str = "auto"
     briefing_enabled: bool = True
     chat_memory_enabled: bool = True
+    # When True, every chat message is sent to both Claude and Gemini
+    # in parallel and the chat panel renders both replies in adjacent
+    # columns. Persisted so the choice survives across sessions.
+    side_by_side_enabled: bool = False
     # Compression is always on. This field is kept for internal flexibility and
     # schema compatibility but is intentionally not surfaced in the UI.
     context_compression_enabled: bool = True
@@ -171,12 +175,24 @@ class AgentSpawn(BaseModel):
     # agentfile's ``LIMIT demo_mode true`` default. When False or absent,
     # demo_mode keeps its original behavior and forces Haiku.
     honor_explicit_model: Optional[bool] = None
+    # Tier-based model selection. When set, ``model_tier`` is resolved via
+    # ``services.model_routing.resolve_model`` and overrides ``model``.
+    # Accepted values: "sonnet" (default), "opus", "haiku".
+    # Use "opus" only for genuinely hard tasks; the spawn path will auto-
+    # escalate from Sonnet if the agent emits NEEDS_OPUS or exits non-zero.
+    model_tier: Optional[str] = None
     # Override the demo-mode wall-clock cap (default 90 seconds). Used
     # when several demo agents need to fit inside a single 90 second
     # budget: a 3-step built-in workflow caps each step at 30 seconds so
     # the whole workflow lands under 90s. Ignored unless demo_mode is
     # also True. Range is clamped server-side (min 5, max 90).
     deadline_seconds: Optional[int] = None
+    # Zero-based position of the acceptance-criterion bullet this builder
+    # is working on (set by routers.specs build flow). Prewarm replay
+    # manifests use this to match a spawn to a cached run without
+    # depending on the exact wording of the task title, which can drift
+    # between LLM regenerations of the spec.
+    ac_index: Optional[int] = None
     # Links a step agent back to the workflow run that spawned it.
     # Set by run_workflow() so the reconcile pass can auto-cancel orphans.
     workflow_run_id: Optional[str] = None

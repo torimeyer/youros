@@ -25,6 +25,11 @@ from typing import Dict, List
 
 ANTHROPIC_MODELS: List[Dict[str, str]] = [
     {
+        "id": "claude-opus-4-7",
+        "label": "Opus 4.7",
+        "tier": "opus",
+    },
+    {
         "id": "claude-opus-4-6",
         "label": "Opus 4.6",
         "tier": "opus",
