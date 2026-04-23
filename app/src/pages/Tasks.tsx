@@ -30,7 +30,7 @@ import SharePopover from "../components/SharePopover";
 import ExportButton from "../components/ExportButton";
 import TasksAuditModal from "../components/TasksAuditModal";
 import RecurringTasksSection from "../components/RecurringTasksSection";
-import { FilterDrawer, type StatusFilter, type ClosedSortOrder } from "./tasks/FilterDrawer";
+import { FilterDrawer, type StatusFilter, type ClosedSortOrder, type SortBy } from "./tasks/FilterDrawer";
 import ConfirmModal from "../components/ConfirmModal";
 
 interface Task {
@@ -276,6 +276,7 @@ export default function Tasks() {
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const [closedSortOrder, setClosedSortOrder] = useState<ClosedSortOrder>("newest");
+  const [sortBy, setSortBy] = useState<SortBy>("date-desc");
   // Session tasks (auto-filed by the SessionStart hook) are hidden by default.
   // The user can toggle this to show them when needed, but the preference
   // lives in sessionStorage so reloading the page (or opening a new tab)
@@ -1262,6 +1263,38 @@ export default function Tasks() {
       const bTime = b.closed_at ? new Date(b.closed_at).getTime() : 0;
       return closedSortOrder === "oldest" ? aTime - bTime : bTime - aTime;
     });
+  } else {
+    // Apply the user-chosen sort order to non-closed views.
+    filteredTasks = [...filteredTasks].sort((a, b) => {
+      if (sortBy === "date-asc") {
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      }
+      if (sortBy === "date-desc") {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+      if (sortBy === "status") {
+        // Open tasks before closed/shelved; within same status keep by date desc.
+        const statusOrder: Record<string, number> = { open: 0, in_progress: 1, shelved: 2, closed: 3 };
+        const aOrd = statusOrder[a.status] ?? 99;
+        const bOrd = statusOrder[b.status] ?? 99;
+        if (aOrd !== bOrd) return aOrd - bOrd;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+      if (sortBy === "label") {
+        // Find the first label name for each task, alphabetically.
+        const getLabelName = (task: Task) => {
+          const id = (task.label_ids || [])[0];
+          if (!id) return "\uFFFF"; // tasks without labels sort last
+          return labels.find((l) => l.id === id)?.name ?? "\uFFFF";
+        };
+        const aName = getLabelName(a);
+        const bName = getLabelName(b);
+        if (aName !== bName) return aName.localeCompare(bName);
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+      // Default: newest first
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
   }
 
   // Unfiltered counts used by the FilterDrawer status badge pills so the
@@ -1849,6 +1882,7 @@ export default function Tasks() {
               filterCounts={filterCounts}
               priorityCounts={priorityCounts}
               closedSortOrder={closedSortOrder}
+              sortBy={sortBy}
               onStatusChange={setStatusFilter}
               onPriorityChange={setPriorityFilter}
               onLabelChange={setLabelFilter}
@@ -1856,6 +1890,7 @@ export default function Tasks() {
               onSessionToggle={() => setHideSessionTasks((v) => !v)}
               onViewModeChange={setViewMode}
               onClosedSortOrderChange={setClosedSortOrder}
+              onSortByChange={setSortBy}
               onClearAll={clearAllFilters}
               onClose={() => {}}
             />

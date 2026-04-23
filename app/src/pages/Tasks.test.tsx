@@ -263,6 +263,71 @@ describe('Tasks page', () => {
     })
   })
 
+  it('sort-by buttons are rendered in the filter drawer', async () => {
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('sort-by-date-desc')).toBeInTheDocument()
+    expect(screen.getByTestId('sort-by-date-asc')).toBeInTheDocument()
+    expect(screen.getByTestId('sort-by-status')).toBeInTheDocument()
+    expect(screen.getByTestId('sort-by-label')).toBeInTheDocument()
+  })
+
+  it('sort by date ascending shows oldest task first', async () => {
+    const dateTasks = [
+      { id: 't1', title: 'Newest task', priority: 'P1', status: 'open', created_at: '2026-04-20T12:00:00Z', goal: null, label_ids: [] },
+      { id: 't2', title: 'Oldest task', priority: 'P1', status: 'open', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [] },
+      { id: 't3', title: 'Middle task', priority: 'P1', status: 'open', created_at: '2025-06-15T06:00:00Z', goal: null, label_ids: [] },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: dateTasks })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByText('Newest task')).toBeInTheDocument()
+    })
+
+    // Default (date-desc): newest appears before oldest
+    const defaultBody = document.body.textContent || ''
+    expect(defaultBody.indexOf('Newest task')).toBeLessThan(defaultBody.indexOf('Oldest task'))
+
+    // Switch to date ascending
+    fireEvent.click(screen.getByTestId('sort-by-date-asc'))
+    await waitFor(() => {
+      const ascBody = document.body.textContent || ''
+      expect(ascBody.indexOf('Oldest task')).toBeLessThan(ascBody.indexOf('Newest task'))
+    })
+  })
+
+  it('sort by label groups tasks alphabetically by label name', async () => {
+    const labelTasks = [
+      { id: 'tA', title: 'Zebra task', priority: 'P1', status: 'open', created_at: '2026-04-01T00:00:00Z', goal: null, label_ids: ['l2'] },
+      { id: 'tB', title: 'Alpha task', priority: 'P1', status: 'open', created_at: '2026-04-01T00:00:00Z', goal: null, label_ids: ['l1'] },
+      { id: 'tC', title: 'No label task', priority: 'P1', status: 'open', created_at: '2026-04-01T00:00:00Z', goal: null, label_ids: [] },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: labelTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByText('Zebra task')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('sort-by-label'))
+    await waitFor(() => {
+      const body = document.body.textContent || ''
+      // Bug (l1) < Docs (l2), so Alpha task should appear before Zebra task
+      expect(body.indexOf('Alpha task')).toBeLessThan(body.indexOf('Zebra task'))
+      // Tasks without labels sort last
+      expect(body.indexOf('Zebra task')).toBeLessThan(body.indexOf('No label task'))
+    })
+  })
+
   it('clicking Open filter after Closed shows open tasks again', async () => {
     renderTasks()
 

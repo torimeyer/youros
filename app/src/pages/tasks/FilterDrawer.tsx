@@ -26,6 +26,8 @@ interface Thread {
 
 export type ClosedSortOrder = "newest" | "oldest";
 
+export type SortBy = "date-desc" | "date-asc" | "status" | "label";
+
 interface FilterDrawerProps {
   open?: boolean;
   statusFilter: StatusFilter;
@@ -39,6 +41,7 @@ interface FilterDrawerProps {
   filterCounts: Partial<Record<StatusFilter, number>>;
   priorityCounts: Record<string, number>;
   closedSortOrder?: ClosedSortOrder;
+  sortBy?: SortBy;
   onStatusChange: (f: StatusFilter) => void;
   onPriorityChange: (p: string | null) => void;
   onLabelChange: (id: string | null) => void;
@@ -46,6 +49,7 @@ interface FilterDrawerProps {
   onSessionToggle: () => void;
   onViewModeChange: (v: "list" | "grid") => void;
   onClosedSortOrderChange?: (order: ClosedSortOrder) => void;
+  onSortByChange?: (s: SortBy) => void;
   onClearAll?: () => void;
   onClose: () => void;
 }
@@ -63,6 +67,7 @@ export function FilterDrawer({
   filterCounts,
   priorityCounts,
   closedSortOrder = "newest",
+  sortBy = "date-desc",
   onStatusChange,
   onPriorityChange,
   onLabelChange,
@@ -70,6 +75,7 @@ export function FilterDrawer({
   onSessionToggle,
   onViewModeChange,
   onClosedSortOrderChange,
+  onSortByChange,
   onClearAll,
   onClose,
 }: FilterDrawerProps) {
@@ -137,7 +143,39 @@ export function FilterDrawer({
         </div>
       </div>
 
-      {/* Sort row — only shown for closed tasks */}
+      {/* Sort by row */}
+      {onSortByChange && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide w-16 shrink-0">
+            Sort by
+          </span>
+          <div className="flex items-center gap-1 flex-wrap">
+            {(
+              [
+                { value: "date-desc", label: "Newest first" },
+                { value: "date-asc", label: "Oldest first" },
+                { value: "status", label: "Status" },
+                { value: "label", label: "Label" },
+              ] as { value: SortBy; label: string }[]
+            ).map(({ value, label }) => (
+              <button
+                key={value}
+                data-testid={`sort-by-${value}`}
+                onClick={() => onSortByChange(value)}
+                className={
+                  sortBy === value
+                    ? "px-3 py-1.5 rounded-md bg-slate-800 text-white font-medium flex items-center gap-1.5 text-sm"
+                    : "px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-300 flex items-center gap-1.5 text-sm"
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sort order row — only shown for closed tasks */}
       {statusFilter === "closed" && onClosedSortOrderChange && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide w-16 shrink-0">
