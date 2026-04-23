@@ -16,9 +16,11 @@ __pycache__/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
-# .mcp.json is tracked so the ostk MCP server config (including
-# OSTK_TRUST_TIER=T1 needed for demo app/src/** writes) ships with the repo.
-# .mcp.json  -- intentionally tracked
+# .mcp.json is gitignored because it contains a per-user Stitch API key.
+# The tracked template is .mcp.json.example. install.sh copies it into
+# place on first install so every user gets a working config skeleton
+# with their own key pasted in. Never commit .mcp.json itself.
+.mcp.json
 lego-app/
 taxes/
 transcripts/

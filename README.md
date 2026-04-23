@@ -151,6 +151,31 @@ To use Gemini through your Google account:
 4. Add redirect URI: `http://localhost:8000/api/auth/google/callback`
 5. Copy client ID and secret into `api/.env` (see `api/.env.example`)
 
+## Pre-commit Test Hook
+
+myOS ships a lightweight git pre-commit hook that runs pytest, vitest, and `tsc -b` only on the files you staged. It catches broken tests at the commit that introduces them, instead of letting them pile up until release day. A typical commit stays under 30 seconds because only the relevant tests run.
+
+Install once:
+
+```bash
+scripts/install-git-hooks.sh
+```
+
+Check status or uninstall:
+
+```bash
+scripts/install-git-hooks.sh --status
+scripts/install-git-hooks.sh --uninstall
+```
+
+Bypass for a single commit (use sparingly):
+
+```bash
+git commit --no-verify
+```
+
+If you already have a local pre-commit hook, the installer preserves it as `.git/hooks/pre-commit.local` and runs it first, so nothing you had before is lost.
+
 ## Roadmap
 
 Open `roadmap.html` in your browser to see the three-year plan.

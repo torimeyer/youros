@@ -11,7 +11,7 @@
       "command": "scripts/mcp-quiet.sh",
       "args": ["npx", "@_davideast/stitch-mcp", "proxy"],
       "env": {
-        "STITCH_API_KEY": "AQ.Ab8RN6KW-pI8Q1Gahsle81JLEdBkF_Wvd5Y_58mWOY0rM-lWRg"
+        "STITCH_API_KEY": "REPLACE_WITH_YOUR_STITCH_KEY"
       }
     }
   }

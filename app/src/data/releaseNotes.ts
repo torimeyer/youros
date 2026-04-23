@@ -12,6 +12,20 @@ export interface ReleaseGroup {
 const releaseNotes: ReleaseGroup[] = [
   {
     date: '2026-04-22',
+    label: 'April 22, 2026 (security patch)',
+    entries: [
+      {
+        title: 'Rotated a leaked Stitch API key',
+        description: 'A Google Cloud API key for the Stitch MCP server was accidentally tracked in the repo and flagged by Google as exposed. The old key is dead (Google auto-deleted it), the file that held it is now gitignored, and a template ships in its place. Paste your own key into .mcp.json if you use Stitch.',
+      },
+      {
+        title: 'Pre-commit secret scan',
+        description: 'A new pre-commit hook blocks any commit that contains an obvious API key pattern so this class of leak cannot happen again. Install with scripts/install-git-hooks.sh.',
+      },
+    ],
+  },
+  {
+    date: '2026-04-22',
     label: 'April 22, 2026',
     entries: [
       {

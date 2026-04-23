@@ -742,6 +742,10 @@ print('ok' if (has_real and not has_chat) else f'fail real={has_real} chat={has_
         fi
 
         # scripts/status.sh must not list the chat row either.
+        # If the script is missing or not executable, skip with a clear
+        # reason instead of silently branching out. status.sh is an
+        # optional helper and its absence should not fail the release
+        # gate, but silent skips hide real regressions so we surface it.
         if [ -x "${REPO_DIR}/scripts/status.sh" ]; then
             status_out=$(API_HOST="${API_BASE}" "${REPO_DIR}/scripts/status.sh" 2>/dev/null || true)
             if echo "$status_out" | grep -q "$chat_name"; then
@@ -749,6 +753,8 @@ print('ok' if (has_real and not has_chat) else f'fail real={has_real} chat={has_
             else
                 phase_pass "scripts/status.sh hides source=chat rows"
             fi
+        else
+            phase_skip "scripts/status.sh chat filter (script not present or not executable)"
         fi
 
         # Cleanup: complete both.
@@ -1078,7 +1084,12 @@ print(s.get('features',{}).get('Specs', True))
         # the full spec-driven-development flow and cleans up its own
         # artifacts via trap. We capture its exit code and record a single
         # phase pass/fail so the final summary stays readable.
-        if bash "${REPO_DIR}/scripts/test_specs_user_journey.sh" > /tmp/e2e_specs_journey.log 2>&1; then
+        # If the helper script has been removed (e.g. demo retired),
+        # skip with a reason instead of letting bash bail with no-such-file.
+        # The orphan-reference-sweep phase at the end will flag the drift.
+        if [ ! -f "${REPO_DIR}/scripts/test_specs_user_journey.sh" ]; then
+            phase_skip "journey: specs user journey (scripts/test_specs_user_journey.sh not present)"
+        elif bash "${REPO_DIR}/scripts/test_specs_user_journey.sh" > /tmp/e2e_specs_journey.log 2>&1; then
             phase_pass "journey: specs user journey (draft -> promote -> decompose -> verify)"
         else
             phase_fail "journey: specs user journey failed (see /tmp/e2e_specs_journey.log)"
@@ -1560,22 +1571,34 @@ print(d.get('id', d.get('member',{}).get('id','')))
         fi
 
         # --- No hardcoded ports in routers ---
-        hardcoded=$(grep -r 'localhost:5173' "$REPO_DIR/api/routers/" 2>/dev/null | grep -v '.pyc' | grep -v '#.*localhost:5173' | wc -l | tr -d ' ')
-        if [ "$hardcoded" = "0" ]; then
-            phase_pass "no hardcoded localhost:5173 in routers"
+        # If the routers directory is missing this is a fundamental repo
+        # break that should surface as a real fail, not silently skip.
+        if [ ! -d "$REPO_DIR/api/routers" ]; then
+            phase_fail "api/routers directory missing (repo layout broken)"
         else
-            phase_fail "found $hardcoded hardcoded localhost:5173 references in routers"
+            hardcoded=$(grep -r 'localhost:5173' "$REPO_DIR/api/routers/" 2>/dev/null | grep -v '.pyc' | grep -v '#.*localhost:5173' | wc -l | tr -d ' ')
+            if [ "$hardcoded" = "0" ]; then
+                phase_pass "no hardcoded localhost:5173 in routers"
+            else
+                phase_fail "found $hardcoded hardcoded localhost:5173 references in routers"
+            fi
         fi
 
         # --- Vite proxy must use 127.0.0.1, never localhost (needle 315) ---
         # Node resolves "localhost" to ::1 (IPv6) first. Uvicorn only
         # binds 127.0.0.1 (IPv4), so the IPv6 attempt poisons the
         # proxy connection pool and causes intermittent ETIMEDOUT.
-        proxy_localhost=$(grep -E "target:.*localhost" "$REPO_DIR/app/vite.config.ts" 2>/dev/null | grep -v '//' | wc -l | tr -d ' ')
-        if [ "$proxy_localhost" = "0" ]; then
-            phase_pass "vite proxy targets use 127.0.0.1, not localhost"
+        # Skip cleanly if vite.config.ts was renamed or moved; the
+        # orphan-reference-sweep phase at the end will flag it.
+        if [ ! -f "$REPO_DIR/app/vite.config.ts" ]; then
+            phase_skip "vite proxy target check (app/vite.config.ts not present)"
         else
-            phase_fail "vite proxy targets must use 127.0.0.1 instead of localhost (needle 315)"
+            proxy_localhost=$(grep -E "target:.*localhost" "$REPO_DIR/app/vite.config.ts" 2>/dev/null | grep -v '//' | wc -l | tr -d ' ')
+            if [ "$proxy_localhost" = "0" ]; then
+                phase_pass "vite proxy targets use 127.0.0.1, not localhost"
+            else
+                phase_fail "vite proxy targets must use 127.0.0.1 instead of localhost (needle 315)"
+            fi
         fi
 
         # --- User data safety: needles symlink ---
@@ -1588,17 +1611,26 @@ print(d.get('id', d.get('member',{}).get('id','')))
         fi
 
         # --- Start script syntax ---
-        if bash -n "$REPO_DIR/start.sh" 2>/dev/null; then
-            phase_pass "start.sh has valid bash syntax"
+        # start.sh is a core entry point, but if it has been renamed or
+        # moved we skip with a clear reason instead of failing on a
+        # bash -n against a missing file. The orphan-reference-sweep
+        # phase at the end will flag the drift.
+        if [ ! -f "$REPO_DIR/start.sh" ]; then
+            phase_skip "start.sh syntax check (start.sh not present)"
+            phase_skip "start.sh needles migration (start.sh not present)"
         else
-            phase_fail "start.sh has syntax errors"
-        fi
+            if bash -n "$REPO_DIR/start.sh" 2>/dev/null; then
+                phase_pass "start.sh has valid bash syntax"
+            else
+                phase_fail "start.sh has syntax errors"
+            fi
 
-        # --- Needles migration in start.sh ---
-        if grep -q 'myos/needles' "$REPO_DIR/start.sh"; then
-            phase_pass "start.sh has needles migration logic"
-        else
-            phase_fail "start.sh missing needles migration"
+            # --- Needles migration in start.sh ---
+            if grep -q 'myos/needles' "$REPO_DIR/start.sh"; then
+                phase_pass "start.sh has needles migration logic"
+            else
+                phase_fail "start.sh missing needles migration"
+            fi
         fi
     fi
 fi
@@ -1739,6 +1771,10 @@ if [ "$SKIP_BROWSER" != "1" ] && [ "$SKIP_LIVE" != "1" ]; then
         phase_skip "agent-browser not installed (install: brew install agent-browser)"
     elif ! curl -sS -o /dev/null -w "%{http_code}" "http://localhost:${FRONTEND_PORT:-3010}" 2>/dev/null | grep -q "^200$"; then
         phase_skip "frontend not reachable on port ${FRONTEND_PORT:-3010}"
+    elif [ ! -f "$REPO_DIR/scripts/e2e_browser.sh" ]; then
+        # Helper script has been retired or moved. Skip cleanly; the
+        # orphan-reference-sweep phase at the end will flag the drift.
+        phase_skip "browser e2e tests (scripts/e2e_browser.sh not present)"
     else
         BROWSER_OUTPUT=$(API_PORT="$API_PORT" bash "$REPO_DIR/scripts/e2e_browser.sh" 2>&1) || true
         echo "$BROWSER_OUTPUT"
@@ -1782,6 +1818,71 @@ if [ "$_e2e_remaining" = "0" ]; then
     phase_pass "e2e leftovers: 0 specs remain after sweep"
 else
     phase_fail "e2e leftovers: ${_e2e_remaining} e2e spec(s) still present after sweep"
+fi
+
+# --- Phase 8: orphan-reference-sweep -----------------------------------------
+# Scan this smoke script for repo-relative paths (e.g. scripts/foo.sh,
+# app/vite.config.ts, api/routers) it references. If any of those paths
+# no longer exist on disk, the smoke has drifted: a future phase will hit
+# a missing artifact and silently fail or skip without a clear reason.
+# Surface those drifts as a single fail here at release time so they get
+# fixed (either by updating the phase or removing the stale reference)
+# instead of rotting the gate.
+header "Orphan reference sweep"
+_orphan_list=$(python3 - "${REPO_DIR}" "${REPO_DIR}/scripts/e2e_smoke.sh" <<'PY' 2>/dev/null
+import os, re, sys
+repo = sys.argv[1]
+script = sys.argv[2]
+# Match repo-relative paths the smoke script uses: scripts/*.sh,
+# app/**, api/**, docs/**, start.sh, README.md, .ostk/**.
+# Anchor on either $REPO_DIR/ or a bare token so we catch both shapes.
+pat = re.compile(
+    r'(?:\$REPO_DIR/|\$\{REPO_DIR\}/|(?<=[\s"\x27`(]))'
+    r'(scripts/[A-Za-z0-9_.\-/]+\.sh'
+    r'|app/[A-Za-z0-9_.\-/]+\.(?:ts|tsx|js|jsx|json|cjs|mjs)'
+    r'|api/routers/[A-Za-z0-9_.\-/]+\.py'
+    r'|api/\.venv'
+    r'|api/routers'
+    r'|start\.sh'
+    r'|README\.md'
+    r')'
+)
+seen = set()
+try:
+    with open(script, 'r', encoding='utf-8') as fh:
+        text = fh.read()
+except OSError:
+    sys.exit(0)
+for m in pat.finditer(text):
+    rel = m.group(1)
+    # Skip comment-only mentions (usage docs, not real path guards).
+    # A simple heuristic: ignore if the line starts with '#'.
+    line_start = text.rfind('\n', 0, m.start()) + 1
+    line_end = text.find('\n', m.end())
+    if line_end == -1:
+        line_end = len(text)
+    line = text[line_start:line_end]
+    stripped = line.lstrip()
+    if stripped.startswith('#'):
+        continue
+    seen.add(rel)
+missing = []
+for rel in sorted(seen):
+    full = os.path.join(repo, rel)
+    if not os.path.exists(full):
+        missing.append(rel)
+if missing:
+    for m in missing:
+        print(m)
+PY
+)
+if [ -z "$_orphan_list" ]; then
+    phase_pass "orphan-reference-sweep: every path referenced in e2e_smoke.sh exists on disk"
+else
+    # Turn the newline-separated list into a single comma-joined line
+    # so the phase_fail output stays readable in release logs.
+    _orphan_joined=$(echo "$_orphan_list" | tr '\n' ',' | sed 's/,$//')
+    phase_fail "orphan-reference-sweep: missing referenced path(s): $_orphan_joined"
 fi
 
 # --- Summary ---------------------------------------------------------------

@@ -163,6 +163,18 @@ fi
 cd "$INSTALL_DIR"
 echo ""
 
+# --- Seed the MCP server config from the tracked template ---
+# .mcp.json holds per-user secrets (Stitch API key) and is gitignored.
+# .mcp.json.example ships with the repo as a skeleton. Copy it into
+# place on first install so the user has a working config to edit.
+if [ -f "$INSTALL_DIR/.mcp.json.example" ] && [ ! -f "$INSTALL_DIR/.mcp.json" ]; then
+    cp "$INSTALL_DIR/.mcp.json.example" "$INSTALL_DIR/.mcp.json"
+    echo "Seeded .mcp.json from the template. Paste your own Stitch API key"
+    echo "into .mcp.json to enable the Stitch MCP server. Other MCP servers"
+    echo "work without any further setup."
+    echo ""
+fi
+
 # --- Set up the Python backend ---
 
 echo "Setting up the backend..."

@@ -496,6 +496,23 @@ else
     assert "torimeyer/myos repo is accessible" 1
 fi
 
+# --- Release conventions check ---
+# Runs as part of the same pre-push gate so version/tag/filename bugs get
+# caught before a tag is created. Details in docs/RELEASE_CONVENTIONS.md.
+
+echo ""
+echo "=== release conventions check ==="
+if [ -x "$DIR/scripts/test_release_conventions.sh" ]; then
+    if "$DIR/scripts/test_release_conventions.sh"; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo -e "  ${RED}FAIL${NC}  scripts/test_release_conventions.sh is missing or not executable"
+    FAIL=$((FAIL + 1))
+fi
+
 # --- Summary ---
 
 echo ""
