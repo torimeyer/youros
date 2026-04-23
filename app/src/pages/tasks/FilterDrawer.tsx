@@ -46,6 +46,7 @@ interface FilterDrawerProps {
   onSessionToggle: () => void;
   onViewModeChange: (v: "list" | "grid") => void;
   onClosedSortOrderChange?: (order: ClosedSortOrder) => void;
+  onClearAll?: () => void;
   onClose: () => void;
 }
 
@@ -69,9 +70,17 @@ export function FilterDrawer({
   onSessionToggle,
   onViewModeChange,
   onClosedSortOrderChange,
+  onClearAll,
   onClose,
 }: FilterDrawerProps) {
   if (!open) return null;
+
+  const hasNonDefaultFilter =
+    statusFilter !== "open" ||
+    priorityFilter !== null ||
+    labelFilter !== null ||
+    threadFilter !== null ||
+    !hideSessionTasks;
 
   const statusFilterClass = (f: StatusFilter) =>
     statusFilter === f
@@ -253,25 +262,36 @@ export function FilterDrawer({
         </div>
       )}
 
-      {/* Bottom row: sessions toggle + view mode + close */}
+      {/* Bottom row: sessions toggle + clear all + view mode + close */}
       <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-        <button
-          onClick={onSessionToggle}
-          data-testid="toggle-session-tasks"
-          className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-lg border transition-colors ${
-            hideSessionTasks
-              ? "bg-slate-800 text-slate-500 border-slate-700 hover:text-slate-300"
-              : "bg-slate-700 text-slate-200 border-slate-600"
-          }`}
-          title={
-            hideSessionTasks
-              ? "Session tasks are hidden. Click to show them."
-              : "Click to hide session tasks."
-          }
-        >
-          <Icon name="terminal" className="text-sm" />
-          {hideSessionTasks ? "Sessions hidden" : "Sessions shown"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onSessionToggle}
+            data-testid="toggle-session-tasks"
+            className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-lg border transition-colors ${
+              hideSessionTasks
+                ? "bg-slate-800 text-slate-500 border-slate-700 hover:text-slate-300"
+                : "bg-slate-700 text-slate-200 border-slate-600"
+            }`}
+            title={
+              hideSessionTasks
+                ? "Session tasks are hidden. Click to show them."
+                : "Click to hide session tasks."
+            }
+          >
+            <Icon name="terminal" className="text-sm" />
+            {hideSessionTasks ? "Sessions hidden" : "Sessions shown"}
+          </button>
+          {hasNonDefaultFilter && onClearAll && (
+            <button
+              onClick={onClearAll}
+              data-testid="filter-drawer-clear-all"
+              className="px-3 py-1 text-xs rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-colors"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
 
         <div className="flex items-center gap-2">
           <button

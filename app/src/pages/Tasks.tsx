@@ -59,6 +59,9 @@ interface Task {
   // for the session's own row (session_id AND description starts with
   // 'session-task:'). Always 0 for child tasks.
   child_task_count?: number;
+  // Free-text notes the user can attach to a task. Displayed inline
+  // below the description and editable from the detail panel.
+  notes?: string | null;
 }
 
 // A task is "active" (shown under the Open tab and counted in the
@@ -1302,9 +1305,11 @@ export default function Tasks() {
     hideSessionTasks;
 
   const clearAllFilters = () => {
+    setStatusFilter("open");
     setPriorityFilter(null);
     setLabelFilter(null);
     setThreadFilter(null);
+    setHideSessionTasks(true);
   };
 
   const priorityCounts: Record<string, number> = {
@@ -1872,6 +1877,7 @@ export default function Tasks() {
               onSessionToggle={() => setHideSessionTasks((v) => !v)}
               onViewModeChange={setViewMode}
               onClosedSortOrderChange={setClosedSortOrder}
+              onClearAll={clearAllFilters}
               onClose={() => setShowFilters(false)}
             />
 
@@ -1945,6 +1951,16 @@ export default function Tasks() {
                     Sessions shown
                     <button onClick={() => setHideSessionTasks(true)} className="hover:text-white ml-0.5" aria-label="Clear sessions filter"><Icon name="close" className="text-[10px]" /></button>
                   </span>
+                )}
+                {activeFilterCount > 0 && (
+                  <button
+                    onClick={clearAllFilters}
+                    data-testid="clear-all-filters-chip"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 transition-colors"
+                    aria-label="Clear all filters"
+                  >
+                    Clear all
+                  </button>
                 )}
               </div>
             )}
@@ -2196,6 +2212,15 @@ export default function Tasks() {
                           title={task.description}
                         >
                           {task.description}
+                        </p>
+                      )}
+                      {task.notes && (
+                        <p
+                          data-testid={`task-notes-${task.id}`}
+                          className="text-xs text-amber-400/70 truncate mt-0.5"
+                          title={task.notes}
+                        >
+                          <span className="font-medium">Note:</span> {task.notes}
                         </p>
                       )}
                       {task.session_id && (
@@ -3200,9 +3225,13 @@ export default function Tasks() {
       )}
 
       {undoDelete && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg">
+        <div
+          data-testid="undo-delete-task-toast"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 text-sm text-slate-200 px-4 py-3 rounded-xl shadow-lg"
+        >
           <span>Task deleted.</span>
           <button
+            data-testid="undo-delete-task-button"
             onClick={handleUndo}
             className="font-medium text-blue-400 hover:text-blue-300"
           >

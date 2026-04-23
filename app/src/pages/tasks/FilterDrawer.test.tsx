@@ -147,4 +147,39 @@ describe('FilterDrawer', () => {
     render(<FilterDrawer {...defaultProps} labels={[]} />)
     expect(screen.queryByTestId('label-filter-l1')).not.toBeInTheDocument()
   })
+
+  it('does not show clear-all button when only default filters are active', () => {
+    render(<FilterDrawer {...defaultProps} />)
+    expect(screen.queryByTestId('filter-drawer-clear-all')).not.toBeInTheDocument()
+  })
+
+  it('shows clear-all button when priority filter is active', () => {
+    const onClearAll = vi.fn()
+    render(<FilterDrawer {...defaultProps} priorityFilter="P1" onClearAll={onClearAll} />)
+    expect(screen.getByTestId('filter-drawer-clear-all')).toBeInTheDocument()
+  })
+
+  it('shows clear-all button when label filter is active', () => {
+    const onClearAll = vi.fn()
+    render(<FilterDrawer {...defaultProps} labelFilter="l1" onClearAll={onClearAll} />)
+    expect(screen.getByTestId('filter-drawer-clear-all')).toBeInTheDocument()
+  })
+
+  it('shows clear-all button when status filter is non-default', () => {
+    const onClearAll = vi.fn()
+    render(<FilterDrawer {...defaultProps} statusFilter="closed" onClearAll={onClearAll} />)
+    expect(screen.getByTestId('filter-drawer-clear-all')).toBeInTheDocument()
+  })
+
+  it('calls onClearAll when clear-all button is clicked', () => {
+    const onClearAll = vi.fn()
+    render(<FilterDrawer {...defaultProps} priorityFilter="P0" onClearAll={onClearAll} />)
+    fireEvent.click(screen.getByTestId('filter-drawer-clear-all'))
+    expect(onClearAll).toHaveBeenCalled()
+  })
+
+  it('does not show clear-all button when onClearAll prop is not provided', () => {
+    render(<FilterDrawer {...defaultProps} priorityFilter="P0" />)
+    expect(screen.queryByTestId('filter-drawer-clear-all')).not.toBeInTheDocument()
+  })
 })

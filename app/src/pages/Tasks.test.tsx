@@ -2904,4 +2904,43 @@ describe('Tasks page - live updates (bus + 3s poll)', () => {
     // DELETE has not yet fired (timer is 5s, we advanced 3.5s).
     expect(mockedApiDelete).not.toHaveBeenCalled()
   })
+
+  it('shows undo toast after deleting a task and hides it when undo is clicked', async () => {
+    const tasks = [
+      { id: 'undo1', title: 'Task to undo delete', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+    const mockedApiDelete = vi.mocked(api.delete)
+    mockedApiDelete.mockResolvedValue({})
+
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Task to undo delete')).toBeInTheDocument()
+    })
+
+    const deleteBtn = screen.getByTitle('Delete task permanently')
+    fireEvent.click(deleteBtn)
+
+    // Undo toast appears immediately after clicking delete.
+    await waitFor(() => {
+      expect(screen.getByTestId('undo-delete-task-toast')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('undo-delete-task-button')).toBeInTheDocument()
+
+    // Clicking undo restores the task and dismisses the toast.
+    fireEvent.click(screen.getByTestId('undo-delete-task-button'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('undo-delete-task-toast')).not.toBeInTheDocument()
+    })
+    expect(screen.getByText('Task to undo delete')).toBeInTheDocument()
+    // DELETE should not have been called since we undid.
+    expect(mockedApiDelete).not.toHaveBeenCalled()
+  })
 })
