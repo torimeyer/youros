@@ -181,6 +181,92 @@ describe('Tasks page', () => {
     expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
   })
 
+  it('closed filter shows tasks sorted by closed_at descending', async () => {
+    const closedTasks = [
+      { id: 'c1', title: 'Closed oldest', priority: 'P1', status: 'closed', created_at: '2026-01-01T00:00:00Z', closed_at: '2026-01-10T00:00:00Z', goal: null, label_ids: [] },
+      { id: 'c2', title: 'Closed newest', priority: 'P1', status: 'closed', created_at: '2026-01-01T00:00:00Z', closed_at: '2026-04-20T12:00:00Z', goal: null, label_ids: [] },
+      { id: 'c3', title: 'Closed middle', priority: 'P1', status: 'closed', created_at: '2026-01-01T00:00:00Z', closed_at: '2026-03-15T06:00:00Z', goal: null, label_ids: [] },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: closedTasks })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    await waitFor(() => {
+      // Wait for data to load — switch to closed filter first
+      fireEvent.click(screen.getByTestId('filters-pill'))
+    })
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Closed newest')).toBeInTheDocument()
+    })
+
+    const bodyText = document.body.textContent || ''
+    const positions = {
+      newest: bodyText.indexOf('Closed newest'),
+      middle: bodyText.indexOf('Closed middle'),
+      oldest: bodyText.indexOf('Closed oldest'),
+    }
+    expect(positions.newest).toBeGreaterThan(-1)
+    expect(positions.middle).toBeGreaterThan(-1)
+    expect(positions.oldest).toBeGreaterThan(-1)
+    expect(positions.newest).toBeLessThan(positions.middle)
+    expect(positions.middle).toBeLessThan(positions.oldest)
+  })
+
+  it('closed-sort toggle: switching to oldest-first reverses the task order', async () => {
+    const closedTasks = [
+      { id: 'c1', title: 'Closed oldest', priority: 'P1', status: 'closed', created_at: '2026-01-01T00:00:00Z', closed_at: '2026-01-10T00:00:00Z', goal: null, label_ids: [] },
+      { id: 'c2', title: 'Closed newest', priority: 'P1', status: 'closed', created_at: '2026-01-01T00:00:00Z', closed_at: '2026-04-20T12:00:00Z', goal: null, label_ids: [] },
+      { id: 'c3', title: 'Closed middle', priority: 'P1', status: 'closed', created_at: '2026-01-01T00:00:00Z', closed_at: '2026-03-15T06:00:00Z', goal: null, label_ids: [] },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: closedTasks })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+
+    renderTasks()
+
+    // Open filters and switch to closed view
+    await waitFor(() => {
+      fireEvent.click(screen.getByTestId('filters-pill'))
+    })
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
+
+    // Default order is newest-first — newest appears before oldest in the DOM
+    await waitFor(() => {
+      expect(screen.getByText('Closed newest')).toBeInTheDocument()
+    })
+
+    const newestFirstBody = document.body.textContent || ''
+    const defaultPositions = {
+      newest: newestFirstBody.indexOf('Closed newest'),
+      oldest: newestFirstBody.indexOf('Closed oldest'),
+    }
+    expect(defaultPositions.newest).toBeLessThan(defaultPositions.oldest)
+
+    // Sort toggle buttons should be visible
+    expect(screen.getByTestId('closed-sort-newest')).toBeInTheDocument()
+    expect(screen.getByTestId('closed-sort-oldest')).toBeInTheDocument()
+
+    // Click "Oldest first"
+    fireEvent.click(screen.getByTestId('closed-sort-oldest'))
+
+    await waitFor(() => {
+      const oldestFirstBody = document.body.textContent || ''
+      const reversedPositions = {
+        newest: oldestFirstBody.indexOf('Closed newest'),
+        oldest: oldestFirstBody.indexOf('Closed oldest'),
+      }
+      expect(reversedPositions.oldest).toBeLessThan(reversedPositions.newest)
+    })
+  })
+
   it('clicking Open filter after Closed shows open tasks again', async () => {
     renderTasks()
 
@@ -1252,9 +1338,13 @@ describe('Tasks page', () => {
         (c) => c[0] === '/agents/spawn'
       )
       expect(spawnCall).toBeTruthy()
-      const body = spawnCall![1] as { template?: string; prompt: string; name: string }
+      const body = spawnCall![1] as { template?: string; prompt: string; name: string; task_id: string }
       expect(body.template).toBe('comprehensive')
       expect(body.name.startsWith('implement-')).toBe(true)
+      // The originating task id must be included so the backend can
+      // mark the task as in_progress while the agent is working, no
+      // matter which spawn path created it.
+      expect(body.task_id).toBe('1')
     })
 
     it('clicking Quick build does not send a template field', async () => {
@@ -1661,6 +1751,32 @@ describe('Tasks page', () => {
       expect(screen.getByTestId('closed-badge-2').textContent).toBe('Done')
       expect(screen.getByTestId('closed-badge-3').textContent).toBe('Duplicate')
       expect(screen.getByTestId('closed-badge-4').textContent).toBe('Archived')
+    })
+
+    it('renders closed_at date next to badge when closed_at is present', async () => {
+      const tasksWithClosedAt = [
+        { id: '1', title: 'Fix login bug', priority: 'P0', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+        { id: '2', title: 'Done task', priority: 'P1', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [], closed_reason: 'completed', closed_at: '2026-04-20T12:00:00Z' },
+        { id: '3', title: 'No date task', priority: 'P1', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [], closed_reason: 'completed' },
+      ]
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: tasksWithClosedAt })
+        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+        return Promise.resolve({})
+      })
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('filters-pill'))
+      fireEvent.click(screen.getByTestId('status-filter-closed'))
+      await waitFor(() => {
+        expect(screen.getByText('Done task')).toBeInTheDocument()
+      })
+      // Task with closed_at shows the date element
+      expect(screen.getByTestId('closed-at-2')).toBeInTheDocument()
+      // Task without closed_at does not show the date element
+      expect(screen.queryByTestId('closed-at-3')).not.toBeInTheDocument()
     })
   })
 })

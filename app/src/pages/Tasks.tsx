@@ -30,7 +30,7 @@ import SharePopover from "../components/SharePopover";
 import ExportButton from "../components/ExportButton";
 import TasksAuditModal from "../components/TasksAuditModal";
 import RecurringTasksSection from "../components/RecurringTasksSection";
-import { FilterDrawer, type StatusFilter } from "./tasks/FilterDrawer";
+import { FilterDrawer, type StatusFilter, type ClosedSortOrder } from "./tasks/FilterDrawer";
 import ConfirmModal from "../components/ConfirmModal";
 
 interface Task {
@@ -48,6 +48,7 @@ interface Task {
   depends_on?: string[];
   thread_id?: string | null;
   unblocks?: number;
+  closed_at?: string | null;
   closed_reason?: "completed" | "duplicate" | "archived" | null;
   // Claude Code session UUID this task is linked to. Populated by the
   // backend for auto-filed session tasks (the session's own row) and
@@ -271,6 +272,7 @@ export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  const [closedSortOrder, setClosedSortOrder] = useState<ClosedSortOrder>("newest");
   // Session tasks (auto-filed by the SessionStart hook) are hidden by default.
   // The user can toggle this to show them when needed, but the preference
   // lives in sessionStorage so reloading the page (or opening a new tab)
@@ -619,6 +621,16 @@ export default function Tasks() {
     return () => window.removeEventListener('myos-quick-add-task', handler);
   }, []);
 
+  // Handle ?new=1 URL param (fired by keyboard shortcut 'n' in Layout.tsx)
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return;
+    setActiveTab("tasks");
+    setTimeout(() => inputRef.current?.focus(), 50);
+    const next = new URLSearchParams(searchParams);
+    next.delete("new");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     if (!openPriorityDropdown && !openLabelDropdown && !openLinkDropdown && !openThreadDropdown && !openActionMenu) return;
@@ -719,6 +731,23 @@ export default function Tasks() {
       await fetchTasks();
     } catch (e) {
       console.error("Failed to pause task:", e);
+      await fetchTasks();
+    }
+  };
+
+  // Mark a task as actively being worked on right now ("in progress"),
+  // or move it back to the queue ("open"). Closing and pausing use their
+  // own endpoints (closeTask / shelveTask) so audit rules fire there.
+  const setTaskStatus = async (id: string, status: "open" | "in_progress") => {
+    try {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, status } : t))
+      );
+      setOpenActionMenu(null);
+      await api.patch(`/tasks/${id}`, { status });
+      await fetchTasks();
+    } catch (e) {
+      console.error("Failed to update task status:", e);
       await fetchTasks();
     }
   };
@@ -942,11 +971,13 @@ export default function Tasks() {
         model: string;
         budget: number;
         template?: string;
+        task_id: string;
       } = {
         name: "",
         prompt: "",
         model: "sonnet",
         budget: 2.0,
+        task_id: taskId,
       };
 
       if (mode === "plan") {
@@ -1213,6 +1244,14 @@ export default function Tasks() {
 
   if (hideSessionTasks) {
     filteredTasks = filteredTasks.filter((t) => !isSessionTask(t));
+  }
+
+  if (statusFilter === "closed") {
+    filteredTasks = [...filteredTasks].sort((a, b) => {
+      const aTime = a.closed_at ? new Date(a.closed_at).getTime() : 0;
+      const bTime = b.closed_at ? new Date(b.closed_at).getTime() : 0;
+      return closedSortOrder === "oldest" ? aTime - bTime : bTime - aTime;
+    });
   }
 
   // Unfiltered counts used by the FilterDrawer status badge pills so the
@@ -1825,12 +1864,14 @@ export default function Tasks() {
               threads={threads}
               filterCounts={filterCounts}
               priorityCounts={priorityCounts}
+              closedSortOrder={closedSortOrder}
               onStatusChange={setStatusFilter}
               onPriorityChange={setPriorityFilter}
               onLabelChange={setLabelFilter}
               onThreadChange={setThreadFilter}
               onSessionToggle={() => setHideSessionTasks((v) => !v)}
               onViewModeChange={setViewMode}
+              onClosedSortOrderChange={setClosedSortOrder}
               onClose={() => setShowFilters(false)}
             />
 
@@ -2041,6 +2082,33 @@ export default function Tasks() {
                         <Icon name="check" className="text-green-400 text-xs" />
                       )}
                     </button>
+                    {(task.status === "open" || task.status === "in_progress") && (
+                      <button
+                        data-testid={`toggle-in-progress-${task.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTaskStatus(
+                            task.id,
+                            task.status === "in_progress" ? "open" : "in_progress",
+                          );
+                        }}
+                        title={
+                          task.status === "in_progress"
+                            ? "Move back to the queue"
+                            : "Mark as being worked on"
+                        }
+                        className={`p-1 flex-shrink-0 rounded transition-colors ${
+                          task.status === "in_progress"
+                            ? "text-blue-400 hover:text-blue-300"
+                            : "text-slate-600 hover:text-blue-400"
+                        }`}
+                      >
+                        <Icon
+                          name={task.status === "in_progress" ? "pause_circle" : "play_circle"}
+                          className="text-base"
+                        />
+                      </button>
+                    )}
                     <span className="text-slate-500 text-sm font-mono">
                       #{task.id}
                     </span>
@@ -2055,6 +2123,15 @@ export default function Tasks() {
                           >
                             <Icon name="pause" className="text-[10px]" />
                             Paused
+                          </span>
+                        )}
+                        {task.status === "in_progress" && (
+                          <span
+                            data-testid={`in-progress-badge-${task.id}`}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30"
+                          >
+                            <Icon name="play_arrow" className="text-[10px]" />
+                            In progress
                           </span>
                         )}
                         {task.status === "closed" && task.closed_reason === "completed" && (
@@ -2079,6 +2156,14 @@ export default function Tasks() {
                             className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30"
                           >
                             Archived
+                          </span>
+                        )}
+                        {task.status === "closed" && task.closed_at && (
+                          <span
+                            data-testid={`closed-at-${task.id}`}
+                            className="text-[10px] text-slate-500"
+                          >
+                            {new Date(task.closed_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                           </span>
                         )}
                         {isStale(task) && (

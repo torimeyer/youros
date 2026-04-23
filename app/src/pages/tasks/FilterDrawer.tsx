@@ -1,7 +1,7 @@
 import Icon from "../../components/Icon";
 import type { Label } from "../../components/LabelsView";
 
-export type StatusFilter = "open" | "all" | "closed" | "week" | "recurring" | "shelved";
+export type StatusFilter = "open" | "all" | "closed" | "week" | "recurring" | "shelved" | "in_progress";
 
 const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 
@@ -24,6 +24,8 @@ interface Thread {
   name: string;
 }
 
+export type ClosedSortOrder = "newest" | "oldest";
+
 interface FilterDrawerProps {
   open: boolean;
   statusFilter: StatusFilter;
@@ -36,12 +38,14 @@ interface FilterDrawerProps {
   threads: Thread[];
   filterCounts: Partial<Record<StatusFilter, number>>;
   priorityCounts: Record<string, number>;
+  closedSortOrder?: ClosedSortOrder;
   onStatusChange: (f: StatusFilter) => void;
   onPriorityChange: (p: string | null) => void;
   onLabelChange: (id: string | null) => void;
   onThreadChange: (id: string | null) => void;
   onSessionToggle: () => void;
   onViewModeChange: (v: "list" | "grid") => void;
+  onClosedSortOrderChange?: (order: ClosedSortOrder) => void;
   onClose: () => void;
 }
 
@@ -57,12 +61,14 @@ export function FilterDrawer({
   threads,
   filterCounts,
   priorityCounts,
+  closedSortOrder = "newest",
   onStatusChange,
   onPriorityChange,
   onLabelChange,
   onThreadChange,
   onSessionToggle,
   onViewModeChange,
+  onClosedSortOrderChange,
   onClose,
 }: FilterDrawerProps) {
   if (!open) return null;
@@ -83,7 +89,7 @@ export function FilterDrawer({
           Status
         </span>
         <div className="flex items-center gap-1 flex-wrap">
-          {(["open", "all", "closed", "shelved", "week"] as StatusFilter[]).map((f) => (
+          {(["open", "in_progress", "all", "closed", "shelved", "week"] as StatusFilter[]).map((f) => (
             <button
               key={f}
               data-testid={`status-filter-${f}`}
@@ -94,6 +100,8 @@ export function FilterDrawer({
                 ? "This week"
                 : f === "shelved"
                 ? "Paused"
+                : f === "in_progress"
+                ? "In progress"
                 : f === "all"
                 ? "All tasks"
                 : f === "open"
@@ -121,6 +129,35 @@ export function FilterDrawer({
           </button>
         </div>
       </div>
+
+      {/* Sort row — only shown for closed tasks */}
+      {statusFilter === "closed" && onClosedSortOrderChange && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide w-16 shrink-0">
+            Sort
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              data-testid="closed-sort-newest"
+              onClick={() => onClosedSortOrderChange("newest")}
+              className={closedSortOrder === "newest"
+                ? "px-3 py-1.5 rounded-md bg-slate-800 text-white font-medium flex items-center gap-1.5 text-sm"
+                : "px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-300 flex items-center gap-1.5 text-sm"}
+            >
+              Newest first
+            </button>
+            <button
+              data-testid="closed-sort-oldest"
+              onClick={() => onClosedSortOrderChange("oldest")}
+              className={closedSortOrder === "oldest"
+                ? "px-3 py-1.5 rounded-md bg-slate-800 text-white font-medium flex items-center gap-1.5 text-sm"
+                : "px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-300 flex items-center gap-1.5 text-sm"}
+            >
+              Oldest first
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Priority row */}
       <div className="flex flex-wrap items-center gap-2">
