@@ -362,7 +362,6 @@ export default function Tasks() {
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState<{ ok: boolean; created: number; errors: string[] } | null>(null);
   const [importFields, setImportFields] = useState<Record<string, string>>({});
-  const [showFilters, setShowFilters] = useState(false);
   const [showOverflowMenu, setShowOverflowMenu] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement | null>(null);
   const [deleteAllConfirmOpen, setDeleteAllConfirmOpen] = useState(false);
@@ -1327,15 +1326,6 @@ export default function Tasks() {
     P3: p3Count,
   };
 
-  // Count how many non-default filters are active for the "Filters" pill badge.
-  // statusFilter "open" is the default, so only non-open status counts.
-  const activeFilterCount =
-    (statusFilter !== "open" ? 1 : 0) +
-    (priorityFilter ? 1 : 0) +
-    (labelFilter ? 1 : 0) +
-    (threadFilter ? 1 : 0) +
-    (!hideSessionTasks ? 1 : 0);
-
   /** Render dependency pills showing what blocks/depends-on this task */
   const renderDependencyPills = (task: Task) => {
     const blocks = task.blocks || [];
@@ -1605,25 +1595,6 @@ export default function Tasks() {
             <span className="sm:hidden">Next?</span>
           </button>
 
-          {/* Filters pill */}
-          <button
-            onClick={() => setShowFilters((v) => !v)}
-            data-testid="filters-pill"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors shrink-0 ${
-              showFilters || activeFilterCount > 0
-                ? "bg-blue-500/20 border-blue-500/40 text-blue-300"
-                : "bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-300"
-            }`}
-          >
-            <Icon name="filter_list" className="text-sm" />
-            Filters
-            {activeFilterCount > 0 && (
-              <span className="bg-blue-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-medium">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-
           {/* Overflow menu */}
           <div className="relative" ref={overflowMenuRef}>
             <button
@@ -1864,9 +1835,9 @@ export default function Tasks() {
               </button>
             </div>
 
-            {/* Collapsible filter drawer */}
+            {/* Always-visible filter panel */}
             <FilterDrawer
-              open={showFilters}
+              open={true}
               statusFilter={statusFilter}
               priorityFilter={priorityFilter}
               labelFilter={labelFilter}
@@ -1886,92 +1857,8 @@ export default function Tasks() {
               onViewModeChange={setViewMode}
               onClosedSortOrderChange={setClosedSortOrder}
               onClearAll={clearAllFilters}
-              onClose={() => setShowFilters(false)}
+              onClose={() => {}}
             />
-
-            {/* Active filter chips (visible when drawer is closed) */}
-            {!showFilters && (activeFilterCount > 0 || statusFilter === "open" || statusFilter === "all") && (
-              <div className="flex items-center gap-2 mb-3 flex-wrap" data-testid="active-filter-chips">
-                {statusFilter === "open" && (
-                  <span
-                    data-testid="status-chip-open"
-                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                  >
-                    Open only
-                    <button
-                      onClick={() => setStatusFilter("all")}
-                      className="hover:text-white ml-0.5"
-                      aria-label="Show all tasks"
-                      data-testid="status-chip-clear"
-                    >
-                      <Icon name="close" className="text-[10px]" />
-                    </button>
-                  </span>
-                )}
-                {statusFilter === "all" && (
-                  <span
-                    data-testid="status-chip-all"
-                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-slate-700 text-slate-200 border border-slate-600"
-                  >
-                    All tasks
-                    <button
-                      onClick={() => setStatusFilter("open")}
-                      className="hover:text-white ml-0.5"
-                      aria-label="Show open tasks only"
-                      data-testid="status-chip-reset-open"
-                    >
-                      <Icon name="close" className="text-[10px]" />
-                    </button>
-                  </span>
-                )}
-                {statusFilter !== "open" && statusFilter !== "all" && (
-                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                    {statusFilter === "week" ? "This week" : statusFilter === "shelved" ? "Paused" : statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}
-                    <button onClick={() => setStatusFilter("open")} className="hover:text-white ml-0.5" aria-label="Clear status filter"><Icon name="close" className="text-[10px]" /></button>
-                  </span>
-                )}
-                {priorityFilter && (
-                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-slate-800 border border-slate-700 text-slate-300">
-                    {priorityFilter}
-                    <button onClick={() => setPriorityFilter(null)} className="hover:text-white ml-0.5" aria-label="Clear priority filter"><Icon name="close" className="text-[10px]" /></button>
-                  </span>
-                )}
-                {labelFilter && (() => {
-                  const lbl = labels.find((l) => l.id === labelFilter);
-                  return lbl ? (
-                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border" style={{ backgroundColor: lbl.color + "20", color: lbl.color, borderColor: lbl.color + "40" }}>
-                      {lbl.name}
-                      <button onClick={() => setLabelFilter(null)} className="hover:opacity-70 ml-0.5" aria-label="Clear label filter"><Icon name="close" className="text-[10px]" /></button>
-                    </span>
-                  ) : null;
-                })()}
-                {threadFilter && (() => {
-                  const th = threads.find((t) => t.id === threadFilter);
-                  return th ? (
-                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-teal-500/20 text-teal-400 border border-teal-500/30">
-                      <Icon name="folder" className="text-[10px]" />{th.name}
-                      <button onClick={() => setThreadFilter(null)} className="hover:text-white ml-0.5" aria-label="Clear group filter"><Icon name="close" className="text-[10px]" /></button>
-                    </span>
-                  ) : null;
-                })()}
-                {!hideSessionTasks && (
-                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-slate-700 text-slate-300 border border-slate-600">
-                    Sessions shown
-                    <button onClick={() => setHideSessionTasks(true)} className="hover:text-white ml-0.5" aria-label="Clear sessions filter"><Icon name="close" className="text-[10px]" /></button>
-                  </span>
-                )}
-                {activeFilterCount > 0 && (
-                  <button
-                    onClick={clearAllFilters}
-                    data-testid="clear-all-filters-chip"
-                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 transition-colors"
-                    aria-label="Clear all filters"
-                  >
-                    Clear all
-                  </button>
-                )}
-              </div>
-            )}
 
             {/* Bulk action bar */}
             {selectedTaskIds.size > 0 && (

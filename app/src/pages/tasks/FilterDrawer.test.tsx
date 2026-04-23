@@ -40,9 +40,9 @@ describe('FilterDrawer', () => {
     expect(screen.getByTestId('filter-drawer')).toBeInTheDocument()
   })
 
-  it('does not render when open=false', () => {
+  it('still renders when open=false (filters are always visible)', () => {
     render(<FilterDrawer {...defaultProps} open={false} />)
-    expect(screen.queryByTestId('filter-drawer')).not.toBeInTheDocument()
+    expect(screen.getByTestId('filter-drawer')).toBeInTheDocument()
   })
 
   it('shows all status filter buttons', () => {

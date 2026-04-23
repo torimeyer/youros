@@ -27,7 +27,7 @@ interface Thread {
 export type ClosedSortOrder = "newest" | "oldest";
 
 interface FilterDrawerProps {
-  open: boolean;
+  open?: boolean;
   statusFilter: StatusFilter;
   priorityFilter: string | null;
   labelFilter: string | null;
@@ -51,7 +51,7 @@ interface FilterDrawerProps {
 }
 
 export function FilterDrawer({
-  open,
+  open: _open,
   statusFilter,
   priorityFilter,
   labelFilter,
@@ -73,8 +73,6 @@ export function FilterDrawer({
   onClearAll,
   onClose,
 }: FilterDrawerProps) {
-  if (!open) return null;
-
   const hasNonDefaultFilter =
     statusFilter !== "open" ||
     priorityFilter !== null ||

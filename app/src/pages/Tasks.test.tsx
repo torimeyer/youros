@@ -144,7 +144,6 @@ describe('Tasks page', () => {
     })
 
     // Open filter drawer to access status filter buttons
-    fireEvent.click(screen.getByTestId('filters-pill'))
 
     const openButton = screen.getByTestId('status-filter-open')
     expect(openButton).toHaveTextContent('3')
@@ -173,7 +172,6 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('filters-pill'))
     fireEvent.click(screen.getByTestId('status-filter-closed'))
 
     expect(screen.getByText('Old completed task')).toBeInTheDocument()
@@ -197,8 +195,7 @@ describe('Tasks page', () => {
 
     await waitFor(() => {
       // Wait for data to load — switch to closed filter first
-      fireEvent.click(screen.getByTestId('filters-pill'))
-    })
+      })
     fireEvent.click(screen.getByTestId('status-filter-closed'))
 
     await waitFor(() => {
@@ -234,8 +231,7 @@ describe('Tasks page', () => {
 
     // Open filters and switch to closed view
     await waitFor(() => {
-      fireEvent.click(screen.getByTestId('filters-pill'))
-    })
+      })
     fireEvent.click(screen.getByTestId('status-filter-closed'))
 
     // Default order is newest-first — newest appears before oldest in the DOM
@@ -274,7 +270,6 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('filters-pill'))
     fireEvent.click(screen.getByTestId('status-filter-closed'))
     expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
 
@@ -372,7 +367,6 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('filters-pill'))
     fireEvent.click(screen.getByTestId('status-filter-closed'))
 
     await waitFor(() => {
@@ -412,7 +406,6 @@ describe('Tasks page', () => {
     })
 
     // Open filter drawer to see label chips
-    fireEvent.click(screen.getByTestId('filters-pill'))
     expect(screen.getByTestId('label-filter-l1')).toBeInTheDocument()
     expect(screen.getByTestId('label-filter-l2')).toBeInTheDocument()
   })
@@ -425,7 +418,6 @@ describe('Tasks page', () => {
     })
 
     // Open filter drawer and click the Bug label chip
-    fireEvent.click(screen.getByTestId('filters-pill'))
     fireEvent.click(screen.getByTestId('label-filter-l1'))
 
     // Tasks with "Bug" label (l1): task 1 and task 3
@@ -445,7 +437,6 @@ describe('Tasks page', () => {
     })
 
     // Open filter drawer and click P0
-    fireEvent.click(screen.getByTestId('filters-pill'))
     fireEvent.click(screen.getByTestId('priority-filter-P0'))
 
     expect(screen.getByText('Fix login bug')).toBeInTheDocument()
@@ -460,7 +451,6 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('filters-pill'))
     fireEvent.click(screen.getByTestId('priority-filter-P0'))
     expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
 
@@ -486,7 +476,6 @@ describe('Tasks page', () => {
       expect(screen.getByText('Only open')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('filters-pill'))
     fireEvent.click(screen.getByTestId('status-filter-closed'))
     expect(screen.getByText('No tasks match this filter.')).toBeInTheDocument()
   })
@@ -586,7 +575,6 @@ describe('Tasks page', () => {
       expect(screen.queryByText('Old closed task')).not.toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('filters-pill'))
     fireEvent.click(screen.getByTestId('status-filter-closed'))
 
     await waitFor(() => {
@@ -1137,8 +1125,9 @@ describe('Tasks page', () => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
 
-      const labelEl = screen.getByText('Bug')
-      const pill = labelEl.closest('span[class*="rounded-full"]') as HTMLElement
+      const labelEls = screen.getAllByText('Bug')
+      // The task label pill is the first one in a span (not the filter drawer button)
+      const pill = labelEls.map(el => el.closest('span[class*="rounded-full"]')).find(el => el !== null) as HTMLElement
       expect(pill).not.toBeNull()
       fireEvent.click(pill)
 
@@ -1268,8 +1257,7 @@ describe('Tasks page', () => {
       })
       // Open filter drawer to access status filter buttons.
       // Before needle 277 fix this badge read "1" instead of "3".
-      fireEvent.click(screen.getByTestId('filters-pill'))
-      const openButton = screen.getByTestId('status-filter-open')
+        const openButton = screen.getByTestId('status-filter-open')
       expect(openButton).toHaveTextContent('3')
     })
 
@@ -1279,8 +1267,7 @@ describe('Tasks page', () => {
         expect(screen.getByText('Active open task')).toBeInTheDocument()
       })
 
-      fireEvent.click(screen.getByTestId('filters-pill'))
-      fireEvent.click(screen.getByTestId('status-filter-closed'))
+        fireEvent.click(screen.getByTestId('status-filter-closed'))
 
       await waitFor(() => {
         expect(screen.getByText('Done dusted and gone')).toBeInTheDocument()
@@ -1743,8 +1730,7 @@ describe('Tasks page', () => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
       // Switch to the Closed filter so the closed rows render.
-      fireEvent.click(screen.getByTestId('filters-pill'))
-      fireEvent.click(screen.getByTestId('status-filter-closed'))
+        fireEvent.click(screen.getByTestId('status-filter-closed'))
       await waitFor(() => {
         expect(screen.getByText('Done task')).toBeInTheDocument()
       })
@@ -1768,8 +1754,7 @@ describe('Tasks page', () => {
       await waitFor(() => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
-      fireEvent.click(screen.getByTestId('filters-pill'))
-      fireEvent.click(screen.getByTestId('status-filter-closed'))
+        fireEvent.click(screen.getByTestId('status-filter-closed'))
       await waitFor(() => {
         expect(screen.getByText('Done task')).toBeInTheDocument()
       })
@@ -2024,7 +2009,6 @@ describe('Tasks page - first-paint budget (needle 299)', () => {
     expect(screen.queryByText('Claude session xyz99999 (3:15pm)')).not.toBeInTheDocument()
 
     // Open filter drawer, then click the sessions toggle
-    fireEvent.click(screen.getByTestId('filters-pill'))
     const toggleBtn = screen.getByTestId('toggle-session-tasks')
     fireEvent.click(toggleBtn)
 
@@ -2096,52 +2080,6 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
     renderTasks()
     await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
     expect(screen.getByTestId('what-should-i-do-next')).toBeInTheDocument()
-  })
-
-  it('renders Filters pill in primary row', async () => {
-    renderTasks()
-    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    expect(screen.getByTestId('filters-pill')).toBeInTheDocument()
-  })
-
-  it('filter drawer is hidden by default', async () => {
-    renderTasks()
-    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    expect(screen.queryByTestId('filter-drawer')).not.toBeInTheDocument()
-  })
-
-  it('clicking Filters pill opens the filter drawer', async () => {
-    renderTasks()
-    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('filters-pill'))
-    expect(screen.getByTestId('filter-drawer')).toBeInTheDocument()
-  })
-
-  it('clicking Filters pill again closes the drawer', async () => {
-    renderTasks()
-    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('filters-pill'))
-    expect(screen.getByTestId('filter-drawer')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('filters-pill'))
-    expect(screen.queryByTestId('filter-drawer')).not.toBeInTheDocument()
-  })
-
-  it('selecting a filter shows an active chip in the primary row when drawer is closed', async () => {
-    renderTasks()
-    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('filters-pill'))
-    fireEvent.click(screen.getByTestId('status-filter-closed'))
-    fireEvent.click(screen.getByTestId('filters-pill'))
-    expect(screen.getByTestId('active-filter-chips')).toBeInTheDocument()
-  })
-
-  it('Filters pill badge shows active filter count', async () => {
-    renderTasks()
-    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('filters-pill'))
-    fireEvent.click(screen.getByTestId('status-filter-closed'))
-    const pill = screen.getByTestId('filters-pill')
-    expect(pill.textContent).toContain('1')
   })
 
   it('renders overflow menu trigger button', async () => {
@@ -2270,8 +2208,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
       await waitFor(() => expect(screen.getByText('Regular task')).toBeInTheDocument())
 
       // Apply P0 filter (no P0 tasks exist)
-      fireEvent.click(screen.getByTestId('filters-pill'))
-      fireEvent.click(screen.getByTestId('priority-filter-P0'))
+        fireEvent.click(screen.getByTestId('priority-filter-P0'))
 
       // List is empty
       expect(screen.queryByText('Regular task')).not.toBeInTheDocument()
@@ -2297,8 +2234,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
       await waitFor(() => expect(screen.getByText('P2 task')).toBeInTheDocument())
 
       // Apply P0 filter (hides the only open task)
-      fireEvent.click(screen.getByTestId('filters-pill'))
-      fireEvent.click(screen.getByTestId('priority-filter-P0'))
+        fireEvent.click(screen.getByTestId('priority-filter-P0'))
 
       // Hint should appear
       await waitFor(() => {
@@ -2323,8 +2259,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
       await waitFor(() => expect(screen.getByText('P2 task A')).toBeInTheDocument())
 
       // Apply P0 filter
-      fireEvent.click(screen.getByTestId('filters-pill'))
-      fireEvent.click(screen.getByTestId('priority-filter-P0'))
+        fireEvent.click(screen.getByTestId('priority-filter-P0'))
 
       // Wait for hint
       await waitFor(() => {
@@ -2726,44 +2661,13 @@ describe('Tasks page - session transcript link and child task count', () => {
       expect(screen.queryByText('Shelved one')).not.toBeInTheDocument()
     })
 
-    it('shows a visible Open only chip on first mount', async () => {
-      renderTasks()
-
-      await waitFor(() => {
-        expect(screen.getByText('Open one')).toBeInTheDocument()
-      })
-      const chip = screen.getByTestId('status-chip-open')
-      expect(chip).toBeInTheDocument()
-      expect(chip).toHaveTextContent(/Open only/)
-    })
-
-    it('clearing the Open only chip reveals closed and shelved rows', async () => {
-      renderTasks()
-
-      await waitFor(() => {
-        expect(screen.getByText('Open one')).toBeInTheDocument()
-      })
-      // Clear the chip to show all.
-      fireEvent.click(screen.getByTestId('status-chip-clear'))
-
-      await waitFor(() => {
-        expect(screen.getByText('Closed one')).toBeInTheDocument()
-      })
-      expect(screen.getByText('Open one')).toBeInTheDocument()
-      expect(screen.getByText('Open two')).toBeInTheDocument()
-      expect(screen.getByText('Shelved one')).toBeInTheDocument()
-      // The chip now reads "All tasks".
-      expect(screen.getByTestId('status-chip-all')).toHaveTextContent(/All tasks/)
-    })
-
     it('selecting All in the filter drawer reveals previously hidden rows', async () => {
       renderTasks()
 
       await waitFor(() => {
         expect(screen.getByText('Open one')).toBeInTheDocument()
       })
-      fireEvent.click(screen.getByTestId('filters-pill'))
-      fireEvent.click(screen.getByTestId('status-filter-all'))
+        fireEvent.click(screen.getByTestId('status-filter-all'))
 
       await waitFor(() => {
         expect(screen.getByText('Closed one')).toBeInTheDocument()
@@ -2772,24 +2676,6 @@ describe('Tasks page - session transcript link and child task count', () => {
       expect(screen.getByText('Open one')).toBeInTheDocument()
     })
 
-    it('clicking the All chip close button returns to Open only', async () => {
-      renderTasks()
-
-      await waitFor(() => {
-        expect(screen.getByText('Open one')).toBeInTheDocument()
-      })
-      // Switch to All.
-      fireEvent.click(screen.getByTestId('status-chip-clear'))
-      await waitFor(() => {
-        expect(screen.getByText('Closed one')).toBeInTheDocument()
-      })
-      // Reset to Open only via the All chip.
-      fireEvent.click(screen.getByTestId('status-chip-reset-open'))
-      await waitFor(() => {
-        expect(screen.queryByText('Closed one')).not.toBeInTheDocument()
-      })
-      expect(screen.getByTestId('status-chip-open')).toBeInTheDocument()
-    })
   })
 })
 
