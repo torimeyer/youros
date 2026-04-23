@@ -3239,12 +3239,21 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     ]
 
     try:
+        _spawn_env = {**os.environ}
+        try:
+            from services.tracing import get_trace_id as _get_trace_id
+            _tid = _get_trace_id()
+            if _tid:
+                _spawn_env["TORIOS_TRACE_ID"] = _tid
+        except Exception:
+            pass
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=open(str(transcript_path), "w"),
             stderr=asyncio.subprocess.PIPE,
             cwd=str(PROJECT_ROOT),
+            env=_spawn_env,
         )
 
         # Send the initial prompt to stdin and CLOSE it (write_eof) so
