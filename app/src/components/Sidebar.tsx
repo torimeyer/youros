@@ -57,8 +57,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Files & Docs',
     icon: 'folder_open',
     items: [
-      { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
-      { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
       { to: '/specs', icon: 'description', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
     ],
   },

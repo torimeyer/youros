@@ -218,7 +218,6 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.getByText('Tasks')).toBeInTheDocument()
     expect(screen.getByText('Specs')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
-    expect(screen.getByText('Documents')).toBeInTheDocument()
     expect(screen.getByText('Activity')).toBeInTheDocument()
   })
 

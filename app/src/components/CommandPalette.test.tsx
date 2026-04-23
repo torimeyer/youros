@@ -59,7 +59,7 @@ describe('CommandPalette', () => {
 
   it('renders all navigation commands', () => {
     renderPalette()
-    const pages = ['Home', 'Tasks', 'Agents', 'Timeline', 'Files', 'Transcripts', 'Settings']
+    const pages = ['Home', 'Tasks', 'Agents', 'Timeline', 'Transcripts', 'Settings']
     for (const page of pages) {
       expect(screen.getByText(`Go to ${page}`)).toBeInTheDocument()
     }
@@ -210,8 +210,8 @@ describe('CommandPalette', () => {
     renderPalette(true, onClose)
 
     const input = screen.getByTestId('command-palette-input')
-    // 9 total commands. Pressing ArrowDown 9 times wraps back to index 0.
-    for (let i = 0; i < 9; i++) {
+    // 8 total commands. Pressing ArrowDown 8 times wraps back to index 0.
+    for (let i = 0; i < 8; i++) {
       fireEvent.keyDown(input, { key: 'ArrowDown' })
     }
     fireEvent.keyDown(input, { key: 'Enter' })

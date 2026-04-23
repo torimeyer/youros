@@ -16,7 +16,7 @@ const NAV_ROUTES = [
   '/timeline',    // Cmd+3: Timeline
   '/activity',    // Cmd+4: Activity
   '/agents',      // Cmd+5: Agents
-  '/files',       // Cmd+6: Files
+  '/specs',       // Cmd+6: Specs
   '/transcripts', // Cmd+7: Transcripts
   '/settings',    // Cmd+8: Settings
 ]

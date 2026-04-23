@@ -52,7 +52,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     { id: 'nav-tasks', label: 'Go to Tasks', icon: 'checklist', section: 'Navigate', action: () => { navigate('/tasks'); onClose() } },
     { id: 'nav-agents', label: 'Go to Agents', icon: 'smart_toy', section: 'Navigate', action: () => { navigate('/agents'); onClose() } },
     { id: 'nav-timeline', label: 'Go to Timeline', icon: 'timeline', section: 'Navigate', action: () => { navigate('/timeline'); onClose() } },
-    { id: 'nav-files', label: 'Go to Files', icon: 'folder', section: 'Navigate', action: () => { navigate('/files'); onClose() } },
     { id: 'nav-transcripts', label: 'Go to Transcripts', icon: 'record_voice_over', section: 'Navigate', action: () => { navigate('/transcripts'); onClose() } },
     { id: 'nav-settings', label: 'Go to Settings', icon: 'settings', section: 'Navigate', action: () => { navigate('/settings'); onClose() } },
     { id: 'action-chat', label: 'Toggle Chat', icon: 'chat', shortcut: '⌘L', section: 'Actions', action: () => { toggleChat(); onClose() } },
