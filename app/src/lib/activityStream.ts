@@ -16,6 +16,10 @@ export interface RawActivityEvent {
   label: string;
   category: string;
   detail: string;
+  /** Optional trace correlation id. Present when the event was tagged
+   *  by the tracing helper; absent for events coming from the legacy
+   *  audit log. */
+  trace_id?: string;
 }
 
 // ─── Curated stream entry ───────────────────────────────────────────────────

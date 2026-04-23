@@ -33,6 +33,7 @@ from services.settings_store import settings_store
 from services.template_matcher import match_template, merge_with_built_ins
 from services.ostk import write_audit_entry
 from services.token_metrics import safe_record_chat_turn
+from services.tracing import trace_event
 from services.tool_executor import TOOL_DEFINITIONS, execute_tool
 
 
@@ -94,6 +95,15 @@ def _log_chat_completion(
         "budget": 0,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
+    trace_event(
+        "llm_call_end",
+        model=model,
+        provider=provider,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_creation_input_tokens=cache_creation_input_tokens,
+        cache_read_input_tokens=cache_read_input_tokens,
+    )
 
 
 # Labels used in the ``backend_active`` websocket event so the chat panel
@@ -888,12 +898,23 @@ async def _anthropic_retry_call(
     non-retryable error is re-raised immediately so upstream code can
     still show clear 4xx messages.
     """
+    from services.tracing import trace_event as _trace_event
+    _trace_event("llm_call_start", op=op_name)
     last_exc: Optional[BaseException] = None
     for attempt in range(_ANTHROPIC_MAX_ATTEMPTS):
         try:
-            return await func()
+            _result = await func()
+            try:
+                _trace_event("llm_call_end", op=op_name, ok=True, attempts=attempt + 1)
+            except Exception:
+                pass
+            return _result
         except BaseException as exc:  # noqa: BLE001
             if not _is_retryable_anthropic_error(exc):
+                try:
+                    _trace_event("llm_call_end", op=op_name, ok=False, error=exc.__class__.__name__)
+                except Exception:
+                    pass
                 raise
             last_exc = exc
             if attempt >= _ANTHROPIC_MAX_ATTEMPTS - 1:

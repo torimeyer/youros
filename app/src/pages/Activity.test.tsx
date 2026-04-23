@@ -694,3 +694,54 @@ describe('Activity page - bundling', () => {
     expect(screen.queryByTestId('bundle-count')).not.toBeInTheDocument()
   })
 })
+
+describe('Activity trace filter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ onboarded: true })
+  })
+
+  it('renders the trace filter input', async () => {
+    mockedApiGet.mockResolvedValue({ events: [], count: 0 })
+    renderActivity()
+    await waitFor(() => {
+      expect(screen.getByTestId('trace-filter-input')).toBeInTheDocument()
+    })
+  })
+
+  it('filters out rows whose trace_id does not match', async () => {
+    const events = [
+      {
+        timestamp: '2026-04-10T10:00:00Z',
+        event: 'task.closed',
+        label: 'Task closed',
+        category: 'task',
+        detail: '→100 Matching task',
+        trace_id: 'abc-111',
+      },
+      {
+        timestamp: '2026-04-10T10:01:00Z',
+        event: 'task.closed',
+        label: 'Task closed',
+        category: 'task',
+        detail: '→101 Non matching',
+        trace_id: 'xyz-222',
+      },
+    ]
+    mockedApiGet.mockResolvedValue({ events, count: events.length })
+    renderActivity()
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('stream-row').length).toBeGreaterThan(0)
+    })
+
+    const input = screen.getByTestId('trace-filter-input') as HTMLInputElement
+    await userEvent.type(input, 'abc-111')
+
+    await waitFor(() => {
+      const rows = screen.getAllByTestId('stream-row')
+      // Only the matching row should remain.
+      expect(rows.length).toBe(1)
+    })
+  })
+})

@@ -15,6 +15,7 @@ from services.agentfile_parser import get_agent_config
 import services.agent_memory as agent_memory_svc
 from services import chat_ack_bot
 from services import recent_deletes
+from services.tracing import trace_event
 
 logger = logging.getLogger(__name__)
 
@@ -3238,12 +3239,21 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     ]
 
     try:
+        _spawn_env = {**os.environ}
+        try:
+            from services.tracing import get_trace_id as _get_trace_id
+            _tid = _get_trace_id()
+            if _tid:
+                _spawn_env["TORIOS_TRACE_ID"] = _tid
+        except Exception:
+            pass
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=open(str(transcript_path), "w"),
             stderr=asyncio.subprocess.PIPE,
             cwd=str(PROJECT_ROOT),
+            env=_spawn_env,
         )
 
         # Send the initial prompt to stdin and CLOSE it (write_eof) so
@@ -4055,6 +4065,12 @@ async def register_agent(body: AgentSpawn, request: Request = None):
                 if _claims:
                     audit_data["user"] = _claims["sub"]
         _emit_audit_event("agent.spawned", audit_data)
+        trace_event(
+            "agent_spawned",
+            name=body.name,
+            source=getattr(body, "source", ""),
+            model=getattr(body, "model", ""),
+        )
     except Exception:
         pass
 
@@ -4788,6 +4804,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
 
     # Log to audit so the audit_agents() helper also reflects completion
     _emit_audit_event("agent.completed", {"name": name})
+    trace_event("agent_completed", name=name)
 
     # Write a transcript marker so the status check finds it even on
     # legacy rows. IMPORTANT: only write the stub if no real transcript
@@ -5130,6 +5147,7 @@ async def cancel_agent(name: str, body: Optional[AgentCancel] = None):
 
     # Audit so the audit log reflects the cancel.
     _emit_audit_event("agent.cancelled", {"name": name, "reason": reason})
+    trace_event("agent_cancelled", agent_name=name, reason=reason)
 
     return {"ok": True, "status": "cancelled", "terminated_at": now_iso, "process_killed": killed}
 

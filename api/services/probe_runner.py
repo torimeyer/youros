@@ -101,6 +101,11 @@ async def run_probe() -> Dict[str, Any]:
     the frontend does not need to care which one was tested.
     """
     provider = _resolve_provider()
+    try:
+        from services.tracing import trace_event as _trace_event
+        _trace_event("probe_run", provider=provider)
+    except Exception:
+        pass
 
     if provider == "claude":
         return _probe_claude()

@@ -23,6 +23,7 @@ from services.task_labeling import (
 from services import session_task_map
 from services import recent_deletes
 from services.task_visibility import is_session_task
+from services.tracing import trace_event
 
 logger = logging.getLogger(__name__)
 
@@ -560,6 +561,7 @@ async def create_task(body: TaskCreate, include_test_data: bool = False):
     if new_id and body.parent_session_id:
         session_task_map.link_child_task(new_id, body.parent_session_id)
 
+    trace_event("task_created", task_id=new_id, title=clean_title, priority=body.priority)
     return {"result": result, "task_id": new_id}
 
 
@@ -681,6 +683,7 @@ async def delete_task(task_id: str):
     task_labels_store.remove_task(task_id)
     threads_store.remove_task_from_all_threads(task_id)
     task_order_store.remove_task(task_id)
+    trace_event("task_deleted", task_id=task_id, title=deleted_title)
     return {"result": result}
 
 
@@ -933,6 +936,7 @@ async def close_task(task_id: str, body: TaskClose = TaskClose()):
             "close_task: spec-status advance failed for task %s", task_id
         )
 
+    trace_event("task_closed", task_id=task_id, reason=structured_reason)
     return {"result": result}
 
 

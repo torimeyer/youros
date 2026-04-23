@@ -102,6 +102,11 @@ async def patch_settings(body: dict, request: Request = None):
             ua[:80],
         )
     settings_store.update(body)
+    try:
+        from services.tracing import trace_event as _trace_event
+        _trace_event("settings_patch", keys=list(body.keys()))
+    except Exception:
+        pass
     return {"result": "updated"}
 
 
