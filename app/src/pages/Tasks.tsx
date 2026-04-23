@@ -29,7 +29,13 @@ import SharePopover from "../components/SharePopover";
 import ExportButton from "../components/ExportButton";
 import TasksAuditModal from "../components/TasksAuditModal";
 import RecurringTasksSection from "../components/RecurringTasksSection";
-import { FilterDrawer, type StatusFilter, type ClosedSortOrder, type SortBy } from "./tasks/FilterDrawer";
+import { FilterDrawer, type StatusFilter as StatusPill, type ClosedSortOrder, type SortBy } from "./tasks/FilterDrawer";
+// StatusFilter keeps the extended legacy set of single-select string values
+// used by Tasks.tsx internal logic (all / shelved / week / recurring). The
+// FilterDrawer component now only exposes the three real statuses
+// (open / in_progress / closed) which we track separately via
+// selectedStatuses below.
+type StatusFilter = StatusPill | "all" | "shelved" | "week" | "recurring";
 import ConfirmModal from "../components/ConfirmModal";
 
 interface Task {
@@ -272,8 +278,25 @@ export default function Tasks() {
   const [linkedLoading, setLinkedLoading] = useState(false);
   const [traceLoading, setTraceLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
-  const [closedSortOrder, setClosedSortOrder] = useState<ClosedSortOrder>("newest");
+  // Multi-select tri-state status pills (Open / In progress / Closed).
+  // Independent of the single-string statusFilter above, which is still used
+  // internally for legacy views (shelved, week, recurring). When the user
+  // clicks a tri-state pill we move statusFilter to "all" so every legacy
+  // filter branch becomes a no-op and filtering falls entirely to this Set.
+  // Default hides closed (keeps the page focused on actionable work). User
+  // can click the Closed pill to focus on closed, or — from a single-pill
+  // state — click additional pills to include multiple buckets (multi-select
+  // semantics are handled inside onStatusToggle below).
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<StatusPill>>(
+    () => new Set<StatusPill>(["open", "in_progress"])
+  );
+  const [closedSortOrder] = useState<ClosedSortOrder>("newest");
   const [sortBy, setSortBy] = useState<SortBy>("date-desc");
+  // Agents currently running. Keyed by task_id. A task row shows the
+  // in-progress indicator iff it appears in this set.
+  const [runningAgentTaskIds, setRunningAgentTaskIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [banner, setBanner] = useState<string | null>(null);
   const [openPriorityDropdown, setOpenPriorityDropdown] = useState<string | null>(null);
   const [openLabelDropdown, setOpenLabelDropdown] = useState<string | null>(null);
@@ -500,6 +523,60 @@ export default function Tasks() {
     fetchThreads();
   }, [fetchTasks, fetchLabels, fetchThreads]);
 
+  // Poll running agents every 3s to drive the per-row in-progress indicator
+  // (needle: no live feedback that the agent is working on a task). The
+  // endpoint returns {agents: [...]}; we extract any agent whose status is
+  // non-terminal (running / queued / starting) and whose label or task_id
+  // references a task id we already know about.
+  useEffect(() => {
+    let cancelled = false;
+    const refreshAgents = async () => {
+      try {
+        const resp = await api.get("/agents") as {
+          agents?: Array<{
+            status?: string;
+            task_id?: string | null;
+            label?: string | null;
+          }>;
+        };
+        if (cancelled) return;
+        const next = new Set<string>();
+        const terminal = new Set([
+          "completed",
+          "succeeded",
+          "failed",
+          "error",
+          "cancelled",
+          "canceled",
+          "stopped",
+          "timeout",
+        ]);
+        for (const a of resp?.agents ?? []) {
+          const isRunning = !a.status || !terminal.has(a.status.toLowerCase());
+          if (!isRunning) continue;
+          if (a.task_id) next.add(a.task_id);
+          // Some agents encode the task id in their label, e.g.
+          // "plan/task-123" or "comprehensive/task-123". Accept any
+          // label containing a token that matches a known task id.
+          if (a.label) {
+            for (const tok of a.label.split(/[^A-Za-z0-9_-]+/)) {
+              if (tok) next.add(tok);
+            }
+          }
+        }
+        setRunningAgentTaskIds(next);
+      } catch {
+        // silent; /agents may not exist in some test harnesses.
+      }
+    };
+    refreshAgents();
+    const interval = setInterval(refreshAgents, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Live updates for new tasks. Two channels:
   //
   //  1. sidebarBus: any frontend-initiated task mutation (POST /tasks, close,
@@ -546,13 +623,23 @@ export default function Tasks() {
     // focused task is closed or shelved but the current filter hides it, switch.
     // "all" shows everything, so no switch needed.
     if (statusFilter !== "all") {
-      if (match.status === "closed" && statusFilter !== "closed") {
-        setStatusFilter("closed");
-      } else if (match.status === "shelved" && statusFilter !== "shelved") {
+      if (match.status === "shelved" && statusFilter !== "shelved") {
         setStatusFilter("shelved");
-      } else if (isActiveTask(match) && statusFilter === "closed") {
-        setStatusFilter("open");
       }
+    }
+    // Tri-state pill view: make sure the pill the focused task belongs to
+    // is selected. Keep existing selections so the user's other filters
+    // stick around; we only add the missing pill.
+    if (match.status === "closed") {
+      setSelectedStatuses(new Set<StatusPill>(["closed"]));
+    } else if (match.status === "in_progress" || runningAgentTaskIds.has(match.id)) {
+      setSelectedStatuses((prev) =>
+        prev.has("in_progress") ? prev : new Set([...prev, "in_progress"])
+      );
+    } else if (isActiveTask(match)) {
+      setSelectedStatuses((prev) =>
+        prev.has("open") ? prev : new Set([...prev, "open"])
+      );
     }
 
     // Clear any thread filter that would hide the task.
@@ -1180,21 +1267,50 @@ export default function Tasks() {
   // Filtering logic
   let filteredTasks = tasks;
 
-  if (statusFilter === "open") {
-    filteredTasks = filteredTasks.filter(isActiveTask);
-  } else if (statusFilter === "closed") {
-    filteredTasks = filteredTasks.filter((t) => t.status === "closed");
-  } else if (statusFilter === "shelved") {
-    filteredTasks = filteredTasks.filter((t) => t.status === "shelved");
-  } else if (statusFilter === "week") {
-    filteredTasks = filteredTasks.filter((t) => isActiveTask(t) && isThisWeek(t.created_at));
+  // Determine whether we're in a tri-state pill view (Open/InProgress/Closed)
+  // or a legacy single-select view (all/shelved/week/recurring). Legacy
+  // branches are triggered only when the user explicitly selects one of the
+  // legacy statuses via code paths that still call setStatusFilter.
+  const isLegacyView =
+    statusFilter === "shelved" ||
+    statusFilter === "week" ||
+    statusFilter === "recurring";
+
+  if (isLegacyView) {
+    if (statusFilter === "shelved") {
+      filteredTasks = filteredTasks.filter((t) => t.status === "shelved");
+    } else if (statusFilter === "week") {
+      filteredTasks = filteredTasks.filter(
+        (t) => isActiveTask(t) && isThisWeek(t.created_at)
+      );
+    }
+    // recurring branch is handled separately in the render; skip here.
+  } else {
+    // Tri-state multi-select via selectedStatuses Set. Shelved tasks are a
+    // legacy bucket that the three pills do not cover, so they are always
+    // hidden here (user can reach them via the legacy "Paused" view).
+    filteredTasks = filteredTasks.filter((t) => {
+      if (t.status === "shelved") return false;
+      const effective: StatusPill = runningAgentTaskIds.has(t.id)
+        ? "in_progress"
+        : t.status === "closed"
+        ? "closed"
+        : t.status === "in_progress"
+        ? "in_progress"
+        : "open";
+      return selectedStatuses.has(effective);
+    });
   }
 
   if (threadFilter) {
     filteredTasks = filteredTasks.filter((t) => t.thread_id === threadFilter);
   }
 
-  if (statusFilter === "closed") {
+  const onlyClosedSelected =
+    !isLegacyView &&
+    selectedStatuses.size === 1 &&
+    selectedStatuses.has("closed");
+  if (onlyClosedSelected) {
     filteredTasks = [...filteredTasks].sort((a, b) => {
       const aTime = a.closed_at ? new Date(a.closed_at).getTime() : 0;
       const bTime = b.closed_at ? new Date(b.closed_at).getTime() : 0;
@@ -1237,15 +1353,20 @@ export default function Tasks() {
   // Unfiltered counts used by the FilterDrawer status badge pills so the
   // user can see how many tasks live in each status bucket before choosing
   // one. These deliberately ignore priority/label/thread filters.
-  const openCount = tasks.filter((t) => isActiveTask(t)).length;
+  const openCount = tasks.filter(
+    (t) =>
+      isActiveTask(t) &&
+      t.status !== "in_progress" &&
+      !runningAgentTaskIds.has(t.id)
+  ).length;
+  const inProgressCount = tasks.filter(
+    (t) => t.status === "in_progress" || runningAgentTaskIds.has(t.id)
+  ).length;
   const closedCount = tasks.filter((t) => t.status === "closed").length;
-  const shelvedCount = tasks.filter((t) => t.status === "shelved").length;
-  const weekCount = tasks.filter((t) => isActiveTask(t) && isThisWeek(t.created_at)).length;
-  const filterCounts: Partial<Record<StatusFilter, number>> = {
+  const filterCounts: Partial<Record<StatusPill, number>> = {
     open: openCount,
+    in_progress: inProgressCount,
     closed: closedCount,
-    shelved: shelvedCount,
-    week: weekCount,
   };
 
   // The footer counter must match what is VISIBLE in the list. filteredTasks
@@ -1779,15 +1900,31 @@ export default function Tasks() {
             {/* Always-visible filter panel */}
             <FilterDrawer
               open={true}
-              statusFilter={statusFilter}
+              selectedStatuses={selectedStatuses}
               threadFilter={threadFilter}
               threads={threads}
               filterCounts={filterCounts}
-              closedSortOrder={closedSortOrder}
               sortBy={sortBy}
-              onStatusChange={setStatusFilter}
+              onStatusToggle={(s) => {
+                // Multi-select toggle. Clicking a pill adds it to the
+                // selected set; clicking it again removes it. At least one
+                // pill must stay selected, so the last remaining pill is a
+                // no-op on click.
+                setSelectedStatuses((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(s)) {
+                    if (next.size === 1) return prev;
+                    next.delete(s);
+                  } else {
+                    next.add(s);
+                  }
+                  return next;
+                });
+                // Leaving a legacy view (shelved/week/recurring) snaps
+                // statusFilter back to "all" so the tri-state Set takes over.
+                setStatusFilter("all");
+              }}
               onThreadChange={setThreadFilter}
-              onClosedSortOrderChange={setClosedSortOrder}
               onSortByChange={setSortBy}
             />
 
@@ -1875,8 +2012,15 @@ export default function Tasks() {
                   <div
                     ref={(el) => { taskRowRefs.current[task.id] = el; }}
                     data-testid={`task-row-${task.id}`}
+                    data-in-progress={
+                      runningAgentTaskIds.has(task.id) ? "true" : undefined
+                    }
                     onClick={() => handleTaskClick(task.id)}
-                    className={`bg-slate-900/60 border rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors ${
+                    className={`${
+                      runningAgentTaskIds.has(task.id)
+                        ? "ring-1 ring-blue-400/60 "
+                        : ""
+                    }bg-slate-900/60 border rounded-lg px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors ${
                       selectedTaskId === task.id
                         ? "border-blue-500/60 bg-blue-500/5"
                         : "border-slate-800 hover:border-slate-700"
@@ -1888,7 +2032,18 @@ export default function Tasks() {
                       onClick={(e) => e.stopPropagation()}
                       onChange={() => toggleTaskSelection(task.id)}
                       className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-0 flex-shrink-0 cursor-pointer"
+                      aria-label={`select ${task.title}`}
                     />
+                    {runningAgentTaskIds.has(task.id) && (
+                      <span
+                        data-testid={`task-in-progress-indicator-${task.id}`}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/40"
+                        title="Agent is working on this task"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-300 animate-pulse" />
+                        In progress
+                      </span>
+                    )}
                     <span
                       {...dragHandleProps}
                       onClick={(e) => e.stopPropagation()}

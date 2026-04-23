@@ -55,6 +55,32 @@ function renderTasks() {
   )
 }
 
+/**
+ * Status pills are multi-select with default {open, in_progress}. Many legacy
+ * tests assume a single-select "show only X" mode. This helper toggles pills
+ * so that only the requested status is selected, honoring the rule that at
+ * least one pill must stay on (it clicks the target first if it isn't
+ * already active, then deselects the others).
+ */
+function selectOnlyStatus(status: 'open' | 'in_progress' | 'closed') {
+  const all: Array<'open' | 'in_progress' | 'closed'> = [
+    'open',
+    'in_progress',
+    'closed',
+  ]
+  const target = screen.getByTestId(`status-filter-${status}`)
+  if (target.getAttribute('aria-pressed') !== 'true') {
+    fireEvent.click(target)
+  }
+  for (const s of all) {
+    if (s === status) continue
+    const btn = screen.queryByTestId(`status-filter-${s}`)
+    if (btn && btn.getAttribute('aria-pressed') === 'true') {
+      fireEvent.click(btn)
+    }
+  }
+}
+
 describe('Tasks page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -169,7 +195,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('status-filter-closed'))
+    selectOnlyStatus('closed')
 
     expect(screen.getByText('Old completed task')).toBeInTheDocument()
     expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
@@ -191,9 +217,9 @@ describe('Tasks page', () => {
     renderTasks()
 
     await waitFor(() => {
-      // Wait for data to load — switch to closed filter first
-      })
-    fireEvent.click(screen.getByTestId('status-filter-closed'))
+      expect(screen.getByTestId('status-filter-closed')).toBeInTheDocument()
+    })
+    selectOnlyStatus('closed')
 
     await waitFor(() => {
       expect(screen.getByText('Closed newest')).toBeInTheDocument()
@@ -212,7 +238,10 @@ describe('Tasks page', () => {
     expect(positions.middle).toBeLessThan(positions.oldest)
   })
 
-  it('closed-sort toggle: switching to oldest-first reverses the task order', async () => {
+  it('closed-only view sorts by closed_at descending (newest closed first)', async () => {
+    // Regression: the old closed-sort toggle buttons were removed along with
+    // the duplicate SORT row; the closed-only view still defaults to newest
+    // closed_at first without any extra toolbar.
     const closedTasks = [
       { id: 'c1', title: 'Closed oldest', priority: 'P1', status: 'closed', created_at: '2026-01-01T00:00:00Z', closed_at: '2026-01-10T00:00:00Z', goal: null, label_ids: [] },
       { id: 'c2', title: 'Closed newest', priority: 'P1', status: 'closed', created_at: '2026-01-01T00:00:00Z', closed_at: '2026-04-20T12:00:00Z', goal: null, label_ids: [] },
@@ -225,39 +254,22 @@ describe('Tasks page', () => {
     })
 
     renderTasks()
-
-    // Open filters and switch to closed view
     await waitFor(() => {
-      })
-    fireEvent.click(screen.getByTestId('status-filter-closed'))
+      expect(screen.getByTestId('status-filter-closed')).toBeInTheDocument()
+    })
+    selectOnlyStatus('closed')
 
-    // Default order is newest-first — newest appears before oldest in the DOM
     await waitFor(() => {
       expect(screen.getByText('Closed newest')).toBeInTheDocument()
     })
 
-    const newestFirstBody = document.body.textContent || ''
-    const defaultPositions = {
-      newest: newestFirstBody.indexOf('Closed newest'),
-      oldest: newestFirstBody.indexOf('Closed oldest'),
-    }
-    expect(defaultPositions.newest).toBeLessThan(defaultPositions.oldest)
+    const body = document.body.textContent || ''
+    expect(body.indexOf('Closed newest')).toBeLessThan(body.indexOf('Closed middle'))
+    expect(body.indexOf('Closed middle')).toBeLessThan(body.indexOf('Closed oldest'))
 
-    // Sort toggle buttons should be visible
-    expect(screen.getByTestId('closed-sort-newest')).toBeInTheDocument()
-    expect(screen.getByTestId('closed-sort-oldest')).toBeInTheDocument()
-
-    // Click "Oldest first"
-    fireEvent.click(screen.getByTestId('closed-sort-oldest'))
-
-    await waitFor(() => {
-      const oldestFirstBody = document.body.textContent || ''
-      const reversedPositions = {
-        newest: oldestFirstBody.indexOf('Closed newest'),
-        oldest: oldestFirstBody.indexOf('Closed oldest'),
-      }
-      expect(reversedPositions.oldest).toBeLessThan(reversedPositions.newest)
-    })
+    // Regression: removed closed-sort toggle buttons stay gone.
+    expect(screen.queryByTestId('closed-sort-newest')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('closed-sort-oldest')).not.toBeInTheDocument()
   })
 
   it('sort-by buttons are rendered in the filter drawer', async () => {
@@ -332,10 +344,10 @@ describe('Tasks page', () => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('status-filter-closed'))
+    selectOnlyStatus('closed')
     expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByTestId('status-filter-open'))
+    selectOnlyStatus('open')
     expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     expect(screen.queryByText('Old completed task')).not.toBeInTheDocument()
   })
@@ -477,7 +489,7 @@ describe('Tasks page', () => {
       expect(screen.getByText('Only open')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('status-filter-closed'))
+    selectOnlyStatus('closed')
     expect(screen.getByText('No tasks match this filter.')).toBeInTheDocument()
   })
 
@@ -1250,16 +1262,20 @@ describe('Tasks page', () => {
       expect(screen.queryByText('Done dusted and gone')).not.toBeInTheDocument()
     })
 
-    it('Open count badge includes in_progress tasks', async () => {
+    it('Open and In Progress pills split the active task counts correctly', async () => {
+      // After the multi-select redesign, the Open pill counts only pure
+      // status=open tasks and the In Progress pill counts status=in_progress
+      // (plus any task with a running agent). Both pills are on by default
+      // so the rendered list still shows every active task.
       renderTasks()
 
       await waitFor(() => {
         expect(screen.getByText('Active open task')).toBeInTheDocument()
       })
-      // Open filter drawer to access status filter buttons.
-      // Before needle 277 fix this badge read "1" instead of "3".
-        const openButton = screen.getByTestId('status-filter-open')
-      expect(openButton).toHaveTextContent('3')
+      const openButton = screen.getByTestId('status-filter-open')
+      expect(openButton).toHaveTextContent('1')
+      const inProgressButton = screen.getByTestId('status-filter-in_progress')
+      expect(inProgressButton).toHaveTextContent('2')
     })
 
     it('Closed tab still only shows closed tasks', async () => {
@@ -1268,7 +1284,7 @@ describe('Tasks page', () => {
         expect(screen.getByText('Active open task')).toBeInTheDocument()
       })
 
-        fireEvent.click(screen.getByTestId('status-filter-closed'))
+      selectOnlyStatus('closed')
 
       await waitFor(() => {
         expect(screen.getByText('Done dusted and gone')).toBeInTheDocument()
@@ -2081,7 +2097,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
       await waitFor(() => expect(screen.getByText('Task A')).toBeInTheDocument())
 
       // Switch to Closed tab — zero closed tasks → footer should show 0
-      fireEvent.click(screen.getByTestId('status-filter-closed'))
+      selectOnlyStatus('closed')
 
       await waitFor(() => {
         const footer = screen.getByTestId('footer-open-count')
@@ -2104,7 +2120,7 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
       await waitFor(() => expect(screen.getByText('Open task')).toBeInTheDocument())
 
       // Switch to Closed tab: the only task is open so list is empty under Closed filter
-      fireEvent.click(screen.getByTestId('status-filter-closed'))
+      selectOnlyStatus('closed')
 
       // Hint should not appear for a status filter (only secondary filters trigger it),
       // but the footer counter must reflect 0
@@ -2233,19 +2249,22 @@ describe('Tasks page - status filter and All toggle', () => {
       expect(screen.queryByText('Shelved one')).not.toBeInTheDocument()
     })
 
-    it('selecting All in the filter drawer reveals previously hidden rows', async () => {
+    it('adding the Closed pill to the selection reveals closed rows', async () => {
+      // The dedicated "All tasks" pill was removed; multi-select replaces it.
+      // Shelved tasks are intentionally outside the three pills and stay
+      // hidden here (paused bucket lives in its own legacy view).
       renderTasks()
 
       await waitFor(() => {
         expect(screen.getByText('Open one')).toBeInTheDocument()
       })
-        fireEvent.click(screen.getByTestId('status-filter-all'))
+      fireEvent.click(screen.getByTestId('status-filter-closed'))
 
       await waitFor(() => {
         expect(screen.getByText('Closed one')).toBeInTheDocument()
       })
-      expect(screen.getByText('Shelved one')).toBeInTheDocument()
       expect(screen.getByText('Open one')).toBeInTheDocument()
+      expect(screen.queryByText('Shelved one')).not.toBeInTheDocument()
     })
 
   })
@@ -2399,5 +2418,140 @@ describe('Tasks page - live updates (bus + 3s poll)', () => {
     expect(screen.getByText('Task to undo delete')).toBeInTheDocument()
     // DELETE should not have been called since we undid.
     expect(mockedApiDelete).not.toHaveBeenCalled()
+  })
+})
+
+// ───────────────────────────────────────────────────────────────
+// Regression tests for the 2026-04-23 Tasks-page cleanup: card view,
+// in-progress indicator, duplicate sort row, three-pill multi-select,
+// effective status for tasks with a running agent.
+// ───────────────────────────────────────────────────────────────
+describe('Tasks page - 2026-04-23 regression set', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  it('does not render the legacy card-view / view-toggle / clear-all toolbar', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByTestId('filter-drawer')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('view-mode-list')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('view-mode-grid')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('view-mode-toggle')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('filter-drawer-close')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('filter-drawer-clear-all')).not.toBeInTheDocument()
+  })
+
+  it('filter drawer renders exactly one sort row (no duplicate SORT bar)', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByTestId('filter-drawer-sort-row')).toBeInTheDocument()
+    })
+    expect(screen.getAllByTestId('filter-drawer-sort-row')).toHaveLength(1)
+    // Legacy closed-sort toggle testids must stay gone.
+    expect(screen.queryByTestId('closed-sort-newest')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('closed-sort-oldest')).not.toBeInTheDocument()
+  })
+
+  it('exposes exactly three status pills (Open / In progress / Closed) with aria-pressed', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByTestId('status-filter-open')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('status-filter-in_progress')).toBeInTheDocument()
+    expect(screen.getByTestId('status-filter-closed')).toBeInTheDocument()
+    expect(screen.queryByTestId('status-filter-all')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('status-filter-shelved')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('status-filter-week')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('status-filter-recurring')).not.toBeInTheDocument()
+    // Default: Open and In progress selected, Closed off.
+    expect(screen.getByTestId('status-filter-open')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('status-filter-in_progress')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('status-filter-closed')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('multi-select: clicking Closed adds it, last remaining pill cannot be deselected', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({
+        tasks: [
+          { id: 'o', title: 'Open task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+          { id: 'c', title: 'Closed task', priority: 'P1', status: 'closed', created_at: new Date().toISOString(), closed_at: new Date().toISOString(), label_ids: [] },
+        ],
+      })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByText('Open task')).toBeInTheDocument()
+    })
+    // Click Closed → now open + in_progress + closed are selected.
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
+    expect(screen.getByTestId('status-filter-closed')).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => {
+      expect(screen.getByText('Closed task')).toBeInTheDocument()
+    })
+
+    // Deselect open, then in_progress; last remaining (closed) must stay on.
+    fireEvent.click(screen.getByTestId('status-filter-open'))
+    fireEvent.click(screen.getByTestId('status-filter-in_progress'))
+    fireEvent.click(screen.getByTestId('status-filter-closed'))
+    expect(screen.getByTestId('status-filter-closed')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('shows the in-progress indicator on a task row when an agent is running on it', async () => {
+    const task = { id: 'a123', title: 'Task with agent', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [task] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: 'a123' }] })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByTestId('task-in-progress-indicator-a123')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('task-row-a123')).toHaveAttribute('data-in-progress', 'true')
+  })
+
+  it('effective status: a task whose stored status is open but has a running agent counts under In Progress', async () => {
+    const task = { id: 'eff1', title: 'Agent-backed open task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [task] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: 'eff1' }] })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    // Wait for the agent poll to apply.
+    await waitFor(() => {
+      expect(screen.getByTestId('task-in-progress-indicator-eff1')).toBeInTheDocument()
+    })
+    // Deselect the Open pill so only In progress remains; the task must
+    // stay visible because its effective status is in_progress.
+    fireEvent.click(screen.getByTestId('status-filter-open'))
+    expect(screen.getByText('Agent-backed open task')).toBeInTheDocument()
+    // Now flip to Closed-only: the task must disappear.
+    selectOnlyStatus('closed')
+    expect(screen.queryByText('Agent-backed open task')).not.toBeInTheDocument()
   })
 })
