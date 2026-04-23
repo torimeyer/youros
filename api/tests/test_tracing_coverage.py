@@ -316,6 +316,34 @@ async def test_live_task_tracker_cleans_up_on_failure(client):
     )
 
 
+def test_no_trace_coverage_ghost_in_live_needle_file():
+    """Regression guard: the repo's live needle store must never contain a
+    row titled "Trace coverage test task" (the →889 leak). If this test
+    fails, a test path wrote a real ostk task without teardown and it will
+    surface in the Tasks UI.
+
+    This is a file-scoped check on ``.ostk/needles/issues.jsonl`` rather
+    than a per-test cleanup because the leak has slipped past per-test
+    fixtures twice. Pinning a literal string check against the on-disk
+    file is the cheapest backstop that cannot be bypassed by fixture
+    mistakes in new tests.
+    """
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    needle_file = repo_root / ".ostk" / "needles" / "issues.jsonl"
+
+    if not needle_file.exists():
+        pytest.skip(f"needle file not present at {needle_file}")
+
+    content = needle_file.read_text()
+    assert "Trace coverage test task" not in content, (
+        f"Leaked ghost task 'Trace coverage test task' found in {needle_file}. "
+        "A test created a real ostk task without cleanup. Find the offending "
+        "test and either mock ostk or use the live_task_tracker fixture."
+    )
+
+
 @pytest.mark.asyncio
 async def test_live_task_tracker_fixture_cleans_up(live_task_tracker):
     """Verify the live_task_tracker fixture itself records and exposes tracked IDs.
