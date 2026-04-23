@@ -6,14 +6,13 @@ import Dashboard from './pages/Dashboard'
 import Tasks from './pages/Tasks'
 import Timeline from './pages/Timeline'
 import Agents from './pages/Agents'
-import Files from './pages/Files'
 import Settings from './pages/Settings'
 import Transcripts from './pages/Transcripts'
 import Activity from './pages/Activity'
 import CostTracking from './pages/CostTracking'
 import Specs from './pages/Specs'
 import DocsRedirect from './pages/DocsRedirect'
-import Drive from './pages/Drive'
+import Documents from './pages/Documents'
 import Calendar from './pages/Calendar'
 import Gmail from './pages/Gmail'
 import IMessage from './pages/IMessage'
@@ -101,7 +100,8 @@ export default function App() {
           <Route path="timeline" element={<Timeline />} />
           <Route path="activity" element={<Activity />} />
           <Route path="agents" element={<Agents />} />
-          <Route path="files" element={<Files />} />
+          <Route path="files" element={<Navigate to="/documents?tab=uploads" replace />} />
+          <Route path="documents" element={<Documents />} />
           <Route path="transcripts" element={<Transcripts />} />
           <Route path="specs" element={<Specs />} />
           {/* Backward compat: /docs redirects to /specs after the rename. */}
@@ -110,7 +110,7 @@ export default function App() {
               at the app root when onboarded=false. Redirect here so deep-links
               used in QA, support, and demos always land somewhere valid. */}
           <Route path="onboarding" element={<Navigate to="/" replace />} />
-          <Route path="drive" element={<Drive />} />
+          <Route path="drive" element={<Navigate to="/documents?tab=drive" replace />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="gmail" element={<Gmail />} />
           <Route path="imessage" element={<IMessage />} />

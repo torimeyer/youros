@@ -29,6 +29,11 @@ class TaskUpdate(BaseModel):
     # to the friendlier "Session in <cwd>" format.
     title: Optional[str] = None
     description: Optional[str] = None
+    # Move a task between "open" (waiting in the queue) and
+    # "in_progress" (someone is actively working on it now). Closing and
+    # pausing are handled by dedicated endpoints so they are intentionally
+    # excluded from the set accepted here.
+    status: Optional[str] = None
 
 
 class TaskReorder(BaseModel):
@@ -173,6 +178,12 @@ class AgentSpawn(BaseModel):
     # row instead of creating a duplicate. Unused outside the
     # claude-code source. Defaults to None/False.
     hook_preregister: Optional[bool] = None
+    # Originating task id. When a spawn is triggered from a task (e.g.
+    # the Tasks page "Implement with saa" button), the UI passes the
+    # task id here so the backend can flip the task's status to
+    # in_progress once the agent starts. Optional so spawns that are
+    # not tied to a task (ad-hoc, command palette) keep working.
+    task_id: Optional[str] = None
 
 
 class AgentNudge(BaseModel):
