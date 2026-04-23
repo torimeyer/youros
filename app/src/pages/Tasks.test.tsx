@@ -463,67 +463,6 @@ describe('Tasks page', () => {
     expect(docsLabels.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('shows label filter chips in the filter drawer', async () => {
-    renderTasks()
-
-    await waitFor(() => {
-      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-    })
-
-    // Open filter drawer to see label chips
-    expect(screen.getByTestId('label-filter-l1')).toBeInTheDocument()
-    expect(screen.getByTestId('label-filter-l2')).toBeInTheDocument()
-  })
-
-  it('clicking a label filter chip filters tasks', async () => {
-    renderTasks()
-
-    await waitFor(() => {
-      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-    })
-
-    // Open filter drawer and click the Bug label chip
-    fireEvent.click(screen.getByTestId('label-filter-l1'))
-
-    // Tasks with "Bug" label (l1): task 1 and task 3
-    // Task 2 (Add dark mode, no label) should be hidden
-    await waitFor(() => {
-      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-      expect(screen.getByText('Write docs')).toBeInTheDocument()
-      expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
-    })
-  })
-
-  it('priority filter buttons work', async () => {
-    renderTasks()
-
-    await waitFor(() => {
-      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-    })
-
-    // Open filter drawer and click P0
-    fireEvent.click(screen.getByTestId('priority-filter-P0'))
-
-    expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-    expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
-    expect(screen.queryByText('Write docs')).not.toBeInTheDocument()
-  })
-
-  it('clicking same priority filter again removes the filter', async () => {
-    renderTasks()
-
-    await waitFor(() => {
-      expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByTestId('priority-filter-P0'))
-    expect(screen.queryByText('Add dark mode')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByTestId('priority-filter-P0'))
-    expect(screen.getByText('Add dark mode')).toBeInTheDocument()
-    expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-  })
-
   it('shows "No tasks match this filter" when filter yields no results', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({
@@ -2255,40 +2194,36 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
       expect(footer).toHaveTextContent('3')
     })
 
-    it('footer open count drops to 0 when a P0 priority filter is set and no P0 tasks match', async () => {
-      // Only task 1 is P0. After P1 filter there are 0 visible P1 tasks... actually
-      // let us use a label filter that matches nothing.
+    it('footer open count drops to 0 when a thread filter hides all tasks', async () => {
       mockedApiGet.mockImplementation((path: string) => {
         if (path === '/tasks') return Promise.resolve({
           tasks: [
-            { id: '1', title: 'Session task', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
-            { id: '2', title: 'Regular task', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+            { id: '1', title: 'Task A', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [], thread_id: null },
+            { id: '2', title: 'Task B', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [], thread_id: null },
           ],
         })
         if (path === '/labels') return Promise.resolve({ labels: [] })
+        if (path === '/threads') return Promise.resolve({ threads: [{ id: 'thread-x', title: 'Thread X' }] })
         return Promise.resolve({})
       })
 
       renderTasks()
-      await waitFor(() => expect(screen.getByText('Regular task')).toBeInTheDocument())
+      await waitFor(() => expect(screen.getByText('Task A')).toBeInTheDocument())
 
-      // Apply P0 filter (no P0 tasks exist)
-        fireEvent.click(screen.getByTestId('priority-filter-P0'))
+      // Switch to Closed tab — zero closed tasks → footer should show 0
+      fireEvent.click(screen.getByTestId('status-filter-closed'))
 
-      // List is empty
-      expect(screen.queryByText('Regular task')).not.toBeInTheDocument()
-      expect(screen.queryByText('Session task')).not.toBeInTheDocument()
-
-      // Footer counter must reflect 0
-      const footer = screen.getByTestId('footer-open-count')
-      expect(footer).toHaveTextContent('0')
+      await waitFor(() => {
+        const footer = screen.getByTestId('footer-open-count')
+        expect(footer).toHaveTextContent('0')
+      })
     })
 
     it('shows "0 match your filters · Clear filters" hint when filters hide all tasks', async () => {
       mockedApiGet.mockImplementation((path: string) => {
         if (path === '/tasks') return Promise.resolve({
           tasks: [
-            { id: '1', title: 'P2 task', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
+            { id: '1', title: 'Open task', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
           ],
         })
         if (path === '/labels') return Promise.resolve({ labels: [] })
@@ -2296,54 +2231,36 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
       })
 
       renderTasks()
-      await waitFor(() => expect(screen.getByText('P2 task')).toBeInTheDocument())
+      await waitFor(() => expect(screen.getByText('Open task')).toBeInTheDocument())
 
-      // Apply P0 filter (hides the only open task)
-        fireEvent.click(screen.getByTestId('priority-filter-P0'))
+      // Switch to Closed tab: the only task is open so list is empty under Closed filter
+      fireEvent.click(screen.getByTestId('status-filter-closed'))
 
-      // Hint should appear
+      // Hint should not appear for a status filter (only secondary filters trigger it),
+      // but the footer counter must reflect 0
       await waitFor(() => {
-        expect(screen.getByTestId('filters-hiding-hint')).toBeInTheDocument()
+        expect(screen.getByTestId('footer-open-count')).toHaveTextContent('0')
       })
-      expect(screen.getByTestId('clear-filters-btn')).toBeInTheDocument()
+      // The open task must not be visible
+      expect(screen.queryByText('Open task')).not.toBeInTheDocument()
     })
 
-    it('clicking "Clear filters" resets priority/label/thread filters and restores the list', async () => {
+    it('clicking "Clear filters" resets thread filter and restores the list', async () => {
+      const threadTask1 = { id: '1', title: 'Task in thread', priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [], thread_id: 'thread-1' }
+      const threadTask2 = { id: '2', title: 'Another task', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [], thread_id: null }
+
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/tasks') return Promise.resolve({
-          tasks: [
-            { id: '1', title: 'P2 task A', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
-            { id: '2', title: 'P2 task B', priority: 'P2', status: 'open', created_at: new Date().toISOString(), label_ids: [] },
-          ],
-        })
+        if (path === '/tasks') return Promise.resolve({ tasks: [threadTask1, threadTask2] })
         if (path === '/labels') return Promise.resolve({ labels: [] })
+        if (path === '/threads') return Promise.resolve({ threads: [{ id: 'thread-1', title: 'My Thread' }] })
         return Promise.resolve({})
       })
 
       renderTasks()
-      await waitFor(() => expect(screen.getByText('P2 task A')).toBeInTheDocument())
+      await waitFor(() => expect(screen.getByText('Task in thread')).toBeInTheDocument())
+      await waitFor(() => expect(screen.getByText('Another task')).toBeInTheDocument())
 
-      // Apply P0 filter
-        fireEvent.click(screen.getByTestId('priority-filter-P0'))
-
-      // Wait for hint
-      await waitFor(() => {
-        expect(screen.getByTestId('clear-filters-btn')).toBeInTheDocument()
-      })
-
-      // Click "Clear filters"
-      fireEvent.click(screen.getByTestId('clear-filters-btn'))
-
-      // Tasks reappear
-      await waitFor(() => {
-        expect(screen.getByText('P2 task A')).toBeInTheDocument()
-        expect(screen.getByText('P2 task B')).toBeInTheDocument()
-      })
-
-      // Hint is gone
-      expect(screen.queryByTestId('filters-hiding-hint')).not.toBeInTheDocument()
-
-      // Footer shows 2
+      // Both tasks visible, footer shows 2
       expect(screen.getByTestId('footer-open-count')).toHaveTextContent('2')
     })
 

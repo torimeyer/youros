@@ -273,8 +273,6 @@ export default function Tasks() {
   const [linkedLoading, setLinkedLoading] = useState(false);
   const [traceLoading, setTraceLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
-  const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
-  const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const [closedSortOrder, setClosedSortOrder] = useState<ClosedSortOrder>("newest");
   const [sortBy, setSortBy] = useState<SortBy>("date-desc");
   // Session tasks (auto-filed by the SessionStart hook) are hidden by default.
@@ -591,13 +589,7 @@ export default function Tasks() {
       }
     }
 
-    // Clear any priority / label / thread filter that would hide the task.
-    if (priorityFilter && match.priority !== priorityFilter) {
-      setPriorityFilter(null);
-    }
-    if (labelFilter && !(match.label_ids || []).includes(labelFilter)) {
-      setLabelFilter(null);
-    }
+    // Clear any thread filter that would hide the task.
     if (threadFilter && match.thread_id !== threadFilter) {
       setThreadFilter(null);
     }
@@ -620,7 +612,7 @@ export default function Tasks() {
     const next = new URLSearchParams(searchParams);
     next.delete("focus");
     setSearchParams(next, { replace: true });
-  }, [focusParam, tasks, statusFilter, priorityFilter, labelFilter, threadFilter, fetchBriefing, fetchTrace, searchParams, setSearchParams]);
+  }, [focusParam, tasks, statusFilter, threadFilter, fetchBriefing, fetchTrace, searchParams, setSearchParams]);
 
   // Listen for quick-add-task event from TopBar
   useEffect(() => {
@@ -1183,13 +1175,6 @@ export default function Tasks() {
       body.status = "open";
     }
 
-    if (priorityFilter) {
-      body.priority = [priorityFilter];
-    }
-    if (labelFilter) {
-      body.labels = [labelFilter];
-    }
-
     // Optimistically clear the visible list immediately.
     setTasks((prev) => prev.filter((t) => !filteredTasks.some((ft) => ft.id === t.id)));
 
@@ -1237,16 +1222,6 @@ export default function Tasks() {
     filteredTasks = filteredTasks.filter((t) => t.status === "shelved");
   } else if (statusFilter === "week") {
     filteredTasks = filteredTasks.filter((t) => isActiveTask(t) && isThisWeek(t.created_at));
-  }
-
-  if (priorityFilter) {
-    filteredTasks = filteredTasks.filter((t) => t.priority === priorityFilter);
-  }
-
-  if (labelFilter) {
-    filteredTasks = filteredTasks.filter((t) =>
-      (t.label_ids || []).includes(labelFilter)
-    );
   }
 
   if (threadFilter) {
@@ -1304,11 +1279,6 @@ export default function Tasks() {
   const closedCount = tasks.filter((t) => t.status === "closed").length;
   const shelvedCount = tasks.filter((t) => t.status === "shelved").length;
   const weekCount = tasks.filter((t) => isActiveTask(t) && isThisWeek(t.created_at)).length;
-  const p0Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P0").length;
-  const p1Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P1").length;
-  const p2Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P2").length;
-  const p3Count = tasks.filter((t) => isActiveTask(t) && t.priority === "P3").length;
-
   const filterCounts: Partial<Record<StatusFilter, number>> = {
     open: openCount,
     closed: closedCount,
@@ -1321,10 +1291,10 @@ export default function Tasks() {
   // session hide). Use it as the source of truth for the displayed count.
   const visibleCount = filteredTasks.length;
 
-  // Whether any secondary filter (priority / label / thread) is narrowing the
+  // Whether any secondary filter (thread) is narrowing the
   // result further. Used to show "0 match · Clear filters" when the user has
   // filters set but nothing is visible.
-  const hasSecondaryFilter = Boolean(priorityFilter || labelFilter || threadFilter);
+  const hasSecondaryFilter = Boolean(threadFilter);
   const filtersHidingAllTasks =
     statusFilter === "open" &&
     hasSecondaryFilter &&
@@ -1346,17 +1316,8 @@ export default function Tasks() {
 
   const clearAllFilters = () => {
     setStatusFilter("open");
-    setPriorityFilter(null);
-    setLabelFilter(null);
     setThreadFilter(null);
     setHideSessionTasks(true);
-  };
-
-  const priorityCounts: Record<string, number> = {
-    P0: p0Count,
-    P1: p1Count,
-    P2: p2Count,
-    P3: p3Count,
   };
 
   /** Render dependency pills showing what blocks/depends-on this task */
@@ -1836,10 +1797,9 @@ export default function Tasks() {
         ) : activeTab === "labels" ? (
           <LabelsView
             onFilterByLabel={(id) => {
-              setLabelFilter(id);
               if (id) setActiveTab("tasks");
             }}
-            activeLabelId={labelFilter}
+            activeLabelId={null}
             onLabelsChanged={() => {
               fetchLabels();
               fetchTasks();
@@ -1872,20 +1832,14 @@ export default function Tasks() {
             <FilterDrawer
               open={true}
               statusFilter={statusFilter}
-              priorityFilter={priorityFilter}
-              labelFilter={labelFilter}
               threadFilter={threadFilter}
               hideSessionTasks={hideSessionTasks}
               viewMode={viewMode}
-              labels={labels}
               threads={threads}
               filterCounts={filterCounts}
-              priorityCounts={priorityCounts}
               closedSortOrder={closedSortOrder}
               sortBy={sortBy}
               onStatusChange={setStatusFilter}
-              onPriorityChange={setPriorityFilter}
-              onLabelChange={setLabelFilter}
               onThreadChange={setThreadFilter}
               onSessionToggle={() => setHideSessionTasks((v) => !v)}
               onViewModeChange={setViewMode}

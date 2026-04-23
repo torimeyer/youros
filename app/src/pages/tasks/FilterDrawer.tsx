@@ -1,23 +1,6 @@
 import Icon from "../../components/Icon";
-import type { Label } from "../../components/LabelsView";
 
 export type StatusFilter = "open" | "all" | "closed" | "week" | "recurring" | "shelved" | "in_progress";
-
-const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
-
-const priorityStyles: Record<string, string> = {
-  P0: "bg-pink-500/20 text-pink-500",
-  P1: "bg-orange-500/20 text-orange-500",
-  P2: "bg-blue-500/20 text-blue-500",
-  P3: "bg-slate-500/20 text-slate-400",
-};
-
-const priorityDotColors: Record<string, string> = {
-  P0: "bg-pink-500",
-  P1: "bg-orange-500",
-  P2: "bg-blue-500",
-  P3: "bg-slate-500",
-};
 
 interface Thread {
   id: string;
@@ -31,20 +14,14 @@ export type SortBy = "date-desc" | "date-asc" | "status" | "label";
 interface FilterDrawerProps {
   open?: boolean;
   statusFilter: StatusFilter;
-  priorityFilter: string | null;
-  labelFilter: string | null;
   threadFilter: string | null;
   hideSessionTasks: boolean;
   viewMode: "list" | "grid";
-  labels: Label[];
   threads: Thread[];
   filterCounts: Partial<Record<StatusFilter, number>>;
-  priorityCounts: Record<string, number>;
   closedSortOrder?: ClosedSortOrder;
   sortBy?: SortBy;
   onStatusChange: (f: StatusFilter) => void;
-  onPriorityChange: (p: string | null) => void;
-  onLabelChange: (id: string | null) => void;
   onThreadChange: (id: string | null) => void;
   onSessionToggle: () => void;
   onViewModeChange: (v: "list" | "grid") => void;
@@ -57,20 +34,14 @@ interface FilterDrawerProps {
 export function FilterDrawer({
   open: _open,
   statusFilter,
-  priorityFilter,
-  labelFilter,
   threadFilter,
   hideSessionTasks,
   viewMode,
-  labels,
   threads,
   filterCounts,
-  priorityCounts,
   closedSortOrder = "newest",
   sortBy = "date-desc",
   onStatusChange,
-  onPriorityChange,
-  onLabelChange,
   onThreadChange,
   onSessionToggle,
   onViewModeChange,
@@ -81,8 +52,6 @@ export function FilterDrawer({
 }: FilterDrawerProps) {
   const hasNonDefaultFilter =
     statusFilter !== "open" ||
-    priorityFilter !== null ||
-    labelFilter !== null ||
     threadFilter !== null ||
     !hideSessionTasks;
 
@@ -200,68 +169,6 @@ export function FilterDrawer({
             >
               Oldest first
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Priority row */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide w-16 shrink-0">
-          Priority
-        </span>
-        <div className="flex items-center gap-2 flex-wrap">
-          {PRIORITIES.map((p) => (
-            <button
-              key={p}
-              data-testid={`priority-filter-${p}`}
-              onClick={() => onPriorityChange(priorityFilter === p ? null : p)}
-              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                priorityFilter === p
-                  ? `${priorityStyles[p]} ring-1 ring-white/30`
-                  : `${priorityStyles[p]} opacity-60 hover:opacity-100`
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full ${priorityDotColors[p]}`} />
-              {p} <span className="opacity-70">{priorityCounts[p]}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Labels row */}
-      {labels.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide w-16 shrink-0">
-            Labels
-          </span>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {labels.map((label) => (
-              <button
-                key={label.id}
-                data-testid={`label-filter-${label.id}`}
-                onClick={() => onLabelChange(labelFilter === label.id ? null : label.id)}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all ${
-                  labelFilter === label.id ? "ring-1 ring-white/30" : "opacity-60 hover:opacity-100"
-                }`}
-                style={{
-                  backgroundColor: label.color + "20",
-                  color: label.color,
-                }}
-              >
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: label.color }} />
-                {label.name}
-              </button>
-            ))}
-            {labelFilter && (
-              <button
-                onClick={() => onLabelChange(null)}
-                className="text-xs text-slate-500 hover:text-slate-300 px-1"
-                title="Clear label filter"
-                aria-label="Clear label filter"
-              >
-                <Icon name="close" className="text-sm" />
-              </button>
-            )}
           </div>
         </div>
       )}
