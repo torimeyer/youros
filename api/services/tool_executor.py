@@ -1587,6 +1587,38 @@ async def _upload_to_drive(filename: str, content: str) -> str:
         return f"Could not upload to Drive: {exc}"
 
 
+def _torichat_close_prelude(agent_name: str) -> str:
+    """Return a torichat-specific close-task prelude.
+
+    The long ``agent_mailbox_instruction`` block already tells the agent
+    to POST /complete when done, but claude-code subagents spawned via
+    the ``spawn_agent`` tool exit naturally at the end of their turn
+    without executing the sidecar curl. That leaves every torichat-spawned
+    agent's row stuck in the "Agent finished its work. It didn't formally
+    close the task" fallback.
+
+    This prelude goes at the VERY TOP of the prompt, above the mailbox
+    block, so it is the last thing the model sees before reading the
+    user task. It is short, direct, and restated in plain language: the
+    final tool call of the turn must be a POST to /complete. Phrased
+    this way the instruction survives prompt compaction and mid-turn
+    reasoning resets.
+    """
+    base = "https://127.0.0.1:8000/api/agents"
+    return (
+        "IMPORTANT: You were spawned from torichat. Your VERY LAST action, "
+        "after all code changes and tests pass, must be to formally close "
+        "this task. Run this exact shell command as your final tool call "
+        "(not optional, not skippable):\n"
+        f"  curl --connect-timeout 3 -m 5 -sSk -X POST {base}/{agent_name}/complete "
+        "-H 'Content-Type: application/json' "
+        "-d '{\"summary\": \"<one line summary of what you did>\"}'\n"
+        "Without this final call the user sees a misleading \"Agent "
+        "didn\'t formally close the task\" warning even though your work "
+        "is done. Close the task."
+    )
+
+
 async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
     """Spawn a Claude Code subprocess as a background agent.
 
@@ -1594,6 +1626,10 @@ async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
     the API accepts them), validates that prompt is non-empty, and returns
     a specific actionable error for each failure mode instead of the raw
     exception message.
+
+    Torichat close fix: prepends an explicit "post /complete as your final
+    tool call" prelude so the agent actually formally closes the task
+    instead of exiting silently and tripping the stale-sweep fallback.
     """
     import re as _re
 
@@ -1616,13 +1652,19 @@ async def _spawn_agent(name: str, prompt: str, model: str = "sonnet") -> str:
             "numbers, hyphens, and underscores (e.g. 'api-spec' or 'roadmap_tasks')."
         )
 
+    # Prepend the torichat-specific close prelude so the subagent treats
+    # the POST /complete as a non-optional final tool call rather than
+    # drifting into the natural-exit path that tripped the stale-sweep
+    # fallback notification for every torichat-spawned agent.
+    final_prompt = _torichat_close_prelude(clean_name) + "\n\n---\n\n" + prompt
+
     try:
         # Use the API endpoint so it's tracked consistently
         import httpx
         async with httpx.AsyncClient(verify=False) as client:
             resp = await client.post(
                 "https://127.0.0.1:8000/api/agents/spawn",
-                json={"name": clean_name, "prompt": prompt, "model": model, "budget": 2.0},
+                json={"name": clean_name, "prompt": final_prompt, "model": model, "budget": 2.0},
                 timeout=10,
             )
             if resp.status_code == 200:

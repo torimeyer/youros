@@ -825,3 +825,104 @@ class TestDeleteEmailsTool:
                 {"query": "from:anyone"},
             )
         assert "Gmail is not connected" in result
+
+
+# ---- torichat spawn-agent close prelude ----
+
+class TestTorichatSpawnClosePrelude:
+    """Regression: every torichat-spawned agent was hitting the stale-sweep
+    fallback summary ``Agent finished its work. It didn't formally close the
+    task``. Root cause: claude-code subagents exit naturally at end-of-turn
+    without executing the POST /complete sidecar curl buried in the long
+    mailbox block. Fix: `_spawn_agent` now prepends a short, loud prelude
+    making the /complete call the final tool call.
+    """
+
+    def test_prelude_contains_complete_endpoint_and_agent_name(self):
+        from services.tool_executor import _torichat_close_prelude
+
+        block = _torichat_close_prelude("fix-tests-42")
+
+        assert "/agents/fix-tests-42/complete" in block
+        assert "final tool call" in block.lower()
+        assert "curl" in block
+        # Agent-facing instruction must be unambiguous about formally closing.
+        assert "close" in block.lower()
+
+    @pytest.mark.asyncio
+    async def test_spawn_agent_prepends_close_prelude_to_prompt(self):
+        """The prompt POSTed to /agents/spawn must include the close prelude
+        above the user's prompt so the subagent reads it first.
+        """
+        from services.tool_executor import _spawn_agent
+
+        captured_payloads = []
+
+        class _FakeResp:
+            status_code = 200
+            def json(self):
+                return {"pid": 12345}
+
+        class _FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *a):
+                return False
+            async def post(self, url, json=None, timeout=None):
+                captured_payloads.append({"url": url, "json": json})
+                return _FakeResp()
+
+        with patch("httpx.AsyncClient", _FakeClient):
+            result = await _spawn_agent(
+                "diagnose-chat-bug",
+                "Find the bug in chat.py and fix it.",
+                "sonnet",
+            )
+
+        assert "spawned and running" in result
+        assert len(captured_payloads) == 1
+        posted_prompt = captured_payloads[0]["json"]["prompt"]
+        # Prelude above the user task.
+        assert "/agents/diagnose-chat-bug/complete" in posted_prompt
+        assert posted_prompt.index("/complete") < posted_prompt.index(
+            "Find the bug"
+        )
+        # User prompt still reaches the agent unmodified.
+        assert "Find the bug in chat.py and fix it." in posted_prompt
+
+    @pytest.mark.asyncio
+    async def test_spawn_agent_prelude_uses_actual_agent_name(self):
+        """Defence against a copy-paste regression where the prelude gets
+        hard-coded to a placeholder name. The agent's OWN name must appear
+        in the /complete URL so the curl is runnable without edits.
+        """
+        from services.tool_executor import _spawn_agent
+
+        captured = []
+
+        class _FakeResp:
+            status_code = 200
+            def json(self):
+                return {"pid": 1}
+
+        class _FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *a):
+                return False
+            async def post(self, url, json=None, timeout=None):
+                captured.append(json)
+                return _FakeResp()
+
+        with patch("httpx.AsyncClient", _FakeClient):
+            await _spawn_agent("unique-name-abc", "do something", "sonnet")
+
+        prompt = captured[0]["prompt"]
+        assert "/agents/unique-name-abc/complete" in prompt
+        # No stray placeholder names.
+        assert "AGENT_NAME" not in prompt
+        assert "<name>" not in prompt
