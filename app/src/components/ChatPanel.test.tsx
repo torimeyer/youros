@@ -22,6 +22,7 @@ Element.prototype.scrollIntoView = vi.fn()
 
 // Mock the useWebSocket hook
 const mockConnect = vi.fn()
+const mockDisconnect = vi.fn()
 const mockSend = vi.fn()
 let mockLastMessage: { type: string; data?: unknown } | null = null
 let mockIsConnected = true
@@ -29,6 +30,7 @@ let mockIsConnected = true
 vi.mock('../hooks/useWebSocket', () => ({
   useWebSocket: () => ({
     connect: mockConnect,
+    disconnect: mockDisconnect,
     send: mockSend,
     get lastMessage() { return mockLastMessage },
     isConnected: mockIsConnected,
@@ -1028,6 +1030,44 @@ describe('ChatPanel', () => {
       expect(mockSend).toHaveBeenCalledWith(
         expect.objectContaining({ model: '@gemini' })
       )
+    })
+  })
+
+  describe('Close button (X) hides the panel without crashing', () => {
+    it('clicking X calls toggleChat and the panel disappears from the DOM', async () => {
+      // Render with chatOpen: true (set in beforeEach)
+      render(<ChatPanel />)
+
+      // The panel should be visible
+      expect(screen.getByTitle('Clear all chat history')).toBeTruthy()
+
+      // Click the X close button — it calls toggleChat which flips chatOpen to false
+      const closeBtn = screen.getByRole('button', { name: /close/i })
+      await act(async () => {
+        fireEvent.click(closeBtn)
+      })
+
+      // chatOpen is now false; the component returns null so the panel is gone
+      expect(screen.queryByTitle('Clear all chat history')).toBeNull()
+    })
+
+    it('panel can be re-opened after closing without errors', async () => {
+      render(<ChatPanel />)
+
+      // Close
+      const closeBtn = screen.getByRole('button', { name: /close/i })
+      await act(async () => {
+        fireEvent.click(closeBtn)
+      })
+      expect(screen.queryByTitle('Clear all chat history')).toBeNull()
+
+      // Re-open by flipping chatOpen back to true
+      await act(async () => {
+        useAppStore.setState({ chatOpen: true })
+      })
+
+      // Panel should render again without any crash
+      expect(screen.getByTitle('Clear all chat history')).toBeTruthy()
     })
   })
 

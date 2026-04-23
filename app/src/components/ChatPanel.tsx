@@ -1325,6 +1325,37 @@ export function ChatPanel() {
     return () => window.removeEventListener('resize', handleWindowResize)
   }, [chatWidth, setChatWidth])
 
+  const toggleSpeech = useCallback(() => {
+    if (isListening && speechRecRef.current) {
+      speechRecRef.current.stop()
+      setIsListening(false)
+      return
+    }
+    const SpeechRec = (window as unknown as Record<string, unknown>).SpeechRecognition || (window as unknown as Record<string, unknown>).webkitSpeechRecognition
+    if (!SpeechRec) return
+    const recognition = new (SpeechRec as new () => SpeechRecognition)()
+    recognition.lang = 'en-US'
+    recognition.interimResults = false
+    recognition.maxAlternatives = 1
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const transcript = event.results[0]?.[0]?.transcript ?? ''
+      if (transcript) {
+        setInput((prev) => (prev ? prev + ' ' + transcript : transcript))
+      }
+    }
+    recognition.onend = () => {
+      setIsListening(false)
+      speechRecRef.current = null
+    }
+    recognition.onerror = () => {
+      setIsListening(false)
+      speechRecRef.current = null
+    }
+    speechRecRef.current = recognition
+    recognition.start()
+    setIsListening(true)
+  }, [isListening])
+
   if (!chatOpen) return null
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -1551,37 +1582,6 @@ export function ChatPanel() {
       side_by_side: sideBySideEnabled,
     })
   }
-
-  const toggleSpeech = useCallback(() => {
-    if (isListening && speechRecRef.current) {
-      speechRecRef.current.stop()
-      setIsListening(false)
-      return
-    }
-    const SpeechRec = (window as unknown as Record<string, unknown>).SpeechRecognition || (window as unknown as Record<string, unknown>).webkitSpeechRecognition
-    if (!SpeechRec) return
-    const recognition = new (SpeechRec as new () => SpeechRecognition)()
-    recognition.lang = 'en-US'
-    recognition.interimResults = false
-    recognition.maxAlternatives = 1
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? ''
-      if (transcript) {
-        setInput((prev) => (prev ? prev + ' ' + transcript : transcript))
-      }
-    }
-    recognition.onend = () => {
-      setIsListening(false)
-      speechRecRef.current = null
-    }
-    recognition.onerror = () => {
-      setIsListening(false)
-      speechRecRef.current = null
-    }
-    speechRecRef.current = recognition
-    recognition.start()
-    setIsListening(true)
-  }, [isListening])
 
   const handleSend = () => {
     if (!input.trim() && !pendingImage) return
