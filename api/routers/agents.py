@@ -3051,6 +3051,40 @@ def _spawn_quick_mode(body: "AgentSpawn") -> bool:
     return False
 
 
+# Agent statuses that indicate "live work is happening on behalf of a task".
+# ``running`` is the default spawn state. ``spawned`` is written by a few
+# legacy paths. ``in_progress`` is used by claude-code hook rows that
+# register an active subagent. Agents with ``completed_at`` set are NOT
+# live even if their ``status`` key was not updated (e.g. a stale row).
+_LIVE_AGENT_STATUSES = {"running", "spawned", "in_progress"}
+
+
+def get_running_task_ids() -> set[str]:
+    """Return the set of task ids that have at least one live agent.
+
+    "Live" means an agent row in ``agent_metadata`` whose ``status`` is
+    in ``_LIVE_AGENT_STATUSES`` AND which has no ``completed_at``
+    timestamp stamped. The Tasks list endpoint uses this to force a
+    task's effective status to ``in_progress`` whenever any agent
+    spawned for it is still working, regardless of which spawn path
+    created the agent. See AgentSpawn.task_id in models/schemas.py for
+    how the link is recorded.
+    """
+    live: set[str] = set()
+    for _name, meta in agent_metadata.items():
+        if not isinstance(meta, dict):
+            continue
+        tid = meta.get("task_id")
+        if not tid:
+            continue
+        if meta.get("completed_at"):
+            continue
+        status = str(meta.get("status") or "").lower()
+        if status in _LIVE_AGENT_STATUSES:
+            live.add(str(tid))
+    return live
+
+
 @router.post("/agents/spawn")
 async def spawn_agent(body: AgentSpawn, request: Request = None):
     from config import PROJECT_ROOT
@@ -3316,7 +3350,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         # can see the CLI error message without re-running under strace.
         stderr_log_path = transcript_path.with_suffix(transcript_path.suffix + ".stderr.log")
 
-        async def _drain_stderr(p, name: str, tpath: Path, slog: Path) -> None:
+        async def _drain_stderr(p, name: str, tpath: Path, slog: Path, template: str = "") -> None:
             buffered = bytearray()
             try:
                 with open(str(slog), "wb") as sfh:
@@ -3356,12 +3390,29 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         "spawn.fast_exit name=%s rc=%s stderr=%r",
                         name, rc, bytes(buffered)[:400],
                     )
+                # Quick-mode roadmap agents write JSON to stdout (transcript)
+                # and exit without calling /complete, so _save_agent_output_to_files
+                # is never triggered by the normal /complete path. Fire it here
+                # once the subprocess exits cleanly.
+                if rc == 0 and _is_roadmap_agent(name, template):
+                    try:
+                        content = tpath.read_text(encoding="utf-8", errors="replace").strip()
+                        if content:
+                            _save_agent_output_to_files(name, content)
+                        _now_c = datetime.now(timezone.utc).isoformat()
+                        _m = agent_metadata.get(name)
+                        if _m and _m.get("status") == "running":
+                            _m["status"] = "completed"
+                            _m["completed_at"] = _now_c
+                            _save_agent_state()
+                    except Exception as _qc_exc:
+                        logger.warning("roadmap.quick_complete name=%s err=%s", name, _qc_exc)
             except Exception:
                 pass
 
         try:
             asyncio.create_task(
-                _drain_stderr(proc, body.name, transcript_path, stderr_log_path)
+                _drain_stderr(proc, body.name, transcript_path, stderr_log_path, body.template or "")
             )
         except Exception:
             pass
@@ -3415,6 +3466,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             spawn_meta["task"] = body.task
         if body.description:
             spawn_meta["description"] = body.description
+        # Originating task linkage: persist the task_id into metadata so
+        # that the task list endpoint can cheaply compute "is a live
+        # agent working on this task?" without re-joining against any
+        # external audit log. Empty string check so explicit "" from
+        # callers never lands as a bogus key in the agents-by-task map.
+        if body.task_id:
+            spawn_meta["task_id"] = body.task_id
         # Always stamp a real source. When the caller does not specify one,
         # default to "api" so the list endpoint never falls back to the
         # audit-log's "source=audit" placeholder (which is filtered out of
@@ -3448,6 +3506,17 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                            "--data", json.dumps(audit_data))
         except Exception:
             pass
+
+        # Originating task linkage is stored via spawn_meta["task_id"]
+        # above. The effective ``in_progress`` label on the task is
+        # computed on read (see routers.tasks.list_tasks and the
+        # ``get_running_task_ids`` helper in this module) so that the
+        # label follows the live-agent signal in both directions: on
+        # when an agent is working, off when the last one ends. We do
+        # not write the status back into issues.jsonl here because
+        # that would leave the task "in_progress" forever after the
+        # agent finished. Terminal states (closed, shelved) are
+        # preserved by the overlay logic itself.
 
         return {
             "result": f"Agent '{body.name}' spawned",
@@ -4804,7 +4873,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
 
     # Log to audit so the audit_agents() helper also reflects completion
     _emit_audit_event("agent.completed", {"name": name})
-    trace_event("agent_completed", name=name)
+    trace_event("agent_completed", agent_name=name)
 
     # Write a transcript marker so the status check finds it even on
     # legacy rows. IMPORTANT: only write the stub if no real transcript
