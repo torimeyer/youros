@@ -105,6 +105,11 @@ interface AppState {
   setIsResizing: (v: boolean) => void
   osName: string
   setOsName: (name: string) => void
+  // Per-instance name. myOS is the product. Every user picks what their
+  // own copy is called. Default matches the product so a user who never
+  // changes it still sees "myOS" in the UI. Tori's copy is "toriOS".
+  instanceName: string
+  setInstanceName: (name: string) => void
   darkMode: boolean
   toggleDarkMode: () => void
   accentColor: AccentColor
@@ -177,6 +182,7 @@ const LS_KEYS = {
   darkMode: 'myos-dark-mode',
   accentColor: 'myos-accent-color',
   osName: 'myos-os-name',
+  instanceName: 'myos-instance-name',
   defaultChatModel: 'myos-default-chat-model',
   sideBySideEnabled: 'myos-ephemeral-side-by-side-enabled',
   useOstkTerms: 'myos-use-ostk-terms',
@@ -265,6 +271,7 @@ const initialOnboarded = lsGet(LS_KEYS.onboarded) === 'true'
 const initialDarkMode = lsGet(LS_KEYS.darkMode) !== 'false'
 const initialAccentColor = (lsGet(LS_KEYS.accentColor) as AccentColor) || 'blue'
 const initialOsName = lsGet(LS_KEYS.osName) || 'myOS'
+const initialInstanceName = lsGet(LS_KEYS.instanceName) || 'myOS'
 const initialDefaultChatModel = lsGet(LS_KEYS.defaultChatModel) || 'claude'
 const initialSideBySideEnabled = lsGet(LS_KEYS.sideBySideEnabled) === 'true'
 const initialUseOstkTerms = lsGet(LS_KEYS.useOstkTerms) === 'true'
@@ -371,6 +378,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     lsSet(LS_KEYS.osName, osName)
     set({ osName })
     patchServer({ os_name: osName })
+  },
+  instanceName: initialInstanceName,
+  setInstanceName: (instanceName) => {
+    lsSet(LS_KEYS.instanceName, instanceName)
+    set({ instanceName })
+    patchServer({ instance_name: instanceName })
   },
   darkMode: initialDarkMode,
   toggleDarkMode: () => {
@@ -627,6 +640,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       lsSet(LS_KEYS.osName, v)
     } else if (state.osName && state.osName !== 'myOS') {
       backfill.os_name = state.osName
+    }
+
+    // instance_name. The user-picked name for this specific install.
+    // Defaults to the product name ("myOS") so every surface reads
+    // correctly for a user who has not renamed their copy.
+    if (hasValue(server.instance_name)) {
+      const v = String(server.instance_name)
+      updates.instanceName = v
+      lsSet(LS_KEYS.instanceName, v)
+    } else if (state.instanceName && state.instanceName !== 'myOS') {
+      backfill.instance_name = state.instanceName
     }
 
     // instance_mode

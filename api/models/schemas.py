@@ -67,6 +67,12 @@ class HayConvert(BaseModel):
 class Settings(BaseModel):
     onboarded: bool = False
     os_name: str = "myOS"
+    # Instance name shown in the app. myOS is the product; every user
+    # names their own instance. Default matches the product name so the
+    # app still reads correctly for a user who never changes it. Tori's
+    # instance is "toriOS". Set by the onboarding wizard and the
+    # Settings page.
+    instance_name: str = "myOS"
     user_name: str = ""
     dark_mode: bool = True
     accent_color: str = "blue"

@@ -7,6 +7,7 @@ import { api } from "../lib/api";
 import SharePopover from "../components/SharePopover";
 import { renderMarkdown } from "../lib/markdown";
 import { EmptyState, LoadingState, ErrorBanner } from "../components/ui";
+import { useAppStore } from "../stores/app";
 
 interface MessageCounts {
   user: number;
@@ -58,6 +59,7 @@ interface TranscriptListResponse {
 }
 
 export default function Transcripts({ embedded }: { embedded?: boolean }) {
+  const instanceName = useAppStore((s) => s.instanceName);
   const [searchParams] = useSearchParams();
   const [transcripts, setTranscripts] = useState<TranscriptSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -256,7 +258,7 @@ export default function Transcripts({ embedded }: { embedded?: boolean }) {
                         msg.role === "user" ? "text-blue-400" : "text-purple-400"
                       }`}
                     >
-                      {msg.role === "user" ? "You" : "myOS"}
+                      {msg.role === "user" ? "You" : instanceName}
                     </span>
                     {msg.timestamp && (
                       <span className="text-xs text-slate-500 ml-auto">{msg.timestamp}</span>
