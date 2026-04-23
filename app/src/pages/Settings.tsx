@@ -39,6 +39,12 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
   { name: 'Slack', description: 'Send messages and read channels', icon: 'forum', npmPackage: '@modelcontextprotocol/server-slack', setupCommand: 'npx -y @modelcontextprotocol/server-slack', requiresAuth: true, authHint: 'Needs a Slack bot key from your Slack app settings.' },
   { name: 'Figma', description: 'Access and inspect design files', icon: 'palette', npmPackage: 'figma-mcp', setupCommand: 'npx -y figma-mcp', requiresAuth: true, authHint: 'Needs a Figma access key from figma.com/developers.' },
   { name: 'Google Drive', description: 'Access Google Docs, Sheets, and Drive files', icon: 'folder_shared', npmPackage: '@modelcontextprotocol/server-gdrive', setupCommand: 'npx -y @modelcontextprotocol/server-gdrive', requiresAuth: true, authHint: 'Needs Google OAuth credentials (client ID and secret)' },
+  { name: 'Linear', description: 'Manage issues, projects, and teams in Linear', icon: 'track_changes', npmPackage: '@linear/mcp-server', setupCommand: 'npx -y @linear/mcp-server', requiresAuth: true, authHint: 'Needs a Linear API key from linear.app/settings/api.' },
+  { name: 'Notion', description: 'Read and write pages, databases, and blocks in Notion', icon: 'article', npmPackage: '@notionhq/mcp', setupCommand: 'npx -y @notionhq/mcp', requiresAuth: true, authHint: 'Needs a Notion integration token from notion.so/my-integrations.' },
+  { name: 'Jira', description: 'Search, create, and update Jira issues and projects', icon: 'bug_report', npmPackage: 'mcp-server-jira', setupCommand: 'npx -y mcp-server-jira', requiresAuth: true, authHint: 'Needs a Jira API token and your Atlassian account email.' },
+  { name: 'Sentry', description: 'Query errors, issues, and performance data from Sentry', icon: 'error_outline', npmPackage: '@sentry/mcp-server', setupCommand: 'npx -y @sentry/mcp-server', requiresAuth: true, authHint: 'Needs a Sentry auth token from sentry.io/settings/account/api/auth-tokens.' },
+  { name: 'Stripe', description: 'Look up customers, payments, and subscriptions', icon: 'credit_card', npmPackage: '@stripe/mcp', setupCommand: 'npx -y @stripe/mcp --tools=all', requiresAuth: true, authHint: 'Needs a Stripe secret key (set STRIPE_SECRET_KEY).' },
+  { name: 'Airtable', description: 'Read and write Airtable bases, tables, and records', icon: 'table_chart', npmPackage: 'airtable-mcp-server', setupCommand: 'npx -y airtable-mcp-server', requiresAuth: true, authHint: 'Needs an Airtable personal access token from airtable.com/create/tokens.' },
 ];
 
 interface SettingsData {
