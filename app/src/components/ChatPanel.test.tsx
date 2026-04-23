@@ -2658,6 +2658,47 @@ describe('ChatPanel', () => {
       expect(screen.queryByText(/finished\./i)).toBeNull()
       expect(screen.queryByText(/failed\./i)).toBeNull()
     })
+
+    it('shows the in-progress banner while the agent is running', async () => {
+      const apiMod = await import('../lib/api')
+      const getMock = apiMod.api.get as unknown as ReturnType<typeof vi.fn>
+
+      getMock.mockImplementation((path: string) => {
+        if (path === '/chat/history') {
+          return Promise.resolve({ tabs: [], active_tab_id: '' })
+        }
+        if (path.startsWith('/agents/')) {
+          return Promise.resolve({
+            exists: true,
+            terminal: false,
+            status: 'running',
+            feedback: null,
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'saa banner test' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'tool_use',
+        data: {
+          tool: 'spawn_agent',
+          id: 'tc-banner-1',
+          input: { name: 'banner-agent', prompt: 'go' },
+        },
+      }
+      rerender(<ChatPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-running-banner')).toBeTruthy()
+      })
+      expect(screen.getByText(/banner-agent is running/i)).toBeTruthy()
+    })
   })
 
 })

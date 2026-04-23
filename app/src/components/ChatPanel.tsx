@@ -2219,6 +2219,27 @@ export function ChatPanel() {
         />
       )}
 
+      {/* In-progress banner: shown while one or more agents spawned from
+          chat are still running. Disappears automatically when the agent
+          finishes and the polling effect appends the completion bubble. */}
+      {trackedAgents.length > 0 && (
+        <div
+          data-testid="agent-running-banner"
+          className="mx-3 mb-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/25 text-xs text-blue-300"
+        >
+          <span className="inline-flex items-center gap-1 shrink-0">
+            <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          </span>
+          <span className="truncate">
+            {trackedAgents.length === 1
+              ? `${trackedAgents[0].name} is running`
+              : `${trackedAgents.length} agents running`}
+          </span>
+        </div>
+      )}
+
       <div className="p-3">
         {/* Reply preview bar */}
         {replyingTo && (
