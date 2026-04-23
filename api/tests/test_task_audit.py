@@ -92,8 +92,15 @@ async def test_completed_verdict_goes_to_review_list():
 
 
 @pytest.mark.asyncio
-async def test_recently_touched_task_routed_to_review_without_calling_classifier():
-    """Anything touched in the last day lands in review regardless of verdict."""
+async def test_recently_touched_task_is_skipped_entirely_no_close_suggestion():
+    """A recently touched task must never appear in the review list.
+
+    Recency is never grounds for a close suggestion. The old behavior
+    auto-parked fresh work in review with a "you just touched this"
+    label, which made no sense to the user. The audit now skips
+    recently touched tasks entirely: the classifier is never called,
+    and the task does not appear in any bucket.
+    """
     tasks = [_make_task(id="t-200", title="Write docs", created_at=_fresh_ts())]
     classify_mock = AsyncMock(return_value='{"verdict": "completed", "evidence": "x", "duplicate_of": null}')
     with patch.object(task_audit.ostk, "list_tasks", AsyncMock(return_value=tasks)):
@@ -102,11 +109,11 @@ async def test_recently_touched_task_routed_to_review_without_calling_classifier
             await task_audit.run_audit_job(job_id)
 
     state = task_audit.get_audit_status(job_id)
-    review = state["results"]["review"]
-    assert len(review) == 1
-    assert review[0]["reason_guess"] == "recently_touched"
-    assert review[0]["reason_label"] == "You just touched this, please confirm"
-    # Recently touched tasks skip the classifier entirely.
+    assert state["status"] == "done"
+    # Recently touched: no review entry, no close suggestion, no classifier call.
+    assert state["results"]["review"] == []
+    assert state["results"]["closed"] == []
+    assert state["results"]["skipped_irl"] == 0
     classify_mock.assert_not_awaited()
 
 
@@ -258,12 +265,137 @@ def test_review_only_invariant_constant_exists():
 
 @pytest.mark.asyncio
 async def test_duplicate_verdict_exposes_duplicate_of_field():
+    """Duplicate close suggestion must reference another OPEN task."""
     tasks = [
         _make_task(id="t-500", title="Add search bar", created_at=_old_ts()),
+        _make_task(id="t-12", title="Search bar", created_at=_old_ts()),
+    ]
+
+    async def fake_classify(task, *args, **kwargs):
+        if task["id"] == "t-500":
+            return (
+                '{"verdict": "duplicate", "evidence": "same as task t-12", '
+                '"duplicate_of": "t-12"}'
+            )
+        return '{"verdict": "review", "evidence": "unsure", "duplicate_of": null}'
+
+    with patch.object(task_audit.ostk, "list_tasks", AsyncMock(return_value=tasks)):
+        with patch.object(
+            task_audit, "_classify_with_claude", side_effect=fake_classify
+        ):
+            job_id = task_audit.start_audit_job()
+            await task_audit.run_audit_job(job_id)
+
+    state = task_audit.get_audit_status(job_id)
+    review = state["results"]["review"]
+    entry = next(e for e in review if e["task_id"] == "t-500")
+    assert entry["reason_guess"] == "duplicate"
+    assert entry["duplicate_of"] == "t-12"
+    assert "t-12" in entry["reason_label"]
+
+
+@pytest.mark.asyncio
+async def test_closed_tasks_are_filtered_before_audit_runs():
+    """Any row whose status is not 'open' must be dropped before classify.
+
+    Defensive filter for the scope bug: ostk.list_tasks(status="open") is
+    supposed to only return open tasks but the audit saw 26 rows when
+    only 17 were open. The audit now filters to status == "open" before
+    running so closed rows never reach the classifier regardless of how
+    ostk framed the query.
+    """
+    tasks = [
+        _make_task(id="t-open-1", title="Open task one", created_at=_old_ts()),
+        {
+            "id": "t-closed-1",
+            "title": "Already closed",
+            "priority": "P1",
+            "status": "closed",
+            "description": "",
+            "created_at": _old_ts(),
+        },
+        {
+            "id": "t-abandoned-1",
+            "title": "Abandoned",
+            "priority": "P1",
+            "status": "abandoned",
+            "description": "",
+            "created_at": _old_ts(),
+        },
+        _make_task(id="t-open-2", title="Open task two", created_at=_old_ts()),
+    ]
+
+    classify_mock = AsyncMock(
+        return_value='{"verdict": "review", "evidence": "unsure", "duplicate_of": null}'
+    )
+    with patch.object(task_audit.ostk, "list_tasks", AsyncMock(return_value=tasks)):
+        with patch.object(task_audit, "_classify_with_claude", classify_mock):
+            job_id = task_audit.start_audit_job()
+            await task_audit.run_audit_job(job_id)
+
+    state = task_audit.get_audit_status(job_id)
+    # total reflects only the open tasks, not the closed/abandoned rows.
+    assert state["total"] == 2
+    # Classifier was called exactly twice, once per open task.
+    assert classify_mock.await_count == 2
+    # Closed/abandoned tasks never appear anywhere in results.
+    seen_ids = {
+        e.get("task_id")
+        for e in state["results"]["review"]
+        + state["results"]["closed"]
+    }
+    assert "t-closed-1" not in seen_ids
+    assert "t-abandoned-1" not in seen_ids
+
+
+@pytest.mark.asyncio
+async def test_duplicate_verdict_only_suggests_close_when_other_task_is_open():
+    """A duplicate close suggestion must reference an actually-open task.
+
+    If the classifier says "duplicate" but names a duplicate_of that is
+    not in the open tasks list, we fall through to the neutral review
+    bucket instead of suggesting a close. This prevents the audit from
+    inventing close suggestions based on similarity alone.
+    """
+    tasks = [
+        _make_task(id="t-dup-src", title="Add search bar", created_at=_old_ts()),
+        _make_task(id="t-dup-target", title="Search bar widget", created_at=_old_ts()),
+    ]
+
+    async def fake_classify(task, *args, **kwargs):
+        if task["id"] == "t-dup-src":
+            return (
+                '{"verdict": "duplicate", "evidence": "same as t-dup-target", '
+                '"duplicate_of": "t-dup-target"}'
+            )
+        return '{"verdict": "review", "evidence": "unsure", "duplicate_of": null}'
+
+    with patch.object(task_audit.ostk, "list_tasks", AsyncMock(return_value=tasks)):
+        with patch.object(task_audit, "_classify_with_claude", side_effect=fake_classify):
+            job_id = task_audit.start_audit_job()
+            await task_audit.run_audit_job(job_id)
+
+    state = task_audit.get_audit_status(job_id)
+    review = state["results"]["review"]
+    src_entry = next(e for e in review if e["task_id"] == "t-dup-src")
+    assert src_entry["reason_guess"] == "duplicate"
+    assert src_entry["duplicate_of"] == "t-dup-target"
+
+
+@pytest.mark.asyncio
+async def test_already_implemented_task_gets_close_suggestion():
+    """A completed verdict with code evidence produces a close suggestion."""
+    tasks = [
+        _make_task(
+            id="t-done",
+            title="Add dark mode toggle",
+            created_at=_old_ts(),
+        ),
     ]
     verdict_json = (
-        '{"verdict": "duplicate", "evidence": "same as task t-12", '
-        '"duplicate_of": "t-12"}'
+        '{"verdict": "completed", "evidence": '
+        '"toggle implemented in app/src/theme.tsx line 42", '
+        '"duplicate_of": null}'
     )
     with patch.object(task_audit.ostk, "list_tasks", AsyncMock(return_value=tasks)):
         with patch.object(
@@ -276,9 +408,69 @@ async def test_duplicate_verdict_exposes_duplicate_of_field():
     review = state["results"]["review"]
     assert len(review) == 1
     entry = review[0]
-    assert entry["reason_guess"] == "duplicate"
-    assert entry["duplicate_of"] == "t-12"
-    assert "t-12" in entry["reason_label"]
+    assert entry["task_id"] == "t-done"
+    assert entry["reason_guess"] == "completed"
+    assert entry["reason_label"] == "This looks already done"
+    assert "theme.tsx" in entry["evidence"]
+
+
+@pytest.mark.asyncio
+async def test_archived_verdict_does_not_produce_close_suggestion():
+    """Archived / no-longer-relevant verdicts must NOT suggest closing.
+
+    The only grounds for a close suggestion are duplicate or already
+    implemented. A task that sounds like old thinking stays open.
+    """
+    tasks = [
+        _make_task(
+            id="t-old-thinking",
+            title="Port v1 widget to v2",
+            created_at=_old_ts(),
+        ),
+    ]
+    verdict_json = (
+        '{"verdict": "archived", "evidence": "v1 widget subsystem was removed", '
+        '"duplicate_of": null}'
+    )
+    with patch.object(task_audit.ostk, "list_tasks", AsyncMock(return_value=tasks)):
+        with patch.object(
+            task_audit, "_classify_with_claude", AsyncMock(return_value=verdict_json)
+        ):
+            job_id = task_audit.start_audit_job()
+            await task_audit.run_audit_job(job_id)
+
+    state = task_audit.get_audit_status(job_id)
+    review = state["results"]["review"]
+    assert len(review) == 1
+    entry = review[0]
+    # Must NOT be a close suggestion. Neutral review bucket only.
+    assert entry["reason_guess"] == "review"
+    assert entry["reason_label"] == "Unsure, please confirm"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_verdict_without_matching_open_task_degrades_to_review():
+    """If duplicate_of points at no open task, suppress the close suggestion."""
+    tasks = [
+        _make_task(id="t-lonely", title="Add X", created_at=_old_ts()),
+    ]
+    verdict_json = (
+        '{"verdict": "duplicate", "evidence": "same as t-ghost", '
+        '"duplicate_of": "t-ghost"}'
+    )
+    with patch.object(task_audit.ostk, "list_tasks", AsyncMock(return_value=tasks)):
+        with patch.object(
+            task_audit, "_classify_with_claude", AsyncMock(return_value=verdict_json)
+        ):
+            job_id = task_audit.start_audit_job()
+            await task_audit.run_audit_job(job_id)
+
+    state = task_audit.get_audit_status(job_id)
+    review = state["results"]["review"]
+    assert len(review) == 1
+    entry = review[0]
+    assert entry["reason_guess"] == "review"
+    assert entry["reason_label"] == "Unsure, please confirm"
 
 
 # ---------------------------------------------------------------------------

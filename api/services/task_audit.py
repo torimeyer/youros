@@ -11,13 +11,18 @@ list. No code path in this module may call ostk.close_task. Closing
 lives exclusively in the router's /approve endpoint, which only runs
 when the user clicks the Close button for one specific task.
 
-Five verdicts are possible:
+Close suggestions fire in ONLY two cases:
 
-- ``completed``: the feature already exists in the codebase.
-- ``duplicate``: another task covers the same work.
-- ``archived``: the task is code work but no longer relevant.
+- ``completed``: the feature already exists in the codebase (evidence
+  points to a real file, symbol, or regression test).
+- ``duplicate``: another open task covers the same work.
+
+Every other verdict keeps the task open. Recency, staleness, or a task
+sounding like old thinking are NEVER grounds for a close suggestion.
+Recently touched tasks are skipped from the audit entirely.
+
 - ``skipped_irl``: the task is not code work at all (e.g. "buy groceries").
-- ``review``: unsure, or the task was touched in the last day.
+- ``review``: unsure. Stays open with a plain note, never a close suggestion.
 
 The classifier boundary is :func:`_classify_with_claude` which mirrors the
 pattern used by :mod:`services.label_suggester`. Tests mock that function
@@ -178,18 +183,20 @@ def get_audit_status(job_id: str) -> Optional[dict[str, Any]]:
 def remove_review_entry(job_id: str, task_id: str) -> bool:
     """Drop a task from the review list so the UI can shrink.
 
-    Returns True when the entry was found and removed. Used by the
-    /reject endpoint when the user decides to keep a task open after all.
+    Removes every review entry whose task_id matches so duplicate rows
+    (which can appear when the background audit runs twice for the same
+    job id under test harnesses) never leave a stale shadow in the UI.
+    Returns True when at least one entry was removed.
     """
     state = _jobs.get(job_id)
     if state is None:
         return False
     review = state["results"]["review"]
-    for i, entry in enumerate(review):
-        if entry.get("task_id") == task_id:
-            review.pop(i)
-            return True
-    return False
+    before = len(review)
+    state["results"]["review"] = [
+        e for e in review if e.get("task_id") != task_id
+    ]
+    return len(state["results"]["review"]) < before
 
 
 def record_closed_entry(
@@ -443,14 +450,22 @@ def _build_prompt(
         "completed unless there is direct contradictory evidence.\n"
         "- Use completed when the evidence names a real file path or "
         "code symbol that clearly implements the task, or when a matching "
-        "regression test class exists.\n"
-        "- Use duplicate only when another task in the titles list "
-        "describes the same work. Put that task id in duplicate_of.\n"
+        "regression test class exists. This is the ONLY 'already "
+        "implemented' path to a close suggestion.\n"
+        "- Use duplicate only when ANOTHER OPEN task in the titles list "
+        "describes the same work. Put that task id in duplicate_of. This "
+        "is the ONLY 'duplicate' path to a close suggestion.\n"
+        "- Never pick a close-suggestion verdict (completed or duplicate) "
+        "based on recency, staleness, title similarity, or a sense that "
+        "the task sounds like old thinking. If you cannot point to real "
+        "code evidence or a named open duplicate, use review.\n"
         "- Use archived only when the task references a removed or "
-        "rewritten subsystem.\n"
+        "rewritten subsystem. Archived does NOT produce a close "
+        "suggestion. It is a signal for the human to look.\n"
         "- Use skipped_irl when the task is a chore like 'buy groceries', "
         "'call mom', 'book flights', or any non code errand.\n"
-        "- Use review only when you are truly unsure.\n"
+        "- Use review whenever you are not sure. Review is the safe "
+        "default.\n"
         "- Never include markdown, explanations, or extra keys."
     )
 
@@ -563,17 +578,22 @@ def _parse_verdict(raw: str) -> dict[str, Any]:
 
 
 def _plain_reason_label(verdict: str, duplicate_of: Optional[str]) -> str:
-    """Return a short plain language label for a review entry."""
+    """Return a short plain language label for a review entry.
+
+    Only ``completed`` and ``duplicate`` produce close suggestions.
+    Every other verdict maps to a neutral "please confirm" label so
+    the UI never recommends closing on weak grounds like recency or
+    a vibe that the task is old thinking.
+    """
     if verdict == "completed":
         return "This looks already done"
     if verdict == "duplicate":
         if duplicate_of:
             return f"This looks like a duplicate of {duplicate_of}"
         return "This looks like a duplicate of another task"
-    if verdict == "archived":
-        return "This may no longer be relevant"
     if verdict == "skipped_irl":
         return "This looks like a real-life chore"
+    # archived, review, or anything else: keep open, just flag for a look.
     return "Unsure, please confirm"
 
 
@@ -609,6 +629,13 @@ async def run_audit_job(job_id: str) -> None:
         )
         return
 
+    # Defensive filter. ``list_tasks(status="open")`` is supposed to only
+    # return open tasks but the audit scope bug (26 audited vs 17 open)
+    # showed that closed rows can still leak through. Drop any row whose
+    # status is not exactly "open" so closed/archived/abandoned tasks can
+    # never be audited, regardless of how ostk framed the query.
+    tasks = [t for t in tasks if (t.get("status") or "").lower() == "open"]
+
     state["total"] = len(tasks)
     all_titles = [
         f"{t.get('id', '')}: {t.get('title', '')}"
@@ -620,15 +647,12 @@ async def run_audit_job(job_id: str) -> None:
     for task in tasks:
         task_id = task.get("id", "") or ""
         try:
+            # Recently touched tasks are skipped from the audit entirely.
+            # Recency is never grounds for a close suggestion, and we do
+            # not want fresh work to appear in the review list at all.
+            # The task stays open and untouched, the counter still moves
+            # so the UI can show "checked N of M".
             if _is_recently_touched(task, now):
-                state["results"]["review"].append({
-                    "task_id": task_id,
-                    "reason_guess": "recently_touched",
-                    "reason_label": "You just touched this, please confirm",
-                    "evidence": "Task was created or updated in the last day.",
-                    "confidence": "low",
-                    "title": task.get("title", ""),
-                })
                 continue
 
             # Build evidence and other titles for the prompt.
@@ -652,24 +676,62 @@ async def run_audit_job(job_id: str) -> None:
                 state["results"]["skipped_irl"] += 1
                 continue
 
-            if verdict in {"completed", "duplicate", "archived"}:
-                # The service never auto closes. The UI asks the user to
-                # approve each proposed close. Proposals live in review
-                # so the human stays in the loop.
+            # ONLY two verdicts produce a close suggestion:
+            # - completed: the feature is already implemented in the code.
+            # - duplicate: another OPEN task covers the same work.
+            # Everything else (including "archived" / "no longer relevant"
+            # and "review") stays open. We never suggest closing based on
+            # recency, staleness, title similarity, or a sense that a
+            # task sounds like old thinking.
+            if verdict == "duplicate":
+                dup_of = verdict_data.get("duplicate_of")
+                # A duplicate verdict is only actionable when the LLM
+                # actually names another OPEN task. If it does not, fall
+                # through to the neutral review bucket so we do not invent
+                # a close suggestion out of thin air.
+                if dup_of and any(
+                    line.startswith(f"{dup_of}:") for line in all_titles
+                ):
+                    state["results"]["review"].append({
+                        "task_id": task_id,
+                        "reason_guess": "duplicate",
+                        "reason_label": _plain_reason_label(
+                            "duplicate", dup_of
+                        ),
+                        "evidence": verdict_data["evidence"],
+                        "duplicate_of": dup_of,
+                        "confidence": "medium",
+                        "title": task.get("title", ""),
+                    })
+                    continue
+                # No matching open task: keep open with a neutral note.
                 state["results"]["review"].append({
                     "task_id": task_id,
-                    "reason_guess": verdict,
-                    "reason_label": _plain_reason_label(
-                        verdict, verdict_data.get("duplicate_of")
+                    "reason_guess": "review",
+                    "reason_label": _plain_reason_label("review", None),
+                    "evidence": (
+                        "Classifier called this a duplicate but did not "
+                        "name another open task. Keeping open."
                     ),
+                    "confidence": "low",
+                    "title": task.get("title", ""),
+                })
+                continue
+
+            if verdict == "completed":
+                state["results"]["review"].append({
+                    "task_id": task_id,
+                    "reason_guess": "completed",
+                    "reason_label": _plain_reason_label("completed", None),
                     "evidence": verdict_data["evidence"],
-                    "duplicate_of": verdict_data.get("duplicate_of"),
+                    "duplicate_of": None,
                     "confidence": "medium",
                     "title": task.get("title", ""),
                 })
                 continue
 
-            # review verdict or any unknown bucket lands here.
+            # archived, review, or any unknown bucket: keep the task open
+            # with a neutral "please confirm" note. No close suggestion.
             state["results"]["review"].append({
                 "task_id": task_id,
                 "reason_guess": "review",
