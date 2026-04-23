@@ -328,39 +328,41 @@ async def test_fleet_member_complete_writes_md_file(tmp_path: Path):
                     f"/api/agents/{agent_name}/complete",
                     json={"summary": summary},
                 )
-            assert resp.status_code == 200
+                assert resp.status_code == 200
 
-            # File written.
-            artifacts = list(files_dir.glob(f"{agent_name}-*.md"))
-            assert len(artifacts) == 1, f"expected one artifact, got {artifacts}"
-            body = artifacts[0].read_text()
-            assert "source: fleet-build-website-product-manager" in body
-            assert "fleet_id: fleet-build-website" in body
-            assert "fleet_name: Build a Website" in body
-            assert "## Next steps" in body
-            assert "- [ ] Review the PRD with the engineering lead" in body
+                # File written.
+                artifacts = list(files_dir.glob(f"{agent_name}-*.md"))
+                assert len(artifacts) == 1, f"expected one artifact, got {artifacts}"
+                body = artifacts[0].read_text()
+                assert "source: fleet-build-website-product-manager" in body
+                assert "fleet_id: fleet-build-website" in body
+                assert "fleet_name: Build a Website" in body
+                assert "## Next steps" in body
+                assert "- [ ] Review the PRD with the engineering lead" in body
 
-            # Tasks created with plain-language descriptions. The auto-create
-            # pass is fire-and-forget; allow the event loop one tick so the
-            # background task runs before we assert.
-            import asyncio as _asyncio
-            for _ in range(5):
-                await _asyncio.sleep(0)
-                if mock_add.call_count >= 2:
-                    break
-            assert mock_add.call_count >= 2
-            call_titles = [c.args[0] for c in mock_add.call_args_list]
-            assert any("Review the PRD" in t for t in call_titles)
-            assert any("approval workflow" in t for t in call_titles)
-            call_descs = [
-                c.kwargs.get("description", "")
-                for c in mock_add.call_args_list
-            ]
-            assert all(
-                "fleet-build-website-product-manager" in d for d in call_descs
-            )
-            # schedule_auto_labels called for each task.
-            assert mock_schedule.call_count >= 2
+                # Tasks created with plain-language descriptions. The auto-create
+                # pass is fire-and-forget; give the event loop enough ticks for
+                # the background task to start and hit the mock. Must stay
+                # INSIDE the patch context so the mock is still active when the
+                # task actually runs.
+                import asyncio as _asyncio
+                for _ in range(20):
+                    await _asyncio.sleep(0)
+                    if mock_add.call_count >= 2:
+                        break
+                assert mock_add.call_count >= 2
+                call_titles = [c.args[0] for c in mock_add.call_args_list]
+                assert any("Review the PRD" in t for t in call_titles)
+                assert any("approval workflow" in t for t in call_titles)
+                call_descs = [
+                    c.kwargs.get("description", "")
+                    for c in mock_add.call_args_list
+                ]
+                assert all(
+                    "fleet-build-website-product-manager" in d for d in call_descs
+                )
+                # schedule_auto_labels called for each task.
+                assert mock_schedule.call_count >= 2
         finally:
             agent_metadata.pop(agent_name, None)
 
@@ -642,160 +644,3 @@ async def test_auto_create_tasks_fleet_five_roles_same_bullet_one_task():
     assert mock_add.call_count == 1
     assert len(open_store) == 1
 
-
-# ---------------------------------------------------------------------------
-# Demo-timeout placeholder does not create auto-tasks
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_demo_force_complete_writes_nothing_when_transcript_empty(tmp_path: Path):
-    """_schedule_demo_force_complete must NOT write a placeholder .md
-    when the transcript has no meaningful assistant output.
-
-    The old behaviour dropped an apology stub ("Agent on X ran under the
-    demo time cap...") into Recent Documents. That stub referenced an
-    internal path ("shared agent workspace") the user had never seen, and
-    gave her nothing useful to read. The new behaviour is: if there is no
-    real partial output to show, write nothing. The completed_timeout
-    status on the Agents page is enough of an audit trail.
-    """
-    import asyncio as _asyncio
-    from routers import agents as agents_module
-    from routers.agents import agent_metadata, active_agents
-
-    agent_name = "fleet-build-demo-role-e2e-dedupe"
-    agent_metadata[agent_name] = {
-        "spawned_at": "2026-04-16T10:00:00+00:00",
-        "budget": "0.25",
-        "model": "claude-haiku-4-20250514",
-        "source": "claude-code",
-        "template": "Build a Website",
-        "fleet_id": "fleet-build-demo",
-        "fleet_name": "Build a Website",
-        "role": "Product Manager",
-        "status": "running",
-    }
-
-    files_dir = tmp_path / "files"
-
-    try:
-        with patch.object(agents_module, "MYOS_FILES_DIR", files_dir), \
-             patch("routers.agents._save_agent_state"), \
-             patch(
-                 "routers.agents._extract_partial_assistant_output",
-                 return_value="",
-             ), \
-             patch(
-                 "services.automation_outputs.auto_create_tasks",
-                 new=AsyncMock(return_value=[]),
-             ) as mock_auto, \
-             patch(
-                 "services.ostk.ostk.add_task",
-                 new=AsyncMock(return_value=""),
-             ) as mock_add:
-            # deadline=0 means the supervisor's asyncio.sleep finishes
-            # immediately and we hit the placeholder branch right away.
-            await agents_module._schedule_demo_force_complete(
-                agent_name, deadline_seconds=0
-            )
-            # Give any incidental fire-and-forget task one tick to run
-            # so the assertion does not race with scheduling.
-            for _ in range(5):
-                await _asyncio.sleep(0)
-
-        # No artifact should have been written.
-        artifacts = list(files_dir.glob(f"{agent_name}-*.md"))
-        assert artifacts == [], (
-            f"expected NO placeholder artifact for empty transcript, got {artifacts}"
-        )
-
-        # Neither auto_create_tasks nor add_task should have been called.
-        assert mock_auto.call_count == 0, (
-            "demo placeholder must not trigger auto_create_tasks"
-        )
-        assert mock_add.call_count == 0, (
-            "demo placeholder must not create any tasks"
-        )
-
-        # Status was still flipped to completed_timeout so the Agents page
-        # reflects reality even though no file landed.
-        assert agent_metadata[agent_name]["status"] == "completed_timeout"
-    finally:
-        agent_metadata.pop(agent_name, None)
-        active_agents.pop(agent_name, None)
-
-
-@pytest.mark.asyncio
-async def test_demo_force_complete_writes_real_partial_output(tmp_path: Path):
-    """When the transcript has meaningful assistant text, the force-complete
-    hook writes a .md whose body is that real partial output, not the old
-    apology string. Front matter still carries ``kind: fleet-output`` so
-    downstream fleet hooks keep working. Auto-tasks stay suppressed.
-    """
-    import asyncio as _asyncio
-    from routers import agents as agents_module
-    from routers.agents import agent_metadata, active_agents
-
-    agent_name = "fleet-build-demo-role-real-partial"
-    agent_metadata[agent_name] = {
-        "spawned_at": "2026-04-16T10:00:00+00:00",
-        "budget": "0.25",
-        "model": "claude-haiku-4-20250514",
-        "source": "claude-code",
-        "template": "Build a Website",
-        "fleet_id": "fleet-build-demo",
-        "fleet_name": "Build a Website",
-        "role": "Product Manager",
-        "status": "running",
-    }
-
-    partial_output = (
-        "Drafted the homepage hero copy and the pricing table. The hero "
-        "reads 'Ship faster with less ceremony'. Pricing is three tiers: "
-        "Free, Team, Scale. Next step is the testimonials section."
-    )
-    files_dir = tmp_path / "files"
-
-    try:
-        with patch.object(agents_module, "MYOS_FILES_DIR", files_dir), \
-             patch("routers.agents._save_agent_state"), \
-             patch(
-                 "routers.agents._extract_partial_assistant_output",
-                 return_value=partial_output,
-             ), \
-             patch(
-                 "services.automation_outputs.auto_create_tasks",
-                 new=AsyncMock(return_value=[]),
-             ) as mock_auto, \
-             patch(
-                 "services.ostk.ostk.add_task",
-                 new=AsyncMock(return_value=""),
-             ) as mock_add:
-            await agents_module._schedule_demo_force_complete(
-                agent_name, deadline_seconds=0
-            )
-            for _ in range(5):
-                await _asyncio.sleep(0)
-
-        artifacts = list(files_dir.glob(f"{agent_name}-*.md"))
-        assert len(artifacts) == 1, (
-            f"expected one artifact with real partial output, got {artifacts}"
-        )
-        body = artifacts[0].read_text()
-
-        # Body must contain the real work, not the old apology string.
-        assert "Ship faster with less ceremony" in body
-        assert "ran under the demo time cap" not in body
-        assert "shared agent workspace" not in body
-
-        # Front matter still carries the fleet-output kind so downstream
-        # readers still know this came out of a fleet member.
-        assert "kind: fleet-output" in body
-
-        # Auto-task suppression still holds on the real-partial-output path.
-        assert mock_auto.call_count == 0
-        assert mock_add.call_count == 0
-    finally:
-        agent_metadata.pop(agent_name, None)
-        active_agents.pop(agent_name, None)

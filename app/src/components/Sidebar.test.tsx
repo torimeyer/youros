@@ -155,7 +155,7 @@ describe('Sidebar', () => {
     // share a server-filtered set with the Agents page.
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalledWith(
-        '/agents?summary=1&status=running&source=claude-code&limit=20'
+        '/agents?summary=1&status=running&limit=20'
       )
     })
 
@@ -1132,8 +1132,10 @@ describe('Sidebar status panel does not expose Claude indicator', () => {
     })
     expect(systemRow).toBeTruthy()
 
-    // Sessions row is rendered.
-    expect(screen.getByText('No sessions')).toBeTruthy()
+    // Sessions row is only rendered when count > 0. When active_count is
+    // zero the row is omitted entirely (no "No sessions" text).
+    expect(screen.queryByText('No sessions')).toBeNull()
+    expect(screen.queryByText(/session/i)).toBeNull()
 
     // Claude row must not be present. Even though the configured chat
     // model is "claude", the status panel must stay provider-generic.
@@ -1199,12 +1201,16 @@ describe('Sidebar sessions count reflects live sessions, not just active-window 
     expect(screen.queryByText('No sessions')).toBeNull()
   })
 
-  it('renders "No sessions" only when `count` is genuinely zero', async () => {
+  it('omits the sessions row when `count` is genuinely zero', async () => {
+    // When the backend reports zero sessions, the sidebar hides the
+    // sessions row entirely rather than showing "No sessions".
     mockSessions({ count: 0, active_count: 0, idle_count: 0 })
     renderSidebar()
     await waitFor(() => {
-      expect(screen.getByText('No sessions')).toBeTruthy()
+      expect(screen.getByText('Backend')).toBeTruthy()
     })
+    expect(screen.queryByText('No sessions')).toBeNull()
+    expect(screen.queryByText(/session/i)).toBeNull()
   })
 
   it('falls back to `active_count` when backend does not return `count`', async () => {

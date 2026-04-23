@@ -313,7 +313,7 @@ export default function Files() {
   // --- Render ---
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="Files" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-6xl mx-auto">

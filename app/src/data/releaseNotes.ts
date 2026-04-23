@@ -11,6 +11,44 @@ export interface ReleaseGroup {
 
 const releaseNotes: ReleaseGroup[] = [
   {
+    date: '2026-04-22',
+    label: 'April 22, 2026',
+    entries: [
+      {
+        title: 'Real Build-it',
+        description: 'When you click Build-it on a spec, real AI agents now go off and do the actual work. They write code, edit files, and close their tasks when the work lands. Expect it to take a few minutes instead of a few seconds. You will get a notification the moment the feature is ready to try.',
+      },
+      {
+        title: 'Reliable calendar',
+        description: 'Events you create from chat now show up on the Calendar tab right away, no reload needed. Deleting events works whether you made them in chat or directly in Google Calendar, with a 5 second undo window that will not bounce back if something else syncs in the background.',
+      },
+      {
+        title: 'Smoother chat',
+        description: 'Chat responses no longer flicker or rewind while typing. The switch from plain text to styled formatting happens with a quick fade so it feels clean. Long responses stream evenly with no jitter.',
+      },
+      {
+        title: 'A better tour',
+        description: 'The first-time tour now has 7 steps including the Specs and Build-it flow. Tour tooltips stay inside the screen on every step, and the Chat step no longer names just one AI.',
+      },
+      {
+        title: 'Cleaner briefing',
+        description: 'Your daily briefing no longer lists test tasks, scratch notes, or accidental long paste-ins as closed work. Only real tasks make it into the summary.',
+      },
+      {
+        title: 'Accurate session count',
+        description: 'The sidebar badge that shows how many sessions are active now counts only real sessions. Old background reload rows no longer pad the number.',
+      },
+      {
+        title: 'Smarter chat tools',
+        description: 'When Claude uses tools in chat, it now prefers ostk commands over raw shell tools. Cleaner, faster, and it matches the rest of myOS.',
+      },
+      {
+        title: 'Feature completion notification',
+        description: 'When a Build-it finishes, a release notes modal pops up so features never arrive silently. You always know when something new is ready to try.',
+      },
+    ],
+  },
+  {
     date: '2026-04-13',
     label: 'April 13, 2026',
     entries: [

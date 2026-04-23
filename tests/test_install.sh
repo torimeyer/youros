@@ -451,8 +451,11 @@ VERSION=$(curl -fsSL "https://api.github.com/repos/${OSTK_REPO}/releases/latest"
 if [ -n "$VERSION" ]; then
     assert "ostk latest release exists ($VERSION)" 0
 
+    # GitHub tag name is "v4.0.0" but tarball filenames are "ostk-4.0.0-..." (no v).
+    VERSION_NUMBER="${VERSION#v}"
+
     # Check that the Mac ARM binary actually exists
-    TARBALL="ostk-${VERSION}-aarch64-apple-darwin.tar.gz"
+    TARBALL="ostk-${VERSION_NUMBER}-aarch64-apple-darwin.tar.gz"
     URL="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL}"
     HTTP_CODE=$(curl -fsSL -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
     if [ "$HTTP_CODE" = "200" ]; then
@@ -462,7 +465,7 @@ if [ -n "$VERSION" ]; then
     fi
 
     # Check Mac Intel binary
-    TARBALL_INTEL="ostk-${VERSION}-x86_64-apple-darwin.tar.gz"
+    TARBALL_INTEL="ostk-${VERSION_NUMBER}-x86_64-apple-darwin.tar.gz"
     URL_INTEL="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL_INTEL}"
     HTTP_CODE_INTEL=$(curl -fsSL -o /dev/null -w "%{http_code}" "$URL_INTEL" 2>/dev/null || echo "000")
     if [ "$HTTP_CODE_INTEL" = "200" ]; then
@@ -472,7 +475,7 @@ if [ -n "$VERSION" ]; then
     fi
 
     # Check Linux binary
-    TARBALL_LINUX="ostk-${VERSION}-x86_64-unknown-linux-musl.tar.gz"
+    TARBALL_LINUX="ostk-${VERSION_NUMBER}-x86_64-unknown-linux-musl.tar.gz"
     URL_LINUX="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL_LINUX}"
     HTTP_CODE_LINUX=$(curl -fsSL -o /dev/null -w "%{http_code}" "$URL_LINUX" 2>/dev/null || echo "000")
     if [ "$HTTP_CODE_LINUX" = "200" ]; then

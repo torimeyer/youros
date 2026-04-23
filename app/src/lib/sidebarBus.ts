@@ -26,6 +26,13 @@ type Listener = () => void
 const agentsListeners = new Set<Listener>()
 const tasksListeners = new Set<Listener>()
 const specsListeners = new Set<Listener>()
+// Calendar bus. Same pattern as tasks/agents/specs. Pages that create,
+// update, or delete calendar events (the Calendar tab itself, plus
+// chat's create_calendar_event tool_result handler) call bumpCalendar()
+// so the Calendar page refetches right away instead of waiting for a
+// manual reload or its next mount. Needle for "chat adds event but
+// Calendar tab stays stale" bug.
+const calendarListeners = new Set<Listener>()
 
 // Names the user has locally dismissed (cancelled or deleted from the
 // Agents page). Shared at module scope so BOTH the Agents page and the
@@ -37,7 +44,7 @@ const specsListeners = new Set<Listener>()
 const dismissedAgents = new Set<string>()
 
 type BroadcastPayload =
-  | { kind: 'agents' | 'tasks' | 'specs' }
+  | { kind: 'agents' | 'tasks' | 'specs' | 'calendar' }
   | { kind: 'dismiss'; name: string }
 
 // BroadcastChannel is wrapped in a try/catch because some environments
@@ -55,6 +62,8 @@ try {
         fanOut(tasksListeners)
       } else if (kind === 'specs') {
         fanOut(specsListeners)
+      } else if (kind === 'calendar') {
+        fanOut(calendarListeners)
       } else if (kind === 'dismiss') {
         // Another tab just dismissed an agent locally. Mirror it into this
         // tab's set so our Sidebar badge and Agents list filter match.
@@ -100,6 +109,13 @@ export function onSpecsChange(fn: Listener): () => void {
   }
 }
 
+export function onCalendarChange(fn: Listener): () => void {
+  calendarListeners.add(fn)
+  return () => {
+    calendarListeners.delete(fn)
+  }
+}
+
 export function bumpAgents(): void {
   fanOut(agentsListeners)
   // Notify other tabs. postMessage never fires onmessage in the sender,
@@ -129,6 +145,15 @@ export function bumpSpecs(): void {
   }
 }
 
+export function bumpCalendar(): void {
+  fanOut(calendarListeners)
+  try {
+    channel?.postMessage({ kind: 'calendar' } satisfies BroadcastPayload)
+  } catch {
+    // ignore
+  }
+}
+
 // Fire every channel at once. Used by the global freshness hooks
 // (window focus, tab visibility, resume-from-idle) so the whole app
 // "perks up" the moment the user returns or resumes activity. Every
@@ -140,6 +165,7 @@ export function bumpAll(): void {
   bumpAgents()
   bumpTasks()
   bumpSpecs()
+  bumpCalendar()
 }
 
 // Test-only helper.
@@ -147,6 +173,7 @@ export function _resetSidebarBus(): void {
   agentsListeners.clear()
   tasksListeners.clear()
   specsListeners.clear()
+  calendarListeners.clear()
   dismissedAgents.clear()
 }
 

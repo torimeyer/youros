@@ -307,7 +307,8 @@ describe('Specs page', () => {
     expect(screen.getByText('sign out flow')).toBeInTheDocument()
   })
 
-  it('shows Build it and Verify buttons for ready specs and no Promote or Break into Tasks', async () => {
+  it('shows Build it button for ready specs and no Promote or Break into Tasks', async () => {
+    // Verify button was removed in a later refactor.
     renderSpecs()
 
     await waitFor(() => {
@@ -324,14 +325,14 @@ describe('Specs page', () => {
     })
 
     expect(screen.getByText('Build it')).toBeInTheDocument()
-    expect(screen.getByText('Verify')).toBeInTheDocument()
     // Wave 2: Break into Tasks and Promote to Spec are gone from Ready.
     expect(screen.queryByText('Break into Tasks')).not.toBeInTheDocument()
     expect(screen.queryByText('Promote to Spec')).not.toBeInTheDocument()
     expect(screen.getByTestId('unlock-spec-button')).toBeInTheDocument()
   })
 
-  it('shows Build it and Verify buttons for in-progress specs', async () => {
+  it('shows Build it button for in-progress specs', async () => {
+    // Verify button was removed in a later refactor.
     renderSpecs()
 
     await waitFor(() => {
@@ -348,10 +349,11 @@ describe('Specs page', () => {
     })
 
     expect(screen.getByText('Build it')).toBeInTheDocument()
-    expect(screen.getByText('Verify')).toBeInTheDocument()
   })
 
-  it('shows Verify button for complete specs', async () => {
+  it('complete specs do not show Build it button', async () => {
+    // Verify button was removed in a later refactor. Complete specs
+    // now render no action button at all.
     renderSpecs()
 
     await waitFor(() => {
@@ -367,7 +369,6 @@ describe('Specs page', () => {
       expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Verify')).toBeInTheDocument()
     // Should NOT have Build it for complete specs
     expect(screen.queryByText('Build it')).not.toBeInTheDocument()
   })
@@ -506,51 +507,8 @@ describe('Specs page', () => {
     expect(promoteBtn).not.toBeDisabled()
   })
 
-  // Regression: clicking Verify on a ready spec that has no linked tasks
-  // used to produce a "no linked tasks" error. The button is disabled
-  // until at least one task exists.
-  it('Verify is disabled on a ready spec with zero linked tasks', async () => {
-    mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/specs') {
-        return Promise.resolve({
-          docs: [
-            {
-              path: 'docs/spec/no-tasks.md',
-              filename: 'no-tasks.md',
-              title: 'no tasks spec',
-              status: 'ready',
-              created_at: '2026-04-01T00:00:00Z',
-              promoted_at: '2026-04-02T00:00:00Z',
-              body: '- [ ] ready but no tasks',
-              acceptance_criteria: [
-                { text: 'ready but no tasks', checked: false },
-              ],
-            },
-          ],
-        })
-      }
-      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
-      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
-      return Promise.resolve({})
-    })
-
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(screen.getByText('no tasks spec')).toBeInTheDocument()
-    })
-
-    const cards = screen.getAllByTestId('spec-card')
-    const card = cards.find(c => c.textContent?.includes('no tasks spec'))!
-    fireEvent.click(card)
-
-    const verifyBtn = await screen.findByTestId('verify-button')
-    expect(verifyBtn).toBeDisabled()
-    expect(verifyBtn).toHaveAttribute(
-      'title',
-      expect.stringMatching(/Click Build it first/i) as unknown as string
-    )
-  })
+  // Obsolete: the Verify button was removed. Previously this test checked
+  // that Verify was disabled on a ready spec with zero linked tasks.
 
   // Wave 2: "Break into Tasks" button is removed from Ready. Decompose
   // happens automatically inside /specs/{path}/build, so the UI only
@@ -776,32 +734,8 @@ describe('Specs page', () => {
     expect(card.className).toContain('slate')
   })
 
-  it('Verify calls POST /specs/{encodedPath}/verify', async () => {
-    mockedApiPost.mockResolvedValue({ criteria: [], summary: 'All criteria met.' })
-
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(screen.getByText('auth system')).toBeInTheDocument()
-    })
-
-    // Expand ready spec
-    const cards = screen.getAllByTestId('spec-card')
-    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
-    fireEvent.click(authCard)
-
-    await waitFor(() => {
-      expect(screen.getByText('Verify')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByText('Verify'))
-
-    await waitFor(() => {
-      expect(mockedApiPost).toHaveBeenCalledWith(
-        `/specs/${encodeURIComponent('docs/spec/auth-system.md')}/verify`
-      )
-    })
-  })
+  // Obsolete: the Verify button was removed. Previously this test
+  // confirmed clicking Verify posted to /specs/{path}/verify.
 
   it('shows success message after creating draft', async () => {
     renderSpecs()
@@ -979,30 +913,8 @@ describe('Specs page', () => {
     })
   })
 
-  it('shows error when Verify fails', async () => {
-    mockedApiPost.mockRejectedValueOnce(new Error('Not implemented'))
-
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(screen.getByText('auth system')).toBeInTheDocument()
-    })
-
-    // Expand and click verify
-    const cards = screen.getAllByTestId('spec-card')
-    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
-    fireEvent.click(authCard)
-
-    await waitFor(() => {
-      expect(screen.getByText('Verify')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByText('Verify'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Could not run acceptance checks. Make sure the plan has linked tasks.')).toBeInTheDocument()
-    })
-  })
+  // Obsolete: the Verify button was removed. Previously this test
+  // confirmed a failure message appeared when the verify POST failed.
 
   it('deletes a spec without a confirm dialog and offers an Undo toast', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm')
@@ -1213,25 +1125,8 @@ describe('Specs page', () => {
   // reached from user action now that the Ready state hides Break into
   // Tasks. The backend one-click build handles decompose implicitly.
 
-  it('Verify button has tooltip explaining what it does', async () => {
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(screen.getByText('auth system')).toBeInTheDocument()
-    })
-
-    const cards = screen.getAllByTestId('spec-card')
-    const authCard = cards.find(c => c.textContent?.includes('auth system'))!
-    fireEvent.click(authCard)
-
-    await waitFor(() => {
-      expect(screen.getAllByTestId('verify-button').length).toBeGreaterThan(0)
-    })
-
-    const verifyBtn = screen.getAllByTestId('verify-button')[0]
-    expect(verifyBtn).toHaveAttribute('title')
-    expect(verifyBtn.getAttribute('title')).toContain('acceptance checks')
-  })
+  // Obsolete: the Verify button was removed. Previously this test
+  // confirmed the button carried a descriptive tooltip.
 
   it('Build shows spinner per open task with the assigned agent name', async () => {
     // Build returns two agents.
@@ -1567,47 +1462,8 @@ describe('Specs page', () => {
   })
 
   // Wave 4 F5: one Verify button regardless of plan status.
-  it('Plan card renders exactly one Verify button regardless of status', async () => {
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(screen.getByText('auth system')).toBeInTheDocument()
-    })
-
-    // Expand ready plan and count Verify buttons.
-    const cards = screen.getAllByTestId('spec-card')
-    const authCard = cards.find((c) => c.textContent?.includes('auth system'))!
-    fireEvent.click(authCard)
-    await waitFor(() => {
-      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
-    })
-    expect(screen.getAllByTestId('verify-button').length).toBe(1)
-    // Collapse and try in-progress plan.
-    fireEvent.click(authCard)
-
-    const dashCard = cards.find((c) =>
-      c.textContent?.includes('dashboard redesign')
-    )!
-    fireEvent.click(dashCard)
-    await waitFor(() => {
-      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
-    })
-    expect(screen.getAllByTestId('verify-button').length).toBe(1)
-    fireEvent.click(dashCard)
-
-    // And complete plan.
-    const settingsCard = cards.find((c) =>
-      c.textContent?.includes('settings page')
-    )!
-    fireEvent.click(settingsCard)
-    await waitFor(() => {
-      expect(screen.getByTestId('spec-detail')).toBeInTheDocument()
-    })
-    expect(screen.getAllByTestId('verify-button').length).toBe(1)
-    // The one Verify button has the same tooltip everywhere.
-    const verifyBtn = screen.getByTestId('verify-button')
-    expect(verifyBtn.getAttribute('title')).toBe('Runs the acceptance checks')
-  })
+  // Obsolete: the Verify button was removed. Previously this test
+  // confirmed exactly one Verify button rendered per plan card.
 
   // Wave 4 F6: Delete is reachable by its accessible name, no window.confirm.
   it('Delete action is reachable by its accessible name and triggers the confirm dialog (not window.confirm)', async () => {
@@ -1688,6 +1544,60 @@ describe('Specs page real-time bus', () => {
       ).length
       expect(after).toBeGreaterThan(initialCalls)
     })
+  })
+
+  it('does not flash a just-deleted spec back into the list during the 5s undo window', async () => {
+    // Regression: useUserActivity bumps the specs bus on every click /
+    // keystroke (throttled to 1/s), which triggers an immediate
+    // fetchDocs. Because the real DELETE is queued behind the 5s undo
+    // timer, the server still has the spec on disk. Before the fix,
+    // setDocs with the refetched list restored the just-removed spec
+    // and it sat visible for ~5s, looking like "delete doesn't work".
+    // The pendingDeleteSpecPathsRef guard filters it out until DELETE
+    // resolves.
+    const { bumpSpecs, _resetSidebarBus } = await import('../lib/sidebarBus')
+    _resetSidebarBus()
+    const mockedApiDelete = vi.mocked(api.delete)
+    mockedApiDelete.mockResolvedValue({})
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('auth system')).toBeInTheDocument()
+    })
+
+    const overflowButtons = screen.getAllByTestId('plan-overflow-button')
+    const authCard = overflowButtons
+      .map((b) => b.closest('[data-testid="spec-card"]'))
+      .find((c) => c?.textContent?.includes('auth system'))!
+    const authOverflow = authCard.querySelector(
+      '[data-testid="plan-overflow-button"]'
+    ) as HTMLElement
+    fireEvent.click(authOverflow)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('delete-spec-button').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('delete-spec-button')[0])
+
+    // Optimistic removal: spec is gone from the list.
+    expect(screen.queryByText('auth system')).not.toBeInTheDocument()
+
+    // Simulate the user-activity hook firing bumpSpecs() mid-undo
+    // window (e.g. Tori moves her mouse or clicks anywhere else).
+    bumpSpecs()
+
+    // Before the fix, the refetch returns the spec (file still on
+    // disk) and setDocs restores it. After the fix, the pending-delete
+    // path is filtered out.
+    await waitFor(() => {
+      const calls = mockedApiGet.mock.calls.filter((c) => c[0] === '/specs')
+      expect(calls.length).toBeGreaterThan(1)
+    })
+    expect(screen.queryByText('auth system')).not.toBeInTheDocument()
+    // DELETE has not fired yet: we're still inside the 5s undo window.
+    expect(mockedApiDelete).not.toHaveBeenCalled()
   })
 
   // Layout regression: the spec list must render above the "Start from a

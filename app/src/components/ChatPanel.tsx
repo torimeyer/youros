@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Icon from './Icon'
 import ConfirmModal from './ConfirmModal'
 import { useConfirm } from '../hooks/useConfirm'
 import { useAppStore } from '../stores/app'
+import { useNotificationStore } from '../stores/notifications'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { renderMarkdown, renderTextWithMarkdown } from '../lib/markdown'
 import { api } from '../lib/api'
-import { bumpAgents } from '../lib/sidebarBus'
+import { bumpAgents, bumpCalendar } from '../lib/sidebarBus'
 import {
   isRoadmapToTasksRequest,
   type RoadmapToTasksResponse,
@@ -16,6 +17,15 @@ import {
 // We still mirror to localStorage so the very first paint after a hard
 // refresh shows messages instantly while the server fetch is in flight.
 const CHAT_CACHE_KEY = 'myos-chat-messages'
+
+// localStorage key for the id of the most recent feature-live notification
+// the All pill has already pulsed for. Prevents the pulse from re-firing
+// on every ChatPanel mount after the feature has already landed.
+const ALL_PILL_PULSE_KEY = 'myos-ephemeral-all-pill-pulsed-for'
+
+// How long the All pill pulses + shows the "New" badge after a Build-it
+// landing. 5 seconds matches the auto-dismiss window of the toast.
+const ALL_PILL_PULSE_MS = 5000
 
 interface ChatHistoryPayload {
   tabs: ChatTab[]
@@ -171,25 +181,62 @@ function ThinkingDots() {
 function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: boolean; streaming: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const isLong = text.length > 300
-  // While streaming the last message, only show last ~200 chars to reduce noise
-  if (streaming && isLast && isLong && !expanded) {
-    const lastChunk = text.slice(-200)
-    const breakPoint = lastChunk.indexOf('. ')
-    const display = breakPoint > 0 ? lastChunk.slice(breakPoint + 2) : lastChunk
+  const isActivelyStreaming = streaming && isLast
+
+  // Track whether this bubble was JUST streaming on the previous render.
+  // The streaming-to-done handoff is when the bubble swaps from plain text
+  // to parsed markdown. Even though both state updates commit together,
+  // the DOM mutation from a <div whitespace-pre-wrap> holding raw text
+  // like "**bold**" to a <div> holding <strong>bold</strong> can briefly
+  // paint the plain-text view if the browser begins painting before the
+  // full DOM reconciliation lands. We hide that flash by rendering the
+  // parsed markdown behind a short opacity transition: the plain-text
+  // version fades out while the styled version fades in, so there is no
+  // moment where raw markdown is visible.
+  const wasStreamingRef = useRef(isActivelyStreaming)
+  const [justFinished, setJustFinished] = useState(false)
+  useEffect(() => {
+    if (wasStreamingRef.current && !isActivelyStreaming) {
+      // We just transitioned from streaming to done. Play the fade.
+      setJustFinished(true)
+      const timer = setTimeout(() => setJustFinished(false), 220)
+      wasStreamingRef.current = isActivelyStreaming
+      return () => clearTimeout(timer)
+    }
+    wasStreamingRef.current = isActivelyStreaming
+  }, [isActivelyStreaming])
+
+  // While the bubble is still actively streaming, render the raw text with
+  // whitespace preserved rather than parsed markdown. Parsing markdown on
+  // every new token causes the rendered tree to flicker: a half-written
+  // fenced code block collapses into a <pre>, a partial [link](url) shifts
+  // layout when the closing ) arrives, and so on. Plain text with
+  // whitespace-pre-wrap gives a stable, monotonically growing view. The
+  // final markdown render happens once streaming ends.
+  //
+  // We also deliberately do NOT slice to the last 200 characters here. The
+  // old behavior computed `text.slice(-200)` and then trimmed to the next
+  // ". " boundary, which meant the visible text would jump backwards every
+  // time a new sentence finished inside the sliding window. That looked
+  // exactly like "types a sentence then deletes it".
+  if (isActivelyStreaming) {
     return (
-      <div>
-        <button onClick={() => setExpanded(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mb-1">
-          Show full response ({text.length} chars)
-        </button>
-        <div className="chat-bubble-content">{renderMarkdown(display)}</div>
+      <div className="chat-bubble-content whitespace-pre-wrap break-words">
+        {text}
       </div>
     )
   }
+
+  // Class applied on the first paint after streaming ends. CSS transitions
+  // opacity from 0 to 1 over ~200ms so any paint race at the handoff is
+  // hidden behind the fade instead of flashing raw markdown at the user.
+  const fadeClass = justFinished ? 'opacity-0 animate-fade-in-fast' : ''
+
   if (!streaming && isLong && !expanded) {
     // After streaming is done, show first 300 chars with expand option
     return (
       <div>
-        <div className="chat-bubble-content">{renderMarkdown(text.slice(0, 300))}...</div>
+        <div className={`chat-bubble-content ${fadeClass}`}>{renderMarkdown(text.slice(0, 300))}...</div>
         <button onClick={() => setExpanded(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mt-1">
           Show more
         </button>
@@ -197,8 +244,8 @@ function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: bo
     )
   }
   return (
-    <div className="chat-bubble-content">
-      {renderMarkdown(text)}
+    <div className={`chat-bubble-content ${fadeClass}`}>
+      <MemoMarkdown text={text} />
       {isLong && expanded && (
         <button onClick={() => setExpanded(false)} className="block text-[10px] text-blue-400 hover:text-blue-300 mt-1">
           Show less
@@ -206,6 +253,14 @@ function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: bo
       )}
     </div>
   )
+}
+
+// Memoize the full markdown render so a settled bubble does not rebuild its
+// virtual DOM every time an unrelated piece of ChatPanel state changes. Keyed
+// purely on the text content, which is the only input that changes the output.
+function MemoMarkdown({ text }: { text: string }) {
+  const nodes = useMemo(() => renderMarkdown(text), [text])
+  return <>{nodes}</>
 }
 
 function ReplyPreview({ message, onClick }: { message: Message | undefined; onClick?: () => void }) {
@@ -303,8 +358,35 @@ function GiphyPicker({ initialSearch, onSelect, onClose }: {
 }
 
 export function ChatPanel() {
-  const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel, setDefaultChatModel } = useAppStore()
+  const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel, setDefaultChatModel, sideBySideEnabled, setSideBySideEnabled } = useAppStore()
   const displayOsName = useAppStore((s) => s.displayOsName())
+
+  // One-time "New" pulse on the All pill after a Build-it feature lands.
+  // Reads lastFeatureLive from the notifications store (set when the
+  // TopBar poll picks up a spec_complete row). Fires for ALL_PILL_PULSE_MS
+  // and then settles. Dedup'd in localStorage on the notification id so
+  // re-mounting the panel on a later page visit does not re-pulse.
+  const lastFeatureLive = useNotificationStore((s) => s.lastFeatureLive)
+  const [allPillPulse, setAllPillPulse] = useState(false)
+  useEffect(() => {
+    if (!lastFeatureLive) return
+    let alreadyPulsed: string | null = null
+    try {
+      alreadyPulsed = window.localStorage.getItem(ALL_PILL_PULSE_KEY)
+    } catch {
+      // storage unavailable; fall through and pulse anyway so the user
+      // still sees the signal.
+    }
+    if (alreadyPulsed === lastFeatureLive.id) return
+    setAllPillPulse(true)
+    try {
+      window.localStorage.setItem(ALL_PILL_PULSE_KEY, lastFeatureLive.id)
+    } catch {
+      // ignore
+    }
+    const t = window.setTimeout(() => setAllPillPulse(false), ALL_PILL_PULSE_MS)
+    return () => window.clearTimeout(t)
+  }, [lastFeatureLive])
 
   // --- Tab state ---
   // First paint reads cached messages from localStorage so the panel is
@@ -378,6 +460,20 @@ export function ChatPanel() {
   // Held in a ref so updating it does not re-run the lastMessage
   // effect, which would otherwise loop on the same event.
   const currentBubbleIdRef = useRef<string | null>(null)
+  // Maps model name ("claude", "gemini") to the bubble id currently
+  // receiving that model's tokens. Populated on multi_ai_turn_start and
+  // cleared on multi_ai_turn_end. Used by parallel broadcast fan-out:
+  // when the backend sends a token frame with a `model` field, we route
+  // the text into the bubble that matches, rather than the most recently
+  // opened bubble. Without this map, two parallel streams would collide
+  // inside a single bubble.
+  const bubbleIdByModelRef = useRef<Map<string, string>>(new Map())
+  // State-backed mirror of bubbleIdByModelRef so bubble renders can show
+  // a thinking indicator for every model currently in flight, not just
+  // the most recently opened bubble. Populated on multi_ai_turn_start,
+  // cleared on multi_ai_turn_end. Drives the parallel thinking-dots
+  // render path for the All pill.
+  const [activeStreamingBubbleIds, setActiveStreamingBubbleIds] = useState<Set<string>>(new Set())
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
   // Set of thread root ids that are currently collapsed.
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(new Set())
@@ -510,12 +606,20 @@ export function ChatPanel() {
       // Ensure streaming state is active so ThinkingDots shows
       setIsStreaming(true)
     } else if (lastMessage.type === 'token') {
+      // Model-tagged tokens (sent by parallel broadcast) must route to
+      // the bubble for that specific model, not the most recently
+      // opened bubble. Without this, two parallel streams collide
+      // inside one bubble and the other bubble stays blank.
+      const tokenModel = (lastMessage as unknown as { model?: string }).model
+      const routedBubbleId =
+        (tokenModel && bubbleIdByModelRef.current.get(tokenModel)) ||
+        currentBubbleIdRef.current
       setMessages(prev => {
         // When a multi-AI turn is active, route the token into the
         // bubble for the speaker so the tokens never bleed into a
         // previous bubble. Otherwise fall back to the legacy
         // append-to-last-assistant path the single-model flow uses.
-        const bubbleId = currentBubbleIdRef.current
+        const bubbleId = routedBubbleId
         if (bubbleId) {
           // Cancel any pending Done. grace timer for this bubble.
           const existing = doneGraceTimersRef.current.get(bubbleId)
@@ -605,14 +709,46 @@ export function ChatPanel() {
       // Open a brand new assistant bubble for this turn and switch the
       // current bubble pointer so subsequent tokens land in it. If the
       // last bubble is the empty placeholder pushed by sendMessage,
-      // reuse it for the first turn so the panel does not show a
+      // reuse it for the FIRST turn only so the panel does not show a
       // dangling empty bubble above the conversation.
+      //
+      // The backend fires a turn_start for every model UP FRONT in the
+      // parallel broadcast (All pill) case, so we may get two of these
+      // back to back before any tokens arrive. Each one gets its own
+      // bubble, and the model-to-bubble map lets token/error frames tag
+      // themselves with a `model` field to land in the right bubble
+      // even while the sibling model is still streaming. The reuse is
+      // gated on bubbleIdByModelRef being empty: once we have mapped
+      // any model to a bubble in this burst, every subsequent turn_start
+      // must push a NEW bubble. Without this gate the second turn_start
+      // would reuse the first model's empty bubble (both model labels
+      // get mapped to the same bubble id) and the parallel fan-out
+      // collapses to a single bubble that both streams dump into.
       const data = lastMessage.data as unknown as { model: string; round: number }
       if (!data?.model) return
+      // Optimistic-placeholder reconciliation: in broadcast mode
+      // sendMessage pre-creates one bubble per model so thinking dots
+      // render side by side from the first commit. If that placeholder
+      // already exists, reuse it instead of pushing a new bubble. This
+      // keeps the two optimistic bubbles stable while tokens arrive.
+      const existingBubbleId = bubbleIdByModelRef.current.get(data.model)
+      if (existingBubbleId) {
+        currentBubbleIdRef.current = existingBubbleId
+        setActiveStreamingBubbleIds(prev => {
+          if (prev.has(existingBubbleId)) return prev
+          const next = new Set(prev)
+          next.add(existingBubbleId)
+          return next
+        })
+        setIsStreaming(true)
+        return
+      }
       const newBubbleId = genId()
+      const canReusePlaceholder = bubbleIdByModelRef.current.size === 0
       setMessages(prev => {
         const last = prev[prev.length - 1]
         if (
+          canReusePlaceholder &&
           last &&
           last.role === 'assistant' &&
           !last.content &&
@@ -627,21 +763,53 @@ export function ChatPanel() {
         ]
       })
       currentBubbleIdRef.current = newBubbleId
+      bubbleIdByModelRef.current.set(data.model, newBubbleId)
+      setActiveStreamingBubbleIds(prev => {
+        const next = new Set(prev)
+        next.add(newBubbleId)
+        return next
+      })
       setIsStreaming(true)
     } else if (lastMessage.type === 'multi_ai_turn_end') {
       // Close the current bubble. The bubble stays in the list, just
       // no longer accepts streaming tokens. A late stray token after
       // turn_end is dropped, which is the safe behavior.
+      const endData = lastMessage.data as unknown as { model?: string }
+      if (endData?.model) {
+        const endedBubbleId = bubbleIdByModelRef.current.get(endData.model)
+        bubbleIdByModelRef.current.delete(endData.model)
+        if (endedBubbleId) {
+          setActiveStreamingBubbleIds(prev => {
+            if (!prev.has(endedBubbleId)) return prev
+            const next = new Set(prev)
+            next.delete(endedBubbleId)
+            return next
+          })
+        }
+      }
       currentBubbleIdRef.current = null
     } else if (lastMessage.type === 'tool_use') {
       const data = lastMessage.data as unknown as { tool: string; input: Record<string, unknown>; id: string }
+      // Route tool_use frames by the top-level model field when the
+      // backend stamps one (broadcast path). Without this the Claude
+      // tool call lands in whichever bubble happens to be last in the
+      // message list, which is Gemini's bubble whenever Gemini's
+      // turn_start fired second. Falls back to the last assistant
+      // bubble for the single-model path where no model tag is sent.
+      const toolModel = (lastMessage as unknown as { model?: string }).model
+      const routedBubbleId = toolModel ? bubbleIdByModelRef.current.get(toolModel) : undefined
       setMessages(prev => {
         const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last && last.role === 'assistant') {
-          const calls = [...(last.toolCalls ?? [])]
+        let idx = updated.length - 1
+        if (routedBubbleId) {
+          const found = updated.findIndex(m => m.id === routedBubbleId)
+          if (found !== -1) idx = found
+        }
+        const target = updated[idx]
+        if (target && target.role === 'assistant') {
+          const calls = [...(target.toolCalls ?? [])]
           calls.push({ id: data.id, tool: data.tool, input: data.input })
-          updated[updated.length - 1] = { ...last, toolCalls: calls }
+          updated[idx] = { ...target, toolCalls: calls }
         }
         return updated
       })
@@ -669,39 +837,79 @@ export function ChatPanel() {
       }
     } else if (lastMessage.type === 'mcp_tool_use') {
       const data = lastMessage.data as unknown as { tool: string; server: string; input: Record<string, unknown>; id: string }
+      const toolModel = (lastMessage as unknown as { model?: string }).model
+      const routedBubbleId = toolModel ? bubbleIdByModelRef.current.get(toolModel) : undefined
       setMessages(prev => {
         const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last && last.role === 'assistant') {
-          const calls = [...(last.toolCalls ?? [])]
+        let idx = updated.length - 1
+        if (routedBubbleId) {
+          const found = updated.findIndex(m => m.id === routedBubbleId)
+          if (found !== -1) idx = found
+        }
+        const target = updated[idx]
+        if (target && target.role === 'assistant') {
+          const calls = [...(target.toolCalls ?? [])]
           calls.push({ id: data.id, tool: data.tool, input: data.input, isMcp: true, mcpServer: data.server })
-          updated[updated.length - 1] = { ...last, toolCalls: calls }
+          updated[idx] = { ...target, toolCalls: calls }
         }
         return updated
       })
     } else if (lastMessage.type === 'tool_result') {
       const data = lastMessage.data as unknown as { id: string; result: string }
+      // Find the bubble that owns this tool call by id, regardless of
+      // which bubble happens to be last. In broadcast mode the Claude
+      // tool result could arrive while Gemini's bubble is still
+      // streaming tokens.
+      let matchedToolName: string | undefined
       setMessages(prev => {
         const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last && last.role === 'assistant' && last.toolCalls) {
-          const calls = last.toolCalls.map(tc =>
-            tc.id === data.id ? { ...tc, result: data.result } : tc,
-          )
-          updated[updated.length - 1] = { ...last, toolCalls: calls }
+        const ownerIdx = updated.findIndex(
+          m => m.role === 'assistant' && m.toolCalls?.some(tc => tc.id === data.id),
+        )
+        const idx = ownerIdx !== -1 ? ownerIdx : updated.length - 1
+        const target = updated[idx]
+        if (target && target.role === 'assistant' && target.toolCalls) {
+          const calls = target.toolCalls.map(tc => {
+            if (tc.id === data.id) {
+              matchedToolName = tc.tool
+              return { ...tc, result: data.result }
+            }
+            return tc
+          })
+          updated[idx] = { ...target, toolCalls: calls }
         }
         return updated
       })
+      // When the chat assistant creates a calendar event, tell the
+      // Calendar page to refetch immediately. The backend tool handler
+      // writes directly through services.calendar.create_event so the
+      // normal "bump on POST /calendar" path in api.ts never fires for
+      // chat-driven creates. Without this the Calendar tab stays stale
+      // until the user reloads. Only bump on apparent success. The tool
+      // returns a string starting with "Created calendar event" on
+      // success and "Could not..." or "Google Calendar is not connected"
+      // on failure, which we skip.
+      if (
+        matchedToolName === 'create_calendar_event' &&
+        typeof data.result === 'string' &&
+        data.result.startsWith('Created calendar event')
+      ) {
+        bumpCalendar()
+      }
     } else if (lastMessage.type === 'mcp_tool_result') {
       const data = lastMessage.data as unknown as { id: string; result: string; is_error: boolean }
       setMessages(prev => {
         const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last && last.role === 'assistant' && last.toolCalls) {
-          const calls = last.toolCalls.map(tc =>
+        const ownerIdx = updated.findIndex(
+          m => m.role === 'assistant' && m.toolCalls?.some(tc => tc.id === data.id),
+        )
+        const idx = ownerIdx !== -1 ? ownerIdx : updated.length - 1
+        const target = updated[idx]
+        if (target && target.role === 'assistant' && target.toolCalls) {
+          const calls = target.toolCalls.map(tc =>
             tc.id === data.id ? { ...tc, result: data.is_error ? `Error: ${data.result}` : data.result } : tc,
           )
-          updated[updated.length - 1] = { ...last, toolCalls: calls }
+          updated[idx] = { ...target, toolCalls: calls }
         }
         return updated
       })
@@ -728,8 +936,16 @@ export function ChatPanel() {
         const updated = [...prev]
         const last = updated[updated.length - 1]
         if (last && last.role === 'assistant') {
-          // Stamp the model name if we know it.
-          const withModel = currentModel ? { ...last, model: currentModel } : last
+          // Stamp the model name only when the bubble does not already
+          // carry one. In parallel broadcast the Claude turn_start and
+          // Gemini turn_start already stamp each bubble with its own
+          // model via bubbleIdByModelRef, so overwriting here would
+          // flip the last bubble's label to currentModel (the dropdown
+          // default) and cause the visible relabel bug where Gemini's
+          // bubble suddenly renders with a Claude header.
+          const withModel = currentModel && !last.model
+            ? { ...last, model: currentModel }
+            : last
           // Close any tool calls that never received a result event.
           // The claude-code provider handles tools internally and never
           // sends tool_result messages, so result stays undefined
@@ -750,6 +966,11 @@ export function ChatPanel() {
       // still go away when the stream ends.
       setMultiAiStatus(null)
       currentBubbleIdRef.current = null
+      // Clear per-model tracking so stale thinking indicators from a
+      // stream that did not emit a proper turn_end (e.g. backend
+      // crashed mid-stream) do not leak into the next turn.
+      bubbleIdByModelRef.current.clear()
+      setActiveStreamingBubbleIds(new Set())
       // Start the 500ms grace window before showing "Done." in the bubble.
       // Some providers (Gemini) can flush a `done` event slightly before
       // their last text tokens reach the client, so we delay the fallback
@@ -793,21 +1014,41 @@ export function ChatPanel() {
         doneGraceTimersRef.current.set(msgId, timer)
       }
     } else if (lastMessage.type === 'error') {
-      setIsStreaming(false)
-      setPlaceholderAwaitingServer(false)
-      setCurrentModel(null)
-      setMultiAiStatus(null)
-      currentBubbleIdRef.current = null
+      // If the error is tagged with a model, it belongs to just that
+      // model's bubble in a parallel broadcast. Don't tear down the
+      // whole streaming state, because the sibling model is still
+      // running. Only globally reset when the error is ungrouped
+      // (single-model flow) or when it's the last outstanding model.
+      const errorModel = (lastMessage as unknown as { model?: string }).model
+      const targetBubbleId = errorModel
+        ? bubbleIdByModelRef.current.get(errorModel)
+        : undefined
+      const hasOtherModelStreaming =
+        errorModel &&
+        Array.from(bubbleIdByModelRef.current.keys()).some(m => m !== errorModel)
+
+      if (!hasOtherModelStreaming) {
+        setIsStreaming(false)
+        setPlaceholderAwaitingServer(false)
+        setCurrentModel(null)
+        setMultiAiStatus(null)
+        currentBubbleIdRef.current = null
+      }
       setMessages(prev => {
         const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last && last.role === 'assistant') {
+        let idx = updated.length - 1
+        if (targetBubbleId) {
+          const found = updated.findIndex(m => m.id === targetBubbleId)
+          if (found !== -1) idx = found
+        }
+        const target = updated[idx]
+        if (target && target.role === 'assistant') {
           // Flag the bubble so the UI renders an inline Retry button.
           // Re-send logic: the Retry button finds the last user message
           // in this tab and replays its content through sendMessage, so
           // the user never has to re-type after a mid-turn socket drop.
-          updated[updated.length - 1] = {
-            ...last,
+          updated[idx] = {
+            ...target,
             content: `Error: ${lastMessage.data}`,
             isError: true,
           }
@@ -1149,6 +1390,7 @@ export function ChatPanel() {
     const mentionMatch = text.match(/@(\w+)/i)
     const detectedModel = mentionMatch ? mentionMatch[1].toLowerCase() : defaultChatModel
 
+    const updatedMessages = [...messages, userMessage]
     const assistantMessage: Message = {
       id: genId(),
       role: 'assistant',
@@ -1156,7 +1398,6 @@ export function ChatPanel() {
       model: detectedModel,
       thread_id: replyThreadId,
     }
-    const updatedMessages = [...messages, userMessage]
     setMessages([...updatedMessages, assistantMessage])
     setIsStreaming(true)
     setPlaceholderAwaitingServer(true)
@@ -1201,6 +1442,9 @@ export function ChatPanel() {
       tab_id: activeTabId,
       replyToId: replyingTo || undefined,
       thread_id: replyThreadId || undefined,
+      // All pill: when sideBySideEnabled is on, fan out to Claude
+      // AND Gemini in parallel on the backend.
+      side_by_side: sideBySideEnabled,
     })
   }
 
@@ -1302,6 +1546,9 @@ export function ChatPanel() {
       messages: apiMessages,
       tools: toolsEnabled,
       tab_id: activeTabId,
+      // All pill: when sideBySideEnabled is on, fan out to Claude
+      // AND Gemini in parallel on the backend.
+      side_by_side: sideBySideEnabled,
     })
   }
 
@@ -1525,7 +1772,7 @@ export function ChatPanel() {
   return (
     <div
       data-tour="chat"
-      className="fixed inset-0 lg:inset-auto lg:top-0 lg:right-0 lg:h-screen bg-slate-950 lg:border-l border-slate-800 z-50 flex flex-col"
+      className="fixed inset-0 lg:inset-auto lg:top-0 lg:right-0 lg:h-dvh bg-slate-950 lg:border-l border-slate-800 z-50 flex flex-col"
       style={{ ['--chat-w' as string]: `${chatWidth}px` }}
     >
       <style>{`@media (min-width: 1024px) { [data-tour="chat"] { width: var(--chat-w) !important; } }`}</style>
@@ -1648,7 +1895,16 @@ export function ChatPanel() {
 
           // Helper: render a single bubble. isThread=true means it is
           // inside a thread block (indented, left-border style).
-          const renderBubble = (msg: Message, globalIdx: number, isThread: boolean) => {
+          // inBroadcastColumn=true means this bubble is one of the two
+          // cells inside a "grid grid-cols-2" broadcast wrapper, so it
+          // must stretch to fill its column instead of sizing to its
+          // content.
+          const renderBubble = (
+            msg: Message,
+            globalIdx: number,
+            isThread: boolean,
+            inBroadcastColumn: boolean = false,
+          ) => {
             const isEmpty = !msg.content && !msg.toolCalls?.length && !msg.gifUrl && !msg.imageUrl
             if (isEmpty && msg.role === 'assistant' && multiAiStatus && globalIdx === messages.length - 1) return null
             // Suppress truly empty finalized assistant bubbles. These appear when
@@ -1661,7 +1917,7 @@ export function ChatPanel() {
                 key={msg.id}
                 id={`msg-${msg.id}`}
                 data-testid={`bubble-${msg.id}`}
-                className={`group transition-all rounded-xl ${msg.role === 'user' ? 'flex flex-col items-end' : ''} ${isThread ? 'ml-2' : ''}`}
+                className={`group transition-all rounded-xl ${inBroadcastColumn ? 'min-w-0 w-full' : ''} ${msg.role === 'user' ? 'flex flex-col items-end' : ''} ${isThread ? 'ml-2' : ''}`}
               >
                 {/* Reply context within a thread */}
                 {msg.replyTo && isThread && (
@@ -1710,12 +1966,12 @@ export function ChatPanel() {
                   </div>
                 )}
 
-                <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%] w-fit' : 'max-w-[85%] w-fit'}`}>
+                <div className={`relative ${msg.role === 'user' ? 'ml-auto max-w-[75%] w-fit' : inBroadcastColumn ? 'w-full min-w-0' : 'max-w-[85%] w-fit'}`}>
                   <div
                     className={
                       msg.role === 'user'
                         ? 'inline-block bg-blue-500/20 text-blue-100 px-4 py-2.5 rounded-2xl rounded-br-sm text-sm break-words overflow-hidden'
-                        : `inline-block border px-4 py-3 rounded-xl text-sm text-slate-300 overflow-hidden break-words ${
+                        : `${inBroadcastColumn ? 'block w-full' : 'inline-block'} border px-4 py-3 rounded-xl text-sm text-slate-300 overflow-hidden break-words ${
                             msg.model ? MODEL_BG[msg.model] ?? 'bg-slate-900 border-slate-800' : 'bg-slate-900 border-slate-800'
                           }`
                     }
@@ -1765,7 +2021,16 @@ export function ChatPanel() {
                             Retry
                           </button>
                         )}
-                        {globalIdx === messages.length - 1 && !multiAiStatus && (isStreaming || placeholderAwaitingServer) && !msg.toolCalls?.length && (
+                        {globalIdx === messages.length - 1 && !multiAiStatus && (isStreaming || placeholderAwaitingServer) && !msg.toolCalls?.length && !activeStreamingBubbleIds.has(msg.id) && (
+                          <ThinkingDots />
+                        )}
+                        {/* Parallel broadcast case: every bubble with an
+                            active turn_start but no tokens yet gets its
+                            own thinking indicator, not just the last
+                            one. Without this the second model in the
+                            fan-out appears as a blank bubble while only
+                            the first shows activity. */}
+                        {activeStreamingBubbleIds.has(msg.id) && !msg.content?.trim() && !msg.toolCalls?.length && (
                           <ThinkingDots />
                         )}
                         {isStreaming && globalIdx === messages.length - 1 && (msg.toolCalls?.some(tc => tc.result === undefined)) && (
@@ -1847,44 +2112,83 @@ export function ChatPanel() {
 
           // Render root messages. For each root message that has thread
           // children, render them in a collapsible block directly below.
-          return messages
-            .filter(m => !m.thread_id)
-            .map((msg) => {
-              const globalIdx = messages.indexOf(msg)
-              const threadChildren = threadMap.get(msg.id) ?? []
-              const isCollapsed = collapsedThreads.has(msg.id)
+          // Broadcast pairs: when two adjacent assistant root messages
+          // are tagged with different models (claude + gemini) they form
+          // one broadcast turn. Wrap them in a 2-column grid so both
+          // bubbles sit at the same top and stream independently down
+          // each column, instead of stacking vertically.
+          const rootMessages = messages.filter(m => !m.thread_id)
+          const rendered: React.ReactNode[] = []
+          let i = 0
+          while (i < rootMessages.length) {
+            const msg = rootMessages[i]
+            const next = rootMessages[i + 1]
+            const isBroadcastPair =
+              msg.role === 'assistant' &&
+              next?.role === 'assistant' &&
+              !!msg.model &&
+              !!next.model &&
+              msg.model !== next.model &&
+              (msg.model === 'claude' || msg.model === 'gemini') &&
+              (next.model === 'claude' || next.model === 'gemini')
 
-              return (
-                <div key={msg.id}>
-                  {renderBubble(msg, globalIdx, false)}
-
-                  {/* Thread block */}
-                  {threadChildren.length > 0 && (
-                    <div className="mt-1 ml-3 border-l-2 border-slate-700 pl-3" data-testid={`thread-block-${msg.id}`}>
-                      <button
-                        onClick={() => toggleThread(msg.id)}
-                        className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-400 transition-colors mb-1"
-                        data-testid={`thread-toggle-${msg.id}`}
-                        aria-expanded={!isCollapsed}
-                      >
-                        <Icon name={isCollapsed ? 'chevron_right' : 'expand_more'} className="text-xs" />
-                        {isCollapsed
-                          ? `${threadChildren.length} ${threadChildren.length === 1 ? 'reply' : 'replies'}`
-                          : 'Hide replies'}
-                      </button>
-                      {!isCollapsed && (
-                        <div className="space-y-2">
-                          {threadChildren.map((child) => {
-                            const childIdx = messages.indexOf(child)
-                            return renderBubble(child, childIdx, true)
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+            if (isBroadcastPair) {
+              // Put claude on the left, gemini on the right regardless
+              // of the order the backend emitted turn_start frames in.
+              const claudeMsg = msg.model === 'claude' ? msg : next
+              const geminiMsg = msg.model === 'gemini' ? msg : next
+              const claudeIdx = messages.indexOf(claudeMsg)
+              const geminiIdx = messages.indexOf(geminiMsg)
+              rendered.push(
+                <div
+                  key={`broadcast-${claudeMsg.id}-${geminiMsg.id}`}
+                  data-testid="broadcast-pair"
+                  className="grid grid-cols-2 gap-3 items-start w-full"
+                >
+                  {renderBubble(claudeMsg, claudeIdx, false, true)}
+                  {renderBubble(geminiMsg, geminiIdx, false, true)}
+                </div>,
               )
-            })
+              i += 2
+              continue
+            }
+
+            const globalIdx = messages.indexOf(msg)
+            const threadChildren = threadMap.get(msg.id) ?? []
+            const isCollapsed = collapsedThreads.has(msg.id)
+            rendered.push(
+              <div key={msg.id}>
+                {renderBubble(msg, globalIdx, false)}
+
+                {/* Thread block */}
+                {threadChildren.length > 0 && (
+                  <div className="mt-1 ml-3 border-l-2 border-slate-700 pl-3" data-testid={`thread-block-${msg.id}`}>
+                    <button
+                      onClick={() => toggleThread(msg.id)}
+                      className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-400 transition-colors mb-1"
+                      data-testid={`thread-toggle-${msg.id}`}
+                      aria-expanded={!isCollapsed}
+                    >
+                      <Icon name={isCollapsed ? 'chevron_right' : 'expand_more'} className="text-xs" />
+                      {isCollapsed
+                        ? `${threadChildren.length} ${threadChildren.length === 1 ? 'reply' : 'replies'}`
+                        : 'Hide replies'}
+                    </button>
+                    {!isCollapsed && (
+                      <div className="space-y-2">
+                        {threadChildren.map((child) => {
+                          const childIdx = messages.indexOf(child)
+                          return renderBubble(child, childIdx, true)
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>,
+            )
+            i += 1
+          }
+          return rendered
         })()}
         {/* Multi-AI live status pill. Renders just below the latest
             assistant bubble so the user can watch the conversation
@@ -1948,16 +2252,49 @@ export function ChatPanel() {
         {/* NEEDLE: removed gray box container around input */}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setDefaultChatModel(defaultChatModel === 'claude' ? 'gemini' : 'claude')}
+            onClick={() => { setSideBySideEnabled(false); setDefaultChatModel('claude'); }}
             className={`shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
-              defaultChatModel === 'claude'
-                ? 'bg-blue-500/15 border-blue-500/40 text-blue-300 hover:bg-blue-500/25 hover:border-blue-500/60'
-                : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25 hover:border-emerald-500/60'
+              !sideBySideEnabled && defaultChatModel === 'claude'
+                ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
             }`}
-            title={`Click to switch to ${defaultChatModel === 'claude' ? 'Gemini' : 'Claude'}`}
-            data-testid="chat-model-toggle"
+            title="Chat with Claude only"
+            data-testid="chat-pill-claude"
           >
-            {defaultChatModel === 'claude' ? 'Claude' : 'Gemini'}
+            Claude
+          </button>
+          <button
+            onClick={() => { setSideBySideEnabled(false); setDefaultChatModel('gemini'); }}
+            className={`shrink-0 px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
+              !sideBySideEnabled && defaultChatModel === 'gemini'
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+            }`}
+            title="Chat with Gemini only"
+            data-testid="chat-pill-gemini"
+          >
+            Gemini
+          </button>
+          <button
+            onClick={() => setSideBySideEnabled(true)}
+            className={`shrink-0 relative px-3 py-1.5 rounded-full border text-xs font-medium transition-all cursor-pointer hover:scale-105 ${
+              sideBySideEnabled
+                ? 'bg-purple-500/15 border-purple-500/40 text-purple-300'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+            } ${allPillPulse ? 'ring-2 ring-purple-400/70 animate-pulse' : ''}`}
+            title="Send to Claude and Gemini side by side"
+            data-testid="chat-pill-all"
+            data-pulse={allPillPulse ? 'true' : undefined}
+          >
+            All
+            {allPillPulse && (
+              <span
+                data-testid="chat-pill-all-new-badge"
+                className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 text-[9px] font-semibold rounded-full bg-purple-500 text-white shadow-md"
+              >
+                New
+              </span>
+            )}
           </button>
           <input
             ref={inputRef}

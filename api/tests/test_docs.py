@@ -190,12 +190,13 @@ class TestDocService:
         assert spec["task_summary"]["closed"] == 2
 
     @pytest.mark.asyncio
-    async def test_list_docs_all_tasks_closed_but_unchecked_acs_stays_in_progress(self):
-        """Regression for the bug where status stayed in-progress after tasks closed.
-
-        If every linked task is closed but the spec has unchecked acceptance
-        criteria, status is in-progress so the user still sees the Verify
-        step as the final gate.
+    async def test_list_docs_all_tasks_closed_flips_status_to_complete(self):
+        """All tasks closed => spec lands in ``complete`` state,
+        regardless of whether Verify has run yet. Updated 2026-04-21
+        because the prior "in-progress until Verify" behavior left
+        specs stuck in Building forever — the user's notion of "done"
+        is "agents finished the work" and AC verification is a separate
+        optional step.
         """
         docs_dir = Path(self.tmpdir) / "docs"
         spec_dir = docs_dir / "spec"
@@ -214,7 +215,7 @@ class TestDocService:
             result = await self.svc.list_docs()
 
         spec = result[0]
-        assert spec["status"] == "in-progress"
+        assert spec["status"] == "complete"
         assert spec["task_summary"]["closed"] == 2
 
     @pytest.mark.asyncio
@@ -322,14 +323,21 @@ class TestDocService:
             == "complete"
         )
 
-    def test_compute_spec_status_tasks_closed_but_acs_unchecked(self):
-        """Bug reproduction: all tasks closed but no AC verified stays in-progress."""
+    def test_compute_spec_status_tasks_closed_flips_to_complete(self):
+        """Design change: as of 2026-04-21 all-tasks-closed flips the spec
+        to ``complete`` regardless of whether Verify has run. Tori's
+        mental model for "done" is "agents finished the work" — making
+        Verify a gate produced specs stuck in Building forever because
+        nobody clicked Verify. AC verification is still useful as a
+        separate quality check but no longer blocks the completion
+        state (and therefore the "Done" tab and completion notification).
+        """
         statuses = {"1": "closed", "2": "closed"}
         assert (
             OstkService.compute_spec_status(
                 "spec", ["1", "2"], statuses, ac_all_met=False
             )
-            == "in-progress"
+            == "complete"
         )
 
     def test_write_tasks_to_frontmatter_new(self):

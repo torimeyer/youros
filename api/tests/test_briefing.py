@@ -1586,3 +1586,276 @@ def _make_datetime_for_2026_04_19():
                 return cls(2026, 4, 19, 9, 0, 0)
             return cls(2026, 4, 19, 9, 0, 0, tzinfo=tz)
     return FakeDt
+
+
+# ---------------------------------------------------------------------------
+# is_test_task() unit tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("title", [
+    "DIAGNOSE_TEST: pls delete",
+    "DIAGNOSE_TEST",
+    "diagnose_test: foo",
+    "DIAGNOSE2",
+    "diagnose123",
+    "TEST",
+    "test",
+    "Test",
+    "TEST: something",
+    "test_thing",
+    "test task please ignore",
+    "please delete this",
+    "pls delete",
+    "some task pls delete now",
+])
+def test_is_test_task_returns_true(title):
+    from services.task_visibility import is_test_task
+    assert is_test_task({"title": title}), f"expected is_test_task=True for {title!r}"
+
+
+@pytest.mark.parametrize("title", [
+    "Fix login bug",
+    "Ship cost tracking",
+    "Diagnose slow DB queries",
+    "Diagnose: investigate memory leak",
+    "Update documentation",
+    "Real work item",
+    "testing infrastructure rollout",
+    "",
+])
+def test_is_test_task_returns_false(title):
+    from services.task_visibility import is_test_task
+    assert not is_test_task({"title": title}), f"expected is_test_task=False for {title!r}"
+
+
+# ---------------------------------------------------------------------------
+# is_throwaway_task() unit tests
+#
+# Broader filter used by every briefing enumeration. Extend here when a
+# new junk pattern shows up in a live briefing.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("title", [
+    # Everything is_test_task catches must still match is_throwaway_task.
+    "DIAGNOSE_TEST: pls delete",
+    "DIAGNOSE2",
+    "TEST",
+    "test_thing",
+    "pls delete",
+    "please delete this",
+    # Bare throwaway prefix standing alone, any case.
+    "DIAGNOSE",
+    "diagnose",
+    "PROBE",
+    "probe",
+    "SCRATCH",
+    "scratch",
+    "TEMP",
+    "temp",
+    # ALL CAPS prefix followed by a non-letter (junk continuation).
+    "DIAGNOSE pls delete",
+    "DIAGNOSE: something",
+    "PROBE-42",
+    "TEMP_123",
+    "SCRATCH this",
+    # Accidental LLM response dumps filed as tasks. Very long title.
+    (
+        "Chat interface displays two response panels horizontally aligned, "
+        "with Claude's answer on the left and Gemini's answer on the right, "
+        "and a shared input box at the bottom."
+    ),
+    # Accidental LLM-style short starts.
+    "Chat interface displays two response panels",
+    "The user asked me to build a login form",
+    "This explains how the login flow works in detail today",
+    "Here's what I found when I looked at the code",
+    "I will now implement the fix for the login flow",
+    "User can copy, regenerate, or mark as helpful any response",
+    "Both models receive the same prompt simultaneously",
+    "Each model streams its response independently",
+    # Long title caught by length alone (>100 chars).
+    (
+        "Both models receive the same user prompt simultaneously and "
+        "generate responses without waiting for one to finish first"
+    ),
+])
+def test_is_throwaway_task_returns_true(title):
+    from services.task_visibility import is_throwaway_task
+    assert is_throwaway_task({"title": title}), (
+        f"expected is_throwaway_task=True for {title!r}"
+    )
+
+
+@pytest.mark.parametrize("title", [
+    # Real mixed-case tasks that happen to start with a throwaway word.
+    # The stricter ALL CAPS rule lets these through.
+    "Fix login bug",
+    "Ship cost tracking",
+    "Diagnose slow DB queries",
+    "Diagnose 500 api_error in other sessions",
+    "Diagnose: investigate memory leak",
+    "Probe network latency on chat WebSocket",
+    "Temp sensor reading calibration",
+    "Scratch disk full on worker node",
+    "Update documentation",
+    "Real work item",
+    "Probing the health of the DB",
+    "Temporary workaround for login",
+    "Scratched from sprint",
+    "",
+])
+def test_is_throwaway_task_returns_false(title):
+    from services.task_visibility import is_throwaway_task
+    assert not is_throwaway_task({"title": title}), (
+        f"expected is_throwaway_task=False for {title!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Briefing closed_yesterday test-task filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_briefing_filters_test_tasks_from_closed_yesterday(tmp_path):
+    """Test tasks like DIAGNOSE_TEST and DIAGNOSE2 must not appear in the
+    'closed yesterday' line of the briefing.
+    """
+    import services.briefing as bf
+
+    state_path = tmp_path / "briefing_state.json"
+    yesterday = "2026-04-21"
+
+    tasks = [
+        {
+            "id": "t1",
+            "title": "Real user work",
+            "status": "closed",
+            "closed_at": f"{yesterday}T10:00:00Z",
+            "priority": "P1",
+            "created_at": "2026-04-01T00:00:00Z",
+        },
+        {
+            "id": "t2",
+            "title": "DIAGNOSE_TEST: pls delete",
+            "status": "closed",
+            "closed_at": f"{yesterday}T11:00:00Z",
+            "priority": "P2",
+            "created_at": "2026-04-20T00:00:00Z",
+        },
+        {
+            "id": "t3",
+            "title": "DIAGNOSE2",
+            "status": "closed",
+            "closed_at": f"{yesterday}T12:00:00Z",
+            "priority": "P2",
+            "created_at": "2026-04-20T00:00:00Z",
+        },
+    ]
+
+    import services.ostk as ostk_module
+
+    from datetime import datetime as _real_datetime
+    class FakeDt(_real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return cls(2026, 4, 22, 9, 0, 0)
+            return cls(2026, 4, 22, 9, 0, 0, tzinfo=tz)
+
+    async def fake_list_tasks():
+        return tasks
+
+    async def fake_get_compounds():
+        return []
+
+    with (
+        patch.object(bf, "BRIEFING_STATE_PATH", state_path),
+        patch("services.briefing.datetime", FakeDt),
+        patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks),
+        patch.object(ostk_module.ostk, "get_compounds", new=fake_get_compounds),
+        patch("services.google_auth.is_authenticated", return_value=False),
+    ):
+        facts = await bf._gather_briefing_facts()
+
+    assert "Real user work" in facts["closed_yesterday"], (
+        "Real user task must appear in closed_yesterday"
+    )
+    assert "DIAGNOSE_TEST: pls delete" not in facts["closed_yesterday"], (
+        "DIAGNOSE_TEST task must be filtered from closed_yesterday"
+    )
+    assert "DIAGNOSE2" not in facts["closed_yesterday"], (
+        "DIAGNOSE2 task must be filtered from closed_yesterday"
+    )
+
+
+@pytest.mark.asyncio
+async def test_briefing_text_excludes_test_task_titles(tmp_path):
+    """The rendered briefing text must not name test tasks in the recap line."""
+    import services.briefing as bf
+    import services.ostk as ostk_module
+
+    state_path = tmp_path / "briefing_state.json"
+    yesterday = "2026-04-21"
+
+    tasks = [
+        {
+            "id": "t1",
+            "title": "Ship the roadmap feature",
+            "status": "closed",
+            "closed_at": f"{yesterday}T10:00:00Z",
+            "priority": "P1",
+            "created_at": "2026-04-01T00:00:00Z",
+        },
+        {
+            "id": "t2",
+            "title": "DIAGNOSE_TEST: pls delete",
+            "status": "closed",
+            "closed_at": f"{yesterday}T11:00:00Z",
+            "priority": "P2",
+            "created_at": "2026-04-20T00:00:00Z",
+        },
+        {
+            "id": "t3",
+            "title": "DIAGNOSE2",
+            "status": "closed",
+            "closed_at": f"{yesterday}T12:00:00Z",
+            "priority": "P2",
+            "created_at": "2026-04-20T00:00:00Z",
+        },
+    ]
+
+    from datetime import datetime as _real_datetime
+    class FakeDt(_real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return cls(2026, 4, 22, 9, 0, 0)
+            return cls(2026, 4, 22, 9, 0, 0, tzinfo=tz)
+
+    async def fake_list_tasks():
+        return tasks
+
+    async def fake_get_compounds():
+        return []
+
+    with (
+        patch.object(bf, "BRIEFING_STATE_PATH", state_path),
+        patch("services.briefing.datetime", FakeDt),
+        patch.object(ostk_module.ostk, "list_tasks", new=fake_list_tasks),
+        patch.object(ostk_module.ostk, "get_compounds", new=fake_get_compounds),
+        patch("services.google_auth.is_authenticated", return_value=False),
+    ):
+        briefing = await bf.generate_briefing()
+
+    assert "Ship the roadmap feature" in briefing, (
+        "Real task must appear in briefing recap"
+    )
+    assert "DIAGNOSE_TEST" not in briefing, (
+        "DIAGNOSE_TEST must not appear in briefing text"
+    )
+    assert "DIAGNOSE2" not in briefing, (
+        "DIAGNOSE2 must not appear in briefing text"
+    )

@@ -82,9 +82,13 @@ export default function ShareView() {
 
   useEffect(() => {
     if (!token) return;
+    // Guard against setting state after the user navigates away.
+    // Without this, React logs "state update on unmounted component".
+    let cancelled = false;
     (async () => {
       try {
         const res = await fetch(`/api/shares/${token}`);
+        if (cancelled) return;
         if (res.status === 410) {
           setExpired(true);
           return;
@@ -98,18 +102,22 @@ export default function ShareView() {
           return;
         }
         const data = await res.json();
+        if (cancelled) return;
         setShare(data);
       } catch {
-        setNotFound(true);
+        if (!cancelled) setNotFound(true);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className="min-h-dvh bg-slate-950 flex items-center justify-center">
         <p className="text-slate-400 text-sm">Loading...</p>
       </div>
     );
@@ -117,7 +125,7 @@ export default function ShareView() {
 
   if (expired) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
+      <div className="min-h-dvh bg-slate-950 flex flex-col items-center justify-center gap-4">
         <div className="text-6xl">&#128279;</div>
         <h1 className="text-xl font-semibold text-slate-200">This link has expired.</h1>
         <p className="text-sm text-slate-500">Share links are only valid for 7 days.</p>
@@ -128,7 +136,7 @@ export default function ShareView() {
 
   if (notFound || !share) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
+      <div className="min-h-dvh bg-slate-950 flex flex-col items-center justify-center gap-4">
         <div className="text-6xl">&#10067;</div>
         <h1 className="text-xl font-semibold text-slate-200">Link not found.</h1>
         <p className="text-sm text-slate-500">This share link does not exist or has been revoked.</p>
@@ -145,7 +153,7 @@ export default function ShareView() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-dvh bg-slate-950 text-slate-100">
       <div className="max-w-2xl mx-auto px-6 py-12">
         {/* Header */}
         <div className="mb-8">

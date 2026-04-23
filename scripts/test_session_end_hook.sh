@@ -15,7 +15,8 @@
 
 set -u
 
-HOOK="/Users/torimeyer/claude/torios/.claude/hooks/session-end.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOOK="${SCRIPT_DIR}/../.claude/hooks/session-end.sh"
 PASS=0
 FAIL=0
 

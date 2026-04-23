@@ -455,6 +455,15 @@ function TemplateEditorModal({
   const [aliasSaved, setAliasSaved] = useState(false);
   const [promptExpanded, setPromptExpanded] = useState(false);
 
+  // Escape cancels the modal.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
   // Description editing state (detail view only). ``descriptionBaseline``
   // is the last saved value so Save only lights up when the user has
   // actually typed something new.
@@ -1847,6 +1856,19 @@ export default function Agents() {
     isNew: boolean;
   }>({ open: false, template: null, isNew: false });
   const [pmTemplateSaving, setPmTemplateSaving] = useState(false);
+
+  // Escape closes the PM template editor modal.
+  useEffect(() => {
+    if (!pmTemplateEditor.open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPmTemplateEditor({ open: false, template: null, isNew: false });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pmTemplateEditor.open]);
+
   const [showNewForm, setShowNewForm] = useState(false);
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
@@ -1855,6 +1877,16 @@ export default function Agents() {
   const [, setLastUpdate] = useState<Date | null>(null);
   const [transcriptModal, setTranscriptModal] = useState<{name: string; content: string; loading: boolean; error?: string; retryable?: boolean} | null>(null);
   const { confirm, confirmProps } = useConfirm();
+
+  // Escape closes the transcript viewer.
+  useEffect(() => {
+    if (!transcriptModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTranscriptModal(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [transcriptModal]);
 
   const openTranscript = async (name: string) => {
     setTranscriptModal({name, content: "", loading: true, error: undefined});
@@ -2327,10 +2359,9 @@ export default function Agents() {
     });
     setEditorIsNew(false);
     // Pass the template name through so the modal spawn path tags the
-    // resulting agent row with its template. Without this, the POST body
-    // drops the `template` field entirely and backend demo_mode detection
-    // (which looks up the agentfile by template name) stops working, so
-    // Roadmap loses its prewarm-replay path and its Haiku coercion.
+    // resulting agent row with its template. Without this the POST body
+    // drops the `template` field entirely and the backend loses the
+    // hook it uses to map agents back to their source template.
     setEditorBuiltInName(tpl.builtin ? tpl.name : null);
     setEditorPromptTemplate(tpl.prompt_template);
     setEditorTemplateId(tpl.id);
@@ -2754,8 +2785,15 @@ export default function Agents() {
     const fetchRunningSummary = async () => {
       try {
         interface SummaryAgent { name: string; status: string; source?: string; model?: string; description?: string; spawned_at?: string; last_heartbeat_at?: string }
+        // No ``source=`` filter: spec-build prewarm replays register
+        // with source="spec-build", and the roadmap prewarm registers
+        // with source="api". Filtering server-side on claude-code only
+        // made Build-it agents invisible in the Active tab for the full
+        // 30s replay window even though they were running. The client-
+        // side isUserSpawnedAgent check below still excludes chat,
+        // audit, and hook rows, so the set stays clean.
         const res = await api.get<{ agents: SummaryAgent[] }>(
-          "/agents?summary=1&status=running&source=claude-code&limit=20"
+          "/agents?summary=1&status=running&limit=20"
         );
         if (cancelled) return;
         const names = new Set<string>();
@@ -2910,7 +2948,7 @@ export default function Agents() {
     return () => unsubscribe();
   }, []);
 
-  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number, tokenLimit?: number | null, template?: string, honorExplicitModel?: boolean) => {
+  const handleSpawn = async (name: string, prompt?: string, model?: string, budget?: number, tokenLimit?: number | null, template?: string) => {
     if (!name.trim()) return;
     const cleanName = name.trim();
     const cleanModel = model || "sonnet";
@@ -2959,14 +2997,6 @@ export default function Agents() {
       }
       if (template) {
         spawnPayload.template = template;
-      }
-      // When the user explicitly picks a model in the template detail
-      // modal, the backend must respect that choice even if the
-      // matching agentfile has ``LIMIT demo_mode true``. Without this
-      // flag, demo_mode silently downgrades the model to Haiku and the
-      // badge in the Agents list lies about which model actually ran.
-      if (honorExplicitModel) {
-        spawnPayload.honor_explicit_model = true;
       }
       await api.post("/agents/spawn", spawnPayload);
       setShowNewForm(false);
@@ -3384,15 +3414,15 @@ export default function Agents() {
                     variant="default"
                     padding="md"
                   >
-                    <div className={`flex items-center justify-between${isActiveExpanded ? " mb-3" : ""}`}>
-                      <div className="flex items-center gap-3 flex-wrap">
+                    <div className={`flex items-center justify-between gap-3 min-w-0${isActiveExpanded ? " mb-3" : ""}`}>
+                      <div className="flex items-center gap-3 flex-wrap min-w-0 flex-1">
                         <span
-                          className="flex flex-col"
-                          title={agentTitleParts(agent).secondary ? `${agentTitleParts(agent).primary} (${agent.name})` : agent.name}
+                          className="flex flex-col min-w-0"
+                          title={agentTitleParts(agent).secondary ? `${agentTitleParts(agent).primary} (${agent.name})` : agentTitleParts(agent).primary}
                         >
-                          <span className="text-white font-semibold leading-tight">{agentTitleParts(agent).primary}</span>
+                          <span className="text-white font-semibold leading-tight line-clamp-2 break-words">{agentTitleParts(agent).primary}</span>
                           {agentTitleParts(agent).secondary && (
-                            <span className="text-slate-400 text-xs leading-tight">{agentTitleParts(agent).secondary}</span>
+                            <span className="text-slate-400 text-xs leading-tight line-clamp-1">{agentTitleParts(agent).secondary}</span>
                           )}
                         </span>
                         <span className={`text-xs font-bold px-2 py-0.5 rounded ${statusColor(agent.status)}`}>
@@ -4323,11 +4353,6 @@ export default function Agents() {
               // If the user typed a message, use it as the prompt. Otherwise
               // fall back to the template description so the agent has context.
               const prompt = userMessage.trim() || t.description;
-              // The detail modal is the only path where the user has
-              // seen the model picker and confirmed it. Pass the
-              // honor_explicit_model flag so demo_mode templates
-              // (Roadmap, etc.) respect the chosen model instead of
-              // silently reverting to Haiku.
               handleSpawn(
                 t.name.toLowerCase().replace(/\s+/g, "-"),
                 prompt,
@@ -4335,7 +4360,6 @@ export default function Agents() {
                 t.budget,
                 null,
                 editorBuiltInName || undefined,
-                true,
               );
               setEditorOpen(false);
             }}

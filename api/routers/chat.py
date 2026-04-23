@@ -967,6 +967,16 @@ async def chat_websocket(websocket: WebSocket):
             use_tools = data.get("tools", False)
             mentioned_models = parse_mentions(last_text)
 
+            # Side-by-side broadcast flag. Baseline-permanent so the
+            # frontend can opt a turn into broadcast without requiring
+            # a coordinated uvicorn reload. When the UI's All pill is
+            # active it sends ``side_by_side: true``; when the flag is
+            # false (the default for every existing caller) this is a
+            # no-op and the rest of the routing behaves as before.
+            side_by_side_flag = bool(data.get("side_by_side", False))
+            if side_by_side_flag:
+                mentioned_models = list(ALL_MODELS)
+
             # If the user explicitly tagged one model and asked it to
             # chat with another model by bare name ("@gemini chat with
             # claude ..."), infer the second model so the orchestration
@@ -1118,11 +1128,18 @@ async def chat_websocket(websocket: WebSocket):
             # like "@claude what does @gemini mean?" still goes to one
             # model only.
             trigger_multi_ai = (
-                len(mentioned_models) >= 2 and is_conversation(last_text)
+                len(mentioned_models) >= 2
+                and is_conversation(last_text)
+                and not side_by_side_flag
             )
             # Collective addressing without debate intent means broadcast:
-            # every AI responds to the same message independently.
-            trigger_broadcast = collective and not is_conversation(last_text)
+            # every AI responds to the same message independently. The
+            # side-by-side flag always forces broadcast so the All pill
+            # does not fall through to the debate path.
+            trigger_broadcast = (
+                (collective or side_by_side_flag)
+                and not trigger_multi_ai
+            )
 
             try:
                 if trigger_multi_ai:
@@ -1134,11 +1151,19 @@ async def chat_websocket(websocket: WebSocket):
                         rounds=MULTI_AI_DEFAULT_ROUNDS,
                     )
                 elif trigger_broadcast:
+                    # Broadcast (All pill or "everyone"/"you guys") is a
+                    # plain text fan-out. Every model streams a direct
+                    # reply to the user. No tool loops, no grep/read/bash,
+                    # no agent tools. Forcing use_tools=False here means
+                    # the Claude leg goes through stream_anthropic
+                    # (text-only) instead of agent_anthropic (tool loop),
+                    # which matches what Gemini does and keeps both
+                    # bubbles symmetric for casual questions.
                     await stream_group_broadcast(
                         websocket=websocket,
                         models=list(mentioned_models),
                         messages=messages,
-                        use_tools=use_tools,
+                        use_tools=False,
                     )
                 else:
                     # Single model call (even if @mentioned)

@@ -101,7 +101,9 @@ if ! command -v ostk &> /dev/null; then
             | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 
         if [ -n "$VERSION" ]; then
-            TARBALL="ostk-${VERSION}-${PLATFORM}.tar.gz"
+            # GitHub tag is "v4.0.0" but tarball filename is "ostk-4.0.0-..." (no v).
+            VERSION_NUMBER="${VERSION#v}"
+            TARBALL="ostk-${VERSION_NUMBER}-${PLATFORM}.tar.gz"
             OSTK_URL="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL}"
             OSTK_TMP=$(mktemp -d)
 

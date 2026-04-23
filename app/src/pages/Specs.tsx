@@ -6,7 +6,7 @@ import SpecTemplateDetailsModal, {
   type SpecTemplateDetailsValues,
 } from "../components/SpecTemplateDetailsModal";
 import { api } from "../lib/api";
-import { onSpecsChange } from "../lib/sidebarBus";
+import { onSpecsChange, bumpAgents, bumpTasks } from "../lib/sidebarBus";
 import { useAppStore } from "../stores/app";
 import { Button, EmptyState, ErrorBanner } from "../components/ui";
 
@@ -80,11 +80,6 @@ interface BuildResponse {
   // are working on so the frontend can line up progress spinners
   // before /specs/{path}/tasks reports them.
   task_ids?: string[];
-}
-
-interface VerifyResponse {
-  criteria: AcceptanceCriterion[];
-  summary: string;
 }
 
 // Map legacy "spec" status to "ready" for display
@@ -424,7 +419,6 @@ export default function Specs() {
   const [linkedTasks, setLinkedTasks] = useState<Record<string, LinkedTask[]>>({});
   const [buildingSpec, setBuildingSpec] = useState<string | null>(null);
   const [buildResult, setBuildResult] = useState<Record<string, { agents: string[]; message: string; has_unchecked_acs?: boolean }>>({});
-  const [verifyingSpec, setVerifyingSpec] = useState<string | null>(null);
   const [templates, setTemplates] = useState<SpecTemplate[]>([]);
   const [templateLoading, setTemplateLoading] = useState<string | null>(null);
   // The template the user picked from the grid. Holding it in state
@@ -435,7 +429,20 @@ export default function Specs() {
     spec: Spec;
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
+  // Spec paths the user has clicked delete on but whose 5s undo timer
+  // has not yet fired. useUserActivity bumps the specs bus on every
+  // keystroke/click/mouse move (throttled to 1/s), which triggers an
+  // immediate fetchDocs. Without this guard, the next fetch hands back
+  // the doc we just optimistically removed and the spec reappears for
+  // the full ~5s window before the real DELETE finally removes it.
+  const pendingDeleteSpecPathsRef = useRef<Set<string>>(new Set());
   const [openMenuPath, setOpenMenuPath] = useState<string | null>(null);
+
+  // Release-notes modal moved to a global watcher in Layout
+  // (ReleaseNotesWatcher). Keeping the detection in this page meant
+  // the modal only fired while /specs was mounted — Tori was missing
+  // the celebration because she was watching the agents or chat when
+  // the transition fired. The Layout-level watcher runs everywhere.
 
   // FastAPI's {doc_path:path} converter expects literal slashes. Encoding
   // the whole path with encodeURIComponent turns "/" into "%2F" and the
@@ -452,16 +459,40 @@ export default function Specs() {
       api
         .delete(`/specs/${encodeDocPath(undoDelete.spec.path)}`)
         .catch(() => {});
+      if (pendingDeleteSpecPathsRef.current.delete(undoDelete.spec.path)) {
+        window.dispatchEvent(
+          new CustomEvent("myos:pending-spec-delta", { detail: { delta: 1 } })
+        );
+      }
     }
 
     // Optimistically remove from the list.
     setDocs((prev) => prev.filter((d) => d.path !== spec.path));
     if (expandedPath === spec.path) setExpandedPath(null);
+    pendingDeleteSpecPathsRef.current.add(spec.path);
+    // Tell the Sidebar to subtract 1 from its cached spec count until
+    // either the DELETE fires or the user hits Undo. Without this the
+    // nav badge showed 1 while the Specs page already said 0 during
+    // the 5 s undo window — a confusing split between two surfaces
+    // that read the same fact.
+    window.dispatchEvent(
+      new CustomEvent("myos:pending-spec-delta", { detail: { delta: -1 } })
+    );
 
     const timer = setTimeout(() => {
       api
         .delete(`/specs/${encodeDocPath(spec.path)}`)
-        .catch((e) => console.error("Failed to delete spec:", e));
+        .catch((e) => console.error("Failed to delete spec:", e))
+        .finally(() => {
+          if (pendingDeleteSpecPathsRef.current.delete(spec.path)) {
+            // Cancel the -1 now that the server has caught up. The
+            // DELETE response bumps the specs bus, which triggers a
+            // fresh /specs/counts fetch in the sidebar.
+            window.dispatchEvent(
+              new CustomEvent("myos:pending-spec-delta", { detail: { delta: 1 } })
+            );
+          }
+        });
       setUndoDelete(null);
     }, 5000);
     setUndoDelete({ spec, timer });
@@ -470,6 +501,11 @@ export default function Specs() {
   const handleUndoDeleteSpec = () => {
     if (!undoDelete) return;
     clearTimeout(undoDelete.timer);
+    if (pendingDeleteSpecPathsRef.current.delete(undoDelete.spec.path)) {
+      window.dispatchEvent(
+        new CustomEvent("myos:pending-spec-delta", { detail: { delta: 1 } })
+      );
+    }
     setDocs((prev) => [...prev, undoDelete.spec]);
     setUndoDelete(null);
   };
@@ -477,10 +513,13 @@ export default function Specs() {
   const fetchDocs = async () => {
     try {
       const data = await api.get<SpecsResponse>("/specs");
-      const normalized = (data.docs || []).map((d) => ({
-        ...d,
-        status: normalizeStatus(d.status),
-      }));
+      const pending = pendingDeleteSpecPathsRef.current;
+      const normalized = (data.docs || [])
+        .filter((d) => pending.size === 0 || !pending.has(d.path))
+        .map((d) => ({
+          ...d,
+          status: normalizeStatus(d.status),
+        }));
       setDocs(normalized);
     } catch {
       // API not available, keep empty state
@@ -682,6 +721,16 @@ export default function Specs() {
       }));
       if (agents.length > 0) {
         showMessage(`Started ${agents.length} agent${agents.length === 1 ? "" : "s"}. Watch the Agents tab.`);
+        // The Agents page subscribes to the agents bus, so this bump
+        // makes every brand-new builder row light up in the Active tab
+        // within a single frame, well inside Tori's 1-second target.
+        // Without this, the Active list would not refresh until the
+        // Agents page's own 2 s poll tick, which looks sluggish for a
+        // demo step Tori is trying to show live.
+        bumpAgents();
+        // Tasks bus: a brand-new task was just created per AC. Nudge
+        // so any open Tasks page refreshes its list immediately.
+        bumpTasks();
         // Auto-switch to the Building tab so the user lands on the
         // filtered list that contains the spec they just built. The
         // spec's status flips to "in-progress" on the backend when
@@ -692,7 +741,7 @@ export default function Specs() {
         // waiting for the first poll tick. Then fetch once more at
         // 500 ms to catch builder status changes that the backend
         // stamps right after spawn returns (assigned_agent, initial
-        // open/closed flip). The 2 s recurring poll takes over after
+        // open/closed flip). The 1 s recurring poll takes over after
         // that.
         fetchLinkedTasks(path);
         setTimeout(() => { fetchLinkedTasks(path); }, 500);
@@ -715,29 +764,6 @@ export default function Specs() {
       showMessage("Could not start build. The backend may not support this yet.", "error");
     } finally {
       setBuildingSpec(null);
-    }
-  };
-
-  const handleVerify = async (path: string) => {
-    setVerifyingSpec(path);
-    try {
-      // TODO: wire to POST /api/specs/{path}/verify when backend is ready
-      const encodedPath = encodeURIComponent(path);
-      const res = await api.post<VerifyResponse>(`/specs/${encodedPath}/verify`);
-      if (res.criteria) {
-        // Update acceptance criteria in the local state from the verify result
-        setDocs((prev) =>
-          prev.map((d) =>
-            d.path === path ? { ...d, acceptance_criteria: res.criteria } : d
-          )
-        );
-      }
-      await fetchDocs();
-      showMessage(res.summary || "Verification complete.");
-    } catch {
-      showMessage("Could not run acceptance checks. Make sure the plan has linked tasks.", "error");
-    } finally {
-      setVerifyingSpec(null);
     }
   };
 
@@ -769,7 +795,14 @@ export default function Specs() {
       pollTimersRef.current[path] = setInterval(() => {
         fetchLinkedTasks(path);
         fetchDocs();
-      }, 2000);
+        // Cross-wake the Tasks page and the Agents page so any surface
+        // that happens to be open picks up the closure within a tick
+        // instead of waiting for its own independent poll cadence.
+        // Cheap: bumpTasks and bumpAgents just fan out a no-data event
+        // to local subscribers.
+        bumpTasks();
+        bumpAgents();
+      }, 1000);
     }
     // Stop intervals for specs that are no longer building or whose
     // tasks are all closed.
@@ -1170,19 +1203,11 @@ export default function Specs() {
                             </p>
                           </div>
                         )}
-                        {doc.status === "in-progress" && (doc.task_summary?.total ?? 0) > 0 && (doc.task_summary?.closed ?? 0) === (doc.task_summary?.total ?? 0) && (
+                        {doc.status === "in-progress" && (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
                             <Icon name="arrow_forward" size={16} className="text-yellow-400" />
                             <p className="text-xs text-yellow-300">
-                              <span className="font-bold">Ready to verify:</span> Every task is closed. Click "Verify" to mark the acceptance criteria met. The plan will flip to Done.
-                            </p>
-                          </div>
-                        )}
-                        {doc.status === "in-progress" && !((doc.task_summary?.total ?? 0) > 0 && (doc.task_summary?.closed ?? 0) === (doc.task_summary?.total ?? 0)) && (
-                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                            <Icon name="arrow_forward" size={16} className="text-yellow-400" />
-                            <p className="text-xs text-yellow-300">
-                              <span className="font-bold">In progress:</span> Agents are working. When they finish, click "Verify" to check their work against the acceptance criteria.
+                              <span className="font-bold">In progress:</span> Agents are working. The plan flips to Done automatically when every task closes.
                             </p>
                           </div>
                         )}
@@ -1190,7 +1215,7 @@ export default function Specs() {
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20">
                             <Icon name="check_circle" size={16} className="text-green-400" />
                             <p className="text-xs text-green-300">
-                              <span className="font-bold">Done.</span> All tasks are done. Click "Verify" to confirm everything meets the acceptance criteria.
+                              <span className="font-bold">Done.</span> Every task closed and the feature is live.
                             </p>
                           </div>
                         )}
@@ -1216,21 +1241,14 @@ export default function Specs() {
                           const hasAc =
                             (doc.acceptance_criteria?.length ?? 0) > 0 ||
                             parsedAc.length > 0;
-                          // In-progress specs already have linked tasks.
-                          // If every task is closed there is nothing to
-                          // build, so Build would only surface the
-                          // "No open tasks to build" error.
+                          // If every in-progress task is closed, Build
+                          // would surface "No open tasks to build". Gate
+                          // the button's tooltip and disabled state on
+                          // that instead of on the removed verify flow.
                           const totalTasks = doc.task_summary?.total ?? 0;
                           const openTasks = doc.task_summary?.open ?? 0;
                           const allClosed =
                             totalTasks > 0 && openTasks === 0;
-                          // Verify hits /verify which fails fast when no
-                          // tasks are linked. ready/spec can appear before
-                          // decomposition, so guard on task presence.
-                          const verifyBlocked =
-                            (doc.status === "ready" ||
-                              (doc.status as string) === "spec") &&
-                            totalTasks === 0;
                           return (
                             <div className="flex flex-wrap gap-2">
                               {doc.status === "draft" && (
@@ -1263,27 +1281,10 @@ export default function Specs() {
                                   disabled={loading || buildingSpec === doc.path || allClosed}
                                   className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                                   data-testid="build-button"
-                                  title={allClosed ? "Every task is already closed. Click Verify to check the work." : "Turns this plan into tasks and starts a builder agent for each one."}
+                                  title={allClosed ? "Every task is already closed — the plan is done." : "Turns this plan into tasks and starts a builder agent for each one."}
                                 >
                                   <Icon name="rocket_launch" size={16} />
                                   {buildingSpec === doc.path ? "Building..." : "Build it"}
-                                </button>
-                              )}
-                              {doc.status !== "draft" && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleVerify(doc.path); }}
-                                  disabled={
-                                    loading ||
-                                    verifyingSpec === doc.path ||
-                                    (doc.status === "in-progress" && buildingSpec === doc.path) ||
-                                    verifyBlocked
-                                  }
-                                  className="border border-slate-600 text-slate-300 hover:border-slate-500 hover:text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                                  data-testid="verify-button"
-                                  title={verifyBlocked ? "Click Build it first. Verify runs after the plan has linked tasks." : "Runs the acceptance checks"}
-                                >
-                                  <Icon name="fact_check" size={16} />
-                                  {verifyingSpec === doc.path ? "Verifying..." : "Verify"}
                                 </button>
                               )}
                               {(doc.status === "ready" || doc.status === "spec" as string) && (
@@ -1439,6 +1440,7 @@ export default function Specs() {
         onClose={handleCloseTemplateDetails}
         onSubmit={handleApplyTemplate}
       />
+
     </>
   );
 }

@@ -5,6 +5,7 @@ import { ChatPanel } from './ChatPanel'
 import { CommandPalette } from './CommandPalette'
 import GuidedTour from './GuidedTour'
 import NotificationToasts from './NotificationToast'
+import ReleaseNotesWatcher from './ReleaseNotesWatcher'
 import { useUserActivity } from '../hooks/useUserActivity'
 import { useAppStore } from '../stores/app'
 
@@ -181,9 +182,10 @@ export function Layout() {
       <CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} />
       {showTour && <GuidedTour onComplete={() => setShowTour(false)} />}
       <NotificationToasts />
+      <ReleaseNotesWatcher />
       <main
         data-testid="main-content"
-        className={`min-h-screen min-w-0 overflow-x-hidden ${isResizing ? '' : 'transition-[margin] duration-200'} ${
+        className={`min-h-dvh min-w-0 overflow-x-hidden ${isResizing ? '' : 'transition-[margin] duration-200'} ${
           sidebarPosition === 'right' ? 'ml-0 lg:mr-56' : 'ml-0 lg:ml-56'
         }`}
         style={chatOpen && isDesktop ? (sidebarPosition === 'right' ? { marginLeft: chatWidth } : { marginRight: chatWidth }) : undefined}

@@ -325,6 +325,13 @@ export default function Tasks() {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [showTaskSharePopover, setShowTaskSharePopover] = useState(false);
   const [undoDelete, setUndoDelete] = useState<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null);
+  // IDs the user has clicked delete on but the 5s undo timer has not
+  // fired yet. fetchTasks polls every 3s and the real DELETE only
+  // fires on timer expiry, so without this guard the next poll hands
+  // back the row we just optimistically removed and the task flashes
+  // back into view for a second. The set is read only inside
+  // fetchTasks so a ref (no re-render) is fine.
+  const pendingDeleteIdsRef = useRef<Set<string>>(new Set());
   const [openActionMenu, setOpenActionMenu] = useState<string | null>(null);
   // Tracks which row's "what is comprehensive build?" help popover is
   // open. Null when none. We track by task id so the popover is
@@ -365,8 +372,12 @@ export default function Tasks() {
     try {
       const res = await api.get<TasksResponse>("/tasks");
       const nextTasks = res.tasks ?? [];
-      setTasks(nextTasks);
-      writeTasksCache(nextTasks);
+      const pending = pendingDeleteIdsRef.current;
+      const visible = pending.size === 0
+        ? nextTasks
+        : nextTasks.filter((t) => !pending.has(t.id));
+      setTasks(visible);
+      writeTasksCache(visible);
     } catch (e) {
       console.error("Failed to fetch tasks:", e);
     } finally {
@@ -635,6 +646,16 @@ export default function Tasks() {
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, [showOverflowMenu]);
 
+  // Escape closes the Linear/Jira import modal.
+  useEffect(() => {
+    if (!importModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setImportModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [importModalOpen]);
+
   // "What is comprehensive build?" help popover closes on outside click
   // and on Escape. Uses a ref so clicks inside the popover itself do
   // not dismiss it. See needle 295 for the plain-language help copy.
@@ -721,6 +742,7 @@ export default function Tasks() {
     if (undoDelete) {
       clearTimeout(undoDelete.timer);
       api.delete(`/tasks/${undoDelete.task.id}`).catch(() => {});
+      pendingDeleteIdsRef.current.delete(undoDelete.task.id);
     }
 
     const task = tasks.find((t) => t.id === id);
@@ -733,10 +755,15 @@ export default function Tasks() {
       setTrace(null);
     }
     setTasks((prev) => prev.filter((t) => t.id !== id));
+    pendingDeleteIdsRef.current.add(id);
 
     // Start a 5-second timer before actually deleting
     const timer = setTimeout(() => {
-      api.delete(`/tasks/${id}`).catch((e) => console.error("Failed to delete task:", e));
+      api.delete(`/tasks/${id}`)
+        .catch((e) => console.error("Failed to delete task:", e))
+        .finally(() => {
+          pendingDeleteIdsRef.current.delete(id);
+        });
       setUndoDelete(null);
     }, 5000);
 
@@ -746,6 +773,7 @@ export default function Tasks() {
   const handleUndo = () => {
     if (!undoDelete) return;
     clearTimeout(undoDelete.timer);
+    pendingDeleteIdsRef.current.delete(undoDelete.task.id);
     setTasks((prev) => [...prev, undoDelete.task]);
     setUndoDelete(null);
   };
@@ -1334,11 +1362,6 @@ export default function Tasks() {
                   : `Click to remove "${label.name}" label`
               }
             >
-              {isAuto && (
-                <span data-testid={`auto-icon-${task.id}-${lid}`} className="inline-flex">
-                  <Icon name="auto_awesome" className="text-[9px]" />
-                </span>
-              )}
               {label.name}
               <Icon name="close" className="text-[9px]" />
             </span>
@@ -1489,7 +1512,7 @@ export default function Tasks() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="Tasks" />
 
       <div data-tour="tasks" className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-6xl mx-auto">

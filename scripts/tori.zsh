@@ -82,7 +82,7 @@ tori() {
 
   # --- Splash ---
   local myos_version
-  myos_version=$(git -C ~/claude/torios describe --tags --abbrev=0 2>/dev/null)
+  myos_version=$(git -C ~/claude/torios describe --tags --abbrev=0 --match 'v*' 2>/dev/null)
 
   printf '\n'
   printf '\033[38;2;255;105;180m  ████████╗ \033[38;2;255;140;50m ██████╗  \033[38;2;180;100;255m██████╗  \033[38;2;100;149;237m██╗  \033[38;2;255;105;180m ██████╗  \033[38;2;255;140;50m███████╗\033[0m\n'

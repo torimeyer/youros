@@ -2455,6 +2455,558 @@ class TestGroupBroadcastRouting:
             mock_single.assert_called_once()
             mock_broadcast.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_side_by_side_flag_triggers_broadcast_all_models(self):
+        """All pill: side_by_side=true must broadcast to every model.
+
+        Regression for the demo bug where clicking the All pill only
+        produced a Claude response (and in the failure mode a Claude
+        error) with no Gemini bubble at all. The router must hand off
+        to stream_group_broadcast with BOTH claude and gemini in the
+        models list whenever the side_by_side flag is true, regardless
+        of @mentions or collective-address keywords.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        ws = self._make_ws()
+        with patch("routers.chat.stream_group_broadcast", new_callable=AsyncMock) as mock_broadcast, \
+             patch("routers.chat.stream_multi_ai_conversation", new_callable=AsyncMock) as mock_debate, \
+             patch("routers.chat.call_model", new_callable=AsyncMock) as mock_single:
+            ws._recv_queue = [
+                {
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "model": "@gemini",
+                    "side_by_side": True,
+                }
+            ]
+
+            async def fake_receive_json():
+                if ws._recv_queue:
+                    return ws._recv_queue.pop(0)
+                raise Exception("disconnect")
+
+            ws.receive_json = fake_receive_json
+
+            from routers.chat import chat_websocket
+            try:
+                await chat_websocket(ws)
+            except Exception:
+                pass
+
+            mock_broadcast.assert_called_once()
+            mock_single.assert_not_called()
+            mock_debate.assert_not_called()
+            call_kwargs = mock_broadcast.call_args.kwargs
+            assert set(call_kwargs["models"]) == {"claude", "gemini"}
+
+    @pytest.mark.asyncio
+    async def test_side_by_side_end_to_end_emits_tagged_frames_for_both_models(self):
+        """End-to-end WS: side_by_side=true produces tagged frames for BOTH models.
+
+        This exercises the full router path from chat_websocket all the
+        way through stream_group_broadcast, with ONLY the per-provider
+        stream functions mocked. It proves that when the All pill
+        payload lands on the live WS endpoint:
+
+          1. the router routes to broadcast (not the single-model path),
+          2. stream_group_broadcast calls BOTH provider functions,
+          3. both providers emit ``token`` frames tagged with their
+             owning model, and
+          4. both ``multi_ai_turn_start`` AND ``multi_ai_turn_end`` fire
+             for each model, with exactly one final ``done``.
+
+        If ``sendMessage`` in the frontend ever drops the
+        ``side_by_side`` flag again, this test still passes because
+        it supplies the flag directly, but the companion frontend test
+        asserts that ``sendMessage`` includes the flag.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        ws = self._make_ws()
+
+        async def fake_stream_anthropic(messages, websocket, **_kwargs):
+            await websocket.send_json({"type": "token", "data": "claude token"})
+            return "claude token"
+
+        async def fake_stream_gemini(messages, websocket, **_kwargs):
+            await websocket.send_json({"type": "token", "data": "gemini token"})
+            return "gemini token"
+
+        from services import chat_providers
+
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            side_effect=fake_stream_anthropic,
+            new_callable=AsyncMock,
+        ) as claude_mock, patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            side_effect=fake_stream_gemini,
+            new_callable=AsyncMock,
+        ) as gemini_mock:
+            ws._recv_queue = [
+                {
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "model": "@claude",
+                    "side_by_side": True,
+                }
+            ]
+
+            async def fake_receive_json():
+                if ws._recv_queue:
+                    return ws._recv_queue.pop(0)
+                raise Exception("disconnect")
+
+            ws.receive_json = fake_receive_json
+
+            from routers.chat import chat_websocket
+
+            try:
+                await chat_websocket(ws)
+            except Exception:
+                pass
+
+            # Both provider functions were invoked exactly once.
+            assert claude_mock.await_count == 1, "stream_anthropic was not called"
+            assert gemini_mock.await_count == 1, "stream_gemini was not called"
+
+            # Both turn_start frames fired with their own model.
+            starts = [m for m in ws.messages if m.get("type") == "multi_ai_turn_start"]
+            assert {m["data"]["model"] for m in starts} == {"claude", "gemini"}
+
+            # Both providers' token frames made it through, tagged by model.
+            tokens = [m for m in ws.messages if m.get("type") == "token"]
+            tagged = {(t.get("model"), t.get("data")) for t in tokens}
+            assert ("claude", "claude token") in tagged
+            assert ("gemini", "gemini token") in tagged
+
+            # Both turn_end frames fired with their own model.
+            ends = [m for m in ws.messages if m.get("type") == "multi_ai_turn_end"]
+            assert {m["data"]["model"] for m in ends} == {"claude", "gemini"}
+
+            # Exactly one final done for the whole broadcast.
+            dones = [m for m in ws.messages if m.get("type") == "done"]
+            assert len(dones) == 1
+
+
+class TestGroupBroadcastParallelFanOut:
+    """Parallel-broadcast contract for the All pill.
+
+    Regression for the demo bug where the All pill produced a single
+    Claude error bubble, no Gemini response, and no thinking
+    indicator on either side. The broadcast must:
+
+      1. emit a ``multi_ai_turn_start`` for every model before any
+         provider call returns, so the UI can paint both thinking
+         bubbles while the streams are in flight,
+      2. run the per-model streams concurrently so one provider's
+         latency does not block the other,
+      3. keep the sibling model alive when one provider crashes (no
+         silent cancellation via asyncio.gather's default fail-fast),
+      4. tag every forwarded frame (``token``, ``error``) with the
+         owning model so the frontend can route it to the matching
+         bubble in parallel mode.
+    """
+
+    @pytest.mark.asyncio
+    async def test_both_models_produce_token_deltas(self):
+        """Happy path: both models emit tagged token frames in one broadcast."""
+        from unittest.mock import AsyncMock, patch
+
+        ws = FakeWebSocket()
+        call_log: list[str] = []
+
+        async def fake_stream_anthropic(messages, websocket, **_kwargs):
+            call_log.append("claude_start")
+            await websocket.send_json({"type": "token", "data": "hi from claude"})
+            await websocket.send_json({"type": "done"})
+            call_log.append("claude_end")
+            return "hi from claude"
+
+        async def fake_stream_gemini(messages, websocket, **_kwargs):
+            call_log.append("gemini_start")
+            await websocket.send_json({"type": "token", "data": "hi from gemini"})
+            await websocket.send_json({"type": "done"})
+            call_log.append("gemini_end")
+            return "hi from gemini"
+
+        from services import chat_providers
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            side_effect=fake_stream_anthropic,
+            new_callable=AsyncMock,
+        ), patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            side_effect=fake_stream_gemini,
+            new_callable=AsyncMock,
+        ):
+            await chat_providers.stream_group_broadcast(
+                websocket=ws,
+                models=["claude", "gemini"],
+                messages=[{"role": "user", "content": "hello"}],
+            )
+
+        starts = ws.get_messages_of_type("multi_ai_turn_start")
+        ends = ws.get_messages_of_type("multi_ai_turn_end")
+        tokens = ws.get_messages_of_type("token")
+        dones = ws.get_messages_of_type("done")
+
+        # Both models must have turn_start / turn_end bookends.
+        assert {m["data"]["model"] for m in starts} == {"claude", "gemini"}
+        assert {m["data"]["model"] for m in ends} == {"claude", "gemini"}
+
+        # Both turn_starts must precede any turn_end (fan-out before join),
+        # which is what gives the UI two thinking bubbles simultaneously.
+        indices = [i for i, m in enumerate(ws.messages) if m.get("type") in {"multi_ai_turn_start", "multi_ai_turn_end"}]
+        start_indices = [i for i in indices if ws.messages[i]["type"] == "multi_ai_turn_start"]
+        end_indices = [i for i in indices if ws.messages[i]["type"] == "multi_ai_turn_end"]
+        assert max(start_indices) < min(end_indices), (
+            "All multi_ai_turn_start frames must fire before any turn_end; "
+            "otherwise the UI paints one thinking bubble at a time."
+        )
+
+        # Each token must be tagged with its owning model.
+        tagged = [(t.get("model"), t.get("data")) for t in tokens]
+        assert ("claude", "hi from claude") in tagged
+        assert ("gemini", "hi from gemini") in tagged
+
+        # Exactly one final done event for the whole broadcast.
+        assert len(dones) == 1
+
+    @pytest.mark.asyncio
+    async def test_one_model_error_does_not_silence_the_other(self):
+        """Claude crashing must not cancel Gemini's parallel stream."""
+        from unittest.mock import AsyncMock, patch
+
+        ws = FakeWebSocket()
+
+        async def crashing_claude(messages, websocket, **_kwargs):
+            raise RuntimeError("claude subprocess exploded")
+
+        async def good_gemini(messages, websocket, **_kwargs):
+            await websocket.send_json({"type": "token", "data": "gemini still here"})
+            await websocket.send_json({"type": "done"})
+            return "gemini still here"
+
+        from services import chat_providers
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            side_effect=crashing_claude,
+            new_callable=AsyncMock,
+        ), patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            side_effect=good_gemini,
+            new_callable=AsyncMock,
+        ):
+            await chat_providers.stream_group_broadcast(
+                websocket=ws,
+                models=["claude", "gemini"],
+                messages=[{"role": "user", "content": "hello"}],
+            )
+
+        tokens = ws.get_messages_of_type("token")
+        errors = ws.get_messages_of_type("error")
+        ends = ws.get_messages_of_type("multi_ai_turn_end")
+
+        # Gemini's token must have made it through despite Claude crashing.
+        gemini_tokens = [t for t in tokens if t.get("model") == "gemini"]
+        assert gemini_tokens, "Gemini tokens were silenced by Claude's crash"
+        assert gemini_tokens[0]["data"] == "gemini still here"
+
+        # A model-tagged error frame must be emitted for the failing side.
+        claude_errors = [e for e in errors if e.get("model") == "claude"]
+        assert claude_errors, "Claude crash produced no scoped error frame"
+
+        # Both turn_end frames must still fire so the UI can close both bubbles.
+        assert {m["data"]["model"] for m in ends} == {"claude", "gemini"}
+
+    @pytest.mark.asyncio
+    async def test_broadcast_router_forces_use_tools_false(self):
+        """All pill: broadcast call site must hard-code use_tools=False.
+
+        Regression: when the user clicks the All pill and asks a casual
+        question ("what's your favorite part about being an AI?"), no
+        model should fire ostk search, grep, read, or bash tools. The
+        router forwards the incoming ``tools: true`` flag to the single
+        model path, but for broadcast it must force False so the Claude
+        leg goes through stream_anthropic (text only) rather than
+        agent_anthropic (tool loop).
+        """
+        from unittest.mock import AsyncMock, patch
+
+        ws = FakeWebSocket()
+        with patch(
+            "routers.chat.stream_group_broadcast", new_callable=AsyncMock
+        ) as mock_broadcast, patch(
+            "routers.chat.call_model", new_callable=AsyncMock
+        ):
+            ws._recv_queue = [
+                {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "what's your favorite part about being an AI?",
+                        }
+                    ],
+                    "model": "@claude",
+                    "tools": True,  # Front-end default
+                    "side_by_side": True,
+                }
+            ]
+
+            async def fake_receive_json():
+                if ws._recv_queue:
+                    return ws._recv_queue.pop(0)
+                raise Exception("disconnect")
+
+            ws.receive_json = fake_receive_json
+            from routers.chat import chat_websocket
+
+            try:
+                await chat_websocket(ws)
+            except Exception:
+                pass
+
+            mock_broadcast.assert_called_once()
+            call_kwargs = mock_broadcast.call_args.kwargs
+            assert call_kwargs["use_tools"] is False, (
+                "Broadcast must force use_tools=False so casual questions "
+                "do not trigger Claude's tool loop."
+            )
+
+    @pytest.mark.asyncio
+    async def test_broadcast_tool_use_frame_tagged_with_model(self):
+        """Every tool_use frame emitted through the broadcast proxy must
+        carry the owning model at the top level.
+
+        Regression for the frontend bubble-swap bug: without the model
+        tag, a Claude tool_use would land in whichever bubble happened
+        to be last in the UI, which is Gemini's bubble when Gemini's
+        turn_start fired second. The frontend routes by frame.model, so
+        the backend must always stamp it.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        ws = FakeWebSocket()
+
+        async def fake_stream_anthropic(messages, websocket, **_kwargs):
+            # Simulate the tool_use shape agent_anthropic emits.
+            await websocket.send_json(
+                {
+                    "type": "tool_use",
+                    "data": {"tool": "Grep", "id": "toolu_1", "input": {}},
+                }
+            )
+            await websocket.send_json({"type": "token", "data": "claude text"})
+            return "claude text"
+
+        async def fake_stream_gemini(messages, websocket, **_kwargs):
+            await websocket.send_json({"type": "token", "data": "gemini text"})
+            return "gemini text"
+
+        from services import chat_providers
+
+        with patch.object(
+            chat_providers.chat_service,
+            "stream_anthropic",
+            side_effect=fake_stream_anthropic,
+            new_callable=AsyncMock,
+        ), patch.object(
+            chat_providers.chat_service,
+            "stream_gemini",
+            side_effect=fake_stream_gemini,
+            new_callable=AsyncMock,
+        ):
+            await chat_providers.stream_group_broadcast(
+                websocket=ws,
+                models=["claude", "gemini"],
+                messages=[{"role": "user", "content": "hello"}],
+                use_tools=False,
+            )
+
+        # Every content-carrying frame from the proxy (token, tool_use,
+        # error) must be tagged with its owning model.
+        for frame in ws.messages:
+            ftype = frame.get("type")
+            if ftype in ("token", "tool_use", "error", "mcp_tool_use", "thinking"):
+                assert frame.get("model") in ("claude", "gemini"), (
+                    f"Frame missing model tag: {frame}"
+                )
+
+        tool_uses = ws.get_messages_of_type("tool_use")
+        assert tool_uses, "No tool_use frame was forwarded"
+        assert tool_uses[0].get("model") == "claude"
+
+
+class TestBroadcastNoToolLeak:
+    """Regression for the live-demo bug where Claude's broadcast reply
+    streamed literal `<function_calls><invoke name="...">` XML into the
+    user-visible bubble. Root cause was twofold:
+
+    1. The broadcast path calls ``stream_anthropic`` with
+       ``disable_tools=True``, but the system prompt it sent was the
+       full ``_system_prompt`` which is packed with tool instructions
+       ("create_calendar_event", "spawn_agent", "PREFER OSTK OVER RAW
+       SHELL", ...). Without a ``tools=`` parameter the model has
+       nowhere to route those calls, so it emits them as plain text.
+    2. If the conversation history carried ``tool_use`` / ``tool_result``
+       blocks from an earlier single-model turn, Claude continued the
+       pattern on the next broadcast turn.
+    """
+
+    def test_no_tools_system_blocks_drops_tool_prompt(self):
+        from services.chat_providers import _no_tools_system_blocks
+
+        blocks = _no_tools_system_blocks(None)
+        assert isinstance(blocks, list) and blocks
+        text = blocks[0]["text"]
+        # Must explicitly tell the model it has no tools.
+        assert "NO tools" in text
+        assert "Do not emit XML-style tool tags" in text
+        # Must not carry the tool-heavy instructions from the regular
+        # system prompt.
+        banned = [
+            "create_calendar_event",
+            "spawn_agent",
+            "PREFER OSTK OVER RAW SHELL",
+            "get_calendar_events",
+            "send_email",
+            "delete_emails",
+            "upload_to_drive",
+        ]
+        for phrase in banned:
+            assert phrase not in text, (
+                f"No-tools system prompt still mentions '{phrase}', "
+                "which is exactly what makes the model emit XML tool calls."
+            )
+
+    def test_strip_tool_blocks_removes_prior_tool_use(self):
+        from services.chat_providers import _strip_tool_blocks_from_messages
+
+        messages = [
+            {"role": "user", "content": "book a field trip"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Sure, adding it."},
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "create_calendar_event",
+                        "input": {"title": "Pepper"},
+                    },
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": "Event created",
+                    }
+                ],
+            },
+            {"role": "user", "content": "thanks"},
+        ]
+
+        cleaned = _strip_tool_blocks_from_messages(messages)
+        # Verify nothing tool-shaped remains.
+        for m in cleaned:
+            content = m.get("content")
+            if isinstance(content, list):
+                for block in content:
+                    btype = block.get("type") if isinstance(block, dict) else ""
+                    assert btype not in ("tool_use", "tool_result"), (
+                        f"Tool block leaked through: {block}"
+                    )
+        # Assistant's text block must be preserved.
+        assistant_msgs = [m for m in cleaned if m.get("role") == "assistant"]
+        assert assistant_msgs and assistant_msgs[0]["content"], (
+            "Assistant text block was dropped; only tool_use should be stripped."
+        )
+        # The tool_result-only user message should drop out entirely
+        # (would otherwise be an empty content list).
+        user_msgs = [m for m in cleaned if m.get("role") == "user"]
+        user_texts = [
+            m["content"] for m in user_msgs if isinstance(m.get("content"), str)
+        ]
+        assert "book a field trip" in user_texts
+        assert "thanks" in user_texts
+        # The synthetic tool_result wrapper user message must be gone.
+        assert len(user_msgs) == 2, (
+            "Tool-result-only user message should have been dropped"
+        )
+
+    @pytest.mark.asyncio
+    async def test_broadcast_claude_uses_no_tools_system_prompt(self):
+        """When stream_anthropic runs with disable_tools=True, the
+        system blocks it sends to Anthropic must be the no-tools
+        variant, not the full tool-heavy prompt.
+        """
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        ws = FakeWebSocket()
+        captured: dict = {}
+
+        class FakeStream:
+            def __init__(self, kwargs):
+                captured["stream_kwargs"] = kwargs
+                self.text_stream = self._gen()
+
+            async def _gen(self):
+                if False:
+                    yield  # pragma: no cover
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def get_final_message(self):
+                final = MagicMock()
+                final.usage.input_tokens = 1
+                final.usage.output_tokens = 1
+                final.usage.cache_creation_input_tokens = 0
+                final.usage.cache_read_input_tokens = 0
+                return final
+
+        fake_client = MagicMock()
+        fake_client.messages = MagicMock()
+        fake_client.messages.stream = lambda **kwargs: FakeStream(kwargs)
+
+        from services import chat_providers
+
+        with patch.object(
+            chat_providers, "_resolve_api_key", new=AsyncMock(return_value="key")
+        ), patch.object(
+            chat_providers, "_resolve_chat_backend", new=AsyncMock(return_value="anthropic_api")
+        ), patch.object(
+            chat_providers, "_get_anthropic_client", return_value=fake_client
+        ), patch.object(
+            chat_providers, "_maybe_match_template", new=AsyncMock(return_value=None)
+        ):
+            await chat_providers.chat_service.stream_anthropic(
+                [{"role": "user", "content": "casual hi"}],
+                ws,
+                disable_tools=True,
+                force_api=True,
+            )
+
+        system_blocks = captured["stream_kwargs"]["system"]
+        full_system_text = "\n".join(
+            b.get("text", "") for b in system_blocks if isinstance(b, dict)
+        )
+        assert "NO tools" in full_system_text
+        assert "create_calendar_event" not in full_system_text
+        assert "PREFER OSTK OVER RAW SHELL" not in full_system_text
+
 
 # --- ChatHistoryStore.get_prior_messages ---
 
@@ -3102,9 +3654,12 @@ class TestChatAuthorshipGrounding:
         assert _agent_is_non_authoring(
             {"status": "completed", "tokens_used": 12345}
         ) is False
-        # Empty / unknown meta: does not trip the filter (tolerant default).
-        # Empty dict still has tokens_used == 0 so it does filter, which
-        # is the desired belt-and-suspenders behavior.
-        assert _agent_is_non_authoring({}) is True
+        # Empty meta: does NOT trip the filter. An agent missing from
+        # agent_state.json is not evidence of non-authoring work, so we
+        # show the audit row unfiltered rather than hide it by default.
+        # This matches the updated function contract from
+        # ``13ad062 fix(chat): show audit rows for agents missing from
+        # state file`` and the docstring on _agent_is_non_authoring.
+        assert _agent_is_non_authoring({}) is False
         # Non-dict input: never trips (defensive).
         assert _agent_is_non_authoring(None) is False  # type: ignore[arg-type]

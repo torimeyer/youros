@@ -4,7 +4,7 @@
 #
 # This script updates myOS without ever touching your settings, chat
 # history, labels, or tasks. Your data lives in ~/.myos/ and the update
-# process never writes there. See docs/SAFE_UPDATE.md for the full story.
+# process never writes there. See the project README for the full story.
 
 set -e
 
@@ -112,7 +112,7 @@ if [ "$NEED_PULL" -eq 1 ]; then
     echo "Pulling..."
     if ! git pull --ff-only 2>&1; then
         echo -e "${RED}Could not pull cleanly.${NC}"
-        echo "See docs/SAFE_UPDATE.md for what to do next."
+        echo "See the project README for what to do next."
         if [ "$STASHED" -eq 1 ]; then
             echo "Your unsaved changes are safe. Get them back with: git stash pop"
         fi

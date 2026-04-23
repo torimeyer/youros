@@ -436,6 +436,20 @@ export default function Settings() {
     setBrowseSearch('');
   };
 
+  // Escape closes the browse directory modal.
+  useEffect(() => {
+    if (!showBrowse) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowBrowse(false);
+        setBrowseSearch('');
+        setExpandedEntry(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showBrowse]);
+
   const isServerAdded = (entryName: string) =>
     mcpServers.some((s) => s.name.toLowerCase() === entryName.toLowerCase());
 
@@ -732,7 +746,7 @@ export default function Settings() {
     'bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-700 transition-colors';
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="Settings" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 space-y-6">

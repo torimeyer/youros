@@ -595,6 +595,110 @@ describe('ChatPanel', () => {
       expect(lastUser.role).toBe('user')
       expect(lastUser.content).toBe('did gemini miss anything?')
     })
+
+    // Regression for the streaming render jitter Tori reported: the bubble
+    // appeared to "type a sentence then delete it" mid-stream. Root cause
+    // was CollapsibleText slicing to the last 200 characters and then
+    // re-anchoring to the next ". " boundary, which caused the visible
+    // text to jump backwards every time a new sentence completed inside
+    // the sliding window. The fix is to render the full content during
+    // streaming with whitespace-pre-wrap, so the visible text only grows.
+    it('never shrinks the rendered bubble text as more tokens arrive', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'tell me a long story' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Build a response that crosses the 300-char threshold AND contains
+      // sentence boundaries inside the last 200 chars, which is what
+      // triggered the old buggy slice.
+      const paragraph =
+        'This is sentence one. This is sentence two. This is sentence three. ' +
+        'This is sentence four. This is sentence five. This is sentence six. ' +
+        'This is sentence seven. This is sentence eight. This is sentence nine. ' +
+        'This is sentence ten. This is sentence eleven. This is sentence twelve.'
+
+      // Stream the paragraph in small chunks and record the visible text
+      // length after each chunk. The invariant is monotonic growth: the
+      // visible text length must never decrease between consecutive ticks.
+      let assembled = ''
+      const lengths: number[] = []
+      const chunkSize = 20
+      for (let i = 0; i < paragraph.length; i += chunkSize) {
+        const delta = paragraph.slice(i, i + chunkSize)
+        assembled += delta
+        mockLastMessage = { type: 'token', data: delta }
+        rerender(<ChatPanel />)
+        const bubble = document.querySelector('.chat-bubble-content')
+        const visible = bubble?.textContent ?? ''
+        lengths.push(visible.length)
+      }
+
+      for (let i = 1; i < lengths.length; i++) {
+        expect(lengths[i]).toBeGreaterThanOrEqual(lengths[i - 1])
+      }
+
+      // After the full stream lands, the final visible text matches the
+      // assembled content exactly. No truncation, no reshaping.
+      const finalBubble = document.querySelector('.chat-bubble-content')
+      expect(finalBubble?.textContent).toBe(assembled)
+    })
+
+    // Regression for the "raw markdown flash" at the streaming-to-done
+    // handoff. When streaming ends, the bubble swaps from plain text to
+    // parsed markdown. Even though both state updates commit together,
+    // browsers can briefly paint the outgoing plain-text DOM (so the user
+    // sees literal "**bold**" for a frame). The fix fades the rendered
+    // markdown in over ~200ms, hiding any paint race behind the fade.
+    it('applies a fade-in class on the streaming-to-done handoff', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'hi' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Stream a message with markdown in it.
+      mockLastMessage = { type: 'token', data: 'Here is **bold** text' }
+      rerender(<ChatPanel />)
+
+      // End the stream.
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      // The settled bubble must carry the fade-in animation class so the
+      // swap from plain text to rendered markdown is visually smooth.
+      const bubble = document.querySelector('.chat-bubble-content')
+      expect(bubble).not.toBeNull()
+      expect(bubble?.className).toContain('animate-fade-in-fast')
+      // And the rendered markdown must be present, not the raw version.
+      expect(bubble?.querySelector('strong')?.textContent).toBe('bold')
+    })
+
+    // Regression for partial-markdown flicker. While a fenced code block
+    // is mid-stream (opening ``` received, closing ``` not yet), the old
+    // renderer collapsed everything after the opening fence into a <pre>,
+    // and the layout snapped back once the closing fence arrived. The
+    // fix is to render plain text during streaming, so no <pre> appears
+    // until the final markdown render runs after streaming ends.
+    it('does not render a code block element while the closing fence is still streaming', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'show me code' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // First token opens a fence but never closes it. The rendered
+      // bubble must not contain a <pre> while the stream is still open.
+      mockLastMessage = { type: 'token', data: 'Here is code:\n```js\nconst x = 1;\n' }
+      rerender(<ChatPanel />)
+
+      const bubble = document.querySelector('.chat-bubble-content')
+      expect(bubble).not.toBeNull()
+      expect(bubble?.querySelector('pre')).toBeNull()
+      // The raw text is present verbatim, preserved by whitespace-pre-wrap.
+      expect(bubble?.textContent).toContain('const x = 1;')
+    })
   })
 
   // Bug: Claude bubbles show label only, no content, when the response has
@@ -2555,4 +2659,5 @@ describe('ChatPanel', () => {
       expect(screen.queryByText(/failed\./i)).toBeNull()
     })
   })
+
 })

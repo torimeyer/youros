@@ -427,6 +427,30 @@ class TestSystemPromptTaskTools:
         # Must mention curl as the fallback mechanism
         assert "curl" in prompt
 
+    def test_system_prompt_anchors_relative_dates_to_today(self):
+        """Regression: the LLM used to hallucinate years for relative dates
+        (e.g. "the 28th" -> 2024-12-28 when today was 2026-04-21) because
+        the system prompt never gave it the current date. Anchor today's
+        date at the top of the prompt so "the 28th" resolves to the current
+        year/month instead of a training-era guess.
+        """
+        from datetime import datetime, timezone
+        from services.chat_providers import _system_prompt
+        prompt = _system_prompt()
+        # The prompt now uses the SERVER's local date, not UTC, because
+        # calendar events get created in the user's timezone. Compute
+        # expected local date the same way the prompt does.
+        today_local = datetime.now(timezone.utc).astimezone()
+        assert today_local.strftime("%Y-%m-%d") in prompt
+        assert str(today_local.year) in prompt
+        # Must explicitly instruct the model not to make up years.
+        assert "Never invent a year" in prompt
+        # Timezone block (UTC-05:00 or similar offset) must be present so
+        # Claude attaches the correct offset to calendar event datetimes
+        # instead of letting Google default to Pacific.
+        assert "TIMEZONE:" in prompt
+        assert "UTC" in prompt
+
 
 # ---- execute_tool: capture_idea ----
 

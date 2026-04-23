@@ -27,13 +27,19 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from config import PROJECT_ROOT
+
 MYOS_DIR = Path.home() / ".myos"
 CHAT_HISTORY_PATH = MYOS_DIR / "chat_history.json"
+# Claude Code stores per-project memory under ~/.claude/projects/<slug>/memory
+# where <slug> is the absolute repo path with "/" replaced by "-" (so it
+# keeps the leading dash from the leading "/" of the absolute path).
+_PROJECT_SLUG = str(PROJECT_ROOT).replace("/", "-")
 MEMORY_DIR = (
     Path.home()
     / ".claude"
     / "projects"
-    / "-Users-torimeyer-claude-torios"
+    / _PROJECT_SLUG
     / "memory"
 )
 

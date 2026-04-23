@@ -212,63 +212,6 @@ async def test_retro_save_does_not_emit_notification_or_chat(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_prewarm_replay_emits_exactly_one_notification(tmp_path):
-    """The prewarm replay path (user clicked Roadmap, backend streamed
-    a cached transcript) must emit exactly one bell notification when
-    the replay finishes, and must NOT post a chat bubble.
-    """
-    from routers import agents as agents_module
-    from routers.agents import agent_metadata, _save_agent_output_to_files
-
-    agent_name = "roadmap-prewarm-replay-agent"
-    agent_metadata[agent_name] = {
-        **_roadmap_metadata(),
-        "template_produces_doc": True,
-        "prewarm_replay": True,
-    }
-    fake_home = tmp_path / "home"
-    fake_home.mkdir()
-
-    notif_calls: list[dict] = []
-
-    class _FakeNotif:
-        def add(self, **kwargs):
-            notif_calls.append(kwargs)
-            return None
-
-    chat_calls: list[dict] = []
-
-    def _fake_post_system_message(*args, **kwargs):
-        chat_calls.append({"args": args, "kwargs": kwargs})
-        return {}
-
-    try:
-        with patch.object(
-            agents_module, "MYOS_FILES_DIR", fake_home / ".myos" / "files"
-        ), patch(
-            "services.notifications.notifications_service",
-            _FakeNotif(),
-        ), patch(
-            "services.chat_notifications.post_system_message",
-            side_effect=_fake_post_system_message,
-        ):
-            # Mirrors the prewarm replay call shape in
-            # _stream_prewarm_roadmap_replay (default emit_notification=True).
-            _save_agent_output_to_files(
-                agent_name, ROADMAP_SUMMARY, skip_auto_tasks=True
-            )
-        assert len(notif_calls) == 1, (
-            f"prewarm replay must fire exactly one notification, got "
-            f"{len(notif_calls)}: {notif_calls}"
-        )
-        assert chat_calls == [], (
-            f"prewarm replay must not post to chat, got {chat_calls}"
-        )
-    finally:
-        agent_metadata.pop(agent_name, None)
-
-
-@pytest.mark.asyncio
 async def test_roadmap_writes_exactly_one_file(tmp_path):
     """Regression guard: a Roadmap completion must write ONLY the stable
     roadmap.md file, not the timestamped <agentname>-<ts>.md sibling.

@@ -9,6 +9,7 @@ beforeEach(() => {
     toastIds: [],
     firedKeys: new Set<string>(),
     persistentToastIds: new Set<string>(),
+    lastFeatureLive: null,
   })
   vi.useRealTimers()
 })
@@ -284,6 +285,58 @@ describe('notifications store', () => {
         "Open roadmap.md. Type 'create tasks' in chat to break it down.",
       )
       expect(n.agentName).toBe('Roadmap ready')
+    })
+
+    it('stamps lastFeatureLive when a spec_complete toast arrives', () => {
+      // Regression for the silent-landing bug: when the backend fires a
+      // spec_complete persistent notification (Build-it just shipped),
+      // the store must stamp lastFeatureLive so the ChatPanel's All
+      // pill pulse and the release-notes modal fallback both fire.
+      // Without this stamp, the TopBar toast pops in isolation and the
+      // pill + modal stay silent.
+      expect(useNotificationStore.getState().lastFeatureLive).toBeNull()
+
+      useNotificationStore.getState().addPersistentToast({
+        id: 'fl-1',
+        type: 'spec_complete',
+        title: 'Your feature is live',
+        body: 'Multi model chat is built and ready to try.',
+        action_url: '/specs?expand=docs/spec/multi-model.md',
+      })
+
+      const live = useNotificationStore.getState().lastFeatureLive
+      expect(live).not.toBeNull()
+      expect(live?.id).toBe('fl-1')
+      expect(live?.title).toBe('Your feature is live')
+      expect(live?.body).toBe('Multi model chat is built and ready to try.')
+      expect(typeof live?.at).toBe('number')
+    })
+
+    it('leaves lastFeatureLive untouched for non-spec_complete toast types', () => {
+      // Guard: the feature-live stamp must not fire on generic agent
+      // completion toasts. Otherwise the pill would pulse every time
+      // any agent finishes its work.
+      useNotificationStore.getState().addPersistentToast({
+        id: 'agent-1',
+        type: 'agent',
+        title: 'Agent done: foo',
+        body: 'Agent finished',
+        action_url: '/agents',
+      })
+      expect(useNotificationStore.getState().lastFeatureLive).toBeNull()
+    })
+
+    it('clearAll resets lastFeatureLive so a fresh demo can re-pulse', () => {
+      useNotificationStore.getState().addPersistentToast({
+        id: 'fl-2',
+        type: 'spec_complete',
+        title: 'Your feature is live',
+        body: '',
+        action_url: null,
+      })
+      expect(useNotificationStore.getState().lastFeatureLive).not.toBeNull()
+      useNotificationStore.getState().clearAll()
+      expect(useNotificationStore.getState().lastFeatureLive).toBeNull()
     })
   })
 })

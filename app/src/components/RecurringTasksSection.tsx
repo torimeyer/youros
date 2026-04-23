@@ -131,6 +131,16 @@ export default function RecurringTasksSection({ cardClass, showSuggestions }: Pr
     setError("");
   };
 
+  // Escape closes the modal.
+  useEffect(() => {
+    if (!showModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showModal]);
+
   const toggleDay = (day: number) => {
     setForm((f) => ({
       ...f,

@@ -310,35 +310,14 @@ def _guard_audit_writes(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _pin_prewarm_roadmap_to_tmp(tmp_path, monkeypatch):
-    """Point the Roadmap prewarm file at a missing tmp path by default.
-
-    The real asset lives at ``~/.myos/prewarm/roadmap.md``. Existing
-    tests that exercise the demo Roadmap spawn path assert the real
-    subprocess is invoked; they would break if a developer happens to
-    have seeded the prewarm file locally. Individual tests that want
-    to exercise the replay path override the attribute themselves
-    (see ``test_roadmap_prewarm_replay_when_file_exists_and_demo_mode``).
-    """
-    from routers import agents as _agents_mod
-
-    missing = tmp_path / "prewarm" / "no-roadmap.md"
-    monkeypatch.setattr(_agents_mod, "PREWARM_ROADMAP_PATH", missing)
-    yield
-
-
-@pytest.fixture(autouse=True)
 def _pin_myos_files_dir_to_tmp(tmp_path, monkeypatch):
     """Redirect ``MYOS_FILES_DIR`` to a tmp path for every test.
 
     The real dir is ``~/.myos/files/`` and is where user-facing artifacts
     live (roadmap.md, fleet outputs, etc.). Any test that exercises a
-    spawn path which calls ``_save_agent_output_to_files`` (for example
-    ``test_roadmap_prewarm_replay_when_file_exists_and_demo_mode``) would
+    spawn path which calls ``_save_agent_output_to_files`` would
     otherwise overwrite the user's real roadmap.md with the test's fake
-    prewarm content. That is exactly what clobbered Tori's 4229-byte
-    roadmap.md with a 160-byte "ship the thing" placeholder the morning
-    of the demo.
+    content.
 
     Individual tests that specifically want to inspect a write can still
     re-patch the attribute themselves (patterns like

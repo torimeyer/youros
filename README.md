@@ -153,4 +153,4 @@ To use Gemini through your Google account:
 
 ## Roadmap
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the three-year plan.
+Open `roadmap.html` in your browser to see the three-year plan.

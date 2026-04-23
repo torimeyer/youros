@@ -1280,10 +1280,9 @@ def _recover_stale_agents():
        process tree and keep heartbeating across our restarts.
     3. Anything else: mark abandoned. This covers backend-managed spawns
        (source="ui", "api", "chat") whose in-memory worker died with the
-       backend, AND prewarm replay agents (pid=0) whose streaming coroutine
-       lived only inside the dead backend process. Without this rule those
-       rows survive restart and show as RUNNING in the UI even though
-       nothing is happening, surprising the user with phantom agents.
+       backend. Without this rule those rows survive restart and show as
+       RUNNING in the UI even though nothing is happening, surprising the
+       user with phantom agents.
     """
     now = datetime.now(timezone.utc)
     changed = False
@@ -1305,9 +1304,9 @@ def _recover_stale_agents():
                 age_seconds = (now - heartbeat).total_seconds()
                 if age_seconds <= STALE_AGENT_TIMEOUT_SECONDS:
                     continue
-        # Case 3: backend-managed spawn (ui/api/chat) or prewarm replay
-        # (pid=0) or stale claude-code session. Worker is dead. Mark
-        # abandoned so the Active Sessions list does not show phantoms.
+        # Case 3: backend-managed spawn (ui/api/chat) or stale claude-code
+        # session. Worker is dead. Mark abandoned so the Active Sessions
+        # list does not show phantoms.
         meta["status"] = "abandoned"
         meta["abandoned_at"] = now.isoformat()
         changed = True
@@ -2980,842 +2979,6 @@ MODEL_MAP = {
 }
 
 
-# Hard wall-clock cap (seconds) for a demo-mode agent. After this, the
-# supervisor force-completes the agent with a short "Completed quickly
-# for demo." summary and SIGKILLs the subprocess if it is still alive.
-DEMO_MODE_WALL_CLOCK_SECONDS = 180
-
-# Cap on the number of output tokens a demo-mode agent can emit. The
-# Claude CLI forwards this via --max-turns-cap / output budgeting so
-# short demo responses stay short. Kept small so the demo finishes fast.
-DEMO_MODE_MAX_OUTPUT_TOKENS = 800
-
-
-def _load_project_mcp_servers_for_demo() -> Optional[str]:
-    """Return a schema-valid ``--mcp-config`` JSON string with ostk only.
-
-    Builder-template demo agents spawned by the spec-build pipeline need
-    real ostk MCP tools. The project-level ``.claude/hooks/ostk-first.sh``
-    fires whenever the backend or ostk kernel is running and blocks every
-    native Bash/Read/Edit/Grep/Write tool call with "use mcp__ostk__*".
-    Stripping MCP via ``--mcp-config '{"mcpServers":{}}'`` leaves the
-    subagent with no way to satisfy the hook, so the agent freezes on
-    the first tool call until the 180s wall-clock force-complete. To
-    avoid that, this helper loads the project's ``.mcp.json`` at spawn
-    time, extracts only the ``ostk`` server entry (other servers like
-    ``stitch`` are demo-irrelevant and slow the spawn), and returns a
-    compact JSON string suitable for passing to ``--mcp-config``.
-
-    Returns ``None`` when the file does not exist, cannot be parsed, or
-    does not contain an ``ostk`` server. The caller falls back to the
-    empty ``{"mcpServers":{}}`` config in that case so the spawn still
-    succeeds (just without ostk tools, same as before this fix).
-    """
-    try:
-        from config import PROJECT_ROOT
-    except Exception:
-        return None
-    mcp_path = PROJECT_ROOT / ".mcp.json"
-    if not mcp_path.is_file():
-        return None
-    try:
-        with open(mcp_path, "r") as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return None
-    servers = (data or {}).get("mcpServers") or {}
-    ostk_entry = servers.get("ostk")
-    if not ostk_entry:
-        return None
-    # Compact separators so the argv stays short; the CLI validator only
-    # cares about schema, not whitespace.
-    return json.dumps(
-        {"mcpServers": {"ostk": ostk_entry}},
-        separators=(",", ":"),
-    )
-
-
-def _spawn_demo_mode(body: "AgentSpawn") -> bool:
-    """Return True when the spawn target opts into demo mode.
-
-    Demo mode stacks on top of quick mode. It can be opted in three ways
-    in priority order:
-
-      1. Caller-side ``body.demo_mode = True`` (set by demo surfaces like
-         the workflows materialiser and the "build it" chat chain). This
-         wins regardless of what the agentfile says so the demo budget
-         is enforced even on agents that share an agentfile with a
-         non-demo path.
-      2. Agentfile ``LIMIT demo_mode true`` resolved through the
-         ``template`` field.
-      3. Agentfile ``LIMIT demo_mode true`` resolved through the agent
-         ``name``.
-
-    Never raises. Any lookup error falls back to False so the spawn stays
-    on the normal path.
-    """
-    # Priority 1: explicit caller opt-in. Wins even over an agentfile
-    # that forbids demo mode by omission. The ``saa`` template carve-out
-    # below still applies so demo_mode + template=saa is silently
-    # downgraded (saa is an opinionated long-form agent, never quick).
-    try:
-        explicit = getattr(body, "demo_mode", None)
-    except Exception:
-        explicit = None
-
-    try:
-        from services.agentfile_parser import (
-            get_agent_config,
-            get_agent_config_by_template,
-        )
-    except Exception:
-        return bool(explicit)
-
-    try:
-        template_raw = (getattr(body, "template", None) or "").strip().lower()
-        if template_raw == "saa":
-            # Same carve-out as quick mode: saa keeps its full envelope.
-            return False
-        if explicit is True:
-            return True
-
-        if template_raw:
-            try:
-                from services.agent_templates_store import (
-                    _resolve_alias,
-                    _BUILTIN_BY_ID,
-                    _name_to_stem,
-                )
-                alias_id = _resolve_alias(body.template)
-                if alias_id:
-                    # Try both stem derivations. Built-ins like "builder"
-                    # live at ``agents/<id-minus-builtin-prefix>.agent``
-                    # while marketplace templates live at
-                    # ``agents/marketplace/<name_to_stem>.agent``, where
-                    # the id prefix does NOT match the file stem (e.g.
-                    # ``builtin-pm-roadmap`` -> ``roadmap.agent``).
-                    stems = [alias_id.replace("builtin-", "")]
-                    tpl = _BUILTIN_BY_ID.get(alias_id) or {}
-                    tpl_name = tpl.get("name")
-                    if tpl_name:
-                        name_stem = _name_to_stem(tpl_name)
-                        if name_stem and name_stem not in stems:
-                            stems.append(name_stem)
-                    for stem in stems:
-                        cfg = get_agent_config_by_template(stem)
-                        if cfg is not None and getattr(cfg, "demo_mode", False):
-                            return True
-            except Exception:
-                pass
-            cfg = get_agent_config_by_template(body.template)
-            if cfg is not None and getattr(cfg, "demo_mode", False):
-                return True
-        cfg = get_agent_config(body.name)
-        if cfg is not None and getattr(cfg, "demo_mode", False):
-            return True
-    except Exception:
-        return False
-    return False
-
-
-# Minimum assistant-text length (in characters) the transcript must contain
-# before a demo-timeout force-complete is allowed to write a Recent Documents
-# .md. Below this threshold we skip the write entirely. A "Done." or a
-# one-word ack is not useful to surface and a file reading only the apology
-# string is worse than no file. 120 chars is the "at least a full sentence or
-# two of real work" bar.
-_DEMO_TIMEOUT_MIN_PARTIAL_CHARS = 120
-
-
-def _extract_partial_assistant_output(agent_name: str) -> str:
-    """Return the meaningful assistant text from an agent's transcript.
-
-    Walks the on-disk transcript (via :func:`_resolve_transcript_source`) and
-    pulls only the assistant's natural-language output, ignoring tool calls,
-    user prompts, tool results, and the standard Claude Code opening banner.
-    Used by the demo-timeout force-complete path to decide whether there is
-    real partial work worth writing to Recent Documents.
-
-    Returns an empty string on any error or when there is no usable text.
-    Best-effort by design: a demo supervisor must never raise.
-    """
-    try:
-        source = _resolve_transcript_source(agent_name)
-    except Exception:
-        return ""
-    if source is None:
-        return ""
-    try:
-        if not source.exists() or source.stat().st_size == 0:
-            return ""
-    except OSError:
-        return ""
-
-    suffix = source.suffix.lower()
-    # Markdown transcripts: return the whole body. These are only written by
-    # the daemon-spawned flow and are already "clean" assistant output.
-    if suffix == ".md":
-        try:
-            return source.read_text(errors="replace").strip()
-        except OSError:
-            return ""
-
-    # JSONL (or .output that sniffs as JSONL): walk the entries and collect
-    # only real assistant text blocks.
-    parts: list[str] = []
-    try:
-        with open(source, "r", errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if not isinstance(entry, dict):
-                    continue
-                if entry.get("type") != "assistant":
-                    continue
-                message = entry.get("message") or {}
-                content = message.get("content") if isinstance(message, dict) else None
-                if not isinstance(content, list):
-                    continue
-                for block in content:
-                    if not isinstance(block, dict):
-                        continue
-                    if block.get("type") != "text":
-                        continue
-                    text = (block.get("text") or "").strip()
-                    if text:
-                        parts.append(text)
-    except OSError:
-        return ""
-
-    return "\n\n".join(parts).strip()
-
-
-async def _schedule_demo_force_complete(
-    agent_name: str,
-    deadline_seconds: int = DEMO_MODE_WALL_CLOCK_SECONDS,
-) -> None:
-    """Background task: force-complete a demo agent after the deadline.
-
-    Waits ``deadline_seconds`` wall-clock time. If the agent is still in
-    a non-terminal status, SIGKILLs the subprocess (if any), flips the
-    metadata to ``completed_timeout`` with a short summary, and persists
-    the state. Idempotent: if the agent already completed or was
-    cancelled, this is a no-op.
-
-    Never raises. This runs as a fire-and-forget task so any failure
-    stays local. The 90s deadline is the biggest lever for keeping the
-    whole fleet under 3 minutes end-to-end.
-    """
-    try:
-        await asyncio.sleep(max(1, int(deadline_seconds)))
-    except asyncio.CancelledError:
-        return
-
-    meta = agent_metadata.get(agent_name)
-    if not meta:
-        return
-    status = meta.get("status")
-    # Terminal statuses are all a no-op. The agent already finished.
-    if status in {"completed", "failed", "cancelled", "terminated_stale", "completed_timeout"}:
-        return
-
-    # SIGKILL the subprocess if we still have a handle. Hard kill is the
-    # right choice for demo mode: the wall-clock cap is the whole point.
-    proc = active_agents.get(agent_name)
-    if proc is not None:
-        try:
-            if proc.returncode is None:
-                proc.kill()
-        except Exception:
-            pass
-        active_agents.pop(agent_name, None)
-
-    # Flip status. We write directly rather than reusing /complete so
-    # the AC gate cannot block this supervisor. The summary reads in
-    # plain language for the UI.
-    now_iso = datetime.now(timezone.utc).isoformat()
-    meta["status"] = "completed_timeout"
-    meta["summary"] = "Completed quickly for demo."
-    meta["completed_at"] = now_iso
-    meta["last_heartbeat_at"] = now_iso
-    agent_metadata[agent_name] = meta
-    try:
-        _save_agent_state()
-    except Exception:
-        pass
-
-    # Artifact policy for demo-timeout force-complete:
-    #
-    # 1. If the transcript has NO meaningful assistant text (empty or below
-    #    the _DEMO_TIMEOUT_MIN_PARTIAL_CHARS bar), we write NOTHING to
-    #    Recent Documents. A file that only says "the agent was stopped
-    #    before it could return anything" is worse than no file: it clutters
-    #    the Files tab and references internal jargon the user does not know.
-    # 2. If the transcript DOES have real partial output, we write a .md
-    #    whose body is the actual partial output (not an apology), so
-    #    downstream hooks (roadmap notification, kind: fleet-output front
-    #    matter) still fire for the fleet / Roadmap paths.
-    #
-    # Auto-tasks stay suppressed (``skip_auto_tasks=True``) even on the
-    # real-partial-output path: a cut-short run's half-finished bullets are
-    # not something we want to spam the Tasks list with.
-    try:
-        partial = _extract_partial_assistant_output(agent_name)
-        if partial and len(partial) >= _DEMO_TIMEOUT_MIN_PARTIAL_CHARS:
-            _save_agent_output_to_files(
-                agent_name, partial, skip_auto_tasks=True
-            )
-        # Else: deliberately skip the write. The agent's completed_timeout
-        # status is already recorded on the Agents page for any audit.
-    except Exception:
-        pass
-
-
-# Demo prewarm replay: path where a real Roadmap run is cached so the
-# live demo can stream it back in ~10 to 15 seconds with no LLM call.
-# Only read when demo_mode is true AND the template resolves to Roadmap.
-# Absence of the file is the safe default: normal LLM spawn runs.
-# Documented here so operators know exactly where the demo asset lives.
-PREWARM_DIR = Path.home() / ".myos" / "prewarm"
-PREWARM_ROADMAP_PATH = PREWARM_DIR / "roadmap.md"
-# Demo prewarm for the Build it flow. Mirrors the roadmap replay idea
-# but also applies real file edits so the spec's feature visibly lands
-# in the repo while each builder "works" for ~30 seconds. Layout:
-#
-#   ~/.myos/prewarm/builds/<spec-stem>/manifest.json
-#   ~/.myos/prewarm/builds/<spec-stem>/files/<repo-relative-path>
-#
-# manifest.json shape:
-#   {
-#     "target_seconds": 30,
-#     "tasks": [
-#       {"match": "<substring of task title>",
-#        "transcript": "plain text the agent's transcript will stream",
-#        "write_files": [
-#          {"dest": "app/src/...", "from": "files/app/src/..."}
-#        ]}
-#     ]
-#   }
-#
-# Matching: when a spec-build spawn arrives, we take body.task (the
-# friendly task label) and pick the FIRST manifest entry whose "match"
-# substring appears in it. That lets the prewarm track AC order without
-# depending on needle ids, which change across demo runs.
-PREWARM_BUILDS_DIR = PREWARM_DIR / "builds"
-# Per-task replay wall time. The user wants each agent to feel like real
-# work even when the content is canned, so we drip the transcript over
-# this many seconds and apply the file edits right at the end.
-_PREWARM_BUILD_TARGET_SECONDS = 30.0
-
-# Target wall time for the replay stream. Aim for ~5 seconds total so
-# the Roadmap answer feels snappy while still showing visible token-by-
-# token growth (instead of an instant paste). A ~4KB prewarm over 5s is
-# ~800 bytes/s which reads as "the agent is typing" to the viewer.
-# The chunked writer divides the prewarm content into small writes and
-# aims for this budget, with per-chunk fsync overhead absorbed inside
-# it so the wall time stays near target regardless of filesystem speed.
-# Two Agents-page polls (polling at 2 s) still land inside 5s so the
-# Active Sessions list catches the running row at least once.
-_PREWARM_TARGET_SECONDS = 5.0
-_PREWARM_CHUNK_DELAY_SECONDS = 0.04
-
-
-def _spec_stem_from_builder_name(name: str) -> Optional[str]:
-    """Extract the spec stem from a builder agent name.
-
-    Builder names are formatted ``spec-<spec-stem>-<task-id>`` by
-    ``routers.specs.build_spec``. Returns the stem portion, or ``None``
-    if the name does not match the builder pattern. The task-id suffix
-    is the last segment after the final hyphen and is either a bare
-    numeric id (``751``) or an arrow-prefixed one (``→751``).
-    """
-    if not name or not name.startswith("spec-"):
-        return None
-    trimmed = name[len("spec-"):]
-    # Last hyphen separates task id from stem.
-    idx = trimmed.rfind("-")
-    if idx <= 0:
-        return None
-    return trimmed[:idx]
-
-
-def _lookup_build_prewarm_entry(body: "AgentSpawn") -> Optional[dict]:
-    """Return the prewarm manifest entry that matches this builder spawn.
-
-    A match means: body.source == 'spec-build', the agent name decodes
-    to a known spec stem, the manifest.json for that stem exists, and
-    one of its ``tasks`` entries has a ``match`` substring that appears
-    in ``body.task``. Returns the enriched entry dict (with a
-    ``_manifest_dir`` key added so the replay function can resolve the
-    file paths under ``files/``), or ``None`` if any check fails.
-    Never raises; any IO or parse error returns ``None`` so a busted
-    prewarm asset can never block a real spawn.
-    """
-    try:
-        source = (getattr(body, "source", "") or "").lower()
-        if source != "spec-build":
-            return None
-        stem = _spec_stem_from_builder_name(body.name)
-        if not stem:
-            return None
-        manifest_dir = PREWARM_BUILDS_DIR / stem
-        manifest_path = manifest_dir / "manifest.json"
-        if not manifest_path.exists():
-            return None
-        manifest = json.loads(manifest_path.read_text())
-        tasks = manifest.get("tasks") or []
-        task_label = str(getattr(body, "task", "") or "")
-        ac_index = getattr(body, "ac_index", None)
-        target_s = float(
-            manifest.get("target_seconds") or _PREWARM_BUILD_TARGET_SECONDS
-        )
-
-        def _enrich(entry: dict) -> dict:
-            enriched = dict(entry)
-            enriched["_manifest_dir"] = str(manifest_dir)
-            enriched["_target_seconds"] = target_s
-            return enriched
-
-        # Pass 1: task-title substring match. Substrings are closer to
-        # the AC's meaning than its ordinal, so this wins for the normal
-        # case where the LLM regenerates slightly different wording but
-        # keeps the core concept ("toggle", "both", "column"). Order
-        # drift between runs does not break this pass.
-        for entry in tasks:
-            m = str(entry.get("match") or "").strip()
-            if m and m in task_label:
-                return _enrich(entry)
-        # Pass 2: fall back to ac_index when substring matching fails
-        # (the AC was reworded enough that the phrase disappeared).
-        # Works as long as the LLM kept the ACs in the same order.
-        if isinstance(ac_index, int):
-            for entry in tasks:
-                entry_idx = entry.get("ac_index")
-                if isinstance(entry_idx, int) and entry_idx == ac_index:
-                    return _enrich(entry)
-        return None
-    except Exception:
-        logger.exception(
-            "prewarm_build.lookup.failed name=%s", getattr(body, "name", "?")
-        )
-        return None
-
-
-async def _stream_prewarm_build_replay(
-    body: "AgentSpawn",
-    transcript_path: Path,
-    model: str,
-    entry: dict,
-) -> dict:
-    """Replay a cached Build-it run as if a real builder were working.
-
-    Streams the manifest's ``transcript`` text to ``transcript_path`` in
-    small flushed chunks so the UI's transcript poll sees real growth
-    over ~``target_seconds``. At the end, copies every ``write_files``
-    entry from the manifest's ``files/`` dir into the actual project
-    root, marks the agent completed, and calls ``close_spec_builder_task``
-    so the builder task closes and the spec advances to ``done`` just
-    like a natural completion would.
-
-    Returns the same response shape as the real spawn path so callers
-    cannot tell replay from reality.
-    """
-    from config import PROJECT_ROOT
-    manifest_dir = Path(entry.get("_manifest_dir") or "")
-    transcript_text = str(entry.get("transcript") or "")
-    target_s = float(entry.get("_target_seconds") or _PREWARM_BUILD_TARGET_SECONDS)
-    write_files = entry.get("write_files") or []
-
-    transcript_path.parent.mkdir(parents=True, exist_ok=True)
-    transcript_path.write_text("")
-
-    now_spawn = datetime.now(timezone.utc).isoformat()
-    spawn_meta: dict = {
-        "status": "running",
-        "spawned_at": now_spawn,
-        "last_heartbeat_at": now_spawn,
-        "budget": str(body.budget),
-        "model": model,
-        "pid": 0,
-        "tokens_used": 0,
-        "demo_mode": True,
-        "prewarm_replay": True,
-        "prewarm_build": True,
-        "source": body.source or "spec-build",
-    }
-    if body.task:
-        spawn_meta["task"] = body.task
-    if body.description:
-        spawn_meta["description"] = body.description
-    if body.template:
-        spawn_meta["template"] = body.template
-    agent_metadata[body.name] = spawn_meta
-    try:
-        _save_agent_state()
-    except Exception:
-        pass
-
-    # Drip schedule: write transcript in equal chunks over target_s.
-    # Clamp chunk count so very short transcripts still stream (not
-    # one-shot) and very long ones do not fsync per byte.
-    total = max(1, len(transcript_text))
-    n_chunks = max(15, min(120, total // 40 + 15))
-    chunk_size = max(1, (total + n_chunks - 1) // n_chunks)
-    per_chunk_s = max(0.05, target_s / n_chunks)
-
-    async def _drip() -> None:
-        try:
-            written = 0
-            with open(str(transcript_path), "w") as fh:
-                while written < total:
-                    end = min(total, written + chunk_size)
-                    fh.write(transcript_text[written:end])
-                    fh.flush()
-                    try:
-                        os.fsync(fh.fileno())
-                    except OSError:
-                        pass
-                    written = end
-                    if written < total:
-                        await asyncio.sleep(per_chunk_s)
-
-            # Apply the cached file edits. Each spec is either a
-            # whole-file copy (``from``) or a list of string-replace
-            # edits (``edits``). Edits are preferred for big files like
-            # ChatPanel.tsx where a wholesale overwrite would clobber
-            # unrelated changes. Both modes resolve paths under
-            # PROJECT_ROOT and reject any path that escapes.
-            root = Path(PROJECT_ROOT).resolve()
-            for spec in write_files:
-                dest_rel = str(spec.get("dest") or "").strip()
-                if not dest_rel:
-                    continue
-                dest = (root / dest_rel).resolve()
-                try:
-                    dest.relative_to(root)
-                except ValueError:
-                    logger.warning(
-                        "prewarm_build.dest_escape name=%s dest=%s",
-                        body.name, dest,
-                    )
-                    continue
-                edits = spec.get("edits")
-                if isinstance(edits, list):
-                    # Incremental string-replace edits.
-                    if not dest.exists():
-                        logger.warning(
-                            "prewarm_build.edit_target_missing name=%s dest=%s",
-                            body.name, dest,
-                        )
-                        continue
-                    try:
-                        text = dest.read_text()
-                    except OSError as exc:
-                        logger.exception(
-                            "prewarm_build.read.failed name=%s dest=%s err=%s",
-                            body.name, dest, exc,
-                        )
-                        continue
-                    applied = 0
-                    skipped = 0
-                    for edit in edits:
-                        old = str(edit.get("old_str") or "")
-                        new = str(edit.get("new_str") or "")
-                        if not old:
-                            continue
-                        # Idempotency: check ``new in text`` FIRST. A
-                        # common insert-after shape has new_str = old_str
-                        # + addition, so old_str is STILL in text after
-                        # the first apply and a naive ``old in text``
-                        # check would replace-then-re-apply, inserting
-                        # the addition a second time. The user-visible
-                        # symptom was two side-by-side toggle buttons
-                        # after a second demo run on the same repo.
-                        # Checking new first makes the replay truly
-                        # idempotent regardless of insert shape.
-                        if new and new in text:
-                            skipped += 1
-                            continue
-                        if old in text:
-                            text = text.replace(old, new, 1)
-                            applied += 1
-                        else:
-                            logger.warning(
-                                "prewarm_build.edit_no_match name=%s dest=%s "
-                                "old_head=%r",
-                                body.name, dest, old[:80],
-                            )
-                    try:
-                        dest.write_text(text)
-                    except OSError as exc:
-                        logger.exception(
-                            "prewarm_build.write.failed name=%s dest=%s err=%s",
-                            body.name, dest, exc,
-                        )
-                    logger.info(
-                        "prewarm_build.edits name=%s dest=%s applied=%d skipped=%d",
-                        body.name, dest_rel, applied, skipped,
-                    )
-                    continue
-                # Whole-file copy path (``from``).
-                src_rel = str(spec.get("from") or "").strip()
-                if not src_rel:
-                    continue
-                src = (manifest_dir / src_rel).resolve()
-                if not src.exists():
-                    logger.warning(
-                        "prewarm_build.source_missing name=%s src=%s",
-                        body.name, src,
-                    )
-                    continue
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                try:
-                    dest.write_bytes(src.read_bytes())
-                except OSError as exc:
-                    logger.exception(
-                        "prewarm_build.write.failed name=%s dest=%s err=%s",
-                        body.name, dest, exc,
-                    )
-
-            # Mark completed and run the same auto-close as a real run.
-            now_done = datetime.now(timezone.utc).isoformat()
-            meta = agent_metadata.get(body.name) or {}
-            meta["status"] = "completed"
-            meta["summary"] = transcript_text
-            meta["completed_at"] = now_done
-            meta["last_heartbeat_at"] = now_done
-            meta["transcript_bytes"] = total
-            agent_metadata[body.name] = meta
-            try:
-                _save_agent_state()
-            except Exception:
-                pass
-            # Close the spec builder task via the existing auto-close
-            # helper. This triggers the spec-status flip to done when
-            # the last sibling closes.
-            try:
-                from routers.specs import close_spec_builder_task
-                await close_spec_builder_task(body.name)
-            except Exception:
-                logger.exception(
-                    "prewarm_build.close_task.failed name=%s", body.name
-                )
-        except Exception:
-            logger.exception(
-                "prewarm_build.stream.failed name=%s", body.name
-            )
-
-    try:
-        asyncio.create_task(_drip())
-    except Exception:
-        logger.exception(
-            "prewarm_build.schedule.failed name=%s", body.name
-        )
-
-    return {
-        "result": f"Agent '{body.name}' spawned (prewarm build replay)",
-        "name": body.name,
-        "pid": 0,
-        "transcript": str(transcript_path),
-    }
-
-
-def _is_roadmap_template_request(body: "AgentSpawn") -> bool:
-    """True when a spawn body targets the Roadmap marketplace template.
-
-    Matches the display name ("Roadmap"), the builtin id
-    ("builtin-pm-roadmap"), and the legacy "pm-roadmap" stem. Name-based
-    matching is intentionally avoided: a diagnose agent whose name
-    contains "roadmap" must not accidentally take the replay path.
-    """
-    template_raw = (getattr(body, "template", None) or "").strip().lower()
-    if not template_raw:
-        return False
-    return template_raw in {"roadmap", "pm-roadmap", "builtin-pm-roadmap"}
-
-
-def _strip_leading_frontmatter(text: str) -> str:
-    """Drop a leading ``---\\n...\\n---\\n`` YAML block if present.
-
-    Only strips the first block and only when it begins on the very
-    first line. Idempotent: text without a frontmatter block is
-    returned unchanged. The goal is to avoid leaking the prewarm
-    asset's internal metadata (``source:``, ``template:``) into the
-    user-facing roadmap.md when the replay writer composes its own
-    wrapper.
-    """
-    if not text.startswith("---\n"):
-        return text
-    end = text.find("\n---", 4)
-    if end == -1:
-        return text
-    # Consume the closing fence line plus its trailing newline(s).
-    after = end + len("\n---")
-    # Skip the newline right after ``---`` if present.
-    if after < len(text) and text[after] == "\n":
-        after += 1
-    # Also consume one more leading blank line so the body does not
-    # start with a stray empty line.
-    if after < len(text) and text[after] == "\n":
-        after += 1
-    return text[after:]
-
-
-async def _stream_prewarm_roadmap_replay(
-    body: "AgentSpawn",
-    transcript_path: Path,
-    model: str,
-) -> dict:
-    """Replay a cached Roadmap transcript as if a live agent were running.
-
-    Registers the agent row with status=running, writes the prewarm
-    content to the transcript in small flushed chunks so the UI's
-    transcript poll sees it growing, flips status to completed, and
-    persists the final summary through the same files hook that a
-    natural completion uses.
-
-    Returns the same response shape as the real spawn path so the
-    caller's JSON contract is unchanged.
-    """
-    # Read the cached roadmap. Safe to assume it exists: the gate check
-    # in spawn_agent only enters this function when the file is present.
-    content = PREWARM_ROADMAP_PATH.read_text()
-
-    # Strip any leading YAML front matter so the downstream writer's own
-    # wrapper does not produce a duplicate ``---\n...\n---`` block in
-    # the saved artifact. The prewarm asset on disk is a developer file
-    # and its ``source:`` / ``template:`` fields are internal metadata
-    # the viewer does not need to see. _save_agent_output_to_files
-    # composes a neutral wrapper (source=<agent_name>, kind=roadmap)
-    # which is all the frontend parser needs.
-    content = _strip_leading_frontmatter(content)
-
-    # Register the running agent so the UI shows a live row immediately.
-    transcript_path.parent.mkdir(parents=True, exist_ok=True)
-    # Truncate any prior transcript so the stream shows fresh growth.
-    transcript_path.write_text("")
-
-    now_spawn = datetime.now(timezone.utc).isoformat()
-    spawn_meta: dict = {
-        "status": "running",
-        "spawned_at": now_spawn,
-        "last_heartbeat_at": now_spawn,
-        "budget": str(body.budget),
-        "model": model,
-        "pid": 0,
-        "tokens_used": 0,
-        "demo_mode": True,
-        "prewarm_replay": True,
-        "source": body.source or "api",
-    }
-    if body.task:
-        spawn_meta["task"] = body.task
-    if body.description:
-        spawn_meta["description"] = body.description
-    if body.template:
-        spawn_meta["template"] = body.template
-    # Roadmap template always produces a doc so the Files tab shows it.
-    spawn_meta["template_produces_doc"] = True
-    agent_metadata[body.name] = spawn_meta
-    try:
-        _save_agent_state()
-    except Exception:
-        pass
-
-    # Compute chunk count so the total wall time lands near the target.
-    # Budget 20ms per chunk for fsync and asyncio scheduling overhead on
-    # top of the programmed delay. That keeps the stream inside the
-    # 10 to 15 second window across slow and fast machines.
-    _OVERHEAD_PER_CHUNK_S = 0.02
-    per_chunk_s = _PREWARM_CHUNK_DELAY_SECONDS + _OVERHEAD_PER_CHUNK_S
-    target_chunks = max(15, int(_PREWARM_TARGET_SECONDS / per_chunk_s))
-    total = len(content)
-    chunk_size = max(1, (total + target_chunks - 1) // target_chunks)
-
-    async def _drip() -> None:
-        try:
-            written = 0
-            with open(str(transcript_path), "w") as fh:
-                while written < total:
-                    end = min(total, written + chunk_size)
-                    fh.write(content[written:end])
-                    fh.flush()
-                    try:
-                        os.fsync(fh.fileno())
-                    except OSError:
-                        pass
-                    written = end
-                    if written < total:
-                        await asyncio.sleep(_PREWARM_CHUNK_DELAY_SECONDS)
-
-            # Flip to completed and persist the summary. Mirrors the
-            # natural-completion contract: completed status, summary
-            # body, completed_at timestamp, and the files hook so the
-            # roadmap.md artifact lands in ~/.myos/files/.
-            now_done = datetime.now(timezone.utc).isoformat()
-            meta = agent_metadata.get(body.name) or {}
-            meta["status"] = "completed"
-            meta["summary"] = content
-            meta["completed_at"] = now_done
-            meta["last_heartbeat_at"] = now_done
-            meta["transcript_bytes"] = total
-            agent_metadata[body.name] = meta
-            try:
-                _save_agent_state()
-            except Exception:
-                pass
-            try:
-                _save_agent_output_to_files(
-                    body.name, content, skip_auto_tasks=True
-                )
-            except Exception:
-                logger.exception(
-                    "prewarm_replay.save_files.failed name=%s", body.name
-                )
-        except Exception:
-            logger.exception(
-                "prewarm_replay.stream.failed name=%s", body.name
-            )
-
-    try:
-        asyncio.create_task(_drip())
-    except Exception:
-        logger.exception("prewarm_replay.schedule.failed name=%s", body.name)
-
-    # Audit the replay spawn so operators can distinguish a prewarm run
-    # from a real LLM run in the audit log.
-    try:
-        await ostk._run(
-            "os",
-            "audit",
-            "--event",
-            "agent.spawned",
-            "--data",
-            json.dumps(
-                {
-                    "name": body.name,
-                    "model": model,
-                    "budget": str(body.budget),
-                    "prewarm_replay": True,
-                }
-            ),
-        )
-    except Exception:
-        pass
-
-    return {
-        "result": f"Agent '{body.name}' spawned (prewarm replay)",
-        "name": body.name,
-        "pid": 0,
-        "transcript": str(transcript_path),
-    }
-
-
 def _spawn_quick_mode(body: "AgentSpawn") -> bool:
     """Return True when the spawn target opts into quick mode.
 
@@ -3855,10 +3018,9 @@ def _spawn_quick_mode(body: "AgentSpawn") -> bool:
                 )
                 alias_id = _resolve_alias(body.template)
                 if alias_id:
-                    # See _spawn_demo_mode for why two stems are tried:
-                    # marketplace templates live at
-                    # ``agents/marketplace/<name_to_stem>.agent`` and
-                    # their file stem does NOT match the built-in id
+                    # Two stems are tried because marketplace templates
+                    # live at ``agents/marketplace/<name_to_stem>.agent``
+                    # and their file stem does NOT match the built-in id
                     # prefix (Roadmap -> ``roadmap.agent``, not
                     # ``pm-roadmap``). Without this second stem, the
                     # ``LIMIT quick_mode true`` flag in the agentfile was
@@ -3915,43 +3077,14 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             ),
         )
 
-    # Resolve demo mode up front so we can coerce the model to Haiku
-    # (the fastest Claude tier) and skip every optional context-inject
-    # step that adds first-byte latency. Demo mode is the biggest lever
-    # for keeping a 4-agent fleet under 3 minutes end-to-end.
-    #
-    # Explicit user model override
-    # ----------------------------
-    # When the caller sets ``honor_explicit_model=True`` we respect the
-    # ``body.model`` they picked even if the matching agentfile has
-    # ``LIMIT demo_mode true``. The rest of the demo path (90s wall
-    # clock, compact mailbox, skipped warm up) still applies, so the
-    # agent probably times out if the user chose a slow tier. We log a
-    # warning in that case so it shows up in backend logs without
-    # refusing the spawn. This is the lever the template-detail edit
-    # modal uses to let the user swap Haiku for Sonnet on built-in
-    # templates like Roadmap without rewriting the agentfile.
-    _demo_mode = _spawn_demo_mode(body)
-    _honor_explicit_model = bool(getattr(body, "honor_explicit_model", False))
-    if _demo_mode and not _honor_explicit_model:
-        # Force the fastest tier regardless of what the caller asked for.
-        model = MODEL_MAP["haiku"]
+    # Resolve the final model id. ``model_tier`` takes precedence over
+    # ``model`` when both are set. ``resolve_model`` handles unknown
+    # tiers and full model ids.
+    from services.model_routing import resolve_model as _resolve_model
+    if getattr(body, "model_tier", None):
+        model = _resolve_model(body.model_tier)
     else:
-        # model_tier takes precedence over model when both are set.
-        # resolve_model handles unknown tiers and full model ids.
-        from services.model_routing import resolve_model as _resolve_model
-        if getattr(body, "model_tier", None):
-            model = _resolve_model(body.model_tier)
-        else:
-            model = MODEL_MAP.get(body.model, body.model)
-        if _demo_mode and _honor_explicit_model and "haiku" not in str(model).lower():
-            logger.warning(
-                "demo_mode.explicit_model name=%s model=%s cap=%ds "
-                "(agent may hit wall-clock force-complete)",
-                body.name,
-                model,
-                DEMO_MODE_WALL_CLOCK_SECONDS,
-            )
+        model = MODEL_MAP.get(body.model, body.model)
     # Clean slate: purge every chat artifact from a previous run of an
     # agent with this same name BEFORE any new state lands on disk. Without
     # this purge the UI's inline chat merges stale nudges/replies from
@@ -3988,67 +3121,20 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     transcript_path = PROJECT_ROOT / "transcripts" / f"{body.name}.md"
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Demo prewarm replay gate. When demo_mode is true AND the template
-    # resolves to Roadmap AND the cached prewarm file exists, skip the
-    # claude subprocess entirely and stream the cached transcript back.
-    # This is the live-demo replay path: a 10 to 15 second chunked write
-    # that looks like a real agent run in the UI. Absence of any one
-    # condition falls through to the normal LLM spawn path so this
-    # change is a no-op for everyone except the demo surface.
-    if (
-        _demo_mode
-        and _is_roadmap_template_request(body)
-        and PREWARM_ROADMAP_PATH.exists()
-    ):
-        try:
-            return await _stream_prewarm_roadmap_replay(
-                body, transcript_path, model
-            )
-        except Exception:
-            # Never let a replay failure block a real spawn. If the
-            # cached file is unreadable for any reason, fall through to
-            # the subprocess path so the demo still gets an answer.
-            logger.exception(
-                "prewarm_replay.entry.failed name=%s", body.name
-            )
-
-    # Build-it prewarm replay gate. When source == "spec-build" and a
-    # manifest exists for this spec with a matching task entry, replay
-    # the cached run over ~30s and apply its file edits. Any failure
-    # falls through to the real subprocess path so a busted prewarm
-    # asset cannot silently break Build it.
-    _build_prewarm_entry = _lookup_build_prewarm_entry(body)
-    if _build_prewarm_entry is not None:
-        try:
-            return await _stream_prewarm_build_replay(
-                body, transcript_path, model, _build_prewarm_entry
-            )
-        except Exception:
-            logger.exception(
-                "prewarm_build.entry.failed name=%s", body.name
-            )
-
     # Prepend past memory context so the agent picks up where it left off.
-    # Demo mode skips this entirely: the memory block can run to several
-    # KB and costs real first-byte time we do not have.
-    if _demo_mode:
-        prompt_with_memory = body.prompt
-    else:
-        memory_ctx = agent_memory_svc.get_context(body.name)
-        prompt_with_memory = (memory_ctx + body.prompt) if memory_ctx and body.prompt else body.prompt
+    memory_ctx = agent_memory_svc.get_context(body.name)
+    prompt_with_memory = (memory_ctx + body.prompt) if memory_ctx and body.prompt else body.prompt
 
     # Prepend shared workspace summary so agents can see findings from peers.
-    # Demo mode skips this for the same reason: keep the prompt tiny.
-    if not _demo_mode:
-        try:
-            from services.agent_workspace import agent_workspace_service as _aws
-            _workspace_summary = _aws.get_summary()
-            if _workspace_summary and prompt_with_memory:
-                prompt_with_memory = _workspace_summary + "\n\n---\n\n" + prompt_with_memory
-            elif _workspace_summary:
-                prompt_with_memory = _workspace_summary
-        except Exception:
-            pass
+    try:
+        from services.agent_workspace import agent_workspace_service as _aws
+        _workspace_summary = _aws.get_summary()
+        if _workspace_summary and prompt_with_memory:
+            prompt_with_memory = _workspace_summary + "\n\n---\n\n" + prompt_with_memory
+        elif _workspace_summary:
+            prompt_with_memory = _workspace_summary
+    except Exception:
+        pass
 
     # Prepend the mandatory mailbox instruction block so every spawned
     # agent knows it must poll /nudges and reply via /reply. Without
@@ -4059,15 +3145,11 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     #
     # Speed path: when the target agentfile opts in with
     # ``LIMIT quick_mode true``, we use the compact mailbox block (<800
-    # chars) so the first-byte latency on short demo spawns drops to the
+    # chars) so the first-byte latency on short spawns drops to the
     # raw subprocess fork time. The full block stays the default so
     # existing agents are untouched.
     _quick_mode = _spawn_quick_mode(body)
-    # _demo_mode was resolved earlier (before the model coercion) so we
-    # could force Haiku. Do not re-resolve here.
-    # Demo mode stacks on top of quick mode: we always use the short
-    # mailbox block when either flag is on.
-    if _quick_mode or _demo_mode:
+    if _quick_mode:
         mailbox_block = agent_mailbox_instruction_short(body.name)
     else:
         mailbox_block = agent_mailbox_instruction(body.name)
@@ -4080,19 +3162,17 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     # follows the house rules (tone, preferred tools, how to explain
     # code, etc.) that the user saved once in Settings. Empty string
     # when the setting is blank so this is a no-op for most users.
-    # Demo mode skips this: the demo prompt must stay minimal.
-    if not _demo_mode:
-        try:
-            from services.settings_store import settings_store as _settings_store
-            _standing = str(_settings_store.get("standing_instructions", "") or "").strip()
-        except Exception:
-            _standing = ""
-        if _standing:
-            _standing_block = (
-                "STANDING INSTRUCTIONS (from the user, always apply):\n"
-                f"{_standing}"
-            )
-            prompt_with_memory = _standing_block + "\n\n---\n\n" + prompt_with_memory
+    try:
+        from services.settings_store import settings_store as _settings_store
+        _standing = str(_settings_store.get("standing_instructions", "") or "").strip()
+    except Exception:
+        _standing = ""
+    if _standing:
+        _standing_block = (
+            "STANDING INSTRUCTIONS (from the user, always apply):\n"
+            f"{_standing}"
+        )
+        prompt_with_memory = _standing_block + "\n\n---\n\n" + prompt_with_memory
 
     # Append quality gate instructions from the matching Agentfile.
     # When the caller passes an explicit template name (e.g. template="saa"),
@@ -4107,12 +3187,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         get_agent_config_by_template,
         list_available_templates,
     )
-    if _demo_mode:
-        # Demo mode skips template envelope and quality-gate injection
-        # entirely. The fleet prompts already carry the role specifics
-        # and the 90s wall-clock cap forbids an AC gate anyway.
-        pass
-    elif body.template:
+    if body.template:
         # Resolve aliases: "saa" -> "builder" agentfile, "PRD Draft" -> "PRD",
         # etc. The agent_templates_store knows the full alias table.
         resolved_template = body.template
@@ -4161,55 +3236,6 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         "--max-budget-usd", str(body.budget),
         "--permission-mode", _perm_mode,
     ]
-    if _demo_mode:
-        # Speed flags: skip MCP tool registration and skill/slash-command
-        # loading. Three past footguns fixed here and locked in by tests:
-        #
-        # 1. ``--mcp-config '{}'`` is schema-invalid. The CLI validator
-        #    rejects it with "mcpServers: Does not adhere to MCP server
-        #    configuration schema" and the subprocess exits 1 in under
-        #    300 ms, leaving a zero-byte transcript and no output. Tori
-        #    saw this live: all four fleet members flipped straight from
-        #    spawned to completed with the autocomplete summary "Agent
-        #    exited without calling /complete" and tokens_used=0. The
-        #    valid empty shape is ``{"mcpServers": {}}``.
-        #
-        # 2. ``--bare`` disables keychain OAuth reads. Without
-        #    ``ANTHROPIC_API_KEY`` set in the uvicorn environment the
-        #    CLI prints "Not logged in \u00b7 Please run /login" and exits
-        #    1. Only add --bare when an API key is actually present so
-        #    the demo path still authenticates in every developer
-        #    setup. We lose the CLAUDE.md / hooks / plugin-sync skip
-        #    when falling back, but we keep the MCP + skills skip which
-        #    is the bulk of first-byte latency.
-        #
-        # 3. Builder template needs ostk MCP. When the spec-build pipeline
-        #    (POST /specs/{path}/build) spawns a Builder agent in demo
-        #    mode, stripping all MCP servers breaks the demo. The backend
-        #    and ostk kernel are still running, so the project-level
-        #    .claude/hooks/ostk-first.sh hook fires on every Bash/Read/
-        #    Edit/Grep/Write tool call and blocks it with "use mcp__ostk__*".
-        #    But the subagent does not have those tools (we stripped
-        #    MCP). Result: the Builder agent is frozen on the first tool
-        #    call until the 180s wall-clock force-complete. The spec
-        #    stays at 0/3 tasks built and the demo narrative collapses.
-        #    Fix: load the project's .mcp.json and inject just the ostk
-        #    server entry for Builder-template demo spawns, so they have
-        #    real ostk tools that the hook expects. Other demo-mode
-        #    spawns (fleet members, chat "build it" chain) keep the empty
-        #    MCP config since they do not invoke file-writing tools.
-        _mcp_config_arg = '{"mcpServers":{}}'
-        if (body.template or "").strip().lower() == "builder":
-            injected = _load_project_mcp_servers_for_demo()
-            if injected is not None:
-                _mcp_config_arg = injected
-        cmd.extend([
-            "--strict-mcp-config",
-            "--mcp-config", _mcp_config_arg,
-            "--disable-slash-commands",
-        ])
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            cmd.append("--bare")
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -4386,31 +3412,6 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         # only set the key when body.source was truthy, leaving the row
         # with no source at all and letting the audit-log merge win.
         spawn_meta["source"] = body.source or "api"
-        # Demo mode: stamp a tight output token cap and the wall-clock
-        # deadline so the UI can show "force-complete at ..." and the
-        # supervisor task below knows exactly when to pull the plug.
-        if _demo_mode:
-            # Caller can override the default 90 second cap via
-            # body.deadline_seconds. Used by built-in workflows so a
-            # 3-step pipeline can fit each step in 30s and keep the
-            # whole workflow under 90s. Clamped to the supported range
-            # so a stray 0 or huge value never bypasses the supervisor.
-            _raw_deadline = getattr(body, "deadline_seconds", None)
-            try:
-                _raw_int = int(_raw_deadline) if _raw_deadline is not None else None
-            except (TypeError, ValueError):
-                _raw_int = None
-            if _raw_int is None:
-                _deadline = DEMO_MODE_WALL_CLOCK_SECONDS
-            else:
-                _deadline = max(5, min(_raw_int, DEMO_MODE_WALL_CLOCK_SECONDS))
-            spawn_meta["demo_mode"] = True
-            spawn_meta["max_output_tokens"] = DEMO_MODE_MAX_OUTPUT_TOKENS
-            spawn_meta["deadline_seconds"] = _deadline
-            spawn_meta["force_complete_at"] = (
-                datetime.now(timezone.utc)
-                + timedelta(seconds=_deadline)
-            ).isoformat()
         # Preserve recovery_count across re-spawns so the cap is tracked
         existing_meta = agent_metadata.get(body.name) or {}
         if existing_meta.get("recovery_count"):
@@ -4421,30 +3422,6 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             spawn_meta["workflow_run_id"] = workflow_run_id
         agent_metadata[body.name] = spawn_meta
         _save_agent_state()
-
-        # Demo mode: schedule the hard wall-clock force-complete as a
-        # fire-and-forget background task. If the agent already finishes
-        # on its own (normal /complete path), this task sees the
-        # terminal status and no-ops. Otherwise it SIGKILLs the
-        # subprocess at the deadline mark and flips status to
-        # completed_timeout. Uses the resolved per-spawn deadline so a
-        # built-in workflow step (30s) and a plain demo agent (90s)
-        # both honour the right window.
-        if _demo_mode:
-            try:
-                asyncio.create_task(
-                    _schedule_demo_force_complete(
-                        body.name,
-                        deadline_seconds=spawn_meta.get(
-                            "deadline_seconds", DEMO_MODE_WALL_CLOCK_SECONDS
-                        ),
-                    )
-                )
-            except Exception:
-                logger.exception(
-                    "demo_mode.schedule_force_complete.failed name=%s",
-                    body.name,
-                )
 
         # Log to audit
         try:
@@ -4689,12 +3666,10 @@ async def spawn_fleet(body: FleetSpawn):
     if deleted_changed:
         _save_deleted_agents(deleted_names)
 
-    # Fleet-level speed flags: when the template opts in to quick_mode or
-    # demo_mode, every member inherits the fast path (90s force-complete).
-    # This is how fleet-build-website hits the sub-3-minute demo budget
-    # without needing a per-member agentfile.
+    # Fleet-level speed flag: when the template opts in to quick_mode,
+    # every member inherits the compact mailbox path. Absent keys inherit
+    # the fleet default.
     fleet_quick_mode = bool(fleet.get("quick_mode", False))
-    fleet_demo_mode = bool(fleet.get("demo_mode", False))
 
     # The e2e smoke test spawns this fleet on every release to prove the
     # endpoint is alive, and it marks the request by putting "e2e test
@@ -4710,11 +3685,10 @@ async def spawn_fleet(body: FleetSpawn):
     for member in fleet["members"]:
         role_slug = member["role"].lower().replace(" ", "-")
         agent_name = f"{fleet['id']}-{role_slug}"
-        # Per-member speed flags override the fleet default so a single
+        # Per-member speed flag overrides the fleet default so a single
         # slow role (e.g. a synthesis step) can opt out even inside a
         # quick-mode fleet. Absent keys inherit the fleet default.
         member_quick_mode = bool(member.get("quick_mode", fleet_quick_mode))
-        member_demo_mode = bool(member.get("demo_mode", fleet_demo_mode))
         full_prompt = (
             f"ROLE: {member['role']}\n\n"
             f"CONTEXT FROM USER: {body.context}\n\n"
@@ -4729,18 +3703,11 @@ async def spawn_fleet(body: FleetSpawn):
             prompt=full_prompt,
             model=body.model,
             budget=body.budget,
-            # Propagate the resolved per-member demo flag so spawn_agent
-            # skips past-session memory injection, workspace summary, and
-            # standing instructions even when the member has no matching
-            # agentfile. Without this, demo fleet members leaked "Past
-            # sessions" blocks from earlier demo runs into fresh spawns.
-            demo_mode=member_demo_mode if member_demo_mode else None,
         )
-        # Stash the flags on the dict so _spawn_one can read them without
-        # re-parsing the template. AgentSpawn itself stays quiet since
-        # those flags are not pydantic fields.
+        # Stash the flag on the dict so _spawn_one can read it without
+        # re-parsing the template.
         member_specs.append((
-            {**member, "_quick_mode": member_quick_mode, "_demo_mode": member_demo_mode},
+            {**member, "_quick_mode": member_quick_mode},
             agent_body,
         ))
 
@@ -4786,20 +3753,6 @@ async def spawn_fleet(body: FleetSpawn):
             existing_meta.setdefault("spawned_at", now_iso)
             agent_metadata[agent_name] = existing_meta
             _save_agent_state()
-            # Fleet-level demo budget: when the member opts in via
-            # quick_mode or demo_mode, schedule a force-complete so a
-            # single slow role never holds up the whole fleet past the
-            # 90-second wall clock. Fire-and-forget; failures are local.
-            if member.get("_quick_mode") or member.get("_demo_mode"):
-                try:
-                    asyncio.create_task(
-                        _schedule_demo_force_complete(
-                            agent_name,
-                            DEMO_MODE_WALL_CLOCK_SECONDS,
-                        )
-                    )
-                except Exception:
-                    pass
             return {
                 "name": agent_name,
                 "role": member["role"],
@@ -4828,184 +3781,6 @@ async def spawn_fleet(body: FleetSpawn):
         "spawned": spawned,
         "total": len(spawned),
         "elapsed_ms": elapsed_ms,
-    }
-
-
-@router.post("/agents/fleets/{fleet_id}/demo-run")
-async def demo_run_fleet(fleet_id: str, body: Optional[FleetSpawn] = None):
-    """Demo-fast fleet launch: parallel, Haiku, 90 second hard cap.
-
-    Tailored for live stage demos. Every member is force-flipped into
-    demo mode (Haiku, --bare, no MCP, no CLAUDE.md) regardless of what
-    the matching agentfile says, and a supervisor task SIGKILLs any
-    agent still running after 90 seconds and marks it
-    ``completed_timeout`` with a plain-language summary.
-
-    Returns immediately with the list of spawned agent names, the 90
-    second deadline, and the ISO timestamp at which any stragglers will
-    be force-completed. The supervisor runs in the background so the
-    HTTP call returns in well under a second on a warm fleet.
-    """
-    from services.fleet_templates import list_fleet_templates
-    from services.policy_enforcement import check_budget, check_approval_required
-
-    # Default context/budget when the caller omits a body. Demo mode
-    # caps spend tightly so a stuck agent cannot burn the budget before
-    # the 90s deadline fires.
-    if body is None:
-        body = FleetSpawn(fleet_id=fleet_id, context="", model="haiku", budget=0.25)
-    else:
-        # Ensure the path param wins if the caller sent a mismatched body.
-        body.fleet_id = fleet_id
-
-    allowed, reason = check_budget(body.budget)
-    if not allowed:
-        raise HTTPException(status_code=403, detail=reason)
-    if check_approval_required(body.budget):
-        from services import enterprise_store as _es
-        _threshold = _es.get_policies().get("require_approval_above", 5.0)
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                f"Fleet per-member budget ${body.budget:.2f} requires admin approval "
-                f"(limit: ${_threshold:.2f}). Ask an admin to approve or "
-                f"raise the threshold in Settings > Enterprise > Policies."
-            ),
-        )
-
-    templates = list_fleet_templates()
-    fleet = next((f for f in templates if f["id"] == fleet_id), None)
-    if not fleet:
-        raise HTTPException(status_code=404, detail=f"Fleet template '{fleet_id}' not found")
-
-    # Un-delete any previously deleted fleet members so the Active
-    # Agents list actually shows them (same guard as spawn_fleet).
-    deleted_names = _load_deleted_agents()
-    deleted_changed = False
-    for member in fleet["members"]:
-        role_slug = member["role"].lower().replace(" ", "-")
-        agent_name = f"{fleet['id']}-{role_slug}"
-        if agent_name in deleted_names:
-            deleted_names.discard(agent_name)
-            deleted_changed = True
-    if deleted_changed:
-        _save_deleted_agents(deleted_names)
-
-    # Same e2e-smoke tag as spawn_fleet: when the caller marks the
-    # context with "e2e test only", stamp every member with
-    # source="e2e-smoke" so Recent Agents hides them by default.
-    is_e2e_context = "e2e test only" in (body.context or "").lower()
-    member_source = "e2e-smoke" if is_e2e_context else "claude-code"
-
-    member_specs: list[tuple[dict, AgentSpawn]] = []
-    for member in fleet["members"]:
-        role_slug = member["role"].lower().replace(" ", "-")
-        agent_name = f"{fleet['id']}-{role_slug}"
-        # Keep prompts very short in demo mode.
-        full_prompt = (
-            f"ROLE: {member['role']}\n"
-            f"CONTEXT: {body.context}\n"
-            f"{member['prompt']}\n"
-            "Demo mode: be brief. Under 200 words. Stop after your first cut."
-        )
-        agent_body = AgentSpawn(
-            name=agent_name,
-            prompt=full_prompt,
-            model="haiku",  # force Haiku for demos regardless of caller
-            budget=body.budget,
-            # Force demo_mode on every demo-run member so the spawn path
-            # skips past-session memory injection, workspace summary,
-            # standing instructions, and CLAUDE.md auto-discovery even
-            # when the member has no matching agentfile with
-            # ``LIMIT demo_mode true``. Without this, the first demo run
-            # is clean but every subsequent run appends a summary and
-            # the NEXT demo inherits a growing "Past sessions" block.
-            # Tori's screenshot showed exactly that: 5 past sessions for
-            # the roadmap agent leaking into a fresh demo.
-            demo_mode=True,
-        )
-        member_specs.append((member, agent_body))
-
-    t_spawn_start = time.perf_counter()
-    logger.info(
-        "fleet.demo_run.start fleet_id=%s members=%d",
-        fleet["id"], len(member_specs),
-    )
-
-    deadline_seconds = DEMO_MODE_WALL_CLOCK_SECONDS
-    force_complete_at = (
-        datetime.now(timezone.utc) + timedelta(seconds=deadline_seconds)
-    ).isoformat()
-
-    async def _spawn_one_demo(member: dict, agent_body: AgentSpawn) -> dict:
-        agent_name = agent_body.name
-        try:
-            result = await spawn_agent(agent_body)
-            active_agents.pop(agent_name, None)
-            now_iso = datetime.now(timezone.utc).isoformat()
-            existing_meta = agent_metadata.get(agent_name) or {}
-            existing_meta.update({
-                "status": "running",
-                "source": member_source,
-                "role": member["role"],
-                "fleet_id": fleet["id"],
-                "fleet_name": fleet["name"],
-                "last_heartbeat_at": now_iso,
-                # Stamp demo_mode on every member unconditionally so the
-                # supervisor fires even when no agentfile matched.
-                "demo_mode": True,
-                "deadline_seconds": deadline_seconds,
-                "force_complete_at": force_complete_at,
-            })
-            existing_meta.setdefault("spawned_at", now_iso)
-            agent_metadata[agent_name] = existing_meta
-            _save_agent_state()
-            # Belt-and-suspenders: schedule the force-complete task even
-            # when the agentfile did not flip demo mode on its own.
-            # _schedule_demo_force_complete is idempotent.
-            try:
-                asyncio.create_task(
-                    _schedule_demo_force_complete(
-                        agent_name, deadline_seconds=deadline_seconds
-                    )
-                )
-            except Exception:
-                logger.exception(
-                    "demo_run.schedule_force_complete.failed name=%s",
-                    agent_name,
-                )
-            return {
-                "name": agent_name,
-                "role": member["role"],
-                "pid": result.get("pid"),
-            }
-        except Exception as e:
-            return {
-                "name": agent_name,
-                "role": member["role"],
-                "error": str(e),
-            }
-
-    # Spawn every fleet member in parallel via asyncio.gather.
-    results = await asyncio.gather(
-        *(_spawn_one_demo(m, ab) for m, ab in member_specs)
-    )
-    spawned = list(results)
-
-    elapsed_ms = int((time.perf_counter() - t_spawn_start) * 1000)
-    logger.info(
-        "fleet.demo_run.done fleet_id=%s total=%d elapsed_ms=%d",
-        fleet["id"], len(spawned), elapsed_ms,
-    )
-
-    return {
-        "fleet": fleet["name"],
-        "agents": [s["name"] for s in spawned],
-        "spawned": spawned,
-        "total": len(spawned),
-        "elapsed_ms": elapsed_ms,
-        "deadline_seconds": deadline_seconds,
-        "will_force_complete_at": force_complete_at,
     }
 
 

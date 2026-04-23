@@ -30,6 +30,40 @@ class OstkError(Exception):
 _audit_cache: dict[str, tuple[int, int, list[dict]]] = {}
 
 
+# Per-event-loop lock that serializes ``close_task`` rewrites of
+# ``issues.jsonl``. Without this, three parallel spec-builder agents
+# completing at the same second each kick off their own
+# ``ostk work close <id>`` subprocess AND a Python-side rewrite of the
+# same file. The overlapping read-modify-writes clobber each other and
+# at least one task ends up stuck in the "open" state even though its
+# builder agent ran to completion. That is exactly how the multi-model
+# side-by-side spec landed on the Specs page showing "Done. Every task
+# closed and the feature is live." while task 832 was still open.
+#
+# Keyed by ``id(loop)`` so pytest-asyncio test runs (each of which spins
+# up a fresh event loop) get a fresh lock instead of trying to reuse a
+# lock bound to a now-closed loop.
+_close_task_locks: dict[int, asyncio.Lock] = {}
+
+
+def _get_close_task_lock() -> asyncio.Lock:
+    """Return the ``close_task`` lock for the current event loop.
+
+    asyncio.Lock binds to the loop it is constructed in, so a single
+    module-level Lock blows up under pytest-asyncio where each test
+    runs on a fresh loop. Looking up the lock by ``id(loop)`` keeps
+    production behavior (one lock, all close_task calls serialize) while
+    letting tests each get their own.
+    """
+    loop = asyncio.get_event_loop()
+    key = id(loop)
+    lock = _close_task_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _close_task_locks[key] = lock
+    return lock
+
+
 def read_audit_entries(audit_path: Optional[Path] = None) -> list[dict]:
     """Return the parsed list of audit.jsonl entries, caching by (size, mtime_ns).
 
@@ -332,29 +366,44 @@ class OstkService:
         ``"archived"`` when it is no longer relevant. When omitted the task
         is closed as usual and no extra field is written. Values outside
         the allowed set are rejected so callers cannot invent ad-hoc tags.
+
+        Serialized behind ``_close_task_lock`` so concurrent calls (for
+        example the three builder agents of a 3-AC spec finishing at the
+        same instant) do not race on the underlying ``issues.jsonl``
+        read-modify-write and lose one of the closes. Before the lock,
+        three simultaneous closes could clobber each other and leave one
+        task stuck ``open`` even after its builder ran to completion.
         """
-        result = await self._run("work", "close", task_id)
-        if closed_reason is not None:
-            allowed = {"completed", "duplicate", "archived"}
-            if closed_reason not in allowed:
-                raise OstkError(
-                    f"invalid closed_reason '{closed_reason}', must be one of {sorted(allowed)}"
-                )
-            issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
-            if issues_path.exists():
-                lines = issues_path.read_text().strip().splitlines()
-                updated: list[str] = []
-                for line in lines:
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        updated.append(line)
-                        continue
-                    if entry.get("id") == task_id:
-                        entry["closed_reason"] = closed_reason
-                    updated.append(json.dumps(entry, ensure_ascii=False))
-                issues_path.write_text("\n".join(updated) + "\n")
-        return result
+        allowed = {"completed", "duplicate", "archived"}
+        if closed_reason is not None and closed_reason not in allowed:
+            raise OstkError(
+                f"invalid closed_reason '{closed_reason}', must be one of {sorted(allowed)}"
+            )
+        async with _get_close_task_lock():
+            result = await self._run("work", "close", task_id)
+            if closed_reason is not None:
+                issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+                if issues_path.exists():
+                    # Normalize ids on both sides so the stored
+                    # arrow-prefixed id ("→832") matches a bare id
+                    # ("832") coming in from the spec-builder close
+                    # path. Without this the rewrite always missed and
+                    # closed_reason was silently dropped for every
+                    # spec-builder close.
+                    norm_target = self._normalize_task_id(task_id)
+                    lines = issues_path.read_text().strip().splitlines()
+                    updated: list[str] = []
+                    for line in lines:
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError:
+                            updated.append(line)
+                            continue
+                        if self._normalize_task_id(entry.get("id")) == norm_target:
+                            entry["closed_reason"] = closed_reason
+                        updated.append(json.dumps(entry, ensure_ascii=False))
+                    issues_path.write_text("\n".join(updated) + "\n")
+            return result
 
     async def reopen_task(self, task_id: str) -> str:
         """Reopen a closed task by editing the JSONL file directly."""
@@ -1943,6 +1992,14 @@ class OstkService:
           from ``- [ ]`` / ``- [x]`` checkboxes in the body
         """
         text = path.read_text()
+        # File mtime doubles as a "last-updated" stamp. Used by the
+        # ReleaseNotesWatcher grace window so a spec that flipped to
+        # complete moments before a page reload still fires the modal
+        # even when the watcher mounts after the transition.
+        try:
+            mtime_ms = int(path.stat().st_mtime * 1000)
+        except OSError:
+            mtime_ms = 0
         doc: dict = {
             "path": str(path.relative_to(self.cwd)),
             "filename": path.name,
@@ -1950,6 +2007,7 @@ class OstkService:
             "status": fallback_status,
             "created_at": "",
             "promoted_at": "",
+            "updated_at_ms": mtime_ms,
             "body": "",
             "task_ids": [],
             "acceptance_criteria": [],
@@ -2279,21 +2337,50 @@ class OstkService:
 
         - ``draft``: no tasks, original status is draft
         - ``ready``: promoted (status=spec) but no tasks yet
-        - ``in-progress``: has tasks and at least one is open, OR all tasks
-          are closed but Verify has not yet marked every acceptance
-          criterion met (so the checklist is still visibly incomplete).
-        - ``complete``: has tasks, all are closed, AND every acceptance
-          criterion is checked (i.e. Verify has run and all boxes are met).
-        - Falls back to base_status for unknown states.
+        - ``in-progress``: has tasks and at least one is open
+        - ``complete``: has tasks, all are closed (Verify/AC check is
+          optional and does NOT gate this state; running Verify is a
+          separate quality step, but the build itself is done when
+          every builder task closes)
+        - Recognizes ``complete``, ``done``, and ``spec`` as pass-through
+          terminal states from the frontmatter so the writer and reader
+          agree. The on-disk writer is being migrated to ``complete``;
+          legacy ``done`` values still render correctly.
+        - Falls back to ``in-progress`` for anything unrecognized rather
+          than to ``draft`` (which used to hide completed specs under
+          the Drafts tab when the writer and reader disagreed).
+
+        ``ac_all_met`` is retained in the signature for callers that
+        still pass it, but it no longer gates ``complete``. Kept so the
+        existing test fixtures keep working.
         """
         if base_status == "draft":
             return "draft"
         if not task_ids:
+            # No tasks linked: trust the frontmatter vocabulary.
+            if base_status in ("complete", "done"):
+                return "complete"
             return "ready"
         statuses = [task_statuses.get(tid, "open") for tid in task_ids]
         all_closed = all(s == "closed" for s in statuses)
-        if all_closed and ac_all_met:
+        # CRITICAL: if the frontmatter says ``complete`` or ``done`` but
+        # at least one linked task is still open, trust the tasks. This
+        # catches the failure mode where the auto-advancer wrote
+        # ``status: complete`` at an instant when a concurrent-close
+        # race had made every task briefly appear closed, and a later
+        # write to issues.jsonl clobbered one of the closes back to
+        # open. Before this check the Specs page banner kept claiming
+        # "Done. Every task closed and the feature is live." with a
+        # still-open task sitting right above it.
+        if base_status in ("complete", "done"):
+            if all_closed:
+                return "complete"
+            return "in-progress"
+        if all_closed:
             return "complete"
+        # ac_all_met retained for signature compat; not needed now that
+        # all_closed alone flips to complete.
+        _ = ac_all_met
         return "in-progress"
 
     # --- Threads ---

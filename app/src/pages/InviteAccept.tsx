@@ -32,7 +32,7 @@ export default function InviteAccept() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-dvh flex items-center justify-center">
         <div className="text-center space-y-4">
           <Icon name="error_outline" className="text-red-400 text-4xl" />
           <p className="text-red-400">{error}</p>
@@ -48,7 +48,7 @@ export default function InviteAccept() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-dvh flex items-center justify-center">
       <div className="text-center space-y-3">
         <Icon name="hourglass_empty" className={`animate-spin text-2xl ${labelClass}`} />
         <p className={`text-sm ${labelClass}`}>Accepting your invite...</p>

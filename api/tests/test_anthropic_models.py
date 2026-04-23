@@ -83,6 +83,7 @@ def test_service_module_is_single_source_of_truth():
 
     ids = model_ids()
     assert ids == [
+        "claude-opus-4-7",
         "claude-opus-4-6",
         "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
@@ -94,4 +95,4 @@ def test_service_module_is_single_source_of_truth():
     # list_models() must return a fresh copy so callers cannot mutate the module.
     copy = list_models()
     copy[0]["id"] = "tampered"
-    assert ANTHROPIC_MODELS[0]["id"] == "claude-opus-4-6"
+    assert ANTHROPIC_MODELS[0]["id"] == "claude-opus-4-7"

@@ -146,6 +146,87 @@ async def test_empty_sessions_dir(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_backend_self_sessions_filtered(client, tmp_path):
+    """myos-api-* rows (uvicorn worker generations) must never appear.
+
+    Each hot reload leaves behind a zombie folder. The backend renders
+    the sidebar, so it should not count itself, and it should never
+    inflate the 'count' or 'active_count' totals.
+    """
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    older = (now - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    _write_events(sessions_dir, "chat-default", [_make_event(recent, tool="needle", seq=1)])
+    _write_events(sessions_dir, "claude-code-77", [_make_event(recent, tool="shell", seq=1)])
+    _write_events(sessions_dir, "agent-diagnose-thing", [_make_event(recent, tool="shell", seq=1)])
+    _write_events(sessions_dir, "myos-api-482", [_make_event(recent, tool="needle", seq=1)])
+    _write_events(sessions_dir, "myos-api-483", [_make_event(older, tool="needle", seq=1)])
+    _write_events(sessions_dir, "myos-api-498", [_make_event(recent, tool="needle", seq=1)])
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir):
+        resp = await client.get("/api/sessions/active")
+
+    data = resp.json()
+    ids = [s["session_id"] for s in data["sessions"]]
+    assert "chat-default" in ids
+    assert "claude-code-77" in ids
+    assert "agent-diagnose-thing" in ids
+    for sid in ids:
+        assert not sid.startswith("myos-api-"), f"backend self session leaked: {sid}"
+    assert data["count"] == 3
+    assert data["active_count"] == 3
+    assert data["idle_count"] == 0
+
+
+def test_cleanup_stale_backend_sessions_retires_older_workers(tmp_path):
+    """Startup sweep should back-date all but the newest myos-api-* folder."""
+    import os as _os
+    from routers import sessions as sessions_module
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc)
+    recent_ts = (now - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Write three backend-self session folders with different mtimes.
+    for name, offset_seconds in [
+        ("myos-api-10", -300),
+        ("myos-api-11", -200),
+        ("myos-api-12", -1),
+    ]:
+        folder = sessions_dir / name
+        folder.mkdir()
+        events = folder / "events.jsonl"
+        events.write_text(json.dumps(_make_event(recent_ts)) + "\n")
+        mtime = (now + timedelta(seconds=offset_seconds)).timestamp()
+        _os.utime(events, (mtime, mtime))
+        _os.utime(folder, (mtime, mtime))
+
+    # A non-backend session should be untouched.
+    user_folder = sessions_dir / "chat-default"
+    user_folder.mkdir()
+    user_events = user_folder / "events.jsonl"
+    user_events.write_text(json.dumps(_make_event(recent_ts)) + "\n")
+    user_mtime_before = user_events.stat().st_mtime
+
+    with patch.object(sessions_module, "SESSIONS_DIR", sessions_dir):
+        swept = sessions_module.cleanup_stale_backend_sessions()
+
+    assert swept == 2  # the two older workers, not the newest
+    # User session is untouched.
+    assert user_events.stat().st_mtime == user_mtime_before
+    # The newest myos-api folder keeps a fresh mtime.
+    newest_mtime = (sessions_dir / "myos-api-12" / "events.jsonl").stat().st_mtime
+    assert newest_mtime > (now - timedelta(minutes=5)).timestamp()
+    # The older folders are back-dated past the idle window.
+    for stale_name in ("myos-api-10", "myos-api-11"):
+        mtime = (sessions_dir / stale_name / "events.jsonl").stat().st_mtime
+        assert mtime < (now - timedelta(minutes=sessions_module.IDLE_CUTOFF_MINUTES)).timestamp()
+
+
+@pytest.mark.asyncio
 async def test_recent_events_capped_at_5(client, tmp_path):
     """Even with many events, recent_events returns at most 5."""
     sessions_dir = tmp_path / "sessions"

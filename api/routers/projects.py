@@ -366,7 +366,19 @@ async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files
     workspace = TORIOS_DIR.resolve()
     md_files = []
 
-    skip_dirs = {".git", ".ostk", ".vite", ".claude", "node_modules", "__pycache__", ".DS_Store", "transcripts", "e2e-screenshots", "tools"}
+    # Prune noisy trees early so the walk stays fast. Without .venv,
+    # dist, build, and friends the workspace walk visited tens of
+    # thousands of third-party files looking for .md files that were
+    # never going to appear, stretching the /docs/recent response to
+    # a couple of seconds on a fresh checkout. The Files widget polls
+    # this endpoint, so every page landing paid the same cost.
+    skip_dirs = {
+        ".git", ".ostk", ".vite", ".claude", "node_modules", "__pycache__",
+        ".DS_Store", "transcripts", "e2e-screenshots", "tools",
+        ".venv", "venv", "dist", "build", ".next", ".turbo",
+        ".pytest_cache", ".mypy_cache", ".ruff_cache", "coverage",
+        "htmlcov", "haystack-main",
+    }
 
     def _collect(base: Path, path_builder) -> None:
         """Walk ``base`` and append .md file entries to ``md_files``.
@@ -405,12 +417,39 @@ async def recent_docs(limit: int = Query(10, ge=1, le=50, description="Max files
                             if raw_lines[i].strip() == "---":
                                 start = i + 1
                                 break
+                    in_code_fence = False
                     for line in raw_lines[start:]:
                         stripped = line.strip()
-                        if stripped and not stripped.startswith("#") and not stripped.startswith("---"):
-                            lines.append(stripped)
-                            if len(lines) >= 3:
-                                break
+                        if not stripped:
+                            continue
+                        # Skip fenced code blocks entirely.
+                        if stripped.startswith("```"):
+                            in_code_fence = not in_code_fence
+                            continue
+                        if in_code_fence:
+                            continue
+                        # Skip markdown headings and HR markers.
+                        if stripped.startswith("#") or stripped.startswith("---"):
+                            continue
+                        # Skip structured-data lines. A Roadmap-style
+                        # artifact may land roadmap.md as a JSON array of
+                        # quarters, so Recent Docs was showing things
+                        # like `"quarter": "Q3 2026", "theme": "..."`
+                        # as the summary. Skip:
+                        #  - braces / brackets (open and close)
+                        #  - JSON property-ish lines: first char is `"`
+                        #    AND the line contains `":` (a quoted key
+                        #    followed by colon).
+                        #  - comma-only lines.
+                        if stripped[0] in "[]{}":
+                            continue
+                        if stripped.startswith('"') and '":' in stripped:
+                            continue
+                        if stripped in (",", "},", "],"):
+                            continue
+                        lines.append(stripped)
+                        if len(lines) >= 3:
+                            break
                     snippet = " ".join(lines)[:200]
                 except OSError:
                     pass

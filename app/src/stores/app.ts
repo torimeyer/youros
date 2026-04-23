@@ -78,6 +78,20 @@ export type DashboardLayout = 'full' | 'focus'
 export type StatusDotStyle = 'dots' | 'badges'
 export type GreetingStyle = 'time' | 'quote' | 'none'
 
+// A spec that the user just asked to create (via "Make spec" on a
+// roadmap bullet) whose backend generation is still in flight. Lives
+// in the store so the Specs page can render a skeleton row the instant
+// the user navigates there, without waiting on the POST to return.
+// Keyed by tempId in pendingSpecs so a single session can have several
+// in flight at once.
+export interface PendingSpec {
+  tempId: string
+  title: string
+  status: 'generating' | 'ready' | 'error'
+  errorMsg?: string
+  promotedPath?: string | null
+}
+
 interface AppState {
   hydrated: boolean
   onboarded: boolean
@@ -100,6 +114,8 @@ interface AppState {
   isFeatureEnabled: (label: string) => boolean
   defaultChatModel: string
   setDefaultChatModel: (model: string) => void
+  sideBySideEnabled: boolean
+  setSideBySideEnabled: (v: boolean) => void
   commandPaletteOpen: boolean
   setCommandPaletteOpen: (open: boolean) => void
   toggleCommandPalette: () => void
@@ -145,6 +161,13 @@ interface AppState {
   setGreetingStyle: (v: GreetingStyle) => void
   showBudgetCaps: boolean
   setShowBudgetCaps: (v: boolean) => void
+  // Optimistic pending-spec queue. FilePreviewPane pushes a row here
+  // when the user clicks "Make spec" so the Specs page can render a
+  // skeleton immediately instead of waiting on AC generation.
+  pendingSpecs: Record<string, PendingSpec>
+  addPendingSpec: (spec: PendingSpec) => void
+  updatePendingSpec: (tempId: string, patch: Partial<PendingSpec>) => void
+  removePendingSpec: (tempId: string) => void
 }
 
 // Keys used to cache user state in localStorage for fast first paint.
@@ -155,6 +178,7 @@ const LS_KEYS = {
   accentColor: 'myos-accent-color',
   osName: 'myos-os-name',
   defaultChatModel: 'myos-default-chat-model',
+  sideBySideEnabled: 'myos-ephemeral-side-by-side-enabled',
   useOstkTerms: 'myos-use-ostk-terms',
   tourComplete: 'myos-tour-complete',
   powerUserMode: 'myos-power-user-mode',
@@ -242,6 +266,7 @@ const initialDarkMode = lsGet(LS_KEYS.darkMode) !== 'false'
 const initialAccentColor = (lsGet(LS_KEYS.accentColor) as AccentColor) || 'blue'
 const initialOsName = lsGet(LS_KEYS.osName) || 'myOS'
 const initialDefaultChatModel = lsGet(LS_KEYS.defaultChatModel) || 'claude'
+const initialSideBySideEnabled = lsGet(LS_KEYS.sideBySideEnabled) === 'true'
 const initialUseOstkTerms = lsGet(LS_KEYS.useOstkTerms) === 'true'
 const initialTourComplete = lsGet(LS_KEYS.tourComplete) === 'true'
 const initialWhatsNewLastSeen = lsGet(LS_KEYS.whatsNewLastSeen) || ''
@@ -389,6 +414,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ defaultChatModel })
     patchServer({ default_model: modelKeyToServer(defaultChatModel) })
   },
+  sideBySideEnabled: initialSideBySideEnabled,
+  setSideBySideEnabled: (sideBySideEnabled) => {
+    lsSet(LS_KEYS.sideBySideEnabled, String(sideBySideEnabled))
+    set({ sideBySideEnabled })
+    patchServer({ side_by_side_enabled: sideBySideEnabled })
+  },
   commandPaletteOpen: false,
   setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
   toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
@@ -485,6 +516,33 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ showBudgetCaps })
     patchServer({ show_budget_caps: showBudgetCaps })
   },
+  // Optimistic pending-spec queue. Session-only, never persisted.
+  pendingSpecs: {},
+  addPendingSpec: (spec) => {
+    set((s) => ({
+      pendingSpecs: { ...s.pendingSpecs, [spec.tempId]: spec },
+    }))
+  },
+  updatePendingSpec: (tempId, patch) => {
+    set((s) => {
+      const existing = s.pendingSpecs[tempId]
+      if (!existing) return s
+      return {
+        pendingSpecs: {
+          ...s.pendingSpecs,
+          [tempId]: { ...existing, ...patch },
+        },
+      }
+    })
+  },
+  removePendingSpec: (tempId) => {
+    set((s) => {
+      if (!s.pendingSpecs[tempId]) return s
+      const next = { ...s.pendingSpecs }
+      delete next[tempId]
+      return { pendingSpecs: next }
+    })
+  },
   enterpriseUser: null,
   instanceMode: initialInstanceMode,
   setInstanceMode: (instanceMode) => {
@@ -516,6 +574,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch {
       set({ hydrated: true })
       return
+    }
+
+    // Fresh-start sweep: when the server reports onboarded=false, any
+    // localStorage flag carrying the ``myos-ephemeral-`` prefix is
+    // treated as throwaway state from a prior session and removed.
+    // Layout (and therefore ReleaseNotesWatcher) only mounts once the
+    // user passes the wizard, so clearing inside the watcher misses
+    // the window. Clearing here, in the hydration pass that runs
+    // BEFORE the wizard ever mounts, guarantees a clean slate: the
+    // release-notes modal can re-celebrate the same spec, the
+    // side-by-side toggle returns to the Solo default, the All-pill
+    // pulse dedup is cleared, and any future ephemeral flag added
+    // with this prefix auto-clears on reset without needing another
+    // edit here.
+    if (server.onboarded === false) {
+      try {
+        for (const key of Object.keys(window.localStorage)) {
+          if (key.startsWith('myos-ephemeral-')) {
+            window.localStorage.removeItem(key)
+          }
+        }
+      } catch {
+        // ignore storage errors, the in-memory state will still be
+        // reset below via the normal hydration updates
+      }
     }
 
     // For each field we care about: if the server has a value, it wins.

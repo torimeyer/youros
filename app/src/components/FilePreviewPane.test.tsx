@@ -19,8 +19,23 @@ vi.mock('../lib/sidebarBus', () => ({
   bumpSpecs: vi.fn(),
 }))
 
+// Spy on react-router's useNavigate. We assert it fires in the same tick
+// as the click so the "Make spec" UX is perceived as instant, not a
+// 3-12 second stare-at-the-button wait on backend AC generation.
+const navigateMock = vi.fn()
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>(
+    'react-router-dom'
+  )
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  }
+})
+
 import { api } from '../lib/api'
 import { bumpSpecs } from '../lib/sidebarBus'
+import { useAppStore } from '../stores/app'
 
 const mockedApiGet = vi.mocked(api.get)
 
@@ -631,6 +646,97 @@ describe('Roadmap renderer', () => {
     await waitFor(() => {
       expect(bumpSpy).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+describe('Optimistic make-spec navigation', () => {
+  // Demo UX guard. Before this fix, clicking "+ Make spec" awaited a
+  // 3-12 second backend call (Haiku AC generation) before surfacing any
+  // UI feedback. Users read that silence as "broken". The fix navigates
+  // to /specs and seeds a pending-spec row into the app store in the
+  // same render tick as the click, so the wait is filled with a
+  // skeleton/generating card on the next page instead of a frozen button.
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    navigateMock.mockClear()
+    // Reset the pending-spec queue between tests so earlier runs cannot
+    // leak rows into this one.
+    useAppStore.setState({ pendingSpecs: {} })
+  })
+
+  it('test_make_spec_navigates_immediately_without_waiting_for_ac_generation', async () => {
+    const content =
+      '---\nkind: roadmap\n---\n\n# Roadmap\n\n' +
+      JSON.stringify([
+        {
+          quarter: 'Q1 2026',
+          theme: 'Launch',
+          initiatives: ['Ship guided onboarding'],
+        },
+      ])
+
+    const mockedApiGetLocal = vi.mocked(api.get)
+    mockedApiGetLocal.mockImplementation(async (path: string) => {
+      if (typeof path === 'string' && path.startsWith('/specs')) {
+        return { docs: [] }
+      }
+      return { content, type: 'text', size: content.length }
+    })
+
+    // Mock the POST to take 5 seconds. Optimistic nav MUST NOT wait on
+    // this; if it does, the click-to-navigate time will blow past 100 ms.
+    const mockedApiPost = vi.mocked(api.post)
+    let resolvePost: ((v: unknown) => void) | null = null
+    mockedApiPost.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePost = resolve as (v: unknown) => void
+          setTimeout(() => {
+            resolve({
+              title: 'Ship guided onboarding',
+              promoted_path: 'docs/spec/ship-guided-onboarding.md',
+              status: 'ready',
+            })
+          }, 5000)
+        })
+    )
+
+    render(
+      <FilePreviewPane
+        entry={{ name: 'roadmap.md', path: '/tmp/roadmap.md', size_display: '1 KB' }}
+        onClose={() => {}}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('roadmap-preview')).toBeInTheDocument()
+    })
+
+    // Click and measure. On the old flow this gap was 3-12 seconds.
+    // The new flow should fire navigate() synchronously during the
+    // click handler, so the gap must be well under 100 ms even on a
+    // slow CI box.
+    const clickedAt = performance.now()
+    fireEvent.click(screen.getByTestId('roadmap-make-spec-button'))
+    const navigatedAt = performance.now()
+
+    // Navigation fired in the same tick as the click.
+    expect(navigateMock).toHaveBeenCalledWith('/specs')
+    expect(navigatedAt - clickedAt).toBeLessThan(100)
+
+    // A pending spec was seeded into the store so the Specs page can
+    // render a skeleton row on arrival. The row carries the bullet text
+    // and a "generating" status so the user sees motion, not silence.
+    const pending = Object.values(useAppStore.getState().pendingSpecs)
+    expect(pending).toHaveLength(1)
+    expect(pending[0].title).toBe('Ship guided onboarding')
+    expect(pending[0].status).toBe('generating')
+
+    // The POST is still in flight. Let it resolve to avoid leaking an
+    // unhandled promise between tests.
+    resolvePost = resolvePost // keep reference alive for the linter
+    void resolvePost
   })
 })
 

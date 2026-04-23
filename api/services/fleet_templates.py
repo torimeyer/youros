@@ -15,22 +15,15 @@ BUILTIN_FLEET_TEMPLATES: list[dict[str, Any]] = [
         "name": "Build a Website",
         "description": "A full team to plan, design, build, and review a website.",
         "icon": "web",
-        # Demo budget. ``quick_mode`` shrinks the mailbox block and
-        # short-circuits the heavy context inject. ``demo_mode`` adds the
-        # 90 second wall-clock cap and forces Haiku per member. Belt and
-        # suspenders: each member's agentfile already opts in via
-        # ``LIMIT demo_mode true`` so the supervisor fires even if the
-        # fleet template is edited later. Without this flag the fleet
-        # ran ~8 minutes under live demo conditions instead of the ~90
-        # seconds the demo requires.
+        # ``quick_mode`` shrinks the mailbox block and short-circuits the
+        # heavy context inject so fleet members boot faster without
+        # changing the real LLM work they do.
         "quick_mode": True,
-        "demo_mode": True,
         "members": [
             {
                 "role": "Product Manager",
                 "icon": "assignment_ind",
                 "quick_mode": True,
-                "demo_mode": True,
                 "prompt": (
                     "QUICK_MODE on. TARGET: respond in under 60 seconds. Do NOT "
                     "over-engineer. Produce a minimum viable artifact.\n\n"
@@ -44,7 +37,6 @@ BUILTIN_FLEET_TEMPLATES: list[dict[str, Any]] = [
                 "role": "Frontend Developer",
                 "icon": "code",
                 "quick_mode": True,
-                "demo_mode": True,
                 "prompt": (
                     "QUICK_MODE on. TARGET: respond in under 60 seconds. Do NOT "
                     "over-engineer. Produce a minimum viable artifact.\n\n"
@@ -59,7 +51,6 @@ BUILTIN_FLEET_TEMPLATES: list[dict[str, Any]] = [
                 "role": "Backend Developer",
                 "icon": "storage",
                 "quick_mode": True,
-                "demo_mode": True,
                 "prompt": (
                     "QUICK_MODE on. TARGET: respond in under 60 seconds. Do NOT "
                     "over-engineer. Produce a minimum viable artifact.\n\n"
@@ -74,7 +65,6 @@ BUILTIN_FLEET_TEMPLATES: list[dict[str, Any]] = [
                 "role": "Security Engineer",
                 "icon": "security",
                 "quick_mode": True,
-                "demo_mode": True,
                 "prompt": (
                     "QUICK_MODE on. TARGET: respond in under 60 seconds. Do NOT "
                     "over-engineer. Produce a minimum viable artifact.\n\n"

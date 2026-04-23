@@ -133,10 +133,20 @@ export default function TasksAuditModal({ open, onClose, onTasksChanged }: Props
     return () => clearInterval(timer)
   }, [jobId, status, pollStatus])
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     onClose()
     if (onTasksChanged) onTasksChanged()
-  }
+  }, [onClose, onTasksChanged])
+
+  // Escape closes the modal.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, handleClose])
 
   const handleApprove = async (entry: ReviewEntry) => {
     if (!jobId) return

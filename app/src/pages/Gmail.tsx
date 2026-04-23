@@ -4,6 +4,7 @@ import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
 import GmailReplyComposer from '../components/GmailReplyComposer'
 import ConfirmModal from '../components/ConfirmModal'
+import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal'
 import { useConfirm } from '../hooks/useConfirm'
 import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
@@ -111,6 +112,11 @@ export default function Gmail() {
 
   // In-app confirm dialog (replaces window.confirm for bulk trash).
   const { confirm, confirmProps } = useConfirm()
+
+  // Show the shared Google setup guide modal when the user clicks the
+  // secondary "Need setup help?" link on the connect panel. Lives at the
+  // page level so it can be rendered alongside ConnectCard.
+  const [showSetupGuide, setShowSetupGuide] = useState(false)
 
   const handleCreateTask = async (e: React.MouseEvent, messageId: string) => {
     e.stopPropagation()
@@ -357,7 +363,7 @@ export default function Gmail() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="Gmail" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
           <LoadingState variant="spinner" />
@@ -368,7 +374,7 @@ export default function Gmail() {
 
   if (!authStatus?.authenticated || authStatus.needs_reauth) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="Gmail" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
           <ConnectCard
@@ -381,23 +387,33 @@ export default function Gmail() {
                 : 'See your unread emails without leaving myOS. This uses the same Google account as Drive and Calendar, so no extra credentials are needed.'
             }
             primaryAction={
-              <button
-                onClick={handleConnect}
-                className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
-              >
-                {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
-              </button>
+              <div className="w-full space-y-3">
+                <button
+                  onClick={handleConnect}
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
+                >
+                  {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSetupGuide(true)}
+                  className="w-full text-xs text-slate-500 hover:text-slate-300 underline"
+                >
+                  Need setup help? See the guide
+                </button>
+              </div>
             }
             error={connectError ?? undefined}
           />
         </div>
+        {showSetupGuide && <GoogleSetupGuideModal onClose={() => setShowSetupGuide(false)} />}
       </div>
     )
   }
 
   if (apiNotEnabled) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="Gmail" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
           <ConnectCard
@@ -433,7 +449,7 @@ export default function Gmail() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="Gmail" />
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         {/* Header row */}
@@ -510,6 +526,8 @@ export default function Gmail() {
             <EmptyState
               icon="mark_email_read"
               title="No messages in your inbox"
+              description="Pull the latest from Gmail to see what's waiting."
+              action={{ label: 'Sync now', onClick: handleSync }}
             />
           ) : (
             <div className="divide-y divide-slate-800/60">

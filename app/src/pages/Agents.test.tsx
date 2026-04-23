@@ -63,7 +63,10 @@ const mockAgentsResponse = {
     {
       name: 'test-agent',
       status: 'running',
-      source: 'daemon',
+      // The Agents page now filters out source="daemon" via
+      // isUserSpawnedAgent. Use "claude-code" so the fixture row
+      // survives the filter and appears in the Active list.
+      source: 'claude-code',
       model: 'sonnet',
       budget: '2.00',
       spawned_at: new Date(Date.now() - 83000).toISOString(),
@@ -154,7 +157,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // The chat thread input should be visible for active agents. The
@@ -167,7 +170,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const sendButton = screen.getByTestId('agent-chat-send-test-agent')
@@ -178,7 +181,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...')
@@ -198,7 +201,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...')
@@ -216,7 +219,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...') as HTMLTextAreaElement
@@ -234,7 +237,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // Input is empty, click send
@@ -252,7 +255,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...')
@@ -273,7 +276,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgentsCollapsed()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const expandButton = screen.getByTitle('Expand session')
@@ -284,7 +287,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgentsCollapsed()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const expandButton = screen.getByTitle('Expand session')
@@ -344,7 +347,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...')
@@ -390,7 +393,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...')
@@ -436,7 +439,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // Do NOT click Expand. Send a nudge. Polling should fire anyway.
@@ -521,7 +524,7 @@ describe('Agents page - Nudge feature', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // Trigger a send so the background long-poll loop spins up for
@@ -612,7 +615,7 @@ describe('Agents page - Send button stuck state (needle 237)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...')
@@ -642,7 +645,7 @@ describe('Agents page - Send button stuck state (needle 237)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...')
@@ -675,7 +678,7 @@ describe('Agents page - Send button stuck state (needle 237)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...')
@@ -708,14 +711,14 @@ describe('Agents page - Send button stuck state (needle 237)', () => {
             {
               name: 'agent-a',
               status: 'running',
-              source: 'daemon',
+              source: 'claude-code',
               model: 'sonnet',
               spawned_at: new Date(Date.now() - 1000).toISOString(),
             },
             {
               name: 'agent-b',
               status: 'running',
-              source: 'daemon',
+              source: 'claude-code',
               model: 'sonnet',
               spawned_at: new Date(Date.now() - 1000).toISOString(),
             },
@@ -753,8 +756,8 @@ describe('Agents page - Send button stuck state (needle 237)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('agent-a')).toBeInTheDocument()
-      expect(screen.getByTitle('agent-b')).toBeInTheDocument()
+      expect(screen.getByTitle(/^agent-a(\s|$)/)).toBeInTheDocument()
+      expect(screen.getByTitle(/^agent-b(\s|$)/)).toBeInTheDocument()
     })
 
     // Two chat thread inputs exist now, one per agent.
@@ -953,7 +956,7 @@ describe('Agents page - Status bar', () => {
         daemon_running: true,
         status: 'ok',
         active: ['no-time-agent'],
-        agents: [{ name: 'no-time-agent', status: 'running', source: 'daemon', model: 'sonnet' }],
+        agents: [{ name: 'no-time-agent', status: 'running', source: 'claude-code', model: 'sonnet' }],
       }
       if (path === '/agents/templates') return mockTemplatesResponse
       if (path.includes('/nudges')) return { agent: 'no-time-agent', nudges: [], session_nudges: [] }
@@ -963,7 +966,7 @@ describe('Agents page - Status bar', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('no-time-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^no-time-agent(\s|$)/)).toBeInTheDocument()
     })
 
     expect(screen.queryByTestId('agent-status-bar')).not.toBeInTheDocument()
@@ -995,7 +998,7 @@ describe('Agents page - active card collapse/expand default', () => {
     renderAgentsCollapsed()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // The chat input, status bar, and transcript/cancel controls must
@@ -1017,7 +1020,7 @@ describe('Agents page - active card collapse/expand default', () => {
     renderAgentsCollapsed()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // The compact summary renders with model name, token budget, and
@@ -1034,7 +1037,7 @@ describe('Agents page - active card collapse/expand default', () => {
     renderAgentsCollapsed()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // Start collapsed: no chat input, no full status bar.
@@ -1073,14 +1076,14 @@ describe('Agents page - active card collapse/expand default', () => {
             {
               name: 'agent-a',
               status: 'running',
-              source: 'daemon',
+              source: 'claude-code',
               model: 'sonnet',
               spawned_at: new Date(Date.now() - 1000).toISOString(),
             },
             {
               name: 'agent-b',
               status: 'running',
-              source: 'daemon',
+              source: 'claude-code',
               model: 'sonnet',
               spawned_at: new Date(Date.now() - 1000).toISOString(),
             },
@@ -1097,8 +1100,8 @@ describe('Agents page - active card collapse/expand default', () => {
     renderAgentsCollapsed()
 
     await waitFor(() => {
-      expect(screen.getByTitle('agent-a')).toBeInTheDocument()
-      expect(screen.getByTitle('agent-b')).toBeInTheDocument()
+      expect(screen.getByTitle(/^agent-a(\s|$)/)).toBeInTheDocument()
+      expect(screen.getByTitle(/^agent-b(\s|$)/)).toBeInTheDocument()
     })
 
     // Both start collapsed.
@@ -1133,7 +1136,7 @@ describe('Agents page - active card collapse/expand default', () => {
     const first = renderAgentsCollapsed()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // Expand the card.
@@ -1221,7 +1224,7 @@ describe('Agents page - Recent tab filtering', () => {
         status: 'ok',
         active: ['running-agent'],
         agents: [
-          { name: 'running-agent', status: 'running', source: 'daemon', model: 'sonnet', spawned_at: new Date().toISOString() },
+          { name: 'running-agent', status: 'running', source: 'claude-code', model: 'sonnet', spawned_at: new Date().toISOString() },
           { name: 'completed-agent', status: 'completed', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
           { name: 'cancelled-agent', status: 'cancelled', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
           { name: 'stopped-agent', status: 'stopped', source: 'api', model: 'sonnet', spawned_at: new Date().toISOString() },
@@ -1240,16 +1243,16 @@ describe('Agents page - Recent tab filtering', () => {
 
     // Completed agents are visible by default
     await waitFor(() => {
-      expect(screen.getByTitle('completed-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^completed-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // Cancelled and synonym statuses are hidden by default
-    expect(screen.queryByTitle('cancelled-agent')).not.toBeInTheDocument()
-    expect(screen.queryByTitle('stopped-agent')).not.toBeInTheDocument()
-    expect(screen.queryByTitle('abandoned-agent')).not.toBeInTheDocument()
-    expect(screen.queryByTitle('stale-agent')).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/^cancelled-agent(\s|$)/)).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/^stopped-agent(\s|$)/)).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/^abandoned-agent(\s|$)/)).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/^stale-agent(\s|$)/)).not.toBeInTheDocument()
     // running-agent is on Active tab, not Recent
-    expect(screen.queryByTitle('running-agent')).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/^running-agent(\s|$)/)).not.toBeInTheDocument()
 
     // The chip reads "Hiding cancelled . show" when cancelled rows are hidden.
     const chip = screen.getByTestId('recent-cancelled-toggle')
@@ -1279,18 +1282,18 @@ describe('Agents page - Recent tab filtering', () => {
     fireEvent.click(recentTab)
 
     await waitFor(() => {
-      expect(screen.getByTitle('completed-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^completed-agent(\s|$)/)).toBeInTheDocument()
     })
-    expect(screen.queryByTitle('cancelled-agent')).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/^cancelled-agent(\s|$)/)).not.toBeInTheDocument()
 
     // Click the chip to reveal cancelled rows.
     const chip = screen.getByTestId('recent-cancelled-toggle')
     fireEvent.click(chip)
 
     await waitFor(() => {
-      expect(screen.getByTitle('cancelled-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^cancelled-agent(\s|$)/)).toBeInTheDocument()
     })
-    expect(screen.getByTitle('abandoned-agent')).toBeInTheDocument()
+    expect(screen.getByTitle(/^abandoned-agent(\s|$)/)).toBeInTheDocument()
 
     // Chip copy flips to "Showing cancelled . hide".
     expect(chip).toHaveTextContent(/Showing cancelled/)
@@ -1299,7 +1302,7 @@ describe('Agents page - Recent tab filtering', () => {
     // Click again to hide them.
     fireEvent.click(chip)
     await waitFor(() => {
-      expect(screen.queryByTitle('cancelled-agent')).not.toBeInTheDocument()
+      expect(screen.queryByTitle(/^cancelled-agent(\s|$)/)).not.toBeInTheDocument()
     })
   })
 
@@ -1329,9 +1332,9 @@ describe('Agents page - Recent tab filtering', () => {
     // With the stored preference, cancelled rows should be visible on
     // first mount without clicking anything.
     await waitFor(() => {
-      expect(screen.getByTitle('cancelled-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^cancelled-agent(\s|$)/)).toBeInTheDocument()
     })
-    expect(screen.getByTitle('completed-agent')).toBeInTheDocument()
+    expect(screen.getByTitle(/^completed-agent(\s|$)/)).toBeInTheDocument()
 
     // Chip reflects the persisted state.
     const chip = screen.getByTestId('recent-cancelled-toggle')
@@ -1360,10 +1363,10 @@ describe('Agents page - Recent tab filtering', () => {
     fireEvent.click(recentTab)
 
     await waitFor(() => {
-      expect(screen.getByTitle('user-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^user-agent(\s|$)/)).toBeInTheDocument()
     })
-    expect(screen.getByTitle('nosrc-agent')).toBeInTheDocument()
-    expect(screen.queryByTitle('e2e-agent')).not.toBeInTheDocument()
+    expect(screen.getByTitle(/^nosrc-agent(\s|$)/)).toBeInTheDocument()
+    expect(screen.queryByTitle(/^e2e-agent(\s|$)/)).not.toBeInTheDocument()
     expect(screen.queryByTestId('recent-e2e-pill')).not.toBeInTheDocument()
 
     const e2eChip = screen.getByTestId('recent-e2e-toggle')
@@ -1373,7 +1376,7 @@ describe('Agents page - Recent tab filtering', () => {
     fireEvent.click(e2eChip)
 
     await waitFor(() => {
-      expect(screen.getByTitle('e2e-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^e2e-agent(\s|$)/)).toBeInTheDocument()
     })
     const pill = screen.getByTestId('recent-e2e-pill')
     expect(pill).toBeInTheDocument()
@@ -1381,8 +1384,8 @@ describe('Agents page - Recent tab filtering', () => {
     expect(e2eChip).toHaveTextContent(/Showing e2e tests/)
     expect(e2eChip).toHaveTextContent(/hide/)
 
-    expect(screen.getByTitle('user-agent')).toBeInTheDocument()
-    expect(screen.getByTitle('nosrc-agent')).toBeInTheDocument()
+    expect(screen.getByTitle(/^user-agent(\s|$)/)).toBeInTheDocument()
+    expect(screen.getByTitle(/^nosrc-agent(\s|$)/)).toBeInTheDocument()
   })
 
   it('shows empty state in Recent tab when no terminal agents exist', async () => {
@@ -1435,7 +1438,7 @@ describe('Agents page - Recent tab filtering', () => {
     fireEvent.click(recentTab)
 
     await waitFor(() => {
-      expect(screen.getByTitle('timeout-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^timeout-agent(\s|$)/)).toBeInTheDocument()
     })
   })
 
@@ -1466,10 +1469,10 @@ describe('Agents page - Recent tab filtering', () => {
 
     // failed-agent must be visible even with "Hiding cancelled" on.
     await waitFor(() => {
-      expect(screen.getByTitle('failed-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^failed-agent(\s|$)/)).toBeInTheDocument()
     })
     // cancelled-agent is still hidden (existing chip behavior).
-    expect(screen.queryByTitle('cancelled-agent')).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/^cancelled-agent(\s|$)/)).not.toBeInTheDocument()
   })
 
   // Regression: polling must be fast enough that a finished agent shows
@@ -1555,7 +1558,7 @@ describe('Agents page - Recent tab filtering', () => {
 
     // Render 1: agent is running, visible in Active tab.
     await waitFor(() => {
-      expect(screen.getByTitle('flash-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^flash-agent(\s|$)/)).toBeInTheDocument()
     })
     expect(screen.getByText('Active Sessions')).toBeInTheDocument()
 
@@ -1570,7 +1573,7 @@ describe('Agents page - Recent tab filtering', () => {
     // key assertion is that the title is findable somewhere on the
     // page, never "neither tab".
     await waitFor(() => {
-      expect(screen.getByTitle('flash-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^flash-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // And the "Recent Agents" heading is on screen (auto-switch fired).
@@ -2136,7 +2139,7 @@ describe('Agents page - first-load state', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
     expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
     expect(
@@ -2164,7 +2167,7 @@ describe('Agents page - first-load state', () => {
       // First fetch settles, real-timer waitFor is unavailable with fake
       // timers, so we drive ticks manually until the agent appears.
       await vi.waitFor(() => {
-        expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+        expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
       })
       expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
 
@@ -2172,11 +2175,11 @@ describe('Agents page - first-load state', () => {
       // NOT reappear during the refresh. The agent must still be visible.
       await vi.advanceTimersByTimeAsync(5000)
       expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
 
       await vi.advanceTimersByTimeAsync(5000)
       expect(screen.queryByTestId('active-agents-loading')).not.toBeInTheDocument()
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
@@ -2234,7 +2237,7 @@ describe('Agents page - first-load state', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('live-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^live-agent(\s|$)/)).toBeInTheDocument()
     })
     // The terminated_stale agent must not be in the Active Sessions list.
     expect(screen.queryByText('dead-orphan')).not.toBeInTheDocument()
@@ -2284,9 +2287,9 @@ describe('Agents page - first-load state', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('saa-fix-thing')).toBeInTheDocument()
+      expect(screen.getByTitle(/^saa-fix-thing(\s|$)/)).toBeInTheDocument()
     })
-    expect(screen.getByTitle('diagnose-thing')).toBeInTheDocument()
+    expect(screen.getByTitle(/^diagnose-thing(\s|$)/)).toBeInTheDocument()
     // Empty-state copy must be gone now that two subagents are visible.
     expect(screen.queryByText('No agents running right now')).not.toBeInTheDocument()
     // Cancel-all reflects the same count.
@@ -2324,7 +2327,7 @@ describe('Agents page - first-load state', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('booting-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^booting-agent(\s|$)/)).toBeInTheDocument()
     })
     expect(screen.queryByText('No agents running right now')).not.toBeInTheDocument()
   })
@@ -2379,10 +2382,10 @@ describe('Agents page - first-load state', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('raced-with-sweep')).toBeInTheDocument()
+      expect(screen.getByTitle(/^raced-with-sweep(\s|$)/)).toBeInTheDocument()
     })
     // Genuinely dead agent must NOT appear in Active.
-    expect(screen.queryByTitle('genuinely-dead')).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/^genuinely-dead(\s|$)/)).not.toBeInTheDocument()
     expect(screen.queryByText('No agents running right now')).not.toBeInTheDocument()
   })
 
@@ -2403,7 +2406,7 @@ describe('Agents page - first-load state', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // Use getAllByRole and pick the single-agent cancel button (not "Cancel all")
@@ -2528,7 +2531,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
 
@@ -2569,7 +2572,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
 
@@ -2609,7 +2612,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...') as HTMLTextAreaElement
@@ -2645,7 +2648,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
     const input = screen.getByPlaceholderText('Message test-agent...')
@@ -2673,7 +2676,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
         {
           name: 'fresh-agent',
           status: 'running',
-          source: 'daemon',
+          source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
           spawned_at: new Date(Date.now() - 5000).toISOString(),
@@ -2694,7 +2697,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('fresh-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^fresh-agent(\s|$)/)).toBeInTheDocument()
     })
 
     expect(screen.queryByTestId('agent-chat-mailbox-warning')).not.toBeInTheDocument()
@@ -2713,7 +2716,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
         {
           name: 'old-agent',
           status: 'running',
-          source: 'daemon',
+          source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
           spawned_at: thirtyMinAgo,
@@ -2759,7 +2762,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('old-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^old-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // Card renders expanded by default in tests (renderAgents pre-seeds
@@ -2805,7 +2808,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
 
@@ -2855,7 +2858,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('test-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^test-agent(\s|$)/)).toBeInTheDocument()
     })
 
 
@@ -2881,7 +2884,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
         {
           name: 'old-agent',
           status: 'running',
-          source: 'daemon',
+          source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
           spawned_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
@@ -2912,7 +2915,7 @@ describe('Agents page - AgentChatThread bubbles (needle 244)', () => {
     renderAgents()
 
     await waitFor(() => {
-      expect(screen.getByTitle('old-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^old-agent(\s|$)/)).toBeInTheDocument()
     })
 
 
@@ -3227,7 +3230,7 @@ describe('Agents page - first-paint budget (needle 299)', () => {
   const manyAgents = Array.from({ length: 50 }, (_, i) => ({
     name: `agent-${i + 1}`,
     status: i < 3 ? 'running' : 'completed',
-    source: 'daemon',
+    source: 'claude-code',
     model: 'sonnet',
     budget: '2.00',
     spawned_at: new Date(Date.now() - i * 60000).toISOString(),
@@ -3265,7 +3268,7 @@ describe('Agents page - first-paint budget (needle 299)', () => {
     const t0 = performance.now()
     renderAgents()
     await waitFor(() => {
-      expect(screen.getByTitle('agent-1')).toBeInTheDocument()
+      expect(screen.getByTitle(/^agent-1(\s|$)/)).toBeInTheDocument()
     })
     const elapsed = performance.now() - t0
     expect(elapsed).toBeLessThan(FIRST_ROW_BUDGET_MS)
@@ -3301,7 +3304,7 @@ describe('Agents page - first-paint budget (needle 299)', () => {
     const t0 = performance.now()
     renderAgents()
     await waitFor(() => {
-      expect(screen.getByTitle('agent-1')).toBeInTheDocument()
+      expect(screen.getByTitle(/^agent-1(\s|$)/)).toBeInTheDocument()
     })
     const elapsed = performance.now() - t0
     expect(elapsed).toBeLessThan(FIRST_ROW_BUDGET_MS)
@@ -3314,7 +3317,7 @@ describe('Agents page - first-paint budget (needle 299)', () => {
         {
           name: 'cached-agent',
           status: 'running',
-          source: 'daemon',
+          source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
           spawned_at: new Date().toISOString(),
@@ -3330,7 +3333,7 @@ describe('Agents page - first-paint budget (needle 299)', () => {
 
     renderAgents()
 
-    expect(screen.getByTitle('cached-agent')).toBeInTheDocument()
+    expect(screen.getByTitle(/^cached-agent(\s|$)/)).toBeInTheDocument()
     // The Active tab loading placeholder must NOT appear over the
     // cached row.
     expect(
@@ -3345,7 +3348,7 @@ describe('Agents page - first-paint budget (needle 299)', () => {
         {
           name: 'stale-agent',
           status: 'running',
-          source: 'daemon',
+          source: 'claude-code',
           model: 'sonnet',
           budget: '2.00',
           spawned_at: new Date().toISOString(),
@@ -3372,10 +3375,10 @@ describe('Agents page - first-paint budget (needle 299)', () => {
 
     renderAgents()
     // Stale cache row paints first.
-    expect(screen.getByTitle('stale-agent')).toBeInTheDocument()
+    expect(screen.getByTitle(/^stale-agent(\s|$)/)).toBeInTheDocument()
     // Fresh data replaces it.
     await waitFor(() => {
-      expect(screen.getByTitle('agent-1')).toBeInTheDocument()
+      expect(screen.getByTitle(/^agent-1(\s|$)/)).toBeInTheDocument()
     })
     const persisted = JSON.parse(
       window.localStorage.getItem('myos.agentsCache.v1') || '[]',
@@ -4347,7 +4350,7 @@ describe('Transcript viewer', () => {
 
   it('shows transcript content when API returns it', async () => {
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
 
     const viewBtn = await screen.findByText('View Transcript')
     fireEvent.click(viewBtn)
@@ -4384,7 +4387,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
 
     const viewBtn = await screen.findByText('View Transcript')
     fireEvent.click(viewBtn)
@@ -4417,7 +4420,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
 
     const viewBtn = await screen.findByText('View Transcript')
     fireEvent.click(viewBtn)
@@ -4453,7 +4456,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
 
     const viewBtn = await screen.findByText('View Transcript')
     fireEvent.click(viewBtn)
@@ -4490,7 +4493,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
 
     const viewBtn = await screen.findByText('View Transcript')
     fireEvent.click(viewBtn)
@@ -4524,7 +4527,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
 
     const viewBtn = await screen.findByText('View Transcript')
     fireEvent.click(viewBtn)
@@ -4559,7 +4562,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
 
     const viewBtn = await screen.findByText('View Transcript')
     fireEvent.click(viewBtn)
@@ -4599,7 +4602,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
 
     const viewBtn = await screen.findByText('View Transcript')
     fireEvent.click(viewBtn)
@@ -4633,7 +4636,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
 
     const viewBtn = await screen.findByText('View Transcript')
     fireEvent.click(viewBtn)
@@ -4669,7 +4672,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
 
     const viewBtn = await screen.findByText('View Transcript')
     fireEvent.click(viewBtn)
@@ -4711,7 +4714,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
     fireEvent.click(await screen.findByText('View Transcript'))
     await waitFor(() => {
       expect(screen.getByText('Real transcript body')).toBeInTheDocument()
@@ -4743,7 +4746,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
     fireEvent.click(await screen.findByText('View Transcript'))
     await waitFor(() => {
       expect(screen.getByText('ok content')).toBeInTheDocument()
@@ -4776,7 +4779,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     const { unmount } = render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByTitle('my-agent')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByTitle(/^my-agent(\s|$)/)).toBeInTheDocument())
     fireEvent.click(await screen.findByText('View Transcript'))
     await waitFor(() => {
       expect(screen.getByText(/502/)).toBeInTheDocument()
@@ -4809,7 +4812,7 @@ describe('Transcript viewer', () => {
       return {}
     })
     render(<MemoryRouter><Agents /></MemoryRouter>)
-    await waitFor(() => expect(screen.getAllByTitle('my-agent').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByTitle(/^my-agent(\s|$)/).length).toBeGreaterThan(0))
     fireEvent.click((await screen.findAllByText('View Transcript'))[0])
     await waitFor(() => {
       expect(screen.getByText(/timed out/i)).toBeInTheDocument()
@@ -4878,7 +4881,7 @@ describe('Agents page - live Active-to-Recent move (2s poll)', () => {
 
     // Verify the agent starts visible in the Active tab.
     await waitFor(() => {
-      expect(screen.getByTitle('flip-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^flip-agent(\s|$)/)).toBeInTheDocument()
     })
     expect(screen.getByText('Active Sessions')).toBeInTheDocument()
 
@@ -4896,7 +4899,7 @@ describe('Agents page - live Active-to-Recent move (2s poll)', () => {
     fireEvent.click(recentTab)
 
     await waitFor(() => {
-      expect(screen.getByTitle('flip-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^flip-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // Switch back to Active and confirm the completed agent is gone.
@@ -4955,7 +4958,7 @@ describe('Agents page - live Active-to-Recent move (2s poll)', () => {
 
     // Agent starts on Active tab (default).
     await waitFor(() => {
-      expect(screen.getByTitle('auto-flip-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^auto-flip-agent(\s|$)/)).toBeInTheDocument()
     })
     expect(screen.getByText('Active Sessions')).toBeInTheDocument()
 
@@ -4972,7 +4975,7 @@ describe('Agents page - live Active-to-Recent move (2s poll)', () => {
 
     // The completed agent must be visible in the Recent list.
     await waitFor(() => {
-      expect(screen.getByTitle('auto-flip-agent')).toBeInTheDocument()
+      expect(screen.getByTitle(/^auto-flip-agent(\s|$)/)).toBeInTheDocument()
     })
 
     // Active Sessions heading must no longer be visible (tab switched away).
@@ -5747,14 +5750,14 @@ describe('Agents page - optimistic spawn insert + agents bus', () => {
     // The placeholder row should appear immediately, BEFORE we let the
     // spawn POST resolve. Match by title attribute (the raw name).
     await waitFor(() => {
-      expect(screen.getByTitle('roadmap')).toBeInTheDocument()
+      expect(screen.getByTitle(/^roadmap(\s|$)/)).toBeInTheDocument()
     })
 
     // Now resolve the POST and confirm the row remains.
     if (resolveSpawn) (resolveSpawn as (v: unknown) => void)({ name: 'roadmap', pid: 1234, transcript: '/tmp/x' })
     await spawnPromise
 
-    expect(screen.getByTitle('roadmap')).toBeInTheDocument()
+    expect(screen.getByTitle(/^roadmap(\s|$)/)).toBeInTheDocument()
   })
 
   it('failed spawn POST removes the optimistic placeholder', async () => {
@@ -5788,12 +5791,12 @@ describe('Agents page - optimistic spawn insert + agents bus', () => {
 
     // The placeholder appears synchronously.
     await waitFor(() => {
-      expect(screen.getByTitle('doomed')).toBeInTheDocument()
+      expect(screen.getByTitle(/^doomed(\s|$)/)).toBeInTheDocument()
     })
 
     // After the POST rejects, the placeholder should be removed.
     await waitFor(() => {
-      expect(screen.queryByTitle('doomed')).not.toBeInTheDocument()
+      expect(screen.queryByTitle(/^doomed(\s|$)/)).not.toBeInTheDocument()
     })
   })
 
@@ -6027,24 +6030,24 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
     // have reconciled to exactly one running row.
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalledWith(
-        '/agents?summary=1&status=running&source=claude-code&limit=20'
+        '/agents?summary=1&status=running&limit=20'
       )
     })
 
     // summary-runner must render.
     await waitFor(() => {
-      expect(screen.getByTitle('summary-runner')).toBeInTheDocument()
+      expect(screen.getByTitle(/^summary-runner(\s|$)/)).toBeInTheDocument()
     })
 
     // summary-ghost must NOT render even though the full /agents
     // payload still reports it as running. The summary set is the
     // source of truth.
     await waitFor(() => {
-      expect(screen.queryByTitle('summary-ghost')).toBeNull()
+      expect(screen.queryByTitle(/^summary-ghost(\s|$)/)).toBeNull()
     })
 
     // summary-completed has never been active; it must not appear in
     // the Active Sessions list either.
-    expect(screen.queryByTitle('summary-completed')).toBeNull()
+    expect(screen.queryByTitle(/^summary-completed(\s|$)/)).toBeNull()
   })
 })

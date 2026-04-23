@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Icon from './Icon';
 import { api } from '../lib/api';
 import { bumpSpecs } from '../lib/sidebarBus';
+import { useAppStore } from '../stores/app';
 import SlideBeautifier from './SlideBeautifier';
 
 // --- Types shared with the backend ---
@@ -483,10 +485,17 @@ export default function FilePreviewPane({ entry, onClose, onOpenExternally, onDe
 
   const load = useCallback(async () => {
     if (!entry) return;
-    setLoading(true);
     setError(null);
     setReadData(null);
     setRichData(null);
+    // Deferred spinner: only show the loading state if the fetch takes
+    // longer than 150 ms. Most files under a few hundred KB resolve in
+    // well under that window (roadmap.md was measured at 36 ms on the
+    // backend), so flashing a spinner made the preview feel slow even
+    // when the data was already in hand. Skipping the spinner on fast
+    // loads lets the content render as if instantly; slow loads still
+    // get a spinner so the user knows something is happening.
+    const spinnerTimer = window.setTimeout(() => setLoading(true), 150);
 
     try {
       if (
@@ -514,6 +523,7 @@ export default function FilePreviewPane({ entry, onClose, onOpenExternally, onDe
     } catch {
       setError("Couldn't open this file.");
     } finally {
+      window.clearTimeout(spinnerTimer);
       setLoading(false);
     }
   }, [entry, category]);
@@ -594,12 +604,13 @@ export default function FilePreviewPane({ entry, onClose, onOpenExternally, onDe
         {/* Body */}
         <div className="flex-1 overflow-auto p-5">
           {loading && (
-            <div className="flex items-center justify-center py-16">
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
               <div
                 className="w-6 h-6 border-2 border-slate-700 border-t-blue-400 rounded-full animate-spin"
                 role="status"
                 aria-label="Loading preview"
               />
+              <span className="text-xs text-slate-400">Loading preview...</span>
             </div>
           )}
 
@@ -1020,55 +1031,93 @@ export function RoadmapPreview({ content, filePath, onSpecCreated }: RoadmapPrev
   const statusRef = useRef(statusByBullet);
   statusRef.current = statusByBullet;
 
+  // Optimistic navigation: click "Make spec" -> jump to /specs inside the
+  // same render tick. The Specs page renders a skeleton row sourced from
+  // the pendingSpecs map on the app store. When the backend POST resolves,
+  // we flip the pending row's status and bump the specs bus so the page
+  // refetches and the real row replaces the skeleton.
+  const navigate = useNavigate();
+  const addPendingSpec = useAppStore((s) => s.addPendingSpec);
+  const updatePendingSpec = useAppStore((s) => s.updatePendingSpec);
+
   const viewSpec = useCallback((promotedPath: string) => {
-    // Full page nav so this works even when the pane is mounted outside
-    // a router context. ?expand lets the Specs page auto-open the row.
+    // Client-side nav keeps pending-spec state in the store alive across
+    // the page switch. ?expand auto-opens the row once the real spec lands.
     const qp = promotedPath
       ? `?expand=${encodeURIComponent(promotedPath)}`
       : '';
-    window.location.href = `/specs${qp}`;
-  }, []);
+    navigate(`/specs${qp}`);
+  }, [navigate]);
 
   const handleMakeSpec = useCallback(
-    async (initiativeText: string) => {
+    (initiativeText: string) => {
       setBusy(initiativeText);
-      try {
-        const res = await api.post<{
+      // 1. Register a pending spec in the store BEFORE navigating so the
+      //    Specs page has the skeleton ready to render on first paint.
+      const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      addPendingSpec({
+        tempId,
+        title: initiativeText,
+        status: 'generating',
+      });
+      // 2. Navigate immediately. This is the UX win: no 3-12s wait on Haiku.
+      navigate('/specs');
+      // 3. Fire the backend call in the background. We do NOT await here.
+      //    The click handler returns synchronously so React commits the
+      //    navigation in the same tick.
+      api
+        .post<{
           title: string;
           promoted_path: string | null;
           status: string;
         }>('/specs/from-roadmap-line', {
           roadmap_path: filePath,
           initiative_text: initiativeText,
-        });
-        setStatusByBullet((prev) => ({
-          ...prev,
-          [initiativeText]: {
-            status: res.status || 'ready',
+        })
+        .then((res) => {
+          setStatusByBullet((prev) => ({
+            ...prev,
+            [initiativeText]: {
+              status: res.status || 'ready',
+              promotedPath: res.promoted_path,
+              title: res.title,
+            },
+          }));
+          setToast({ title: res.title, promotedPath: res.promoted_path });
+          // Mark the pending row ready. The Specs page clears it when a
+          // matching real spec shows up in the docs list.
+          updatePendingSpec(tempId, {
+            status: 'ready',
             promotedPath: res.promoted_path,
             title: res.title,
-          },
-        }));
-        setToast({ title: res.title, promotedPath: res.promoted_path });
-        // Tell any open Specs tab / page to refetch so the new plan
-        // appears without waiting on a page refresh.
-        bumpSpecs();
-        if (onSpecCreated) onSpecCreated({ title: res.title, promotedPath: res.promoted_path });
-      } catch {
-        setStatusByBullet((prev) => ({
-          ...prev,
-          [initiativeText]: {
-            status: 'failed',
-            promotedPath: null,
-            title: initiativeText,
-          },
-        }));
-        setToast({ title: 'Could not create plan', promotedPath: null });
-      } finally {
-        setBusy(null);
-      }
+          });
+          bumpSpecs();
+          if (onSpecCreated)
+            onSpecCreated({ title: res.title, promotedPath: res.promoted_path });
+        })
+        .catch(() => {
+          setStatusByBullet((prev) => ({
+            ...prev,
+            [initiativeText]: {
+              status: 'failed',
+              promotedPath: null,
+              title: initiativeText,
+            },
+          }));
+          setToast({ title: 'Could not create plan', promotedPath: null });
+          // Flip the pending row to error so the Specs page can show an
+          // actionable message instead of a stuck shimmer.
+          updatePendingSpec(tempId, {
+            status: 'error',
+            errorMsg:
+              'Could not create the spec. Check your connection and try again.',
+          });
+        })
+        .finally(() => {
+          setBusy(null);
+        });
     },
-    [filePath, onSpecCreated]
+    [filePath, onSpecCreated, navigate, addPendingSpec, updatePendingSpec]
   );
 
   // Poll /specs every 5s while any tracked row is non-terminal. Stops
@@ -1126,8 +1175,8 @@ export function RoadmapPreview({ content, filePath, onSpecCreated }: RoadmapPrev
     const qp = toast.promotedPath
       ? `?expand=${encodeURIComponent(toast.promotedPath)}`
       : '';
-    window.location.href = `/specs${qp}`;
-  }, [toast]);
+    navigate(`/specs${qp}`);
+  }, [toast, navigate]);
 
   return (
     <div className="space-y-4" data-testid="roadmap-preview">

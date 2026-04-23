@@ -469,7 +469,7 @@ async def list_transcripts(
 
     for project_dir in project_dirs:
         # Derive a project label from the directory name
-        dir_name = project_dir.name  # e.g. "-Users-torimeyer-claude-torios"
+        dir_name = project_dir.name  # e.g. "-Users-alice-claude-myproject"
         # Convert back to a readable path
         project_label = dir_name.lstrip("-").replace("-", "/")
 

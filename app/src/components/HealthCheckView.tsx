@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Icon from "./Icon";
 import { api } from "../lib/api";
 
@@ -104,6 +104,16 @@ export default function HealthCheckView() {
   const [fixAllMessage, setFixAllMessage] = useState<{ text: string; ok: boolean } | null>(null);
   // Confirm modal for fix-all
   const [showFixAllConfirm, setShowFixAllConfirm] = useState(false);
+
+  // Escape closes the fix-all confirm.
+  useEffect(() => {
+    if (!showFixAllConfirm) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowFixAllConfirm(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showFixAllConfirm]);
 
   const runHealthCheck = useCallback(async (clearMessages = true) => {
     setLoading(true);

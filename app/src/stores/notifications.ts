@@ -71,6 +71,14 @@ interface NotificationStore {
    *  on every tick.
    */
   persistentToastIds: Set<string>
+  /** Last persistent notification of type ``spec_complete`` seen by the
+   *  store. Holds the notification id, spec path (when the backend
+   *  provided one on the toast input, carried on the AppNotification
+   *  ``body``/``agentName``), and a monotonic ``at`` timestamp used by
+   *  the ChatPanel to drive its one-time "New" pulse on the All pill
+   *  after a Build-it landing. ``null`` until the first spec_complete
+   *  arrives in this session. */
+  lastFeatureLive: { id: string; title: string; body: string; at: number } | null
   addNotification: (
     agent: NotificationAgent,
     prevStatus: string,
@@ -90,6 +98,7 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   toastIds: [],
   firedKeys: new Set<string>(),
   persistentToastIds: new Set<string>(),
+  lastFeatureLive: null,
 
   addNotification: (agent, prevStatus, status) => {
     // Bug 1: never fire "Agent finished" toasts for chat sessions, audit
@@ -173,11 +182,24 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       const persistentToastIds = new Set(s.persistentToastIds)
       persistentToastIds.add(notif.id)
       persistentToastIds.add(contentKey)
-      return {
+      const nextState: Partial<NotificationStore> = {
         notifications: [toastEntry, ...s.notifications].slice(0, 50),
         toastIds: [...s.toastIds, notif.id],
         persistentToastIds,
       }
+      // Stamp lastFeatureLive the moment a spec_complete row lands so
+      // ChatPanel can pulse the All pill and ReleaseNotesWatcher can
+      // open the modal even when /api/specs is empty (which happens
+      // whenever the spec file has been cleaned up after the build).
+      if (notif.type === 'spec_complete') {
+        nextState.lastFeatureLive = {
+          id: notif.id,
+          title: notif.title || 'Your feature is live',
+          body: notif.body || '',
+          at: Date.now(),
+        }
+      }
+      return nextState as NotificationStore
     })
     // Auto-dismiss after 5s to match the existing agent-finished toast.
     setTimeout(() => {
@@ -199,5 +221,6 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       toastIds: [],
       firedKeys: new Set<string>(),
       persistentToastIds: new Set<string>(),
+      lastFeatureLive: null,
     }),
 }))

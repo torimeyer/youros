@@ -598,12 +598,29 @@ async def test_from_roadmap_line_creates_ready_plan(
             "initiative_text": "Ship guided onboarding for solo PMs",
         },
     )
+    # The endpoint now returns as soon as the draft file exists and the
+    # AC generation is scheduled. The response status is "draft" (not
+    # "ready") because the AC + auto-promote runs in a background task,
+    # which is the whole point of the speedup: Tori's "Generating
+    # acceptance criteria..." spinner used to block on the Anthropic
+    # round-trip (2-8 s). Now it resolves in under 500 ms and the AC
+    # shows up on the next Specs-page poll.
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["status"] == "ready"
-    assert data["promoted_path"] is not None
+    assert data["status"] == "draft"
+    assert data["promoted_path"] is None
     assert data["title"].startswith("Ship guided onboarding")
-    assert spec_file.exists()
+
+    # Wait for the background AC task to land. Poll for up to ~2 s for
+    # the spec file (post-promote destination). The fake Anthropic
+    # returns immediately so one or two event-loop ticks is enough in
+    # practice; the loop just guards against scheduler jitter in CI.
+    import asyncio as _asyncio
+    for _ in range(40):
+        if spec_file.exists():
+            break
+        await _asyncio.sleep(0.05)
+    assert spec_file.exists(), "background AC task did not finish in time"
     body = spec_file.read_text()
     assert "From roadmap" in body
     assert "roadmap.md" in body
@@ -671,7 +688,12 @@ async def test_verify_fires_spec_complete_notification_when_all_ac_met(
     )
     call = notif_calls[0]
     assert call["type"] == "spec_complete"
-    assert call["title"] == "Spec done"
+    # The title switched from "Spec done" to "Your feature is live" so
+    # the TopBar toast reads as a celebration of the feature rather than
+    # a status update on a doc. The string also matches the release
+    # notes modal's header, so the three surfaces (toast, modal, bell)
+    # all say the same thing.
+    assert call["title"] == "Your feature is live"
     assert call["target"] == "spec_complete:docs/spec/my-plan.md"
     assert "docs/spec/my-plan.md" in call.get("action_url", "")
 
@@ -716,6 +738,276 @@ async def test_verify_does_not_notify_when_ac_not_all_met(
     assert notif_calls == [], (
         f"verify must NOT fire notifications when AC unmet, got {notif_calls}"
     )
+
+
+@pytest.mark.asyncio
+async def test_auto_advancer_fires_spec_complete_notification_on_last_task_close(
+    tmp_path, monkeypatch
+):
+    """Regression: when the LAST builder task for a spec closes and the
+    auto-advancer flips the spec's frontmatter to ``status: complete``,
+    the backend must also emit the ``spec_complete`` persistent
+    notification. Without this emit, a clean Build-it run that never
+    calls ``/verify`` lands silently: the frontend toast only fires off
+    a persistent notification row, the release-notes modal watcher can
+    be defeated if the spec file gets cleaned up before the watcher's
+    next 2s poll, and Tori ends up with a feature that shipped without
+    her knowing. This test exercises the exact code path that was
+    silent on the 2026-04-21 demo run.
+    """
+    from routers import specs as specs_router
+    from services import ostk as ostk_module
+
+    # Arrange: a spec file that already lives on disk and one builder
+    # task recorded in _spec_task_origin. The task is the one being
+    # flipped to closed; list_tasks returns it as closed so the
+    # advancer considers every sibling done and proceeds to flip the
+    # spec's frontmatter.
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    spec_path = "docs/spec/silent-landing.md"
+    spec_file = tmp_path / spec_path
+    spec_file.write_text(
+        "---\n"
+        "title: Silent landing\n"
+        "status: in-progress\n"
+        "linked_tasks: [\"7777\"]\n"
+        "---\n\n"
+        "## Acceptance criteria\n\n"
+        "- [ ] Feature ships\n"
+    )
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    # Populate the per-process map the advancer reads. In production
+    # this is seeded by /specs/{path}/build when the builder is spawned.
+    specs_router._spec_task_origin.clear()
+    specs_router._spec_task_origin["7777"] = spec_path
+    monkeypatch.setattr(
+        ostk_module.ostk,
+        "list_tasks",
+        AsyncMock(return_value=[{"id": "7777", "status": "closed"}]),
+    )
+
+    notif_calls: list[dict] = []
+
+    class _FakeNotif:
+        def add(self, **kwargs):
+            notif_calls.append(kwargs)
+            return None
+
+    # Act: run the advancer exactly as tasks.close_task does at the
+    # end of a successful Build-it.
+    with patch(
+        "services.notifications.notifications_service", _FakeNotif()
+    ):
+        result = await specs_router._advance_spec_status_if_all_builder_tasks_closed_async(
+            "7777"
+        )
+
+    # Assert: status flipped AND the feature-live notification fired.
+    assert result == spec_path, (
+        "advancer must return the spec path when it successfully flips "
+        "status so callers can chain further side effects"
+    )
+    assert "status: complete" in spec_file.read_text()
+    assert len(notif_calls) == 1, (
+        f"auto-advancer must fire exactly one spec_complete notification "
+        f"when the final builder task closes, got {len(notif_calls)}"
+    )
+    call = notif_calls[0]
+    assert call["type"] == "spec_complete"
+    assert call["title"] == "Your feature is live"
+    assert call["target"] == f"spec_complete:{spec_path}"
+    assert spec_path in call.get("action_url", "")
+
+
+@pytest.mark.asyncio
+async def test_auto_advancer_does_not_notify_when_some_tasks_still_open(
+    tmp_path, monkeypatch
+):
+    """Counter-test: the auto-advancer must NOT fire a notification while
+    any sibling builder task is still open. Otherwise partway through a
+    build (two of three tasks closed) Tori would see a spurious "Your
+    feature is live" toast.
+    """
+    from routers import specs as specs_router
+    from services import ostk as ostk_module
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    spec_path = "docs/spec/partial.md"
+    spec_file = tmp_path / spec_path
+    spec_file.write_text(
+        "---\ntitle: Partial\nstatus: in-progress\n"
+        "linked_tasks: [\"8001\", \"8002\"]\n---\n"
+    )
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    specs_router._spec_task_origin.clear()
+    specs_router._spec_task_origin["8001"] = spec_path
+    specs_router._spec_task_origin["8002"] = spec_path
+    monkeypatch.setattr(
+        ostk_module.ostk,
+        "list_tasks",
+        AsyncMock(return_value=[
+            {"id": "8001", "status": "closed"},
+            {"id": "8002", "status": "open"},
+        ]),
+    )
+
+    notif_calls: list[dict] = []
+
+    class _FakeNotif:
+        def add(self, **kwargs):
+            notif_calls.append(kwargs)
+            return None
+
+    with patch(
+        "services.notifications.notifications_service", _FakeNotif()
+    ):
+        result = await specs_router._advance_spec_status_if_all_builder_tasks_closed_async(
+            "8001"
+        )
+
+    assert result is None, "advancer must not return a flipped path when any sibling task is still open"
+    assert "status: in-progress" in spec_file.read_text()
+    assert notif_calls == [], (
+        "advancer must not fire spec_complete while siblings are still open"
+    )
+
+
+@pytest.mark.asyncio
+async def test_compute_spec_status_in_progress_when_frontmatter_complete_but_task_open():
+    """Regression for the 3-tasks-1-open bug.
+
+    Scenario: a spec has three builder tasks. Two close cleanly, but a
+    third gets stranded in the ``open`` state because concurrent
+    ``issues.jsonl`` rewrites clobbered its close. The auto-advancer
+    still ran at an instant when list_tasks briefly showed all three
+    closed and wrote ``status: complete`` to the frontmatter.
+
+    If ``compute_spec_status`` trusts the frontmatter unconditionally,
+    the UI banner keeps saying "Done. Every task closed and the feature
+    is live." with a still-open task sitting right above it. The fixed
+    predicate must re-verify against the live task-status map and return
+    ``in-progress`` whenever at least one linked task is open, even when
+    the frontmatter says ``complete``.
+    """
+    from services.ostk import OstkService
+
+    # Three tasks, one still open. Frontmatter on disk lies: it says
+    # complete because a past auto-advancer fired on a stale view.
+    status = OstkService.compute_spec_status(
+        "complete",
+        ["832", "833", "834"],
+        {"832": "open", "833": "closed", "834": "closed"},
+    )
+    assert status == "in-progress", (
+        "A spec whose frontmatter says complete but has one open task "
+        "must compute as in-progress so the UI banner does not claim "
+        "Done with a still-open task above it."
+    )
+
+    # Same idea for the legacy ``done`` vocabulary.
+    status_done = OstkService.compute_spec_status(
+        "done",
+        ["832", "833", "834"],
+        {"832": "open", "833": "closed", "834": "closed"},
+    )
+    assert status_done == "in-progress"
+
+    # Sanity: when every task IS closed, frontmatter=complete still
+    # yields complete, so the happy path did not regress.
+    happy = OstkService.compute_spec_status(
+        "complete",
+        ["832", "833", "834"],
+        {"832": "closed", "833": "closed", "834": "closed"},
+    )
+    assert happy == "complete"
+
+
+@pytest.mark.asyncio
+async def test_close_task_concurrent_calls_do_not_lose_any_close(tmp_path):
+    """Regression: three parallel close_task calls must all land.
+
+    Before the lock was added, three concurrent spec-builder completions
+    each kicked off an ``ostk work close`` subprocess AND a Python-side
+    rewrite of ``issues.jsonl``. The overlapping read-modify-writes on
+    the jsonl clobbered each other and at least one task survived as
+    ``open`` even though its builder ran to completion. This test seeds
+    three open tasks, fires three ``close_task`` calls via
+    ``asyncio.gather``, and asserts all three land closed.
+    """
+    import asyncio as _asyncio
+    from services.ostk import OstkService
+
+    # Build a minimal ostk-shaped workspace. close_task writes
+    # ``closed_reason`` via direct jsonl rewrite, and shells out to
+    # ``ostk work close <id>`` for the actual status flip. We stub the
+    # shell step with a fake ``_run`` that does the same jsonl mutation
+    # the real CLI would (status -> closed), so the test exercises the
+    # EXACT overlap that used to lose writes.
+    needles = tmp_path / ".ostk" / "needles"
+    needles.mkdir(parents=True)
+    issues = needles / "issues.jsonl"
+    issues.write_text(
+        '{"id": "→832", "status": "open"}\n'
+        '{"id": "→833", "status": "open"}\n'
+        '{"id": "→834", "status": "open"}\n'
+    )
+
+    svc = OstkService(cwd=str(tmp_path))
+
+    async def _fake_run(*args, **_kwargs):
+        # Mirror what ``ostk work close <id>`` does on disk: flip the
+        # matching row's status to closed with a slow read-modify-write
+        # so three parallel calls can race without the lock. The sleep
+        # inside the critical section guarantees the race is reliable
+        # in the unlocked version of the code.
+        if args[:2] == ("work", "close"):
+            target = svc._normalize_task_id(args[2])
+            text = issues.read_text()
+            # Simulate the small amount of compute the real CLI does
+            # between read and write. Gives the other coroutines a
+            # chance to read the stale copy and clobber us.
+            await _asyncio.sleep(0.01)
+            out_lines: list[str] = []
+            for line in text.splitlines():
+                if not line.strip():
+                    continue
+                import json as _json
+                entry = _json.loads(line)
+                if svc._normalize_task_id(entry.get("id")) == target:
+                    entry["status"] = "closed"
+                out_lines.append(_json.dumps(entry, ensure_ascii=False))
+            issues.write_text("\n".join(out_lines) + "\n")
+            return "closed"
+        raise AssertionError(f"unexpected ostk call: {args}")
+
+    svc._run = _fake_run  # type: ignore[method-assign]
+
+    # Act: close all three tasks in parallel, same code path as three
+    # spec-builder agents finishing at once.
+    await _asyncio.gather(
+        svc.close_task("832", closed_reason="completed"),
+        svc.close_task("833", closed_reason="completed"),
+        svc.close_task("834", closed_reason="completed"),
+    )
+
+    # Assert: every row is closed AND every row has closed_reason set.
+    # The Python-side rewrite must also find arrow-prefixed ids when
+    # the caller passes a bare id.
+    import json as _json
+    rows = [
+        _json.loads(line)
+        for line in issues.read_text().splitlines()
+        if line.strip()
+    ]
+    by_id = {r["id"]: r for r in rows}
+    for tid in ("→832", "→833", "→834"):
+        assert by_id[tid]["status"] == "closed", (
+            f"{tid} must close even under concurrent close_task calls"
+        )
+        assert by_id[tid].get("closed_reason") == "completed", (
+            f"{tid} must have closed_reason recorded even when the "
+            f"stored id is arrow-prefixed and the caller passed a bare id"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -994,20 +1286,26 @@ async def test_from_roadmap_line_p95_under_demo_budget(
         )
         elapsed = time.perf_counter() - t0
         assert resp.status_code == 200, resp.text
-        assert resp.json()["status"] == "ready"
+        # Endpoint now returns status="draft" immediately and promotes
+        # to "spec" in a background task. This is the speedup the user
+        # feels: the POST resolves in sub-200 ms instead of blocking
+        # 2-8 s on the Anthropic call.
+        assert resp.json()["status"] == "draft"
         durations.append(elapsed)
 
-    # p95 of three samples is the max. Budget 1.5 s of orchestration.
-    # Real demo adds ~2.3 s for Haiku on top, landing under 5 s total.
+    # p95 of three samples is the max. Tighter budget now that the
+    # Anthropic call is out of the request path: orchestration is
+    # just doc_draft + file header write + create_task, well under
+    # 500 ms even under load.
     p95 = max(durations)
     p50 = sorted(durations)[1]
     assert p95 < 1.5, (
         f"spec-from-roadmap-line orchestration regressed: p50={p50*1000:.0f}ms "
         f"p95={p95*1000:.0f}ms samples={[f'{d*1000:.0f}ms' for d in durations]}. "
-        "Budget is 1.5 s; combined with Haiku's ~2.3 s p50 that keeps the "
-        "end-to-end demo path under the 5 s target. Investigate any new "
-        "per-call file scan, settings reload, or sync write before raising "
-        "this threshold."
+        "Budget is 1.5 s. With AC generation now running as a background "
+        "task, the synchronous path is just doc_draft + file write + "
+        "task scheduling. Investigate any new per-call file scan, "
+        "settings reload, or sync write before raising this threshold."
     )
 
 
@@ -1216,6 +1514,75 @@ async def test_build_it_falls_back_to_ac_parsing_when_ostk_returns_empty(
 
 
 @pytest.mark.asyncio
+async def test_build_it_ac_fallback_parses_real_ostk_work_add_output(
+    client, tmp_path, monkeypatch
+):
+    """Real ostk emits ``added →NNN: title`` with the arrow mid-line.
+    The old AC-fallback parser used re.match (anchored at line start) and
+    silently dropped every id, so the cascade returned zero configs and
+    the handler lied with "no unchecked acceptance criteria" even though
+    the spec had three. This regression pins the live-CLI output shape so
+    the parser must use re.search (or equivalent) to recover the id.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/real-ostk-output.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\ntitle: real ostk output\nstatus: spec\n---\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] Bullet one\n"
+        "- [ ] Bullet two\n"
+    )
+
+    async def empty_spec_build(path):
+        return {"agents": []}
+
+    async def empty_doc_decompose(path):
+        return {"result": "", "task_ids": []}
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", empty_spec_build)
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", empty_doc_decompose)
+
+    next_id = {"n": 8000}
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        next_id["n"] += 1
+        # Match real CLI output exactly: "added →NNN: title [P1]"
+        return f"added →{next_id['n']}: {title} [{priority}]"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    async def fake_spawn_agent(body):
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn_agent)
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # The bug: handler returned has_unchecked_acs=False with the
+    # "add at least one" message even though two bullets exist.
+    assert data.get("has_unchecked_acs") is not False, (
+        "AC fallback failed to parse task ids from real ostk output. "
+        f"Response: {data}"
+    )
+    assert len(data["agents"]) == 2
+    assert '"8001"' in spec_file.read_text()
+    assert '"8002"' in spec_file.read_text()
+
+
+@pytest.mark.asyncio
 async def test_build_it_happy_path_still_uses_ostk_spec_build(
     client, tmp_path, monkeypatch
 ):
@@ -1287,6 +1654,159 @@ async def test_build_it_happy_path_still_uses_ostk_spec_build(
 
 
 @pytest.mark.asyncio
+async def test_build_it_ignores_gemini_default_model_and_uses_sonnet(
+    client, tmp_path, monkeypatch
+):
+    """The chat ``default_model`` setting (e.g. ``@gemini``) must NOT
+    leak into spec builder spawns. Builders run as ``claude --print``
+    subprocesses which only accept Claude models; passing ``@gemini``
+    makes the subprocess exit immediately with "There's an issue with
+    the selected model (@gemini)" and a 142-byte transcript, which is
+    exactly how Build it silently produced zero file edits on demo
+    runs where the user picked Gemini in onboarding.
+    """
+    from services import ostk as ostk_module
+    from services.settings_store import settings_store
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/model-leak.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\ntitle: model leak\nstatus: spec\n---\n\n"
+        "## Acceptance criteria\n- [ ] Do a thing\n"
+    )
+
+    # Pretend the user chose Gemini in onboarding.
+    monkeypatch.setattr(
+        settings_store, "get",
+        lambda key, default=None: "@gemini" if key == "default_model" else default,
+    )
+
+    async def empty_spec_build(path):
+        return {"agents": []}
+
+    async def empty_doc_decompose(path):
+        return {"result": "", "task_ids": []}
+
+    monkeypatch.setattr(ostk_module.ostk, "spec_build", empty_spec_build)
+    monkeypatch.setattr(ostk_module.ostk, "doc_decompose", empty_doc_decompose)
+
+    async def fake_add_task(title, priority="P1", description="", ac=""):
+        return "added →9500: bullet [P1]"
+
+    monkeypatch.setattr(ostk_module.ostk, "add_task", fake_add_task)
+
+    spawn_bodies: list[object] = []
+
+    async def capture_spawn(body):
+        spawn_bodies.append(body)
+        return {"agent": body.name}
+
+    import routers.agents as agents_router
+    monkeypatch.setattr(agents_router, "spawn_agent", capture_spawn)
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+
+    resp = await client.post(f"/api/specs/{spec_path_rel}/build")
+    assert resp.status_code == 200
+    assert len(spawn_bodies) == 1
+    # The critical assertion: even though default_model is "@gemini",
+    # the builder must be spawned with a Claude model so the claude
+    # subprocess does not error out on an unknown --model arg.
+    chosen = spawn_bodies[0].model
+    assert "@" not in chosen, (
+        f"spec builder got chat preference '{chosen}' instead of a "
+        "Claude model. This would make the claude subprocess exit "
+        "immediately with a bad-model error and produce no file edits."
+    )
+    assert "gemini" not in chosen.lower()
+
+
+@pytest.mark.asyncio
+async def test_close_spec_builder_task_closes_task_on_agent_complete(
+    tmp_path, monkeypatch
+):
+    """When a spec-spawned builder calls /complete, the matching task
+    should close automatically. The builder prompt explicitly tells the
+    agent NOT to run ``ostk work close`` itself (the spec router closes
+    the task for you via HTTP when you finish), so this path is the only
+    thing that turns /complete into a closed task. Without it the
+    Specs page shows "in progress" forever even after all builders are
+    done, and the auto-flip to ``done`` never fires.
+    """
+    from services import ostk as ostk_module
+    from routers import specs as specs_router
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+
+    spec_path_rel = "docs/spec/auto-close.md"
+    spec_file = tmp_path / spec_path_rel
+    spec_file.write_text(
+        "---\n"
+        "title: auto close\n"
+        "status: spec\n"
+        "tasks:\n"
+        '  - "9001"\n'
+        '  - "9002"\n'
+        "---\n\n"
+        "## Acceptance criteria\n"
+        "- [ ] One\n"
+        "- [ ] Two\n"
+    )
+
+    specs_router._task_assignments.clear()
+    specs_router._spec_task_origin.clear()
+    specs_router._task_assignments["9001"] = "spec-auto-9001"
+    specs_router._task_assignments["9002"] = "spec-auto-9002"
+    specs_router._spec_task_origin["9001"] = spec_path_rel
+    specs_router._spec_task_origin["9002"] = spec_path_rel
+
+    closed_calls: list[dict] = []
+    task_store = {
+        "9001": {"id": "→9001", "status": "open"},
+        "9002": {"id": "→9002", "status": "open"},
+    }
+
+    async def fake_close_task(tid, closed_reason=None):
+        norm = str(tid).lstrip("→")
+        closed_calls.append({"tid": norm, "reason": closed_reason})
+        if norm in task_store:
+            task_store[norm]["status"] = "closed"
+        return "closed"
+
+    async def fake_list_tasks():
+        return list(task_store.values())
+
+    monkeypatch.setattr(ostk_module.ostk, "close_task", fake_close_task)
+    monkeypatch.setattr(ostk_module.ostk, "list_tasks", fake_list_tasks)
+
+    # Non-spec agent: returns None, no close fires.
+    assert await specs_router.close_spec_builder_task("random-non-spec") is None
+    assert closed_calls == []
+
+    # First builder completes: its task closes with reason=completed.
+    # Spec must NOT flip yet because the second task is still open.
+    result1 = await specs_router.close_spec_builder_task("spec-auto-9001")
+    assert result1 == "9001"
+    assert closed_calls == [{"tid": "9001", "reason": "completed"}]
+    assert "status: spec" in spec_file.read_text()
+    assert "status: complete" not in spec_file.read_text()
+
+    # Second builder completes: last task closes, spec flips to done.
+    result2 = await specs_router.close_spec_builder_task("spec-auto-9002")
+    assert result2 == "9002"
+    assert {c["tid"] for c in closed_calls} == {"9001", "9002"}
+    assert "status: complete" in spec_file.read_text()
+
+
+@pytest.mark.asyncio
 async def test_spec_status_flips_to_done_when_all_builder_tasks_close(
     client, tmp_path, monkeypatch
 ):
@@ -1352,13 +1872,13 @@ async def test_spec_status_flips_to_done_when_all_builder_tasks_close(
     resp1 = await client.post("/api/tasks/8001/close")
     assert resp1.status_code == 200
     assert "status: spec" in spec_file.read_text()
-    assert "status: done" not in spec_file.read_text()
+    assert "status: complete" not in spec_file.read_text()
 
     # Close the second (and final) task: the spec now flips to 'done'.
     resp2 = await client.post("/api/tasks/8002/close")
     assert resp2.status_code == 200
     updated = spec_file.read_text()
-    assert "status: done" in updated
+    assert "status: complete" in updated
     assert "status: spec" not in updated
 
 
@@ -1603,21 +2123,14 @@ async def test_build_it_rebuild_creates_fresh_round_when_prior_closed(
 
 
 @pytest.mark.asyncio
-async def test_builder_spawns_without_demo_mode_and_with_real_deadline(
+async def test_builder_spawns_with_live_model(
     client, tmp_path, monkeypatch
 ):
-    """Regression: Build it must NOT hardcode demo_mode=True on builder spawn.
+    """Build it must spawn builders on Sonnet (or the user default), not Haiku.
 
-    The old code forced demo_mode=True for every Build it run, which
-    coerced the model to Haiku and capped each builder at 90 seconds.
-    That hurt normal users: a 10 minute real task was getting force
-    completed after 90 s with a Haiku-produced stub.
-
-    The fix: the AgentSpawn body carries NO demo_mode flag, the model
-    falls back to the user's default_model (or "sonnet"), and the
-    deadline reads from the spec_build_deadline_s setting with a 10
-    minute (600 s) default. This test captures each spawned body and
-    asserts those three properties.
+    The AgentSpawn body carries no demo or haiku override. The model
+    falls back to the user's default_model (or "sonnet"). This test
+    captures each spawned body and asserts the model is not Haiku.
     """
     from services import ostk as ostk_module
     from routers import specs as specs_router
@@ -1627,14 +2140,14 @@ async def test_builder_spawns_without_demo_mode_and_with_real_deadline(
     monkeypatch.setattr(ostk_module.ostk, "cwd", str(tmp_path))
     monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
 
-    spec_file = tmp_path / "docs" / "spec" / "no-demo-mode.md"
+    spec_file = tmp_path / "docs" / "spec" / "live-builder.md"
     spec_file.write_text(
-        "---\ntitle: no demo mode\nstatus: spec\n---\n\n- [ ] one\n"
+        "---\ntitle: live builder\nstatus: spec\n---\n\n- [ ] one\n"
     )
 
     async def fake_spec_build(path):
         return {"agents": [
-            {"name": "spec-no-demo-a", "task_id": "7001",
+            {"name": "spec-live-a", "task_id": "7001",
              "task_title": "A", "prompt": "build A"},
         ]}
 
@@ -1650,8 +2163,8 @@ async def test_builder_spawns_without_demo_mode_and_with_real_deadline(
     monkeypatch.setattr(agents_router, "spawn_agent", fake_spawn)
 
     # Stub settings_store.get so the test does not depend on any
-    # on-disk settings file. Return None for both keys so the code
-    # falls through to its own defaults (sonnet model, 600 s deadline).
+    # on-disk settings file. Return None so the code falls through to
+    # its own default (sonnet model).
     from services import settings_store as settings_store_module
 
     def fake_get(key, default=None):
@@ -1664,21 +2177,10 @@ async def test_builder_spawns_without_demo_mode_and_with_real_deadline(
     specs_router._task_assignments.clear()
     specs_router._spec_task_origin.clear()
 
-    resp = await client.post("/api/specs/docs/spec/no-demo-mode.md/build")
+    resp = await client.post("/api/specs/docs/spec/live-builder.md/build")
     assert resp.status_code == 200
     assert len(captured_bodies) == 1
     body = captured_bodies[0]
-
-    # Regression: demo_mode must not be set on the spawn body. The
-    # Pydantic field is Optional so it can be None or absent; what
-    # matters is that it is NOT True.
-    assert getattr(body, "demo_mode", None) is not True, (
-        "builder spawn still forces demo_mode=True; that coerces the "
-        "model to Haiku and caps each builder at 90 seconds"
-    )
-
-    # Deadline defaults to 10 minutes, not the old 90 s demo cap.
-    assert body.deadline_seconds == 600
 
     # Model never silently downgrades to Haiku when no cfg override is
     # present and the user has not picked a default.

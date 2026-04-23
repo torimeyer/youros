@@ -6,5 +6,4 @@ PROMPT "You are the Product Manager. Write a ONE-PAGE requirements doc under 300
 LIMIT tokens 8000
 LIMIT wall_clock 90
 LIMIT quick_mode true
-LIMIT demo_mode true
 ISOLATION nono

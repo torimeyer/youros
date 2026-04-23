@@ -27,13 +27,18 @@ interface TopBarProps {
 // TopBar poll discovers them. Anything outside this set still lands in
 // the bell drawer but does not interrupt the user. Kept broad enough to
 // cover the common demo flows (roadmap generation, agent finished,
-// sync-status, task overdue) without toasting chatter.
+// sync-status, task overdue, spec/feature completion) without toasting
+// chatter. spec_complete is included because a Build-it landing is one
+// of the loudest wins in the app and Tori must never miss it: without
+// this row, the backend wrote "Your feature is live" to the drawer but
+// no toast popped, making the landing feel silent.
 const TOAST_WORTHY_PERSISTENT_TYPES = new Set<string>([
   'roadmap_ready',
   'agent',
   'sync',
   'task_overdue',
   'upgrade',
+  'spec_complete',
 ])
 
 function statusIcon(status: string): { icon: string; color: string } {

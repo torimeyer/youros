@@ -117,8 +117,9 @@ async def test_specs_user_journey_full_flow(svc_with_tmp):
     # status == "in-progress" because the arrow-prefixed IDs never matched
     # the bare front-matter IDs. After the fix the summary reflects reality.
     assert spec["task_summary"] == {"total": 3, "open": 0, "closed": 3}
-    # All tasks closed but ACs still unchecked -> in-progress until Verify.
-    assert spec["status"] == "in-progress"
+    # All tasks closed flips to complete; the Verify step is a separate
+    # quality gate and no longer part of the spec status computation.
+    assert spec["status"] == "complete"
 
     # --- Step 5: Verify ---
     with patch.object(svc, "list_tasks", new_callable=AsyncMock) as mock_tasks:
@@ -173,12 +174,13 @@ async def test_spec_status_flips_to_complete_when_all_tasks_closed_and_verified(
         {"id": "\u2192502", "title": "B", "status": "closed", "priority": "P1"},
     ]
 
-    # Before Verify: all tasks closed, ACs unchecked -> in-progress.
+    # All tasks closed flips the spec to complete; Verify is a separate
+    # quality gate and no longer gates this status.
     with patch.object(svc, "list_tasks", new_callable=AsyncMock) as mock_tasks:
         mock_tasks.return_value = closed_tasks
         docs = await svc.list_docs()
     spec = next(d for d in docs if d["path"] == spec_path_rel)
-    assert spec["status"] == "in-progress"
+    assert spec["status"] == "complete"
     assert spec["task_summary"]["closed"] == 2
 
     # Run Verify: this should flip every AC checkbox on disk.
@@ -201,17 +203,16 @@ async def test_spec_status_flips_to_complete_when_all_tasks_closed_and_verified(
 
 
 @pytest.mark.asyncio
-async def test_spec_status_stays_in_progress_without_verify(svc_with_tmp):
-    """Complementary to the bug repro: all tasks closed but no Verify run.
+async def test_spec_status_flips_to_complete_on_all_closed(svc_with_tmp):
+    """All builder tasks closed flips the spec to complete.
 
-    The user should still see the Verify step as the final gate. Status
-    stays at in-progress until Verify is invoked.
+    Verify is a separate quality step and no longer gates status.
     """
     svc, tmp = svc_with_tmp
-    spec_path_rel = "docs/spec/e2e-noverify.md"
-    (tmp / "docs" / "spec" / "e2e-noverify.md").write_text(
+    spec_path_rel = "docs/spec/e2e-all-closed.md"
+    (tmp / "docs" / "spec" / "e2e-all-closed.md").write_text(
         "---\n"
-        "title: e2e no verify\n"
+        "title: e2e all closed\n"
         "status: spec\n"
         "tasks:\n"
         '  - "601"\n'
@@ -225,7 +226,7 @@ async def test_spec_status_stays_in_progress_without_verify(svc_with_tmp):
         ]
         docs = await svc.list_docs()
     spec = next(d for d in docs if d["path"] == spec_path_rel)
-    assert spec["status"] == "in-progress"
+    assert spec["status"] == "complete"
 
 
 # --- HTTP journey test via the TestClient ---
@@ -305,7 +306,8 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
     with patch.object(ostk_module.ostk, "list_tasks", new_callable=AsyncMock) as mock_tasks:
         mock_tasks.return_value = closed_tasks
 
-        # Status before Verify: all tasks closed, ACs not checked -> in-progress.
+        # All tasks closed flips the spec straight to complete; Verify is
+        # a separate quality gate and no longer gates this status.
         resp = await client.get("/api/specs")
         assert resp.status_code == 200
         spec = next(
@@ -313,7 +315,7 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
             if d["path"] == "docs/spec/e2e-http-journey.md"
         )
         assert spec["task_summary"]["closed"] == 2
-        assert spec["status"] == "in-progress"
+        assert spec["status"] == "complete"
 
         # Verify flips the boxes on disk.
         resp = await client.post(

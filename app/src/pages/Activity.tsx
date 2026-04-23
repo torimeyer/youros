@@ -337,7 +337,7 @@ export default function Activity() {
   const totalVisible = displayGroups.reduce((n, g) => n + g.entries.length, 0);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col">
+    <div className="min-h-dvh bg-slate-950 text-white flex flex-col">
       <TopBar title="Activity" />
 
       <div data-tour="activity" className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex-1 flex flex-col">

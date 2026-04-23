@@ -1,4 +1,4 @@
-import { bumpAgents, bumpTasks, bumpSpecs } from './sidebarBus'
+import { bumpAgents, bumpTasks, bumpSpecs, bumpCalendar } from './sidebarBus'
 
 const BASE = '/api'
 
@@ -67,6 +67,17 @@ function notifySidebarOnWrite(method: string, path: string): void {
   }
   if (seg === 'specs') {
     bumpSpecs()
+    return
+  }
+  // Any write against a calendar endpoint (event create, delete, sync)
+  // refreshes every mounted Calendar subscriber. Covers the chat-driven
+  // create_calendar_event path too, because the backend tool handler
+  // calls the same POST /calendar/events route... except it does not.
+  // The tool bypasses the HTTP layer and writes directly via
+  // services.calendar.create_event, so ChatPanel also bumps manually
+  // when it sees a successful create_calendar_event tool_result.
+  if (seg === 'calendar') {
+    bumpCalendar()
   }
 }
 

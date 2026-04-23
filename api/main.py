@@ -432,6 +432,23 @@ async def backfill_chat_ack_bots():
 
 
 @app.on_event("startup")
+async def sweep_stale_backend_sessions():
+    """Retire leftover backend session rows from previous uvicorn workers.
+
+    Every hot reload spawns a new worker that opens a new ostk session
+    folder. The old worker's folder is left behind with a recent
+    events.jsonl mtime, so the sidebar keeps counting it as a live
+    session. This sweep back-dates those older folders once at startup
+    so only the current worker's session shows up.
+    """
+    try:
+        from routers.sessions import cleanup_stale_backend_sessions
+        cleanup_stale_backend_sessions()
+    except Exception:
+        pass
+
+
+@app.on_event("startup")
 async def schedule_agent_reconciliation():
     """Reconcile agent state every 5 minutes.
 
@@ -624,91 +641,6 @@ async def schedule_test_artifact_spec_sweep():
             await asyncio.sleep(300)
 
     asyncio.create_task(_loop())
-
-
-@app.on_event("startup")
-async def reconcile_demo_mode_supervisors():
-    """Re-arm the demo-mode force-complete supervisor after a backend restart.
-
-    The 90 second wall-clock cap that bounds every demo-mode agent runs
-    as an asyncio.create_task inside the spawning request. A backend
-    restart wipes that task even though ``agent_metadata`` rehydrates
-    from disk, so a demo agent that was mid-flight when the server
-    bounced would silently outlive its deadline. This hook walks
-    ``agent_metadata`` once at startup and:
-
-      * For agents whose force_complete_at has already passed, flips
-        them straight to ``completed_timeout`` so the Agents page does
-        not show a stuck row.
-      * For agents whose deadline is still in the future, re-schedules
-        ``_schedule_demo_force_complete`` with the remaining time so the
-        SIGKILL still fires when it should.
-
-    Idempotent: running this twice in a row does nothing on the second
-    pass because terminal statuses are skipped. Failures are local; a
-    bad metadata row never blocks startup.
-    """
-    import asyncio
-    from datetime import datetime, timezone
-
-    async def _run():
-        # Give other startup hooks (like agent_state load) a moment to
-        # settle. Without this we can race the rehydration in agents.py.
-        await asyncio.sleep(0.5)
-        try:
-            from routers.agents import (
-                agent_metadata,
-                _save_agent_state,
-                _schedule_demo_force_complete,
-                DEMO_MODE_WALL_CLOCK_SECONDS,
-            )
-        except Exception:
-            return
-
-        now = datetime.now(timezone.utc)
-        flipped = 0
-        rescheduled = 0
-        for name, meta in list(agent_metadata.items()):
-            if not meta.get("demo_mode"):
-                continue
-            if meta.get("status") not in {"running", "spawned"}:
-                continue
-            fc_at = meta.get("force_complete_at")
-            remaining = DEMO_MODE_WALL_CLOCK_SECONDS
-            if fc_at:
-                try:
-                    deadline = datetime.fromisoformat(fc_at)
-                    remaining = int((deadline - now).total_seconds())
-                except Exception:
-                    remaining = DEMO_MODE_WALL_CLOCK_SECONDS
-            if remaining <= 0:
-                # Deadline already passed while the backend was down.
-                # Flip the row directly so the Agents page stops showing
-                # it as running. We never have a live subprocess handle
-                # for these (the proc died with the old backend) so a
-                # SIGKILL is unnecessary.
-                meta["status"] = "completed_timeout"
-                meta["summary"] = "Completed quickly for demo."
-                meta["completed_at"] = now.isoformat()
-                meta["last_heartbeat_at"] = now.isoformat()
-                agent_metadata[name] = meta
-                flipped += 1
-                continue
-            try:
-                asyncio.create_task(
-                    _schedule_demo_force_complete(name, deadline_seconds=remaining)
-                )
-                rescheduled += 1
-            except Exception:
-                pass
-
-        if flipped:
-            try:
-                _save_agent_state()
-            except Exception:
-                pass
-
-    asyncio.create_task(_run())
 
 
 @app.get("/api/health")

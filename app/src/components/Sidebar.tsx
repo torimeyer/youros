@@ -383,8 +383,14 @@ export function Sidebar() {
         // locally-dismissed agents and the server filter does not
         // re-check isMainSession.
         interface SummaryAgent { name: string; status: string; source?: string; model?: string; description?: string; spawned_at?: string; last_heartbeat_at?: string }
+        // No ``source=`` filter: spec-build prewarm replays register
+        // with source="spec-build", and the roadmap prewarm registers
+        // with source="api". A source=claude-code filter makes those
+        // running agents invisible in the nav badge. The client-side
+        // isUserSpawnedAgent check below still excludes chat/audit/
+        // hook rows, so the count stays clean.
         const res = await api.get<{ agents: SummaryAgent[] }>(
-          '/agents?summary=1&status=running&source=claude-code&limit=20'
+          '/agents?summary=1&status=running&limit=20'
         )
         const userSpawnedRunning = (res.agents || []).filter(
           (a) => isUserSpawnedAgent(a) && !isDismissed(a.name)
@@ -426,6 +432,24 @@ export function Sidebar() {
       clearInterval(interval)
       unsubscribe()
     }
+  }, [])
+
+  // Optimistic offset applied while the Specs page has a delete in its
+  // 5 s undo window. The Specs page dispatches ``myos:pending-spec-delta``
+  // with delta=-1 when the user clicks delete (before the real DELETE
+  // fires at t=5s) and delta=+1 when the DELETE settles or the user
+  // hits Undo. Without this offset the Specs page showed 0 while the
+  // sidebar badge showed 1 for the full 5 s window.
+  const [pendingSpecDelta, setPendingSpecDelta] = useState(0)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ delta: number }>
+      const d = ce.detail?.delta ?? 0
+      if (d === 0) return
+      setPendingSpecDelta((prev) => prev + d)
+    }
+    window.addEventListener('myos:pending-spec-delta', handler)
+    return () => window.removeEventListener('myos:pending-spec-delta', handler)
   }, [])
 
   useEffect(() => {
@@ -596,7 +620,7 @@ export function Sidebar() {
         />
       )}
 
-    <aside data-tour="sidebar" className={`h-screen w-56 fixed top-0 ${sidebarPosition === 'right' ? 'right-0 border-l' : 'left-0 border-r'} border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : sidebarPosition === 'right' ? 'translate-x-full' : '-translate-x-full'} lg:translate-x-0`}>
+    <aside data-tour="sidebar" className={`h-dvh w-56 fixed top-0 ${sidebarPosition === 'right' ? 'right-0 border-l' : 'left-0 border-r'} border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : sidebarPosition === 'right' ? 'translate-x-full' : '-translate-x-full'} lg:translate-x-0`}>
       <div className="px-5 mb-8">
         <span className={`text-xl font-black tracking-tight ${instanceMode === 'team' ? 'team-text' : 'accent-text'}`}>{displayOsName}</span>
         {instanceMode === 'team' && (
@@ -656,7 +680,7 @@ export function Sidebar() {
               activeAgents={activeAgents}
               gmailUnread={gmailUnread}
               openTasksCount={openTasksCount}
-              unfinishedSpecs={unfinishedSpecs}
+              unfinishedSpecs={Math.max(0, unfinishedSpecs + pendingSpecDelta)}
               onNavigate={() => setMobileOpen(false)}
               iconFilled={iconStyle}
               features={features}
@@ -760,15 +784,17 @@ export function Sidebar() {
             <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${ostkUp === null ? 'bg-slate-700 text-slate-400' : ostkUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
               System{ostkKernel ? ` ${ostkKernel}` : ''} {ostkUp === null ? '' : ostkUp ? 'running' : 'offline'}
             </span>
-            <NavLink
-              to="/activity"
-              className="hover:opacity-80 transition-opacity"
-              onClick={() => setMobileOpen(false)}
-            >
-              <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${sessionCount > 0 ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
-                {sessionCount === 0 ? 'No sessions' : sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}
-              </span>
-            </NavLink>
+            {sessionCount > 0 && (
+              <NavLink
+                to="/activity"
+                className="hover:opacity-80 transition-opacity"
+                onClick={() => setMobileOpen(false)}
+              >
+                <span className="inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit bg-green-500/20 text-green-400">
+                  {sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}
+                </span>
+              </NavLink>
+            )}
           </>
         ) : (
           <>
@@ -780,16 +806,18 @@ export function Sidebar() {
               <span className={`w-1.5 h-1.5 rounded-full ${ostkUp === null ? 'bg-slate-600' : ostkUp ? 'bg-green-400' : 'bg-red-400'}`} />
               <span className="text-[10px] text-slate-500">System{ostkKernel ? ` ${ostkKernel}` : ''}</span>
             </div>
-            <NavLink
-              to="/activity"
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-              onClick={() => setMobileOpen(false)}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${sessionCount > 1 ? 'bg-green-400 animate-pulse' : sessionCount === 1 ? 'bg-green-400' : 'bg-slate-600'}`} />
-              <span className="text-[10px] text-slate-500">
-                {sessionCount === 0 ? 'No sessions' : sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}
-              </span>
-            </NavLink>
+            {sessionCount > 0 && (
+              <NavLink
+                to="/activity"
+                className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                onClick={() => setMobileOpen(false)}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${sessionCount > 1 ? 'bg-green-400 animate-pulse' : 'bg-green-400'}`} />
+                <span className="text-[10px] text-slate-500">
+                  {sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}
+                </span>
+              </NavLink>
+            )}
           </>
         )}
       </div>

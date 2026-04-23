@@ -250,6 +250,15 @@ function WorkflowDetail({
   onRun: (id: string) => void
   onDelete: (id: string) => void
 }) {
+  // Escape closes the detail view.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[80vh] flex flex-col">
@@ -352,6 +361,15 @@ function NewWorkflowModal({
   const [steps, setSteps] = useState<DraftStep[]>([
     { agent_name: '', prompt: '', model: 'sonnet', budget: 2.0, depends_on: [] },
   ])
+
+  // Escape cancels the new workflow modal.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel])
 
   const addStep = () => {
     setSteps((prev) => [
@@ -653,7 +671,7 @@ export default function Workflows() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="Automations" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">

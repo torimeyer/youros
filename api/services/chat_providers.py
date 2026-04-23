@@ -1329,10 +1329,44 @@ def _system_prompt() -> str:
     (as its own cached block) or by ``_compose_system_prompt`` (appended
     inline for the Claude Code backend fallback).
     """
+    from datetime import datetime, timezone
+    import time as _time
     os_name = settings_store.get("os_name", "myOS")
     user_name = settings_store.get("user_name", "")
     owner = user_name if user_name else "the user"
+    # Anchor relative dates AND the local timezone so the LLM stops
+    # defaulting to Pacific for any datetime it constructs for calendar
+    # events. Tori had a "Thursday at 12" end up at 2pm Central because
+    # the create_event call went out without a timezone offset and
+    # Google assumed Pacific server-side. Inject the server's local
+    # timezone (the user's account timezone on this machine) and
+    # instruct the model to always attach the matching offset.
+    today_utc = datetime.now(timezone.utc)
+    today_local = today_utc.astimezone()
+    today_iso = today_local.strftime("%Y-%m-%d")
+    today_human = today_local.strftime("%A, %B %d, %Y")
+    # strftime %z returns a compact "+/-HHMM"; reformat to "+/-HH:MM"
+    # which Google Calendar, ISO 8601, and RFC3339 all accept.
+    _raw_off = today_local.strftime("%z") or "+0000"
+    tz_offset = f"{_raw_off[:3]}:{_raw_off[3:]}" if len(_raw_off) == 5 else _raw_off
+    tz_name = _time.tzname[0] if _time.tzname else "local time"
     return (
+        f"Today is {today_human} ({today_iso}) in {tz_name} (UTC{tz_offset}). "
+        "Use this as the anchor for any relative date in the user's message. "
+        "Examples: 'the 28th' means the next occurrence of day-28 from today (this "
+        "month if today is <= 28, otherwise next month), 'Friday' means the next "
+        "Friday on or after today, 'next week' means the 7-day window starting "
+        f"the Monday after today. Never invent a year. If today is "
+        f"{today_iso} and the user says 'the 28th' with no year, the year is "
+        f"{today_local.year}.\n\n"
+        f"TIMEZONE: The user's local timezone is {tz_name} (UTC{tz_offset}). "
+        "When you construct any datetime for a calendar event or other "
+        "time-sensitive tool call, ALWAYS attach this offset. Example: "
+        f"'Thursday at 12pm' becomes '2026-04-23T12:00:00{tz_offset}'. "
+        "Never emit a bare datetime without an offset — Google Calendar "
+        "and similar services will fall back to Pacific, which is "
+        f"wrong for {owner}. Do not call a calendar update tool to fix "
+        "timezone after the fact; put the offset in the create call.\n\n"
         f"You are {os_name}, {owner}'s personal operating system. "
         "You have access to tools that let you read files, write files, edit files, "
         "run shell commands, search code, manage tasks, search the web, fetch web pages, "
@@ -1426,6 +1460,13 @@ def _system_prompt() -> str:
         "Do NOT read source code files for planning or advice questions. Do NOT browse directories exploratorily. "
         "Do NOT run multiple searches when one will do. If you can answer from context, just answer. "
         "Only use tools when the user asks for something that requires live data (tasks, calendar, emails, files). "
+        "PREFER OSTK OVER RAW SHELL: When you do need to search code, read a file, or run a repo command, "
+        "reach for ostk first. ostk is the user's workspace toolkit and it is aware of this project. "
+        "Use `~/.local/bin/ostk search \"<pattern>\" --scope code` instead of raw grep or ripgrep. "
+        "Use `~/.local/bin/ostk read <path>` instead of raw cat or head. "
+        "Use `~/.local/bin/ostk work` for task operations. Only fall back to raw grep, read, or bash when "
+        "ostk does not cover the case or when you genuinely need a shell primitive. This applies to every "
+        "chat turn where tools are enabled, including casual questions that happen to mention the repo.\n\n"
         "Never use em-dashes. "
         "When the user sends a GIF, do not describe what is in the GIF. They can already see it. "
         "Just react naturally to the sentiment behind it, like you would in a text conversation.\n\n"
@@ -1438,7 +1479,7 @@ def _system_prompt() -> str:
         "summaries are self-reported and frequently reflect cancelled, failed, or "
         "uncommitted runs. The RECENT ACTIVITY block lists agents that ran but is "
         "not evidence that any code landed. Git is the only source of truth for "
-        "authorship. If git log shows the user (torimeyer) authored a file, say so "
+        "authorship. If git log shows the repo owner authored a file, say so "
         "plainly; do not invent an agent as the author. If no path is obvious from "
         "the question, ask the user which file they mean before answering."
     )
@@ -1625,6 +1666,109 @@ def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
     ]
 
 
+def _no_tools_system_blocks(matched_template: Optional[dict]) -> list[dict]:
+    """System prompt used on broadcast (All pill) turns for Claude.
+
+    The full ``_system_prompt`` is heavy with tool instructions
+    ("create_calendar_event", "spawn_agent", "PREFER OSTK OVER RAW
+    SHELL", etc). When broadcast routes Claude through the direct
+    Anthropic API with no ``tools=`` parameter, those tool mentions
+    make the model emit XML-style tool calls as plain text
+    (`<function_calls><invoke name="...">`) that stream straight
+    into the user-visible bubble. This function returns a minimal
+    no-tools system prompt so Claude answers the user directly.
+
+    Keeps the bare essentials: identity, date, tone, and the
+    user's standing instructions / matched template prompt.
+    """
+    from datetime import datetime, timezone
+
+    today_utc = datetime.now(timezone.utc)
+    today_local = today_utc.astimezone()
+    today_human = today_local.strftime("%A, %B %d, %Y")
+    today_iso = today_local.strftime("%Y-%m-%d")
+
+    os_name = settings_store.get("os_name", "myOS")
+    user_name = settings_store.get("user_name", "")
+    owner = user_name if user_name else "the user"
+
+    base = (
+        f"Today is {today_human} ({today_iso}).\n\n"
+        f"You are {os_name}, {owner}'s personal operating system. "
+        "You have NO tools available on this turn. Respond to the "
+        "user directly in plain text. Do not attempt to call any "
+        "tool. Do not emit XML-style tool tags "
+        "(<function_calls>, <invoke>, <parameter>, <tool_use>, "
+        "etc). Do not describe or plan tool calls. If the user's "
+        "request would need a tool, explain briefly what you would "
+        "do and let them know you cannot run it on this turn.\n\n"
+        "Keep answers brief and conversational. Never use em-dashes. "
+        "Write in plain language with no jargon."
+    )
+
+    standing = _standing_instructions_block()
+    if standing:
+        base = standing + "\n\n" + base
+    if matched_template:
+        extra = str(matched_template.get("prompt") or "").strip()
+        if extra:
+            base += (
+                "\n\n---\nACTIVE TEMPLATE: "
+                + str(matched_template.get("name", ""))
+                + "\n"
+                + extra
+            )
+    return [
+        {
+            "type": "text",
+            "text": base,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+
+def _strip_tool_blocks_from_messages(messages: list[dict]) -> list[dict]:
+    """Remove ``tool_use`` / ``tool_result`` blocks from prior turns.
+
+    On a broadcast turn we pass ``disable_tools=True`` and do not
+    register any tools with the API. If the conversation history
+    contains an earlier assistant turn where Claude DID call a
+    tool, those blocks remain in the message list. The model sees
+    its own prior tool calls in context and will happily continue
+    the pattern, emitting XML tool calls as plain text.
+
+    This strips any ``tool_use`` block from assistant messages and
+    drops any message whose role is ``tool`` or whose content is
+    a pure ``tool_result`` list. Assistant messages that had a
+    text block plus a tool_use block keep the text block.
+    """
+    cleaned: list[dict] = []
+    for m in messages:
+        role = m.get("role")
+        content = m.get("content")
+        # Anthropic never uses role="tool" on the wire (tool
+        # results are user messages with a tool_result block),
+        # but some provider shims do. Strip defensively.
+        if role == "tool":
+            continue
+        if isinstance(content, list):
+            filtered_blocks: list = []
+            for block in content:
+                if isinstance(block, dict):
+                    btype = block.get("type", "")
+                    if btype in ("tool_use", "tool_result"):
+                        continue
+                filtered_blocks.append(block)
+            if not filtered_blocks:
+                # Whole message was tool-only; drop it so the API
+                # does not reject an empty-content message.
+                continue
+            cleaned.append({**m, "content": filtered_blocks})
+        else:
+            cleaned.append(m)
+    return cleaned
+
+
 _WIRE_MESSAGE_ALLOWED_KEYS: frozenset[str] = frozenset({"role", "content"})
 
 
@@ -1695,7 +1839,7 @@ _anthropic_log = logging.getLogger("myos.chat.anthropic")
 
 
 class ChatService:
-    async def stream_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "") -> str:
+    async def stream_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "", disable_tools: bool = False, force_api: bool = False) -> str:
         # Run template matching up front so both backends pick up any
         # matched helper. The matcher itself uses the API key when one is
         # available, but it also handles the no-key case gracefully.
@@ -1719,6 +1863,19 @@ class ChatService:
 
         backend = await _resolve_chat_backend()
 
+        # Broadcast ("All" pill) path: skip the Claude Code CLI in favor
+        # of the direct Anthropic API when a key is available. The CLI
+        # subprocess adds several seconds of first-token latency because
+        # of shell spin-up and streaming framing, which makes broadcast
+        # feel serial even though the two providers run under
+        # asyncio.gather. Direct API streaming puts Claude's first token
+        # within the same second as Gemini's in practice. Falls through
+        # to whatever the normal backend is if no key is configured.
+        if force_api and backend == "claude_code":
+            api_key = await _resolve_api_key("anthropic_api_key")
+            if api_key:
+                backend = "anthropic_api"
+
         # Claude Code CLI cannot receive inline image blocks. If the last
         # message includes an image (GIF or pasted screenshot), force the
         # Anthropic API backend so the model can actually see it.
@@ -1731,7 +1888,11 @@ class ChatService:
 
         if backend == "claude_code":
             return await claude_code_provider.stream_chat(
-                messages, websocket, system_prompt=system_prompt, tab_id=tab_id
+                messages,
+                websocket,
+                system_prompt=system_prompt,
+                tab_id=tab_id,
+                disable_tools=disable_tools,
             )
 
         if not api_key:
@@ -1759,6 +1920,14 @@ class ChatService:
                 if source and "gemini" in source:
                     content = f"[Gemini's response]: {content}"
             labeled.append({"role": role, "content": content})
+        # On broadcast ("All pill") turns we call the API with NO
+        # tools registered. If the history carries ``tool_use`` or
+        # ``tool_result`` blocks from an earlier tool-using turn,
+        # Claude will continue the tool-call pattern and the XML
+        # leaks into the user-visible bubble as literal text. Strip
+        # those blocks before sending.
+        if disable_tools:
+            labeled = _strip_tool_blocks_from_messages(labeled)
         cached_messages = _add_conversation_prefix_cache(labeled)
         stream_kwargs: dict = {
             "model": "claude-sonnet-4-20250514",
@@ -1767,7 +1936,15 @@ class ChatService:
         }
         # Use split system blocks so stable instructions stay cached
         # even when volatile boot context changes between turns.
-        stream_kwargs["system"] = _build_cached_system_blocks(matched_template)
+        # Broadcast path (disable_tools=True) uses a minimal no-tools
+        # system prompt so Claude never generates XML tool calls as
+        # plain text. Sharing the regular prompt here caused Tori's
+        # "Pepper - Magic Show Field Trip" bubble to stream literal
+        # `<function_calls>` markup.
+        if disable_tools:
+            stream_kwargs["system"] = _no_tools_system_blocks(matched_template)
+        else:
+            stream_kwargs["system"] = _build_cached_system_blocks(matched_template)
 
         # Enable extended thinking for complex questions so the model
         # can reason through multi-step problems before answering.
@@ -2706,11 +2883,25 @@ class _MultiAiTurnWebSocket:
     Any event the proxy does not recognise is passed through verbatim so
     error messages, finish-reason warnings, and backend badges still
     reach the panel.
+
+    When ``model_tag`` is supplied, every forwarded frame is annotated
+    with a ``model`` field so the frontend can route tokens and errors
+    to the correct bubble when multiple models are streaming in
+    parallel. Without this tag, parallel broadcast frames would all
+    target the most recently opened bubble and the two responses would
+    collide inside a single bubble.
     """
 
-    def __init__(self, inner: WebSocket):
+    def __init__(self, inner: WebSocket, model_tag: Optional[str] = None):
         self._inner = inner
+        self._model_tag = model_tag
         self.collected_text: list[str] = []
+        # Serialize writes so parallel tasks sharing the underlying
+        # WebSocket never interleave partial JSON frames mid-send.
+        self._write_lock: Optional[asyncio.Lock] = None
+
+    def _attach_lock(self, lock: asyncio.Lock) -> None:
+        self._write_lock = lock
 
     async def send_json(self, data: dict) -> None:
         msg_type = data.get("type") if isinstance(data, dict) else None
@@ -2722,7 +2913,18 @@ class _MultiAiTurnWebSocket:
             # Swallow interstitial done events. The outer orchestrator
             # sends exactly one done after every turn finishes.
             return
-        await self._inner.send_json(data)
+        # Tag the frame with the owning model so the frontend can route
+        # parallel per-model streams into the right bubble. We merge
+        # without clobbering an existing model field if the inner event
+        # already carried one.
+        if isinstance(data, dict) and self._model_tag:
+            if "model" not in data:
+                data = {**data, "model": self._model_tag}
+        if self._write_lock is not None:
+            async with self._write_lock:
+                await self._inner.send_json(data)
+        else:
+            await self._inner.send_json(data)
 
     @property
     def text(self) -> str:
@@ -2919,45 +3121,104 @@ async def stream_group_broadcast(
     messages: list[dict],
     use_tools: bool = False,
 ) -> None:
-    """Each model in *models* responds independently to the same message.
+    """Each model in *models* responds in parallel to the same message.
 
     Used when the user addresses multiple AIs collectively (e.g. "you guys",
-    "both of you", "everyone"). Every AI receives the full conversation history
-    and responds directly to the user. Models do not read each other's answers.
+    "both of you", "everyone") or toggles the All pill. Every AI receives
+    the full conversation history and responds directly to the user. Models
+    do not read each other's answers.
 
-    Sends exactly one ``done`` event at the end. Per-model ``done`` events from
-    the underlying provider streams are swallowed by the recording proxy so the
-    panel sees a single "turn ended" signal.
+    Execution is parallel (asyncio.gather) so the user sees both bubbles
+    update simultaneously rather than waiting for Claude to finish before
+    Gemini starts. All ``multi_ai_turn_start`` frames are emitted up front
+    so the UI renders a thinking bubble for every model immediately, even
+    before the first token arrives from either side. Each per-model stream
+    is wrapped in a ``_MultiAiTurnWebSocket`` tagged with its model name so
+    the frontend can route token / error frames to the correct bubble.
+
+    One task raising an exception does not cancel the other. Failures are
+    isolated per model so a Claude outage still lets Gemini respond and
+    vice versa. Sends exactly one ``done`` event at the end.
     """
     if not models:
         return
 
-    try:
-        for model in models:
-            await websocket.send_json({
-                "type": "multi_ai_turn_start",
+    # Serialize WebSocket writes so parallel per-model streams never
+    # interleave partial JSON frames on the wire.
+    write_lock = asyncio.Lock()
+
+    async def _safe_send(payload: dict) -> None:
+        async with write_lock:
+            try:
+                await websocket.send_json(payload)
+            except Exception:
+                pass
+
+    # Emit every turn_start up front. This creates one thinking bubble per
+    # model in the UI immediately, so the user sees "Claude thinking" and
+    # "Gemini thinking" side by side rather than watching a single bubble
+    # stall while the backend works through models serially.
+    for model in models:
+        await _safe_send({
+            "type": "multi_ai_turn_start",
+            "data": {"model": model, "round": 1},
+        })
+
+    async def _run_one(model: str) -> None:
+        proxy = _MultiAiTurnWebSocket(websocket, model_tag=model)
+        proxy._attach_lock(write_lock)
+        try:
+            if model == "gemini":
+                await chat_service.stream_gemini(messages, proxy)  # type: ignore[arg-type]
+            elif model == "claude":
+                if use_tools:
+                    await chat_service.agent_anthropic(messages, proxy)  # type: ignore[arg-type]
+                else:
+                    # Pass disable_tools=True so the Claude Code CLI
+                    # backend runs in pure text mode. Without this the
+                    # CLI uses its built-in Bash/Grep/Read tools even
+                    # though we picked the no-tool stream path.
+                    # force_api=True routes broadcast Claude through the
+                    # direct Anthropic API when a key is available. The
+                    # CLI subprocess adds multi-second startup latency
+                    # that made Claude's first token arrive tens of
+                    # seconds after Gemini's. See stream_anthropic for
+                    # the fallback behavior when no key is present.
+                    await chat_service.stream_anthropic(messages, proxy, disable_tools=True, force_api=True)  # type: ignore[arg-type]
+            else:
+                await _safe_send(
+                    {"type": "error", "data": f"Unknown model: {model}", "model": model}
+                )
+        except Exception as exc:
+            # A crash in one provider must NEVER silence the other. Surface
+            # a friendly, bubble-scoped error so the frontend can paint the
+            # failure in that model's bubble while the sibling task keeps
+            # streaming. Without this guard, stream_anthropic raising on
+            # (e.g.) a transport reset would propagate out of gather and
+            # the Gemini task would be cancelled mid-stream.
+            await _safe_send(
+                {
+                    "type": "error",
+                    "data": f"{model.capitalize()} failed to respond: {exc}",
+                    "model": model,
+                }
+            )
+        finally:
+            await _safe_send({
+                "type": "multi_ai_turn_end",
                 "data": {"model": model, "round": 1},
             })
-            proxy = _MultiAiTurnWebSocket(websocket)
-            try:
-                if model == "gemini":
-                    await chat_service.stream_gemini(messages, proxy)  # type: ignore[arg-type]
-                elif model == "claude":
-                    if use_tools:
-                        await chat_service.agent_anthropic(messages, proxy)  # type: ignore[arg-type]
-                    else:
-                        await chat_service.stream_anthropic(messages, proxy)  # type: ignore[arg-type]
-                else:
-                    await websocket.send_json(
-                        {"type": "error", "data": f"Unknown model: {model}"}
-                    )
-            finally:
-                await websocket.send_json({
-                    "type": "multi_ai_turn_end",
-                    "data": {"model": model, "round": 1},
-                })
+
+    try:
+        # return_exceptions=True so a single raised task never prevents
+        # the other from finishing. _run_one already converts exceptions
+        # into a friendly error frame, so this is a belt-and-braces guard.
+        await asyncio.gather(
+            *(_run_one(m) for m in models),
+            return_exceptions=True,
+        )
     finally:
-        await websocket.send_json({"type": "done"})
+        await _safe_send({"type": "done"})
 
 
 chat_service = ChatService()

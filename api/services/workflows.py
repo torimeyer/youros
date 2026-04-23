@@ -282,48 +282,19 @@ async def run_workflow(workflow_id: str) -> dict:
                 # pass can call get_workflow(workflow_run_id) to check status.
                 workflow_run_id=workflow_id,
                 source="api",
-                # Honour the per-step demo flag so built-in workflow
-                # templates (materialised via routers/workflows.py) cap
-                # each step at the per-step deadline (30s by default for
-                # built-ins) even though their slugged agent names
-                # ("gather-yesterdays-closed-tasks") never match an
-                # agentfile with LIMIT demo_mode true.
-                demo_mode=bool(step.get("demo_mode")) or None,
-                deadline_seconds=step.get("deadline_seconds"),
             )
             spawned_agent_names.append(step["agent_name"])
             await spawn_agent(body)
 
-            # Poll the spawned process until it finishes. Demo-mode steps
-            # are bounded by the per-step supervisor in
-            # routers.agents._schedule_demo_force_complete, so the wait
-            # below cannot hang past that even if the subprocess does
-            # not exit on its own. Use asyncio.wait_for as a belt-and-
-            # suspenders cap (slightly above the supervisor deadline so
-            # the SIGKILL fires first and we observe a clean returncode).
-            from routers.agents import active_agents, DEMO_MODE_WALL_CLOCK_SECONDS
+            # Poll the spawned process until it finishes. The subprocess
+            # runs to completion on its own; any failure surfaces as a
+            # non-zero exit code.
+            from routers.agents import active_agents
             proc = active_agents.get(step["agent_name"])
             if proc is not None:
-                if step.get("demo_mode"):
-                    step_deadline = int(
-                        step.get("deadline_seconds")
-                        or DEMO_MODE_WALL_CLOCK_SECONDS
-                    )
-                    try:
-                        await asyncio.wait_for(
-                            proc.wait(),
-                            timeout=step_deadline + 5,
-                        )
-                    except asyncio.TimeoutError:
-                        # Supervisor will (or already did) SIGKILL the
-                        # subprocess. Treat the step as done so the
-                        # workflow advances to the next step instead of
-                        # hanging the whole demo.
-                        pass
-                else:
-                    await proc.wait()
+                await proc.wait()
                 exit_code = proc.returncode
-                if exit_code is not None and exit_code != 0 and not step.get("demo_mode"):
+                if exit_code is not None and exit_code != 0:
                     raise RuntimeError(f"Agent exited with code {exit_code}")
 
             step["status"] = STEP_DONE

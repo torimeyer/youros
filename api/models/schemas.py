@@ -160,49 +160,12 @@ class AgentSpawn(BaseModel):
     # services.workflows._execute_step so the reconcile pass can auto-cancel
     # orphans when the parent workflow ends.
     workflow_run_id: Optional[str] = None
-    # Caller-side demo mode opt-in. When True, the spawn forces Haiku, the
-    # compact mailbox block, and a 90 second wall-clock cap, even if the
-    # matching agentfile does not have ``LIMIT demo_mode true``. Used by
-    # demo surfaces (workflows materialised from built-in templates, spec
-    # /build during a live demo, "build it" chat chain) so a single slow
-    # agent never blows the demo budget.
-    demo_mode: Optional[bool] = None
-    # Caller marks the model as explicitly chosen by the user. When True,
-    # demo_mode still enforces the 90 second wall-clock cap and the compact
-    # mailbox block, but does NOT silently downgrade the model to Haiku.
-    # The template-detail edit modal sets this when the user picks a model
-    # other than the template default, so their choice wins over the
-    # agentfile's ``LIMIT demo_mode true`` default. When False or absent,
-    # demo_mode keeps its original behavior and forces Haiku.
-    honor_explicit_model: Optional[bool] = None
     # Tier-based model selection. When set, ``model_tier`` is resolved via
     # ``services.model_routing.resolve_model`` and overrides ``model``.
     # Accepted values: "sonnet" (default), "opus", "haiku".
     # Use "opus" only for genuinely hard tasks; the spawn path will auto-
     # escalate from Sonnet if the agent emits NEEDS_OPUS or exits non-zero.
     model_tier: Optional[str] = None
-    # Override the demo-mode wall-clock cap (default 90 seconds). Used
-    # when several demo agents need to fit inside a single 90 second
-    # budget: a 3-step built-in workflow caps each step at 30 seconds so
-    # the whole workflow lands under 90s. Ignored unless demo_mode is
-    # also True. Range is clamped server-side (min 5, max 90).
-    deadline_seconds: Optional[int] = None
-    # Zero-based position of the acceptance-criterion bullet this builder
-    # is working on (set by routers.specs build flow). Prewarm replay
-    # manifests use this to match a spawn to a cached run without
-    # depending on the exact wording of the task title, which can drift
-    # between LLM regenerations of the spec.
-    ac_index: Optional[int] = None
-    # Links a step agent back to the workflow run that spawned it.
-    # Set by run_workflow() so the reconcile pass can auto-cancel orphans.
-    workflow_run_id: Optional[str] = None
-    # Caller-side demo mode opt-in. When True, the spawn forces Haiku,
-    # the compact mailbox block, and a 90 second wall-clock cap, even if
-    # the matching agentfile does not have ``LIMIT demo_mode true``. Used
-    # by demo surfaces (workflows materialised from built-in templates,
-    # spec /build during a live demo, "build it" chat chain) so a single
-    # slow agent never blows the demo budget.
-    demo_mode: Optional[bool] = None
     # True when this register call is the Claude Code PreToolUse hook
     # pre-registering a subagent row before the subagent itself boots.
     # Used to distinguish "hook row" from "subagent self-register" so a

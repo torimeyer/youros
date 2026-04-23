@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
+import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal'
 import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
+import { onCalendarChange } from '../lib/sidebarBus'
 
 export interface CalendarEvent {
   id: string
@@ -287,6 +289,22 @@ export default function Calendar() {
     event: CalendarEvent;
     timer: ReturnType<typeof setTimeout>;
   } | null>(null)
+  // Track every event id the user has removed in the UI but whose delete
+  // has not yet been fully confirmed by the backend. Two phases feed this
+  // set:
+  //   1. The optimistic-remove during the 5s undo window.
+  //   2. The moment the delete API call is actually issued (timer fires
+  //      or a second delete forces the previous one to commit).
+  // Until the API replies, any refetch of the events list (chat creates
+  // a new event during the undo window, the Sync button fires, focus
+  // rehydrate) MUST filter these ids out. Without this the just-deleted
+  // event reappears on the Calendar page mid-undo, which reads as the
+  // delete "didn't work" even though it is about to. The ref survives
+  // re-renders and is read synchronously from the fetch callback.
+  const pendingDeletedIdsRef = useRef<Set<string>>(new Set())
+  // Show the shared Google setup guide modal when the user clicks the
+  // secondary "Need setup help?" link on the connect panel.
+  const [showSetupGuide, setShowSetupGuide] = useState(false)
   // Ticker that forces the countdown subtitle to refresh once a minute.
   // A minute is fine grained enough for "Starts in 12 minutes" to stay
   // accurate without causing noisy re-renders.
@@ -296,21 +314,65 @@ export default function Calendar() {
     return () => clearInterval(id)
   }, [])
 
+  // Purge an event id from the localStorage seed cache. Without this,
+  // the next page load paints the deleted event back on screen for ~400
+  // ms while the background fetch runs, which reads as the delete
+  // "didn't stick." Called once we know the delete committed server-side
+  // (either we got 200 back, or Google reported 404 / already gone).
+  const purgeCachedEvent = (id: string) => {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return
+      const cached = readCalendarCache()
+      if (!cached.length) return
+      const next = cached.filter((e) => e.id !== id)
+      if (next.length === cached.length) return
+      if (next.length === 0) {
+        window.localStorage.removeItem(CALENDAR_CACHE_KEY)
+      } else {
+        writeCalendarCache(next)
+      }
+    } catch {
+      // localStorage is best-effort; a failure here is not fatal.
+    }
+  }
+
   const deleteEvent = (ev: CalendarEvent) => {
+    // If a previous undo window is still open, commit that delete
+    // immediately and mark its id as pending so an overlapping refetch
+    // cannot resurrect it on the list.
     if (undoDelete) {
       clearTimeout(undoDelete.timer)
-      api.delete(`/calendar/events/${encodeURIComponent(undoDelete.event.id)}`).catch(() => {})
+      const pendingId = undoDelete.event.id
+      pendingDeletedIdsRef.current.add(pendingId)
+      api.delete(`/calendar/events/${encodeURIComponent(pendingId)}`)
+        .then(() => purgeCachedEvent(pendingId))
+        .catch((e) => console.error('Failed to delete calendar event:', e))
+        .finally(() => {
+          pendingDeletedIdsRef.current.delete(pendingId)
+        })
     }
-    // Optimistically remove from the list.
+    // Optimistically remove from the list AND record the id so any
+    // concurrent refetch (chat creates an event, Sync fires, focus
+    // rehydrate) keeps it hidden until the backend confirms the delete.
+    // Without this, a refetch during the 5s undo window re-paints the
+    // deleted event and the user thinks the delete silently failed.
+    pendingDeletedIdsRef.current.add(ev.id)
     setEvents((prev) => prev.filter((e) => e.id !== ev.id))
     const timer = setTimeout(async () => {
       try {
         await api.delete(`/calendar/events/${encodeURIComponent(ev.id)}`)
+        purgeCachedEvent(ev.id)
       } catch (e) {
         console.error('Failed to delete calendar event:', e)
-        // Re-fetch so the failed delete reappears.
+        // The delete truly failed server-side. Clear the pending mark
+        // so the next refetch restores the event, and fetch now so the
+        // user sees the correct state instead of a ghosted row.
+        pendingDeletedIdsRef.current.delete(ev.id)
         await fetchEvents()
+        setUndoDelete(null)
+        return
       }
+      pendingDeletedIdsRef.current.delete(ev.id)
       setUndoDelete(null)
     }, 5000)
     setUndoDelete({ event: ev, timer })
@@ -319,6 +381,9 @@ export default function Calendar() {
   const handleUndoDeleteEvent = () => {
     if (!undoDelete) return
     clearTimeout(undoDelete.timer)
+    // Drop the pending mark BEFORE restoring the event so a refetch
+    // racing with the undo click does not double-filter it out.
+    pendingDeletedIdsRef.current.delete(undoDelete.event.id)
     setEvents((prev) => [...prev, undoDelete.event].sort((a, b) => {
       const aTime = a.start?.dateTime || a.start?.date || ''
       const bTime = b.start?.dateTime || b.start?.date || ''
@@ -368,6 +433,18 @@ export default function Calendar() {
         } catch {
           // Keep evs as the original empty list.
         }
+      }
+      // Strip any events the user has removed in the UI but whose
+      // delete has not yet been confirmed server-side. Google can take
+      // up to a couple seconds after a successful DELETE to stop
+      // returning a recurring-instance id, and during the 5s undo
+      // window we have not even issued the delete yet. Filtering here
+      // keeps the UI honest: events the user deleted stay gone even
+      // if some other surface (chat, Sync button, focus rehydrate)
+      // triggered a refetch mid-window.
+      const pending = pendingDeletedIdsRef.current
+      if (pending.size > 0) {
+        evs = evs.filter((e) => !pending.has(e.id))
       }
       setEvents(evs)
       // Persist for the next page load so rows paint instantly.
@@ -426,6 +503,18 @@ export default function Calendar() {
       fetchStatus().then(() => fetchEvents())
     }
   }, [searchParams, fetchStatus, fetchEvents])
+
+  // Refetch when another surface (chat's create_calendar_event tool,
+  // a direct write through /calendar, or another tab) signals a change.
+  // Without this the Calendar tab stays stale after chat creates an
+  // event until the user reloads. Needle: "calendar tab sync after
+  // chat".
+  useEffect(() => {
+    const unsubscribe = onCalendarChange(() => {
+      fetchEvents()
+    })
+    return unsubscribe
+  }, [fetchEvents])
 
   const handleConnect = async () => {
     setConnectError(null)
@@ -504,7 +593,7 @@ export default function Calendar() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="Calendar" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
           <LoadingState variant="spinner" />
@@ -515,7 +604,7 @@ export default function Calendar() {
 
   if (!authStatus?.authenticated || authStatus.needs_reauth) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="Calendar" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
           <ConnectCard
@@ -528,23 +617,33 @@ export default function Calendar() {
                 : 'See your upcoming meetings and create tasks from events. This uses the same Google account as Drive, so no extra credentials are needed.'
             }
             primaryAction={
-              <button
-                onClick={handleConnect}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
-              >
-                {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
-              </button>
+              <div className="w-full space-y-3">
+                <button
+                  onClick={handleConnect}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
+                >
+                  {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSetupGuide(true)}
+                  className="w-full text-xs text-slate-500 hover:text-slate-300 underline"
+                >
+                  Need setup help? See the guide
+                </button>
+              </div>
             }
             error={connectError ?? undefined}
           />
         </div>
+        {showSetupGuide && <GoogleSetupGuideModal onClose={() => setShowSetupGuide(false)} />}
       </div>
     )
   }
 
   if (apiNotEnabled) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="Calendar" />
         <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
           <ConnectCard
@@ -580,7 +679,7 @@ export default function Calendar() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="Calendar" />
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
         {/* Header row */}

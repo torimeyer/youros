@@ -45,17 +45,18 @@ export default function App() {
     hydrateFromServer()
   }, [hydrateFromServer])
 
-  // Show the wizard immediately when the initial onboarded flag is false.
-  // If we waited for hydration here, a slow or unreachable backend would
-  // leave a blank screen on hard reload. For a not-yet-onboarded user there
-  // is nothing to hydrate into anyway, so render the wizard right away.
-  if (!onboarded) {
-    return <OnboardingWizard />
-  }
-
-  // Wait for server settings before deciding which post-onboarding view to
-  // mount. Without this, localStorage can say "onboarded=true" while the
-  // server says false, causing the wizard to flash then disappear.
+  // Wait for hydration BEFORE deciding whether to show the wizard. The
+  // server is the source of truth for onboarded; localStorage is just a
+  // cache that can drift (especially after an admin reset). If we read
+  // onboarded from localStorage here, a user whose server was reset
+  // would still see the main UI because her LocalStorage still says
+  // true. Blocking on hydration guarantees the wizard appears after
+  // a reset without requiring a DevTools LocalStorage purge.
+  //
+  // Hydration always resolves quickly — hydrateFromServer sets
+  // hydrated=true both on success AND on fetch error (see
+  // stores/app.ts), so an unreachable backend falls through to
+  // localStorage within the same tick instead of hanging here.
   if (!hydrated) {
     // Render a minimal loading screen instead of a blank page so the user
     // sees something during the brief server hydration window after hard
@@ -81,6 +82,12 @@ export default function App() {
         Loading torios...
       </div>
     )
+  }
+
+  // Post-hydration: server truth now in the store. Show the wizard if
+  // onboarded is still false after the fetch landed.
+  if (!onboarded) {
+    return <OnboardingWizard />
   }
 
   return (

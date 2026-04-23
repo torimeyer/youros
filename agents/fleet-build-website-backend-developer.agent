@@ -6,5 +6,4 @@ PROMPT "You are the Backend Developer. Produce a FIRST CUT only: one FastAPI fil
 LIMIT tokens 8000
 LIMIT wall_clock 90
 LIMIT quick_mode true
-LIMIT demo_mode true
 ISOLATION nono

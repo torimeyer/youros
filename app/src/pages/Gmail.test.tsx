@@ -415,6 +415,33 @@ describe('Gmail ConnectCard (chunk-d migration)', () => {
     })
     expect(screen.getByText(/Gmail access needs to be updated/i)).toBeInTheDocument()
   })
+
+  it('shows a setup guide link in the connect panel and opens the guide modal when clicked', async () => {
+    // Regression guard: a person who opens the Gmail tab before finishing
+    // their Google Cloud setup needs a way to find the instructions. The
+    // primary button launches OAuth; the secondary link opens the shared
+    // setup guide modal.
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status')) {
+        return Promise.resolve({ authenticated: false, needs_reauth: false, email: null, unread_count: 0 })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGmail()
+
+    const guideLink = await screen.findByText(/Need setup help\? See the guide/i)
+    expect(guideLink).toBeInTheDocument()
+
+    // Modal is not rendered until the link is clicked.
+    expect(screen.queryByTestId('google-setup-guide-modal')).not.toBeInTheDocument()
+
+    fireEvent.click(guideLink)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('google-setup-guide-modal')).toBeInTheDocument()
+    })
+  })
 })
 
 

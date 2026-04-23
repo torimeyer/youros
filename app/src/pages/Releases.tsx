@@ -17,7 +17,7 @@ export default function Releases() {
   }, [setWhatsNewLastSeen])
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="What's New" />
 
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">

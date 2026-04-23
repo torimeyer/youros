@@ -64,7 +64,7 @@ export default function Upgrade() {
   const bothBehind = status?.myos.behind && status?.ostk.behind
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-dvh bg-slate-950">
       <TopBar title="Updates" />
       <main className="pt-24 pb-12 px-8 max-w-2xl">
         <p className="text-slate-400 mb-8 text-sm">

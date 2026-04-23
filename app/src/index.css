@@ -68,6 +68,21 @@ body {
   animation: toast-in 0.2s ease-out;
 }
 
+/* Fast fade-in used by chat bubbles at the streaming-to-rendered handoff.
+   During streaming the bubble shows raw text with whitespace preserved;
+   once streaming ends the bubble swaps to parsed markdown. The swap
+   happens in one commit but browsers can briefly paint the outgoing DOM.
+   We hide that flash by starting the rendered markdown at opacity 0 and
+   fading in over ~200ms, so raw markdown like **bold** never shows. */
+@keyframes fade-in-fast {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in-fast {
+  animation: fade-in-fast 0.2s ease-out forwards;
+}
+
 /* Light mode overrides for Tailwind slate-* classes used in the app */
 [data-theme="light"] .bg-slate-950 { background-color: #f8fafc; }
 [data-theme="light"] .bg-slate-900 { background-color: #f1f5f9; }

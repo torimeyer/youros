@@ -107,9 +107,17 @@ def _is_briefing_task(t: dict) -> bool:
     sidebar badge (via /api/tasks/counts) had hidden them. Keeping the
     briefing, the Tasks page, and the sidebar on the same helper makes
     'shipped' mean the same thing on every surface.
+
+    Also gates on ``is_throwaway_task`` so a bare ``DIAGNOSE`` prefix,
+    a ``PROBE``/``SCRATCH``/``TEMP`` prefix, or an accidental LLM dump
+    filed as a task never surfaces as the narrated top open task.
     """
-    from services.task_visibility import is_visible_task
-    return _is_active_task(t) and is_visible_task(t)
+    from services.task_visibility import is_throwaway_task, is_visible_task
+    return (
+        _is_active_task(t)
+        and is_visible_task(t)
+        and not is_throwaway_task(t)
+    )
 
 
 async def _task_count_changed() -> bool:
@@ -250,10 +258,22 @@ async def _gather_briefing_facts() -> dict:
     except OstkError:
         pass
 
-    # Yesterday's closed tasks (titles only, filtered)
+    # Yesterday's closed tasks (titles only, filtered).
+    #
+    # Uses ``is_throwaway_task`` which supersedes ``is_test_task``: it
+    # catches the same DIAGNOSE_TEST / DIAGNOSE2 / pls-delete rows plus
+    # bare ``DIAGNOSE`` prefixes, ``PROBE``/``SCRATCH``/``TEMP`` prefixes,
+    # and accidental LLM response dumps that got filed as tasks. Without
+    # this broader helper, titles like "Chat interface displays two
+    # response panels ..." leaked into the briefing's "5 tasks closed
+    # yesterday" line even after the earlier test-task filter.
     try:
         from datetime import timedelta
-        from services.task_visibility import is_e2e_task, is_session_task
+        from services.task_visibility import (
+            is_e2e_task,
+            is_session_task,
+            is_throwaway_task,
+        )
         yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         all_tasks_full = await ostk.list_tasks()
         closed = [
@@ -262,6 +282,7 @@ async def _gather_briefing_facts() -> dict:
             and (t.get("closed_at", "") or "").startswith(yesterday_str)
             and not is_session_task(t)
             and not is_e2e_task(t)
+            and not is_throwaway_task(t)
         ]
         facts["closed_yesterday"] = [t.get("title", "Untitled") for t in closed]
     except Exception:
@@ -854,12 +875,16 @@ async def generate_action_items() -> list[dict]:
     # through the shared is_visible_task helper so e2e smoke leftovers
     # and session tasks never show up as suggested actions. This keeps
     # the briefing in sync with the Tasks page and the Dashboard focus
-    # list.
-    from services.task_visibility import is_visible_task
+    # list. Also drop throwaway rows (DIAGNOSE_TEST, DIAGNOSE2, bare
+    # DIAGNOSE, PROBE/SCRATCH/TEMP prefixes, accidental LLM dumps) so
+    # they never surface as "Review this 14-day-old P1" cards.
+    from services.task_visibility import is_throwaway_task, is_visible_task
 
     today = datetime.now(timezone.utc)
     for t in all_tasks:
         if not is_visible_task(t):
+            continue
+        if is_throwaway_task(t):
             continue
         task_id = t.get("id", "")
         title = t.get("title", "Untitled")

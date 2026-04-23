@@ -194,15 +194,6 @@ class AgentfileConfig:
     # unchanged.
     quick_mode: bool = False
 
-    # Demo mode flag. Stacks on top of quick_mode for live demos where the
-    # whole fleet must finish in under 3 minutes. When true, the spawn path
-    # forces model=haiku, caps output tokens to 800, skips CLAUDE.md and
-    # MCP tool registration, and schedules a hard 90 second wall-clock
-    # timeout that force-completes any agent still running with a short
-    # "Completed quickly for demo." summary. Parsed from
-    # ``LIMIT demo_mode true``. Safe default False.
-    demo_mode: bool = False
-
 
 # Template alias map for the Tasks page "Comprehensive build" flow.
 # This is a plain dict today so the spawn endpoint can resolve muscle
@@ -344,11 +335,6 @@ def _parse_limit(
         # everything else as False. Keeps config round-trip stable when
         # the UI later surfaces a toggle.
         config.quick_mode = val.strip().lower() in {"true", "1", "yes"}
-    elif key == "demo_mode":
-        # myOS extension for live demos. Same truthy rules as quick_mode.
-        # When true, the spawn path forces Haiku, skips CLAUDE.md and MCP
-        # registration, and enforces a 90 second hard wall-clock timeout.
-        config.demo_mode = val.strip().lower() in {"true", "1", "yes"}
     # Unknown LIMIT keys: ignored silently. Forward-compat with new ostk keys.
 
 
@@ -815,8 +801,6 @@ def serialize_agentfile(config: AgentfileConfig) -> str:
         lines.append(f"LIMIT test_coverage {config.test_coverage_min}")
     if config.quick_mode:
         lines.append("LIMIT quick_mode true")
-    if config.demo_mode:
-        lines.append("LIMIT demo_mode true")
 
     if config.boot:
         lines.append(f"BOOT {config.boot}")

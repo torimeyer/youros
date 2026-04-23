@@ -3,7 +3,8 @@
 # Verifies that read-only probes (pgrep, ps, lsof) are allowed and that
 # bare vitest invocations are blocked.
 
-HOOK="/Users/torimeyer/claude/torios/.claude/hooks/safe-vitest.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOOK="${SCRIPT_DIR}/../.claude/hooks/safe-vitest.sh"
 PASS=0
 FAIL=0
 

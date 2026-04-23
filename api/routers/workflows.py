@@ -79,9 +79,9 @@ async def start_workflow(workflow_id: str) -> dict[str, Any]:
     """
     wf = get_workflow_status(workflow_id)
     # Built-in templates always re-materialise on /run so any updates to
-    # the template definition (model, demo_mode flag, per-step deadline)
-    # land on the next launch instead of being pinned to whatever the
-    # template looked like the very first time the user ever ran it.
+    # the template definition (model, per-step deadline, etc.) land on
+    # the next launch instead of being pinned to whatever the template
+    # looked like the very first time the user ever ran it.
     # User-saved workflows (no built-in match) keep their persisted shape.
     if wf is None or _is_builtin_template(workflow_id):
         materialised_id = _materialise_template_if_match(workflow_id)
@@ -147,21 +147,10 @@ def _materialise_template_if_match(workflow_id: str) -> Optional[str]:
             "id": f"step-{i + 1}",
             "agent_name": _slug(step["name"]),
             "prompt": step["prompt"],
-            # Demo budget: built-in workflow templates (Daily standup,
-            # Weekly review, etc.) are demo surfaces. Force Haiku, the
-            # compact mailbox block, and a 90 second wall-clock cap so
-            # a 3-step workflow finishes inside the demo window even on
-            # a cold backend. User-built workflows keep their own model
-            # because they go through the explicit /workflows POST path
-            # and never touch this materialiser.
-            "model": "haiku",
-            "budget": 0.5,
-            "demo_mode": True,
-            # 30 second per-step cap so a 3-step built-in workflow lands
-            # under the 90 second demo budget worst case (3 x 30s = 90s).
-            # Steps that finish faster on their own do not pay the full
-            # 30s; the cap only matters when an agent gets stuck.
-            "deadline_seconds": 30,
+            # Let the template pick its own model. Default to Sonnet when
+            # unset so materialised workflow steps run real LLM work.
+            "model": step.get("model", "sonnet"),
+            "budget": step.get("budget", 2.0),
             "depends_on": [f"step-{i}"] if i > 0 else [],
             "status": STEP_PENDING,
         })

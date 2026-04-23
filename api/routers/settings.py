@@ -1,6 +1,6 @@
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from services import claude_code_provider
 from services.ostk import ostk
@@ -77,9 +77,30 @@ async def update_settings(body: dict):
 
 
 @router.patch("/settings")
-async def patch_settings(body: dict):
+async def patch_settings(body: dict, request: Request = None):
     if "mcp_servers" in body:
         _validate_mcp_servers(body["mcp_servers"])
+    # Observability for onboarded flips. Tori has hit cases where the
+    # onboarded flag flips from false back to true without an obvious
+    # trigger — log the payload and referer so we can see which path
+    # did the write next time it happens. Only onboarded/tour flips
+    # are logged to keep settings PATCH traffic clean.
+    if "onboarded" in body or "tour_complete" in body:
+        referer = ""
+        ua = ""
+        try:
+            if request is not None:
+                referer = request.headers.get("referer", "")
+                ua = request.headers.get("user-agent", "")
+        except Exception:
+            pass
+        import logging as _logging
+        _logging.getLogger("settings").info(
+            "settings.onboarded_flip payload=%s referer=%s ua=%s",
+            {k: body[k] for k in ("onboarded", "tour_complete") if k in body},
+            referer,
+            ua[:80],
+        )
     settings_store.update(body)
     return {"result": "updated"}
 

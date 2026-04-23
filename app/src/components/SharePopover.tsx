@@ -77,6 +77,15 @@ export default function SharePopover({ shareType, contentIds, title, onClose }: 
     return () => document.removeEventListener('mousedown', handleClick);
   }, [onClose]);
 
+  // Escape closes the popover.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const handleCopy = async () => {
     if (!url) return;
     try {

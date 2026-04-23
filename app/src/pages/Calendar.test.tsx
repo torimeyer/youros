@@ -905,3 +905,267 @@ describe('Calendar event card layout (badge aligned under time)', () => {
     expect(titleRow!.querySelectorAll('p').length).toBeGreaterThanOrEqual(2)
   })
 })
+
+describe('Calendar refetches on calendar bus bump (chat-driven sync)', () => {
+  // Regression guard for the bug where chat creates a Google Calendar
+  // event, the event lands in Google, but the Calendar tab shows the
+  // pre-event state until the user manually reloads. The fix wires
+  // ChatPanel's create_calendar_event tool_result handler to call
+  // bumpCalendar(), which the Calendar page listens for via
+  // onCalendarChange. On every bump the page refetches events so the
+  // just-created event shows up without a reload.
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.calendarCache.v1')
+  })
+
+  afterEach(() => {
+    window.localStorage.removeItem('myos.calendarCache.v1')
+  })
+
+  it('refetches events when bumpCalendar fires', async () => {
+    let eventsCalls = 0
+    const first = [
+      {
+        id: 'ev-before',
+        summary: 'Before chat created the event',
+        start: { dateTime: '2026-04-21T09:00:00-05:00' },
+        end: { dateTime: '2026-04-21T09:30:00-05:00' },
+      },
+    ]
+    const second = [
+      ...first,
+      {
+        id: 'ev-after',
+        summary: 'Chat just added this event',
+        start: { dateTime: '2026-04-21T14:00:00-05:00' },
+        end: { dateTime: '2026-04-21T14:30:00-05:00' },
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) {
+        eventsCalls += 1
+        return Promise.resolve({ events: eventsCalls === 1 ? first : second })
+      }
+      return Promise.resolve({})
+    })
+
+    renderCalendar()
+
+    await waitFor(() => {
+      expect(screen.getByText('Before chat created the event')).toBeInTheDocument()
+    })
+    const initialCalls = eventsCalls
+
+    // Simulate ChatPanel's post-tool_result bump.
+    const { bumpCalendar } = await import('../lib/sidebarBus')
+    bumpCalendar()
+
+    // The bus should trigger a second fetchEvents, after which the new
+    // event lands on screen.
+    await waitFor(() => {
+      expect(screen.getByText('Chat just added this event')).toBeInTheDocument()
+    })
+    expect(eventsCalls).toBeGreaterThan(initialCalls)
+  })
+})
+
+describe('Calendar delete event reliability', () => {
+  // Regression guard for the "delete does not actually delete" bug Tori
+  // reported. Both code paths below exercise real user journeys:
+  //   - "Google-synced" event: the event is returned by the normal
+  //     /calendar/events pull. Its id is a plain Google event id.
+  //   - "Chat-created" event: the event is created via the chat tool
+  //     create_calendar_event. Because the tool writes directly through
+  //     services.calendar.create_event, the event comes back with the
+  //     SAME id shape as a Google-synced event, but the Calendar tab
+  //     only sees it after a bumpCalendar() refetch. The delete must
+  //     work just as reliably against that id.
+  // In both cases the regression is:
+  //   1. The delete button optimistically hides the row.
+  //   2. A concurrent refetch (chat creates another event, Sync fires,
+  //      focus rehydrate) replaces the list with fresh server data,
+  //      and the server still has the just-deleted event because the
+  //      5-second undo window has not expired. The deleted event
+  //      reappears on screen.
+  // The fix tracks pending-deleted ids and filters them out of every
+  // setEvents that runs while the delete is in flight.
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.calendarCache.v1')
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    window.localStorage.removeItem('myos.calendarCache.v1')
+    vi.useRealTimers()
+  })
+
+  async function setupWithEvents(events: Array<{ id: string; summary: string }>) {
+    const fullEvents = events.map((e) => ({
+      ...e,
+      start: { dateTime: '2026-04-22T09:00:00-05:00' },
+      end: { dateTime: '2026-04-22T10:00:00-05:00' },
+    }))
+    let eventsCalls = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) {
+        eventsCalls += 1
+        return Promise.resolve({ events: fullEvents })
+      }
+      return Promise.resolve({})
+    })
+    const mockedApiDelete = vi.mocked(api.delete)
+    mockedApiDelete.mockResolvedValue({ ok: true } as never)
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByText(events[0].summary)).toBeInTheDocument()
+    })
+    return { mockedApiDelete, fullEventsRef: fullEvents, eventsCallsRef: () => eventsCalls }
+  }
+
+  it('deletes a Google-synced event: DELETE hits the right id and the row stays gone', async () => {
+    const { mockedApiDelete } = await setupWithEvents([
+      { id: 'google-synced-123', summary: 'Dentist appointment' },
+    ])
+
+    const deleteBtn = screen.getByTestId('delete-event-google-synced-123')
+    fireEvent.click(deleteBtn)
+
+    // Row hides immediately (optimistic).
+    expect(screen.queryByText('Dentist appointment')).not.toBeInTheDocument()
+
+    // Let the 5 second undo timer run.
+    await vi.advanceTimersByTimeAsync(5100)
+
+    expect(mockedApiDelete).toHaveBeenCalledWith(
+      '/calendar/events/google-synced-123'
+    )
+    // Row must not come back.
+    expect(screen.queryByText('Dentist appointment')).not.toBeInTheDocument()
+  })
+
+  it('deletes a chat-created event (same id shape) the same way', async () => {
+    // Chat-created events land on the tab after ChatPanel fires
+    // bumpCalendar(). Their id is whatever Google returned from the
+    // insert call, same shape as any other synced event.
+    const { mockedApiDelete } = await setupWithEvents([
+      { id: 'chat-made-evt-xyz_20260422T140000Z', summary: 'Pepper field trip' },
+    ])
+
+    const deleteBtn = screen.getByTestId(
+      'delete-event-chat-made-evt-xyz_20260422T140000Z'
+    )
+    fireEvent.click(deleteBtn)
+    expect(screen.queryByText('Pepper field trip')).not.toBeInTheDocument()
+
+    await vi.advanceTimersByTimeAsync(5100)
+
+    expect(mockedApiDelete).toHaveBeenCalledWith(
+      '/calendar/events/chat-made-evt-xyz_20260422T140000Z'
+    )
+    expect(screen.queryByText('Pepper field trip')).not.toBeInTheDocument()
+  })
+
+  it('keeps a just-deleted event hidden when a refetch lands during the undo window', async () => {
+    // This is the core bug: during the 5s undo window, something else
+    // (chat creates a new event, Sync button, focus) triggers a
+    // refetch. The backend still returns the to-be-deleted event.
+    // Without the pending-id filter, that event reappears on the page.
+    const full = [
+      {
+        id: 'to-delete-1',
+        summary: 'Soon-to-be-deleted meeting',
+        start: { dateTime: '2026-04-22T09:00:00-05:00' },
+        end: { dateTime: '2026-04-22T10:00:00-05:00' },
+      },
+      {
+        id: 'keep-1',
+        summary: 'Other meeting',
+        start: { dateTime: '2026-04-22T11:00:00-05:00' },
+        end: { dateTime: '2026-04-22T12:00:00-05:00' },
+      },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) return Promise.resolve({ events: full })
+      return Promise.resolve({})
+    })
+    vi.mocked(api.delete).mockResolvedValue({ ok: true } as never)
+
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByText('Soon-to-be-deleted meeting')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('delete-event-to-delete-1'))
+    expect(screen.queryByText('Soon-to-be-deleted meeting')).not.toBeInTheDocument()
+
+    // Mid-undo: something else (e.g. chat created an event) bumps the
+    // calendar bus, which triggers a fresh fetch. The backend has not
+    // yet received our DELETE call, so it still returns the event.
+    const { bumpCalendar } = await import('../lib/sidebarBus')
+    bumpCalendar()
+
+    // The deleted event must NOT reappear even after the refetch.
+    await waitFor(() => {
+      expect(screen.getByText('Other meeting')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Soon-to-be-deleted meeting')).not.toBeInTheDocument()
+
+    // And once the 5s timer fires, the delete is still sent.
+    await vi.advanceTimersByTimeAsync(5100)
+    expect(vi.mocked(api.delete)).toHaveBeenCalledWith(
+      '/calendar/events/to-delete-1'
+    )
+  })
+
+  it('purges the deleted event from the localStorage seed cache after a successful delete', async () => {
+    // Without this, the next page load repaints the deleted event for
+    // ~400ms while the background fetch runs. That reads as the delete
+    // "didn't actually work" to the user.
+    const stored = [
+      {
+        id: 'zap-me',
+        summary: 'Delete me please',
+        start: { dateTime: '2026-04-22T09:00:00-05:00' },
+        end: { dateTime: '2026-04-22T10:00:00-05:00' },
+      },
+      {
+        id: 'keep-me',
+        summary: 'Keep me',
+        start: { dateTime: '2026-04-22T11:00:00-05:00' },
+        end: { dateTime: '2026-04-22T12:00:00-05:00' },
+      },
+    ]
+    window.localStorage.setItem('myos.calendarCache.v1', JSON.stringify(stored))
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/calendar/events')) return Promise.resolve({ events: stored })
+      return Promise.resolve({})
+    })
+    vi.mocked(api.delete).mockResolvedValue({ ok: true } as never)
+
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByText('Delete me please')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('delete-event-zap-me'))
+    await vi.advanceTimersByTimeAsync(5100)
+    // Flush any queued microtasks from the async delete handler.
+    await vi.runOnlyPendingTimersAsync()
+
+    const cached = JSON.parse(
+      window.localStorage.getItem('myos.calendarCache.v1') || '[]'
+    )
+    const cachedIds = (cached as Array<{ id: string }>).map((e) => e.id)
+    expect(cachedIds).not.toContain('zap-me')
+    expect(cachedIds).toContain('keep-me')
+  })
+})

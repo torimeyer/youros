@@ -1128,12 +1128,6 @@ async def _build_from_recent_tasks() -> str:
                             if title and title != str(raw_id)
                             else f"Build task {raw_id}"
                         ),
-                        # Demo cap: each Builder spawned by the chat
-                        # "build it" chain force-completes after 90
-                        # seconds so a multi-task batch lands inside the
-                        # demo window. Builder.agent already runs in
-                        # quick mode for the compact mailbox block.
-                        "demo_mode": True,
                     },
                 )
                 if resp.status_code == 200:

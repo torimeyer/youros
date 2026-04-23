@@ -77,6 +77,12 @@ export function isUserSpawnedAgent(agent: {
   if (agent.source === "chat") return false;
   if (agent.source === "audit") return false;
   if (agent.source === "hook") return false;
+  // The ostk kernel daemon is a process-level system agent, not user
+  // work. Without this guard the Agents nav badge counted 1 right
+  // after onboarding even though the user had not spawned anything —
+  // just the daemon row bleeding through. Same reasoning as the
+  // chat/audit/hook exclusions above.
+  if (agent.source === "daemon") return false;
   if (agent.model === "claude-code-subscription") return false;
   return true;
 }

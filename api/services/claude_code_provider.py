@@ -505,6 +505,26 @@ async def stream_chat(
         "--include-partial-messages",
         "--dangerously-skip-permissions",
     ]
+    # Disable every tool for plain-text chat turns (e.g. All pill
+    # broadcast). Without this, the CLI runs its full agent loop even
+    # for casual questions because --dangerously-skip-permissions gives
+    # it unrestricted access. Using --disallowed-tools with = assignment
+    # (space-separated breaks the positional prompt argument) blocks
+    # every built-in tool, and --strict-mcp-config with no explicit
+    # --mcp-config blocks every MCP server so remote tools cannot fire
+    # either. The result is a pure text reply.
+    if kwargs.get("disable_tools"):
+        args.append(
+            "--disallowed-tools="
+            "Bash,Grep,Read,Glob,Edit,Write,WebFetch,WebSearch,Task,"
+            "TodoWrite,NotebookEdit,BashOutput,KillShell,ExitPlanMode,"
+            "SlashCommand,ToolSearch,AskUserQuestion,EnterPlanMode,"
+            "CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,"
+            "ListMcpResourcesTool,Monitor,PushNotification,"
+            "ReadMcpResourceTool,RemoteTrigger,ScheduleWakeup,Skill,"
+            "TaskOutput"
+        )
+        args.append("--strict-mcp-config")
     # Session persistence flags
     if session_uuid:
         if is_resume:

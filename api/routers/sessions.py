@@ -28,6 +28,22 @@ IDLE_CUTOFF_MINUTES = 30
 # How many bytes to read from the end of each events.jsonl to find recent events.
 TAIL_BYTES = 8192
 
+# The backend identifies itself to ostk as "myos-api", so ostk writes a new
+# session directory for every uvicorn worker boot (myos-api-1, myos-api-2, ...).
+# These are not real user sessions. The backend is the thing rendering the
+# sidebar, so it should never count itself.
+BACKEND_SESSION_PREFIX = "myos-api-"
+
+
+def _is_backend_self_session(session_id: str) -> bool:
+    """True when the session id belongs to the backend itself.
+
+    Each uvicorn reload boots a new worker that opens its own ostk session,
+    leaving the old session row behind as a zombie. Filtering by prefix
+    handles every past, present, and future worker generation.
+    """
+    return session_id.startswith(BACKEND_SESSION_PREFIX)
+
 
 def _tail_lines(path: Path, nbytes: int = TAIL_BYTES) -> list[str]:
     """Read the last *nbytes* of a file and return complete lines."""
@@ -219,6 +235,47 @@ def _agent_sessions() -> list[dict]:
     return results
 
 
+def cleanup_stale_backend_sessions() -> int:
+    """Mark older myos-api-* session directories as terminated.
+
+    Every uvicorn reload leaves its old session folder behind with
+    events.jsonl still recent enough to count. On backend startup we run
+    this once so only the newest generation (the one this worker owns)
+    stays active in ostk's view. We touch an "events.jsonl" sentinel
+    that back-dates the last event so the listing endpoint's 30-minute
+    window naturally drops the old row on the next read.
+
+    Returns the number of session directories swept. Safe to call even
+    when the sessions directory does not exist.
+    """
+    if not SESSIONS_DIR.is_dir():
+        return 0
+
+    backend_dirs = [
+        entry for entry in SESSIONS_DIR.iterdir()
+        if entry.is_dir() and _is_backend_self_session(entry.name)
+    ]
+    if len(backend_dirs) <= 1:
+        return 0
+
+    # Keep the newest one (highest mtime), retire the rest by back-dating
+    # their events.jsonl mtime past the idle window.
+    backend_dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=IDLE_CUTOFF_MINUTES + 5))
+    stale_epoch = stale_cutoff.timestamp()
+    swept = 0
+    for stale_dir in backend_dirs[1:]:
+        events_file = stale_dir / "events.jsonl"
+        if not events_file.exists():
+            continue
+        try:
+            os.utime(events_file, (stale_epoch, stale_epoch))
+            swept += 1
+        except OSError:
+            continue
+    return swept
+
+
 @router.get("/sessions/active")
 async def get_active_sessions():
     """Return all sessions that have written events in the last 30 minutes,
@@ -238,6 +295,10 @@ async def get_active_sessions():
         if extra["session_id"] not in seen:
             sessions.append(extra)
             seen.add(extra["session_id"])
+    # Drop zombie backend-self sessions. Uvicorn hot reloads leave behind
+    # one myos-api-NNN row per worker generation. The backend should not
+    # count itself in the user's sidebar.
+    sessions = [s for s in sessions if not _is_backend_self_session(s["session_id"])]
     # Re-sort newest first after the merge.
     sessions.sort(key=lambda s: s["last_active"], reverse=True)
     return {

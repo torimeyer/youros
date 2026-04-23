@@ -1266,10 +1266,9 @@ async def test_get_template_description_api(tmp_path, monkeypatch):
 # ---------- Fleet template speed-path tests --------------------------------
 
 # Background: fleet-build-website used to take 8-10 minutes because each
-# member had a verbose prompt that let the model iterate. Demo budget is
-# under 3 minutes total. These tests lock in the tight prompts and the
-# fleet-level quick_mode/demo_mode signal so a future edit cannot silently
-# regress speed on stage.
+# member had a verbose prompt that let the model iterate. These tests lock
+# in the tight prompts and the fleet-level quick_mode signal so a future
+# edit cannot silently regress fleet boot time.
 
 
 def test_fleet_build_website_members_all_quick_mode():
@@ -1332,15 +1331,6 @@ async def test_fleet_spawns_in_parallel(monkeypatch):
         return {"result": "ok", "pid": 1234, "transcript": "/tmp/t.md"}
 
     monkeypatch.setattr(agents_mod, "spawn_agent", _fake_spawn_agent)
-    # The fleet spawner also schedules a force-complete task. Neutralize
-    # it so the test does not leak a pending task into pytest's loop.
-    async def _noop_force_complete(*args, **kwargs):
-        return None
-    monkeypatch.setattr(
-        agents_mod,
-        "_schedule_demo_force_complete",
-        _noop_force_complete,
-    )
 
     from httpx import AsyncClient, ASGITransport
     from main import app

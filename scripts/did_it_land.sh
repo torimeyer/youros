@@ -19,7 +19,8 @@ if [[ -z "${AGENT_NAME}" ]]; then
   exit 3
 fi
 
-REPO_ROOT="${MYOS_DID_IT_LAND_REPO:-/Users/torimeyer/claude/torios}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${MYOS_DID_IT_LAND_REPO:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 API_BASE="https://127.0.0.1:8000"
 # Bumped from --connect-timeout 3 -m 5 to 5/10. The original budget was
 # tripping false "backend unreachable" reports during cold-cache responses

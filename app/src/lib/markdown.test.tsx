@@ -294,3 +294,39 @@ describe('renderTextWithMarkdown', () => {
     expect(strong?.textContent).toBe('explains')
   })
 })
+
+// Probe evidence for the streaming jitter bug. renderMarkdown is a block
+// parser: a partial fenced code block or an unfinished [link](url) produces
+// a DIFFERENT tree than the closed version. That means if we parse markdown
+// on every token during streaming, the rendered tree shifts shape as
+// structural delimiters arrive. ChatPanel avoids this by rendering plain
+// text during streaming; the tests below document the underlying instability
+// so a future refactor does not quietly reintroduce the jitter.
+describe('renderMarkdown is not safe to call per-token during streaming', () => {
+  it('toggles <pre> on and off as an unclosed code fence becomes closed', () => {
+    const duringStream = renderMarkdown('Here is code:\n```js\nconst x = 1;\n')
+    const { container: midContainer } = render(<div>{duringStream}</div>)
+    // The parser consumed the opening fence and wrapped the rest in a <pre>,
+    // even though the stream has not produced the closing fence yet.
+    expect(midContainer.querySelector('pre')).not.toBeNull()
+
+    const afterClose = renderMarkdown('Here is code:\n```js\nconst x = 1;\n```\nDone.')
+    const { container: doneContainer } = render(<div>{afterClose}</div>)
+    // The closed fence still produces a <pre>, but the paragraph below it
+    // ("Done.") now renders as a sibling paragraph. In a live stream this
+    // is the exact moment where layout snaps, which is why the chat panel
+    // uses plain text during streaming.
+    expect(doneContainer.querySelector('pre')).not.toBeNull()
+    expect(doneContainer.textContent).toContain('Done.')
+  })
+
+  it('produces an <a> tag only once the closing paren of a link arrives', () => {
+    const partial = renderMarkdown('See [my doc](https://example.com')
+    const { container: partialContainer } = render(<div>{partial}</div>)
+    expect(partialContainer.querySelector('a')).toBeNull()
+
+    const complete = renderMarkdown('See [my doc](https://example.com)')
+    const { container: completeContainer } = render(<div>{complete}</div>)
+    expect(completeContainer.querySelector('a')).not.toBeNull()
+  })
+})

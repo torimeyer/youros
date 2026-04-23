@@ -98,21 +98,27 @@ _MYOS_ALREADY_SHIPS = (
 
 
 def _ac_generation_prompt(subject: str, *, from_roadmap: bool = False) -> str:
-    """Build the prompt that asks Claude to draft a spec body plus 3 AC.
-
-    ``subject`` is either the spec title (create_draft) or the roadmap
-    initiative (from_roadmap_line). Both callers want the same shape, so
-    they share one prompt. Set ``from_roadmap=True`` for slightly different
-    framing ("this initiative from a roadmap" vs "this feature").
+    """Legacy single-string builder. Retained so existing call sites keep
+    working while the caching-friendly split (``_ac_generation_system`` +
+    ``_ac_generation_user``) takes over.
     """
-    intro = (
-        f"Write a short spec and acceptance criteria for this initiative "
-        f"from a roadmap: \"{subject}\""
-        if from_roadmap
-        else f"Write a short spec and acceptance criteria for this feature: \"{subject}\""
+    return _ac_generation_system() + "\n\n" + _ac_generation_user(
+        subject, from_roadmap=from_roadmap
     )
+
+
+def _ac_generation_system() -> str:
+    """Static portion of the AC generation prompt.
+
+    This is the stable frame: format, the myOS-already-ships list, scope
+    notes. Pulled out so the Anthropic client call can mark it
+    ``cache_control: ephemeral`` and reuse the processed prefix across
+    every AC generation call. Prompt caching cuts TTFT substantially
+    on Haiku — typical wins are 40-60% on the cached prefix portion —
+    which is the difference the user feels as "fast" vs "slow" during
+    the Generating acceptance criteria spinner.
+    """
     return (
-        f"{intro}\n\n"
         "myOS ALREADY SHIPS these features. Do NOT propose acceptance "
         "criteria that re-describe or duplicate them:\n"
         f"{_MYOS_ALREADY_SHIPS}\n\n"
@@ -131,6 +137,20 @@ def _ac_generation_prompt(subject: str, *, from_roadmap: bool = False) -> str:
         "- [ ] (criterion 2)\n"
         "- [ ] (criterion 3)\n\n"
         "Exactly 3 criteria. Keep it concise. Plain language. No jargon."
+    )
+
+
+def _ac_generation_user(subject: str, *, from_roadmap: bool = False) -> str:
+    """Dynamic per-request portion: just the subject line. Kept short
+    so the cached prefix dominates the prompt."""
+    if from_roadmap:
+        return (
+            f"Write a short spec and acceptance criteria for this "
+            f"initiative from a roadmap: \"{subject}\""
+        )
+    return (
+        f"Write a short spec and acceptance criteria for this feature: "
+        f"\"{subject}\""
     )
 
 
@@ -292,10 +312,15 @@ async def create_draft(body: SpecDraft):
             client = anthropic.AsyncAnthropic(api_key=api_key)
             response = await client.messages.create(
                 model=AC_DRAFT_MODEL,
-                max_tokens=500,
+                max_tokens=250,
+                system=[{
+                    "type": "text",
+                    "text": _ac_generation_system(),
+                    "cache_control": {"type": "ephemeral"},
+                }],
                 messages=[{
                     "role": "user",
-                    "content": _ac_generation_prompt(body.title),
+                    "content": _ac_generation_user(body.title),
                 }],
             )
             ac_text = response.content[0].text.strip()
@@ -579,7 +604,7 @@ async def create_spec_from_task(body: SpecFromTask):
                 )
                 response = await client.messages.create(
                     model=AC_DRAFT_MODEL,
-                    max_tokens=500,
+                    max_tokens=300,
                     messages=[{"role": "user", "content": prompt_text}],
                 )
                 ac_text = response.content[0].text.strip()
@@ -658,59 +683,89 @@ async def create_spec_from_roadmap_line(body: SpecFromRoadmapLine):
     # Write the initiative as the plan goal with a short header that
     # links back to the source roadmap by its basename. Keeps the plan
     # self describing when the user opens it later.
-    ac_written = False
+    header_written = False
     if full_path.exists() and full_path.is_relative_to(docs_root):
         existing = full_path.read_text()
         header = f"## From roadmap: {roadmap_file.name}\n\n{initiative}\n\n"
         existing = existing.rstrip() + "\n\n" + header
         full_path.write_text(existing)
+        header_written = True
 
-        # Auto-generate acceptance criteria. Same model call as
-        # create_draft so the plan lands in the same shape Wave 2 built.
+    # Background AC generation + auto-promote.
+    #
+    # Return fast (this endpoint used to block 2-8s on the Anthropic
+    # call, which is what "Generating acceptance criteria..." spinner
+    # was measuring). Now we schedule the AC call as a background task
+    # and return immediately with status="draft". When the AC response
+    # lands, the background task appends it to the draft file and calls
+    # ostk.doc_promote, flipping the on-disk status to "spec". The
+    # frontend's per-second Specs poll picks up the status flip and the
+    # pending-spec shimmer resolves automatically.
+    #
+    # Safe-by-default: if the Anthropic key is missing or the call
+    # errors, the draft stays as-is and the user can hand-edit + promote
+    # from the Specs page. Any exception is swallowed to stop it from
+    # killing the event loop — the task is fire-and-forget.
+    async def _finish_ac_and_promote() -> None:
+        if not header_written:
+            return
         try:
             from services.chat_providers import _resolve_api_key
             import anthropic
 
             api_key = await _resolve_api_key("anthropic_api_key")
-            if api_key:
-                client = anthropic.AsyncAnthropic(api_key=api_key)
-                response = await client.messages.create(
-                    model=AC_DRAFT_MODEL,
-                    max_tokens=500,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": _ac_generation_prompt(
-                                initiative, from_roadmap=True
-                            ),
-                        }
-                    ],
-                )
-                ac_text = response.content[0].text.strip()
-                content = full_path.read_text()
-                content = content.rstrip() + "\n\n" + ac_text + "\n"
-                full_path.write_text(content)
-                if "- [ ]" in ac_text:
-                    ac_written = True
+            if not api_key:
+                return
+            client = anthropic.AsyncAnthropic(api_key=api_key)
+            response = await client.messages.create(
+                model=AC_DRAFT_MODEL,
+                max_tokens=250,
+                system=[{
+                    "type": "text",
+                    "text": _ac_generation_system(),
+                    "cache_control": {"type": "ephemeral"},
+                }],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": _ac_generation_user(
+                            initiative, from_roadmap=True
+                        ),
+                    }
+                ],
+            )
+            ac_text = response.content[0].text.strip()
+            content = full_path.read_text()
+            content = content.rstrip() + "\n\n" + ac_text + "\n"
+            full_path.write_text(content)
+            if "- [ ]" in ac_text:
+                try:
+                    await ostk.doc_promote(draft_path)
+                except OstkError:
+                    pass
         except Exception:
-            # Fail soft: the user still gets a draft with the initiative
-            # body even when the AC call errors. They can hand edit and
-            # promote from the Specs page.
-            pass
+            logger.exception(
+                "from_roadmap_line: background AC generation failed for %s",
+                draft_path,
+            )
 
-    status = "draft"
-    promoted_path: Optional[str] = None
-    if ac_written:
-        try:
-            promoted_path = await ostk.doc_promote(draft_path)
-            status = "ready"
-        except OstkError:
-            pass
+    import asyncio as _asyncio
+    try:
+        _asyncio.create_task(_finish_ac_and_promote())
+    except Exception:
+        logger.exception(
+            "from_roadmap_line: could not schedule AC background task"
+        )
 
     return {
         "result": result,
-        "status": status,
-        "promoted_path": promoted_path,
+        # status="draft" because AC generation is still in flight. The
+        # Specs page's 1s poll picks up the flip to "spec" (ready) when
+        # the background task finishes and promotes. Frontend pending-
+        # spec rows already render a generating state while the server
+        # walks the background task through to auto-promote.
+        "status": "draft",
+        "promoted_path": None,
         "title": title,
         "roadmap_path": raw_path,
     }
@@ -740,6 +795,44 @@ async def get_spec_tasks(spec_path: str):
     return {"tasks": enriched}
 
 
+def _fire_spec_complete_notification(spec_path: str) -> None:
+    """Emit the "Spec done" persistent notification for a completed spec.
+
+    Single source of truth for the notification shape so both code paths
+    that detect completion (explicit ``/verify`` and the automatic
+    all-builder-tasks-closed advancer) produce identical rows. The
+    ``target`` key dedupes repeat fires for the same spec, so firing
+    from both paths on the same run collapses to a single bell row
+    instead of two.
+
+    Best-effort. Never raises to the caller; a flaky notifications layer
+    must not break the spec-status flip or the verify response.
+    """
+    try:
+        from services.notifications import notifications_service as _notif
+        from pathlib import Path as _Path
+        title_from_path = _Path(spec_path).stem.replace("-", " ").strip() or "Spec"
+        _notif.add(
+            type="spec_complete",
+            title="Your feature is live",
+            body=(
+                f"{title_from_path} is built and ready to try. "
+                "Open the spec to review what changed."
+            ),
+            action_label="Open spec",
+            action_url=f"/specs?expand={spec_path}",
+            metadata={
+                "spec_path": spec_path,
+                "kind": "spec_complete",
+            },
+            target=f"spec_complete:{spec_path}",
+        )
+    except Exception:
+        logger.exception(
+            "spec_complete notification emit failed for %s", spec_path
+        )
+
+
 @router.post("/specs/{spec_path:path}/verify")
 async def verify_spec(spec_path: str):
     """Verify a spec's acceptance criteria against linked task status.
@@ -749,38 +842,17 @@ async def verify_spec(spec_path: str):
 
     When verify determines that ALL acceptance criteria are met (the
     "spec is complete" transition), fire a single bell notification so
-    Tori sees "Spec done" in the tray without having to keep staring
-    at the Specs page. Dedup target key is the spec path so repeat
-    verifies do not duplicate bells.
+    Tori sees "Your feature is live" in the tray without having to keep
+    staring at the Specs page. Dedup target key is the spec path so
+    repeat verifies do not duplicate bells.
     """
     _validate_doc_path(spec_path)
     try:
         result = await ostk.spec_verify(spec_path)
     except OstkError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    try:
-        if isinstance(result, dict) and result.get("all_met") is True:
-            from services.notifications import notifications_service as _notif
-            from pathlib import Path as _Path
-            title_from_path = _Path(spec_path).stem.replace("-", " ").strip() or "Spec"
-            _notif.add(
-                type="spec_complete",
-                title="Spec done",
-                body=(
-                    f"All acceptance criteria passed for {title_from_path}. "
-                    "Open the spec to review the build."
-                ),
-                action_label="Open spec",
-                action_url=f"/specs?expand={spec_path}",
-                metadata={
-                    "spec_path": spec_path,
-                    "kind": "spec_complete",
-                },
-                target=f"spec_complete:{spec_path}",
-            )
-    except Exception:
-        # Notification is best-effort. Never break verify.
-        pass
+    if isinstance(result, dict) and result.get("all_met") is True:
+        _fire_spec_complete_notification(spec_path)
     return result
 
 
@@ -887,12 +959,14 @@ async def _build_fallback_from_acceptance_criteria(
         return []
 
     spec_name = Path(spec_path).stem
+    # Serial (not parallel) task creation. A prior attempt parallelized
+    # these with asyncio.gather to save ~300ms on the click-to-spawn
+    # window, but concurrent subprocesses raced for the ostk needle
+    # counter lock, so bullets[i] no longer reliably got task_id
+    # (first_id + i). Serial preserves the one-task-per-bullet mapping.
     configs: list[dict] = []
     created_ids: list[str] = []
     for idx, bullet_text in enumerate(bullets):
-        # ostk.add_task returns a string like "→407 Title" or just the
-        # raw output. Extract the numeric id via the same "→" / "->"
-        # grammar doc_decompose uses so callers see a bare id.
         description = f"AC for spec {spec_path}: {bullet_text}"
         try:
             raw = await ostk.add_task(
@@ -904,19 +978,16 @@ async def _build_fallback_from_acceptance_criteria(
         except OstkError as exc:
             logger.warning(
                 "build_spec AC fallback: add_task failed for '%s': %s",
-                bullet_text,
-                exc,
+                bullet_text, exc,
             )
             continue
         task_id = ""
         for line in (raw or "").split("\n"):
-            stripped = line.strip()
-            match = re.match(r"(?:->|\u2192)(\d+)", stripped)
-            if match:
-                task_id = match.group(1)
+            m = re.search(r"(?:->|\u2192)(\d+)", line)
+            if m:
+                task_id = m.group(1)
                 break
         if not task_id:
-            # Some ostk builds return just the bare id; accept digits too.
             stripped_raw = (raw or "").strip().lstrip("\u2192").lstrip("-> ")
             if stripped_raw.isdigit():
                 task_id = stripped_raw
@@ -943,7 +1014,6 @@ async def _build_fallback_from_acceptance_criteria(
             "task_id": task_id,
             "task_title": bullet_text,
             "prompt": prompt,
-            "ac_index": idx,
         })
 
     # Persist the new ids into the spec's frontmatter so subsequent
@@ -997,6 +1067,54 @@ def _advance_spec_status_if_all_builder_tasks_closed(task_id: str) -> None:
     )
 
 
+async def close_spec_builder_task(agent_name: str) -> Optional[str]:
+    """Close the builder task tied to ``agent_name`` and advance spec status.
+
+    Called from ``agents.mark_agent_complete`` when a spec-spawned builder
+    reports done. The builder prompt tells the agent to edit files and
+    NOT run ``ostk work close`` itself, so this is the only path that
+    turns an agent ``/complete`` into a closed task. Without it, Build it
+    tasks stay open forever, spec status never advances past
+    ``in-progress``, and the UI looks stuck even though the agents are
+    done.
+
+    Returns the task_id that was closed, or ``None`` if ``agent_name`` is
+    not a registered spec builder. Never raises to the caller; a flaky
+    ostk must not break agent completion.
+    """
+    target_tid: Optional[str] = None
+    for tid, aname in _task_assignments.items():
+        if aname == agent_name:
+            target_tid = tid
+            break
+    if not target_tid:
+        return None
+    try:
+        await ostk.close_task(target_tid, closed_reason="completed")
+    except Exception:
+        # A "task not found" error here is expected when the builder's
+        # prompt told it to DELETE the task row (to keep the Tasks page
+        # clean after a spec build). In that case the task is already
+        # effectively closed. We still want to advance the spec status,
+        # so log and fall through instead of bailing out. Without this,
+        # the advancer never runs, the spec stays in ``building``
+        # forever, and the "Your feature is live" notification never
+        # fires.
+        logger.exception(
+            "close_spec_builder_task: ostk close failed for task %s agent %s (continuing to advance spec)",
+            target_tid,
+            agent_name,
+        )
+    try:
+        await _advance_spec_status_if_all_builder_tasks_closed_async(target_tid)
+    except Exception:
+        logger.exception(
+            "close_spec_builder_task: spec-status advance failed for task %s",
+            target_tid,
+        )
+    return target_tid
+
+
 async def _advance_spec_status_if_all_builder_tasks_closed_async(
     task_id: str,
 ) -> Optional[str]:
@@ -1030,8 +1148,17 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
         if norm:
             status_by_id[norm] = t.get("status", "open")
 
+    # Treat "registered spec-builder task that is no longer in the task
+    # list" as effectively closed. The builder prompt tells the agent to
+    # DELETE the task row when it finishes so the Tasks page stays clean
+    # after a spec build. Without this check the advancer would read the
+    # default "open" status for the missing task, decide the spec still
+    # has open work, and never flip the spec to ``complete``. sibling_ids
+    # only contains tasks we registered in build_spec, so missing-from-
+    # list unambiguously means the builder finished and cleaned up.
     for tid in sibling_ids:
-        if status_by_id.get(tid, "open") != "closed":
+        effective = status_by_id.get(tid, "deleted")
+        if effective not in ("closed", "deleted"):
             return None
 
     # Every sibling closed. Rewrite the spec frontmatter.
@@ -1054,7 +1181,14 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
             stripped = line.strip()
             if stripped.startswith("status:") and not flipped:
                 indent = line[: len(line) - len(line.lstrip())]
-                new_lines.append(f"{indent}status: done")
+                # Write ``complete`` (not ``done``). The writer used to
+                # emit ``done`` but the reader (compute_spec_status) only
+                # knew about ``complete``, so fully-built specs with
+                # all-closed tasks landed back in the Drafts tab because
+                # the frontend's normalizeStatus mapped the unrecognized
+                # ``done`` to ``draft``. Using ``complete`` closes the
+                # status-vocabulary mismatch end to end.
+                new_lines.append(f"{indent}status: complete")
                 flipped = True
                 continue
             if stripped == "---" and new_lines:
@@ -1065,9 +1199,19 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
     if flipped:
         try:
             full.write_text("\n".join(new_lines))
-            return spec_path
         except OSError:
             return None
+        # Fire the "Your feature is live" persistent notification here,
+        # on the auto-advancer path that flips status when every builder
+        # task closes. Without this, a Build-it that terminates cleanly
+        # lands silently: the modal watcher only sees the transition if
+        # the spec file is still on disk and the watcher was mounted,
+        # and the TopBar toast never fires because no notification row
+        # was ever written. The /verify endpoint also fires the same
+        # notification; dedup in services/notifications.py on the
+        # ``target`` key collapses repeat emits for the same spec.
+        _fire_spec_complete_notification(spec_path)
+        return spec_path
     return None
 
 
@@ -1269,26 +1413,22 @@ async def build_spec(spec_path: str):
             friendly_task = f"Build task {task_id}: {task_title}"
         else:
             friendly_task = f"Build task {task_id} for spec {spec_path}"
-        # Pick the model: caller-supplied cfg wins, then the user's
-        # default_model from Settings, then "sonnet" as a final fallback.
-        # No Haiku coercion. The builder agentfile already opts into
-        # quick_mode so the compact mailbox block is applied downstream.
+        # Pick the model: caller-supplied cfg wins, then "sonnet" as
+        # the fallback. The builder agentfile already opts into quick_mode
+        # so the compact mailbox block is applied downstream.
+        #
+        # IMPORTANT: do NOT read ``default_model`` from Settings here.
+        # That setting controls the user's chat provider preference
+        # (e.g. "@gemini" when they chose Gemini in onboarding). Spec
+        # builders spawn a Claude Code subprocess (claude --print ...),
+        # which only accepts Claude models. Passing "@gemini" to claude
+        # makes the subprocess exit instantly with "There's an issue
+        # with the selected model (@gemini)" and a 142-byte transcript,
+        # which is exactly how the Build it demo silently produced no
+        # file edits before this fix. Builders must always run on a
+        # Claude model regardless of chat preference.
         cfg_model = cfg.get("model")
-        try:
-            from services.settings_store import settings_store as _settings
-            default_model = _settings.get("default_model") or "sonnet"
-        except Exception:
-            default_model = "sonnet"
-        chosen_model = cfg_model or default_model or "sonnet"
-        # Wall-clock cap: read the user-configurable setting with a
-        # 600 second (10 minute) default so a normal Build it run has
-        # enough headroom for real work. Demo surfaces can tighten this
-        # by overriding the setting; we do NOT hardcode a demo cap here.
-        try:
-            from services.settings_store import settings_store as _settings
-            deadline_s = int(_settings.get("spec_build_deadline_s") or 600)
-        except Exception:
-            deadline_s = 600
+        chosen_model = cfg_model or "sonnet"
         body = AgentSpawn(
             name=name,
             prompt=prompt_with_close,
@@ -1297,7 +1437,6 @@ async def build_spec(spec_path: str):
             template="builder",
             source="spec-build",
             task=friendly_task,
-            deadline_seconds=deadline_s,
         )
         # Record assignment up front so the first poll after the HTTP
         # return already shows the agent-to-task mapping. Also record the

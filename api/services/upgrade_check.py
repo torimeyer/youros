@@ -76,10 +76,14 @@ def _humanize_git_describe(raw: str) -> str:
 
     If HEAD is exactly on a tag the --long format is 'v3.0-0-gabcdef';
     in that case just return the tag itself ('v3.0').
+
+    If the nearest tag is not a semver-looking tag (for example an
+    internal marker like 'pre-dry-run'), return an empty string so the
+    UI hides the line rather than showing noisy git plumbing.
     """
     m = re.match(r"^(v?\d+\.\d+(?:\.\d+)?)-(\d+)-g[0-9a-f]+$", raw)
     if not m:
-        return raw
+        return ""
     tag, commits_after = m.group(1), int(m.group(2))
     if commits_after == 0:
         return tag

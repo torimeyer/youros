@@ -1042,14 +1042,6 @@ describe('Tasks page', () => {
       })
     })
 
-    it('renders an auto indicator on auto-applied labels', async () => {
-      renderTasks()
-      await waitFor(() => {
-        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-      })
-      expect(screen.getByTestId('auto-icon-1-l1')).toBeInTheDocument()
-    })
-
     it('clicking an auto-applied label removes it via the API', async () => {
       const mockedDelete = vi.mocked(api.delete)
       mockedDelete.mockResolvedValue({ label_ids: [] })
@@ -1059,8 +1051,8 @@ describe('Tasks page', () => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
 
-      const autoIcon = screen.getByTestId('auto-icon-1-l1')
-      const pill = autoIcon.closest('span[class*="rounded-full"]') as HTMLElement
+      const labelEl = screen.getByText('Bug')
+      const pill = labelEl.closest('span[class*="rounded-full"]') as HTMLElement
       expect(pill).not.toBeNull()
       fireEvent.click(pill)
 
@@ -2741,5 +2733,59 @@ describe('Tasks page - live updates (bus + 3s poll)', () => {
     await waitFor(() => {
       expect(screen.getByText('Backend added this task')).toBeInTheDocument()
     })
+  })
+
+  it('does not flash a just-deleted task back into view when the poll refetches', async () => {
+    // Regression: the Tasks page polls /tasks every 3s and the delete
+    // uses a 5s undo window before calling DELETE. Before the fix, the
+    // next poll between click and undo-expiry would return the task
+    // (because it still exists on the server) and setTasks clobbered
+    // the optimistic removal, flashing the row back on screen for a
+    // full second before it disappeared again on timer expiry. The
+    // pendingDeleteIdsRef guard filters those ids out of every poll
+    // response until the DELETE resolves.
+    const stable = [
+      { id: 'del1', title: 'Delete me please', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+      { id: 'keep1', title: 'Keep me around', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: stable })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+    const mockedApiDelete = vi.mocked(api.delete)
+    mockedApiDelete.mockResolvedValue({})
+
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderTasks()
+
+    await waitFor(() => {
+      expect(screen.getByText('Delete me please')).toBeInTheDocument()
+    })
+
+    // Scope to the row containing "Delete me please" so we don't hit
+    // the sibling task's delete button.
+    const row = screen.getByText('Delete me please').closest('[data-testid^="task-row"], [role="listitem"], li, div')!
+    const deleteBtn = Array.from(row.querySelectorAll('button')).find(
+      (b) => b.getAttribute('title') === 'Delete task permanently'
+    ) ?? screen.getAllByTitle('Delete task permanently')[0]
+    fireEvent.click(deleteBtn)
+
+    // Task is optimistically removed right away.
+    await waitFor(() => {
+      expect(screen.queryByText('Delete me please')).not.toBeInTheDocument()
+    })
+
+    // Poll fires at 3s. Server still returns the task because DELETE
+    // has not yet fired (undo window is 5s). Without the fix, the row
+    // would flash back. With the fix, pendingDeleteIdsRef filters it
+    // out and the row stays hidden.
+    await vi.advanceTimersByTimeAsync(3500)
+
+    expect(screen.queryByText('Delete me please')).not.toBeInTheDocument()
+    // Sibling task is unaffected.
+    expect(screen.getByText('Keep me around')).toBeInTheDocument()
+    // DELETE has not yet fired (timer is 5s, we advanced 3.5s).
+    expect(mockedApiDelete).not.toHaveBeenCalled()
   })
 })
