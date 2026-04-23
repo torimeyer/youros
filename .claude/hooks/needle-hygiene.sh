@@ -51,7 +51,8 @@ if [ "$TITLE_LEN" -lt 5 ]; then
     exit 2
 fi
 
-# Check for garbage patterns (case-insensitive)
+# Check for garbage patterns (case-insensitive).
+# Also block single-word generic verbs/nouns that carry no real intent.
 TITLE_LOWER=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]')
 for pattern in "session in" "untitled" "fix it" "todo" "test"; do
     if echo "$TITLE_LOWER" | grep -qi "^${pattern}"; then
@@ -59,6 +60,17 @@ for pattern in "session in" "untitled" "fix it" "todo" "test"; do
         exit 2
     fi
 done
+
+# Block single-word titles that are known throwaway words
+WORD_COUNT=$(echo "$TITLE" | wc -w | tr -d ' ')
+if [ "$WORD_COUNT" -le 1 ]; then
+    for word in "sort" "fix" "update" "test" "todo" "done" "work" "task" "thing" "stuff" "misc" "other" "temp" "wip"; do
+        if [ "$TITLE_LOWER" = "$word" ]; then
+            echo "Needle blocked: title \"$TITLE\" is a single generic word with no real meaning. Write a title that explains what specifically needs to be done."
+            exit 2
+        fi
+    done
+fi
 
 # ---- 2. Lowercase priority check ----
 if [ -n "$PRIORITY" ]; then
