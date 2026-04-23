@@ -1516,6 +1516,20 @@ class TestGeminiSystemInstruction:
         assert "\u2014" not in GEMINI_SYSTEM_INSTRUCTION
         assert "\u2013" not in GEMINI_SYSTEM_INSTRUCTION
 
+    def test_gemini_system_instruction_uses_instance_name(self):
+        """_gemini_system_instruction() should embed the live instance_name."""
+        from unittest.mock import patch
+        from services.chat_providers import _gemini_system_instruction
+
+        fake_store = {"instance_name": "toriOS"}
+        with patch("services.chat_providers.settings_store", fake_store):
+            result = _gemini_system_instruction()
+
+        assert "toriOS" in result
+        # The frozen constant alias uses the default "myOS", not the custom name.
+        from services.chat_providers import GEMINI_SYSTEM_INSTRUCTION
+        assert "toriOS" not in GEMINI_SYSTEM_INSTRUCTION
+
 
 async def _fake_gemini_stream(messages, websocket):
     """Stand-in for ``chat_service.stream_gemini`` that records its prompt.

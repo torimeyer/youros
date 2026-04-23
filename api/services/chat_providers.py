@@ -218,8 +218,13 @@ _GEMINI_NEXT_CHUNK_TIMEOUT_S = 45.0
 # accidentally drop it. The rule exists because Gemini likes to prefix
 # replies with a literal "@Gemini:" tag, which is noisy in the chat panel
 # since the bubble header already shows which model is speaking.
-GEMINI_SYSTEM_INSTRUCTION = (
-    "You are Gemini replying inside a chat panel called myOS. "
+# Template form of the Gemini system instruction. The product-vs-instance
+# terms are filled in at call time by ``_gemini_system_instruction()`` so
+# every chat reflects the current user's ``instance_name`` setting while
+# still introducing the product (myOS) correctly.
+_GEMINI_SYSTEM_INSTRUCTION_TEMPLATE = (
+    "You are Gemini answering inside {instance_name}. "
+    "{instance_name} is a myOS instance. "
     "Do not prefix your replies with your own name. The chat panel "
     "already shows who you are. "
     "When asked to chat with another AI, reply directly to what that "
@@ -232,6 +237,25 @@ GEMINI_SYSTEM_INSTRUCTION = (
     "tools (calendar, email, tasks, files), tell them to switch to Claude using the "
     "toggle below the chat input. Claude has access to all myOS tools."
 )
+
+
+def _gemini_system_instruction() -> str:
+    """Return the Gemini system prompt with the current instance name filled in.
+
+    Resolves ``instance_name`` from settings each call so a renaming of
+    the user's instance takes effect on the next chat without a restart.
+    Falls back to the product name ``myOS`` if the setting is missing.
+    """
+    instance_name = settings_store.get("instance_name", "myOS") or "myOS"
+    return _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE.format(instance_name=instance_name)
+
+
+# Backwards-compatible alias. Existing callers and tests import this
+# constant by name. It is frozen at import time using the then-current
+# ``instance_name`` so a test that imports the module before patching
+# settings still sees the default "myOS". Live code paths use the
+# ``_gemini_system_instruction`` helper so they pick up renames.
+GEMINI_SYSTEM_INSTRUCTION = _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE.format(instance_name="myOS")
 
 
 def _gemini_model_name() -> str:
@@ -2488,7 +2512,7 @@ class ChatService:
                 try:
                     _m = _genai.GenerativeModel(
                         _model_name,
-                        system_instruction=GEMINI_SYSTEM_INSTRUCTION,
+                        system_instruction=_gemini_system_instruction(),
                     )
                 except TypeError:
                     # Older SDK builds do not accept system_instruction.

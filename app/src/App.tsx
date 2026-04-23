@@ -37,6 +37,7 @@ export default function App() {
   const hydrated = useAppStore((s) => s.hydrated)
   const onboarded = useAppStore((s) => s.onboarded)
   const hydrateFromServer = useAppStore((s) => s.hydrateFromServer)
+  const instanceName = useAppStore((s) => s.instanceName)
 
   // Pull the latest settings from the server once at app boot so the
   // server is the source of truth. localStorage is only used for the
@@ -79,7 +80,7 @@ export default function App() {
           letterSpacing: 0.3,
         }}
       >
-        Loading torios...
+        Loading {instanceName}...
       </div>
     )
   }
