@@ -404,25 +404,23 @@ describe('FilePreviewPane', () => {
     })
   })
 
-  it('closes when clicking the backdrop overlay', async () => {
+  it('renders inline without a backdrop overlay', async () => {
     mockedApiGet.mockResolvedValue({
       content: 'hi',
       type: 'text',
       size: 2,
     })
-    const onClose = vi.fn()
     render(
       <FilePreviewPane
         entry={fileEntry('readme.md')}
-        onClose={onClose}
+        onClose={() => {}}
       />
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId('file-preview-overlay')).toBeInTheDocument()
+      expect(screen.getByTestId('file-preview-inline')).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByTestId('file-preview-overlay'))
-    expect(onClose).toHaveBeenCalled()
+    expect(screen.queryByTestId('file-preview-overlay')).toBeNull()
   })
 })
 

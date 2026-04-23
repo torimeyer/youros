@@ -236,19 +236,22 @@ describe('DrivePreview', () => {
     );
   });
 
-  it('calls onClose when the close button is clicked', () => {
-    const onClose = vi.fn();
+  it('clicking the full-image close button dismisses the full-size view', () => {
     render(
       <DrivePreview
         fileId="img-1"
         name="photo.png"
         mimeType="image/png"
-        onClose={onClose}
+        onClose={() => {}}
         initialData={imageData()}
       />
     );
-    fireEvent.click(screen.getByRole('button', { name: /close preview/i }));
-    expect(onClose).toHaveBeenCalled();
+    // Click the thumbnail to open the full-size modal
+    fireEvent.click(screen.getByTestId('drive-preview-image'));
+    expect(screen.getByTestId('drive-preview-full-image')).toBeDefined();
+    // Click the close button inside the modal
+    fireEvent.click(screen.getByRole('button', { name: /close full image/i }));
+    expect(screen.queryByTestId('drive-preview-full-image')).toBeNull();
   });
 
   it('fetches structured preview data when initialData is not provided', async () => {

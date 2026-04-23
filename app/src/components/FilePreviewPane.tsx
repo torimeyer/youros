@@ -546,17 +546,11 @@ export default function FilePreviewPane({ entry, onClose, onOpenExternally, onDe
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      data-testid="file-preview-overlay"
+      className="flex flex-col h-full w-full"
+      data-testid="file-preview-inline"
+      role="region"
+      aria-label={`Preview of ${entry.name}`}
     >
-      <aside
-        className="bg-slate-900 border-l border-slate-700 shadow-2xl w-full max-w-3xl h-full flex flex-col"
-        role="dialog"
-        aria-label={`Preview of ${entry.name}`}
-      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -637,7 +631,6 @@ export default function FilePreviewPane({ entry, onClose, onOpenExternally, onDe
             />
           )}
         </div>
-      </aside>
     </div>
   );
 }

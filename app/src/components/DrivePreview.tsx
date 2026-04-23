@@ -56,8 +56,8 @@ export interface DrivePreviewProps {
 export default function DrivePreview({
   fileId,
   name,
-  mimeType,
-  webViewLink,
+  mimeType: _mimeType,
+  webViewLink: _webViewLink,
   onClose,
   initialData,
 }: DrivePreviewProps) {
@@ -110,69 +110,31 @@ export default function DrivePreview({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      data-testid="drive-preview-overlay"
+      className="flex flex-col h-full w-full"
+      data-testid="drive-preview-inline"
     >
-      <aside
-        className="bg-slate-900 border-l border-slate-700 shadow-2xl w-full max-w-3xl h-full flex flex-col"
-        role="dialog"
-        aria-label={`Preview of ${name}`}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700 flex-shrink-0">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-100 truncate">{name}</p>
-            <p className="text-[11px] text-slate-500">{prettyMime(mimeType)}</p>
+      {/* Body */}
+      <div className="flex-1 overflow-auto">
+        {loading && (
+          <div className="flex items-center justify-center h-full">
+            <LoadingState variant="spinner" message="Loading preview..." />
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-            {webViewLink && (
-              <a
-                href={webViewLink}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300 transition-colors border border-slate-600"
-              >
-                <Icon name="open_in_new" size={14} />
-                Open in Drive
-              </a>
-            )}
-            <button
-              onClick={onClose}
-              className="flex items-center justify-center w-8 h-8 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
-              title="Close preview"
-              aria-label="Close preview"
-            >
-              <Icon name="close" size={18} />
-            </button>
+        )}
+
+        {!loading && error && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
+            <Icon name="error" className="text-3xl text-red-400" />
+            <p className="text-sm text-red-300">{error}</p>
           </div>
-        </div>
+        )}
 
-        {/* Body */}
-        <div className="flex-1 overflow-auto">
-          {loading && (
-            <div className="flex items-center justify-center h-full">
-              <LoadingState variant="spinner" message="Loading preview..." />
-            </div>
-          )}
-
-          {!loading && error && (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
-              <Icon name="error" className="text-3xl text-red-400" />
-              <p className="text-sm text-red-300">{error}</p>
-            </div>
-          )}
-
-          {!loading && !error && data && (
-            <PreviewBody
-              data={data}
-              onImageClick={(url) => setFullImage(url)}
-            />
-          )}
-        </div>
-      </aside>
+        {!loading && !error && data && (
+          <PreviewBody
+            data={data}
+            onImageClick={(url) => setFullImage(url)}
+          />
+        )}
+      </div>
 
       {/* Full image modal */}
       {fullImage && (
@@ -477,21 +439,5 @@ function FallbackToExport({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
-const MIME_LABELS: Record<string, string> = {
-  'application/vnd.google-apps.document': 'Google Doc',
-  'application/vnd.google-apps.presentation': 'Google Slides',
-  'application/vnd.google-apps.spreadsheet': 'Google Sheets',
-  'application/vnd.google-apps.drawing': 'Google Drawing',
-  'application/vnd.google-apps.folder': 'Folder',
-  'application/pdf': 'PDF',
-};
 
-function prettyMime(mime: string): string {
-  if (MIME_LABELS[mime]) return MIME_LABELS[mime];
-  if (mime.startsWith('image/')) return 'Image';
-  return 'File';
-}
