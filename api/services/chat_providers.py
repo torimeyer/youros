@@ -33,6 +33,7 @@ from services.settings_store import settings_store
 from services.template_matcher import match_template, merge_with_built_ins
 from services.ostk import write_audit_entry
 from services.token_metrics import safe_record_chat_turn
+from services.tracing import trace_event
 from services.tool_executor import TOOL_DEFINITIONS, execute_tool
 
 
@@ -94,6 +95,15 @@ def _log_chat_completion(
         "budget": 0,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
+    trace_event(
+        "llm_call_end",
+        model=model,
+        provider=provider,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_creation_input_tokens=cache_creation_input_tokens,
+        cache_read_input_tokens=cache_read_input_tokens,
+    )
 
 
 # Labels used in the ``backend_active`` websocket event so the chat panel

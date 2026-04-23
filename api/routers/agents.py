@@ -15,6 +15,7 @@ from services.agentfile_parser import get_agent_config
 import services.agent_memory as agent_memory_svc
 from services import chat_ack_bot
 from services import recent_deletes
+from services.tracing import trace_event
 
 logger = logging.getLogger(__name__)
 
@@ -4055,6 +4056,12 @@ async def register_agent(body: AgentSpawn, request: Request = None):
                 if _claims:
                     audit_data["user"] = _claims["sub"]
         _emit_audit_event("agent.spawned", audit_data)
+        trace_event(
+            "agent_spawned",
+            name=body.name,
+            source=getattr(body, "source", ""),
+            model=getattr(body, "model", ""),
+        )
     except Exception:
         pass
 
@@ -4788,6 +4795,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
 
     # Log to audit so the audit_agents() helper also reflects completion
     _emit_audit_event("agent.completed", {"name": name})
+    trace_event("agent_completed", name=name)
 
     # Write a transcript marker so the status check finds it even on
     # legacy rows. IMPORTANT: only write the stub if no real transcript

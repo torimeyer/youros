@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from config import PROJECT_ROOT
 from models.schemas import SpecDraft, SpecPromote, SpecDecompose
 from services.ostk import ostk, OstkError
+from services.tracing import trace_event
 
 logger = logging.getLogger(__name__)
 
@@ -363,6 +364,12 @@ async def create_draft(body: SpecDraft):
             # hand-edit the checklist and promote later.
             pass
 
+    trace_event(
+        "spec_created",
+        path=result.strip() if result else "",
+        source="draft",
+        status=status,
+    )
     return {"result": result, "status": status, "promoted_path": promoted_path}
 
 
@@ -1211,6 +1218,11 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
         # notification; dedup in services/notifications.py on the
         # ``target`` key collapses repeat emits for the same spec.
         _fire_spec_complete_notification(spec_path)
+        trace_event(
+            "spec_built_complete",
+            spec_path=spec_path,
+            task_count=len(sibling_ids),
+        )
         return spec_path
     return None
 
