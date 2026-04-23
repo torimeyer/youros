@@ -15,41 +15,29 @@ interface FilterDrawerProps {
   open?: boolean;
   statusFilter: StatusFilter;
   threadFilter: string | null;
-  viewMode: "list" | "grid";
   threads: Thread[];
   filterCounts: Partial<Record<StatusFilter, number>>;
   closedSortOrder?: ClosedSortOrder;
   sortBy?: SortBy;
   onStatusChange: (f: StatusFilter) => void;
   onThreadChange: (id: string | null) => void;
-  onViewModeChange: (v: "list" | "grid") => void;
   onClosedSortOrderChange?: (order: ClosedSortOrder) => void;
   onSortByChange?: (s: SortBy) => void;
-  onClearAll?: () => void;
-  onClose: () => void;
 }
 
 export function FilterDrawer({
   open: _open,
   statusFilter,
   threadFilter,
-  viewMode,
   threads,
   filterCounts,
   closedSortOrder = "newest",
   sortBy = "date-desc",
   onStatusChange,
   onThreadChange,
-  onViewModeChange,
   onClosedSortOrderChange,
   onSortByChange,
-  onClearAll,
-  onClose,
 }: FilterDrawerProps) {
-  const hasNonDefaultFilter =
-    statusFilter !== "open" ||
-    threadFilter !== null;
-
   const statusFilterClass = (f: StatusFilter) =>
     statusFilter === f
       ? "px-3 py-1.5 rounded-md bg-slate-800 text-white font-medium flex items-center gap-1.5 text-sm"
@@ -200,47 +188,6 @@ export function FilterDrawer({
         </div>
       )}
 
-      {/* Bottom row: clear all + view mode + close */}
-      <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-        <div className="flex items-center gap-2">
-          {hasNonDefaultFilter && onClearAll && (
-            <button
-              onClick={onClearAll}
-              data-testid="filter-drawer-clear-all"
-              className="px-3 py-1 text-xs rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-colors"
-            >
-              Clear all
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => onViewModeChange("list")}
-            data-testid="view-mode-list"
-            className={`p-1.5 ${viewMode === "list" ? "text-slate-300" : "text-slate-600"} hover:text-white`}
-            title="List view"
-          >
-            <Icon name="view_list" className="text-lg" />
-          </button>
-          <button
-            onClick={() => onViewModeChange("grid")}
-            data-testid="view-mode-grid"
-            className={`p-1.5 ${viewMode === "grid" ? "text-slate-300" : "text-slate-600"} hover:text-white`}
-            title="Card view"
-          >
-            <Icon name="grid_view" className="text-lg" />
-          </button>
-          <button
-            onClick={onClose}
-            data-testid="filter-drawer-close"
-            className="p-1.5 text-slate-500 hover:text-slate-300"
-            title="Close filters"
-          >
-            <Icon name="close" className="text-sm" />
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

@@ -12,13 +12,10 @@ const defaultProps = {
   open: true,
   statusFilter: 'open' as StatusFilter,
   threadFilter: null,
-  viewMode: 'list' as const,
   threads: mockThreads,
   filterCounts: { open: 5, closed: 2, shelved: 1, week: 3 },
   onStatusChange: vi.fn(),
   onThreadChange: vi.fn(),
-  onViewModeChange: vi.fn(),
-  onClose: vi.fn(),
 }
 
 describe('FilterDrawer', () => {
@@ -55,45 +52,18 @@ describe('FilterDrawer', () => {
     expect(onStatusChange).toHaveBeenCalledWith('closed')
   })
 
-  it('shows view mode toggle buttons', () => {
+  it('does not render view mode toggle buttons', () => {
     render(<FilterDrawer {...defaultProps} />)
-    expect(screen.getByTestId('view-mode-list')).toBeInTheDocument()
-    expect(screen.getByTestId('view-mode-grid')).toBeInTheDocument()
+    expect(screen.queryByTestId('view-mode-list')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('view-mode-grid')).not.toBeInTheDocument()
   })
 
-  it('calls onViewModeChange when view mode is changed', () => {
-    const onViewModeChange = vi.fn()
-    render(<FilterDrawer {...defaultProps} onViewModeChange={onViewModeChange} />)
-    fireEvent.click(screen.getByTestId('view-mode-grid'))
-    expect(onViewModeChange).toHaveBeenCalledWith('grid')
-  })
-
-  it('calls onClose when close button is clicked', () => {
-    const onClose = vi.fn()
-    render(<FilterDrawer {...defaultProps} onClose={onClose} />)
-    fireEvent.click(screen.getByTestId('filter-drawer-close'))
-    expect(onClose).toHaveBeenCalled()
-  })
-
-  it('does not show clear-all button when only default filters are active', () => {
+  it('does not render the filter-drawer close button', () => {
     render(<FilterDrawer {...defaultProps} />)
-    expect(screen.queryByTestId('filter-drawer-clear-all')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('filter-drawer-close')).not.toBeInTheDocument()
   })
 
-  it('shows clear-all button when status filter is non-default', () => {
-    const onClearAll = vi.fn()
-    render(<FilterDrawer {...defaultProps} statusFilter="closed" onClearAll={onClearAll} />)
-    expect(screen.getByTestId('filter-drawer-clear-all')).toBeInTheDocument()
-  })
-
-  it('calls onClearAll when clear-all button is clicked', () => {
-    const onClearAll = vi.fn()
-    render(<FilterDrawer {...defaultProps} statusFilter="closed" onClearAll={onClearAll} />)
-    fireEvent.click(screen.getByTestId('filter-drawer-clear-all'))
-    expect(onClearAll).toHaveBeenCalled()
-  })
-
-  it('does not show clear-all button when onClearAll prop is not provided', () => {
+  it('does not render the clear-all button', () => {
     render(<FilterDrawer {...defaultProps} statusFilter="closed" />)
     expect(screen.queryByTestId('filter-drawer-clear-all')).not.toBeInTheDocument()
   })

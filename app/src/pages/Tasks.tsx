@@ -274,7 +274,6 @@ export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
   const [closedSortOrder, setClosedSortOrder] = useState<ClosedSortOrder>("newest");
   const [sortBy, setSortBy] = useState<SortBy>("date-desc");
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [banner, setBanner] = useState<string | null>(null);
   const [openPriorityDropdown, setOpenPriorityDropdown] = useState<string | null>(null);
   const [openLabelDropdown, setOpenLabelDropdown] = useState<string | null>(null);
@@ -1782,18 +1781,14 @@ export default function Tasks() {
               open={true}
               statusFilter={statusFilter}
               threadFilter={threadFilter}
-              viewMode={viewMode}
               threads={threads}
               filterCounts={filterCounts}
               closedSortOrder={closedSortOrder}
               sortBy={sortBy}
               onStatusChange={setStatusFilter}
               onThreadChange={setThreadFilter}
-              onViewModeChange={setViewMode}
               onClosedSortOrderChange={setClosedSortOrder}
               onSortByChange={setSortBy}
-              onClearAll={clearAllFilters}
-              onClose={() => {}}
             />
 
             {/* Bulk action bar */}
@@ -1842,7 +1837,7 @@ export default function Tasks() {
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
-            <div className={viewMode === "grid" ? "grid grid-cols-2 lg:grid-cols-3 gap-2" : "flex flex-col gap-2"}>
+            <div className="flex flex-col gap-2">
               {loading && tasks.length === 0 && (
                 <LoadingState variant="skeleton-list" />
               )}
