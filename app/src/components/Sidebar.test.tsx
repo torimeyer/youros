@@ -76,7 +76,7 @@ describe('Sidebar', () => {
     // Ensure all groups are expanded (only expand if currently collapsed)
     expandAllGroups()
 
-    const navLabels = ['Home', 'Tasks', 'Agents', 'Activity', 'Files', 'Drive', 'Calendar', 'Gmail', 'Settings']
+    const navLabels = ['Home', 'Tasks', 'Agents', 'Activity', 'Documents', 'Calendar', 'Gmail', 'Settings']
     for (const label of navLabels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
@@ -120,8 +120,7 @@ describe('Sidebar', () => {
       Tasks: '/tasks',
       Agents: '/agents',
       Activity: '/activity',
-      Files: '/files',
-      Drive: '/drive',
+      Documents: '/documents',
       Calendar: '/calendar',
       Gmail: '/gmail',
       Settings: '/settings',
@@ -871,8 +870,7 @@ describe('Sidebar grouped nav', () => {
       { label: 'Tasks', href: '/tasks' },
       { label: 'Agents', href: '/agents' },
       { label: 'Activity', href: '/activity' },
-      { label: 'Files', href: '/files' },
-      { label: 'Drive', href: '/drive' },
+      { label: 'Documents', href: '/documents' },
       { label: 'Specs', href: '/specs' },
       { label: 'Gmail', href: '/gmail' },
       { label: 'Calendar', href: '/calendar' },

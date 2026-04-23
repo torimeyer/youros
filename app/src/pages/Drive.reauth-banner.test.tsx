@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import Drive from './Drive'
+import Documents from './Documents'
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
@@ -34,57 +34,47 @@ import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
 
-const NEEDS_REAUTH = {
-  authenticated: true,
+const NOT_AUTHENTICATED = {
+  authenticated: false,
   needs_reauth: true,
-  email: 'test@example.com',
+  email: null,
   credentials_file_present: true,
 }
 
-function renderDrive() {
+function renderDocumentsDriveTab() {
   return render(
-    <MemoryRouter>
-      <Drive />
+    <MemoryRouter initialEntries={['/documents?tab=drive']}>
+      <Documents />
     </MemoryRouter>
   )
 }
 
-describe('Drive reauth banner contrast', () => {
+describe('Drive connect state in Documents', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockedApiGet.mockImplementation((path: string) => {
-      if (path.includes('/drive/auth/status')) return Promise.resolve(NEEDS_REAUTH)
+      if (path.includes('/drive/auth/status')) return Promise.resolve(NOT_AUTHENTICATED)
       if (path.includes('/drive/files')) return Promise.resolve({ files: [], cached: false })
+      if (path === '/documents') return Promise.resolve([])
+      if (path.includes('/docs/recent')) return Promise.resolve({ files: [] })
+      if (path.includes('/specs/counts')) return Promise.resolve({ unfinished: 0 })
       return Promise.resolve({})
     })
   })
 
-  it('uses readable amber classes on the banner wrapper', async () => {
-    renderDrive()
-    const message = await screen.findByText(
-      'Reconnect your Google account to enable file uploads.'
+  it('shows Connect Google Drive button when not authenticated', async () => {
+    renderDocumentsDriveTab()
+    const button = await waitFor(() =>
+      screen.getByTestId('connect-drive-button')
     )
-    // The banner wrapper is the ancestor div that carries the background
-    // and border classes. Walk up until we find it.
-    let node: HTMLElement | null = message
-    while (node && !node.className.includes('bg-amber-500/15')) {
-      node = node.parentElement
-    }
-    expect(node).not.toBeNull()
-    const wrapperClasses = node!.className
-    expect(wrapperClasses).toContain('bg-amber-500/15')
-    expect(wrapperClasses).toContain('text-amber-100')
-    expect(wrapperClasses).toContain('border-amber-400/60')
+    expect(button).toBeInTheDocument()
   })
 
-  it('uses readable amber classes on the Reconnect button', async () => {
-    renderDrive()
-    const button = await waitFor(() =>
-      screen.getByRole('button', { name: /^Reconnect$/ })
+  it('shows cloud_off state message when not authenticated', async () => {
+    renderDocumentsDriveTab()
+    const message = await waitFor(() =>
+      screen.getByText('Connect Google Drive to see your files here')
     )
-    const buttonClasses = button.className
-    expect(buttonClasses).toContain('text-amber-50')
-    expect(buttonClasses).toContain('border-amber-400/60')
-    expect(buttonClasses).toContain('bg-amber-500/30')
+    expect(message).toBeInTheDocument()
   })
 })
