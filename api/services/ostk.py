@@ -499,16 +499,17 @@ class OstkService:
         task_id: str,
         title: Optional[str] = None,
         description: Optional[str] = None,
+        notes: Optional[str] = None,
     ) -> str:
-        """Rename a task's title and/or description.
+        """Rename a task's title and/or description, or set notes.
 
         ``ostk needle edit`` only supports ``--description`` today, so this
-        edits ``issues.jsonl`` directly for title changes. Description changes
-        use the same fast path for consistency. Both fields are optional and
-        any unset field is left untouched.
+        edits ``issues.jsonl`` directly for title changes. Description and
+        notes changes use the same fast path for consistency. All fields are
+        optional and any unset field is left untouched.
         """
-        if title is None and description is None:
-            raise OstkError("update_task_fields requires title or description")
+        if title is None and description is None and notes is None:
+            raise OstkError("update_task_fields requires title, description, or notes")
 
         issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
         if not issues_path.exists():
@@ -524,6 +525,8 @@ class OstkService:
                     entry["title"] = title
                 if description is not None:
                     entry["description"] = description
+                if notes is not None:
+                    entry["notes"] = notes
                 found = True
             updated.append(json.dumps(entry, ensure_ascii=False))
 
@@ -536,7 +539,52 @@ class OstkService:
             fields.append("title")
         if description is not None:
             fields.append("description")
+        if notes is not None:
+            fields.append("notes")
         return f"updated {task_id} {' and '.join(fields)}"
+
+    async def update_task_status(self, task_id: str, status: str) -> str:
+        """Mark a task as actively being worked on, or move it back to the queue.
+
+        Valid statuses are ``open`` (waiting in the queue) and
+        ``in_progress`` (someone is actively working on this now).
+        ``closed`` and ``shelved`` are managed through their own dedicated
+        endpoints (``close_task``, ``shelve_task``) so they are rejected
+        here to keep the transition surface small and auditable.
+        """
+        valid = {"open", "in_progress"}
+        if status not in valid:
+            raise OstkError(
+                f"invalid status '{status}', must be one of {valid}"
+            )
+
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        if not issues_path.exists():
+            raise OstkError("issues.jsonl not found")
+
+        lines = issues_path.read_text().strip().splitlines()
+        found = False
+        updated = []
+        for line in lines:
+            entry = json.loads(line)
+            if entry.get("id") == task_id:
+                current = entry.get("status")
+                # Closed and shelved tasks must not silently jump back to
+                # open or in_progress through this path. The caller should
+                # reopen or unshelve first, which is a distinct user intent.
+                if current in ("closed", "shelved"):
+                    raise OstkError(
+                        f"task '{task_id}' is {current}; reopen or unshelve it first"
+                    )
+                entry["status"] = status
+                found = True
+            updated.append(json.dumps(entry, ensure_ascii=False))
+
+        if not found:
+            raise OstkError(f"task '{task_id}' not found")
+
+        issues_path.write_text("\n".join(updated) + "\n")
+        return f"updated {task_id} status to {status}"
 
     async def shelve_task(self, task_id: str) -> str:
         """Pause a task via ``ostk work shelve``."""

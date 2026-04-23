@@ -202,6 +202,29 @@ async def list_tasks(
             )
             for t in tasks
         ]
+        # Live-agent overlay: any task with a currently-running agent
+        # reports ``status=in_progress`` in the response, regardless of
+        # what spawn path created the agent (Tasks page, chat tool call,
+        # external Claude Code, etc.). When the last live agent finishes
+        # the override disappears and the stored status takes over
+        # again, so the flag follows work-happening-right-now and never
+        # sticks. Terminal states (closed, shelved) are not touched so
+        # finished work never gets resurrected. Imported lazily to keep
+        # the agents router optional at import time for tools that only
+        # need the tasks module.
+        try:
+            from routers.agents import get_running_task_ids
+            _live_task_ids = get_running_task_ids()
+        except Exception:
+            _live_task_ids = set()
+        if _live_task_ids:
+            for t in tasks:
+                tid = str(t.get("id") or "")
+                if not tid or tid not in _live_task_ids:
+                    continue
+                if t.get("status") in ("closed", "shelved"):
+                    continue
+                t["status"] = "in_progress"
         # Hide e2e smoke-test tasks from normal responses. They are only
         # visible when ?include_test_data=true so leftovers from a failed run
         # do not pollute the task list in the UI.
@@ -226,7 +249,12 @@ async def list_tasks(
             tid = t.get("id", "")
             if tid in compound_scores:
                 t["unblocks"] = compound_scores[tid]
-        return {"tasks": tasks}
+        # Sort closed tasks by closed_at descending (most recently closed first).
+        # Open and in-progress tasks keep their existing custom order.
+        open_tasks = [t for t in tasks if t.get("status") != "closed"]
+        closed_tasks = [t for t in tasks if t.get("status") == "closed"]
+        closed_tasks.sort(key=lambda t: t.get("closed_at") or "", reverse=True)
+        return {"tasks": open_tasks + closed_tasks}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -569,12 +597,13 @@ async def create_task(body: TaskCreate, include_test_data: bool = False):
 async def update_task(task_id: str, body: TaskUpdate):
     try:
         results: list[str] = []
-        if body.title is not None or body.description is not None:
+        if body.title is not None or body.description is not None or body.notes is not None:
             results.append(
                 await ostk.update_task_fields(
                     task_id,
                     title=body.title,
                     description=body.description,
+                    notes=body.notes,
                 )
             )
         if body.priority:
@@ -582,6 +611,23 @@ async def update_task(task_id: str, body: TaskUpdate):
                 await ostk.update_task_priority(
                     task_id, body.priority, reason=body.reason
                 )
+            )
+        if body.status is not None:
+            # Only "open" and "in_progress" are accepted here. Closing and
+            # pausing a task go through their own endpoints so the audit
+            # trail captures the reason and the rapid-close guard fires.
+            valid_statuses = {"open", "in_progress"}
+            if body.status not in valid_statuses:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid status '{body.status}'. "
+                        "Use 'open' or 'in_progress'. "
+                        "To close or pause a task, call the dedicated endpoint."
+                    ),
+                )
+            results.append(
+                await ostk.update_task_status(task_id, body.status)
             )
         if not results:
             raise HTTPException(status_code=400, detail="No update fields provided")

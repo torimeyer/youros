@@ -29,6 +29,9 @@ class TaskUpdate(BaseModel):
     # to the friendlier "Session in <cwd>" format.
     title: Optional[str] = None
     description: Optional[str] = None
+    # Free-text notes the user can attach to a task. Stored in the task
+    # record alongside title and description. Set to empty string to clear.
+    notes: Optional[str] = None
     # Move a task between "open" (waiting in the queue) and
     # "in_progress" (someone is actively working on it now). Closing and
     # pausing are handled by dedicated endpoints so they are intentionally

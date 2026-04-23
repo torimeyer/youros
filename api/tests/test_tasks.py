@@ -445,6 +445,49 @@ async def test_list_tasks_ostk_error(client):
 
 
 @pytest.mark.asyncio
+async def test_list_tasks_closed_sorted_by_closed_at_desc(client):
+    mock_tasks = [
+        {**_make_task(id="t-old", status="closed"), "closed_at": "2026-01-01T00:00:00Z"},
+        {**_make_task(id="t-new", status="closed"), "closed_at": "2026-04-20T12:00:00Z"},
+        {**_make_task(id="t-mid", status="closed"), "closed_at": "2026-03-15T06:00:00Z"},
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+        resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    ids = [t["id"] for t in resp.json()["tasks"]]
+    assert ids == ["t-new", "t-mid", "t-old"]
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_open_before_closed(client):
+    mock_tasks = [
+        {**_make_task(id="t-closed", status="closed"), "closed_at": "2026-04-20T12:00:00Z"},
+        _make_task(id="t-open", status="open"),
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+        resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    ids = [t["id"] for t in resp.json()["tasks"]]
+    assert ids.index("t-open") < ids.index("t-closed")
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_closed_without_closed_at_sorts_last(client):
+    mock_tasks = [
+        {**_make_task(id="t-no-date", status="closed")},
+        {**_make_task(id="t-with-date", status="closed"), "closed_at": "2026-04-01T00:00:00Z"},
+    ]
+    with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+        resp = await client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    ids = [t["id"] for t in resp.json()["tasks"]]
+    assert ids.index("t-with-date") < ids.index("t-no-date")
+
+
+@pytest.mark.asyncio
 async def test_create_task_ostk_error(client):
     from services.ostk import OstkError
     with patch("routers.tasks.ostk") as mock_ostk:
@@ -522,7 +565,7 @@ async def test_update_task_title_renames_task(client):
 
     assert resp.status_code == 200
     mock_ostk.update_task_fields.assert_called_once_with(
-        "t-1", title="Session in torios", description=None
+        "t-1", title="Session in torios", description=None, notes=None
     )
 
 
@@ -546,6 +589,7 @@ async def test_update_task_title_and_description(client):
         "t-1",
         title="Session in torios",
         description="session-task: Legacy migration. Close when this Claude Code session ends.",
+        notes=None,
     )
 
 
@@ -561,8 +605,126 @@ async def test_update_task_description_only(client):
 
     assert resp.status_code == 200
     mock_ostk.update_task_fields.assert_called_once_with(
-        "t-1", title=None, description="new desc"
+        "t-1", title=None, description="new desc", notes=None
     )
+
+
+# --- PATCH /api/tasks/{id} (mark in_progress or back to open) ---
+
+
+@pytest.mark.asyncio
+async def test_update_task_status_to_in_progress(client):
+    """PATCH with status=in_progress calls update_task_status on the ostk service."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_status = AsyncMock(
+            return_value="updated t-1 status to in_progress"
+        )
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={"status": "in_progress"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["result"] == "updated t-1 status to in_progress"
+    mock_ostk.update_task_status.assert_called_once_with("t-1", "in_progress")
+
+
+@pytest.mark.asyncio
+async def test_update_task_status_back_to_open(client):
+    """Moving a task back to open (e.g. user paused work) is accepted."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_status = AsyncMock(
+            return_value="updated t-1 status to open"
+        )
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={"status": "open"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["result"] == "updated t-1 status to open"
+    mock_ostk.update_task_status.assert_called_once_with("t-1", "open")
+
+
+@pytest.mark.asyncio
+async def test_update_task_status_rejects_closed_value(client):
+    """Closing a task goes through /close, not PATCH status."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_status = AsyncMock()
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={"status": "closed"},
+        )
+
+    assert resp.status_code == 400
+    assert "Invalid status" in resp.json()["detail"]
+    mock_ostk.update_task_status.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_task_status_rejects_shelved_value(client):
+    """Pausing a task goes through /shelve, not PATCH status."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_status = AsyncMock()
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={"status": "shelved"},
+        )
+
+    assert resp.status_code == 400
+    mock_ostk.update_task_status.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_task_status_rejects_bogus_value(client):
+    """Arbitrary strings must not be accepted as status values."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_status = AsyncMock()
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={"status": "blocked"},
+        )
+
+    assert resp.status_code == 400
+    mock_ostk.update_task_status.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_task_status_surfaces_service_error(client):
+    """If the ostk service rejects the change (e.g. task is closed), the
+    router surfaces the error as a 400 instead of silently succeeding."""
+    from services.ostk import OstkError
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_status = AsyncMock(
+            side_effect=OstkError("task 't-1' is closed; reopen or unshelve it first")
+        )
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={"status": "in_progress"},
+        )
+
+    assert resp.status_code == 400
+    assert "closed" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_update_task_status_combines_with_priority(client):
+    """One PATCH can update both status and priority in a single call."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.update_task_priority = AsyncMock(
+            return_value="updated t-1 priority to P0"
+        )
+        mock_ostk.update_task_status = AsyncMock(
+            return_value="updated t-1 status to in_progress"
+        )
+        resp = await client.patch(
+            "/api/tasks/t-1",
+            json={"priority": "P0", "status": "in_progress"},
+        )
+
+    assert resp.status_code == 200
+    mock_ostk.update_task_priority.assert_called_once()
+    mock_ostk.update_task_status.assert_called_once_with("t-1", "in_progress")
 
 
 # --- GET /api/tasks/{id}/briefing ---
@@ -3920,3 +4082,174 @@ def test_reject_bad_title_unit_still_rejects_feature_alpha_with_flag():
     )
     assert _reject_bad_title("FOO_BAR_BAZ", allow_test_data=True) is not None
     assert _reject_bad_title("build-123 thing", allow_test_data=True) is not None
+
+
+# --- Live-agent status overlay on GET /api/tasks ---------------------------
+#
+# These tests exercise the behavior described in the Tasks-are-live-while-
+# agents-run requirement: any task with at least one running agent linked to
+# it reports ``status=in_progress`` on read, and the override disappears
+# when the last live agent ends. Terminal tasks are never touched.
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_overlay_forces_in_progress_when_agent_is_live(client):
+    """A task with a live agent linked to it reports in_progress.
+
+    The stored status is still 'open' on disk; only the response is
+    overridden. This ensures the Tasks board reflects "work is
+    happening right now" regardless of which spawn path launched the
+    agent.
+    """
+    from routers.agents import agent_metadata
+
+    mock_tasks = [_make_task(id="task-live", status="open")]
+    agent_metadata["agent-live-1"] = {
+        "status": "running",
+        "task_id": "task-live",
+    }
+    try:
+        with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+            resp = await client.get("/api/tasks")
+        assert resp.status_code == 200
+        returned = resp.json()["tasks"]
+        assert len(returned) == 1
+        assert returned[0]["id"] == "task-live"
+        assert returned[0]["status"] == "in_progress"
+    finally:
+        agent_metadata.pop("agent-live-1", None)
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_overlay_falls_back_when_agent_completes(client):
+    """Once the agent has a completed_at timestamp the override stops.
+
+    The task's stored status wins again. We do NOT auto-close or
+    auto-advance the task; we simply stop forcing in_progress.
+    """
+    from routers.agents import agent_metadata
+
+    mock_tasks = [_make_task(id="task-done", status="open")]
+    agent_metadata["agent-completed-1"] = {
+        "status": "completed",
+        "task_id": "task-done",
+        "completed_at": "2026-04-22T00:00:00+00:00",
+    }
+    try:
+        with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+            resp = await client.get("/api/tasks")
+        assert resp.status_code == 200
+        returned = resp.json()["tasks"]
+        assert returned[0]["status"] == "open"
+    finally:
+        agent_metadata.pop("agent-completed-1", None)
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_overlay_skips_terminal_closed_tasks(client):
+    """Closed tasks are never re-surfaced as in_progress by the overlay."""
+    from routers.agents import agent_metadata
+
+    mock_tasks = [_make_task(id="task-closed", status="closed")]
+    agent_metadata["agent-on-closed-task"] = {
+        "status": "running",
+        "task_id": "task-closed",
+    }
+    try:
+        with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+            resp = await client.get("/api/tasks")
+        assert resp.status_code == 200
+        returned = resp.json()["tasks"]
+        # Closed must stay closed regardless of live agents.
+        assert returned[0]["status"] == "closed"
+    finally:
+        agent_metadata.pop("agent-on-closed-task", None)
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_overlay_skips_terminal_shelved_tasks(client):
+    """Shelved tasks are never re-surfaced as in_progress by the overlay."""
+    from routers.agents import agent_metadata
+
+    mock_tasks = [_make_task(id="task-shelved", status="shelved")]
+    agent_metadata["agent-on-shelved-task"] = {
+        "status": "running",
+        "task_id": "task-shelved",
+    }
+    try:
+        with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+            resp = await client.get("/api/tasks")
+        assert resp.status_code == 200
+        returned = resp.json()["tasks"]
+        # Shelved must stay shelved regardless of live agents.
+        assert returned[0]["status"] == "shelved"
+    finally:
+        agent_metadata.pop("agent-on-shelved-task", None)
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_overlay_survives_multiple_agents_on_one_task(client):
+    """Two concurrent agents on one task keep it in_progress.
+
+    When one finishes, the override stays on because the other is
+    still live. Only when BOTH are done does the override drop.
+    """
+    from routers.agents import agent_metadata
+
+    # Use a unique task id so leftover rows from other tests with
+    # different task_ids cannot pollute this assertion.
+    tid = "task-multi-overlay-xyz"
+
+    def _fresh_tasks():
+        # Return a fresh list each call so the overlay's in-place
+        # status mutation does not leak across the three probes below.
+        # In production ``ostk.list_tasks`` reads from disk every call
+        # and already returns a fresh list, so this only matters in
+        # the mocked test path.
+        return [_make_task(id=tid, status="open")]
+
+    # Remove any stale rows that reference this task id, then seed two
+    # fresh live agents. Copy keys to a list so we can mutate in-flight.
+    for _name in [k for k, v in agent_metadata.items()
+                  if isinstance(v, dict) and v.get("task_id") == tid]:
+        agent_metadata.pop(_name, None)
+    agent_metadata["agent-A-overlay-xyz"] = {"status": "running", "task_id": tid}
+    agent_metadata["agent-B-overlay-xyz"] = {"status": "running", "task_id": tid}
+    try:
+        # Both live: overlay forces in_progress.
+        with _patch_ostk_and_labels(list_tasks=AsyncMock(side_effect=lambda **kw: _fresh_tasks())):
+            resp = await client.get("/api/tasks")
+        assert resp.json()["tasks"][0]["status"] == "in_progress"
+
+        # One finishes, one still live: still in_progress.
+        agent_metadata["agent-A-overlay-xyz"]["status"] = "completed"
+        agent_metadata["agent-A-overlay-xyz"]["completed_at"] = "2026-04-22T00:00:00+00:00"
+        with _patch_ostk_and_labels(list_tasks=AsyncMock(side_effect=lambda **kw: _fresh_tasks())):
+            resp = await client.get("/api/tasks")
+        assert resp.json()["tasks"][0]["status"] == "in_progress"
+
+        # Both finished: override drops, stored status wins.
+        agent_metadata["agent-B-overlay-xyz"]["status"] = "completed"
+        agent_metadata["agent-B-overlay-xyz"]["completed_at"] = "2026-04-22T00:01:00+00:00"
+        with _patch_ostk_and_labels(list_tasks=AsyncMock(side_effect=lambda **kw: _fresh_tasks())):
+            resp = await client.get("/api/tasks")
+        assert resp.json()["tasks"][0]["status"] == "open"
+    finally:
+        agent_metadata.pop("agent-A-overlay-xyz", None)
+        agent_metadata.pop("agent-B-overlay-xyz", None)
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_overlay_ignores_agents_without_task_linkage(client):
+    """Agents spawned without a task_id never promote any task."""
+    from routers.agents import agent_metadata
+
+    mock_tasks = [_make_task(id="task-isolated", status="open")]
+    agent_metadata["agent-freelance"] = {"status": "running"}  # no task_id
+    try:
+        with _patch_ostk_and_labels(list_tasks=AsyncMock(return_value=mock_tasks)):
+            resp = await client.get("/api/tasks")
+        # Nothing to promote; stored status wins.
+        assert resp.json()["tasks"][0]["status"] == "open"
+    finally:
+        agent_metadata.pop("agent-freelance", None)

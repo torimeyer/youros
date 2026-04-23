@@ -338,6 +338,10 @@ export default function Tasks() {
   // fetchTasks so a ref (no re-render) is fine.
   const pendingDeleteIdsRef = useRef<Set<string>>(new Set());
   const [openActionMenu, setOpenActionMenu] = useState<string | null>(null);
+  // Notes editing state for the detail panel context tab.
+  const [notesValue, setNotesValue] = useState<string>("");
+  const [notesSaving, setNotesSaving] = useState(false);
+  const [notesSaved, setNotesSaved] = useState(false);
   // Tracks which row's "what is comprehensive build?" help popover is
   // open. Null when none. We track by task id so the popover is
   // anchored next to the right row.
@@ -519,8 +523,12 @@ export default function Tasks() {
       fetchBriefing(taskId);
       fetchTrace(taskId);
       fetchLinkedContext(taskId);
+      // Sync notes editor with the newly selected task's current notes value.
+      const clicked = tasks.find(t => t.id === taskId);
+      setNotesValue(clicked?.notes ?? "");
+      setNotesSaved(false);
     }
-  }, [selectedTaskId, fetchBriefing, fetchTrace, fetchLinkedContext]);
+  }, [selectedTaskId, tasks, fetchBriefing, fetchTrace, fetchLinkedContext]);
 
   useEffect(() => {
     fetchTasks();
@@ -2705,6 +2713,42 @@ export default function Tasks() {
                             </div>
                           )}
                         </>
+                      )}
+
+                      {/* Notes editor — shown at the bottom of the context tab */}
+                      {detailTab === "context" && (
+                        <div className="mt-4 border-t border-slate-700 pt-4">
+                          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Notes</h4>
+                          <textarea
+                            data-testid="task-notes-editor"
+                            className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-slate-200 placeholder-slate-500 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            rows={4}
+                            placeholder="Add a note..."
+                            value={notesValue}
+                            onChange={e => { setNotesValue(e.target.value); setNotesSaved(false); }}
+                          />
+                          <div className="flex items-center gap-2 mt-1">
+                            <button
+                              data-testid="task-notes-save"
+                              className="text-xs px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
+                              disabled={notesSaving}
+                              onClick={async () => {
+                                if (!task) return;
+                                setNotesSaving(true);
+                                try {
+                                  await api.patch(`/tasks/${task.id}`, { notes: notesValue });
+                                  setTasks(prev => prev.map(t => t.id === task.id ? { ...t, notes: notesValue } : t));
+                                  setNotesSaved(true);
+                                } finally {
+                                  setNotesSaving(false);
+                                }
+                              }}
+                            >
+                              {notesSaving ? "Saving…" : "Save"}
+                            </button>
+                            {notesSaved && <span className="text-xs text-green-400">Saved</span>}
+                          </div>
+                        </div>
                       )}
 
                       {/* History tab (trace / attribution chain) */}
