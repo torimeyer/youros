@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -86,6 +87,11 @@ async def get_activity(
         if event_type == "tack.resolved":
             inp = detail.split("input=", 1)[-1][:60] if "input=" in detail else detail[:60]
             detail = f"Ran: {inp}" if inp else detail
+        elif event_type in ("task.closed", "task.reopened", "needle.activated"):
+            # ostk emits "→NNN reason: none" when no close reason was given.
+            # Strip the meaningless "reason: none" / "reason: null" suffix so
+            # the feed shows the task ID and title only.
+            detail = re.sub(r"\s+reason:\s*(none|null)\s*$", "", detail, flags=re.IGNORECASE).strip()
         events.append({
             "timestamp": ev.get("timestamp", ""),
             "event": event_type,

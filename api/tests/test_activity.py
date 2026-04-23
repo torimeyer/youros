@@ -177,6 +177,54 @@ async def test_activity_known_events_all_have_labels(client):
         assert label[0].isupper(), f"{event_type} label should start with a capital letter"
 
 
+@pytest.mark.asyncio
+async def test_activity_task_closed_strips_reason_none(client):
+    """task.closed events with 'reason: none' suffix must not show that text in detail.
+
+    ostk emits '→NNN reason: none' when a task is closed without an explicit
+    reason.  The activity feed must strip the useless suffix so the entry shows
+    the task ID and title only.
+    """
+    with patch("routers.activity.ostk") as mock_ostk:
+        mock_ostk.get_history = AsyncMock(return_value=[
+            {"timestamp": "2026-04-06T17:42:47Z", "event": "task.closed", "detail": "→044 reason: none"},
+            {"timestamp": "2026-04-06T17:42:48Z", "event": "task.closed", "detail": "→045 reason: null"},
+            {"timestamp": "2026-04-06T17:42:49Z", "event": "task.closed", "detail": "→046 Build the feature reason: none"},
+        ])
+        resp = await client.get("/api/activity")
+
+    assert resp.status_code == 200
+    events = resp.json()["events"]
+    assert len(events) == 3
+    for ev in events:
+        assert "reason: none" not in ev["detail"], (
+            f"'reason: none' must not appear in activity detail: {ev['detail']!r}"
+        )
+        assert "reason: null" not in ev["detail"], (
+            f"'reason: null' must not appear in activity detail: {ev['detail']!r}"
+        )
+    # Events are returned newest-first.
+    # events[0] = →046 Build the feature (had "reason: none" suffix stripped)
+    # events[2] = →044 (bare task ID, "reason: none" suffix stripped)
+    assert events[0]["detail"] == "→046 Build the feature"
+    assert events[2]["detail"] == "→044"
+
+
+@pytest.mark.asyncio
+async def test_activity_task_closed_preserves_meaningful_reason(client):
+    """task.closed events with a real reason (e.g. 'completed') keep their full detail."""
+    with patch("routers.activity.ostk") as mock_ostk:
+        mock_ostk.get_history = AsyncMock(return_value=[
+            {"timestamp": "2026-04-06T17:42:47Z", "event": "task.closed",
+             "detail": "→044 Build the login page reason: completed"},
+        ])
+        resp = await client.get("/api/activity")
+
+    event = resp.json()["events"][0]
+    # "completed" is a meaningful reason and must NOT be stripped
+    assert "completed" in event["detail"]
+
+
 # --- OstkService.get_history unit tests ---
 
 
