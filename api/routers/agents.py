@@ -5147,6 +5147,7 @@ async def cancel_agent(name: str, body: Optional[AgentCancel] = None):
 
     # Audit so the audit log reflects the cancel.
     _emit_audit_event("agent.cancelled", {"name": name, "reason": reason})
+    trace_event("agent_cancelled", agent_name=name, reason=reason)
 
     return {"ok": True, "status": "cancelled", "terminated_at": now_iso, "process_killed": killed}
 

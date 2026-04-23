@@ -1391,6 +1391,12 @@ async def build_spec(spec_path: str):
     # name on the very first poll even while the subprocess is still
     # warming up. If the spawn then errors, we pop the assignment so
     # the UI does not attach a broken builder to the row.
+    try:
+        from services.tracing import trace_event as _trace_event
+        _trace_event("spec_built_start", spec_path=str(spec_path), agent_count=len(agent_configs))
+    except Exception:
+        pass
+
     import asyncio as _asyncio
     from routers.agents import spawn_agent
     from models.schemas import AgentSpawn

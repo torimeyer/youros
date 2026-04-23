@@ -874,12 +874,23 @@ async def _anthropic_retry_call(
     non-retryable error is re-raised immediately so upstream code can
     still show clear 4xx messages.
     """
+    from services.tracing import trace_event as _trace_event
+    _trace_event("llm_call_start", op=op_name)
     last_exc: Optional[BaseException] = None
     for attempt in range(_ANTHROPIC_MAX_ATTEMPTS):
         try:
-            return await func()
+            _result = await func()
+            try:
+                _trace_event("llm_call_end", op=op_name, ok=True, attempts=attempt + 1)
+            except Exception:
+                pass
+            return _result
         except BaseException as exc:  # noqa: BLE001
             if not _is_retryable_anthropic_error(exc):
+                try:
+                    _trace_event("llm_call_end", op=op_name, ok=False, error=exc.__class__.__name__)
+                except Exception:
+                    pass
                 raise
             last_exc = exc
             if attempt >= _ANTHROPIC_MAX_ATTEMPTS - 1:
