@@ -12,13 +12,11 @@ const defaultProps = {
   open: true,
   statusFilter: 'open' as StatusFilter,
   threadFilter: null,
-  hideSessionTasks: true,
   viewMode: 'list' as const,
   threads: mockThreads,
   filterCounts: { open: 5, closed: 2, shelved: 1, week: 3 },
   onStatusChange: vi.fn(),
   onThreadChange: vi.fn(),
-  onSessionToggle: vi.fn(),
   onViewModeChange: vi.fn(),
   onClose: vi.fn(),
 }
@@ -55,18 +53,6 @@ describe('FilterDrawer', () => {
     render(<FilterDrawer {...defaultProps} onStatusChange={onStatusChange} />)
     fireEvent.click(screen.getByTestId('status-filter-closed'))
     expect(onStatusChange).toHaveBeenCalledWith('closed')
-  })
-
-  it('shows sessions toggle button', () => {
-    render(<FilterDrawer {...defaultProps} />)
-    expect(screen.getByTestId('toggle-session-tasks')).toBeInTheDocument()
-  })
-
-  it('calls onSessionToggle when sessions button is clicked', () => {
-    const onSessionToggle = vi.fn()
-    render(<FilterDrawer {...defaultProps} onSessionToggle={onSessionToggle} />)
-    fireEvent.click(screen.getByTestId('toggle-session-tasks'))
-    expect(onSessionToggle).toHaveBeenCalled()
   })
 
   it('shows view mode toggle buttons', () => {

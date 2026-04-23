@@ -24,7 +24,6 @@ import LabelsView from "../components/LabelsView";
 import HealthCheckView from "../components/HealthCheckView";
 import type { Label } from "../components/LabelsView";
 import { api } from "../lib/api";
-import { isSessionTask } from "../lib/tasks";
 import { onTasksChange } from "../lib/sidebarBus";
 import SharePopover from "../components/SharePopover";
 import ExportButton from "../components/ExportButton";
@@ -275,38 +274,6 @@ export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
   const [closedSortOrder, setClosedSortOrder] = useState<ClosedSortOrder>("newest");
   const [sortBy, setSortBy] = useState<SortBy>("date-desc");
-  // Session tasks (auto-filed by the SessionStart hook) are hidden by default.
-  // The user can toggle this to show them when needed, but the preference
-  // lives in sessionStorage so reloading the page (or opening a new tab)
-  // resets back to hidden. Tori asked for this so background sessions never
-  // pile up as visible duplicates after a reload. See needle for
-  // hide-session-tasks-hard.
-  const [hideSessionTasks, setHideSessionTasks] = useState<boolean>(() => {
-    try {
-      if (typeof window === "undefined" || !window.sessionStorage) return true;
-      const raw = window.sessionStorage.getItem("myos.tasks.showSessionTasks");
-      // Stored value "1" means user explicitly flipped sessions ON during
-      // THIS browser tab session. Anything else (missing, "0", malformed)
-      // means hide.
-      return raw !== "1";
-    } catch {
-      return true;
-    }
-  });
-  // Persist the toggle in sessionStorage so a deliberate flip survives an
-  // in-tab navigation. A full reload clears sessionStorage and the
-  // useState initializer above resets hidden to true.
-  useEffect(() => {
-    try {
-      if (typeof window === "undefined" || !window.sessionStorage) return;
-      window.sessionStorage.setItem(
-        "myos.tasks.showSessionTasks",
-        hideSessionTasks ? "0" : "1",
-      );
-    } catch {
-      // Quota or privacy mode failure: skip persistence, keep behavior.
-    }
-  }, [hideSessionTasks]);
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [banner, setBanner] = useState<string | null>(null);
   const [openPriorityDropdown, setOpenPriorityDropdown] = useState<string | null>(null);
@@ -1228,10 +1195,6 @@ export default function Tasks() {
     filteredTasks = filteredTasks.filter((t) => t.thread_id === threadFilter);
   }
 
-  if (hideSessionTasks) {
-    filteredTasks = filteredTasks.filter((t) => !isSessionTask(t));
-  }
-
   if (statusFilter === "closed") {
     filteredTasks = [...filteredTasks].sort((a, b) => {
       const aTime = a.closed_at ? new Date(a.closed_at).getTime() : 0;
@@ -1275,7 +1238,7 @@ export default function Tasks() {
   // Unfiltered counts used by the FilterDrawer status badge pills so the
   // user can see how many tasks live in each status bucket before choosing
   // one. These deliberately ignore priority/label/thread filters.
-  const openCount = tasks.filter((t) => isActiveTask(t) && (hideSessionTasks ? !isSessionTask(t) : true)).length;
+  const openCount = tasks.filter((t) => isActiveTask(t)).length;
   const closedCount = tasks.filter((t) => t.status === "closed").length;
   const shelvedCount = tasks.filter((t) => t.status === "shelved").length;
   const weekCount = tasks.filter((t) => isActiveTask(t) && isThisWeek(t.created_at)).length;
@@ -1301,23 +1264,9 @@ export default function Tasks() {
     visibleCount === 0 &&
     openCount > 0;
 
-  // How many open tasks are session tasks (hidden by default). Used to show an
-  // inline nudge when session-hiding is the only reason the list is empty.
-  const hiddenSessionCount = tasks.filter(
-    (t) => isActiveTask(t) && isSessionTask(t)
-  ).length;
-  // True when the open tab is showing and sessions are the only reason there are
-  // no visible tasks. Fires regardless of secondary filters.
-  const sessionHidingAllTasks =
-    statusFilter === "open" &&
-    visibleCount === 0 &&
-    hiddenSessionCount > 0 &&
-    hideSessionTasks;
-
   const clearAllFilters = () => {
     setStatusFilter("open");
     setThreadFilter(null);
-    setHideSessionTasks(true);
   };
 
   /** Render dependency pills showing what blocks/depends-on this task */
@@ -1833,7 +1782,6 @@ export default function Tasks() {
               open={true}
               statusFilter={statusFilter}
               threadFilter={threadFilter}
-              hideSessionTasks={hideSessionTasks}
               viewMode={viewMode}
               threads={threads}
               filterCounts={filterCounts}
@@ -1841,7 +1789,6 @@ export default function Tasks() {
               sortBy={sortBy}
               onStatusChange={setStatusFilter}
               onThreadChange={setThreadFilter}
-              onSessionToggle={() => setHideSessionTasks((v) => !v)}
               onViewModeChange={setViewMode}
               onClosedSortOrderChange={setClosedSortOrder}
               onSortByChange={setSortBy}
@@ -1906,22 +1853,8 @@ export default function Tasks() {
                   description="Type a task above, or tell myOS an idea in chat and it will create tasks for you."
                 />
               )}
-              {!loading && filteredTasks.length === 0 && tasks.length > 0 && !sessionHidingAllTasks && (
+              {!loading && filteredTasks.length === 0 && tasks.length > 0 && (
                 <p className="text-sm text-slate-500 py-4">No tasks match this filter.</p>
-              )}
-              {!loading && sessionHidingAllTasks && (
-                <div className="py-6 text-center" data-testid="session-hiding-empty-state">
-                  <p className="text-sm text-slate-400 mb-3">
-                    Your open tasks are all auto-filed Claude Code sessions.
-                  </p>
-                  <button
-                    onClick={() => setHideSessionTasks(false)}
-                    className="text-xs text-blue-400 hover:text-blue-300 underline"
-                    data-testid="show-sessions-btn"
-                  >
-                    Show sessions ({hiddenSessionCount})
-                  </button>
-                </div>
               )}
               {PRIORITIES.map((priority) => {
                 // Tasks with a null/undefined priority fall into the P3 (lowest) bucket
@@ -2107,37 +2040,7 @@ export default function Tasks() {
                           <span className="font-medium">Note:</span> {task.notes}
                         </p>
                       )}
-                      {task.session_id && (
-                        <div
-                          data-testid={`task-session-row-${task.id}`}
-                          className="flex items-center gap-2 mt-1 text-[11px] text-slate-400"
-                        >
-                          <button
-                            data-testid={`view-transcript-${task.id}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/transcripts?session=${task.session_id}`);
-                            }}
-                            className="inline-flex items-center gap-1 hover:text-blue-300 transition-colors"
-                            title="Open the Claude Code transcript for this session"
-                          >
-                            <Icon name="chat" className="text-[11px]" />
-                            View transcript
-                          </button>
-                          {typeof task.child_task_count === "number" && task.child_task_count > 0 && (
-                            <span
-                              data-testid={`child-task-count-${task.id}`}
-                              className="inline-flex items-center gap-1 text-slate-500"
-                              title="Tasks created during this Claude Code session"
-                            >
-                              <Icon name="add_task" className="text-[11px]" />
-                              {task.child_task_count === 1
-                                ? "1 task created in this session"
-                                : `${task.child_task_count} tasks created in this session`}
-                            </span>
-                          )}
-                        </div>
-                      )}
+
                     </div>
                     {renderLinkDropdown(task)}
                     {renderLabelDropdown(task)}
@@ -2926,18 +2829,7 @@ export default function Tasks() {
                     </button>
                   </span>
                 )}
-                {sessionHidingAllTasks && (
-                  <span className="text-slate-500 text-xs" data-testid="session-hiding-hint">
-                    {hiddenSessionCount} session {hiddenSessionCount === 1 ? "task" : "tasks"} hidden &middot;{" "}
-                    <button
-                      onClick={() => setHideSessionTasks(false)}
-                      className="text-blue-400 hover:text-blue-300 underline"
-                      data-testid="show-sessions-footer-btn"
-                    >
-                      Show sessions
-                    </button>
-                  </span>
-                )}
+
               </div>
               <span className="text-slate-600 text-xs">
                 Press <kbd className="px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">/</kbd> for new task

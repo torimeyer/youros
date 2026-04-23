@@ -15,7 +15,6 @@ interface FilterDrawerProps {
   open?: boolean;
   statusFilter: StatusFilter;
   threadFilter: string | null;
-  hideSessionTasks: boolean;
   viewMode: "list" | "grid";
   threads: Thread[];
   filterCounts: Partial<Record<StatusFilter, number>>;
@@ -23,7 +22,6 @@ interface FilterDrawerProps {
   sortBy?: SortBy;
   onStatusChange: (f: StatusFilter) => void;
   onThreadChange: (id: string | null) => void;
-  onSessionToggle: () => void;
   onViewModeChange: (v: "list" | "grid") => void;
   onClosedSortOrderChange?: (order: ClosedSortOrder) => void;
   onSortByChange?: (s: SortBy) => void;
@@ -35,7 +33,6 @@ export function FilterDrawer({
   open: _open,
   statusFilter,
   threadFilter,
-  hideSessionTasks,
   viewMode,
   threads,
   filterCounts,
@@ -43,7 +40,6 @@ export function FilterDrawer({
   sortBy = "date-desc",
   onStatusChange,
   onThreadChange,
-  onSessionToggle,
   onViewModeChange,
   onClosedSortOrderChange,
   onSortByChange,
@@ -52,8 +48,7 @@ export function FilterDrawer({
 }: FilterDrawerProps) {
   const hasNonDefaultFilter =
     statusFilter !== "open" ||
-    threadFilter !== null ||
-    !hideSessionTasks;
+    threadFilter !== null;
 
   const statusFilterClass = (f: StatusFilter) =>
     statusFilter === f
@@ -205,26 +200,9 @@ export function FilterDrawer({
         </div>
       )}
 
-      {/* Bottom row: sessions toggle + clear all + view mode + close */}
+      {/* Bottom row: clear all + view mode + close */}
       <div className="flex items-center justify-between pt-2 border-t border-slate-800">
         <div className="flex items-center gap-2">
-          <button
-            onClick={onSessionToggle}
-            data-testid="toggle-session-tasks"
-            className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-lg border transition-colors ${
-              hideSessionTasks
-                ? "bg-slate-800 text-slate-500 border-slate-700 hover:text-slate-300"
-                : "bg-slate-700 text-slate-200 border-slate-600"
-            }`}
-            title={
-              hideSessionTasks
-                ? "Session tasks are hidden. Click to show them."
-                : "Click to hide session tasks."
-            }
-          >
-            <Icon name="terminal" className="text-sm" />
-            {hideSessionTasks ? "Sessions hidden" : "Sessions shown"}
-          </button>
           {hasNonDefaultFilter && onClearAll && (
             <button
               onClick={onClearAll}
