@@ -793,3 +793,57 @@ async def test_settings_stores_standing_instructions(client, settings_file):
 
         resp = await client.get("/api/settings")
         assert resp.json()["standing_instructions"] == "Always reply in plain language."
+
+
+# --- instance_name tests ---
+# The instance_name field names this specific installation of the product.
+# The product is myOS. A user who never changes it sees "myOS". A user who
+# renames their copy sees whatever they pick. Tori's copy is "toriOS".
+
+
+@pytest.mark.asyncio
+async def test_instance_name_default_is_myos(tmp_path):
+    """A fresh settings file reports instance_name as the product default."""
+    sf = tmp_path / "settings.json"
+    with patch("services.settings_store.SETTINGS_PATH", sf):
+        from services.settings_store import SettingsStore
+        store = SettingsStore()
+        data = store.load()
+        assert data["instance_name"] == "myOS"
+
+
+@pytest.mark.asyncio
+async def test_get_settings_returns_instance_name(client, settings_file):
+    """GET /api/settings includes instance_name in the response."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.get("/api/settings")
+    assert resp.status_code == 200
+    data = resp.json()
+    # Default from the Pydantic schema since the fixture does not set it.
+    assert data["instance_name"] == "myOS"
+
+
+@pytest.mark.asyncio
+async def test_patch_instance_name_persists(client, settings_file):
+    """PATCH /api/settings with instance_name writes through and survives GET."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        resp = await client.patch(
+            "/api/settings", json={"instance_name": "toriOS"}
+        )
+        assert resp.status_code == 200
+        resp = await client.get("/api/settings")
+    assert resp.json()["instance_name"] == "toriOS"
+    # Other fields remain intact.
+    saved = json.loads(settings_file.read_text())
+    assert saved["instance_name"] == "toriOS"
+    assert saved["os_name"] == "ToriOS"
+
+
+@pytest.mark.asyncio
+async def test_patch_instance_name_back_to_default(client, settings_file):
+    """The user can reset instance_name back to the product name."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file):
+        await client.patch("/api/settings", json={"instance_name": "scottOS"})
+        await client.patch("/api/settings", json={"instance_name": "myOS"})
+        resp = await client.get("/api/settings")
+    assert resp.json()["instance_name"] == "myOS"

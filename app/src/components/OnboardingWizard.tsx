@@ -13,7 +13,7 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Theme', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Instance', 'Profile', 'Theme', 'Connect', 'Ready'] as const
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
 
@@ -31,6 +31,8 @@ export default function OnboardingWizard() {
   // Store bindings
   const osName = useAppStore((s) => s.osName)
   const setOsName = useAppStore((s) => s.setOsName)
+  const instanceName = useAppStore((s) => s.instanceName)
+  const setInstanceName = useAppStore((s) => s.setInstanceName)
   const darkMode = useAppStore((s) => s.darkMode)
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
   const setOnboarded = useAppStore((s) => s.setOnboarded)
@@ -151,6 +153,7 @@ export default function OnboardingWizard() {
     // Personal finish
     const settings: Record<string, unknown> = {
       os_name: osName,
+      instance_name: instanceName || 'myOS',
       user_name: userName,
       dark_mode: pickedDarkRef.current,
       provider: selectedProvider,
@@ -275,6 +278,15 @@ export default function OnboardingWizard() {
               setOsName={setOsName}
               onNext={next}
               userName={userName}
+              inputCls={inputCls}
+              subtextCls={subtextCls}
+            />
+          )}
+          {step === 'Instance' && (
+            <InstanceStep
+              instanceName={instanceName}
+              setInstanceName={setInstanceName}
+              onNext={next}
               inputCls={inputCls}
               subtextCls={subtextCls}
             />
@@ -613,6 +625,51 @@ function NameStep({
         placeholder={`e.g. ${example}`}
         className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
         data-testid="os-name-input"
+        autoFocus
+      />
+    </div>
+  )
+}
+
+function InstanceStep({
+  instanceName,
+  setInstanceName,
+  onNext,
+  inputCls,
+  subtextCls,
+}: {
+  instanceName: string
+  setInstanceName: (name: string) => void
+  onNext: () => void
+  inputCls: string
+  subtextCls: string
+}) {
+  // Seed the field so a user who just wants the default can press Next
+  // without typing. Only seed if it is still empty so we do not overwrite
+  // a value the user typed then backed away from.
+  useEffect(() => {
+    if (!instanceName) {
+      setInstanceName('myOS')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return (
+    <div data-testid="step-instance">
+      <h2 className="text-2xl font-bold mb-2">Name your instance</h2>
+      <p className={`${subtextCls} mb-2`}>
+        Pick a name for your copy. Most people leave it as myOS. Tori's is toriOS.
+      </p>
+      <p className={`mb-6 text-xs ${subtextCls}`}>
+        You can change this any time in Settings.
+      </p>
+      <input
+        type="text"
+        value={instanceName}
+        onChange={(e) => setInstanceName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') onNext() }}
+        placeholder="myOS"
+        className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+        data-testid="instance-name-input"
         autoFocus
       />
     </div>
