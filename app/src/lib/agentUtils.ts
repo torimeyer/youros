@@ -66,12 +66,19 @@ export interface AgentInfo {
  *  - Audit-log entries (source === "audit")
  *  - Hook auto-files (source === "hook")
  *  - Subscription chat rows (model === "claude-code-subscription")
+ *  - Pre-registration placeholder rows (hook_preregister === true) — the
+ *    PreToolUse hook inserts these the moment a subagent boots, before it
+ *    has done any real work. The row is promoted to a real agent once the
+ *    subagent calls /register and the hook_preregister flag is cleared.
+ *    Showing these rows immediately makes agents appear in the UI before
+ *    they have registered, which is confusing.
  */
 export function isUserSpawnedAgent(agent: {
   name: string;
   description?: string;
   source?: string;
   model?: string;
+  hook_preregister?: boolean;
 }): boolean {
   if (isMainSession(agent)) return false;
   if (agent.source === "chat") return false;
@@ -84,6 +91,10 @@ export function isUserSpawnedAgent(agent: {
   // chat/audit/hook exclusions above.
   if (agent.source === "daemon") return false;
   if (agent.model === "claude-code-subscription") return false;
+  // Pre-registration placeholder: the hook fires before the subagent boots
+  // and inserts a row with hook_preregister=true. Hide it until the
+  // subagent calls /register and the flag is cleared/merged.
+  if (agent.hook_preregister) return false;
   return true;
 }
 
@@ -204,16 +215,14 @@ export function agentTitleParts(
   // 3. Task / description present (explicit human-written title)
   const taskText = (agent.task || agent.description || "").trim();
   if (taskText) {
-    const primary = taskText.length > 60 ? taskText.slice(0, 60) : taskText;
-    return { primary, secondary };
+    return { primary: taskText, secondary };
   }
 
   // 4. Chat session: use chat_title or prompt as the title
   if (agent.source === "chat") {
     const chatRaw = (agent.chat_title || agent.prompt || "").trim();
     if (chatRaw) {
-      const primary = chatRaw.length > 60 ? chatRaw.slice(0, 60) : chatRaw;
-      return { primary, secondary };
+      return { primary: chatRaw, secondary };
     }
     // No title yet: fall back to "Chat · Model · time"
     const parts: string[] = ["Chat"];

@@ -12,6 +12,10 @@ Exclusions (must stay in sync with isUserSpawnedAgent in agentUtils.ts):
     - Audit-log entries (source == "audit").
     - Hook auto-files (source == "hook").
     - Subscription chat rows (model == "claude-code-subscription").
+    - Pre-registration placeholder rows (hook_preregister == True). The
+      PreToolUse hook inserts these before the subagent has done any work.
+      The flag is cleared when the subagent calls /register, at which point
+      the row becomes visible.
 """
 
 from __future__ import annotations
@@ -53,5 +57,10 @@ def is_user_spawned_agent(agent: Mapping[str, Any]) -> bool:
     if source == "hook":
         return False
     if agent.get("model") == "claude-code-subscription":
+        return False
+    # Pre-registration placeholder rows must not appear in the user-spawned list.
+    # The PreToolUse hook inserts these before the subagent boots; the flag is
+    # cleared when the subagent calls /register and the row is merged.
+    if agent.get("hook_preregister"):
         return False
     return True

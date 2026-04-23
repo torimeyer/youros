@@ -72,6 +72,20 @@ describe('isUserSpawnedAgent (shared sidebar + Agents page filter)', () => {
     ).toBe(false)
   })
 
+  it('excludes hook_preregister=true placeholder rows (agent not yet booted)', () => {
+    // The PreToolUse hook fires before the subagent starts and inserts a row
+    // with hook_preregister: true. It must not appear in the sidebar or Agents
+    // page until the subagent calls /register and the flag is cleared.
+    expect(
+      isUserSpawnedAgent({
+        name: 'pending-agent',
+        source: 'claude-code',
+        model: 'sonnet',
+        hook_preregister: true,
+      }),
+    ).toBe(false)
+  })
+
   it('excludes the main Claude Code session (inferred name + desc)', () => {
     const agent = {
       name: 'claude-code-abcdef12',
@@ -97,6 +111,7 @@ describe('isUserSpawnedAgent (shared sidebar + Agents page filter)', () => {
       { name: 'claude-code-12345678', status: 'running', source: 'claude-code', model: 'sonnet', description: 'Claude Code session (cwd: /x)' },
       { name: 'old-completed', status: 'completed', source: 'claude-code', model: 'sonnet' },
       { name: 'spawning', status: 'spawned', source: 'claude-code', model: 'sonnet' },
+      { name: 'hook-placeholder', status: 'running', source: 'claude-code', model: 'sonnet', hook_preregister: true },
     ]
 
     // Sidebar filter: running|spawned + isUserSpawnedAgent

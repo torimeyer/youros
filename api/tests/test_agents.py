@@ -4436,6 +4436,262 @@ async def test_spawn_build_agent_includes_display_name_with_task_title(tmp_path,
 
 
 @pytest.mark.asyncio
+async def test_spawn_with_task_id_records_link_in_agent_metadata(tmp_path, monkeypatch):
+    """POST /agents/spawn with a task_id records the task link in
+    ``agent_metadata[name]["task_id"]`` so the Tasks list endpoint can
+    derive ``in_progress`` while the agent is still running.
+
+    We no longer write the transition into issues.jsonl at spawn time
+    because the derived overlay in ``routers.tasks.list_tasks`` handles
+    both directions: on when an agent is live, off when the last one
+    finishes. A stored write would stick forever and defeat the
+    "flip back when no agents remain" requirement.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 313131
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    # Guard: update_task_status must NOT be invoked by the spawn path.
+    update_calls: list = []
+
+    async def _capture_update(task_id: str, status: str):
+        update_calls.append((task_id, status))
+        return "updated"
+
+    monkeypatch.setattr(agents_module.ostk, "update_task_status", _capture_update)
+
+    agent_name = "spawn-with-task-id-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Do the thing.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "task_id": "→123",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        # Stored write must be skipped. The derivation lives on read.
+        assert update_calls == []
+        # The spawn must persist the task linkage so the overlay can
+        # find it. Without this key the derived status cannot follow
+        # the live-agent signal.
+        assert agent_metadata[agent_name]["task_id"] == "→123"
+        assert agent_metadata[agent_name]["status"] == "running"
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_with_task_id_does_not_override_terminal_status(tmp_path, monkeypatch):
+    """POST /agents/spawn must not clobber a task already in a terminal state.
+
+    The spawn path no longer writes the task status at all; the live
+    overlay in ``routers.tasks.list_tasks`` skips terminal rows so
+    closed and shelved tasks are never promoted to ``in_progress`` even
+    when a live agent is linked to them. This test locks that in: the
+    spawn succeeds, never calls update_task_status, and the live-agent
+    helper returns the task id so the read-time overlay can make the
+    final decision.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata, get_running_task_ids
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 424242
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    update_calls: list = []
+
+    async def _capture_update(task_id: str, status: str):
+        update_calls.append((task_id, status))
+        return "updated"
+
+    monkeypatch.setattr(agents_module.ostk, "update_task_status", _capture_update)
+
+    agent_name = "spawn-with-closed-task-id-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Do the thing.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "task_id": "→999",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        # No status write on spawn, even when the task is terminal.
+        assert update_calls == []
+        # The helper still reports the linkage. The overlay in
+        # list_tasks is where terminal rows get filtered out.
+        assert "→999" in get_running_task_ids()
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_spawn_without_task_id_skips_status_transition(tmp_path, monkeypatch):
+    """POST /agents/spawn without a task_id must not touch any task status.
+
+    Ad-hoc agent spawns (command palette, Agents page "Quick spawn")
+    are not tied to any task. The spawn path must NOT call
+    update_task_status at all in that case.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 505050
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    update_calls: list = []
+
+    async def _capture_update(task_id: str, status: str):
+        update_calls.append((task_id, status))
+        return "updated"
+
+    monkeypatch.setattr(agents_module.ostk, "update_task_status", _capture_update)
+
+    agent_name = "spawn-without-task-id-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Do the thing.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        # Never called: no task_id means no transition.
+        assert update_calls == []
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
 async def test_agent_spawn_prepends_standing_instructions_to_prompt(tmp_path, monkeypatch):
     """POST /agents/spawn must prepend the user's saved standing instructions.
 
@@ -8047,6 +8303,14 @@ def test_is_user_spawned_agent_helper_matches_frontend_rule():
         "model": "sonnet",
         "task": "Fix the bug",
     }) is True
+    # Excluded: hook_preregister placeholder (PreToolUse hook fires before
+    # the subagent boots; the flag is cleared when the subagent registers).
+    assert is_user_spawned_agent({
+        "name": "pending-agent",
+        "source": "claude-code",
+        "model": "sonnet",
+        "hook_preregister": True,
+    }) is False
 
 
 # --- Reconcile endpoint tests ---
