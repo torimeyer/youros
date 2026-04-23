@@ -46,6 +46,7 @@ import anthropic
 from config import PROJECT_ROOT
 from services.chat_providers import _resolve_api_key
 from services.ostk import ostk, OstkError
+from services.task_visibility import is_e2e_task, is_session_task
 
 
 logger = logging.getLogger("myos.task_audit")
@@ -635,6 +636,17 @@ async def run_audit_job(job_id: str) -> None:
     # status is not exactly "open" so closed/archived/abandoned tasks can
     # never be audited, regardless of how ostk framed the query.
     tasks = [t for t in tasks if (t.get("status") or "").lower() == "open"]
+    # Match the frontend's user-facing scope. The Tasks page and the
+    # /api/tasks endpoint hide session-lifecycle bookkeeping rows
+    # (auto-filed by the SessionStart hook) and e2e smoke-test leftovers.
+    # The previous 26-vs-17 regression was caused by those rows leaking
+    # into the audit even though the user never sees them in the UI. The
+    # user-facing promise is "audit my open tasks", so the audit scope
+    # must equal the open-task count the user reads on the Tasks page.
+    tasks = [
+        t for t in tasks
+        if not is_session_task(t) and not is_e2e_task(t)
+    ]
 
     state["total"] = len(tasks)
     all_titles = [

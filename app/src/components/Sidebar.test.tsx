@@ -1116,7 +1116,7 @@ describe('Sidebar status panel does not expose Claude indicator', () => {
     })
   })
 
-  it('shows Backend, System, and sessions rows but NOT a Claude row', async () => {
+  it('shows Backend and System rows but not sessions and not a Claude row', async () => {
     renderSidebar()
 
     // Backend + System rows are rendered.
@@ -1153,7 +1153,12 @@ describe('Sidebar status panel does not expose Claude indicator', () => {
   })
 })
 
-describe('Sidebar sessions count reflects live sessions, not just active-window ones', () => {
+describe('Sidebar status panel never shows a sessions count (regression)', () => {
+  // Earlier regressions surfaced a "14 sessions" row in the sidebar
+  // status panel even after sessions were removed from the Tasks page.
+  // The user expects sessions to be gone from this surface entirely.
+  // These tests lock that in by asserting no "N session(s)" text ever
+  // renders in the status panel, across realistic backend payloads.
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
@@ -1176,45 +1181,34 @@ describe('Sidebar sessions count reflects live sessions, not just active-window 
     })
   }
 
-  it('renders "1 session" when backend reports a single idle but live session', async () => {
-    // The user is sitting in a Claude Code tab that has not written an
-    // event in the last 5 minutes. Backend counts it under `count` but
-    // excludes it from `active_count`. The sidebar must still show it.
+  it('does not render any "N sessions" line when backend reports one session', async () => {
     mockSessions({ count: 1, active_count: 0, idle_count: 1 })
     renderSidebar()
     await waitFor(() => {
-      expect(screen.getByText('1 session')).toBeTruthy()
+      expect(screen.getByText('Backend')).toBeTruthy()
     })
-    expect(screen.queryByText('No sessions')).toBeNull()
+    expect(screen.queryByText(/\d+ sessions?/i)).toBeNull()
+    expect(screen.queryByText(/session/i)).toBeNull()
   })
 
-  it('renders "3 sessions" (plural) when backend reports three live sessions', async () => {
-    mockSessions({ count: 3, active_count: 2, idle_count: 1 })
+  it('does not render "14 sessions" when backend reports fourteen sessions', async () => {
+    // Direct regression for the user-reported screenshot of a sidebar
+    // showing "Backend / System v4.0.0 / 14 sessions".
+    mockSessions({ count: 14, active_count: 14, idle_count: 0 })
     renderSidebar()
     await waitFor(() => {
-      expect(screen.getByText('3 sessions')).toBeTruthy()
+      expect(screen.getByText('Backend')).toBeTruthy()
     })
-    expect(screen.queryByText('No sessions')).toBeNull()
+    expect(screen.queryByText('14 sessions')).toBeNull()
+    expect(screen.queryByText(/\d+ sessions?/i)).toBeNull()
   })
 
-  it('omits the sessions row when `count` is genuinely zero', async () => {
-    // When the backend reports zero sessions, the sidebar hides the
-    // sessions row entirely rather than showing "No sessions".
+  it('does not render any sessions text when backend reports zero', async () => {
     mockSessions({ count: 0, active_count: 0, idle_count: 0 })
     renderSidebar()
     await waitFor(() => {
       expect(screen.getByText('Backend')).toBeTruthy()
     })
-    expect(screen.queryByText('No sessions')).toBeNull()
     expect(screen.queryByText(/session/i)).toBeNull()
-  })
-
-  it('falls back to `active_count` when backend does not return `count`', async () => {
-    // Older backends only expose active_count. The UI should still work.
-    mockSessions({ active_count: 2, idle_count: 0 })
-    renderSidebar()
-    await waitFor(() => {
-      expect(screen.getByText('2 sessions')).toBeTruthy()
-    })
   })
 })

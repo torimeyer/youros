@@ -349,6 +349,111 @@ async def test_closed_tasks_are_filtered_before_audit_runs():
 
 
 @pytest.mark.asyncio
+async def test_audit_scope_matches_frontend_open_count_no_sessions_no_e2e():
+    """Audit must only process tasks the user sees in the Tasks page.
+
+    User-visible regression: user had 17 open tasks on screen but the
+    audit ran over 26. Root cause: the Tasks page hides session-lifecycle
+    rows auto-filed by the SessionStart hook and e2e smoke-test
+    leftovers, but the audit called ``ostk.list_tasks(status="open")``
+    raw and saw every row. The audit now shares the same visibility
+    contract as the /api/tasks endpoint so the counts line up.
+
+    This test mocks ``ostk.list_tasks`` with a mix of statuses plus a
+    session row and an e2e leftover and asserts only the real open
+    rows reach the classifier, and that the total the UI will read
+    equals the user-visible open count.
+    """
+    tasks = [
+        _make_task(id="t-real-1", title="Real user task one", created_at=_old_ts()),
+        _make_task(id="t-real-2", title="Real user task two", created_at=_old_ts()),
+        # Status-based noise that must never be audited.
+        {
+            "id": "t-closed-1",
+            "title": "Already closed",
+            "priority": "P1",
+            "status": "closed",
+            "description": "",
+            "created_at": _old_ts(),
+        },
+        {
+            "id": "t-inprog-1",
+            "title": "In progress not open",
+            "priority": "P1",
+            "status": "in_progress",
+            "description": "",
+            "created_at": _old_ts(),
+        },
+        {
+            "id": "t-review-1",
+            "title": "Review not open",
+            "priority": "P1",
+            "status": "review",
+            "description": "",
+            "created_at": _old_ts(),
+        },
+        {
+            "id": "t-nostatus-1",
+            "title": "Missing status",
+            "priority": "P1",
+            "status": None,
+            "description": "",
+            "created_at": _old_ts(),
+        },
+        # Session-lifecycle row. Open, but auto-filed and hidden from UI.
+        {
+            "id": "t-session-1",
+            "title": "Claude Code session claude-code-abc",
+            "priority": "P1",
+            "status": "open",
+            "description": "Auto-filed by SessionStart hook",
+            "created_at": _old_ts(),
+        },
+        # e2e smoke-test leftover. Open, but prefix-filtered in UI.
+        {
+            "id": "t-e2e-1",
+            "title": "e2e-smoke probe run",
+            "priority": "P1",
+            "status": "open",
+            "description": "",
+            "created_at": _old_ts(),
+        },
+    ]
+
+    classify_mock = AsyncMock(
+        return_value='{"verdict": "review", "evidence": "unsure", "duplicate_of": null}'
+    )
+    with patch.object(task_audit.ostk, "list_tasks", AsyncMock(return_value=tasks)):
+        with patch.object(task_audit, "_classify_with_claude", classify_mock):
+            job_id = task_audit.start_audit_job()
+            await task_audit.run_audit_job(job_id)
+
+    state = task_audit.get_audit_status(job_id)
+    # Only the two real open tasks reach the classifier. Session, e2e,
+    # closed, in_progress, review, and missing-status rows are dropped.
+    assert state["total"] == 2, (
+        f"audit scope should equal the user-visible open count, got {state['total']}"
+    )
+    assert classify_mock.await_count == 2
+
+    # No noise rows appear in any result bucket.
+    seen_ids = {
+        e.get("task_id")
+        for e in state["results"]["review"]
+        + state["results"]["closed"]
+    }
+    for noise_id in (
+        "t-closed-1",
+        "t-inprog-1",
+        "t-review-1",
+        "t-nostatus-1",
+        "t-session-1",
+        "t-e2e-1",
+    ):
+        assert noise_id not in seen_ids, f"{noise_id} must never be audited"
+
+
+@pytest.mark.asyncio
 async def test_duplicate_verdict_only_suggests_close_when_other_task_is_open():
     """A duplicate close suggestion must reference an actually-open task.
 

@@ -333,7 +333,7 @@ export function Sidebar() {
   const [backendUp, setBackendUp] = useState<boolean | null>(null)
   const [ostkUp, setOstkUp] = useState<boolean | null>(null)
   const [ostkKernel, setOstkKernel] = useState('')
-  const [sessionCount, setSessionCount] = useState(0)
+  const [, setSessionCount] = useState(0)
 
   // Collapsed state per group. Initialized from localStorage; active group
   // is forced open if it would otherwise be collapsed.
@@ -782,17 +782,7 @@ export function Sidebar() {
             <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit ${ostkUp === null ? 'bg-slate-700 text-slate-400' : ostkUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
               System{ostkKernel ? ` ${ostkKernel}` : ''} {ostkUp === null ? '' : ostkUp ? 'running' : 'offline'}
             </span>
-            {sessionCount > 0 && (
-              <NavLink
-                to="/activity"
-                className="hover:opacity-80 transition-opacity"
-                onClick={() => setMobileOpen(false)}
-              >
-                <span className="inline-block text-[10px] font-medium px-2 py-0.5 rounded-full w-fit bg-green-500/20 text-green-400">
-                  {sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}
-                </span>
-              </NavLink>
-            )}
+
           </>
         ) : (
           <>
@@ -804,18 +794,7 @@ export function Sidebar() {
               <span className={`w-1.5 h-1.5 rounded-full ${ostkUp === null ? 'bg-slate-600' : ostkUp ? 'bg-green-400' : 'bg-red-400'}`} />
               <span className="text-[10px] text-slate-500">System{ostkKernel ? ` ${ostkKernel}` : ''}</span>
             </div>
-            {sessionCount > 0 && (
-              <NavLink
-                to="/activity"
-                className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-                onClick={() => setMobileOpen(false)}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${sessionCount > 1 ? 'bg-green-400 animate-pulse' : 'bg-green-400'}`} />
-                <span className="text-[10px] text-slate-500">
-                  {sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}
-                </span>
-              </NavLink>
-            )}
+
           </>
         )}
       </div>
