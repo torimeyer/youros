@@ -558,6 +558,12 @@ function WelcomeStep({ subtextCls }: { subtextCls: string }) {
         Let's set up your personal OS. This will only take a minute, and you can
         change everything later in settings.
       </p>
+      <p className={`${subtextCls} text-sm leading-relaxed mt-4`} data-testid="onboarding-privacy-note">
+        torios runs locally. See <a href="/privacy" className="underline">Privacy</a> for details.
+      </p>
+      <p className={`${subtextCls} text-sm leading-relaxed mt-2`} data-testid="onboarding-files-location-note">
+        Your files live in ~/.myos/files. You can change this in Settings.
+      </p>
     </div>
   )
 }

@@ -774,5 +774,13 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     // Should advance to Name step (no validation guard on You step)
     expect(screen.getByTestId('step-name')).toBeInTheDocument()
   })
+  it('WelcomeStep mentions the files location', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    const note = screen.getByTestId('onboarding-files-location-note')
+    expect(note).toHaveTextContent('~/.myos/files')
+    expect(note).toHaveTextContent(/change this in Settings/i)
+  })
+
 })
 
