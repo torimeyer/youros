@@ -559,6 +559,57 @@ class TestHandleStreamEvent:
         assert extra["data"]["tool"] == "Read"
         assert extra["data"]["id"] == "tu_123"
 
+    def test_input_json_delta_routes_to_tool_use_delta(self):
+        """→900: input_json_delta fragments must surface as tool_use_delta
+        events keyed by the owning tool_use id so the frontend can
+        accumulate args inside the collapsed pill instead of streaming
+        raw JSON into the assistant bubble body."""
+        tool_map: dict[int, str] = {}
+        # First the block starts at index 1 and records the tool_use id.
+        start_event = {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "tool_use", "name": "Read", "id": "tu_abc"},
+            },
+        }
+        text, done, usage, extra = _handle_stream_event(start_event, tool_map)
+        assert tool_map == {1: "tu_abc"}
+        assert extra["type"] == "tool_use"
+
+        # Then each input_json_delta fragment routes to tool_use_delta.
+        delta_event = {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "input_json_delta", "partial_json": '{"path":'},
+            },
+        }
+        text, done, usage, extra = _handle_stream_event(delta_event, tool_map)
+        assert text is None  # Must never leak into the text stream.
+        assert extra == {
+            "type": "tool_use_delta",
+            "data": {"id": "tu_abc", "partial_json": '{"path":'},
+        }
+
+    def test_input_json_delta_without_matching_start_is_dropped(self):
+        """Stray input_json_delta fragments without a start event must be
+        silently dropped, never surface as text, and never crash."""
+        tool_map: dict[int, str] = {}
+        delta_event = {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": '{"x":1}'},
+            },
+        }
+        text, done, usage, extra = _handle_stream_event(delta_event, tool_map)
+        assert text is None
+        assert extra is None
+
 
 class TestSessionIdForTab:
     def test_deterministic(self):
