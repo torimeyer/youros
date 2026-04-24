@@ -223,6 +223,16 @@ HTTP_CODE=$(curl -sSk --connect-timeout 3 -m 5 -o /dev/null -w '%{http_code}' \
 
 case "$HTTP_CODE" in
     2??)
+        # P1-b/→925: record bridge spawn so the parent session can arm Monitor.
+        # PostToolUse:Agent does NOT fire after a PreToolUse-block, so writing
+        # this from auto-monitor-spawn.sh wouldn't work. Write here instead.
+        PENDING_FILE="${CLAUDE_PROJECT_DIR:-.}/.ostk/pending-monitor-spawns.jsonl"
+        mkdir -p "$(dirname "$PENDING_FILE")" 2>/dev/null || true
+        SPAWN_NAME="$SPAWN_NAME" python3 -c '
+import os, json
+from datetime import datetime, timezone
+print(json.dumps({"name": os.environ["SPAWN_NAME"], "ts": datetime.now(timezone.utc).isoformat(), "source": "task-isolation-bridge"}))
+' 2>/dev/null >> "$PENDING_FILE" 2>/dev/null || true
         echo "Blocked: Task tool call redirected through /api/agents/spawn for worktree isolation." >&2
         echo "Spawned REST agent name: ${SPAWN_NAME}" >&2
         echo "Poll status via: curl -sSk ${API_BASE}/api/agents | jq '.agents[] | select(.name==\"${SPAWN_NAME}\")'" >&2
