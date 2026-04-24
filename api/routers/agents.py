@@ -3090,6 +3090,17 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     from services.rate_limit import rate_limit_check
     if request is not None:
         rate_limit_check(request, "agents.spawn")
+    # Decide isolation BEFORE any I/O so a later worktree fork can honor
+    # the result. decide_isolation respects an explicit caller value and
+    # otherwise picks "worktree" for code-edit verbs, "none" for
+    # research-only verbs. See services/spawn_isolation.py.
+    from services.spawn_isolation import decide_isolation as _decide_isolation
+    body.isolation = _decide_isolation(
+        description=body.description,
+        prompt=body.prompt,
+        explicit=body.isolation,
+        agent_name=body.name,
+    )
     from config import PROJECT_ROOT
     from services.policy_enforcement import (
         check_budget,
@@ -3284,12 +3295,57 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                 _spawn_env["TORIOS_TRACE_ID"] = _tid
         except Exception:
             pass
+        # When isolation=="worktree", fork a git worktree for this agent
+        # and run the subprocess there so its commits stay isolated from
+        # the main tree (see spawn_burst_commit_contamination memory
+        # entry). On fork failure, fall back to the main worktree — never
+        # fail the spawn for a tooling hiccup.
+        _spawn_cwd = str(PROJECT_ROOT)
+        _worktree_path: Optional[str] = None
+        _worktree_branch: Optional[str] = None
+        if body.isolation == "worktree":
+            _wt_branch = f"worktree-agent-{body.name}"
+            _wt_path = PROJECT_ROOT / ".claude" / "worktrees" / f"agent-{body.name}"
+            try:
+                _wt_path.parent.mkdir(parents=True, exist_ok=True)
+                _fork_proc = await asyncio.create_subprocess_exec(
+                    "git", "worktree", "add", "--lock",
+                    str(_wt_path), "-b", _wt_branch,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(PROJECT_ROOT),
+                )
+                _fork_out, _fork_err = await asyncio.wait_for(
+                    _fork_proc.communicate(), timeout=20.0
+                )
+                if _fork_proc.returncode == 0:
+                    _spawn_cwd = str(_wt_path)
+                    _worktree_path = str(_wt_path)
+                    _worktree_branch = _wt_branch
+                    logger.info(
+                        "spawn.worktree.created name=%s path=%s branch=%s",
+                        body.name, _worktree_path, _worktree_branch,
+                    )
+                else:
+                    logger.warning(
+                        "spawn.worktree.fork_failed name=%s rc=%s err=%s",
+                        body.name,
+                        _fork_proc.returncode,
+                        (_fork_err or b"").decode(errors="replace")[:200],
+                    )
+                    body.isolation = "none"
+            except Exception as _wt_exc:
+                logger.warning(
+                    "spawn.worktree.fork_exception name=%s err=%s",
+                    body.name, _wt_exc,
+                )
+                body.isolation = "none"
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=open(str(transcript_path), "w"),
             stderr=asyncio.subprocess.PIPE,
-            cwd=str(PROJECT_ROOT),
+            cwd=_spawn_cwd,
             env=_spawn_env,
         )
 
@@ -3476,6 +3532,16 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         # callers never lands as a bogus key in the agents-by-task map.
         if body.task_id:
             spawn_meta["task_id"] = body.task_id
+        # Worktree isolation: record the fork location so /cleanup and
+        # the pre-merge gate can find the branch later. Keys are only
+        # set when the fork actually succeeded (body.isolation is flipped
+        # back to "none" on failure above).
+        if body.isolation == "worktree" and _worktree_path:
+            spawn_meta["worktree_path"] = _worktree_path
+            spawn_meta["worktree_branch"] = _worktree_branch
+            spawn_meta["isolation"] = "worktree"
+        else:
+            spawn_meta["isolation"] = body.isolation or "none"
         # Always stamp a real source. When the caller does not specify one,
         # default to "api" so the list endpoint never falls back to the
         # audit-log's "source=audit" placeholder (which is filtered out of

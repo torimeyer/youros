@@ -197,6 +197,13 @@ class AgentSpawn(BaseModel):
     # in_progress once the agent starts. Optional so spawns that are
     # not tied to a task (ad-hoc, command palette) keep working.
     task_id: Optional[str] = None
+    # Spawn isolation hint. When set to "worktree", the spawn forks a git
+    # worktree under .claude/worktrees/agent-<agent_id> and runs the
+    # subagent there so its commits stay isolated from the main tree. When
+    # None, services.spawn_isolation.decide_isolation picks a sensible
+    # default from the description/prompt verbs. "none" forces the main
+    # worktree.
+    isolation: Optional[str] = None
 
 
 class AgentNudge(BaseModel):
