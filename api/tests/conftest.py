@@ -32,6 +32,10 @@ os.environ.setdefault("MYOS_SKIP_AUTOMATION_FILES_SAVE", "1")
 # their own scope (see test_roadmap_chat_flow.py).
 os.environ.setdefault("MYOS_SKIP_CHAT_NOTIFICATIONS", "1")
 
+# Rate limiter is opt-out during tests. Tests that exercise the limiter
+# explicitly clear this and call services.rate_limit._reset_all().
+os.environ.setdefault("MYOS_DISABLE_RATE_LIMIT", "1")
+
 from main import app
 
 

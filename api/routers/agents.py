@@ -3087,6 +3087,9 @@ def get_running_task_ids() -> set[str]:
 
 @router.post("/agents/spawn")
 async def spawn_agent(body: AgentSpawn, request: Request = None):
+    from services.rate_limit import rate_limit_check
+    if request is not None:
+        rate_limit_check(request, "agents.spawn")
     from config import PROJECT_ROOT
     from services.policy_enforcement import (
         check_budget,

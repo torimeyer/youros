@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 
 from services.chat_history_store import chat_history_store
 from services.chat_providers import (
@@ -19,6 +19,46 @@ from services.ostk import ostk
 from services.settings_store import settings_store
 
 router = APIRouter(tags=["chat"])
+
+
+# Process-wide registry of live chat WebSockets. The shutdown hook in
+# main.py iterates this set on SIGTERM / uvicorn reload and sends an
+# error frame to every connected client before the socket is forcibly
+# closed. Without this, a dev reload surfaces in the chat panel as
+# "Connection dropped before the response finished" because the
+# frontend's onclose fallback fires with no context. A plain set
+# (not WeakSet) is fine here: the register / unregister calls bracket
+# the websocket endpoint lifetime, so entries always get cleaned up.
+_ACTIVE_CHAT_WEBSOCKETS: set[WebSocket] = set()
+
+
+def _register_active_ws(ws: WebSocket) -> None:
+    _ACTIVE_CHAT_WEBSOCKETS.add(ws)
+
+
+def _unregister_active_ws(ws: WebSocket) -> None:
+    _ACTIVE_CHAT_WEBSOCKETS.discard(ws)
+
+
+async def notify_active_websockets_of_shutdown(
+    reason: str = "backend restarting",
+) -> None:
+    """Send an error frame to every live chat WS before shutdown.
+
+    Called from main.py's shutdown event. Each send is best-effort: if
+    the socket is already half-closed we still try the rest. We collect
+    a snapshot of the set first because the ``finally`` blocks in
+    ``chat_websocket`` will mutate the registry as sockets unwind.
+    """
+    snapshot = list(_ACTIVE_CHAT_WEBSOCKETS)
+    for ws in snapshot:
+        try:
+            await ws.send_json({"type": "error", "data": reason})
+        except Exception:
+            # Socket already gone. Nothing useful we can do here, and
+            # the outer shutdown sequence still needs to run for the
+            # remaining sockets.
+            pass
 
 # Where roadmap .md files land. Same directory the Files tab scans. Kept
 # as a module-level constant so tests can monkeypatch it onto a tmp_path.
@@ -612,6 +652,39 @@ async def clear_chat_history():
     return {"result": "cleared"}
 
 
+async def _spawn_roadmap_agent() -> Optional[str]:
+    """Spawn a Roadmap agent via the internal ASGI app. Returns agent name or None."""
+    import time as _time
+    from main import app as _app
+    name = f"chat-roadmap-build-{int(_time.time())}"
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=_app),
+            base_url="http://testserver",
+            timeout=10.0,
+        ) as client:
+            resp = await client.post(
+                "/agents/spawn",
+                json={"name": name, "template": "Roadmap", "prompt": ""},
+            )
+            if resp.status_code < 300:
+                return name
+    except Exception:
+        pass
+    return None
+
+
+async def _wait_for_roadmap(timeout: float = 90.0) -> Optional[Path]:
+    """Poll until roadmap.md appears on disk or timeout expires."""
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        path = _latest_roadmap_path()
+        if path is not None:
+            return path
+        await asyncio.sleep(2.0)
+    return None
+
+
 @router.post("/api/chat/roadmap/create-tasks")
 async def chat_create_tasks_from_roadmap(body: Optional[dict] = None):
     """Convert the latest roadmap ``.md`` into tasks on user request.
@@ -663,15 +736,25 @@ async def chat_create_tasks_from_roadmap(body: Optional[dict] = None):
         roadmap_path = _latest_roadmap_path()
 
     if roadmap_path is None or not roadmap_path.exists():
-        return {
-            "status": "no_roadmap",
-            "reply": (
-                "I don't see a recent roadmap. Open or create one "
-                "first, then ask again."
-            ),
-            "created": [],
-            "roadmap_path": "",
-        }
+        # No roadmap on disk yet — spawn one and wait for it to land.
+        spawned_name = await _spawn_roadmap_agent()
+        if spawned_name:
+            roadmap_path = await _wait_for_roadmap(timeout=90.0)
+        if roadmap_path is None or not roadmap_path.exists():
+            return {
+                "status": "no_roadmap",
+                "reply": (
+                    "I started building a roadmap but it isn't ready yet. "
+                    "Check the Agents page and try again in a moment."
+                )
+                if spawned_name
+                else (
+                    "I don't see a recent roadmap. Open or create one "
+                    "first, then ask again."
+                ),
+                "created": [],
+                "roadmap_path": "",
+            }
 
     try:
         content = roadmap_path.read_text()
@@ -730,7 +813,10 @@ async def chat_create_tasks_from_roadmap(body: Optional[dict] = None):
 
 
 @router.post("/api/chat/tools/run")
-async def run_chat_tool(body: dict):
+async def run_chat_tool(body: dict, request: Request = None):
+    from services.rate_limit import rate_limit_check
+    if request is not None:
+        rate_limit_check(request, "chat.send")
     """Execute a single chat tool by name and return the result string.
 
     Mirrors the inline tool dispatch the chat WebSocket performs after
@@ -937,9 +1023,73 @@ def build_thread_context(messages: list[dict], thread_id: str) -> list[dict]:
     return result
 
 
+# Terminal frame types. When one of these is sent, the frontend considers
+# the turn complete and tears down its "thinking" state. If the server
+# exits a turn without emitting one, useWebSocket's onclose fallback fires
+# the "Connection dropped before the response finished" banner. The
+# _TerminalTrackingWS wrapper below watches for these so we can emit a
+# guaranteed fallback in a finally block.
+_TERMINAL_FRAME_TYPES = {"done", "error"}
+
+
+class _TerminalTrackingWS:
+    """WebSocket facade that records whether a terminal frame was sent.
+
+    We want a finally block in the per-message handler to emit a fallback
+    ``error`` frame if, and only if, no terminal frame (``done`` / ``error``)
+    has been sent during the turn. The cleanest way to observe that
+    without touching every provider is to wrap the real ``WebSocket`` with
+    a thin facade that forwards everything but flips ``terminal_sent``
+    when it sees a terminal ``type`` on a ``send_json`` call.
+
+    The facade is a drop-in replacement: ``send_json``, ``send_text``,
+    ``receive_json``, ``accept``, ``close`` all pass straight through, and
+    any attribute the underlying WS exposes (``.client_state``, etc.) is
+    delegated via ``__getattr__``.
+    """
+
+    def __init__(self, inner: WebSocket) -> None:
+        self._inner = inner
+        self.terminal_sent: bool = False
+
+    async def send_json(self, data: dict) -> None:
+        if isinstance(data, dict) and data.get("type") in _TERMINAL_FRAME_TYPES:
+            self.terminal_sent = True
+        await self._inner.send_json(data)
+
+    async def send_text(self, data: str) -> None:
+        # Best-effort peek at the type field so raw send_text callers are
+        # tracked too. If the payload is not JSON or not a dict with a
+        # known terminal type, just forward untouched.
+        try:
+            parsed = _json.loads(data)
+            if isinstance(parsed, dict) and parsed.get("type") in _TERMINAL_FRAME_TYPES:
+                self.terminal_sent = True
+        except Exception:
+            pass
+        await self._inner.send_text(data)
+
+    async def receive_json(self) -> dict:
+        return await self._inner.receive_json()
+
+    async def accept(self, *args, **kwargs):
+        return await self._inner.accept(*args, **kwargs)
+
+    async def close(self, *args, **kwargs):
+        return await self._inner.close(*args, **kwargs)
+
+    def __getattr__(self, name: str):
+        # Delegate anything we did not explicitly wrap (client_state,
+        # headers, scope, etc.) straight to the underlying WS.
+        return getattr(self._inner, name)
+
+
 @router.websocket("/ws/chat")
 async def chat_websocket(websocket: WebSocket):
     await websocket.accept()
+    # Register this socket in the process-wide active set so the shutdown
+    # hook can notify every live client before uvicorn tears them down.
+    _register_active_ws(websocket)
     try:
         while True:
             data = await websocket.receive_json()
@@ -1141,11 +1291,19 @@ async def chat_websocket(websocket: WebSocket):
                 and not trigger_multi_ai
             )
 
+            # Wrap the real WebSocket so we can observe whether a terminal
+            # frame (done or error) was emitted during this turn. The
+            # finally block below uses that flag to send a fallback error
+            # frame when a provider bailed without a terminal frame, which
+            # is what surfaced as "Connection dropped before the response
+            # finished" in the UI on backend reload / subprocess crash.
+            tracked_ws = _TerminalTrackingWS(websocket)
+
             try:
                 if trigger_multi_ai:
                     clean_text = strip_mentions(last_text)
                     await stream_multi_ai_conversation(
-                        websocket=websocket,
+                        websocket=tracked_ws,
                         models=mentioned_models[:2],
                         user_message=clean_text or last_text,
                         rounds=MULTI_AI_DEFAULT_ROUNDS,
@@ -1160,7 +1318,7 @@ async def chat_websocket(websocket: WebSocket):
                     # which matches what Gemini does and keeps both
                     # bubbles symmetric for casual questions.
                     await stream_group_broadcast(
-                        websocket=websocket,
+                        websocket=tracked_ws,
                         models=list(mentioned_models),
                         messages=messages,
                         use_tools=False,
@@ -1169,16 +1327,34 @@ async def chat_websocket(websocket: WebSocket):
                     # Single model call (even if @mentioned)
                     model = mentioned_models[0]
                     label = model.capitalize() if len(mentioned_models) > 0 else ""
-                    await call_model(model, messages, websocket, label=label, use_tools=use_tools, tab_id=tab_id)
+                    await call_model(model, messages, tracked_ws, label=label, use_tools=use_tools, tab_id=tab_id)
             except WebSocketDisconnect:
                 raise
             except Exception as exc:
                 # Catch-all: make sure the frontend always receives an error
                 # so it can clear the "Thinking" state instead of hanging.
                 try:
-                    await websocket.send_json({"type": "error", "data": str(exc)})
+                    await tracked_ws.send_json({"type": "error", "data": str(exc)})
                 except Exception:
                     pass
+            finally:
+                # Guarantee terminal frame. If the provider reached a
+                # silent exit path (subprocess torn down, cleanup
+                # happened before ``done`` or ``error`` reached the
+                # wire), emit a fallback error frame here so the frontend
+                # clears its "Thinking" state instead of hanging until
+                # the socket idle timer closes and fires the dropped
+                # connection banner.
+                if not tracked_ws.terminal_sent:
+                    try:
+                        await tracked_ws.send_json({
+                            "type": "error",
+                            "data": "The response ended unexpectedly. Please try again.",
+                        })
+                    except Exception:
+                        pass
 
     except WebSocketDisconnect:
         pass
+    finally:
+        _unregister_active_ws(websocket)
