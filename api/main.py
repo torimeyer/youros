@@ -10,8 +10,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from services.request_trace import TraceMiddleware
+from services.security_headers import SecurityHeadersMiddleware
 
-from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, specs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, meeting_prep, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace
+from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, specs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, meeting_prep, workspace, briefing, workflows, shares, export, exports, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, pdf, diagrams, documents
 
 app = FastAPI(title="myOS API")
 
@@ -23,10 +24,14 @@ import os as _os
 # comma-separated list of additional allowed origins.
 _CORS_EXTRA = [o.strip() for o in _os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 _CORS_ORIGINS = [
+    "https://localhost:3010",
+    "https://127.0.0.1:3010",
     "http://localhost:3010",
     "http://127.0.0.1:3010",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://localhost:8000",
+    "https://127.0.0.1:8000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 ] + _CORS_EXTRA
@@ -38,6 +43,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TraceMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(tasks.router, prefix="/api")
 app.include_router(task_audit.router, prefix="/api")
@@ -75,6 +81,7 @@ app.include_router(workflows.router, prefix="/api")
 app.include_router(enterprise.router, prefix="/api")
 app.include_router(shares.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
+app.include_router(exports.router, prefix="/api")
 app.include_router(task_suggestions_router.router, prefix="/api")
 app.include_router(recurring_tasks_router.router, prefix="/api")
 app.include_router(agent_patterns.router, prefix="/api")
@@ -95,6 +102,9 @@ app.include_router(dogwalk.router, prefix="/api")
 app.include_router(prototypes.router, prefix="/api")
 app.include_router(models_router.router, prefix="/api")
 app.include_router(probes.router, prefix="/api")
+app.include_router(pdf.router, prefix="/api")
+app.include_router(diagrams.router, prefix="/api")
+app.include_router(documents.router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -644,6 +654,72 @@ async def schedule_test_artifact_spec_sweep():
             await asyncio.sleep(300)
 
     asyncio.create_task(_loop())
+
+
+@app.on_event("startup")
+async def install_signal_shutdown_hook():
+    """Install a SIGTERM/SIGINT handler that notifies chat WebSockets.
+
+    Why a signal handler and not the FastAPI ``shutdown`` event:
+    uvicorn's graceful shutdown sequence closes active WebSockets with
+    a ``1012 service restart`` close frame BEFORE the lifespan
+    shutdown event fires. By the time ``on_event("shutdown")`` runs,
+    the sockets are already gone. Installing our own SIGTERM/SIGINT
+    handler on the running asyncio loop lets us push a friendly
+    ``{"type": "error", "data": "backend restarting"}`` frame first,
+    while the sockets are still open. The default uvicorn shutdown
+    then runs afterwards. Safe: if signal install fails (Windows,
+    unusual event loop), we silently skip and fall back to the UI's
+    dropped-connection banner, which matches pre-fix behavior.
+    """
+    import asyncio
+    import signal
+
+    async def _notify_and_continue():
+        try:
+            from routers.chat import notify_active_websockets_of_shutdown
+            await notify_active_websockets_of_shutdown("backend restarting")
+        except Exception:
+            pass
+
+    loop = asyncio.get_running_loop()
+
+    def _handler(signum):
+        # Schedule the notifier and then re-raise the default signal
+        # behavior so uvicorn's own shutdown still proceeds.
+        asyncio.create_task(_notify_and_continue())
+        # Remove our handler so a second signal hits the default.
+        try:
+            loop.remove_signal_handler(signum)
+        except Exception:
+            pass
+        # Re-deliver to the default handler by raising it through
+        # python's signal module.
+        import os
+        os.kill(os.getpid(), signum)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, lambda s=sig: _handler(s))
+        except (NotImplementedError, RuntimeError):
+            # add_signal_handler is unavailable on Windows and some
+            # embedded loops. Skip silently in those cases.
+            pass
+
+
+@app.on_event("shutdown")
+async def notify_chat_clients_on_shutdown():
+    """Fallback notifier. Uvicorn closes WebSockets before this event
+    fires, so this is a best-effort for the case where shutdown comes
+    through a path that does not deliver SIGTERM (e.g. some test
+    harnesses call the lifespan shutdown directly). The signal handler
+    installed at startup is the primary mechanism.
+    """
+    try:
+        from routers.chat import notify_active_websockets_of_shutdown
+        await notify_active_websockets_of_shutdown("backend restarting")
+    except Exception:
+        pass
 
 
 @app.get("/api/health")
