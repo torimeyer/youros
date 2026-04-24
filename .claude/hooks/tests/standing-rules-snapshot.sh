@@ -23,12 +23,16 @@ FIXTURE="${FIXTURE_DIR}/agents.json"
 SERVER_PID=""
 FAILED=0
 
+STAMP_HOME=""
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   rm -rf "$FIXTURE_DIR"
+  if [ -n "$STAMP_HOME" ] && [ -d "$STAMP_HOME" ]; then
+    rm -rf "$STAMP_HOME"
+  fi
 }
 trap cleanup EXIT
 
@@ -48,6 +52,8 @@ pass() {
 NOW_ISO=$(python3 -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())")
 TWO_MIN_AGO=$(python3 -c "from datetime import datetime, timezone, timedelta; print((datetime.now(timezone.utc) - timedelta(seconds=125)).isoformat())")
 FORTY_FIVE_S_AGO=$(python3 -c "from datetime import datetime, timezone, timedelta; print((datetime.now(timezone.utc) - timedelta(seconds=45)).isoformat())")
+THIRTY_S_AGO=$(python3 -c "from datetime import datetime, timezone, timedelta; print((datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat())")
+TEN_S_AGO=$(python3 -c "from datetime import datetime, timezone, timedelta; print((datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat())")
 
 cat > "$FIXTURE" <<JSON
 {
@@ -77,8 +83,18 @@ cat > "$FIXTURE" <<JSON
       "name": "diagnose-gamma-done",
       "source": "claude-code",
       "status": "completed",
-      "spawned_at": "${NOW_ISO}",
-      "transcript_bytes": 400
+      "spawned_at": "${TWO_MIN_AGO}",
+      "completed_at": "${THIRTY_S_AGO}",
+      "transcript_bytes": 400,
+      "summary": "landed fix and committed abcd123"
+    },
+    {
+      "name": "files-location-died",
+      "source": "claude-code",
+      "status": "terminated_stale",
+      "spawned_at": "${TWO_MIN_AGO}",
+      "completed_at": "${TEN_S_AGO}",
+      "transcript_bytes": 900
     }
   ]
 }
@@ -121,7 +137,14 @@ done
 
 # --- Test 1: happy path ---
 echo "test 1: running snapshot with canned backend"
-OUT_HAPPY=$(MYOS_BACKEND_URL="$BACKEND_URL" bash "$HOOK" 2>&1)
+# Isolate the completions stamp so prior runs don't suppress the block.
+# Capture the real HUMANFILE path BEFORE we override HOME below: bash
+# evaluates command-prefix env assignments left-to-right, so
+# `HOME=$STAMP_HOME MYOS_HUMANFILE_PATH="${HOME}/..."` sees the already
+# overridden HOME and points at the empty stamp directory.
+STAMP_HOME=$(mktemp -d -t standing-rules-stamp.XXXXXX)
+REAL_HUMANFILE="${HOME}/.ostk/HUMANFILE"
+OUT_HAPPY=$(HOME="$STAMP_HOME" MYOS_HUMANFILE_PATH="$REAL_HUMANFILE" MYOS_BACKEND_URL="$BACKEND_URL" bash "$HOOK" 2>&1)
 
 # STANDING RULES block preserved.
 if echo "$OUT_HAPPY" | grep -q "STANDING RULES (non-negotiable this turn):"; then
@@ -163,11 +186,13 @@ else
   pass "main-session row filtered"
 fi
 
-# Completed row filtered out.
-if echo "$OUT_HAPPY" | grep -q "diagnose-gamma-done"; then
-  fail "completed row 'diagnose-gamma-done' should have been filtered"
+# Completed row filtered out of the RUNNING list. Must not appear as
+# "- diagnose-gamma-done (spawned ...)" which is the running-format prefix.
+# It will appear in the separate COMPLETED block below, which is fine.
+if echo "$OUT_HAPPY" | grep -qE "^- diagnose-gamma-done \(spawned"; then
+  fail "completed row 'diagnose-gamma-done' should be filtered from running list"
 else
-  pass "completed row filtered"
+  pass "completed row filtered from running list"
 fi
 
 # Snapshot header present.
@@ -175,6 +200,51 @@ if echo "$OUT_HAPPY" | grep -q "CURRENT RUNNING AGENTS"; then
   pass "snapshot header present"
 else
   fail "snapshot header missing"
+fi
+
+# --- Completion-surfacing assertions ---
+# New block: agents that finished without a native task-notification must
+# now appear in a separate "AGENTS THAT FINISHED SINCE YOUR LAST TURN"
+# block so the parent session is forced to reconcile.
+if echo "$OUT_HAPPY" | grep -q "AGENTS THAT FINISHED SINCE YOUR LAST TURN"; then
+  pass "completions block header present"
+else
+  fail "completions block header missing"
+fi
+
+if echo "$OUT_HAPPY" | grep -q "diagnose-gamma-done"; then
+  pass "completed-status row surfaced in completions block"
+else
+  fail "completed-status row missing from completions block"
+fi
+
+if echo "$OUT_HAPPY" | grep -q "files-location-died"; then
+  pass "terminated_stale row surfaced (simulates agent that died silently)"
+else
+  fail "terminated_stale row missing (the core bug we are fixing)"
+fi
+
+# Status label should distinguish auto-closed rows so the narrator knows
+# to treat them differently from clean completions.
+if echo "$OUT_HAPPY" | grep -q "auto-closed"; then
+  pass "terminated_stale row labelled 'auto-closed' for the narrator"
+else
+  fail "terminated_stale row not labelled auto-closed"
+fi
+
+# Highwater stamp should be written so the next turn does not re-surface.
+if [ -s "$STAMP_HOME/.myos/subagents/last-seen-completions.stamp" ]; then
+  pass "highwater stamp written"
+else
+  fail "highwater stamp not written (next turn will re-surface these)"
+fi
+
+# Second run with the same stamp must NOT re-surface the block.
+OUT_SECOND=$(HOME="$STAMP_HOME" MYOS_HUMANFILE_PATH="$REAL_HUMANFILE" MYOS_BACKEND_URL="$BACKEND_URL" bash "$HOOK" 2>&1)
+if echo "$OUT_SECOND" | grep -q "AGENTS THAT FINISHED SINCE YOUR LAST TURN"; then
+  fail "completions block re-surfaced after highwater bump (would spam every turn)"
+else
+  pass "completions block suppressed on second run (idempotent per completion)"
 fi
 
 # --- Test 2: backend down ---

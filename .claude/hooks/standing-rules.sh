@@ -17,7 +17,7 @@ EOF
 # re-emit the curated subset on every UserPromptSubmit so the rules stay in the
 # model's active decision context, not just its session-start memory.
 # Skips: vault, long standing-instructions catalog, technical probes, memory-layer infra.
-HUMANFILE_PATH="${HOME}/.ostk/HUMANFILE"
+HUMANFILE_PATH="${MYOS_HUMANFILE_PATH:-${HOME}/.ostk/HUMANFILE}"
 if [ -f "$HUMANFILE_PATH" ]; then
   cat <<'EOF'
 
@@ -88,6 +88,23 @@ BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
 # renderer below expects (source=claude-code, status=running), capped
 # at 20 rows so the payload stays under 5KB even on a busy fleet.
 SUMMARY_PATH="/api/agents?summary=1&status=running&source=claude-code&limit=20"
+
+# Companion query for newly-terminal agents the parent hasn't seen yet.
+# Claude Code's native <task-notification> reminder fires when the Agent
+# tool call returns, but for run_in_background:true that's at spawn time,
+# and for agents that die/exit without calling /complete the notification
+# may never fire at all. The server-side _autocomplete_exited_subagents
+# sweep eventually transitions those rows to a terminal state, but the
+# parent session has no way to learn about the transition without being
+# told. This block surfaces terminal-status agents whose completed_at is
+# more recent than the last highwater the parent acknowledged, so the
+# narrative stays in sync even when the notification layer fails.
+#
+# Highwater file: ~/.myos/subagents/last-seen-completions.stamp.
+# Contents: ISO-8601 UTC timestamp of the newest completed_at we've
+# already shown. Missing/empty = show up to MAX_COMPLETED recent ones.
+COMPLETED_STAMP="${HOME}/.myos/subagents/last-seen-completions.stamp"
+COMPLETED_PATH="/api/agents?source=claude-code&limit=200"
 
 # Spool curl output to a temp file so we keep binary fidelity (the payload
 # can contain embedded control bytes that bash `echo "$var"` corrupts).
@@ -197,5 +214,131 @@ if extra > 0:
     print(f"+{extra} more (see Agents page)")
 print("This list is authoritative. If an agent you spawned earlier is NOT listed above, it is done. Do not narrate it as still running.")
 PYEOF
+
+# --- Unacknowledged completions block ---
+# Fetches the full agent list (cheap enough: capped at 200 rows, summary
+# mode omitted so completed_at is included), filters to source=claude-code
+# user-spawned agents with terminal status AND completed_at newer than the
+# highwater stamp, renders the top N, then bumps the stamp to the newest
+# completed_at shown. The next user turn sees the stamp and skips those
+# rows, so each completion is surfaced exactly once even if the parent
+# misses the native task-notification.
+TMP_COMPLETED="$(mktemp -t standing-rules-completed.XXXXXX 2>/dev/null)" || TMP_COMPLETED="/tmp/standing-rules-completed.$$"
+trap 'rm -f "$TMP_JSON" "$TMP_COMPLETED"' EXIT
+
+if curl -sSk --connect-timeout 3 -m 5 "${BACKEND_URL}${COMPLETED_PATH}" -o "$TMP_COMPLETED" 2>/dev/null && [ -s "$TMP_COMPLETED" ]; then
+    AGENTS_FILE="$TMP_COMPLETED" STAMP_FILE="$COMPLETED_STAMP" python3 - <<'PYEOF2'
+import json, os, sys
+from datetime import datetime, timezone
+
+MAX_ROWS = 8
+# Terminal statuses worth surfacing. 'stopped' / 'terminated_stale' /
+# 'completed_timeout' mean the sweeper closed the row; 'failed' /
+# 'cancelled' mean something went wrong. All are states the parent
+# should know about.
+TERMINAL_STATUSES = {
+    "completed",
+    "failed",
+    "cancelled",
+    "terminated_stale",
+    "completed_timeout",
+    "stopped",
+}
+EXCLUDE_SOURCES = {"ack-bot", "heartbeat-bot", "e2e-smoke"}
+
+def parse_iso(s):
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+path = os.environ.get("AGENTS_FILE", "")
+stamp_path = os.environ.get("STAMP_FILE", "")
+try:
+    with open(path, "r") as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(0)
+
+# Read highwater. Missing/unparseable means show everything recent.
+highwater = None
+try:
+    with open(stamp_path, "r") as f:
+        highwater = parse_iso(f.read().strip())
+except Exception:
+    highwater = None
+
+rows = []
+for a in data.get("agents", []) or []:
+    if a.get("source") != "claude-code":
+        continue
+    if a.get("source") in EXCLUDE_SOURCES:
+        continue
+    name = a.get("name") or ""
+    if not name or name.startswith("claude-code-"):
+        continue
+    status = a.get("status")
+    if status not in TERMINAL_STATUSES:
+        continue
+    completed_at_raw = a.get("completed_at")
+    completed_dt = parse_iso(completed_at_raw)
+    if not completed_dt:
+        continue
+    if highwater and completed_dt <= highwater:
+        continue
+    rows.append({
+        "name": name,
+        "status": status,
+        "completed_at": completed_at_raw,
+        "completed_dt": completed_dt,
+        "summary": (a.get("summary") or a.get("last_summary") or "")[:140],
+    })
+
+if not rows:
+    sys.exit(0)
+
+# Newest first so the most recent completion is most visible.
+rows.sort(key=lambda r: r["completed_dt"], reverse=True)
+
+shown = rows[:MAX_ROWS]
+now = datetime.now(timezone.utc)
+print()
+print("AGENTS THAT FINISHED SINCE YOUR LAST TURN (task-notification may have been missed):")
+for r in shown:
+    secs = int((now - r["completed_dt"]).total_seconds())
+    if secs < 60:
+        age = f"{max(secs, 0)}s ago"
+    elif secs < 3600:
+        age = f"{secs // 60}m ago"
+    else:
+        age = f"{secs // 3600}h ago"
+    label = r["status"]
+    if label == "completed":
+        label = "done"
+    elif label in {"failed", "cancelled", "stopped"}:
+        label = label
+    elif label in {"terminated_stale", "completed_timeout"}:
+        label = "auto-closed (agent exited without /complete)"
+    suffix = f" - {r['summary']}" if r["summary"] else ""
+    print(f"- {r['name']} [{label}] {age}{suffix}")
+extra = len(rows) - len(shown)
+if extra > 0:
+    print(f"+{extra} more (see Agents page)")
+print("These completed between your last turn and now. Check their commits / transcripts before assuming they are still running.")
+
+# Bump the highwater to the newest completed_at we just showed so the
+# next turn does not re-surface the same rows. Write the ISO string
+# back as-is so round-trip equality works regardless of tz suffix.
+newest = shown[0]["completed_dt"].isoformat()
+try:
+    os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
+    with open(stamp_path, "w") as f:
+        f.write(newest)
+except Exception:
+    pass
+PYEOF2
+fi
 
 exit 0
