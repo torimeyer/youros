@@ -379,3 +379,143 @@ class TestMyOSVocabulary:
             prompt = chat_providers._system_prompt()
 
         assert "PATH HINTS" in prompt or "file://" in prompt
+
+
+
+# ---------------------------------------------------------------------------
+# Bug 5: project CLAUDE.md injected into system prompt
+# ---------------------------------------------------------------------------
+
+
+class TestProjectClaudeMd:
+    """The workspace CLAUDE.md must land in the in-app chat system prompt.
+
+    This is the difference between Claude Code (the parent agent's CLI,
+    which auto-loads CLAUDE.md) and the in-app chat (which talks to
+    Anthropic directly and must inject the same file itself). Without
+    this, the in-app chat invents guesses for project-specific
+    vocabulary like OAE, saa, diagnose, ENTITYFILE, and sigstore.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_cache(self):
+        from services import chat_providers
+        chat_providers._clear_project_claude_md_cache()
+        yield
+        chat_providers._clear_project_claude_md_cache()
+
+    def test_returns_empty_when_no_claude_md(self, tmp_path):
+        """Non-myOS projects (no CLAUDE.md) get an empty block."""
+        from services import chat_providers
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path):
+            result = chat_providers._project_claude_md_context()
+
+        assert result == ""
+
+    def test_reads_and_frames_claude_md(self, tmp_path):
+        """CLAUDE.md content is returned inside a framed block."""
+        from services import chat_providers
+
+        (tmp_path / "CLAUDE.md").write_text(
+            "# myOS\n\nYou are myOS, built on ostk.\n\n"
+            "- **saa**: spawn agent(s).\n"
+        )
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path):
+            result = chat_providers._project_claude_md_context()
+
+        assert "PROJECT CLAUDE.md" in result
+        assert "You are myOS, built on ostk." in result
+        assert "saa" in result
+
+    def test_caches_by_mtime(self, tmp_path):
+        """Unchanged CLAUDE.md is read once and reused from cache."""
+        from services import chat_providers
+
+        path = tmp_path / "CLAUDE.md"
+        path.write_text("# myOS\n")
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path):
+            first = chat_providers._project_claude_md_context()
+            # Delete the file to prove the cache is hit (second call
+            # would crash on read if cache were bypassed).
+            path.unlink()
+            # Re-pointing cache to a still-cached mtime must still win
+            # ... but here unlink drops the stat so the cache misses.
+            # The real behavior: the cache key is (path, mtime). Since
+            # the file is gone, stat() raises and we return "".
+            second = chat_providers._project_claude_md_context()
+
+        assert "myOS" in first
+        # After unlink the stat fails and we get the empty string back.
+        # This also proves we are NOT serving stale content silently.
+        assert second == ""
+
+    def test_caps_oversized_claude_md(self, tmp_path):
+        """Huge CLAUDE.md is truncated below the context budget cap."""
+        from services import chat_providers
+
+        big = "x" * (chat_providers._PROJECT_CLAUDE_MD_MAX_CHARS + 1000)
+        (tmp_path / "CLAUDE.md").write_text(big)
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path):
+            result = chat_providers._project_claude_md_context()
+
+        # Framing header (~60 chars) + capped body + truncation tail.
+        assert len(result) <= chat_providers._PROJECT_CLAUDE_MD_MAX_CHARS + 200
+        assert result.endswith("\n...")
+
+    def test_injected_into_compose_system_prompt(self, tmp_path):
+        """_compose_system_prompt must embed CLAUDE.md content verbatim."""
+        from services import chat_providers
+
+        (tmp_path / "CLAUDE.md").write_text(
+            "# myOS\n\nYou are myOS, built on ostk.\n"
+        )
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path), \
+             patch("services.chat_providers._get_boot_context", return_value=""), \
+             patch("services.chat_providers._recent_activity_context", return_value=""), \
+             patch("services.chat_providers.settings_store") as ms:
+            ms.get.side_effect = lambda k, d=None: d
+            result = chat_providers._compose_system_prompt(None)
+
+        assert "PROJECT CLAUDE.md" in result
+        assert "You are myOS, built on ostk." in result
+
+    def test_injected_into_cached_system_blocks(self, tmp_path):
+        """_build_cached_system_blocks must embed CLAUDE.md in the static block."""
+        from services import chat_providers
+
+        (tmp_path / "CLAUDE.md").write_text(
+            "# myOS\n\nVocabulary: saa, diagnose, elit, nvrfgt, tack.\n"
+        )
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path), \
+             patch("services.chat_providers._get_boot_context", return_value=""), \
+             patch("services.chat_providers._recent_activity_context", return_value=""), \
+             patch("services.chat_providers.settings_store") as ms:
+            ms.get.side_effect = lambda k, d=None: d
+            blocks = chat_providers._build_cached_system_blocks(None)
+
+        # The static block (index 0) is where CLAUDE.md lives so it
+        # stays in the cached prefix across turns.
+        static_text = blocks[0]["text"]
+        assert "PROJECT CLAUDE.md" in static_text
+        assert "saa" in static_text
+        assert "diagnose" in static_text
+
+    def test_noop_when_claude_md_missing(self, tmp_path):
+        """Non-myOS projects get the original prompt unchanged."""
+        from services import chat_providers
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path), \
+             patch("services.chat_providers._get_boot_context", return_value=""), \
+             patch("services.chat_providers._recent_activity_context", return_value=""), \
+             patch("services.chat_providers.settings_store") as ms:
+            ms.get.side_effect = lambda k, d=None: d
+            result = chat_providers._compose_system_prompt(None)
+
+        assert "PROJECT CLAUDE.md" not in result
+

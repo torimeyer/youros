@@ -1367,6 +1367,72 @@ def _get_boot_context() -> str:
     return output
 
 
+# Cache the project's CLAUDE.md so repeated chat turns do not re-read
+# the file. (path, mtime) -> framed block. Keyed on mtime so edits to
+# CLAUDE.md land on the next turn without waiting for a TTL.
+_PROJECT_CLAUDE_MD_CACHE: Optional[tuple[str, float, str]] = None
+# Cap the injected CLAUDE.md so a stray long file cannot blow the
+# context budget. Root CLAUDE.md files in this repo are well under 4KB.
+_PROJECT_CLAUDE_MD_MAX_CHARS = 6000
+
+
+def _project_claude_md_context() -> str:
+    """Return the project's ``CLAUDE.md`` framed as a system-prompt block.
+
+    Claude Code (the external CLI the parent agent runs under) auto-loads
+    ``CLAUDE.md`` from the workspace root into its system prompt, which
+    is how the parent knows about project-specific vocabulary like OAE,
+    saa, diagnose, ENTITYFILE, and sigstore. The in-app chat does not
+    run through Claude Code, so the same file must be injected here for
+    parity. Without it the in-app agent behaves like generic Claude and
+    invents guesses for project-specific terms (e.g. reading "Oae
+    Verify" in the activity stream as a corruption of "Spec").
+
+    The block is left out entirely when no ``CLAUDE.md`` exists at the
+    workspace root, so non-myOS deployments of this code are unaffected.
+    Capped at ``_PROJECT_CLAUDE_MD_MAX_CHARS`` to bound context growth.
+    """
+    global _PROJECT_CLAUDE_MD_CACHE
+    path = PROJECT_ROOT / "CLAUDE.md"
+    try:
+        stat = path.stat()
+    except (FileNotFoundError, OSError):
+        return ""
+
+    mtime = stat.st_mtime
+    key = str(path)
+    if _PROJECT_CLAUDE_MD_CACHE is not None:
+        cached_key, cached_mtime, cached_text = _PROJECT_CLAUDE_MD_CACHE
+        if cached_key == key and cached_mtime == mtime:
+            return cached_text
+
+    try:
+        raw = path.read_text()
+    except OSError:
+        return ""
+
+    text = raw.strip()
+    if not text:
+        _PROJECT_CLAUDE_MD_CACHE = (key, mtime, "")
+        return ""
+
+    if len(text) > _PROJECT_CLAUDE_MD_MAX_CHARS:
+        text = text[: _PROJECT_CLAUDE_MD_MAX_CHARS].rstrip() + "\n..."
+
+    block = (
+        "PROJECT CLAUDE.md (workspace instructions, always apply):\n"
+        f"{text}"
+    )
+    _PROJECT_CLAUDE_MD_CACHE = (key, mtime, block)
+    return block
+
+
+def _clear_project_claude_md_cache() -> None:
+    """Evict cached CLAUDE.md block (used in tests)."""
+    global _PROJECT_CLAUDE_MD_CACHE
+    _PROJECT_CLAUDE_MD_CACHE = None
+
+
 def _system_prompt() -> str:
     """Return the static system prompt without boot context.
 
@@ -1634,6 +1700,9 @@ def _compose_system_prompt(matched_template: Optional[dict]) -> str:
     separate cached blocks. Includes boot context and recent activity inline.
     """
     base = _system_prompt()
+    claude_md = _project_claude_md_context()
+    if claude_md:
+        base = claude_md + "\n\n" + base
     standing = _standing_instructions_block()
     if standing:
         base = standing + "\n\n" + base
@@ -1667,6 +1736,9 @@ def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
     # cached across many turns and even across conversations within the
     # 5-minute TTL.
     base = _system_prompt()
+    claude_md = _project_claude_md_context()
+    if claude_md:
+        base = claude_md + "\n\n" + base
     standing = _standing_instructions_block()
     if standing:
         base = standing + "\n\n" + base
