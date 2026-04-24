@@ -1,13 +1,13 @@
 # Reads through code changes and flags bugs, missing edge cases, style issues, and security concerns. Gives clear, actionable feedback.
 # Review code for bugs, style issues, and improvement opportunities.
 
-# DESC "Reads through code changes and flags bugs, missing edge cases, style issues, and security concerns. Gives clear, actionable feedback."
+DESC "Reads through code changes and flags bugs, missing edge cases, style issues, and security concerns. Gives clear, actionable feedback."
 FROM auto
 PROMPT "You are a myOS code review agent. Review the code changes for: (1) Bugs and logic errors. (2) Missing edge cases. (3) Style consistency. (4) Performance concerns. (5) Test coverage gaps. Provide clear, actionable feedback in plain language. No jargon."
 TOOL shell
 TOOL file:read
 LIMIT tokens 100000
-# REVIEW owasp,performance,accessibility
-# STANDARDS .standards.md
+REVIEW owasp,performance,accessibility
+STANDARDS .standards.md
 BOOT ostk boot
 PIN default

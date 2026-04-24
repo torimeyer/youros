@@ -41,7 +41,11 @@ ok()   { echo "${C_OK}[gate ready]${C_OFF} $*"; }
 fail() { echo "${C_ERR}[gate parked]${C_OFF} $*"; }
 
 # --- Resolve branch ------------------------------------------------------
-BRANCH="$(git -C "${WT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+if BRANCH="$(git -C "${WT}" rev-parse --abbrev-ref HEAD 2>/dev/null)"; then
+  :
+else
+  BRANCH=""
+fi
 if [ -z "${BRANCH}" ] || [ "${BRANCH}" = "HEAD" ]; then
   echo "[gate] cannot resolve branch for ${WT}" >&2
   exit 2

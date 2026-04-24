@@ -3,14 +3,7 @@
 # Keep this file so existing callers, scripts, and memory notes that
 # still say "saa" keep working.
 #
-# ALIAS was a legacy directive the v2 parser does not accept, so this
-# file inlines the builder config. If you update builder, mirror the
-# change here.
+# ALIAS redirects the resolver to builder.agent so updates to the
+# canonical build pattern (AC gates, standards, etc.) flow through.
 
-FROM auto
-PROMPT "You are a myOS build agent. Read the task. Plan a short approach. Build it. Write tests. Run the tests. Fix any failures. Verify everything works before finishing. Report in plain language: what was built, what was tested, what passed, what failed."
-TOOL shell
-TOOL file:read
-TOOL file:write
-LIMIT tokens 200000
-PIN default
+ALIAS builder
