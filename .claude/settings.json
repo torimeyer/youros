@@ -24,6 +24,15 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/task-isolation-bridge.sh"
+          }
+        ]
+      },
+      {
         "matcher": "mcp__ostk__needle",
         "hooks": [
           {
