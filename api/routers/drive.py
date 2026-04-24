@@ -236,12 +236,12 @@ def _frontend_url() -> str:
     return os.environ.get("FRONTEND_URL", "https://localhost:3010")
 
 
-# Module-level anchor for regression tests: documents the post-migration
-# redirect target (Drive + Files were unified under /documents?tab=drive).
-# The runtime code uses ``_frontend_drive_url()`` so FRONTEND_URL env
-# changes take effect without a restart; this constant records the path
-# and query that must appear in that URL.
-FRONTEND_DRIVE_URL = "/documents?tab=drive"
+# Module-level anchor for regression tests: the post-auth redirect
+# target for the Drive OAuth callback. The short-lived Drive+Files to
+# Documents migration was reverted in eaa7ffa, so the redirect goes
+# back to the Drive page. The runtime code uses ``_frontend_drive_url()``
+# so FRONTEND_URL env changes take effect without a restart.
+FRONTEND_DRIVE_URL = "/drive"
 
 
 def _frontend_drive_url() -> str:

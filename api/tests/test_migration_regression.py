@@ -1,9 +1,11 @@
-"""Regression tests for Drive + Files → Documents migration.
+"""Regression tests for Drive + Files backend routes.
 
-Verifies that the old Drive and Files API endpoints still respond after
-the frontend was unified into a single Documents page. The backend
-routers (drive.py, files.py, documents.py, exports.py, diagrams.py,
-pdf.py) must all remain registered and reachable.
+Verifies that the Drive and Files API endpoints remain mounted. A prior
+attempt to unify these under a Documents page was reverted: the
+`documents`, `exports`, `diagrams`, and `pdf` routers were orphans with
+no committed source, removed in eaa7ffa with provenance. Tests for
+those removed routers were deleted in this file as part of the same
+cleanup.
 """
 
 import pytest
@@ -32,11 +34,12 @@ async def test_drive_files_endpoint_still_works(client):
     assert resp.status_code != 404, f"Drive files endpoint returned 404: {resp.text}"
 
 
-async def test_drive_oauth_callback_redirects_to_documents(client):
-    """The OAuth callback redirect URL should point to /documents?tab=drive."""
-    # We cannot follow the full OAuth flow, but we can verify the
-    # FRONTEND_DRIVE_URL constant in the drive module.
-    import importlib
+async def test_drive_oauth_callback_redirects_to_drive(client):
+    """The OAuth callback redirect URL should point to /drive.
+
+    The Documents page was removed with provenance in eaa7ffa, so Drive
+    is again its own top-level page. The redirect target must match.
+    """
     import sys
 
     # The drive router is already imported via main.py -> conftest
@@ -46,8 +49,7 @@ async def test_drive_oauth_callback_redirects_to_documents(client):
 
     url = getattr(drive_mod, "FRONTEND_DRIVE_URL", None)
     assert url is not None, "FRONTEND_DRIVE_URL not defined in drive module"
-    assert "/documents" in url, f"FRONTEND_DRIVE_URL does not contain /documents: {url}"
-    assert "tab=drive" in url, f"FRONTEND_DRIVE_URL does not contain tab=drive: {url}"
+    assert "/drive" in url, f"FRONTEND_DRIVE_URL does not contain /drive: {url}"
 
 
 # ---------------------------------------------------------------------------
@@ -66,58 +68,3 @@ async def test_files_raw_endpoint_still_works(client):
     """GET /api/files/raw should accept a path param and respond."""
     resp = await client.get("/api/files/raw", params={"path": "README.md"})
     assert resp.status_code != 404, f"Files raw returned 404: {resp.text}"
-
-
-# ---------------------------------------------------------------------------
-# New routers (documents, exports, diagrams, pdf)
-# ---------------------------------------------------------------------------
-
-async def test_documents_router_registered(client):
-    """GET /api/documents should return 200 with a list of documents.
-
-    The endpoint returns a bare JSON array (possibly empty) of document
-    metadata objects. The page was deprecated but the backend router is
-    kept so FCP document flows still work; what matters for this
-    regression test is that the route is mounted and returns 200.
-    """
-    resp = await client.get("/api/documents")
-    assert resp.status_code == 200, f"Documents list returned {resp.status_code}: {resp.text}"
-    data = resp.json()
-    assert isinstance(data, list), f"Expected list from /api/documents, got {type(data).__name__}: {data}"
-
-
-async def test_exports_router_registered(client):
-    """POST /api/exports/sheets/costs must be a mounted route.
-
-    We deliberately do NOT invoke the handler. The handler spawns a real
-    fcp-sheets subprocess (FCPExporter.export), which hangs in test
-    environments and blocked the pre-commit hook. Asserting that the
-    route is registered is enough to prove the router was not lost
-    during the Drive+Files to Documents migration.
-    """
-    from main import app
-
-    paths = {r.path for r in app.routes}
-    assert "/api/exports/sheets/costs" in paths, (
-        f"Exports router did not register /api/exports/sheets/costs. "
-        f"Registered paths matching /exports: "
-        f"{sorted(p for p in paths if '/exports' in p)}"
-    )
-
-
-async def test_diagrams_router_registered(client):
-    """POST /api/diagrams/architecture should respond (not 404)."""
-    resp = await client.post(
-        "/api/diagrams/architecture",
-        json={},
-    )
-    assert resp.status_code != 404, f"Diagrams router returned 404: {resp.text}"
-
-
-async def test_pdf_router_registered(client):
-    """POST /api/pdf/memo should respond (not 404)."""
-    resp = await client.post(
-        "/api/pdf/memo",
-        json={"title": "regression-test", "content": "smoke"},
-    )
-    assert resp.status_code != 404, f"PDF router returned 404: {resp.text}"
