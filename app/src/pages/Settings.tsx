@@ -47,8 +47,11 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
   { name: 'Airtable', description: 'Read and write Airtable bases, tables, and records', icon: 'table_chart', npmPackage: 'airtable-mcp-server', setupCommand: 'npx -y airtable-mcp-server', requiresAuth: true, authHint: 'Needs an Airtable personal access token from airtable.com/create/tokens.' },
 ];
 
+const DEFAULT_FILES_DIR_HINT = "~/.myos/files";
+
 interface SettingsData {
   dark_mode?: boolean;
+  files_dir?: string | null;
   accent_color?: string;
   os_name?: string;
   features?: Record<string, boolean>;
@@ -133,6 +136,8 @@ export default function Settings() {
   const [standingSaveStatus, setStandingSaveStatus] = useState<string | null>(null);
   const [standingSaveIsError, setStandingSaveIsError] = useState(false);
   const standingSectionRef = useRef<HTMLDivElement>(null);
+  const [filesDirInput, setFilesDirInput] = useState('');
+  const [currentFilesDir, setCurrentFilesDir] = useState<string | null>(null);
   // Auto-draft suggestions: the "Suggest for me" button calls the backend
   // generator, which returns 5-10 candidate instructions based on the
   // user's real patterns. Each row has a checkbox (default checked) and
@@ -206,6 +211,11 @@ export default function Settings() {
         const data = await api.get<SettingsData>('/settings');
         if (data.accent_color) setAccentColor(data.accent_color as AccentColor);
         if (data.os_name) setOsName(data.os_name);
+        if (typeof data.files_dir === 'string' || data.files_dir === null || data.files_dir === undefined) {
+          const fd = (data.files_dir as string | null | undefined) ?? null;
+          setCurrentFilesDir(fd);
+          setFilesDirInput(fd ?? '');
+        }
         if (data.dark_mode !== undefined && data.dark_mode !== darkMode) {
           // Set directly via store to avoid a toggle flash
           localStorage.setItem('myos-dark-mode', String(data.dark_mode));
@@ -463,6 +473,21 @@ export default function Settings() {
     const q = browseSearch.toLowerCase();
     return entry.name.toLowerCase().includes(q) || entry.description.toLowerCase().includes(q);
   });
+
+  const handleChangeFilesDir = async () => {
+    const next = filesDirInput.trim();
+    if (next === (currentFilesDir ?? '')) return;
+    const ok = window.confirm(
+      'Changing this will point torios at the new folder. Files in your current folder stay where they are. Continue?'
+    );
+    if (!ok) return;
+    try {
+      await api.put('/settings', { files_dir: next || null });
+      setCurrentFilesDir(next || null);
+    } catch (e) {
+      console.error('Failed to update files_dir', e);
+    }
+  };
 
   const handleDarkModeToggle = (wantDark: boolean) => {
     if (wantDark !== darkMode) {
@@ -758,6 +783,11 @@ export default function Settings() {
       <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 space-y-6">
         <PageHeader title="Settings" />
 
+        <div className="text-sm text-slate-400" data-testid="privacy-link-row">
+          <a href="/privacy" className="underline hover:text-slate-200">Privacy</a>
+          <span className="ml-2">How torios handles your data.</span>
+        </div>
+
         {/* Standing instructions */}
         <div
           ref={standingSectionRef}
@@ -875,6 +905,33 @@ export default function Settings() {
                 {standingSaveStatus}
               </span>
             )}
+          </div>
+        </div>
+
+        {/* Files location */}
+        <div className="mb-6" data-testid="files-location-section">
+          <h2 className="text-lg font-semibold mb-2">Files location</h2>
+          <p className="text-sm text-slate-400 mb-3">
+            This is the folder on your computer where torios saves your
+            files, like briefs and roadmaps. The default is a hidden
+            folder in your home directory.
+          </p>
+          <div className="flex gap-2 items-center">
+            <input
+              type="text"
+              value={filesDirInput}
+              onChange={(e) => setFilesDirInput(e.target.value)}
+              placeholder={DEFAULT_FILES_DIR_HINT}
+              data-testid="files-dir-input"
+              className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+            />
+            <button
+              onClick={handleChangeFilesDir}
+              data-testid="files-dir-change"
+              className="accent-bg !text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              Change
+            </button>
           </div>
         </div>
 
