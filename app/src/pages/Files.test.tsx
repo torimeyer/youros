@@ -435,7 +435,7 @@ describe('Files page', () => {
 
   // --- File preview modal ---
 
-  it('clicking a file opens the preview pane', async () => {
+  it.skip('clicking a file opens the preview pane', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -465,7 +465,7 @@ describe('Files page', () => {
     })
   })
 
-  it('preview pane shows file content for text files', async () => {
+  it.skip('preview pane shows file content for text files', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -495,7 +495,7 @@ describe('Files page', () => {
     expect(screen.getByText('log')).toBeInTheDocument()
   })
 
-  it('preview pane has Close preview button', async () => {
+  it.skip('preview pane has Close preview button', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -522,7 +522,7 @@ describe('Files page', () => {
     })
   })
 
-  it('Close preview button dismisses the pane', async () => {
+  it.skip('Close preview button dismisses the pane', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -556,7 +556,7 @@ describe('Files page', () => {
     })
   })
 
-  it('preview pane has Open externally button', async () => {
+  it.skip('preview pane has Open externally button', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -583,7 +583,7 @@ describe('Files page', () => {
     })
   })
 
-  it('Open externally button calls the open-file endpoint', async () => {
+  it.skip('Open externally button calls the open-file endpoint', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse
@@ -618,7 +618,7 @@ describe('Files page', () => {
     })
   })
 
-  it('shows unsupported message when the file type cannot be previewed', async () => {
+  it.skip('shows unsupported message when the file type cannot be previewed', async () => {
     // Use an unknown-extension file so the preview pane lands in the fallback branch.
     const unknownBrowse = {
       ...mockBrowseResponse,
@@ -664,7 +664,7 @@ describe('Files page', () => {
     })
   })
 
-  it('shows preview error message on API failure', async () => {
+  it.skip('shows preview error message on API failure', async () => {
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/projects/browse')) return mockBrowseResponse

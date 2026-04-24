@@ -3,7 +3,6 @@ import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import { LoadingState, ErrorBanner, EmptyState } from '../components/ui';
 import { api, ApiError } from '../lib/api';
-import DrivePreview from '../components/DrivePreview';
 import GoogleSetupGuideModal from '../components/GoogleSetupGuideModal';
 
 // ---------------------------------------------------------------------------
@@ -1078,15 +1077,19 @@ export default function Drive() {
         )}
       </div>
 
-      {/* Preview overlay */}
+      {/* Preview overlay. TODO(v3.6.0 F3 QuickLook): replace with QuickLook modal. */}
       {previewFile && (
-        <DrivePreview
-          fileId={previewFile.id}
-          name={previewFile.name}
-          mimeType={previewFile.mimeType}
-          webViewLink={previewFile.webViewLink}
-          onClose={() => setPreviewFile(null)}
-        />
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setPreviewFile(null)}
+        >
+          <div
+            className="bg-white p-8 rounded-xl text-center text-neutral-500 max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Preview coming soon. Open {previewFile.name} in Google Drive from the row menu.
+          </div>
+        </div>
       )}
 
       {undoDelete && (

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
-import FilePreviewPane from '../components/FilePreviewPane';
 import ConfirmModal from '../components/ConfirmModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { api, ApiError } from '../lib/api';
@@ -251,15 +250,6 @@ export default function Files() {
       setCurrentPath(browseData.parent_path);
     } else {
       navigateToRoot();
-    }
-  };
-
-  // Open a file with the system default app
-  const openFile = async (path: string) => {
-    try {
-      await api.post('/projects/open-file', { path });
-    } catch {
-      // Silently fail. The file may still open.
     }
   };
 
@@ -596,12 +586,21 @@ export default function Files() {
         )}
       </div>
 
-      {/* File preview side pane */}
-      <FilePreviewPane
-        entry={previewEntry}
-        onClose={closePreview}
-        onOpenExternally={openFile}
-      />
+      {/* File preview side pane. TODO(v3.6.0 F3 QuickLook): replace with QuickLook modal. */}
+      {previewEntry && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={closePreview}
+        >
+          <div
+            className="bg-white p-8 rounded-xl text-center text-neutral-500 max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-4">Preview coming soon.</p>
+            <p className="text-sm">Click outside to close, or open the file from the row menu.</p>
+          </div>
+        </div>
+      )}
 
       {/* In-app confirm dialog, used by delete flows. */}
       <ConfirmModal {...confirmProps} />
