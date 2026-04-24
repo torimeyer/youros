@@ -69,6 +69,10 @@ class HayConvert(BaseModel):
 
 class Settings(BaseModel):
     onboarded: bool = False
+    # Absolute path where torios stores user-visible files (briefs,
+    # roadmaps, automation outputs). None means fall back to the default
+    # ~/.myos/files. See api/services/files_dir.py.
+    files_dir: Optional[str] = None
     os_name: str = "myOS"
     # Instance name shown in the app. myOS is the product; every user
     # names their own instance. Default matches the product name so the

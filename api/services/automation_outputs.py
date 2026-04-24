@@ -36,7 +36,11 @@ logger = logging.getLogger(__name__)
 # Where user-facing automation outputs land. The Files tab's
 # ``/docs/recent`` endpoint already scans this directory, so anything
 # written here shows up automatically.
-MYOS_FILES_DIR = Path.home() / ".myos" / "files"
+def __getattr__(name):  # PEP 562: resolve MYOS_FILES_DIR at call-time
+    if name == "MYOS_FILES_DIR":
+        from services.files_dir import get_files_dir
+        return get_files_dir()
+    raise AttributeError(name)
 
 # Minimum characters (after strip) that qualify as a real output. Under
 # this bar we treat the run as an acknowledgment, not an artifact.

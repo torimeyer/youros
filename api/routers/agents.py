@@ -4165,7 +4165,15 @@ async def register_agent(body: AgentSpawn, request: Request = None):
 # Directory where user-facing generated files (like roadmap.md from the
 # Roadmap template) are written. Scanned by /docs/recent so these files
 # show up on the Files page without needing to live inside the repo.
-MYOS_FILES_DIR = Path.home() / ".myos" / "files"
+# Dynamically resolve via services.files_dir.get_files_dir() so
+# Settings page changes take effect without a restart. Tests patch
+# this name via ``patch.object(module, "MYOS_FILES_DIR", ...)`` which
+# sets a real attribute and shadows ``__getattr__`` below.
+def __getattr__(name):  # PEP 562
+    if name == "MYOS_FILES_DIR":
+        from services.files_dir import get_files_dir
+        return get_files_dir()
+    raise AttributeError(name)
 
 # Minimum summary length (characters, after strip) that qualifies as a
 # real artifact. Short summaries like "Done" or "ok" would clutter the

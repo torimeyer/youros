@@ -59,10 +59,22 @@ async def notify_active_websockets_of_shutdown(
             # the outer shutdown sequence still needs to run for the
             # remaining sockets.
             pass
+    # Give the OS/event-loop a brief window to flush the queued frames
+    # before uvicorn force-closes the sockets. 200ms is plenty for local
+    # loopback and small enough not to delay a real shutdown.
+    if snapshot:
+        try:
+            await asyncio.sleep(0.2)
+        except Exception:
+            pass
 
 # Where roadmap .md files land. Same directory the Files tab scans. Kept
 # as a module-level constant so tests can monkeypatch it onto a tmp_path.
-MYOS_FILES_DIR = Path.home() / ".myos" / "files"
+def __getattr__(name):  # PEP 562: resolve MYOS_FILES_DIR at call-time
+    if name == "MYOS_FILES_DIR":
+        from services.files_dir import get_files_dir
+        return get_files_dir()
+    raise AttributeError(name)
 
 # Phrases that route to the "create tasks from this roadmap" handler.
 # Matched case-insensitively against the full user message (after strip).
