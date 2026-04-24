@@ -126,9 +126,17 @@ HAY=$(printf '%s\n%s\n' "$PROMPT" "$DESCRIPTION" | tr '[:upper:]' '[:lower:]')
 # Word-boundary regex. Keep this list in sync with the task spec.
 # The grep -E pattern uses [^a-z0-9_] as the boundary on each side so
 # "writer" does not match "write".
-VERB_RE='(^|[^a-z0-9_])(edit|write|fix|commit|saa|diagnose|build|add|refactor|rename|create|delete)([^a-z0-9_]|$)'
+VERB_RE='(^|[^a-z0-9_])(edit|write|fix|commit|saa|diagnose|build|add|refactor|rename|create|delete|update|modify|replace|remove)([^a-z0-9_]|$)'
 
-if ! printf '%s' "$HAY" | grep -qE "$VERB_RE"; then
+# Strip negated verb phrases so "do not modify" / "don't delete" etc. do not
+# trigger the bridge on read-only prompts that mention verbs in negative context.
+HAY_CHECK=$(printf '%s' "$HAY" | python3 -c "
+import sys, re
+t = sys.stdin.read()
+t = re.sub(r'\\b(?:do\\s+not|don.t|never|no)\\s+\\w+', ' ', t, flags=re.IGNORECASE)
+sys.stdout.write(t)
+" 2>/dev/null || printf '%s' "$HAY")
+if ! printf '%s' "$HAY_CHECK" | grep -qE "$VERB_RE"; then
     # No edit verb detected. Treat as read-only. Allow native Task.
     exit 0
 fi
@@ -160,19 +168,28 @@ prompt = os.environ.get("PROMPT") or ""
 desc = os.environ.get("DESCRIPTION") or ""
 hay = prompt + "\n" + desc
 
-# Extract file paths named in the prompt.
-EXT_RE = re.compile(r"[\w./-]+\.(?:py|ts|tsx|sh|md|json|yml|yaml|toml|sql|css|html)\b")
-DIR_RE = re.compile(r"\b((?:api|app|scripts|docs|agents|\.claude|\.ostk)/[\w./-]*)")
-
-locks = set()
-for m in EXT_RE.finditer(hay):
-    locks.add(m.group(0).strip(".,:;()[]{}"))
-for m in DIR_RE.finditer(hay):
-    locks.add(m.group(1).rstrip("/,."))
-
-# Fallback: if nothing concrete, use coarse repo globs to force serialization.
-if not locks:
-    locks = {"app/**", "api/**", ".claude/**", "scripts/**"}
+# Explicit locks hint takes priority over heuristic extraction.
+# Matches: locks: [path1, path2] or locks: ["path1", "path2"] anywhere in hay.
+EXPLICIT_RE = re.compile(r"[Ll]ocks\s*:\s*\[([^\]]+)\]")
+em = EXPLICIT_RE.search(hay)
+if em:
+    locks = set()
+    for part in re.split(r"[,\s]+", em.group(1)):
+        part = part.strip().strip("\"'")
+        if part:
+            locks.add(part)
+else:
+    # Extract file paths named in the prompt.
+    EXT_RE = re.compile(r"[\w./-]+\.(?:py|ts|tsx|sh|md|json|yml|yaml|toml|sql|css|html)\b")
+    DIR_RE = re.compile(r"\b((?:api|app|scripts|docs|agents|\.claude|\.ostk)/[\w./-]*)")
+    locks = set()
+    for m in EXT_RE.finditer(hay):
+        locks.add(m.group(0).strip(".,:;()[]{}"))
+    for m in DIR_RE.finditer(hay):
+        locks.add(m.group(1).rstrip("/,."))
+    # Fallback: if nothing concrete, use coarse repo globs to force serialization.
+    if not locks:
+        locks = {"app/**", "api/**", ".claude/**", "scripts/**"}
 
 body = {
     "name": os.environ["SPAWN_NAME"],
