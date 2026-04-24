@@ -178,7 +178,7 @@ function ThinkingDots() {
   )
 }
 
-function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: boolean; streaming: boolean }) {
+export function CollapsibleText({ text, isLast, streaming }: { text: string; isLast: boolean; streaming: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const isLong = text.length > 300
   const isActivelyStreaming = streaming && isLast
@@ -2008,7 +2008,25 @@ export function ChatPanel() {
                           </div>
                         )}
                         {msg.content?.trim() && (
-                          <CollapsibleText text={msg.content} isLast={globalIdx === messages.length - 1} streaming={isStreaming} />
+                          <CollapsibleText
+                            text={msg.content}
+                            isLast={globalIdx === messages.length - 1}
+                            // Per-bubble streaming. The global isStreaming flag
+                            // stays true while any bubble in a parallel fan-out
+                            // is still producing tokens. Using the global flag
+                            // here made bubbles that already finished keep
+                            // showing raw markdown (**bold** visible) until
+                            // every sibling finished. activeStreamingBubbleIds
+                            // tracks which specific bubbles are live. Falls
+                            // back to (isStreaming && isLast) in the single-AI
+                            // path where the set is not populated.
+                            streaming={
+                              activeStreamingBubbleIds.has(msg.id) ||
+                              (isStreaming &&
+                                globalIdx === messages.length - 1 &&
+                                activeStreamingBubbleIds.size === 0)
+                            }
+                          />
                         )}
                         {msg.isError && globalIdx === messages.length - 1 && (
                           <button
