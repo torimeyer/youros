@@ -62,6 +62,7 @@ ACTIVE HUMANFILE RULES (read every turn):
 ## Slow-down signals (stop spawning when ANY fire)
 - Meta-question about pacing or state ("you good?", "take a step back"). Stop. Summarize. Ask ONE question. Wait.
 - Same bug recurs after a fix I claimed landed. READ the prior diff before respawning.
+- About to spawn a replacement because an agent went quiet or disappeared. Run `git log --oneline -10` first. If the commits landed, it finished — no replacement needed.
 - 3+ agents spawned in last 30 min. Batch or sequence the next round.
 - Torios interrupts a tool call. Interrupt = reconsider scope, not retry.
 - About to answer an exploratory question by spawning. Spawn only when code changes.
