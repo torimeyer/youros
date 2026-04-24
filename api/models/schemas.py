@@ -204,6 +204,17 @@ class AgentSpawn(BaseModel):
     # default from the description/prompt verbs. "none" forces the main
     # worktree.
     isolation: Optional[str] = None
+    # Mandatory path-lock declaration for edit-capable spawns. Every
+    # entry is a file path or glob the spawn promises to touch. Before
+    # the subprocess starts the server reserves each glob in a
+    # process-wide registry; a second spawn asking for any overlapping
+    # glob is rejected with HTTP 409 so parallel edit bursts cannot
+    # race. Research-only spawns (isolation resolved to "none") may
+    # pass ["*"] as an explicit "I won't edit anything" opt-out, or
+    # omit the field entirely. Edit-capable spawns (isolation resolved
+    # to "worktree") MUST pass a non-empty, non-wildcard list or the
+    # server returns HTTP 400. See services.spawn_isolation.
+    locks: Optional[List[str]] = None
 
 
 class AgentNudge(BaseModel):
