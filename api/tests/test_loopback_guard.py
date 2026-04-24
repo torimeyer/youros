@@ -109,3 +109,49 @@ async def test_falsey_env_var_does_not_bypass(monkeypatch):
     async with _client_with_host("10.0.0.5") as c:
         resp = await c.get("/api/tasks")
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# TestClient / pytest bypass (needle →909). FastAPI's TestClient sets
+# ``request.client.host = "testclient"``. The guard must accept that host
+# only when pytest is running, and must NOT accept it in production.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_testclient_host_allowed_under_pytest(monkeypatch):
+    """``testclient`` is the FastAPI TestClient sentinel; allow it under pytest."""
+    monkeypatch.delenv("ALLOW_NON_LOOPBACK", raising=False)
+    # pytest always sets PYTEST_CURRENT_TEST during a test; the guard
+    # should see it and let this sentinel through.
+    async with _client_with_host("testclient") as c:
+        resp = await c.get("/api/tasks")
+    assert resp.status_code != 401
+
+
+@pytest.mark.asyncio
+async def test_testclient_host_rejected_outside_pytest(monkeypatch):
+    """Without PYTEST_CURRENT_TEST, a literal ``testclient`` host is rejected.
+
+    This protects prod: if a real deployed process ever received a
+    request whose client host was the string ``testclient``, the guard
+    must still 401 it.
+    """
+    monkeypatch.delenv("ALLOW_NON_LOOPBACK", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    async with _client_with_host("testclient") as c:
+        resp = await c.get("/api/tasks")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_non_loopback_still_rejected_under_pytest(monkeypatch):
+    """Running under pytest does not give a free pass to arbitrary IPs.
+
+    Only the ``testclient`` sentinel is whitelisted under pytest; a
+    normal non-loopback address (10.0.0.5) must still 401.
+    """
+    monkeypatch.delenv("ALLOW_NON_LOOPBACK", raising=False)
+    async with _client_with_host("10.0.0.5") as c:
+        resp = await c.get("/api/tasks")
+    assert resp.status_code == 401
