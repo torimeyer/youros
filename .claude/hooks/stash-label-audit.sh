@@ -57,4 +57,14 @@ case "$LABEL" in
     ;;
 esac
 
+# Block generic filler first-words.
+FIRST_WORD=$(echo "$LABEL" | awk '{print tolower($1)}')
+case "$FIRST_WORD" in
+  temp|tmp|baseline|wip|scratch|test|misc|stuff|x|fix)
+    echo "Blocked: stash label \"$LABEL\" starts with a generic filler word (\"$FIRST_WORD\")." >&2
+    echo "Use a descriptive label instead, e.g. \"drive-preview-overlay-rework\"." >&2
+    exit 2
+    ;;
+esac
+
 exit 0

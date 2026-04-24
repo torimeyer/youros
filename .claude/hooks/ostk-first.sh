@@ -2,19 +2,13 @@
 # Block native file/shell tools whenever ostk is up.
 # Exit 2 returns the message to Claude, who must retry with ostk.
 #
-# PROBE STRATEGY (race-free):
-#   We previously used `curl --connect-timeout 1 -m 2 https://127.0.0.1:8000/api/status`.
-#   That timed out intermittently under load even when uvicorn was healthy,
-#   causing the hook to exit 0 and allow native Bash/Read/Edit/Grep to slip through.
+# PROBE STRATEGY:
+#   Check for the kernel socket at .ostk/ostk.sock.  If the socket file is
+#   absent, ostk MCP is offline and we exit 0 to allow native tools rather
+#   than deadlocking.  Socket present → ostk is up → block and redirect.
 #
-#   The new probe is process-based:
-#     1. pgrep for the uvicorn backend on port 8000
-#     2. pgrep for the ostk MCP kernel
-#   Either present means "ostk is up, block native tools."
-#   Only if BOTH are absent do we allow native (ostk truly offline).
-#
-#   If anyone re-introduces a curl check, treat exit code 28 (timeout) as
-#   "probably up, be conservative, BLOCK" rather than "allow".
+#   Previous approach used pgrep for uvicorn/ostk processes; replaced because
+#   it gave false-positives when processes were up but MCP was unreachable.
 #
 # TRACE LOG: /tmp/ostk-first.log gets one stamped line per invocation.
 #   Rotate to /tmp/ostk-first.log.old if it exceeds 1MB.
@@ -33,20 +27,18 @@ trace() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') tool=${2:-?} branch=$1" >> "$LOG" 2>/dev/null
 }
 
-# Probe: is ostk up?
-if pgrep -f "uvicorn.*:8000" >/dev/null 2>&1; then
-  OSTK_UP=1
-elif pgrep -f "ostk kernel serve" >/dev/null 2>&1; then
-  OSTK_UP=1
-else
-  OSTK_UP=0
-fi
+# Probe: socket-existence check.
+# If .ostk/ostk.sock is absent ostk MCP is offline — fall through to native
+# tools rather than deadlocking on an unreachable MCP server.
+PROJ_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+SOCK="${PROJ_DIR}/.ostk/ostk.sock"
 
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | python3 -c "import sys,json;print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null)
 
-if [ "$OSTK_UP" -eq 0 ]; then
+if [ ! -S "$SOCK" ]; then
   trace "ostk-offline-allowed" "$TOOL"
+  echo "ostk MCP offline, native fallback allowed" >&2
   exit 0
 fi
 
