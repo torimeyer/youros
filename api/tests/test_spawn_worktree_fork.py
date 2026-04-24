@@ -174,6 +174,9 @@ async def test_spawn_worktree_creates_fork_and_sets_cwd(tmp_path, monkeypatch):
                     "prompt": "fix the flaky test",  # "fix" -> worktree
                     "model": "sonnet",
                     "budget": 2.0,
+                    # Mandatory lock-on-spawn: edit verbs require a
+                    # non-empty `locks` list. See spawn_isolation.
+                    "locks": ["api/tests/test_flaky.py"],
                 },
             )
         assert resp.status_code == 200, resp.text
@@ -266,6 +269,8 @@ async def test_spawn_worktree_fork_failure_falls_back(tmp_path, monkeypatch, cap
                     "prompt": "implement the retry helper",  # -> worktree
                     "model": "sonnet",
                     "budget": 2.0,
+                    # Mandatory lock-on-spawn for edit verbs.
+                    "locks": ["api/services/retry.py"],
                 },
             )
         # Fork failed, but the spawn still succeeded.

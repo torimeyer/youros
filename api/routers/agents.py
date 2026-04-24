@@ -3094,13 +3094,57 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     # the result. decide_isolation respects an explicit caller value and
     # otherwise picks "worktree" for code-edit verbs, "none" for
     # research-only verbs. See services/spawn_isolation.py.
-    from services.spawn_isolation import decide_isolation as _decide_isolation
+    from services.spawn_isolation import (
+        acquire_spawn_locks as _acquire_spawn_locks,
+        decide_isolation as _decide_isolation,
+        release_spawn_locks as _release_spawn_locks,
+        validate_locks_for_spawn as _validate_locks_for_spawn,
+    )
     body.isolation = _decide_isolation(
         description=body.description,
         prompt=body.prompt,
         explicit=body.isolation,
         agent_name=body.name,
     )
+
+    # Mandatory lock-on-spawn: edit-capable spawns (isolation resolved
+    # to "worktree") MUST declare which paths they will touch so
+    # parallel spawns cannot race on the same files. Read-only spawns
+    # may pass ["*"] as the "won't edit anything" opt-out, or omit the
+    # field. See services/spawn_isolation.py for the full contract.
+    _locks_ok, _locks_err = _validate_locks_for_spawn(
+        isolation=body.isolation or "none",
+        locks=body.locks,
+    )
+    if not _locks_ok:
+        raise HTTPException(status_code=400, detail=_locks_err)
+    _lock_ok, _acquired_lock_keys, _lock_contenders = _acquire_spawn_locks(
+        spawn_id=body.name,
+        locks=body.locks,
+    )
+    if not _lock_ok:
+        # Surface each contending spawn so the caller can decide whether
+        # to wait, widen their own lock scope, or re-aim at different
+        # files. Plain language: no jargon, names the field, names the
+        # holder.
+        detail = {
+            "error": "lock_conflict",
+            "message": (
+                "Another spawn is already holding one of the paths this "
+                "spawn asked to edit. Wait for it to finish or retry with "
+                "a different path."
+            ),
+            "conflicts": [
+                {
+                    "requested": requested,
+                    "held_by_spawn": holder_id,
+                    "held_path": holder_raw,
+                }
+                for (requested, holder_id, holder_raw) in _lock_contenders
+            ],
+        }
+        raise HTTPException(status_code=409, detail=detail)
+
     from config import PROJECT_ROOT
     from services.policy_enforcement import (
         check_budget,
@@ -3468,13 +3512,38 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         logger.warning("roadmap.quick_complete name=%s err=%s", name, _qc_exc)
             except Exception:
                 pass
+            # Release every path lock this spawn acquired. Always runs
+            # after the subprocess exits, regardless of return code, so
+            # a failed edit spawn does not orphan its locks. The
+            # registry is the source of truth; ostk lock release fires
+            # as a best-effort side effect. See services/spawn_isolation.
+            try:
+                _released = _release_spawn_locks(spawn_id=name)
+                if _released:
+                    logger.info(
+                        "spawn.locks.released name=%s keys=%s",
+                        name, _released,
+                    )
+            except Exception as _rel_exc:
+                logger.warning(
+                    "spawn.locks.release_failed name=%s err=%s",
+                    name, _rel_exc,
+                )
 
         try:
             asyncio.create_task(
                 _drain_stderr(proc, body.name, transcript_path, stderr_log_path, body.template or "")
             )
         except Exception:
-            pass
+            # If we cannot schedule the drain task, the subprocess will
+            # never trigger the drain's release path. Release the locks
+            # now so the next spawn on the same path can proceed. The
+            # drain-path release is still the preferred path on the
+            # happy case; this is belt-and-suspenders.
+            try:
+                _release_spawn_locks(spawn_id=body.name)
+            except Exception:
+                pass
         # Kick off the ack bot so inline chat gets a warm acknowledgment
         # within two seconds even when the subagent is locked inside a
         # long tool call. The bot polls /nudges on its own cadence and
@@ -3597,6 +3666,10 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         # Preserve explicit HTTPException codes raised inside the try
         # block (template lookup 400s, etc.). Without this the catch-all
         # below would clobber the real status code.
+        try:
+            _release_spawn_locks(spawn_id=body.name)
+        except Exception:
+            pass
         raise
     except FileNotFoundError as fnf:
         # ENOENT inside spawn is almost always a stale CLAUDE_BIN path:
@@ -3663,6 +3736,10 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     "spawn.retry_failed name=%s err=%s",
                     body.name, retry_exc,
                 )
+        try:
+            _release_spawn_locks(spawn_id=body.name)
+        except Exception:
+            pass
         raise HTTPException(
             status_code=500,
             detail=(
@@ -3675,6 +3752,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         # re-running under strace. Include the exception type so a bare
         # OSError with empty message still identifies the failure class.
         logger.exception("spawn.failed name=%s err=%s", body.name, e)
+        # Release path locks so a retry with the same paths can
+        # acquire. The drain-task release fires on a live subprocess;
+        # if we never got that far the registry would leak without this.
+        try:
+            _release_spawn_locks(spawn_id=body.name)
+        except Exception:
+            pass
         raise HTTPException(
             status_code=400,
             detail=f"{type(e).__name__}: {e}" if str(e) else type(e).__name__,

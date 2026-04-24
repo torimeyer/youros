@@ -4419,6 +4419,10 @@ async def test_spawn_build_agent_includes_display_name_with_task_title(tmp_path,
                     "budget": 2.0,
                     "task": "Build task 568: Wire up a newsletter signup",
                     "source": "chat-build-it",
+                    # "Build" is an edit verb, so decide_isolation picks
+                    # "worktree" and mandatory lock-on-spawn requires a
+                    # non-empty locks list. See services.spawn_isolation.
+                    "locks": ["app/src/pages/newsletter.tsx"],
                 },
             )
         assert resp.status_code == 200, resp.text
@@ -5112,6 +5116,8 @@ async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path
                         "model": "sonnet",
                         "budget": 2.0,
                         "template": "builder",
+                        # Edit-verb prompt requires locks list.
+                        "locks": ["api/routers/auth.py"],
                     },
                 )
 
@@ -5148,6 +5154,8 @@ async def test_spawn_with_template_saa_alias_resolves_to_comprehensive(tmp_path,
                         "model": "sonnet",
                         "budget": 2.0,
                         "template": "saa",
+                        # Edit-verb prompt requires locks list.
+                        "locks": ["api/routers/auth.py"],
                     },
                 )
 
@@ -5180,6 +5188,8 @@ async def test_spawn_without_template_does_not_inject_template_envelope(tmp_path
                         "prompt": "Implement this task: 'Fix legacy bug'.",
                         "model": "sonnet",
                         "budget": 2.0,
+                        # Edit-verb prompt requires locks list.
+                        "locks": ["api/routers/legacy.py"],
                     },
                 )
 
