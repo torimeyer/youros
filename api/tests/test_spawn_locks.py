@@ -440,7 +440,7 @@ async def test_lock_released_on_subprocess_error(monkeypatch):
         # The git worktree fork call begins with "git". Every other
         # call is the claude --print subprocess; that is the one the
         # test wants to fail.
-        is_claude_call = not (args and args[0] == "git")
+        is_claude_call = not (args and args[0] in ("git", "rsync"))
         if is_claude_call and state["raise_on_claude"]:
             state["raise_on_claude"] = False
             raise RuntimeError("simulated exec failure")

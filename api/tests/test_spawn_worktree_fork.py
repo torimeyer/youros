@@ -186,7 +186,7 @@ async def test_spawn_worktree_creates_fork_and_sets_cwd(tmp_path, monkeypatch):
         # The claude --print subprocess ran with cwd set to the fork path.
         claude_calls = [
             (a, kw) for (a, kw) in calls["exec"]
-            if a and a[0] != "git"
+            if a and a[0] not in ("git", "rsync")
         ]
         assert len(claude_calls) == 1
         _, kw = claude_calls[0]
@@ -229,7 +229,7 @@ async def test_spawn_isolation_none_does_not_fork(tmp_path, monkeypatch):
         assert calls["fork_called"] is False
         claude_calls = [
             (a, kw) for (a, kw) in calls["exec"]
-            if a and a[0] != "git"
+            if a and a[0] not in ("git", "rsync")
         ]
         assert len(claude_calls) == 1
         _, kw = claude_calls[0]
@@ -281,7 +281,7 @@ async def test_spawn_worktree_fork_failure_falls_back(tmp_path, monkeypatch, cap
         # Claude ran in the main worktree (no agent-<name> suffix).
         claude_calls = [
             (a, kw) for (a, kw) in calls["exec"]
-            if a and a[0] != "git"
+            if a and a[0] not in ("git", "rsync")
         ]
         assert len(claude_calls) == 1
         _, kw = claude_calls[0]

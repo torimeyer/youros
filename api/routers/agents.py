@@ -3370,6 +3370,10 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         "spawn.worktree.created name=%s path=%s branch=%s",
                         body.name, _worktree_path, _worktree_branch,
                     )
+                    # L2.3 (→902): sync .claude/ into the new worktree so hook
+                    # edits do not leak across sessions. See sync_claude_dir_to_worktree.
+                    from services.spawn_isolation import sync_claude_dir_to_worktree as _sync
+                    await _sync(PROJECT_ROOT / ".claude", _wt_path / ".claude")
                 else:
                     logger.warning(
                         "spawn.worktree.fork_failed name=%s rc=%s err=%s",

@@ -428,3 +428,66 @@ def _reset_spawn_lock_registry_for_tests() -> None:
     """Test-only helper: clear the in-process registry between tests."""
     with _spawn_lock_mutex:
         _spawn_lock_holders.clear()
+
+
+
+async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10.0):
+    """Sync .claude/ (hooks + lib) into a new worktree via rsync.
+
+    L2.3 (→902): git worktree add does not copy untracked dirs, so without
+    this every "isolated" worktree runs main's hooks by reference. Hook
+    file mutations race across sessions. rsync the dir at fork time.
+
+    Excludes nested worktrees/ (infinite recursion) and session-history/
+    (bloat). Failure is logged WARN but never raises; the worktree remains
+    functional with parent hooks.
+
+    Returns True on success, False on any failure. Never raises.
+    """
+    import os
+    from pathlib import Path as _P
+
+    try:
+        src = _P(src_claude_dir)
+        dst = _P(dst_claude_dir)
+        if not src.exists():
+            logger.warning(
+                "spawn.hook_sync.src_missing src=%s", src,
+            )
+            return False
+        dst.mkdir(parents=True, exist_ok=True)
+        proc = await asyncio.create_subprocess_exec(
+            "rsync", "-a",
+            "--exclude=worktrees/",
+            "--exclude=session-history/",
+            f"{src}/", f"{dst}/",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            logger.warning(
+                "spawn.hook_sync.timeout src=%s dst=%s timeout=%s",
+                src, dst, timeout,
+            )
+            return False
+        if proc.returncode == 0:
+            logger.info("spawn.hook_sync.ok src=%s dst=%s", src, dst)
+            return True
+        logger.warning(
+            "spawn.hook_sync.failed rc=%s src=%s dst=%s err=%s",
+            proc.returncode, src, dst,
+            (err or b"").decode(errors="replace")[:200],
+        )
+        return False
+    except Exception as exc:
+        logger.warning(
+            "spawn.hook_sync.exception src=%s dst=%s err=%s",
+            src_claude_dir, dst_claude_dir, exc,
+        )
+        return False
