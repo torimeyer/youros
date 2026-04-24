@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from services.request_trace import TraceMiddleware
+from services.loopback_guard import LoopbackGuardMiddleware
 from services.security_headers import SecurityHeadersMiddleware
 
 from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, specs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, meeting_prep, workspace, briefing, workflows, shares, export, exports, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, pdf, diagrams, documents
@@ -44,6 +45,11 @@ app.add_middleware(
 )
 app.add_middleware(TraceMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+# Defense-in-depth: reject non-loopback clients unless the operator opts
+# in with ALLOW_NON_LOOPBACK=1. See .ostk/plans/security-privacy-review.md
+# item G5. Registered AFTER SecurityHeadersMiddleware so the 401 response
+# still carries the baseline security headers.
+app.add_middleware(LoopbackGuardMiddleware)
 
 app.include_router(tasks.router, prefix="/api")
 app.include_router(task_audit.router, prefix="/api")
@@ -678,7 +684,9 @@ async def install_signal_shutdown_hook():
     async def _notify_and_continue():
         try:
             from routers.chat import notify_active_websockets_of_shutdown
-            await notify_active_websockets_of_shutdown("backend restarting")
+            await notify_active_websockets_of_shutdown(
+                "Backend is restarting, please retry in a moment."
+            )
         except Exception:
             pass
 
@@ -717,7 +725,9 @@ async def notify_chat_clients_on_shutdown():
     """
     try:
         from routers.chat import notify_active_websockets_of_shutdown
-        await notify_active_websockets_of_shutdown("backend restarting")
+        await notify_active_websockets_of_shutdown(
+            "Backend is restarting, please retry in a moment."
+        )
     except Exception:
         pass
 
