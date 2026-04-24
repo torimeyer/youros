@@ -76,10 +76,21 @@ describe('Sidebar', () => {
     // Ensure all groups are expanded (only expand if currently collapsed)
     expandAllGroups()
 
-    const navLabels = ['Home', 'Tasks', 'Agents', 'Activity', 'Calendar', 'Gmail', 'Settings']
+    const navLabels = ['Home', 'Tasks', 'Agents', 'Calendar', 'Gmail', 'Settings']
     for (const label of navLabels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
+  })
+
+  it('Activity does not render in the sidebar by default', () => {
+    // Activity was moved out of the primary nav into the Settings page's
+    // Developer section. It must not appear in the sidebar even when all
+    // groups are expanded and every feature flag is on.
+    renderSidebar()
+    expandAllGroups()
+    expect(screen.queryByText('Activity')).not.toBeInTheDocument()
+    const activityLink = document.querySelector('a[href="/activity"]')
+    expect(activityLink).toBeNull()
   })
 
   it('sidebar shows "Usage" label for the costs nav entry', () => {
@@ -119,7 +130,6 @@ describe('Sidebar', () => {
       Home: '/',
       Tasks: '/tasks',
       Agents: '/agents',
-      Activity: '/activity',
       Calendar: '/calendar',
       Gmail: '/gmail',
       Settings: '/settings',
@@ -868,7 +878,6 @@ describe('Sidebar grouped nav', () => {
       { label: 'Home', href: '/' },
       { label: 'Tasks', href: '/tasks' },
       { label: 'Agents', href: '/agents' },
-      { label: 'Activity', href: '/activity' },
       { label: 'Specs', href: '/specs' },
       { label: 'Gmail', href: '/gmail' },
       { label: 'Calendar', href: '/calendar' },

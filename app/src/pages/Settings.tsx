@@ -2076,6 +2076,29 @@ export default function Settings() {
           )}
         </div>
 
+        <div className={cardClass} data-testid="developer-section">
+          <h2 className="text-lg font-semibold mb-2">Developer</h2>
+          <p className="text-sm text-slate-400 mb-4">
+            Behind-the-scenes views for debugging and auditing what happened.
+          </p>
+          <div className="flex flex-col gap-2">
+            <a
+              href="/activity"
+              data-testid="developer-activity-link"
+              className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              View activity log
+            </a>
+            <a
+              href="/transcripts"
+              data-testid="developer-transcripts-link"
+              className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              View transcripts
+            </a>
+          </div>
+        </div>
+
         <div className={cardClass}>
           <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
           <div className="space-y-3">

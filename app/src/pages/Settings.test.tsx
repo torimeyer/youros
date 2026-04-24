@@ -946,3 +946,47 @@ describe('Settings page — Files location', () => {
     })
   })
 })
+
+describe('Settings page — Developer section', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({
+      osName: 'myOS',
+      darkMode: true,
+      accentColor: 'blue',
+      features: [
+        { label: 'Chat', enabled: true },
+        { label: 'Tasks', enabled: true },
+        { label: 'Agents', enabled: true },
+        { label: 'Activity', enabled: true },
+        { label: 'Projects', enabled: true },
+        { label: 'Specs', enabled: true },
+        { label: 'Automations', enabled: false },
+        { label: 'Cost Tracking', enabled: true },
+      ],
+    })
+  })
+
+  it('renders the Developer section with a heading', () => {
+    renderSettings()
+    const section = screen.getByTestId('developer-section')
+    expect(section).toBeInTheDocument()
+    expect(section).toHaveTextContent('Developer')
+  })
+
+  it('Developer section shows a "View activity log" link pointing to /activity', () => {
+    renderSettings()
+    const link = screen.getByTestId('developer-activity-link')
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveTextContent('View activity log')
+    expect(link).toHaveAttribute('href', '/activity')
+  })
+
+  it('Developer section shows a "View transcripts" link pointing to /transcripts', () => {
+    renderSettings()
+    const link = screen.getByTestId('developer-transcripts-link')
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveTextContent('View transcripts')
+    expect(link).toHaveAttribute('href', '/transcripts')
+  })
+})

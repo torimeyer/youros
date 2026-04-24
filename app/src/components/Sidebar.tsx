@@ -49,7 +49,7 @@ interface NavGroup {
 // Value is a JSON object: { [groupId]: boolean }
 const COLLAPSED_KEY = 'sidebar-group-collapsed'
 
-const TOP_LEVEL_ROUTES = new Set(['/', '/tasks', '/agents', '/activity'])
+const TOP_LEVEL_ROUTES = new Set(['/', '/tasks', '/agents'])
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -79,7 +79,6 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: 'home', label: 'Home', featureLabel: null },
   { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
-  { to: '/activity', icon: 'history', label: 'Activity', featureLabel: 'Activity' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
 
@@ -584,9 +583,9 @@ export function Sidebar() {
       })
   }
 
-  // Top-level items (Home + Tasks + Agents + Activity) that are not in any group
+  // Top-level items (Home + Tasks + Agents) that are not in any group
   const topLevelItems = ALL_NAV_ITEMS.filter((i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i)).sort((a, b) => {
-    const order = ['/', '/tasks', '/agents', '/activity']
+    const order = ['/', '/tasks', '/agents']
     return order.indexOf(a.to) - order.indexOf(b.to)
   })
 
@@ -630,7 +629,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-col gap-0.5 px-3 flex-1 overflow-y-auto">
-        {/* Top-level items: Home, Tasks, Agents, Activity */}
+        {/* Top-level items: Home, Tasks, Agents */}
         {topLevelItems.map((item) => (
           <NavLink
             key={item.to}

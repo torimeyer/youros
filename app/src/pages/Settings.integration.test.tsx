@@ -194,10 +194,14 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.queryByText('Files')).not.toBeInTheDocument()
   })
 
-  it('hides Activity nav item when Activity feature is disabled', () => {
+  it('Activity is not in the primary nav regardless of feature flag', () => {
+    // Activity was moved out of the sidebar into the Settings page's
+    // Developer section. Toggling the Activity feature flag no longer
+    // controls a sidebar surface, so Activity must be absent whether
+    // the flag is on or off.
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
-        f.label === 'Activity' ? { ...f, enabled: false } : f
+        f.label === 'Activity' ? { ...f, enabled: true } : f
       ),
     })
     renderSidebar()
@@ -218,7 +222,6 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.getByText('Tasks')).toBeInTheDocument()
     expect(screen.getByText('Specs')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
-    expect(screen.getByText('Activity')).toBeInTheDocument()
   })
 
   it('re-enabling a feature shows the nav item again', () => {

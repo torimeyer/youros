@@ -50,13 +50,6 @@ const TOUR_STEPS: TourStep[] = [
     position: 'bottom',
   },
   {
-    selector: 'a[href="/activity"]',
-    title: 'Activity',
-    description: 'A live feed of everything that happened: tasks created, agents run, and more. Filter by category.',
-    route: '/',
-    position: 'right',
-  },
-  {
     selector: '[data-tour="search"]',
     title: 'Search',
     description: 'Press Cmd+K to search across all your tasks and jump anywhere fast. That is the tour. Try asking the chat a question next.',
