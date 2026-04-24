@@ -65,6 +65,7 @@ export interface StreamEntry {
  */
 const ALWAYS_HIDDEN_EVENTS = new Set([
   "agent.spawned",       // We only surface agent.completed
+  "agent.state",         // Internal agent status transition
   "chat.completion",
   "tool.bash",
   "heartbeat_injected",
@@ -74,6 +75,8 @@ const ALWAYS_HIDDEN_EVENTS = new Set([
   "project.initialized",
   "session.shutdown",
   "session.start",
+  "session.lineage.resumed",  // Internal session tree bookkeeping
+  "session.lineage.orphaned", // Internal session tree bookkeeping
   "needle.activated",    // "Task activated" is an internal state change, not a user action
   "needle.linked",       // Internal linking, not user-visible
   "needle.refined",      // Internal refinement step
@@ -82,6 +85,9 @@ const ALWAYS_HIDDEN_EVENTS = new Set([
   "draft.created",
   "hay.filed",             // Ideas feature removed
   "hay.converted",         // Ideas feature removed
+  "oae.verify",            // ENTITYFILE sigstore verification on boot
+  "reap",                  // Process reaper
+  "daemon.reap_stale",     // Stale daemon reaper
 ]);
 
 /**
