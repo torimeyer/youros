@@ -259,6 +259,303 @@ async def list_tasks(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/tasks/counts")
+async def task_counts():
+    """Return a count that matches the default Tasks page view.
+
+    The sidebar badge must equal the number of rows the user sees on the
+    Tasks page under its default filter. The default view is:
+      - status is open or in_progress (not closed, not shelved).
+      - e2e smoke-test tasks are hidden (titles starting with "e2e-").
+      - session tasks auto-filed by the SessionStart hook are hidden.
+
+    Session tasks are identified by three rules (matching the frontend
+    isSessionTask helper and the GET /tasks filter):
+      1. description starts with "session-task:"
+      2. description contains "Auto-filed by SessionStart hook"
+      3. title matches the old hook format "Claude Code session claude-code-..."
+    """
+    import re as _re
+
+    _session_re = _re.compile(r"^Claude Code session claude-code-", _re.IGNORECASE)
+
+    def _is_session_task(t: dict) -> bool:
+        desc = t.get("description") or ""
+        title = t.get("title") or ""
+        if desc.startswith("session-task:"):
+            return True
+        if "Auto-filed by SessionStart hook" in desc:
+            return True
+        if _session_re.match(title):
+            return True
+        return False
+
+    def _is_e2e_task(t: dict) -> bool:
+        return (t.get("title") or "").lower().startswith("e2e-")
+
+    def _is_active(t: dict) -> bool:
+        # Mirror the frontend isActiveTask helper so a task claimed by an
+        # agent (in_progress) still counts toward the badge.
+        return t.get("status") not in ("closed", "shelved")
+
+    try:
+        # No status filter on the ostk call: we need open and in_progress
+        # so the badge matches the Tasks page default view, which shows
+        # every non-closed, non-shelved task.
+        tasks = await ostk.list_tasks()
+        open_count = sum(
+            1 for t in tasks
+            if _is_active(t) and not _is_session_task(t) and not _is_e2e_task(t)
+        )
+        return {"open": open_count}
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tasks/next")
+async def next_task():
+    try:
+        result = await ostk.next_task()
+        return {"suggestion": result}
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tasks/health")
+async def task_health_check():
+    """Run a health check on all open tasks.
+
+    Uses ostk work refine to analyze task quality and find
+    duplicates, missing descriptions, and isolated tasks.
+    """
+    try:
+        result = await ostk.refine_tasks()
+        return result
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tasks/duplicates")
+async def find_duplicate_tasks(threshold: float = 0.8):
+    """Find pairs of open tasks with similar titles.
+
+    Uses difflib.SequenceMatcher as a simple Levenshtein-style ratio.
+    Pairs scoring above ``threshold`` (default 0.8) are returned as
+    duplicate candidates. This is a cheap O(n^2) scan over open tasks,
+    which is fine for the typical personal task list size.
+    """
+    try:
+        tasks = await ostk.list_tasks(status="open")
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Precompute normalized titles once so we do not redo the work
+    # for every pair in the inner loop.
+    normalized = [(t, _normalize_title(t.get("title", ""))) for t in tasks]
+
+    duplicates: list[dict] = []
+    for i in range(len(normalized)):
+        task_a, title_a = normalized[i]
+        if not title_a:
+            continue
+        for j in range(i + 1, len(normalized)):
+            task_b, title_b = normalized[j]
+            if not title_b:
+                continue
+            similarity = SequenceMatcher(None, title_a, title_b).ratio()
+            if similarity > threshold:
+                duplicates.append({
+                    "task_a": task_a,
+                    "task_b": task_b,
+                    "similarity": round(similarity, 3),
+                })
+
+    # Highest similarity first so the UI shows the strongest candidates
+    # at the top of the list.
+    duplicates.sort(key=lambda d: d["similarity"], reverse=True)
+    return {"duplicates": duplicates}
+
+
+@router.get("/tasks/audit")
+async def audit_tasks():
+    """Comprehensive task audit: duplicates, stale tasks, and potential redundancies.
+
+    Returns categorized findings the user can act on.
+    """
+    from datetime import datetime, timezone, timedelta
+    from difflib import SequenceMatcher
+
+    try:
+        tasks = await ostk.list_tasks(status="open")
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    now = datetime.now(timezone.utc)
+    findings: list[dict] = []
+
+    # 1. Duplicates (similarity > 0.7)
+    for i, a in enumerate(tasks):
+        for b in tasks[i + 1:]:
+            title_a = _normalize_title(a.get("title", ""))
+            title_b = _normalize_title(b.get("title", ""))
+            if not title_a or not title_b:
+                continue
+            sim = SequenceMatcher(None, title_a, title_b).ratio()
+            if sim > 0.7:
+                findings.append({
+                    "type": "duplicate",
+                    "severity": "warning",
+                    "message": f'"{a.get("title")}" and "{b.get("title")}" look similar ({sim:.0%} match). Consider merging or closing one.',
+                    "task_ids": [a.get("id"), b.get("id")],
+                })
+
+    # 2. Stale tasks (open > 7 days, P2 only since P0/P1 are intentional)
+    for t in tasks:
+        created = t.get("created_at", "")
+        if not created:
+            continue
+        try:
+            age = (now - datetime.fromisoformat(created)).days
+        except (ValueError, TypeError):
+            continue
+        if age > 7 and t.get("priority") == "P2":
+            findings.append({
+                "type": "stale",
+                "severity": "info",
+                "message": f'"{t.get("title")}" has been open for {age} days at P2. Still relevant?',
+                "task_ids": [t.get("id")],
+            })
+
+    # 3. Vague titles (too short to be actionable)
+    for t in tasks:
+        title = (t.get("title") or "").strip()
+        if len(title) < 15:
+            findings.append({
+                "type": "vague",
+                "severity": "info",
+                "message": f'"{title}" is very short. Consider adding more detail so it is clear what needs to happen.',
+                "task_ids": [t.get("id")],
+            })
+
+    return {
+        "findings": findings,
+        "total_open": len(tasks),
+        "summary": {
+            "duplicates": len([f for f in findings if f["type"] == "duplicate"]),
+            "stale": len([f for f in findings if f["type"] == "stale"]),
+            "vague": len([f for f in findings if f["type"] == "vague"]),
+        },
+    }
+
+
+# Matches a task id reference like "→160" inside a blocker text line.
+_BLOCKER_ID_RE = re.compile(r"\u2192\d+")
+
+
+def _normalize_task_id(raw: str) -> str:
+    """Strip the leading arrow so the id can be matched against task records."""
+    return raw.lstrip("\u2192").strip()
+
+
+async def _enrich_blockers(
+    task_id: str,
+    task_title: str,
+    task_description: str,
+    blockers: list[dict],
+) -> list[dict]:
+    """Look up full task records for each blocker and add a plain-language note.
+
+    Each input dict is shaped ``{"text": str, "resolved": bool}``. The output
+    keeps every existing field and adds:
+      - ``blocker_id``: the bare task id (no arrow), or empty if not parseable
+      - ``blocker_task``: the full task record from ``ostk list_tasks`` if
+        we could match it, or None
+      - ``explanation``: a short plain-language note from Claude when
+        available, or None when the AI key is missing or the call failed
+    """
+    if not blockers:
+        return blockers
+
+    # Pull every task once so we can join by id without N round trips.
+    try:
+        all_tasks = await ostk.list_tasks()
+    except OstkError:
+        all_tasks = []
+    by_id: dict[str, dict] = {}
+    for t in all_tasks:
+        raw_id = t.get("id", "")
+        if raw_id:
+            by_id[_normalize_task_id(raw_id)] = t
+
+    from services.blocker_explanation import explain_blocker
+
+    enriched: list[dict] = []
+    for blocker in blockers:
+        text = blocker.get("text") or ""
+        match = _BLOCKER_ID_RE.search(text)
+        blocker_id = _normalize_task_id(match.group(0)) if match else ""
+
+        full_task = by_id.get(blocker_id) if blocker_id else None
+        explanation: Optional[str] = None
+        # Only try the AI when the blocker is unresolved and we have at
+        # least the blocker title to work with. Resolved blockers do not
+        # need an explanation because they are not in the user's way.
+        if (
+            not blocker.get("resolved")
+            and full_task
+            and full_task.get("title")
+        ):
+            try:
+                explanation = await explain_blocker(
+                    task_id=task_id,
+                    task_title=task_title or "",
+                    task_description=task_description or "",
+                    blocker_id=blocker_id,
+                    blocker_title=full_task.get("title", ""),
+                    blocker_description=full_task.get("description", "") or "",
+                )
+            except Exception:
+                explanation = None
+
+        enriched.append({
+            **blocker,
+            "blocker_id": blocker_id,
+            "blocker_task": full_task,
+            "explanation": explanation,
+        })
+
+    return enriched
+
+
+@router.get("/tasks/{task_id}")
+async def get_task(task_id: str):
+    """Fetch a single task by ID.
+
+    Accepts bare numbers (``853``) or arrow-prefixed IDs (``→853``).
+    Returns 404 when the task does not exist.
+    """
+    # Normalise: bare numbers like "853" become "→853".
+    normalised = task_id if task_id.startswith("→") else f"→{task_id}"
+    try:
+        tasks = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    task = next((t for t in tasks if t.get("id") == normalised), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id!r} not found")
+    all_assignments = task_labels_store.get_all_assignments()
+    task_thread_map = threads_store.get_all_task_thread_map()
+    session_pairs = session_task_map.all_session_task_pairs()
+    children_counts = session_task_map.all_children_counts()
+    return _enrich_task(
+        task,
+        all_assignments,
+        task_thread_map,
+        session_task_map_pairs=session_pairs,
+        children_counts=children_counts,
+    )
+
+
 # Trailing machine-id patterns we strip from task titles. Smoke
 # scripts and roadmap generators sometimes embed timestamps, PIDs, or
 # short 4-to-6 digit IDs into titles. The user-facing task list should
@@ -1231,68 +1528,6 @@ async def cleanup_test_artifacts():
     }
 
 
-@router.get("/tasks/counts")
-async def task_counts():
-    """Return a count that matches the default Tasks page view.
-
-    The sidebar badge must equal the number of rows the user sees on the
-    Tasks page under its default filter. The default view is:
-      - status is open or in_progress (not closed, not shelved).
-      - e2e smoke-test tasks are hidden (titles starting with "e2e-").
-      - session tasks auto-filed by the SessionStart hook are hidden.
-
-    Session tasks are identified by three rules (matching the frontend
-    isSessionTask helper and the GET /tasks filter):
-      1. description starts with "session-task:"
-      2. description contains "Auto-filed by SessionStart hook"
-      3. title matches the old hook format "Claude Code session claude-code-..."
-    """
-    import re as _re
-
-    _session_re = _re.compile(r"^Claude Code session claude-code-", _re.IGNORECASE)
-
-    def _is_session_task(t: dict) -> bool:
-        desc = t.get("description") or ""
-        title = t.get("title") or ""
-        if desc.startswith("session-task:"):
-            return True
-        if "Auto-filed by SessionStart hook" in desc:
-            return True
-        if _session_re.match(title):
-            return True
-        return False
-
-    def _is_e2e_task(t: dict) -> bool:
-        return (t.get("title") or "").lower().startswith("e2e-")
-
-    def _is_active(t: dict) -> bool:
-        # Mirror the frontend isActiveTask helper so a task claimed by an
-        # agent (in_progress) still counts toward the badge.
-        return t.get("status") not in ("closed", "shelved")
-
-    try:
-        # No status filter on the ostk call: we need open and in_progress
-        # so the badge matches the Tasks page default view, which shows
-        # every non-closed, non-shelved task.
-        tasks = await ostk.list_tasks()
-        open_count = sum(
-            1 for t in tasks
-            if _is_active(t) and not _is_session_task(t) and not _is_e2e_task(t)
-        )
-        return {"open": open_count}
-    except OstkError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/tasks/next")
-async def next_task():
-    try:
-        result = await ostk.next_task()
-        return {"suggestion": result}
-    except OstkError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/tasks/pull")
 async def pull_next_task():
     """Pull model: claim the next available task atomically.
@@ -1311,20 +1546,6 @@ async def pull_next_task():
         if not result:
             return {"claimed": False, "task": None}
         return {"claimed": True, "task": result}
-    except OstkError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/tasks/health")
-async def task_health_check():
-    """Run a health check on all open tasks.
-
-    Uses ostk work refine to analyze task quality and find
-    duplicates, missing descriptions, and isolated tasks.
-    """
-    try:
-        result = await ostk.refine_tasks()
-        return result
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1416,47 +1637,6 @@ def _normalize_title(title: str) -> str:
     return " ".join((title or "").lower().split())
 
 
-@router.get("/tasks/duplicates")
-async def find_duplicate_tasks(threshold: float = 0.8):
-    """Find pairs of open tasks with similar titles.
-
-    Uses difflib.SequenceMatcher as a simple Levenshtein-style ratio.
-    Pairs scoring above ``threshold`` (default 0.8) are returned as
-    duplicate candidates. This is a cheap O(n^2) scan over open tasks,
-    which is fine for the typical personal task list size.
-    """
-    try:
-        tasks = await ostk.list_tasks(status="open")
-    except OstkError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    # Precompute normalized titles once so we do not redo the work
-    # for every pair in the inner loop.
-    normalized = [(t, _normalize_title(t.get("title", ""))) for t in tasks]
-
-    duplicates: list[dict] = []
-    for i in range(len(normalized)):
-        task_a, title_a = normalized[i]
-        if not title_a:
-            continue
-        for j in range(i + 1, len(normalized)):
-            task_b, title_b = normalized[j]
-            if not title_b:
-                continue
-            similarity = SequenceMatcher(None, title_a, title_b).ratio()
-            if similarity > threshold:
-                duplicates.append({
-                    "task_a": task_a,
-                    "task_b": task_b,
-                    "similarity": round(similarity, 3),
-                })
-
-    # Highest similarity first so the UI shows the strongest candidates
-    # at the top of the list.
-    duplicates.sort(key=lambda d: d["similarity"], reverse=True)
-    return {"duplicates": duplicates}
-
-
 @router.post("/tasks/duplicates/resolve")
 async def resolve_duplicate(body: ResolveDuplicateBody):
     """Close the duplicate (discard_id) and keep keep_id open.
@@ -1534,157 +1714,6 @@ async def resolve_all_duplicates(body: ResolveDuplicatesBulkBody):
     if errors:
         result["errors"] = errors
     return result
-
-
-@router.get("/tasks/audit")
-async def audit_tasks():
-    """Comprehensive task audit: duplicates, stale tasks, and potential redundancies.
-
-    Returns categorized findings the user can act on.
-    """
-    from datetime import datetime, timezone, timedelta
-    from difflib import SequenceMatcher
-
-    try:
-        tasks = await ostk.list_tasks(status="open")
-    except OstkError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    now = datetime.now(timezone.utc)
-    findings: list[dict] = []
-
-    # 1. Duplicates (similarity > 0.7)
-    for i, a in enumerate(tasks):
-        for b in tasks[i + 1:]:
-            title_a = _normalize_title(a.get("title", ""))
-            title_b = _normalize_title(b.get("title", ""))
-            if not title_a or not title_b:
-                continue
-            sim = SequenceMatcher(None, title_a, title_b).ratio()
-            if sim > 0.7:
-                findings.append({
-                    "type": "duplicate",
-                    "severity": "warning",
-                    "message": f'"{a.get("title")}" and "{b.get("title")}" look similar ({sim:.0%} match). Consider merging or closing one.',
-                    "task_ids": [a.get("id"), b.get("id")],
-                })
-
-    # 2. Stale tasks (open > 7 days, P2 only since P0/P1 are intentional)
-    for t in tasks:
-        created = t.get("created_at", "")
-        if not created:
-            continue
-        try:
-            age = (now - datetime.fromisoformat(created)).days
-        except (ValueError, TypeError):
-            continue
-        if age > 7 and t.get("priority") == "P2":
-            findings.append({
-                "type": "stale",
-                "severity": "info",
-                "message": f'"{t.get("title")}" has been open for {age} days at P2. Still relevant?',
-                "task_ids": [t.get("id")],
-            })
-
-    # 3. Vague titles (too short to be actionable)
-    for t in tasks:
-        title = (t.get("title") or "").strip()
-        if len(title) < 15:
-            findings.append({
-                "type": "vague",
-                "severity": "info",
-                "message": f'"{title}" is very short. Consider adding more detail so it is clear what needs to happen.',
-                "task_ids": [t.get("id")],
-            })
-
-    return {
-        "findings": findings,
-        "total_open": len(tasks),
-        "summary": {
-            "duplicates": len([f for f in findings if f["type"] == "duplicate"]),
-            "stale": len([f for f in findings if f["type"] == "stale"]),
-            "vague": len([f for f in findings if f["type"] == "vague"]),
-        },
-    }
-
-
-# Matches a task id reference like "→160" inside a blocker text line.
-_BLOCKER_ID_RE = re.compile(r"\u2192\d+")
-
-
-def _normalize_task_id(raw: str) -> str:
-    """Strip the leading arrow so the id can be matched against task records."""
-    return raw.lstrip("\u2192").strip()
-
-
-async def _enrich_blockers(
-    task_id: str,
-    task_title: str,
-    task_description: str,
-    blockers: list[dict],
-) -> list[dict]:
-    """Look up full task records for each blocker and add a plain-language note.
-
-    Each input dict is shaped ``{"text": str, "resolved": bool}``. The output
-    keeps every existing field and adds:
-      - ``blocker_id``: the bare task id (no arrow), or empty if not parseable
-      - ``blocker_task``: the full task record from ``ostk list_tasks`` if
-        we could match it, or None
-      - ``explanation``: a short plain-language note from Claude when
-        available, or None when the AI key is missing or the call failed
-    """
-    if not blockers:
-        return blockers
-
-    # Pull every task once so we can join by id without N round trips.
-    try:
-        all_tasks = await ostk.list_tasks()
-    except OstkError:
-        all_tasks = []
-    by_id: dict[str, dict] = {}
-    for t in all_tasks:
-        raw_id = t.get("id", "")
-        if raw_id:
-            by_id[_normalize_task_id(raw_id)] = t
-
-    from services.blocker_explanation import explain_blocker
-
-    enriched: list[dict] = []
-    for blocker in blockers:
-        text = blocker.get("text") or ""
-        match = _BLOCKER_ID_RE.search(text)
-        blocker_id = _normalize_task_id(match.group(0)) if match else ""
-
-        full_task = by_id.get(blocker_id) if blocker_id else None
-        explanation: Optional[str] = None
-        # Only try the AI when the blocker is unresolved and we have at
-        # least the blocker title to work with. Resolved blockers do not
-        # need an explanation because they are not in the user's way.
-        if (
-            not blocker.get("resolved")
-            and full_task
-            and full_task.get("title")
-        ):
-            try:
-                explanation = await explain_blocker(
-                    task_id=task_id,
-                    task_title=task_title or "",
-                    task_description=task_description or "",
-                    blocker_id=blocker_id,
-                    blocker_title=full_task.get("title", ""),
-                    blocker_description=full_task.get("description", "") or "",
-                )
-            except Exception:
-                explanation = None
-
-        enriched.append({
-            **blocker,
-            "blocker_id": blocker_id,
-            "blocker_task": full_task,
-            "explanation": explanation,
-        })
-
-    return enriched
 
 
 @router.get("/tasks/{task_id}/briefing")
