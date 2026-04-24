@@ -215,14 +215,16 @@ export function agentTitleParts(
   // 3. Task / description present (explicit human-written title)
   const taskText = (agent.task || agent.description || "").trim();
   if (taskText) {
-    return { primary: taskText, secondary };
+    const primary = taskText.length > 60 ? taskText.slice(0, 60) : taskText;
+    return { primary, secondary };
   }
 
   // 4. Chat session: use chat_title or prompt as the title
   if (agent.source === "chat") {
     const chatRaw = (agent.chat_title || agent.prompt || "").trim();
     if (chatRaw) {
-      return { primary: chatRaw, secondary };
+      const primary = chatRaw.length > 60 ? chatRaw.slice(0, 60) : chatRaw;
+      return { primary, secondary };
     }
     // No title yet: fall back to "Chat · Model · time"
     const parts: string[] = ["Chat"];
