@@ -217,6 +217,18 @@ if command -v ostk &> /dev/null; then
     echo ""
 fi
 
+# --- Install Claude Code hooks into ~/.claude/ -----------------------
+# Wires the Agent PreToolUse register hook globally so every Claude
+# Code session on this machine registers its subagents with torios,
+# not just sessions inside this repo. Idempotent: safe to run on
+# every update.
+if [ -x "$INSTALL_DIR/scripts/install-claude-hooks.sh" ]; then
+    echo "Wiring Claude Code hooks into ~/.claude/..."
+    bash "$INSTALL_DIR/scripts/install-claude-hooks.sh" --from "$INSTALL_DIR" \
+        || echo -e "${YELLOW}Claude Code hook install skipped (non-fatal).${NC}"
+    echo ""
+fi
+
 # --- Create startup shortcut ---
 
 chmod +x "$INSTALL_DIR/start.sh"

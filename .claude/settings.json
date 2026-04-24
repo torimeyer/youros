@@ -42,13 +42,7 @@
         ]
       },
       {
-        "matcher": "Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/register-agent.sh"
-          }
-        ]
+        "_comment_agent_register": "PreToolUse Agent register-agent.sh is wired globally in ~/.claude/settings.json so non-torios projects also register subagents. Do not re-add here or the hook will double-fire."
       },
       {
         "hooks": [

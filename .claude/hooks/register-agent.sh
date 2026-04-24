@@ -1,5 +1,13 @@
 #!/bin/bash
-# Hook: auto-register Claude Code subagents with myOS.
+# Hook: auto-register Claude Code subagents with torios/myOS.
+#
+# GLOBAL version: installed at ~/.claude/hooks/register-agent.sh and
+# wired via the user-global ~/.claude/settings.json so EVERY Claude
+# Code session on this machine (regardless of project directory)
+# registers its Task-tool subagents with the local torios backend.
+# This keeps the terminal "N background tasks" counter in sync with
+# the torios sidebar badge and Agents page, even when Claude Code
+# runs inside a non-torios project folder.
 #
 # Fires on PreToolUse for the Agent tool. Reads the tool_input JSON
 # from stdin, derives a stable agent name from the description, and
@@ -12,13 +20,22 @@
 # or the 45 minute TTL expires. Without this the stale sweep culls
 # the row at 15 minutes even though the subagent is still running.
 #
-# Why heartbeat from here and not from heartbeat-agent.sh:
-# heartbeat-agent.sh runs in response to the PARENT session's tool
-# calls and has no idea which subagent is currently in flight. The
-# subagent's own internal tool calls fire hooks in the same project
-# config but identify as a different Claude Code session_id which
-# we cannot correlate back to the name we registered here. A
-# dedicated side process is the simplest reliable path.
+# Portability notes for the global install:
+#   - All state lives under ~/.myos/ (not inside the project repo),
+#     so it works identically for every project directory.
+#   - API base URL: read from ~/.myos/config.json ("api_base") or
+#     the TORIOS_API_BASE environment variable, defaulting to the
+#     local HTTPS listener at https://127.0.0.1:8000.
+#   - heartbeat_idle.py lives inside the torios repo. We resolve the
+#     repo via ~/.myos/config.json ("torios_repo"), the TORIOS_REPO
+#     env var, a handful of well-known install paths, and finally
+#     $CLAUDE_PROJECT_DIR (only if it already looks like the torios
+#     repo). If none of those succeed the heartbeat loop still runs
+#     and pings the backend; it just skips the transcript-idle
+#     check and relies on the backend stale sweep + explicit
+#     /complete from complete-agent.sh.
+#   - The hook MUST fail silently when torios is down so non-torios
+#     projects never see a user-visible error.
 
 set -u
 
@@ -26,11 +43,64 @@ TRANSCRIPT_IDLE_SECONDS=120
 
 INPUT=$(cat)
 
-# Debug: capture the raw PreToolUse payload so we can verify whether
-# Claude Code emits tool_use_id in practice. The by-tool-use fix only
-# works if the harness puts tool_use_id on the PreToolUse JSON. Ring-
-# buffer the last 20 payloads at ~/.myos/subagents/register-debug.log
-# (truncate to 5000 bytes each) so this never grows unbounded.
+# --- Resolve API base (portable, non-torios friendly) -----------------
+# Order: TORIOS_API_BASE env > ~/.myos/config.json > default HTTPS local.
+API_BASE="${TORIOS_API_BASE:-}"
+if [ -z "$API_BASE" ] && [ -f "$HOME/.myos/config.json" ]; then
+    API_BASE=$(python3 -c "
+import json, os
+try:
+    d = json.load(open(os.path.expanduser('~/.myos/config.json')))
+    v = d.get('api_base')
+    if isinstance(v, str) and v.strip():
+        print(v.strip())
+except Exception:
+    pass
+" 2>/dev/null)
+fi
+if [ -z "$API_BASE" ]; then
+    API_BASE="https://127.0.0.1:8000"
+fi
+
+# --- Resolve torios repo root (for heartbeat_idle.py) -----------------
+# Only used by the heartbeat loop. If nothing resolves, the heartbeat
+# loop skips the idle-check and relies on the server stale sweep.
+TORIOS_REPO_DIR="${TORIOS_REPO:-}"
+if [ -z "$TORIOS_REPO_DIR" ] && [ -f "$HOME/.myos/config.json" ]; then
+    TORIOS_REPO_DIR=$(python3 -c "
+import json, os
+try:
+    d = json.load(open(os.path.expanduser('~/.myos/config.json')))
+    v = d.get('torios_repo')
+    if isinstance(v, str) and v.strip():
+        print(os.path.expanduser(v.strip()))
+except Exception:
+    pass
+" 2>/dev/null)
+fi
+if [ -z "$TORIOS_REPO_DIR" ] || [ ! -f "$TORIOS_REPO_DIR/api/services/heartbeat_idle.py" ]; then
+    for candidate in \
+            "$HOME/claude/torios" \
+            "$HOME/myos" \
+            "$HOME/torios"; do
+        if [ -f "$candidate/api/services/heartbeat_idle.py" ]; then
+            TORIOS_REPO_DIR="$candidate"
+            break
+        fi
+    done
+fi
+if [ -z "$TORIOS_REPO_DIR" ] || [ ! -f "$TORIOS_REPO_DIR/api/services/heartbeat_idle.py" ]; then
+    # Last resort: if the parent session is running INSIDE the torios
+    # repo we can still find heartbeat_idle.py via $CLAUDE_PROJECT_DIR.
+    if [ -n "${CLAUDE_PROJECT_DIR:-}" ] \
+            && [ -f "${CLAUDE_PROJECT_DIR}/api/services/heartbeat_idle.py" ]; then
+        TORIOS_REPO_DIR="${CLAUDE_PROJECT_DIR}"
+    fi
+fi
+
+# Debug: capture the raw PreToolUse payload. Always lives under ~/.myos/
+# so it works no matter which project this hook fires from. Ring-buffer
+# the last 400 lines; truncate each payload to 5000 bytes.
 _DBG_LOG="$HOME/.myos/subagents/register-debug.log"
 mkdir -p "$(dirname "$_DBG_LOG")" 2>/dev/null || true
 {
@@ -38,7 +108,6 @@ mkdir -p "$(dirname "$_DBG_LOG")" 2>/dev/null || true
     printf '%s' "$INPUT" | head -c 5000
     printf '\n'
 } >> "$_DBG_LOG" 2>/dev/null || true
-# Trim log to last 400 lines so it never blows up disk.
 if [ -f "$_DBG_LOG" ]; then
     _DBG_LINES=$(wc -l < "$_DBG_LOG" 2>/dev/null || echo 0)
     if [ "${_DBG_LINES:-0}" -gt 400 ]; then
@@ -46,8 +115,8 @@ if [ -f "$_DBG_LOG" ]; then
     fi
 fi
 
-PARSED=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
-import os, sys, json, re, secrets
+PARSED=$(INPUT_JSON="$INPUT" TORIOS_REPO_DIR="$TORIOS_REPO_DIR" python3 <<'PY' 2>/dev/null
+import os, sys, json, re
 raw = os.environ.get("INPUT_JSON", "")
 try:
     d = json.loads(raw or "{}")
@@ -57,20 +126,7 @@ ti = d.get("tool_input", {}) or {}
 desc = (ti.get("description") or "").strip()
 prompt = (ti.get("prompt") or "").strip()
 subagent = (ti.get("subagent_type") or "").strip()
-# Background-task flag. Claude Code's PostToolUse payload often strips
-# tool_input entirely, which means complete-agent.sh cannot tell whether
-# the parent Task call was run_in_background=true at PostToolUse time.
-# We stash the flag here and complete-agent.sh reads it back via the
-# tool_use_id so the bg-skip guard stays reliable even when the harness
-# drops tool_input from PostToolUse.
 run_in_background = "1" if ti.get("run_in_background") is True else ""
-# Tool-use-id lets the PostToolUse hook find the exact name we registered
-# here, even when several Task calls are in flight concurrently (last.name
-# is a single shared file that gets clobbered by the newest spawn).
-# Claude Code hook payloads have varied across versions: top-level
-# tool_use_id is the documented key, but older/newer builds have used
-# nested locations (tool_use.id, id, toolUseId). Try all of them so the
-# race-free handoff works across harness versions.
 tool_use_id = ""
 for key in ("tool_use_id", "toolUseId", "id"):
     v = d.get(key)
@@ -88,10 +144,6 @@ name = re.sub(r"[^a-z0-9-]", "", desc.lower().replace(" ", "-"))[:40]
 name = re.sub(r"-+", "-", name).strip("-")
 if not name:
     name = "claude-code-subagent"
-# No random suffix: cosmetic clutter on the Agents page (e.g. "Roadmap G3egyo").
-# If a real name collision happens, /api/agents/register returns 409 and the
-# next register call from this hook can fall back to a "-2" / "-3" suffix.
-# In practice subagents are created infrequently enough that bare names work.
 
 MODEL_MAP = {
     "opus": "claude-opus-4-7",
@@ -102,10 +154,14 @@ model = ti.get("model") or ""
 if model and model in MODEL_MAP:
     model = MODEL_MAP[model]
 if not model:
+    # Search, in order: current cwd's .ostk/current_model,
+    # CLAUDE_PROJECT_DIR's .ostk/current_model, torios repo's
+    # .ostk/current_model. All optional, all best-effort.
+    torios_repo = os.environ.get("TORIOS_REPO_DIR", "") or ""
     for c in (
         os.path.join(d.get("cwd", "") or "", ".ostk", "current_model"),
         os.path.join(os.environ.get("CLAUDE_PROJECT_DIR", "") or "", ".ostk", "current_model"),
-        os.path.expanduser("~/claude/torios/.ostk/current_model"),
+        os.path.join(torios_repo, ".ostk", "current_model") if torios_repo else "",
     ):
         if c and os.path.exists(c):
             try:
@@ -119,13 +175,6 @@ if not model:
 short_desc = desc or (prompt[:140] if prompt else subagent or "claude-code subagent")
 short_prompt = prompt[:500] if prompt else short_desc
 
-# Flatten embedded newlines and tabs in every field before piping
-# through `read -r ... <<<"$PARSED"`. Bash's `read` stops at the
-# first newline and our multi-line user prompts contain many, which
-# caused TOOL_USE_ID to be parsed as empty for every real subagent
-# spawn (prompt body swallowed the tabs that followed it). Replace
-# any whitespace run with a single space so every field arrives on
-# one line, then delimit with tabs.
 def flat(s):
     return " ".join((s or "").split())
 
@@ -155,11 +204,6 @@ body = {
     "source": "claude-code",
     "description": os.environ.get("DESCRIPTION") or "claude-code subagent",
     "prompt": os.environ.get("PROMPT") or os.environ.get("DESCRIPTION") or "claude-code subagent",
-    # Marks this as the pre-registration written BEFORE the subagent boots.
-    # The /register handler uses this flag to detect the duplicate-row case:
-    # when the subagent later self-registers under a different name (from
-    # its own prompt body), the backend merges that second call into this
-    # row instead of creating a second Active Sessions entry.
     "hook_preregister": True,
 }
 print(json.dumps(body))
@@ -169,18 +213,12 @@ if [ -z "$BODY" ]; then
     exit 0
 fi
 
-# Retry the register POST with backoff so a brief backend reload or
-# MCP flap (5 to 30 seconds) does not silently drop the subagent row.
-# Five attempts at 1s, 2s, 4s, 8s, 16s still total under 35 seconds of
-# wall clock and each probe stays short (connect 2s, max 4s). If every
-# attempt fails we stash the body to a pending queue so the next
-# SessionStart (or a cron sweep) can replay it.
 mkdir -p "$HOME/.myos/subagents" 2>/dev/null || true
 PENDING_QUEUE="$HOME/.myos/subagents/pending-register.jsonl"
 REGISTER_OK=0
 for delay in 1 2 4 8 16; do
     if curl -sSk --connect-timeout 2 -m 4 \
-            -X POST "https://127.0.0.1:8000/api/agents/register" \
+            -X POST "${API_BASE}/api/agents/register" \
             -H 'Content-Type: application/json' \
             -d "$BODY" > /dev/null 2>&1; then
         REGISTER_OK=1
@@ -189,53 +227,34 @@ for delay in 1 2 4 8 16; do
     sleep "$delay"
 done
 if [ "$REGISTER_OK" -eq 0 ]; then
-    # Save the body on one line so a replay sweep can POST each line.
-    # Do NOT drain here: if our own register failed, the backend is
-    # still unreachable, so draining would just retry and fail again.
     printf '%s\n' "$BODY" >> "$PENDING_QUEUE" 2>/dev/null || true
 else
-    # Piggyback: the backend is live right now, so replay any parked
-    # register bodies AND any parked /complete bodies while we have a
-    # working connection. Throttled inside the lib so the heartbeat
-    # hook and this path share state.
     HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     if [ -f "$HOOKS_DIR/lib/drain-pending.sh" ]; then
         # shellcheck source=lib/drain-pending.sh
         . "$HOOKS_DIR/lib/drain-pending.sh"
-        myos_drain_pending >/dev/null 2>&1 || true
-        myos_drain_pending_complete >/dev/null 2>&1 || true
+        MYOS_REGISTER_URL="${API_BASE}/api/agents/register" \
+        MYOS_COMPLETE_URL_BASE="${API_BASE}/api/agents" \
+            myos_drain_pending >/dev/null 2>&1 || true
+        MYOS_REGISTER_URL="${API_BASE}/api/agents/register" \
+        MYOS_COMPLETE_URL_BASE="${API_BASE}/api/agents" \
+            myos_drain_pending_complete >/dev/null 2>&1 || true
     fi
 fi
 
 REGISTERED_AT=$(date +%s)
 
 printf '%s' "$AGENT_NAME" > "$HOME/.myos/subagents/last.name" 2>/dev/null || true
-# Fallback bg-flag file keyed by name (last.bg): used by complete-agent.sh
-# when Claude Code's PostToolUse payload omits tool_use_id (which breaks
-# the per-id side-channel). Single shared file so a newer bg spawn may
-# clobber an older non-bg spawn's flag, but that's acceptable: the cost
-# of a false positive (skipping a non-bg /complete) is at most 120s of
-# stale "running" while the heartbeat idle loop catches up, which is
-# strictly better than the bug we're fixing.
 if [ "$RUN_IN_BACKGROUND" = "1" ]; then
     printf '1' > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
 else
     : > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
 fi
-# Per-tool-use-id pointer: complete-agent.sh reads the matching file so
-# parallel Task calls (three at once during the demo) never complete the
-# wrong row just because last.name got clobbered by the newest spawn.
 if [ -n "$TOOL_USE_ID" ]; then
     mkdir -p "$HOME/.myos/subagents/by-tool-use" 2>/dev/null || true
-    # Sanitize tool_use_id: keep a-z0-9_- only to prevent path escapes.
     SAFE_TUI=$(printf '%s' "$TOOL_USE_ID" | tr -c 'a-zA-Z0-9_-' '_' | cut -c1-128)
     printf '%s' "$AGENT_NAME" \
         > "$HOME/.myos/subagents/by-tool-use/$SAFE_TUI.name" 2>/dev/null || true
-    # Per-tool-use-id bg flag. complete-agent.sh reads this to skip the
-    # /complete POST for background Task calls when Claude Code's
-    # PostToolUse payload has dropped tool_input (which the current
-    # in-process guard depends on). File present with content "1" means
-    # the parent set run_in_background:true; empty/missing means not bg.
     if [ "$RUN_IN_BACKGROUND" = "1" ]; then
         printf '1' \
             > "$HOME/.myos/subagents/by-tool-use/$SAFE_TUI.bg" 2>/dev/null || true
@@ -244,25 +263,24 @@ fi
 printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AGENT_NAME" \
     >> "$HOME/.myos/subagents/history.log" 2>/dev/null || true
 
-# Detached heartbeat loop. Keeps the subagent row alive while it
-# works. Exits when the agent reaches a terminal status, the 45
-# minute TTL is hit, or the transcript has been idle for
-# TRANSCRIPT_IDLE_SECONDS (indicating the subagent exited without
-# calling /complete).
+# Detached heartbeat loop. Keeps the subagent row alive while it works.
+# Exits when the agent reaches a terminal status, the 45 minute TTL is
+# hit, or the transcript has been idle for TRANSCRIPT_IDLE_SECONDS
+# (indicating the subagent exited without calling /complete).
 (
     ttl=2700
     interval=60
     elapsed=0
     iteration=0
     while [ $elapsed -lt $ttl ]; do
-        # Idle-check: skip on the first iteration so a freshly spawned
-        # agent is not killed before its transcript file even exists.
-        if [ $iteration -gt 0 ]; then
-            python3 "${CLAUDE_PROJECT_DIR}/api/services/heartbeat_idle.py" \
+        if [ $iteration -gt 0 ] \
+                && [ -n "$TORIOS_REPO_DIR" ] \
+                && [ -f "$TORIOS_REPO_DIR/api/services/heartbeat_idle.py" ]; then
+            python3 "$TORIOS_REPO_DIR/api/services/heartbeat_idle.py" \
                 "$AGENT_NAME" "$TRANSCRIPT_IDLE_SECONDS" "$REGISTERED_AT" >/dev/null 2>&1
             if [ $? -eq 1 ]; then
                 curl -sSk --connect-timeout 2 -m 3 \
-                    -X POST "https://127.0.0.1:8000/api/agents/${AGENT_NAME}/complete" \
+                    -X POST "${API_BASE}/api/agents/${AGENT_NAME}/complete" \
                     -H 'Content-Type: application/json' \
                     -d '{"summary":"Subagent exited, auto-completed by heartbeat idle detector"}' \
                     > /dev/null 2>&1 || true
@@ -270,16 +288,12 @@ printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AGENT_NAME" \
             fi
         fi
 
-        # Transient backend failures (502, empty reply, connection reset)
-        # during a uvicorn reload must NOT kill this loop. Swallow and
-        # let the next cycle try again. Only a terminal status on the
-        # agent row, or the TTL expiring, ends the loop.
         curl -sSk --connect-timeout 2 -m 4 \
-            -X POST "https://127.0.0.1:8000/api/agents/${AGENT_NAME}/heartbeat" \
+            -X POST "${API_BASE}/api/agents/${AGENT_NAME}/heartbeat" \
             > /dev/null 2>&1 || true
 
         status=$(AGENT_NAME="$AGENT_NAME" curl -sSk --connect-timeout 2 -m 4 \
-            "https://127.0.0.1:8000/api/agents" 2>/dev/null \
+            "${API_BASE}/api/agents" 2>/dev/null \
             | python3 -c "
 import os, sys, json
 try:
@@ -292,10 +306,6 @@ for a in d.get('agents', []) or []:
         print(a.get('status', ''))
         break
 " 2>/dev/null)
-        # Only exit on a confirmed terminal status. An empty status
-        # (backend down or returning garbage) is treated as "keep
-        # looping" rather than "stop", so a 30-second backend outage
-        # never prematurely closes the heartbeat.
         case "$status" in
             completed|failed|cancelled|terminated_stale|completed_timeout|stopped)
                 exit 0
