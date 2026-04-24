@@ -153,6 +153,18 @@ else
   fail "STANDING RULES block missing"
 fi
 
+# RECEIPTS CHECK block present (every "done" claim must carry a receipt).
+if echo "$OUT_HAPPY" | grep -q "RECEIPTS CHECK (run before sending any reply):"; then
+  pass "RECEIPTS CHECK block present"
+else
+  fail "RECEIPTS CHECK block missing"
+fi
+if echo "$OUT_HAPPY" | grep -q "feedback_receipts_for_every_done_claim.md"; then
+  pass "RECEIPTS CHECK cites memory entry"
+else
+  fail "RECEIPTS CHECK missing memory-entry citation"
+fi
+
 # ACTIVE HUMANFILE RULES block present (re-injected every turn).
 if echo "$OUT_HAPPY" | grep -q "ACTIVE HUMANFILE RULES (read every turn):"; then
   pass "ACTIVE HUMANFILE RULES block present"
@@ -259,6 +271,12 @@ if echo "$OUT_DOWN" | grep -q "STANDING RULES (non-negotiable this turn):"; then
   pass "STANDING RULES block present when backend is down"
 else
   fail "STANDING RULES block missing when backend is down"
+fi
+
+if echo "$OUT_DOWN" | grep -q "RECEIPTS CHECK (run before sending any reply):"; then
+  pass "RECEIPTS CHECK block present when backend is down"
+else
+  fail "RECEIPTS CHECK block missing when backend is down"
 fi
 
 if echo "$OUT_DOWN" | grep -q "ACTIVE HUMANFILE RULES"; then

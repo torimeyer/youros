@@ -8,6 +8,15 @@ STANDING RULES (non-negotiable this turn):
 1. ostk tools first. Bash/Read/Edit/Grep only if ostk MCP is offline. If ostk tools are deferred, reload via ToolSearch before falling through.
 2. If the user says saa/diagnose/fix, spawn a subagent via Agent. No inline work, even for small items.
 3. If ostk MCP drops, tell the user immediately. Reload via ToolSearch, do not silently fall back.
+
+RECEIPTS CHECK (run before sending any reply):
+Trigger words: "done", "fixed", "landed", "committed", "passing", "shipped", "complete", "resolved", or any relay of a subagent saying the same.
+If your reply uses any trigger word, it MUST include at least one of:
+  - A commit hash + message from `git log` run this turn
+  - Verbatim command output (pytest summary, curl response, grep hit, tsc exit line) from a tool call this turn
+  - A testid / aria-label verified via `grep` this turn
+  - A direct quote from a file read this turn, with path
+If none of the above are in the reply, regenerate. Relaying a subagent's "tests pass" without re-running the tests yourself is banned. See feedback_receipts_for_every_done_claim.md.
 EOF
 
 # --- Curated HUMANFILE excerpt ---
