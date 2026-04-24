@@ -125,7 +125,13 @@ tori() {
   # the loop and only assign inside.
   local _ready=0
   local _attempt=0
-  local _max_retries=15
+  # 60s ceiling: dev-backend.sh's kill-and-replace path can take ~50s on a
+  # cold start (SIGTERM old uvicorn + 3s grace + SSL cert load + reload
+  # worker fork + first /api/health OK). Earlier 15s budget caused false
+  # "Backend failed to start" reports when the watchdog had just restarted
+  # the backend seconds before tori() ran. Probe breaks on first 200, so
+  # the happy path still finishes in ~1s.
+  local _max_retries=60
   local _last_response=""
   local _response=""
   local _http_code=""
@@ -172,6 +178,9 @@ tori() {
 
   # Boot ostk kernel (suppress raw diagnostics)
   ~/.local/bin/ostk boot >/dev/null 2>&1
+
+  # Run :boot tack as soon as ostk is up
+  ~/.local/bin/ostk tack ":boot" >/dev/null 2>&1
 
   # Show a human-friendly summary instead
   local _open _p0 _p1
