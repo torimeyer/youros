@@ -83,6 +83,17 @@ if [ -z "${STAGED}" ]; then
   exit 0
 fi
 
+# --- ENTITYFILE drift guard (→908) --------------------------------------
+# If .ostk/ENTITYFILE is staged, refuse the commit unless the signature
+# envelope still covers it. Cheap check, runs before secrets scan.
+if echo "${STAGED}" | grep -qx ".ostk/ENTITYFILE"; then
+  if ! "${REPO_DIR}/scripts/entityfile_drift_guard.sh"; then
+    fail "ENTITYFILE drift guard blocked the commit."
+    exit 1
+  fi
+  ok "ENTITYFILE drift guard passed."
+fi
+
 # --- Secrets scan (always runs, blocks commit on any hit) ---------------
 # Detects obvious API key / credential patterns in staged diffs so a
 # local mistake never ships. This catches the pre-tonight class of bug
