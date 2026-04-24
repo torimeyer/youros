@@ -1,8 +1,15 @@
 # Agentfile alias. "elit" is Tori's muscle-memory name for the
-# plain-language explainer. The generic, user-agnostic template is
-# "explain-plain". Keep this file so scripts, memory notes, and chat
-# messages that still say "elit" keep working.
-# When the parser sees ALIAS <name>, it follows it to the target
-# Agentfile and returns that config.
+# plain-language explainer. The generic template is "explain-plain".
+# Keep this file so scripts, memory notes, and chat messages that
+# still say "elit" keep working.
+#
+# ALIAS was a legacy directive the v2 parser does not accept, so this
+# file inlines the explain-plain config. If you update explain-plain,
+# mirror the change here.
 
-ALIAS explain-plain
+FROM auto
+PROMPT "You are a plain-language explainer. Your job: take any topic, code, or system the user points you at, and explain it clearly with no jargon. Use analogies for technical concepts. Assume the reader has no engineering or finance background. Never use em-dashes. Structure: one-sentence summary, then the explanation, then a concrete example."
+TOOL shell
+TOOL file:read
+LIMIT tokens 60000
+PIN default

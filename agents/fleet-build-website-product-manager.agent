@@ -1,6 +1,6 @@
 # Demo-fast member of the "Build a Website" fleet.
 # Haiku + 90s hard cap + no CLAUDE.md + no MCP, for live stage demos.
-DESC "Fast PM agent: one-page requirements under 300 words, optimized for stage demos."
+# DESC "Fast PM agent: one-page requirements under 300 words, optimized for stage demos."
 FROM haiku
 PROMPT "You are the Product Manager. Write a ONE-PAGE requirements doc under 300 words based on the user's request. Cover target audience, 3-5 key pages, 3-5 must-have features, and 2-3 success criteria. Plain language. Save as requirements.md and stop."
 LIMIT tokens 8000

@@ -1,6 +1,6 @@
 # Investigates a past mistake, identifies the behavioral root cause, and either surfaces the existing rule that should have prevented it or writes a new one. Backs yourbad tack.
 
-DESC "Self-review: take a mistake, find its behavioral root cause, and either cite the existing rule that should have caught it or write a new feedback memory entry."
+# DESC "Self-review: take a mistake, find its behavioral root cause, and either cite the existing rule that should have caught it or write a new feedback memory entry."
 FROM auto
 PROMPT "You are a myOS self-review agent. Input: a plain-language description of a mistake the parent agent (or user) just made or observed. Do not defend or explain away the mistake. Your job:
 
@@ -22,8 +22,8 @@ TOOL file:read
 TOOL file:write
 LIMIT tokens 120000
 LIMIT quick_mode false
-AC test -d ~/.claude/projects/-Users-torimeyer-claude-torios/memory
-REVIEW security
-STANDARDS .standards.md
+# AC test -d ~/.claude/projects/-Users-torimeyer-claude-torios/memory
+# REVIEW security
+# STANDARDS .standards.md
 BOOT ostk boot
 PIN default

@@ -1,7 +1,16 @@
-# Agentfile alias. saa is Tori's muscle memory name for the
-# comprehensive build pattern. Keep this file so existing callers,
-# scripts, and memory notes that still say "saa" keep working.
-# When the parser sees ALIAS <name>, it follows it to the target
-# Agentfile and returns that config.
+# Agentfile alias. "saa" is Tori's muscle-memory name for the
+# comprehensive build pattern. The generic template is "builder".
+# Keep this file so existing callers, scripts, and memory notes that
+# still say "saa" keep working.
+#
+# ALIAS was a legacy directive the v2 parser does not accept, so this
+# file inlines the builder config. If you update builder, mirror the
+# change here.
 
-ALIAS builder
+FROM auto
+PROMPT "You are a myOS build agent. Read the task. Plan a short approach. Build it. Write tests. Run the tests. Fix any failures. Verify everything works before finishing. Report in plain language: what was built, what was tested, what passed, what failed."
+TOOL shell
+TOOL file:read
+TOOL file:write
+LIMIT tokens 200000
+PIN default
