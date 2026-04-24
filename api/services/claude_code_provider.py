@@ -335,7 +335,10 @@ async def _send_safe(websocket: WebSocket, payload: dict) -> None:
         pass
 
 
-def _handle_stream_event(event: dict) -> tuple[Optional[str], bool, Optional[dict], Optional[dict]]:
+def _handle_stream_event(
+    event: dict,
+    tool_index_map: Optional[dict[int, str]] = None,
+) -> tuple[Optional[str], bool, Optional[dict], Optional[dict]]:
     """Extract text, done flag, usage, and extra WS payloads from a stream event.
 
     Returns ``(text, done, usage, extra_ws_msg)``:
@@ -343,6 +346,13 @@ def _handle_stream_event(event: dict) -> tuple[Optional[str], bool, Optional[dic
       - ``done``: True when this event signals the end of the response
       - ``usage``: token usage dict from the final result event, or None
       - ``extra_ws_msg``: an additional WebSocket message to send (tool calls, thinking), or None
+
+    ``tool_index_map`` (optional) is a mutable dict owned by the caller
+    that maps Anthropic content-block indices to tool_use ids. It lets us
+    route ``input_json_delta`` fragments to the owning tool_use block so
+    the frontend can accumulate args inside the collapsed tool pill
+    rather than leaking raw JSON into the assistant bubble body. Tests
+    that only exercise text/thinking/start paths can leave it as None.
     """
     etype = event.get("type")
 
@@ -360,17 +370,46 @@ def _handle_stream_event(event: dict) -> tuple[Optional[str], bool, Optional[dic
                 thinking = delta.get("thinking", "")
                 if thinking:
                     return None, False, None, {"type": "thinking", "data": thinking}
+            if delta_type == "input_json_delta":
+                # Fragment of a tool_use block's input JSON. Forward to
+                # the frontend as a tool_use_delta event so the pill's
+                # args accumulate without ever landing in the text body.
+                # Silently dropped if we never saw the matching start
+                # (malformed stream), which is the safe behavior: the
+                # assistant text body must never carry partial JSON.
+                if tool_index_map is None:
+                    return None, False, None, None
+                idx = inner.get("index")
+                if not isinstance(idx, int):
+                    return None, False, None, None
+                tool_id = tool_index_map.get(idx)
+                if not tool_id:
+                    return None, False, None, None
+                partial = delta.get("partial_json", "")
+                if not isinstance(partial, str) or not partial:
+                    return None, False, None, None
+                return None, False, None, {
+                    "type": "tool_use_delta",
+                    "data": {"id": tool_id, "partial_json": partial},
+                }
 
         elif inner_type == "content_block_start":
             block = inner.get("content_block", {})
             if block.get("type") == "thinking":
                 return None, False, None, {"type": "thinking", "data": True}
             if block.get("type") == "tool_use":
+                tool_id = block.get("id", "")
+                # Record the index→id mapping so subsequent
+                # input_json_delta fragments route back to this block.
+                if tool_index_map is not None:
+                    idx = inner.get("index")
+                    if isinstance(idx, int) and tool_id:
+                        tool_index_map[idx] = tool_id
                 return None, False, None, {
                     "type": "tool_use",
                     "data": {
                         "tool": block.get("name", ""),
-                        "id": block.get("id", ""),
+                        "id": tool_id,
                         "input": {},
                     },
                 }
@@ -604,6 +643,11 @@ async def stream_chat(
     final_usage: Optional[dict] = None
     _first_token_logged = False
 
+    # Maps Anthropic content-block index → tool_use id for the current
+    # stream so input_json_delta fragments can be routed back to the
+    # owning tool_use block. Scoped to this turn; reset on each spawn.
+    tool_index_map: dict[int, str] = {}
+
     async def _read_stdout() -> None:
         nonlocal full_text, final_usage, saw_deltas, _first_token_logged
         assert proc.stdout is not None
@@ -617,7 +661,7 @@ async def stream_chat(
                 continue
 
             etype = event.get("type", "")
-            text, done, usage, extra_msg = _handle_stream_event(event)
+            text, done, usage, extra_msg = _handle_stream_event(event, tool_index_map)
             if text:
                 if not _first_token_logged:
                     _claude_log.info(

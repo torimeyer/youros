@@ -191,6 +191,7 @@ export function useWebSocket(path: string, autoConnect = false) {
         parsed.type === 'token' ||
         parsed.type === 'thinking' ||
         parsed.type === 'tool_use' ||
+        parsed.type === 'tool_use_delta' ||
         parsed.type === 'mcp_tool_use' ||
         parsed.type === 'tool_result' ||
         parsed.type === 'mcp_tool_result'

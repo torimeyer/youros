@@ -67,6 +67,13 @@ interface ToolCall {
   id: string
   tool: string
   input: Record<string, unknown>
+  /** Raw partial JSON accumulated from streaming input_json_delta events.
+   *  The backend forwards each Anthropic input_json_delta fragment as a
+   *  tool_use_delta websocket message. We append the fragment here and
+   *  try to parse it into `input` once the JSON becomes well-formed.
+   *  Never appended to the bubble's text body; kept solely inside the
+   *  collapsed tool pill so the chat never shows raw JSON by default. */
+  inputJsonRaw?: string
   result?: string
   isMcp?: boolean
   mcpServer?: string
@@ -118,26 +125,65 @@ function deriveTabName(messages: Message[]): string {
   return text.length > 24 ? text.slice(0, 24) + '...' : text
 }
 
+/** Resolve a tool call's best-known input object.
+ *  Prefers the structured `input` field; falls back to parsing
+ *  `inputJsonRaw` once the streamed JSON becomes well-formed. Keeps the
+ *  collapsed pill's one-line summary populated while input_json_delta
+ *  fragments are still arriving, without ever rendering the raw JSON
+ *  fragments in the assistant bubble body. */
+function resolveToolInput(call: ToolCall): Record<string, unknown> {
+  if (call.input && Object.keys(call.input).length > 0) return call.input
+  if (call.inputJsonRaw) {
+    try {
+      const parsed = JSON.parse(call.inputJsonRaw)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      // Still mid-stream; JSON isn't valid yet. Fall through.
+    }
+  }
+  return call.input ?? {}
+}
+
 function ToolCallBlock({ call }: { call: ToolCall }) {
   const [expanded, setExpanded] = useState(false)
   const label = call.isMcp
     ? `${call.mcpServer}: ${call.tool}`
     : (TOOL_LABELS[call.tool] ?? call.tool)
 
+  const resolvedInput = resolveToolInput(call)
   let summary = ''
-  if (call.input.path) summary = String(call.input.path)
-  else if (call.input.command) summary = String(call.input.command)
-  else if (call.input.pattern) summary = String(call.input.pattern)
-  else if (call.input.title) summary = String(call.input.title)
-  else if (call.input.task_id) summary = String(call.input.task_id)
+  if (resolvedInput.path) summary = String(resolvedInput.path)
+  else if (resolvedInput.command) summary = String(resolvedInput.command)
+  else if (resolvedInput.pattern) summary = String(resolvedInput.pattern)
+  else if (resolvedInput.title) summary = String(resolvedInput.title)
+  else if (resolvedInput.task_id) summary = String(resolvedInput.task_id)
 
   const labelColor = call.isMcp ? 'text-purple-400' : 'text-amber-400'
+
+  // Pretty-print the assembled arguments for the expanded view so power
+  // users can inspect what the tool was called with. Prefer the parsed
+  // structured input; fall back to the raw streamed JSON if parse failed
+  // (e.g. the stream was truncated before the closing brace). Never shown
+  // in the bubble body, only in the collapsed-by-default pill.
+  let prettyArgs = ''
+  if (Object.keys(resolvedInput).length > 0) {
+    try {
+      prettyArgs = JSON.stringify(resolvedInput, null, 2)
+    } catch {
+      prettyArgs = call.inputJsonRaw ?? ''
+    }
+  } else if (call.inputJsonRaw) {
+    prettyArgs = call.inputJsonRaw
+  }
 
   return (
     <div className="my-1.5 border border-slate-700 rounded-lg overflow-hidden bg-slate-900/50">
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-300 hover:bg-slate-800/50 transition-colors"
+        data-testid="tool-call-pill"
       >
         <Icon name={expanded ? 'expand_more' : 'chevron_right'} className="text-sm" />
         <span className={`font-medium ${labelColor}`}>{label}</span>
@@ -151,11 +197,24 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
           <span className="ml-auto inline-block w-3 h-3 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
         )}
       </button>
-      {expanded && call.result !== undefined && (
-        <div className="border-t border-slate-700 px-3 py-2 max-h-48 overflow-y-auto">
-          <pre className="text-[11px] text-slate-400 whitespace-pre-wrap font-mono leading-relaxed">
-            {call.result}
-          </pre>
+      {expanded && (
+        <div className="border-t border-slate-700 px-3 py-2 max-h-64 overflow-y-auto">
+          {prettyArgs && (
+            <div className="mb-2" data-testid="tool-call-args">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Arguments</div>
+              <pre className="text-[11px] text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
+                {prettyArgs}
+              </pre>
+            </div>
+          )}
+          {call.result !== undefined && (
+            <div data-testid="tool-call-result">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Result</div>
+              <pre className="text-[11px] text-slate-400 whitespace-pre-wrap font-mono leading-relaxed">
+                {call.result}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -852,6 +911,48 @@ export function ChatPanel() {
           calls.push({ id: data.id, tool: data.tool, input: data.input, isMcp: true, mcpServer: data.server })
           updated[idx] = { ...target, toolCalls: calls }
         }
+        return updated
+      })
+    } else if (lastMessage.type === 'tool_use_delta') {
+      // Streaming fragment of a tool_use block's input JSON. Anthropic
+      // sends these as `input_json_delta` events; the backend forwards
+      // each fragment keyed by the owning tool_use id. We append the
+      // partial JSON to the matching tool call's inputJsonRaw buffer
+      // and, when the buffer becomes well-formed JSON, promote it to
+      // the structured `input` object so the pill's one-line summary
+      // (path / command / pattern / title / task_id) populates while
+      // streaming. CRITICAL: this branch never touches the bubble's
+      // `content` field. Raw JSON fragments must never leak into the
+      // visible assistant text body.
+      const data = lastMessage.data as unknown as {
+        id: string
+        partial_json?: string
+      }
+      const fragment = typeof data?.partial_json === 'string' ? data.partial_json : ''
+      if (!data?.id || !fragment) return
+      setMessages(prev => {
+        const ownerIdx = prev.findIndex(
+          m => m.role === 'assistant' && m.toolCalls?.some(tc => tc.id === data.id),
+        )
+        if (ownerIdx === -1) return prev
+        const target = prev[ownerIdx]
+        if (!target.toolCalls) return prev
+        const calls = target.toolCalls.map(tc => {
+          if (tc.id !== data.id) return tc
+          const nextRaw = (tc.inputJsonRaw ?? '') + fragment
+          let nextInput = tc.input
+          try {
+            const parsed = JSON.parse(nextRaw)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              nextInput = parsed as Record<string, unknown>
+            }
+          } catch {
+            // Still mid-stream; keep the prior structured input.
+          }
+          return { ...tc, inputJsonRaw: nextRaw, input: nextInput }
+        })
+        const updated = [...prev]
+        updated[ownerIdx] = { ...target, toolCalls: calls }
         return updated
       })
     } else if (lastMessage.type === 'tool_result') {
