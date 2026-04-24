@@ -6050,4 +6050,86 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
     // the Active Sessions list either.
     expect(screen.queryByTitle(/^summary-completed(\s|$)/)).toBeNull()
   })
+
+  it('renders summary rows even when the full /agents payload omits them (nav-badge vs tab parity)', async () => {
+    // Scenario reproducing the 2026-04-23 field report:
+    //   - Sidebar nav badge counted 2 running agents.
+    //   - Agents tab / Active Sessions rendered "No agents running
+    //     right now".
+    // Root cause: the Active tab used allAgents.filter(row =>
+    // runningAgentNames.has(row.name)) — an intersection. If the
+    // summary endpoint reported a name that the full /agents payload
+    // did not include (stale fetch, dropped row, merge bug), the
+    // intersection was empty and the tab showed the empty state while
+    // the sidebar badge still showed the summary count.
+    //
+    // After the fix, the Active tab must render a row for every name
+    // the summary endpoint reports as running, even when allAgents is
+    // empty.
+    preExpandAgents('nav-parity-1', 'nav-parity-2')
+
+    const summaryResponse = {
+      agents: [
+        {
+          name: 'nav-parity-1',
+          status: 'running',
+          source: 'claude-code',
+          model: 'sonnet',
+          spawned_at: new Date(Date.now() - 30000).toISOString(),
+        },
+        {
+          name: 'nav-parity-2',
+          status: 'running',
+          source: 'claude-code',
+          model: 'sonnet',
+          spawned_at: new Date(Date.now() - 15000).toISOString(),
+        },
+      ],
+    }
+    // Full /agents payload: empty. The backend lost both rows during
+    // its audit+in-memory merge pass, or the full fetch is still
+    // in-flight / transiently failing.
+    const fullAgentsEmpty = {
+      daemon_running: true,
+      status: 'ok',
+      active: [],
+      agents: [],
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path.startsWith('/agents?summary=1')) return summaryResponse
+      if (path === '/agents') return fullAgentsEmpty
+      if (path === '/agents/templates') return { templates: [] }
+      if (path.includes('/nudges')) return { agent: '', nudges: [], session_nudges: [] }
+      return {}
+    })
+
+    render(
+      <MemoryRouter>
+        <Agents />
+      </MemoryRouter>
+    )
+
+    // Wait for both the full and summary fetches to have fired.
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith(
+        '/agents?summary=1&status=running&limit=20'
+      )
+    })
+
+    // Both summary names must render. Before the fix this block timed
+    // out and the page showed "No agents running right now".
+    await waitFor(
+      () => {
+        expect(screen.getByTitle(/^nav-parity-1(\s|$)/)).toBeInTheDocument()
+        expect(screen.getByTitle(/^nav-parity-2(\s|$)/)).toBeInTheDocument()
+      },
+      { timeout: 3000 }
+    )
+
+    // The empty state must NOT be visible: nav badge would count 2 and
+    // tab would count 0, which is the exact divergence we are guarding
+    // against.
+    expect(screen.queryByText('No agents running right now')).toBeNull()
+  })
 })
