@@ -96,7 +96,7 @@ def _percentile(values: list[float], pct: float) -> float:
 
 
 def compute_duration_stats(
-    state_path: Path = AGENT_STATE_PATH,
+    state_path: Optional[Path] = None,
     window_days: int = DEFAULT_WINDOW_DAYS,
     now: Optional[datetime] = None,
 ) -> dict:
@@ -115,7 +115,10 @@ def compute_duration_stats(
     ``p75_seconds`` are 0 and ``sample_count`` is 0. Callers should
     show a "calculating" label until samples appear.
     """
-    state = _load_state(state_path)
+    # Resolve the state path at call time so tests that monkeypatch
+    # ``AGENT_STATE_PATH`` on the module reach through to us.
+    resolved_path = state_path if state_path is not None else AGENT_STATE_PATH
+    state = _load_state(resolved_path)
     cutoff_now = now or datetime.now(timezone.utc)
     cutoff = cutoff_now - timedelta(days=window_days)
 

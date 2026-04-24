@@ -113,7 +113,11 @@ echo ""
 
 echo "--- Latest tag has matching release notes ---"
 
-LATEST_TAG=$(git -C "$DIR" describe --tags --abbrev=0 2>/dev/null || echo "")
+if LATEST_TAG=$(git -C "$DIR" describe --tags --abbrev=0 2>/dev/null); then
+    :
+else
+    LATEST_TAG=""
+fi
 if [ -z "$LATEST_TAG" ]; then
     warn "no git tags found, skipping release notes match"
 else
