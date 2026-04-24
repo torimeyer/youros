@@ -126,7 +126,19 @@ ti = d.get("tool_input", {}) or {}
 desc = (ti.get("description") or "").strip()
 prompt = (ti.get("prompt") or "").strip()
 subagent = (ti.get("subagent_type") or "").strip()
-run_in_background = "1" if ti.get("run_in_background") is True else ""
+# Background-task flag. Claude Code's PostToolUse payload often strips
+# tool_input entirely, which means complete-agent.sh cannot tell whether
+# the parent Task call was run_in_background=true at PostToolUse time.
+# We stash the flag here and complete-agent.sh reads it back via the
+# tool_use_id so the bg-skip guard stays reliable even when the harness
+# drops tool_input from PostToolUse. Accept any truthy serialization:
+# bool True, int 1, or string "true"/"1"/"yes". Matching check lives in
+# complete-agent.sh's in-payload belt so the two stay symmetric.
+_rib = ti.get("run_in_background")
+if _rib is True or _rib == 1 or (isinstance(_rib, str) and _rib.strip().lower() in ("true", "1", "yes")):
+    run_in_background = "1"
+else:
+    run_in_background = ""
 tool_use_id = ""
 for key in ("tool_use_id", "toolUseId", "id"):
     v = d.get(key)

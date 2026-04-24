@@ -136,7 +136,14 @@ try:
 except Exception:
     sys.exit(0)
 ti = d.get("tool_input") or {}
-if isinstance(ti, dict) and ti.get("run_in_background") is True:
+# Accept any truthy representation Claude Code might emit: bool True,
+# string "true"/"1"/"yes", or int 1. Earlier harness builds used strict
+# JSON bool, but older/newer variants have serialized the flag as a
+# string in at least one observed payload (run-in-background.log entry
+# from 2026-04-18). A strict `is True` check would miss those and fall
+# through to /complete, re-opening the drift window we already closed.
+_val = ti.get("run_in_background") if isinstance(ti, dict) else None
+if _val is True or _val == 1 or (isinstance(_val, str) and _val.strip().lower() in ("true", "1", "yes")):
     sys.stdout.write("1")
 INNERPY
 )
