@@ -92,8 +92,21 @@ if ! grep -q '"isolation": "worktree"' "$HIT_LOG"; then
     exit 1
 fi
 
-if ! grep -q '"locks": \["\*"\]' "$HIT_LOG"; then
-    echo "FAIL: spawn body missing locks:[\"*\"] (required by L2.4, →921)" >&2
+# Extract real paths (prompt mentions app/src/pages/Roadmap.tsx) not wildcard (→921).
+if ! grep -q '"locks":' "$HIT_LOG"; then
+    echo "FAIL: spawn body missing locks field (required by L2.4, →921)" >&2
+    cat "$HIT_LOG" >&2
+    exit 1
+fi
+
+if grep -q '"locks": \["\*"\]' "$HIT_LOG"; then
+    echo "FAIL: spawn body passes wildcard locks, L2.4 rejects that for edit spawns" >&2
+    cat "$HIT_LOG" >&2
+    exit 1
+fi
+
+if ! grep -q '"locks": \["app/src/pages/Roadmap.tsx"\]' "$HIT_LOG"; then
+    echo "FAIL: expected extracted path lock, got something else" >&2
     cat "$HIT_LOG" >&2
     exit 1
 fi

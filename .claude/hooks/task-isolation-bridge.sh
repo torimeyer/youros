@@ -155,16 +155,34 @@ fi
 # direct REST spawns.
 BODY=$(SPAWN_NAME="$SPAWN_NAME" DESCRIPTION="$DESCRIPTION" PROMPT="$PROMPT" \
         SUBAGENT="$SUBAGENT" python3 <<'PY' 2>/dev/null
-import os, json
+import os, json, re
+prompt = os.environ.get("PROMPT") or ""
+desc = os.environ.get("DESCRIPTION") or ""
+hay = prompt + "\n" + desc
+
+# Extract file paths named in the prompt.
+EXT_RE = re.compile(r"[\w./-]+\.(?:py|ts|tsx|sh|md|json|yml|yaml|toml|sql|css|html)\b")
+DIR_RE = re.compile(r"\b((?:api|app|scripts|docs|agents|\.claude|\.ostk)/[\w./-]*)")
+
+locks = set()
+for m in EXT_RE.finditer(hay):
+    locks.add(m.group(0).strip(".,:;()[]{}"))
+for m in DIR_RE.finditer(hay):
+    locks.add(m.group(1).rstrip("/,."))
+
+# Fallback: if nothing concrete, use coarse repo globs to force serialization.
+if not locks:
+    locks = {"app/**", "api/**", ".claude/**", "scripts/**"}
+
 body = {
     "name": os.environ["SPAWN_NAME"],
-    "prompt": os.environ.get("PROMPT") or os.environ.get("DESCRIPTION") or "",
-    "description": os.environ.get("DESCRIPTION") or "task-tool bridge spawn",
+    "prompt": prompt or desc,
+    "description": desc or "task-tool bridge spawn",
     "source": "task-bridge",
     "status": "running",
     "budget": 5,
     "isolation": "worktree",
-    "locks": ["*"],
+    "locks": sorted(locks),
 }
 sub = os.environ.get("SUBAGENT") or ""
 if sub:
