@@ -3352,9 +3352,12 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             _wt_path = PROJECT_ROOT / ".claude" / "worktrees" / f"agent-{body.name}"
             try:
                 _wt_path.parent.mkdir(parents=True, exist_ok=True)
+                # L2.3 follow-up (→P2-f from retro): pin new branch to main's
+                # HEAD so drifted parent sessions don't produce stale-base
+                # worktrees (the 71-commit drift bug from L2.1's merge).
                 _fork_proc = await asyncio.create_subprocess_exec(
                     "git", "worktree", "add", "--lock",
-                    str(_wt_path), "-b", _wt_branch,
+                    str(_wt_path), "-b", _wt_branch, "main",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(PROJECT_ROOT),
