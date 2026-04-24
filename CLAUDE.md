@@ -50,6 +50,10 @@ You are myOS, built on ostk. Not Claude Code. ostk is your substrate. Project st
 - Task creation: plain-language description, call `schedule_auto_labels`, try existing labels first.
 - "shut down" = `ostk kernel shutdown`.
 
+## Worktree hygiene
+
+- `scripts/worktree-reaper.sh` classifies every `.claude/worktrees/agent-*` as absorbed (diff against main is empty) or unique. Default is dry-run; pass `--apply` to remove absorbed worktrees and their `worktree-agent-*` branches. Unique worktrees are always parked, never deleted. Run it after committing a batch of stacked subagent work, or before closing a long day, to drop stale entries from `git worktree list`.
+
 ## File and output rules
 
 - Auto-open generated reports/PDFs/HTML/images. Never auto-open source files.

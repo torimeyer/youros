@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+# worktree-reaper.sh
+#
+# Scan .claude/worktrees/agent-* and classify each as:
+#   absorbed : branch has no unique diff against main (safe to remove)
+#   unique   : branch has changes not yet on main (park, do not delete)
+#   error    : diff/status could not be determined
+#
+# Default: dry-run (prints a table). Pass --apply to actually remove
+# absorbed worktrees and their agent-prefixed branches.
+#
+# Safety:
+#   - Never touches the main worktree itself.
+#   - Only deletes branches that match worktree-agent-*.
+#   - Never uses --no-verify or any hook-skip flags.
+#
+# Exit codes:
+#   0  success (dry-run clean, or apply with no removal failures)
+#   1  one or more worktree removals failed but script otherwise completed
+#   2  bad arguments
+
+set -euo pipefail
+
+APPLY=0
+
+usage() {
+  cat <<EOF
+Usage: scripts/worktree-reaper.sh [--apply] [-h|--help]
+
+Scans .claude/worktrees/agent-* and classifies each agent worktree as
+absorbed (diff against main is empty) or unique (has changes not on main).
+
+Without --apply: dry-run. Prints a table and exits 0.
+With --apply:    removes absorbed worktrees and their agent-* branches.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply)
+      APPLY=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "error: unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+# Locate repo root (main worktree). We resolve against the current working
+# directory so the reaper operates on whichever repo the user is in, not the
+# repo where the script file happens to live (matters for test fixtures and
+# for running against symlinked clones).
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$REPO_ROOT" ]; then
+  echo "error: not inside a git repo" >&2
+  exit 2
+fi
+
+# If we're inside a worktree (common_dir != git_dir), resolve to the primary.
+COMMON_DIR="$(git -C "$REPO_ROOT" rev-parse --git-common-dir)"
+# common-dir is absolute or relative to REPO_ROOT; normalize.
+if [ "${COMMON_DIR#/}" = "$COMMON_DIR" ]; then
+  COMMON_DIR="$REPO_ROOT/$COMMON_DIR"
+fi
+# The primary worktree contains .git as a directory (not a file).
+PRIMARY="$(dirname "$COMMON_DIR")"
+if [ -f "$PRIMARY/.git" ] || [ ! -d "$PRIMARY/.git" ]; then
+  # fallback: use `git worktree list` first entry
+  PRIMARY="$(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree / {print $2; exit}')"
+fi
+
+cd "$PRIMARY"
+
+WORKTREE_BASE="$PRIMARY/.claude/worktrees"
+
+printf '%-48s %-10s %s\n' "BRANCH" "STATUS" "UNIQUE_FILES"
+printf '%-48s %-10s %s\n' "------" "------" "------------"
+
+absorbed_branches=()
+absorbed_paths=()
+unique_count=0
+absorbed_count=0
+error_count=0
+removal_fail=0
+
+# Enumerate via `git worktree list --porcelain` so we only look at real worktrees.
+while IFS= read -r line; do
+  if [ -z "$line" ]; then
+    wt_path=""
+    wt_branch=""
+    continue
+  fi
+  case "$line" in
+    worktree\ *)
+      wt_path="${line#worktree }"
+      ;;
+    branch\ refs/heads/*)
+      wt_branch="${line#branch refs/heads/}"
+      # We have a path + branch. Decide whether to process.
+      case "$wt_path" in
+        "$WORKTREE_BASE"/agent-*)
+          case "$wt_branch" in
+            worktree-agent-*)
+              # eligible
+              if ! diff_files=$(git diff "main...$wt_branch" --name-only 2>/dev/null); then
+                printf '%-48s %-10s %s\n' "$wt_branch" "error" "?"
+                error_count=$((error_count + 1))
+              else
+                if [ -z "$diff_files" ]; then
+                  printf '%-48s %-10s %s\n' "$wt_branch" "absorbed" "0"
+                  absorbed_branches+=("$wt_branch")
+                  absorbed_paths+=("$wt_path")
+                  absorbed_count=$((absorbed_count + 1))
+                else
+                  file_count=$(printf '%s\n' "$diff_files" | wc -l | tr -d ' ')
+                  printf '%-48s %-10s %s\n' "$wt_branch" "unique" "$file_count"
+                  unique_count=$((unique_count + 1))
+                fi
+              fi
+              ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+done < <(git worktree list --porcelain)
+
+echo
+echo "summary: absorbed=$absorbed_count unique=$unique_count error=$error_count"
+
+if [ "$APPLY" -eq 0 ]; then
+  echo "(dry-run. pass --apply to remove absorbed worktrees.)"
+  if [ "$error_count" -gt 0 ]; then
+    exit 1
+  fi
+  exit 0
+fi
+
+if [ "$absorbed_count" -eq 0 ]; then
+  echo "nothing to remove."
+  if [ "$error_count" -gt 0 ]; then
+    exit 1
+  fi
+  exit 0
+fi
+
+echo
+echo "applying: removing $absorbed_count absorbed worktree(s)..."
+
+i=0
+while [ "$i" -lt "${#absorbed_branches[@]}" ]; do
+  br="${absorbed_branches[$i]}"
+  pa="${absorbed_paths[$i]}"
+  i=$((i + 1))
+
+  # Unlock if locked (ignore failure; it may not be locked).
+  git worktree unlock "$pa" >/dev/null 2>&1 || true
+
+  if git worktree remove --force "$pa" >/dev/null 2>&1; then
+    if git branch -D "$br" >/dev/null 2>&1; then
+      echo "  removed $br"
+    else
+      echo "  error: worktree gone but branch $br could not be deleted" >&2
+      removal_fail=$((removal_fail + 1))
+    fi
+  else
+    echo "  error: failed to remove worktree at $pa (branch $br)" >&2
+    removal_fail=$((removal_fail + 1))
+  fi
+done
+
+echo
+echo "done. removed=$((absorbed_count - removal_fail)) failed=$removal_fail"
+
+if [ "$removal_fail" -gt 0 ] || [ "$error_count" -gt 0 ]; then
+  exit 1
+fi
+exit 0
