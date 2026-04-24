@@ -13,7 +13,7 @@ from services.request_trace import TraceMiddleware
 from services.loopback_guard import LoopbackGuardMiddleware
 from services.security_headers import SecurityHeadersMiddleware
 
-from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, specs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, meeting_prep, workspace, briefing, workflows, shares, export, exports, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, pdf, diagrams, documents
+from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, specs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, meeting_prep, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace
 
 app = FastAPI(title="myOS API")
 
@@ -87,7 +87,6 @@ app.include_router(workflows.router, prefix="/api")
 app.include_router(enterprise.router, prefix="/api")
 app.include_router(shares.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
-app.include_router(exports.router, prefix="/api")
 app.include_router(task_suggestions_router.router, prefix="/api")
 app.include_router(recurring_tasks_router.router, prefix="/api")
 app.include_router(agent_patterns.router, prefix="/api")
@@ -108,9 +107,6 @@ app.include_router(dogwalk.router, prefix="/api")
 app.include_router(prototypes.router, prefix="/api")
 app.include_router(models_router.router, prefix="/api")
 app.include_router(probes.router, prefix="/api")
-app.include_router(pdf.router, prefix="/api")
-app.include_router(diagrams.router, prefix="/api")
-app.include_router(documents.router, prefix="/api")
 
 
 @app.on_event("startup")
