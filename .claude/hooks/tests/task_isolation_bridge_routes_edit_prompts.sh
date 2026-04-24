@@ -92,6 +92,12 @@ if ! grep -q '"isolation": "worktree"' "$HIT_LOG"; then
     exit 1
 fi
 
+if ! grep -q '"locks": \["\*"\]' "$HIT_LOG"; then
+    echo "FAIL: spawn body missing locks:[\"*\"] (required by L2.4, →921)" >&2
+    cat "$HIT_LOG" >&2
+    exit 1
+fi
+
 if ! grep -q '/api/agents/spawn' "$HIT_LOG"; then
     echo "FAIL: POST went to wrong path" >&2
     cat "$HIT_LOG" >&2

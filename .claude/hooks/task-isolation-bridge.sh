@@ -164,6 +164,7 @@ body = {
     "status": "running",
     "budget": 5,
     "isolation": "worktree",
+    "locks": ["*"],
 }
 sub = os.environ.get("SUBAGENT") or ""
 if sub:
