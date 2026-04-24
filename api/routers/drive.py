@@ -180,7 +180,7 @@ async def drive_auth_url():
         )
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
-        "return_to": f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/drive",
+        "return_to": f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/documents?tab=drive",
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
@@ -201,7 +201,7 @@ async def drive_auth_url_for_calendar():
         )
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
-        "return_to": f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/calendar",
+        "return_to": f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/calendar",
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
@@ -222,7 +222,7 @@ async def drive_auth_url_for_gmail():
         )
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
-        "return_to": f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/gmail",
+        "return_to": f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/gmail",
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
@@ -230,7 +230,29 @@ async def drive_auth_url_for_gmail():
     return {"url": url}
 
 
-FRONTEND_DRIVE_URL = f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/drive"
+def _frontend_url() -> str:
+    """Return the frontend base URL, evaluated at request time so env changes
+    take effect without a server restart."""
+    return os.environ.get("FRONTEND_URL", "https://localhost:3010")
+
+
+# Module-level anchor for regression tests: documents the post-migration
+# redirect target (Drive + Files were unified under /documents?tab=drive).
+# The runtime code uses ``_frontend_drive_url()`` so FRONTEND_URL env
+# changes take effect without a restart; this constant records the path
+# and query that must appear in that URL.
+FRONTEND_DRIVE_URL = "/documents?tab=drive"
+
+
+def _frontend_drive_url() -> str:
+    """Build the default post-auth redirect URL at request time."""
+    return f"{_frontend_url()}{FRONTEND_DRIVE_URL}"
+
+
+def _append_query(url: str, param: str) -> str:
+    """Append a query parameter to a URL, using & if ? already present."""
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}{param}"
 
 
 @router.get("/drive/auth/callback")
@@ -245,9 +267,10 @@ async def drive_auth_callback(
     ?connected=true so the user lands back in the app automatically.
     On failure, redirects with ?error=<reason>.
     """
+    fallback_url = _frontend_drive_url()
     if error:
         return RedirectResponse(
-            url=f"{FRONTEND_DRIVE_URL}?error={error}",
+            url=_append_query(fallback_url, f"error={error}"),
             status_code=302,
         )
 
@@ -258,16 +281,16 @@ async def drive_auth_callback(
     state_data = _drive_oauth_states.get(state)
     if not state_data:
         return RedirectResponse(
-            url=f"{FRONTEND_DRIVE_URL}?error=invalid_state",
+            url=_append_query(fallback_url, "error=invalid_state"),
             status_code=302,
         )
-    return_to = state_data.get("return_to", FRONTEND_DRIVE_URL)
+    return_to = state_data.get("return_to", fallback_url)
     del _drive_oauth_states[state]
     _save_oauth_states(_drive_oauth_states)
 
     if not code:
         return RedirectResponse(
-            url=f"{return_to}?error=no_code",
+            url=_append_query(return_to, "error=no_code"),
             status_code=302,
         )
 
@@ -275,7 +298,7 @@ async def drive_auth_callback(
         exchange_code(code)
     except Exception:
         return RedirectResponse(
-            url=f"{return_to}?error=token_exchange_failed",
+            url=_append_query(return_to, "error=token_exchange_failed"),
             status_code=302,
         )
 
@@ -293,7 +316,7 @@ async def drive_auth_callback(
         pass
 
     return RedirectResponse(
-        url=f"{return_to}?connected=true",
+        url=_append_query(return_to, "connected=true"),
         status_code=302,
     )
 
@@ -1279,3 +1302,225 @@ async def drive_file_structured_preview(file_id: str):
         "web_view_link": meta.get("webViewLink", ""),
         "sample": sample,
     }
+
+
+# ---------------------------------------------------------------------------
+# Google Docs proxy endpoints (used by fcp-gdocs plugin in myOS auth mode)
+# ---------------------------------------------------------------------------
+
+
+def _build_docs_service():
+    """Build an authenticated Google Docs API service object."""
+    try:
+        from googleapiclient.discovery import build
+        from google.oauth2.credentials import Credentials
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Google API client is not available on this server.",
+        ) from exc
+
+    tokens = get_credentials()
+    creds = Credentials(
+        token=tokens.get("access_token"),
+        refresh_token=tokens.get("refresh_token"),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=None,
+        client_secret=None,
+    )
+    return build("docs", "v1", credentials=creds)
+
+
+class CreateDocFromMd(BaseModel):
+    path: str
+    title: Optional[str] = None
+
+
+class ReplaceDocFromMd(BaseModel):
+    doc_id: str
+    path: str
+
+
+class BatchUpdateDoc(BaseModel):
+    doc_id: str
+    requests: list
+
+
+@router.post("/drive/docs/create-from-md")
+async def create_doc_from_md(body: CreateDocFromMd):
+    """Upload a .md file to Drive and convert it to a Google Doc."""
+    import asyncio
+
+    file_path = Path(body.path).expanduser().resolve()
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {body.path}")
+
+    content = file_path.read_bytes()
+    title = body.title or file_path.stem
+
+    try:
+        folder_id = await _get_or_create_myos_folder()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not access the myOS folder in Drive: {exc}",
+        ) from exc
+
+    def _call():
+        import io
+        from googleapiclient.http import MediaIoBaseUpload
+
+        service = _build_drive_service()
+        media = MediaIoBaseUpload(
+            io.BytesIO(content),
+            mimetype="text/markdown",
+            resumable=False,
+        )
+        meta = {
+            "name": title,
+            "parents": [folder_id],
+            "mimeType": "application/vnd.google-apps.document",
+        }
+        result = (
+            service.files()
+            .create(body=meta, media_body=media, fields="id,name,webViewLink")
+            .execute()
+        )
+        return result
+
+    try:
+        created = await asyncio.get_event_loop().run_in_executor(None, _call)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not create Google Doc from markdown: {exc}",
+        ) from exc
+
+    return {
+        "doc_id": created.get("id"),
+        "title": created.get("name"),
+        "url": created.get("webViewLink"),
+    }
+
+
+@router.post("/drive/docs/replace-from-md")
+async def replace_doc_from_md(body: ReplaceDocFromMd):
+    """Replace an existing Google Doc's content by re-uploading a .md file."""
+    import asyncio
+
+    file_path = Path(body.path).expanduser().resolve()
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {body.path}")
+
+    content = file_path.read_bytes()
+
+    def _call():
+        import io
+        from googleapiclient.http import MediaIoBaseUpload
+
+        service = _build_drive_service()
+        media = MediaIoBaseUpload(
+            io.BytesIO(content),
+            mimetype="text/markdown",
+            resumable=False,
+        )
+        result = (
+            service.files()
+            .update(
+                fileId=body.doc_id,
+                media_body=media,
+                fields="id,name,webViewLink",
+            )
+            .execute()
+        )
+        return result
+
+    try:
+        updated = await asyncio.get_event_loop().run_in_executor(None, _call)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not replace Google Doc content: {exc}",
+        ) from exc
+
+    return {
+        "doc_id": updated.get("id"),
+        "title": updated.get("name"),
+        "url": updated.get("webViewLink"),
+    }
+
+
+@router.post("/drive/docs/batch-update")
+async def batch_update_doc(body: BatchUpdateDoc):
+    """Forward a Google Docs batchUpdate request."""
+    import asyncio
+
+    def _call():
+        service = _build_docs_service()
+        result = (
+            service.documents()
+            .batchUpdate(
+                documentId=body.doc_id,
+                body={"requests": body.requests},
+            )
+            .execute()
+        )
+        return result
+
+    try:
+        response = await asyncio.get_event_loop().run_in_executor(None, _call)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Google Docs batchUpdate failed: {exc}",
+        ) from exc
+
+    return {
+        "doc_id": response.get("documentId"),
+        "replies": response.get("replies", []),
+    }
+
+
+@router.get("/drive/docs/{doc_id}")
+async def get_doc_structure(doc_id: str):
+    """Return the structural outline of a Google Doc."""
+    import asyncio
+
+    def _call():
+        service = _build_docs_service()
+        doc = service.documents().get(documentId=doc_id).execute()
+        headings = []
+        for element in doc.get("body", {}).get("content", []):
+            paragraph = element.get("paragraph")
+            if not paragraph:
+                continue
+            style = paragraph.get("paragraphStyle", {})
+            named_style = style.get("namedStyleType", "")
+            if named_style.startswith("HEADING_"):
+                level = int(named_style.split("_")[1])
+                text = "".join(
+                    run.get("textRun", {}).get("content", "")
+                    for run in paragraph.get("elements", [])
+                ).strip()
+                headings.append({
+                    "level": level,
+                    "text": text,
+                    "start_index": element.get("startIndex", 0),
+                    "end_index": element.get("endIndex", 0),
+                })
+        return {
+            "doc_id": doc.get("documentId"),
+            "title": doc.get("title"),
+            "headings": headings,
+            "revision_id": doc.get("revisionId"),
+        }
+
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(None, _call)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not read Google Doc: {exc}",
+        ) from exc
+
+    return result
