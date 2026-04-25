@@ -502,7 +502,7 @@ export function ChatPanel() {
   // server completes.
   const [placeholderAwaitingServer, setPlaceholderAwaitingServer] = useState(false)
   const [currentModel, setCurrentModel] = useState<string | null>(null)
-  const [toolsEnabled, setToolsEnabled] = useState(true)
+
   const [activeTemplate, setActiveTemplate] = useState<{ name: string; description?: string } | null>(null)
   // Which pathway is powering this response: the local Claude subscription
   // program or the Anthropic API. Updated from the backend_active event.
@@ -1581,7 +1581,7 @@ export function ChatPanel() {
     send({
       model: `@${defaultChatModel}`,
       messages: apiMessages,
-      tools: toolsEnabled,
+      tools: true,
       tab_id: activeTabId,
       replyToId: replyingTo || undefined,
       thread_id: replyThreadId || undefined,
@@ -1687,7 +1687,7 @@ export function ChatPanel() {
     send({
       model: `@${defaultChatModel}`,
       messages: apiMessages,
-      tools: toolsEnabled,
+      tools: true,
       tab_id: activeTabId,
       // All pill: when sideBySideEnabled is on, fan out to Claude
       // AND Gemini in parallel on the backend.
@@ -1903,13 +1903,6 @@ export function ChatPanel() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setToolsEnabled(!toolsEnabled)}
-            className={`p-1 transition-colors ${toolsEnabled ? 'text-amber-400 hover:text-amber-300' : 'text-slate-500 hover:text-slate-400'}`}
-            title={toolsEnabled ? 'Agent mode: ON (can use tools)' : 'Agent mode: OFF (text only)'}
-          >
-            <Icon name="build" />
-          </button>
           <button
             onClick={handleClearHistory}
             className="p-1 text-slate-500 hover:text-red-400 transition-colors"
