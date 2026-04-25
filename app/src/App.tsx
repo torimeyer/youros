@@ -19,6 +19,7 @@ import Slack from './pages/Slack'
 import GitHub from './pages/GitHub'
 import Upgrade from './pages/Upgrade'
 import Releases from './pages/Releases'
+import Adoption from './pages/Adoption'
 import Workflows from './pages/Workflows'
 import WorkflowBuilder from './pages/WorkflowBuilder'
 import { useAppStore } from './stores/app'
@@ -128,6 +129,7 @@ export default function App() {
           </Route>
           {/* Backward compat: /team redirects to /admin */}
           <Route path="team" element={<Navigate to="/admin" replace />} />
+          <Route path="adoption" element={<Adoption />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/upgrade" element={<Upgrade />} />
         </Route>
