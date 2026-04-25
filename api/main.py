@@ -422,6 +422,22 @@ async def schedule_session_task_reaper():
 
 
 @app.on_event("startup")
+async def schedule_ghost_spawn_reaper():
+    """Delete ghost agent-registry entries left by silent-completion failures (→922).
+
+    A ghost is a row with status "running" or "completed_timeout" whose
+    subprocess produced no transcript output and stopped sending heartbeats.
+    The reaper runs once at boot (to clear leftovers from prior sessions)
+    then every 60 seconds so manual cleanup is never needed again.
+    """
+    import asyncio
+
+    from services.ghost_reaper import run_forever
+
+    asyncio.create_task(run_forever())
+
+
+@app.on_event("startup")
 async def backfill_chat_ack_bots():
     """Start an ack bot for every running subagent after a restart.
 
