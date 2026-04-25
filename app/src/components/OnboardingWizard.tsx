@@ -46,6 +46,7 @@ export default function OnboardingWizard() {
   const [selectedProvider, setSelectedProvider] = useState('Anthropic')
   const [apiKey, setApiKey] = useState('')
   const [keySaved, setKeySaved] = useState(false)
+  const [detectedProvider, setDetectedProvider] = useState<string | null>(null)
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
   const [otherSelected, setOtherSelected] = useState(false)
 
@@ -61,6 +62,16 @@ export default function OnboardingWizard() {
       setOsName('')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    api.get<{ claude_code?: boolean; anthropic_key?: boolean; gemini_key?: boolean }>('/providers/detect')
+      .then((data) => {
+        if (data.claude_code) setDetectedProvider('Claude Code')
+        else if (data.anthropic_key) setDetectedProvider('Anthropic')
+        else if (data.gemini_key) setDetectedProvider('Gemini')
+      })
+      .catch(() => {})
   }, [])
 
   // Profile (HUMANFILE) step state
@@ -83,7 +94,12 @@ export default function OnboardingWizard() {
     setStepIndex(1)
   }
 
-  const next = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
+  const connectIdx = (STEPS as readonly string[]).indexOf('Connect')
+  const next = () => setStepIndex((i) => {
+    const n = Math.min(i + 1, STEPS.length - 1)
+    if (detectedProvider !== null && n === connectIdx) return Math.min(n + 1, STEPS.length - 1)
+    return n
+  })
   const back = () => setStepIndex((i) => Math.max(i - 1, 0))
 
   const handlePersonaPick = (category: MarketplaceCategory) => {
@@ -419,6 +435,7 @@ export default function OnboardingWizard() {
               provider={selectedProvider}
               subtextCls={subtextCls}
               cardCls={cardCls}
+              detectedProvider={detectedProvider}
             />
           )}
           {/* Team steps */}
@@ -970,6 +987,7 @@ function ReadyStep({
   provider,
   subtextCls,
   cardCls,
+  detectedProvider,
 }: {
   userName: string
   osName: string
@@ -977,6 +995,7 @@ function ReadyStep({
   provider: string
   subtextCls: string
   cardCls: string
+  detectedProvider?: string | null
 }) {
   return (
     <div className="text-center" data-testid="step-ready">
@@ -1014,6 +1033,12 @@ function ReadyStep({
             {provider}
           </span>
         </div>
+        {detectedProvider && (
+          <div className="flex items-center justify-between">
+            <span className={`text-sm ${subtextCls}`}>Connected via</span>
+            <span className="text-sm font-medium" data-testid="summary-connected-via">{detectedProvider}</span>
+          </div>
+        )}
       </div>
     </div>
   )

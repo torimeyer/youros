@@ -784,3 +784,85 @@ describe('OnboardingWizard - Enter key advances steps', () => {
 
 })
 
+
+describe('OnboardingWizard — provider auto-detection (→931)', () => {
+  function navigateToAfterTheme() {
+    fireEvent.click(screen.getByTestId('fork-personal'))
+    fireEvent.click(screen.getByTestId('next-button'))   // Welcome → You
+    for (let i = 0; i < 5; i++) {
+      fireEvent.click(screen.getByTestId('skip-button')) // You/Name/Instance/Profile/Theme
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Restore safe defaults after clearAllMocks so unrelated api calls don't throw.
+    vi.mocked(api.get).mockResolvedValue({})
+    vi.mocked(api.post).mockResolvedValue({})
+    vi.mocked(api.patch).mockResolvedValue({})
+  })
+
+  it('shows Connect step when no provider is detected', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect')
+        return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: false })
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    render(<OnboardingWizard />)
+    await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
+    navigateToAfterTheme()
+    await waitFor(() => expect(screen.queryByTestId('step-connect')).toBeInTheDocument())
+    expect(screen.queryByTestId('step-ready')).not.toBeInTheDocument()
+  })
+
+  it('skips Connect step when Claude Code is detected', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect')
+        return Promise.resolve({ claude_code: true, anthropic_key: false, gemini_key: false })
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    render(<OnboardingWizard />)
+    await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
+    navigateToAfterTheme()
+    expect(screen.queryByTestId('step-connect')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('step-ready')).toBeInTheDocument()
+    expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Claude Code')
+  })
+
+  it('skips Connect and shows "Connected via Anthropic" when API key is detected', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect')
+        return Promise.resolve({ claude_code: false, anthropic_key: true, gemini_key: false })
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    render(<OnboardingWizard />)
+    await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
+    navigateToAfterTheme()
+    expect(screen.queryByTestId('step-connect')).not.toBeInTheDocument()
+    expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Anthropic')
+  })
+
+  it('api-key-input is never shown when a provider is detected', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect')
+        return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: true })
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    render(<OnboardingWizard />)
+    await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
+    navigateToAfterTheme()
+    expect(screen.queryByTestId('api-key-input')).not.toBeInTheDocument()
+    expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Gemini')
+  })
+
+  it('falls back to showing Connect when detection fetch fails', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.reject(new Error('network'))
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    render(<OnboardingWizard />)
+    await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
+    navigateToAfterTheme()
+    await waitFor(() => expect(screen.queryByTestId('step-connect')).toBeInTheDocument())
+  })
+})
