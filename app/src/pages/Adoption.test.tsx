@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Adoption from './Adoption'
 
@@ -8,6 +8,12 @@ vi.mock('../lib/api', () => ({
     get: vi.fn(),
   },
 }))
+
+const mockNavigate = vi.fn()
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>()
+  return { ...actual, useNavigate: () => mockNavigate }
+})
 
 import { api } from '../lib/api'
 const mockedGet = vi.mocked(api.get)
@@ -77,5 +83,19 @@ describe('Adoption page', () => {
     renderPage()
     await waitFor(() => expect(screen.getByText(/7 agent runs finished/)).toBeTruthy())
     expect(screen.getByText(/Ship the adoption page/)).toBeTruthy()
+  })
+
+  it('recommendation card is a button that navigates to agents with the template pre-selected', async () => {
+    mockedGet.mockResolvedValueOnce(mockData)
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('recommendation-card')).toBeTruthy())
+
+    const card = screen.getByTestId('recommendation-card')
+    expect(card.tagName).toBe('BUTTON')
+    fireEvent.click(card)
+    expect(mockNavigate).toHaveBeenCalledWith('/agents?template=builtin-review')
+
+    expect(screen.getByText('Review')).toBeTruthy()
+    expect(screen.getByTestId('rec-why').textContent).toContain("you've been using Builder")
   })
 })

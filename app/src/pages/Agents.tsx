@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from 'react-router-dom';
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import TemplateCard from "../components/TemplateCard";
@@ -1790,6 +1791,7 @@ function PMTemplateEditorForm({
 
 export default function Agents() {
   const [activeTab, setActiveTab] = useState("Active");
+  const [searchParams, setSearchParams] = useSearchParams();
   // Ref so fetchAgents can read the current tab without a stale closure.
   const activeTabRef = useRef("Active");
   const setActiveTabWithRef = (tab: string) => {
@@ -2370,6 +2372,15 @@ export default function Agents() {
     setEditorCapabilities(null);
     setEditorOpen(true);
   };
+
+  useEffect(() => {
+    const templateId = searchParams.get('template');
+    if (!templateId) return;
+    const tpl = [...pmTemplates, ...userTemplates].find((t) => t.id === templateId);
+    if (!tpl) return;
+    setSearchParams({}, { replace: true });
+    handleUsePmTemplate(tpl);
+  }, [pmTemplates, userTemplates, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSavePmTemplate = async (d: Partial<PMAgentTemplate>) => {
     setPmTemplateSaving(true);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import Icon from '../components/Icon'
 
@@ -26,6 +27,7 @@ interface AdoptionData {
 }
 
 export default function Adoption() {
+  const navigate = useNavigate()
   const [data, setData] = useState<AdoptionData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -109,10 +111,13 @@ export default function Adoption() {
           </h2>
           <div className="space-y-2">
             {data.recommendations.map((rec) => (
-              <div
+              <button
                 key={rec.id}
+                type="button"
                 data-testid="recommendation-card"
-                className="flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3"
+                aria-label={`Start a ${rec.name} agent`}
+                onClick={() => navigate(`/agents?template=${rec.id}`)}
+                className="w-full text-left flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
               >
                 <Icon name="lightbulb" className="text-sky-400 text-lg mt-0.5 shrink-0" />
                 <div>
@@ -121,7 +126,7 @@ export default function Adoption() {
                     Because {rec.why}
                   </p>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </section>
