@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, Link, useLocation } from 'react-router-dom'
 import {
   DndContext,
   PointerSensor,
@@ -635,6 +635,15 @@ export function Sidebar() {
         </span>
         {version && (
           <span className="block text-[10px] text-slate-500 font-mono mt-0.5">{version}</span>
+        )}
+        {instanceMode === 'personal' && (
+          <Link
+            data-testid="team-cta"
+            to="/team-setup"
+            className="block mt-2 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors"
+          >
+            Share with your team →
+          </Link>
         )}
       </div>
 

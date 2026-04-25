@@ -137,6 +137,25 @@ describe('Sidebar', () => {
     expect(badge.textContent).toBe('Team')
   })
 
+  it('shows team CTA in personal mode', () => {
+    useAppStore.setState({ instanceMode: 'personal' })
+    renderSidebar()
+    expect(screen.getByTestId('team-cta')).toBeInTheDocument()
+  })
+
+  it('hides team CTA in team mode', () => {
+    useAppStore.setState({ instanceMode: 'team' })
+    renderSidebar()
+    expect(screen.queryByTestId('team-cta')).not.toBeInTheDocument()
+  })
+
+  it('team CTA links to /team-setup', () => {
+    useAppStore.setState({ instanceMode: 'personal' })
+    renderSidebar()
+    const cta = screen.getByTestId('team-cta')
+    expect(cta).toHaveAttribute('href', '/team-setup')
+  })
+
   it('all nav items are links with correct paths (groups expanded)', () => {
     renderSidebar()
     // Ensure all groups are expanded (only expand if currently collapsed)
