@@ -202,3 +202,54 @@ async def test_whats_working_top_task_is_highest_priority():
 
     data = resp.json()
     assert data["this_week"]["top_spec_or_task"] == "P0 urgent"
+
+
+@pytest.mark.asyncio
+async def test_session_tasks_excluded_when_only_sessions_open():
+    """If only session-container tasks are open, top_spec_or_task is None."""
+    tasks = [
+        {"id": "s1", "title": "Session in torios", "status": "open", "priority": "P0"},
+        {"id": "s2", "title": "session in myproject", "status": "open", "priority": "P1"},
+    ]
+    with patch("routers.adoption.read_audit_entries", return_value=[]), \
+         patch("routers.adoption.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/adoption/whats-working")
+
+    data = resp.json()
+    assert data["this_week"]["top_spec_or_task"] is None
+
+
+@pytest.mark.asyncio
+async def test_session_tasks_excluded_user_task_wins():
+    """A P2 user task beats a P1 session task because session tasks are filtered out."""
+    tasks = [
+        {"id": "s1", "title": "Session in torios", "status": "open", "priority": "P1"},
+        {"id": "u1", "title": "Ship the dashboard", "status": "open", "priority": "P2"},
+    ]
+    with patch("routers.adoption.read_audit_entries", return_value=[]), \
+         patch("routers.adoption.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/adoption/whats-working")
+
+    data = resp.json()
+    assert data["this_week"]["top_spec_or_task"] == "Ship the dashboard"
+
+
+@pytest.mark.asyncio
+async def test_session_tasks_excluded_user_tasks_unchanged():
+    """When no session tasks are present, behavior is identical to before."""
+    tasks = [
+        {"id": "u1", "title": "Fix the bug", "status": "open", "priority": "P2"},
+        {"id": "u2", "title": "Critical outage", "status": "open", "priority": "P0"},
+    ]
+    with patch("routers.adoption.read_audit_entries", return_value=[]), \
+         patch("routers.adoption.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=tasks)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/adoption/whats-working")
+
+    data = resp.json()
+    assert data["this_week"]["top_spec_or_task"] == "Critical outage"

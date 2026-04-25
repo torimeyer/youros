@@ -9,8 +9,11 @@ No vanity metrics. No "hours saved". Plain-language field names.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+_SESSION_TASK_RE = re.compile(r"^Session in ", re.IGNORECASE)
 
 from fastapi import APIRouter
 
@@ -200,7 +203,11 @@ async def get_whats_working():
     try:
         all_tasks = await ostk.list_tasks()
         _priority_rank = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
-        open_tasks = [t for t in all_tasks if t.get("status") != "closed"]
+        open_tasks = [
+            t for t in all_tasks
+            if t.get("status") != "closed"
+            and not _SESSION_TASK_RE.match(t.get("title") or "")
+        ]
         if open_tasks:
             best = min(open_tasks, key=lambda t: _priority_rank.get(t.get("priority") or "", 4))
             top_spec_or_task = best.get("title")
