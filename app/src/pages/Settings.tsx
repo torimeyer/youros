@@ -783,6 +783,7 @@ export default function Settings() {
     'bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-700 transition-colors';
 
   return (
+    <>
     <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="Settings" />
 
@@ -2140,5 +2141,6 @@ export default function Settings() {
       </div>
     </div>
     <ConfirmModal {...confirmProps} />
+    </>
   );
 }

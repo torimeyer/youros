@@ -921,7 +921,6 @@ describe('Settings page — Files location', () => {
       }
       return {}
     })
-    window.confirm = vi.fn().mockReturnValue(true)
   })
 
   const renderIt = () =>
@@ -937,7 +936,9 @@ describe('Settings page — Files location', () => {
     fireEvent.change(input, { target: { value: '/tmp/new-files' } })
     fireEvent.click(screen.getByTestId('files-dir-change'))
 
-    expect(window.confirm).toHaveBeenCalled()
+    // window.confirm was replaced with ConfirmModal (useConfirm hook).
+    // Click the modal's confirm button to proceed.
+    fireEvent.click(await screen.findByTestId('confirm-modal-confirm'))
     await waitFor(() => {
       expect(vi.mocked(api.put)).toHaveBeenCalledWith(
         '/settings',

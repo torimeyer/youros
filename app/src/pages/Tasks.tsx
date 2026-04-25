@@ -36,6 +36,10 @@ import { FilterDrawer, type StatusFilter as StatusPill, type ClosedSortOrder, ty
 // (open / in_progress / closed) which we track separately via
 // selectedStatuses below.
 type StatusFilter = StatusPill | "all" | "shelved" | "week" | "recurring";
+
+// Statuses the user may set manually. in_progress is reserved for agents only.
+export const USER_SELECTABLE_STATUSES = ["open", "closed"] as const;
+
 import ConfirmModal from "../components/ConfirmModal";
 
 interface Task {
@@ -787,23 +791,6 @@ export default function Tasks() {
       await fetchTasks();
     } catch (e) {
       console.error("Failed to pause task:", e);
-      await fetchTasks();
-    }
-  };
-
-  // Mark a task as actively being worked on right now ("in progress"),
-  // or move it back to the queue ("open"). Closing and pausing use their
-  // own endpoints (closeTask / shelveTask) so audit rules fire there.
-  const setTaskStatus = async (id: string, status: "open" | "in_progress") => {
-    try {
-      setTasks((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, status } : t))
-      );
-      setOpenActionMenu(null);
-      await api.patch(`/tasks/${id}`, { status });
-      await fetchTasks();
-    } catch (e) {
-      console.error("Failed to update task status:", e);
       await fetchTasks();
     }
   };
@@ -2068,33 +2055,6 @@ export default function Tasks() {
                         <Icon name="check" className="text-green-400 text-xs" />
                       )}
                     </button>
-                    {(task.status === "open" || task.status === "in_progress") && (
-                      <button
-                        data-testid={`toggle-in-progress-${task.id}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setTaskStatus(
-                            task.id,
-                            task.status === "in_progress" ? "open" : "in_progress",
-                          );
-                        }}
-                        title={
-                          task.status === "in_progress"
-                            ? "Move back to the queue"
-                            : "Mark as being worked on"
-                        }
-                        className={`p-1 flex-shrink-0 rounded transition-colors ${
-                          task.status === "in_progress"
-                            ? "text-blue-400 hover:text-blue-300"
-                            : "text-slate-600 hover:text-blue-400"
-                        }`}
-                      >
-                        <Icon
-                          name={task.status === "in_progress" ? "pause_circle" : "play_circle"}
-                          className="text-base"
-                        />
-                      </button>
-                    )}
                     <span className="text-slate-500 text-sm font-mono">
                       #{task.id}
                     </span>
@@ -2111,7 +2071,7 @@ export default function Tasks() {
                             Paused
                           </span>
                         )}
-                        {task.status === "in_progress" && (
+                        {runningAgentTaskIds.has(task.id) && (
                           <span
                             data-testid={`in-progress-badge-${task.id}`}
                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30"

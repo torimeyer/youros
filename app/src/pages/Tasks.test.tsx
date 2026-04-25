@@ -2594,4 +2594,29 @@ describe('Tasks page - 2026-04-23 regression set', () => {
       expect(body.indexOf('Newer open task')).toBeLessThan(body.indexOf('Older open task'))
     })
   })
+
+  describe('in-progress badge is runtime-derived only (regression: stored in_progress must not show badge)', () => {
+    it('does NOT render the in-progress badge for a task with stored status in_progress when no agent is running on it', async () => {
+      const task = {
+        id: 'legacy1',
+        title: 'Legacy in-progress task',
+        priority: 'P1',
+        status: 'in_progress',
+        created_at: new Date().toISOString(),
+        goal: null,
+        label_ids: [],
+      }
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: [task] })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        if (path === '/agents') return Promise.resolve({ agents: [] })
+        return Promise.resolve({})
+      })
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Legacy in-progress task')).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('in-progress-badge-legacy1')).not.toBeInTheDocument()
+    })
+  })
 })
