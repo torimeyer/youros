@@ -26,6 +26,7 @@ import asyncio
 import logging
 import re
 import threading
+import time
 from typing import Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -217,12 +218,13 @@ def decide_isolation(
 # satisfy the required-locks check without actually reserving any path.
 LOCKS_WILDCARD = "*"
 
-# Process-wide registry mapping sanitized glob -> (spawn_id, raw_glob).
+# Process-wide registry mapping sanitized glob -> (spawn_id, raw_glob, acquired_epoch).
 # ``spawn_id`` is the agent name passed to /api/agents/spawn. The raw
 # glob is retained so the 409 error body can surface the exact string
 # the contending caller passed (useful for debugging overlapping globs
 # that look different on the wire but normalize to the same key).
-_spawn_lock_holders: dict[str, Tuple[str, str]] = {}
+# ``acquired_epoch`` is time.time() at acquisition, used by the TTL sweep.
+_spawn_lock_holders: dict[str, Tuple[str, str, float]] = {}
 
 # Protects ``_spawn_lock_holders`` across threads. The FastAPI test
 # client runs the handler on the default loop but the Uvicorn worker
@@ -314,7 +316,7 @@ def acquire_spawn_locks(
             if holder is not None and holder[0] != spawn_id:
                 contenders.append((g, holder[0], holder[1]))
                 continue
-            _spawn_lock_holders[key] = (spawn_id, g)
+            _spawn_lock_holders[key] = (spawn_id, g, time.time())
             acquired.append(key)
         if contenders:
             # Roll back: release anything we just acquired so a
