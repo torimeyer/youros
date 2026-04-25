@@ -336,6 +336,23 @@ def _to_data_url(mime: str, data: bytes) -> str:
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 
+@router.get("/files/provenance")
+async def file_provenance(path: str = Query(..., description="Relative or absolute path to the file")):
+    """Return the provenance sidecar for a file, or {} if no sidecar exists.
+
+    Same path resolution as /files/preview — accepts workspace-relative
+    paths and absolute paths under ~/.myos/files/.
+    """
+    from services.provenance import read_sidecar
+
+    try:
+        resolved = _resolve_readable_path(path)
+    except HTTPException:
+        return {}
+    result = read_sidecar(resolved)
+    return result or {}
+
+
 @router.delete("/files/delete")
 async def delete_file(path: str = Query(..., description="Relative path to the file to delete")):
     """Delete a file from the workspace.
