@@ -564,6 +564,14 @@ async def stream_chat(
             "TaskOutput"
         )
         args.append("--strict-mcp-config")
+    else:
+        # Tool-enabled chat turns: block the three native file-inspection
+        # tools that have direct mcp__ostk__* equivalents.
+        # --dangerously-skip-permissions bypasses PreToolUse hooks
+        # (including ostk-first.sh), so we enforce the ostk-first rule at
+        # the CLI layer here instead. Bash, Edit, Write stay available so
+        # the model can still run shell commands and modify files.
+        args.append("--disallowed-tools=Grep,Read,Glob")
     # Session persistence flags
     if session_uuid:
         if is_resume:
