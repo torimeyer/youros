@@ -71,13 +71,11 @@ async def test_startup_does_not_block_on_claude_prewarm(monkeypatch):
         # bound wall-clock precisely.
         import main
 
-        # Find the startup hook by name.
-        hook = None
-        for fn in main.app.router.on_startup:
-            if fn.__name__ == "prewarm_claude_cli":
-                hook = fn
-                break
-        assert hook is not None, "prewarm_claude_cli startup hook not registered"
+        # With lifespan pattern, startup functions are plain async functions
+        # called directly from the lifespan context manager rather than
+        # registered in app.router.on_startup.
+        hook = main.prewarm_claude_cli
+        assert hook is not None, "prewarm_claude_cli must exist in main"
 
         start = time.monotonic()
         await asyncio.wait_for(hook(), timeout=2.0)
