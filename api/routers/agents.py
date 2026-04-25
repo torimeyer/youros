@@ -4602,6 +4602,16 @@ def _save_agent_output_to_files(
         if not is_roadmap:
             target.write_text("".join(body_parts))
             written.append(target)
+            try:
+                from services.provenance import write_sidecar as _write_sidecar
+                _write_sidecar(
+                    target,
+                    agent_name=agent_name,
+                    task_id=str(meta.get("task_id") or "") or None,
+                    prompt_summary=summary_clean[:200],
+                )
+            except Exception as _prov_exc:
+                logger.warning("provenance sidecar write failed for %s: %s", target, _prov_exc)
 
         # Fire-and-forget task auto-creation for any next-step bullets
         # we just surfaced. Runs on the current event loop so
@@ -4644,6 +4654,16 @@ def _save_agent_output_to_files(
             )
             roadmap_target.write_text(roadmap_front_matter + summary_clean + "\n")
             written.append(roadmap_target)
+            try:
+                from services.provenance import write_sidecar as _write_sidecar
+                _write_sidecar(
+                    roadmap_target,
+                    agent_name=agent_name,
+                    task_id=str(meta.get("task_id") or "") or None,
+                    prompt_summary=summary_clean[:200],
+                )
+            except Exception as _prov_exc:
+                logger.warning("provenance sidecar write failed for %s: %s", roadmap_target, _prov_exc)
 
             # Bell-icon notification: tell Tori the roadmap landed, link
             # to the Files page. This replaces the previous chat-bubble
