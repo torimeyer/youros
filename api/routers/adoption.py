@@ -136,24 +136,31 @@ def _within_window(ts_str: str, since: datetime) -> bool:
 async def get_whats_working():
     now = datetime.now(timezone.utc)
     week_ago = now - timedelta(days=7)
+    two_weeks_ago = now - timedelta(days=14)
 
     audit_path = OSTK_DIR / "audit.jsonl"
     entries = read_audit_entries(audit_path)
 
     template_counts: dict[str, int] = {}
+    prev_week_counts: dict[str, int] = {}
     agent_runs_completed = 0
 
     for entry in entries:
         ts = entry.get("timestamp", "")
-        if not _within_window(ts, week_ago):
+        in_this_week = _within_window(ts, week_ago)
+        in_prev_week = not in_this_week and _within_window(ts, two_weeks_ago)
+        if not (in_this_week or in_prev_week):
             continue
         ev = entry.get("event", "")
         if ev == "agent.spawned":
             name = entry.get("name", "")
             tid = _template_id_from_name(name)
             if tid:
-                template_counts[tid] = template_counts.get(tid, 0) + 1
-        elif ev in ("agent.completed", "agent.failed"):
+                if in_this_week:
+                    template_counts[tid] = template_counts.get(tid, 0) + 1
+                else:
+                    prev_week_counts[tid] = prev_week_counts.get(tid, 0) + 1
+        elif ev in ("agent.completed", "agent.failed") and in_this_week:
             agent_runs_completed += 1
 
     sorted_skills = sorted(template_counts.items(), key=lambda x: x[1], reverse=True)
@@ -161,7 +168,12 @@ async def get_whats_working():
     for tid, count in sorted_skills[:3]:
         tmpl = _TEMPLATE_BY_ID.get(tid)
         if tmpl:
-            top_skills.append({"id": tid, "name": tmpl["name"], "uses_this_week": count})
+            top_skills.append({
+                "id": tid,
+                "name": tmpl["name"],
+                "uses_this_week": count,
+                "prev_week_uses": prev_week_counts.get(tid, 0),
+            })
 
     used_ids = {s["id"] for s in top_skills}
     candidate_recs: dict[str, int] = {}

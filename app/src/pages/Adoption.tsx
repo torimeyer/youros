@@ -7,6 +7,21 @@ interface Skill {
   id: string
   name: string
   uses_this_week: number
+  prev_week_uses: number
+}
+
+function skillDelta(skill: Skill): { label: string; color: string } | null {
+  if (skill.prev_week_uses === 0 && skill.uses_this_week > 0) {
+    return { label: 'new', color: 'text-slate-400' }
+  }
+  if (skill.prev_week_uses > 0) {
+    const pct = Math.round(((skill.uses_this_week - skill.prev_week_uses) / skill.prev_week_uses) * 100)
+    return {
+      label: pct >= 0 ? `+${pct}%` : `${pct}%`,
+      color: pct > 0 ? 'text-green-400' : pct < 0 ? 'text-red-400' : 'text-slate-400',
+    }
+  }
+  return null
 }
 
 interface Recommendation {
@@ -81,12 +96,25 @@ export default function Adoption() {
                   <Icon name="bolt" className="text-amber-400 text-lg" />
                   <span className="text-sm font-medium text-slate-100">{skill.name}</span>
                 </div>
-                <span
-                  data-testid="skill-use-count"
-                  className="text-xs text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded-full"
-                >
-                  {skill.uses_this_week}x this week
-                </span>
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const delta = skillDelta(skill)
+                    return delta ? (
+                      <span
+                        data-testid="skill-delta"
+                        className={`text-xs ${delta.color} bg-slate-700/50 px-2 py-0.5 rounded-full`}
+                      >
+                        {delta.label}
+                      </span>
+                    ) : null
+                  })()}
+                  <span
+                    data-testid="skill-use-count"
+                    className="text-xs text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded-full"
+                  >
+                    {skill.uses_this_week}x this week
+                  </span>
+                </div>
               </div>
             ))}
           </div>
