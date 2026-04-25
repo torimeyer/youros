@@ -3399,6 +3399,12 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     # edits do not leak across sessions. See sync_claude_dir_to_worktree.
                     from services.spawn_isolation import sync_claude_dir_to_worktree as _sync
                     await _sync(PROJECT_ROOT / ".claude", _wt_path / ".claude")
+                    # Anchor the ostk MCP root to this worktree. Without .ostk/
+                    # here the server traverses up to .claude/worktrees/.ostk/
+                    # (the shared parent state) and roots all bash calls to
+                    # .claude/worktrees/, where git writes land on parent main
+                    # instead of the worktree branch. (→932)
+                    (_wt_path / ".ostk").mkdir(parents=True, exist_ok=True)
                 else:
                     logger.warning(
                         "spawn.worktree.fork_failed name=%s rc=%s err=%s",
