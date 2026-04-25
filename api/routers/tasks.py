@@ -225,6 +225,25 @@ async def list_tasks(
                 if t.get("status") in ("closed", "shelved"):
                     continue
                 t["status"] = "in_progress"
+        # Needle overlay: same live-agent signal applied to ostk needles.
+        # An agent spawned with needle_id set carries that id in
+        # agent_metadata; while any such agent is live the needle shows
+        # in_progress regardless of the stored value in issues.jsonl.
+        try:
+            from routers.agents import get_running_needle_ids
+            _live_needle_ids = get_running_needle_ids()
+        except Exception:
+            _live_needle_ids = set()
+        if _live_needle_ids:
+            for t in tasks:
+                # Normalize both bare ("922") and arrow-prefixed ("→922") ids.
+                raw_id = str(t.get("id") or "")
+                bare_id = raw_id.lstrip("→")
+                if raw_id not in _live_needle_ids and bare_id not in _live_needle_ids:
+                    continue
+                if t.get("status") in ("closed", "shelved"):
+                    continue
+                t["status"] = "in_progress"
         # Hide e2e smoke-test tasks from normal responses. They are only
         # visible when ?include_test_data=true so leftovers from a failed run
         # do not pollute the task list in the UI.

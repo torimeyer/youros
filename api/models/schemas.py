@@ -204,6 +204,11 @@ class AgentSpawn(BaseModel):
     # default from the description/prompt verbs. "none" forces the main
     # worktree.
     isolation: Optional[str] = None
+    # Originating needle id. When a spawn is triggered to work on an
+    # ostk needle (e.g. "→922"), pass the bare or arrow-prefixed id
+    # here so the task list endpoint can overlay in_progress status
+    # while a live agent is working, without writing back to issues.jsonl.
+    needle_id: Optional[str] = None
     # Mandatory path-lock declaration for edit-capable spawns. Every
     # entry is a file path or glob the spawn promises to touch. Before
     # the subprocess starts the server reserves each glob in a
