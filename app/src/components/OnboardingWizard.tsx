@@ -614,7 +614,7 @@ const INTENT_OPTIONS: { id: IntentId; label: string; description: string; icon: 
   { id: 'personal', label: 'Personal tasks', description: 'Meal planning, travel, home, life admin', icon: 'home' },
   { id: 'coding', label: 'Coding', description: 'Build features, fix bugs, write tests', icon: 'code' },
   { id: 'research', label: 'Research', description: 'Find information, summarize, explain topics', icon: 'search' },
-  { id: 'work_role', label: 'Work in a role', description: 'PM, sales, ops — tools for your job', icon: 'work' },
+  { id: 'work_role', label: 'Work in a role', description: 'PM, sales, ops: tools for your job', icon: 'work' },
 ]
 
 function IntentStep({
@@ -737,7 +737,7 @@ function IntentStep({
 
       {!loading && starterPack.length > 0 && (
         <div className="mt-4">
-          <p className={`text-sm font-medium mb-2 ${subtextCls}`}>Your starter tools — uncheck anything you don't want:</p>
+          <p className={`text-sm font-medium mb-2 ${subtextCls}`}>Your starter tools. Uncheck anything you don't want:</p>
           <div className="space-y-1.5">
             {starterPack.map((item) => (
               <label

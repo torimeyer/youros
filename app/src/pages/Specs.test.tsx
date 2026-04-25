@@ -1682,4 +1682,34 @@ describe('Specs page real-time bus', () => {
       expect(buildingTab.className).toContain('text-white')
     })
   })
+
+  it('build button for in-progress spec with all tasks closed shows updated tooltip without em-dash', async () => {
+    const allClosedDocs = {
+      docs: mockDocsResponse.docs.map((d) =>
+        d.path === 'docs/spec/dashboard-redesign.md'
+          ? { ...d, task_summary: { total: 4, open: 0, closed: 4 } }
+          : d
+      ),
+    }
+    mockedApiGet.mockResolvedValue(allClosedDocs)
+
+    renderSpecs()
+
+    await waitFor(() => {
+      expect(screen.getByText('dashboard redesign')).toBeInTheDocument()
+    })
+
+    const cards = screen.getAllByTestId('spec-card')
+    const designCard = cards.find((c) => c.textContent?.includes('dashboard redesign'))!
+    fireEvent.click(designCard)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('build-button')).toBeInTheDocument()
+    })
+
+    expect(screen.getByTestId('build-button')).toHaveAttribute(
+      'title',
+      'Every task is already closed. The plan is done.'
+    )
+  })
 })
