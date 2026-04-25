@@ -121,6 +121,22 @@ describe('Sidebar', () => {
     expect(screen.getByText(/OS/)).toBeInTheDocument()
   })
 
+  it('renders Personal badge in personal mode', () => {
+    useAppStore.setState({ instanceMode: 'personal' })
+    renderSidebar()
+    const badge = screen.getByTestId('sidebar-mode-badge')
+    expect(badge).toBeInTheDocument()
+    expect(badge.textContent).toBe('Personal')
+  })
+
+  it('renders Team badge in team mode', () => {
+    useAppStore.setState({ instanceMode: 'team' })
+    renderSidebar()
+    const badge = screen.getByTestId('sidebar-mode-badge')
+    expect(badge).toBeInTheDocument()
+    expect(badge.textContent).toBe('Team')
+  })
+
   it('all nav items are links with correct paths (groups expanded)', () => {
     renderSidebar()
     // Ensure all groups are expanded (only expand if currently collapsed)

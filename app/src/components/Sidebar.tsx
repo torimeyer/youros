@@ -620,9 +620,16 @@ export function Sidebar() {
     <aside data-tour="sidebar" className={`h-dvh w-56 fixed top-0 ${sidebarPosition === 'right' ? 'right-0 border-l' : 'left-0 border-r'} border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : sidebarPosition === 'right' ? 'translate-x-full' : '-translate-x-full'} lg:translate-x-0`}>
       <div className="px-5 mb-8">
         <span className={`text-xl font-black tracking-tight ${instanceMode === 'team' ? 'team-text' : 'accent-text'}`}>{displayOsName}</span>
-        {instanceMode === 'team' && (
-          <span className="ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 align-middle">TEAM</span>
-        )}
+        <span
+          data-testid="sidebar-mode-badge"
+          className={`ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full align-middle ${
+            instanceMode === 'team'
+              ? 'bg-indigo-500/20 text-indigo-400'
+              : 'bg-slate-700/60 text-slate-400'
+          }`}
+        >
+          {instanceMode === 'team' ? 'Team' : 'Personal'}
+        </span>
         {version && (
           <span className="block text-[10px] text-slate-500 font-mono mt-0.5">{version}</span>
         )}
