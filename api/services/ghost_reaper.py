@@ -83,13 +83,30 @@ def reap_ghost_agents(
         if hb >= cutoff:
             continue  # fresh — still alive
 
-        # Transcript check — 0 bytes or absent means no real work done
+        # Transcript check — 0 bytes or absent means no real work done.
+        # Bridge-spawned agents (hook_preregister=True) write their real
+        # transcript to a .output or .jsonl file recorded in transcript_path,
+        # not to the canonical {name}.md. Checking only .md caused the reaper
+        # to delete active bridge agents after 300s of stale heartbeat, making
+        # /heartbeat and /complete return 404 and forcing the agent to abort.
+        transcript_ok = False
         t_path = transcripts_dir / f"{name}.md"
         try:
             if t_path.exists() and t_path.stat().st_size > 0:
-                continue  # real transcript content present
+                transcript_ok = True
         except OSError:
-            pass  # treat stat errors as missing
+            pass
+        if not transcript_ok:
+            raw_tp = meta.get("transcript_path")
+            if raw_tp:
+                try:
+                    tp = Path(raw_tp)
+                    if tp.exists() and tp.stat().st_size > 0:
+                        transcript_ok = True
+                except OSError:
+                    pass
+        if transcript_ok:
+            continue  # real transcript content present
 
         victims.append(name)
         logger.info(

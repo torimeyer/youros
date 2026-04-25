@@ -81,6 +81,30 @@ def test_reaps_completed_timeout_with_stale_heartbeat(tmp_path):
     assert result == ["timeout-ghost"]
 
 
+def test_does_not_reap_bridge_agent_with_nonempty_transcript_path(tmp_path):
+    """Bridge agent whose transcript_path file has content is not a ghost.
+
+    hook_preregister agents write to .output/.jsonl, not {name}.md.
+    The .md is always empty for these agents; we must check transcript_path.
+    """
+    output_file = tmp_path / "bridge-agent.output"
+    output_file.write_text("[16:05] poll-fail\n[16:06] running\n")
+    meta = {**_ghost_meta(), "hook_preregister": True, "transcript_path": str(output_file)}
+    reg = _registry(("bridge-agent", meta))
+    result = reap_ghost_agents(reg, tmp_path, _NOW)
+    assert result == []
+
+
+def test_reaps_bridge_agent_when_transcript_path_also_empty(tmp_path):
+    """Bridge agent is still reaped when transcript_path file is also empty."""
+    output_file = tmp_path / "bridge-ghost.output"
+    output_file.write_bytes(b"")
+    meta = {**_ghost_meta(), "hook_preregister": True, "transcript_path": str(output_file)}
+    reg = _registry(("bridge-ghost", meta))
+    result = reap_ghost_agents(reg, tmp_path, _NOW)
+    assert result == ["bridge-ghost"]
+
+
 def test_concurrent_reap_safe(tmp_path):
     """Two concurrent reap calls return consistent results and do not crash.
 
