@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 # GOOGLE_CLIENT_ID) are available when modules read them at import time.
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -15,7 +16,31 @@ from services.security_headers import SecurityHeadersMiddleware
 
 from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, search, threads, secrets, activity, specs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, meeting_prep, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, providers, adoption
 
-app = FastAPI(title="myOS API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await fix_audit_watermark()
+    await schedule_upgrade_check()
+    await schedule_label_backfill()
+    await schedule_settings_sync_pull()
+    await schedule_gmail_unread_notification()
+    await schedule_overdue_task_check()
+    await prewarm_claude_cli()
+    await pregenerate_briefing()
+    await prewarm_savings()
+    await schedule_session_task_reaper()
+    await schedule_ghost_spawn_reaper()
+    await backfill_chat_ack_bots()
+    await sweep_stale_backend_sessions()
+    await schedule_agent_reconciliation()
+    await schedule_recurring_task_spawner()
+    await schedule_test_artifact_sweep()
+    await schedule_test_artifact_spec_sweep()
+    await install_signal_shutdown_hook()
+    yield
+    await notify_chat_clients_on_shutdown()
+
+
+app = FastAPI(title="myOS API", lifespan=lifespan)
 
 import os as _os
 
@@ -111,7 +136,6 @@ app.include_router(models_router.router, prefix="/api")
 app.include_router(probes.router, prefix="/api")
 
 
-@app.on_event("startup")
 async def fix_audit_watermark():
     """Auto-fix audit.jsonl watermark if it drifted from the actual file size."""
     import os
@@ -128,7 +152,6 @@ async def fix_audit_watermark():
             size_file.write_text(str(actual))
 
 
-@app.on_event("startup")
 async def schedule_upgrade_check():
     """After a short delay, check for available updates and fire a notification.
 
@@ -179,7 +202,6 @@ async def schedule_upgrade_check():
     asyncio.create_task(_check())
 
 
-@app.on_event("startup")
 async def schedule_label_backfill():
     """After a short delay, run auto-labeling on any open tasks that have no labels.
 
@@ -216,7 +238,6 @@ async def schedule_label_backfill():
     asyncio.create_task(_backfill())
 
 
-@app.on_event("startup")
 async def schedule_settings_sync_pull():
     """After a short delay, if sync is configured, pull from the remote.
 
@@ -250,7 +271,6 @@ async def schedule_settings_sync_pull():
     asyncio.create_task(_pull())
 
 
-@app.on_event("startup")
 async def schedule_gmail_unread_notification():
     """After a short delay, check for unread Gmail and fire a notification.
 
@@ -289,7 +309,6 @@ async def schedule_gmail_unread_notification():
     asyncio.create_task(_check())
 
 
-@app.on_event("startup")
 async def schedule_overdue_task_check():
     """After a short delay, check for overdue tasks and fire a notification.
 
@@ -331,7 +350,6 @@ async def schedule_overdue_task_check():
     asyncio.create_task(_check())
 
 
-@app.on_event("startup")
 async def prewarm_claude_cli():
     """Pre-warm the local ``claude`` program so the first chat is fast.
 
@@ -355,7 +373,6 @@ async def prewarm_claude_cli():
     asyncio.create_task(_warm())
 
 
-@app.on_event("startup")
 async def pregenerate_briefing():
     """Pre-generate today's briefing in the background on startup.
 
@@ -377,7 +394,6 @@ async def pregenerate_briefing():
     asyncio.create_task(_gen())
 
 
-@app.on_event("startup")
 async def prewarm_savings():
     """Pre-warm the ostk savings cache on startup.
 
@@ -406,7 +422,6 @@ async def prewarm_savings():
     asyncio.create_task(_warm())
 
 
-@app.on_event("startup")
 async def schedule_session_task_reaper():
     """Close auto-filed session tasks whose Claude Code session has ended.
 
@@ -423,7 +438,6 @@ async def schedule_session_task_reaper():
     asyncio.create_task(run_forever())
 
 
-@app.on_event("startup")
 async def schedule_ghost_spawn_reaper():
     """Delete ghost agent-registry entries left by silent-completion failures (→922).
 
@@ -439,7 +453,6 @@ async def schedule_ghost_spawn_reaper():
     asyncio.create_task(run_forever())
 
 
-@app.on_event("startup")
 async def backfill_chat_ack_bots():
     """Start an ack bot for every running subagent after a restart.
 
@@ -464,7 +477,6 @@ async def backfill_chat_ack_bots():
     asyncio.create_task(_run())
 
 
-@app.on_event("startup")
 async def sweep_stale_backend_sessions():
     """Retire leftover backend session rows from previous uvicorn workers.
 
@@ -481,7 +493,6 @@ async def sweep_stale_backend_sessions():
         pass
 
 
-@app.on_event("startup")
 async def schedule_agent_reconciliation():
     """Reconcile agent state every 5 minutes.
 
@@ -497,7 +508,6 @@ async def schedule_agent_reconciliation():
     asyncio.create_task(_reconcile_loop())
 
 
-@app.on_event("startup")
 async def schedule_recurring_task_spawner():
     """Spawn any due recurring tasks on boot, then repeat every 30 minutes.
 
@@ -524,7 +534,6 @@ async def schedule_recurring_task_spawner():
     asyncio.create_task(_loop())
 
 
-@app.on_event("startup")
 async def schedule_test_artifact_sweep():
     """Run a periodic sweep that deletes any leaked test-artifact tasks.
 
@@ -620,7 +629,6 @@ async def schedule_test_artifact_sweep():
     asyncio.create_task(_loop())
 
 
-@app.on_event("startup")
 async def schedule_test_artifact_spec_sweep():
     """Run a periodic sweep that deletes any leaked test-artifact specs.
 
@@ -676,7 +684,6 @@ async def schedule_test_artifact_spec_sweep():
     asyncio.create_task(_loop())
 
 
-@app.on_event("startup")
 async def install_signal_shutdown_hook():
     """Install a SIGTERM/SIGINT handler that notifies chat WebSockets.
 
@@ -729,7 +736,6 @@ async def install_signal_shutdown_hook():
             pass
 
 
-@app.on_event("shutdown")
 async def notify_chat_clients_on_shutdown():
     """Fallback notifier. Uvicorn closes WebSockets before this event
     fires, so this is a best-effort for the case where shutdown comes
