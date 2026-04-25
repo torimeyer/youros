@@ -61,6 +61,7 @@ async def calendar_auth_status():
     return connections_cache.get_or_compute(
         _CALENDAR_STATUS_CACHE_KEY,
         _compute_calendar_status,
+        ttl=120.0,
     )
 
 

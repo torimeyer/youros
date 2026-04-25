@@ -640,12 +640,14 @@ export function ChatPanel() {
     // never outlives its own turn even if the stream is empty.
     setPlaceholderAwaitingServer(false)
 
-    // Track real server events (anything except model_label, template_matched,
-    // backend_active, and done which are metadata/lifecycle). This lets
-    // the dead-backend timer distinguish "server never started responding"
-    // from "server responded but produced zero text tokens".
-    const isRealServerEvent = !['model_label', 'template_matched', 'backend_active', 'done'].includes(lastMessage.type as string)
-    if (isRealServerEvent) {
+    // Track that the backend is alive. Any event except bare `done` proves
+    // the server is processing this turn and resets the dead-backend timer.
+    // Previously model_label/template_matched/backend_active were excluded,
+    // which caused a false "no response in 30 seconds" error when the backend
+    // routed quickly but Anthropic's first token took >30s (slow prompt / high
+    // load). Those events still do not count as "real streaming content" for
+    // the ThinkingDots display; that uses isStreaming/placeholderAwaitingServer.
+    if (lastMessage.type !== 'done') {
       receivedAnyServerEventRef.current = true
     }
 

@@ -7197,12 +7197,21 @@ async def register_chat_session(
 ) -> None:
     """Register a chat-driven Claude Code subprocess as an agent.
 
-    Idempotent on repeated calls for the same name: re-registering keeps
-    the original ``spawned_at`` so a long conversation does not look
-    like it restarts on every turn.
+    Idempotent on repeated calls for the same name: if the agent is
+    already running, preserve its model and spawned_at and skip the
+    agent.spawned event. This prevents duplicate activity-feed entries
+    when both call_model and claude_code_provider register the same tab.
     """
     now_iso = datetime.now(timezone.utc).isoformat()
     existing = agent_metadata.get(name) or {}
+
+    # Already running: update heartbeat only, do not re-emit agent.spawned
+    # and do not overwrite the model that was set on first registration.
+    if existing.get("status") == "running":
+        existing["last_heartbeat_at"] = now_iso
+        _save_agent_state()
+        return
+
     spawned_at = existing.get("spawned_at") or now_iso
     record: dict = {
         "spawned_at": spawned_at,

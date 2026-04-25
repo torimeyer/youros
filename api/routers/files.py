@@ -13,7 +13,9 @@ escape them.
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import collections
 import csv
 import io
 from pathlib import Path
@@ -35,6 +37,10 @@ MAX_PREVIEW_COLS = 50
 
 # Maximum PDF pages to extract text from in a single preview.
 MAX_PDF_PAGES = 50
+
+# Module-level mtime-keyed LRU cache for parsed PDFs: {(path_str, mtime): result}
+_PDF_CACHE: collections.OrderedDict = collections.OrderedDict()
+_PDF_CACHE_MAX = 20
 
 # Maximum pptx slides to extract text from.
 MAX_PPTX_SLIDES = 200
@@ -190,7 +196,13 @@ def _read_pptx(path: Path) -> dict:
 
 
 def _read_pdf(path: Path) -> dict:
-    """Extract text from each page of a PDF."""
+    """Extract text from each page of a PDF. Results are mtime-keyed LRU cached."""
+    mtime = path.stat().st_mtime
+    cache_key = (str(path), mtime)
+    if cache_key in _PDF_CACHE:
+        _PDF_CACHE.move_to_end(cache_key)
+        return _PDF_CACHE[cache_key]
+
     try:
         from pypdf import PdfReader  # type: ignore
     except ImportError as exc:
@@ -218,12 +230,17 @@ def _read_pdf(path: Path) -> dict:
             text = ""
         pages.append({"index": idx + 1, "text": text.strip()})
 
-    return {
+    result = {
         "kind": "pdf",
         "pages": pages,
         "total_pages": total_pages,
         "truncated": total_pages > len(pages),
     }
+    _PDF_CACHE[cache_key] = result
+    _PDF_CACHE.move_to_end(cache_key)
+    while len(_PDF_CACHE) > _PDF_CACHE_MAX:
+        _PDF_CACHE.popitem(last=False)
+    return result
 
 
 def _jsonable(value: object) -> object:
@@ -271,7 +288,10 @@ async def preview_file(path: str = Query(..., description="Relative path to the 
             detail=f"No rich preview available for {ext or 'this file type'}.",
         )
 
-    data = handler(resolved)
+    if ext == ".pdf":
+        data = await asyncio.to_thread(handler, resolved)
+    else:
+        data = handler(resolved)
     data["name"] = resolved.name
     data["size"] = resolved.stat().st_size
     return data
