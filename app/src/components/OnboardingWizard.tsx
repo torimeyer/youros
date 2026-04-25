@@ -13,7 +13,7 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Instance', 'Profile', 'Intent', 'FirstRuns', 'Theme', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Connect', 'Ready'] as const
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
 
@@ -32,7 +32,6 @@ export default function OnboardingWizard() {
   const osName = useAppStore((s) => s.osName)
   const setOsName = useAppStore((s) => s.setOsName)
   const instanceName = useAppStore((s) => s.instanceName)
-  const setInstanceName = useAppStore((s) => s.setInstanceName)
   const darkMode = useAppStore((s) => s.darkMode)
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
   const setOnboarded = useAppStore((s) => s.setOnboarded)
@@ -49,7 +48,6 @@ export default function OnboardingWizard() {
   const [detectedProvider, setDetectedProvider] = useState<string | null>(null)
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
   const [otherSelected, setOtherSelected] = useState(false)
-  const [wizardIntent, setWizardIntent] = useState<IntentId | null>(null)
 
   // Reset osName to empty on wizard mount so a new user always starts with
   // an empty "Name your OS" field. This prevents stale values from
@@ -98,25 +96,12 @@ export default function OnboardingWizard() {
   }
 
   const connectIdx = (STEPS as readonly string[]).indexOf('Connect')
-  const firstRunsIdx = (STEPS as readonly string[]).indexOf('FirstRuns')
   const next = () => setStepIndex((i) => {
     let n = Math.min(i + 1, STEPS.length - 1)
     if (detectedProvider !== null && n === connectIdx) n = Math.min(n + 1, STEPS.length - 1)
-    if (firstRunsIdx >= 0 && n === firstRunsIdx && !wizardIntent) n = Math.min(n + 1, STEPS.length - 1)
     return n
   })
-  const back = () => setStepIndex((i) => {
-    const n = Math.max(i - 1, 0)
-    if (firstRunsIdx >= 0 && n === firstRunsIdx && !wizardIntent) return Math.max(n - 1, 0)
-    return n
-  })
-
-  const handleTryIt = (seed: string, kind: 'chat' | 'task') => {
-    if (kind === 'chat') {
-      localStorage.setItem('myos-onboarding-seed', seed)
-    }
-    finish()
-  }
+  const back = () => setStepIndex((i) => Math.max(i - 1, 0))
 
   const handlePersonaPick = (category: MarketplaceCategory) => {
     setSelectedPersonaId(category.id)
@@ -314,15 +299,6 @@ export default function OnboardingWizard() {
               subtextCls={subtextCls}
             />
           )}
-          {step === 'Instance' && (
-            <InstanceStep
-              instanceName={instanceName}
-              setInstanceName={setInstanceName}
-              onNext={next}
-              inputCls={inputCls}
-              subtextCls={subtextCls}
-            />
-          )}
           {step === 'Profile' && (
             <div>
               <h2 className="text-2xl font-bold mb-2">Tell {osName} about you</h2>
@@ -426,21 +402,9 @@ export default function OnboardingWizard() {
               </div>
             </div>
           )}
-          {step === 'Intent' && (
-            <IntentStep
-              effectiveDark={effectiveDark}
-              subtextCls={subtextCls}
-              cardCls={cardCls}
-              inputCls={inputCls}
-              selectedIntent={wizardIntent}
-              onIntentChange={setWizardIntent}
-            />
-          )}
-          {step === 'FirstRuns' && (
-            <FirstRunsStep
-              intent={wizardIntent}
-              onTryIt={handleTryIt}
-              effectiveDark={effectiveDark}
+          {step === 'Customize' && (
+            <CustomizeStep
+              selectedPersonaId={selectedPersonaId}
               subtextCls={subtextCls}
               cardCls={cardCls}
             />
@@ -607,63 +571,42 @@ type StarterPackItem = {
   default_selected: boolean
 }
 
-type IntentId = 'writing' | 'personal' | 'coding' | 'research' | 'work_role'
+// Maps persona IDs (from agentMarketplace) to the intent key used by /onboarding/intent
+const PERSONA_TO_INTENT: Record<string, string> = {
+  everyone: 'work_role',
+  pm: 'work_role',
+  engineer: 'coding',
+  sales: 'work_role',
+  writer: 'writing',
+  home: 'personal',
+  student: 'research',
+}
 
-const INTENT_OPTIONS: { id: IntentId; label: string; description: string; icon: string }[] = [
-  { id: 'writing', label: 'Writing', description: 'Drafts, edits, blog posts, social copy', icon: 'edit_note' },
-  { id: 'personal', label: 'Personal tasks', description: 'Meal planning, travel, home, life admin', icon: 'home' },
-  { id: 'coding', label: 'Coding', description: 'Build features, fix bugs, write tests', icon: 'code' },
-  { id: 'research', label: 'Research', description: 'Find information, summarize, explain topics', icon: 'search' },
-  { id: 'work_role', label: 'Work in a role', description: 'PM, sales, ops: tools for your job', icon: 'work' },
-]
-
-function IntentStep({
-  effectiveDark,
+function CustomizeStep({
+  selectedPersonaId,
   subtextCls,
   cardCls,
-  inputCls,
-  selectedIntent,
-  onIntentChange,
 }: {
-  effectiveDark: boolean
+  selectedPersonaId: string | null
   subtextCls: string
   cardCls: string
-  inputCls: string
-  selectedIntent: IntentId | null
-  onIntentChange: (intent: IntentId) => void
 }) {
-  const [role, setRole] = useState('')
   const [starterPack, setStarterPack] = useState<StarterPackItem[]>([])
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
 
-  const fetchPack = async (intentId: IntentId, roleVal?: string) => {
+  useEffect(() => {
+    const intentId = selectedPersonaId ? PERSONA_TO_INTENT[selectedPersonaId] : null
+    if (!intentId) return
     setLoading(true)
-    try {
-      const body: Record<string, string> = { intent: intentId }
-      if (roleVal) body.role = roleVal
-      const resp = await api.post<{ starter_pack: StarterPackItem[] }>('/onboarding/intent', body)
-      setStarterPack(resp.starter_pack)
-      setChecked(new Set(resp.starter_pack.filter((i) => i.default_selected).map((i) => i.id)))
-    } catch {
-      setStarterPack([])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleSelect = (intentId: IntentId) => {
-    onIntentChange(intentId)
-    setStarterPack([])
-    setChecked(new Set())
-    if (intentId !== 'work_role') {
-      fetchPack(intentId)
-    }
-  }
-
-  const handleWorkRoleSubmit = () => {
-    fetchPack('work_role', role)
-  }
+    api.post<{ starter_pack: StarterPackItem[] }>('/onboarding/intent', { intent: intentId })
+      .then((resp) => {
+        setStarterPack(resp.starter_pack)
+        setChecked(new Set(resp.starter_pack.filter((i) => i.default_selected).map((i) => i.id)))
+      })
+      .catch(() => setStarterPack([]))
+      .finally(() => setLoading(false))
+  }, [selectedPersonaId])
 
   const toggleItem = (id: string) => {
     setChecked((prev) => {
@@ -675,159 +618,43 @@ function IntentStep({
   }
 
   return (
-    <div data-testid="step-intent">
-      <h2 className="text-2xl font-bold mb-2">What do you want to use AI for?</h2>
+    <div data-testid="step-customize">
+      <h2 className="text-2xl font-bold mb-2">Your starter agents</h2>
       <p className={`mb-5 ${subtextCls}`}>
-        Pick the best fit. You will get a starter set of tools built for it.
+        These are suggested based on your profile. Uncheck anything you don't want.
       </p>
-      <div className="space-y-2">
-        {INTENT_OPTIONS.map((opt) => {
-          const isPicked = selectedIntent === opt.id
-          return (
-            <button
-              key={opt.id}
-              onClick={() => handleSelect(opt.id)}
-              data-testid={`intent-card-${opt.id}`}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors ${
-                isPicked
-                  ? 'bg-blue-500/20 border-blue-500'
-                  : `${cardCls} ${effectiveDark ? 'hover:border-slate-600' : 'hover:border-gray-400'}`
-              }`}
-            >
-              <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
-                isPicked ? 'bg-blue-500/30 text-blue-300' : effectiveDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
-              }`}>
-                <Icon name={opt.icon} size={16} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">{opt.label}</p>
-                <p className={`text-xs ${subtextCls}`}>{opt.description}</p>
-              </div>
-              {isPicked && <Icon name="check_circle" className="text-blue-400 shrink-0" size={16} />}
-            </button>
-          )
-        })}
-      </div>
-
-      {selectedIntent === 'work_role' && (
-        <div className="mt-3 flex gap-2">
-          <input
-            type="text"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleWorkRoleSubmit() }}
-            placeholder="e.g. Product manager, Sales rep, Operations lead"
-            data-testid="work-role-input"
-            className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-            autoFocus
-          />
-          <button
-            onClick={handleWorkRoleSubmit}
-            className="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
-            data-testid="work-role-submit"
-          >
-            Load tools
-          </button>
-        </div>
-      )}
-
       {loading && (
-        <p className={`mt-4 text-sm ${subtextCls}`} data-testid="pack-loading">Loading your starter tools...</p>
+        <p className={`text-sm ${subtextCls}`} data-testid="customize-loading">Loading...</p>
       )}
-
       {!loading && starterPack.length > 0 && (
-        <div className="mt-4">
-          <p className={`text-sm font-medium mb-2 ${subtextCls}`}>Your starter tools. Uncheck anything you don't want:</p>
-          <div className="space-y-1.5">
-            {starterPack.map((item) => (
-              <label
-                key={item.id}
-                className={`flex items-start gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
-                  checked.has(item.id)
-                    ? 'bg-blue-500/10 border-blue-500/50'
-                    : cardCls
-                }`}
-                data-testid={`pack-item-${item.id}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked.has(item.id)}
-                  onChange={() => toggleItem(item.id)}
-                  className="mt-0.5 shrink-0"
-                  data-testid={`pack-checkbox-${item.id}`}
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{item.name}</p>
-                  <p className={`text-xs ${subtextCls}`}>{item.description}</p>
-                </div>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-type FirstRunsHint = { label: string; seed: string; kind: 'chat' | 'task' }
-
-function FirstRunsStep({
-  intent,
-  onTryIt,
-  effectiveDark,
-  subtextCls,
-  cardCls,
-}: {
-  intent: IntentId | null
-  onTryIt: (seed: string, kind: 'chat' | 'task') => void
-  effectiveDark: boolean
-  subtextCls: string
-  cardCls: string
-}) {
-  const [hints, setHints] = useState<FirstRunsHint[]>([])
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (!intent) return
-    setLoading(true)
-    api.get<{ hints: FirstRunsHint[] }>(`/onboarding/first-runs?intent=${intent}`)
-      .then((data) => setHints(data.hints))
-      .catch(() => setHints([]))
-      .finally(() => setLoading(false))
-  }, [intent])
-
-  return (
-    <div data-testid="step-first-runs">
-      <h2 className="text-2xl font-bold mb-2">Try this first</h2>
-      <p className={`mb-5 ${subtextCls}`}>
-        Pick one to jump in. Or skip and explore on your own.
-      </p>
-      {loading && (
-        <p className={`text-sm ${subtextCls}`} data-testid="first-runs-loading">Loading...</p>
-      )}
-      {!loading && hints.length > 0 && (
-        <div className="space-y-3">
-          {hints.map((hint, i) => (
-            <div
-              key={i}
-              className={`flex items-center justify-between gap-4 px-4 py-3 rounded-xl border ${cardCls}`}
-              data-testid={`first-run-card-${i}`}
+        <div className="space-y-1.5">
+          {starterPack.map((item) => (
+            <label
+              key={item.id}
+              className={`flex items-start gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+                checked.has(item.id) ? 'bg-blue-500/10 border-blue-500/50' : cardCls
+              }`}
+              data-testid={`pack-item-${item.id}`}
             >
-              <span className="text-sm font-medium">{hint.label}</span>
-              <button
-                onClick={() => onTryIt(hint.seed, hint.kind)}
-                className={`shrink-0 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  effectiveDark
-                    ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                    : 'bg-blue-600 hover:bg-blue-500 text-white'
-                }`}
-                data-testid={`first-run-try-${i}`}
-              >
-                Try it
-              </button>
-            </div>
+              <input
+                type="checkbox"
+                checked={checked.has(item.id)}
+                onChange={() => toggleItem(item.id)}
+                className="mt-0.5 shrink-0"
+                data-testid={`pack-checkbox-${item.id}`}
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{item.name}</p>
+                <p className={`text-xs ${subtextCls}`}>{item.description}</p>
+              </div>
+            </label>
           ))}
         </div>
+      )}
+      {!loading && starterPack.length === 0 && !selectedPersonaId && (
+        <p className={`text-sm ${subtextCls}`} data-testid="customize-no-persona">
+          Pick a profile on the previous step to see suggested agents here.
+        </p>
       )}
     </div>
   )
@@ -923,50 +750,6 @@ function NameStep({
   )
 }
 
-function InstanceStep({
-  instanceName,
-  setInstanceName,
-  onNext,
-  inputCls,
-  subtextCls,
-}: {
-  instanceName: string
-  setInstanceName: (name: string) => void
-  onNext: () => void
-  inputCls: string
-  subtextCls: string
-}) {
-  // Seed the field so a user who just wants the default can press Next
-  // without typing. Only seed if it is still empty so we do not overwrite
-  // a value the user typed then backed away from.
-  useEffect(() => {
-    if (!instanceName) {
-      setInstanceName('myOS')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  return (
-    <div data-testid="step-instance">
-      <h2 className="text-2xl font-bold mb-2">Name your instance</h2>
-      <p className={`${subtextCls} mb-2`}>
-        Pick a name for your copy. Most people leave it as myOS. Tori's is toriOS.
-      </p>
-      <p className={`mb-6 text-xs ${subtextCls}`}>
-        You can change this any time in Settings.
-      </p>
-      <input
-        type="text"
-        value={instanceName}
-        onChange={(e) => setInstanceName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') onNext() }}
-        placeholder="myOS"
-        className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-        data-testid="instance-name-input"
-        autoFocus
-      />
-    </div>
-  )
-}
 
 function ThemeStep({
   darkMode,
