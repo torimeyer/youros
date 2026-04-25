@@ -1237,3 +1237,31 @@ describe('Sidebar status panel never shows a sessions count (regression)', () =>
     expect(screen.queryByText(/session/i)).toBeNull()
   })
 })
+
+describe('Files and Drive sidebar entries', () => {
+  it('shows Files entry in Files & Docs group', () => {
+    renderSidebar()
+    expandAllGroups()
+    expect(screen.getByText('Files')).toBeInTheDocument()
+  })
+
+  it('shows Drive entry in Files & Docs group', () => {
+    renderSidebar()
+    expandAllGroups()
+    expect(screen.getByText('Drive')).toBeInTheDocument()
+  })
+
+  it('Files entry links to /files', () => {
+    renderSidebar()
+    expandAllGroups()
+    const links = screen.getAllByRole('link')
+    expect(links.some((l) => l.getAttribute('href') === '/files')).toBe(true)
+  })
+
+  it('Drive entry links to /drive', () => {
+    renderSidebar()
+    expandAllGroups()
+    const links = screen.getAllByRole('link')
+    expect(links.some((l) => l.getAttribute('href') === '/drive')).toBe(true)
+  })
+})

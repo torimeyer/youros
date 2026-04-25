@@ -22,6 +22,8 @@ import Releases from './pages/Releases'
 import Adoption from './pages/Adoption'
 import Workflows from './pages/Workflows'
 import WorkflowBuilder from './pages/WorkflowBuilder'
+import Drive from './pages/Drive'
+import Files from './pages/Files'
 import { useAppStore } from './stores/app'
 import ShareView from './pages/ShareView'
 import AdminLayout from './components/AdminLayout'
@@ -103,6 +105,8 @@ export default function App() {
           <Route path="agents" element={<Agents />} />
           <Route path="transcripts" element={<Transcripts />} />
           <Route path="specs" element={<Specs />} />
+          <Route path="files" element={<Files />} />
+          <Route path="drive" element={<Drive />} />
           {/* Backward compat: /docs redirects to /specs after the rename. */}
           <Route path="docs" element={<DocsRedirect />} />
           {/* /onboarding is not a real route: the wizard renders conditionally
