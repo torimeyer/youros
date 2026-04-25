@@ -3085,6 +3085,28 @@ def get_running_task_ids() -> set[str]:
     return live
 
 
+def get_running_needle_ids() -> set[str]:
+    """Return the set of needle ids that have at least one live agent.
+
+    Mirrors get_running_task_ids() for ostk needles. The task list
+    endpoint overlays in_progress status on a needle when a live agent
+    carries its needle_id, without writing back to issues.jsonl.
+    """
+    live: set[str] = set()
+    for _name, meta in agent_metadata.items():
+        if not isinstance(meta, dict):
+            continue
+        nid = meta.get("needle_id")
+        if not nid:
+            continue
+        if meta.get("completed_at"):
+            continue
+        status = str(meta.get("status") or "").lower()
+        if status in _LIVE_AGENT_STATUSES:
+            live.add(str(nid))
+    return live
+
+
 @router.post("/agents/spawn")
 async def spawn_agent(body: AgentSpawn, request: Request = None):
     from services.rate_limit import rate_limit_check
@@ -3608,6 +3630,8 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         # callers never lands as a bogus key in the agents-by-task map.
         if body.task_id:
             spawn_meta["task_id"] = body.task_id
+        if body.needle_id:
+            spawn_meta["needle_id"] = body.needle_id
         # Worktree isolation: record the fork location so /cleanup and
         # the pre-merge gate can find the branch later. Keys are only
         # set when the fork actually succeeded (body.isolation is flipped
