@@ -1263,19 +1263,19 @@ describe('Tasks page', () => {
     })
 
     it('Open and In Progress pills split the active task counts correctly', async () => {
-      // After the multi-select redesign, the Open pill counts only pure
-      // status=open tasks and the In Progress pill counts status=in_progress
-      // (plus any task with a running agent). Both pills are on by default
-      // so the rendered list still shows every active task.
+      // After the runtime-only fix, the Open pill counts all active tasks not
+      // currently being worked on by a live agent. The In Progress pill counts
+      // only tasks with a running agent (runtime-derived). Stored
+      // status=in_progress with no agent is treated as Open.
       renderTasks()
 
       await waitFor(() => {
         expect(screen.getByText('Active open task')).toBeInTheDocument()
       })
       const openButton = screen.getByTestId('status-filter-open')
-      expect(openButton).toHaveTextContent('1')
+      expect(openButton).toHaveTextContent('3')
       const inProgressButton = screen.getByTestId('status-filter-in_progress')
-      expect(inProgressButton).toHaveTextContent('2')
+      expect(inProgressButton).toHaveTextContent('0')
     })
 
     it('Closed tab still only shows closed tasks', async () => {
@@ -2596,7 +2596,7 @@ describe('Tasks page - 2026-04-23 regression set', () => {
   })
 
   describe('in-progress badge is runtime-derived only (regression: stored in_progress must not show badge)', () => {
-    it('does NOT render the in-progress badge for a task with stored status in_progress when no agent is running on it', async () => {
+    it('stored in_progress task with no running agent: visible in Open tab, no badge, absent from In Progress tab', async () => {
       const task = {
         id: 'legacy1',
         title: 'Legacy in-progress task',
@@ -2616,7 +2616,15 @@ describe('Tasks page - 2026-04-23 regression set', () => {
       await waitFor(() => {
         expect(screen.getByText('Legacy in-progress task')).toBeInTheDocument()
       })
-      expect(screen.queryByTestId('in-progress-badge-legacy1')).not.toBeInTheDocument()
+      // No badge — no agent is running on this task
+      expect(screen.queryByTestId('task-in-progress-indicator-legacy1')).not.toBeInTheDocument()
+      // Task is visible in the default view (stored in_progress maps to effective open)
+      expect(screen.getByTestId('task-row-legacy1')).toBeInTheDocument()
+      // Select ONLY In Progress — task must NOT appear (no running agent)
+      selectOnlyStatus('in_progress')
+      await waitFor(() => {
+        expect(screen.queryByText('Legacy in-progress task')).not.toBeInTheDocument()
+      })
     })
   })
 })
