@@ -89,7 +89,14 @@ describe('FilterDrawer', () => {
     expect(screen.getByTestId('sort-by-label')).toBeInTheDocument()
   })
 
-  it('does not render view mode toggle buttons or filter-drawer close button - regression for card/view-toggle toolbar', () => {
+  it('filter-bar wrapper has a light-mode background class (theme-aware, not hardcoded dark)', () => {
+    render(<FilterDrawer {...defaultProps} />)
+    const drawer = screen.getByTestId('filter-drawer')
+    expect(drawer.className).toMatch(/bg-slate-100/)
+    expect(drawer.className).toMatch(/dark:bg-slate-900/)
+  })
+
+    it('does not render view mode toggle buttons or filter-drawer close button - regression for card/view-toggle toolbar', () => {
     render(<FilterDrawer {...defaultProps} />)
     expect(screen.queryByTestId('view-mode-list')).not.toBeInTheDocument()
     expect(screen.queryByTestId('view-mode-grid')).not.toBeInTheDocument()
