@@ -330,3 +330,20 @@ describe('renderMarkdown is not safe to call per-token during streaming', () => 
     expect(completeContainer.querySelector('a')).not.toBeNull()
   })
 })
+
+describe('light mode contrast: code elements use amber classes overridden in index.css', () => {
+  it('inline code element has text-amber-300 class (overridden to dark in light mode)', () => {
+    const { container } = renderNodes(renderMarkdown('`snippet`'))
+    const code = container.querySelector('code')
+    expect(code).not.toBeNull()
+    expect(code!.className).toContain('text-amber-300')
+  })
+
+  it('fenced code block pre has text-amber-200 class (overridden to dark in light mode)', () => {
+    const md = '```\nconsole.log(1)\n```'
+    const { container } = renderNodes(renderMarkdown(md))
+    const pre = container.querySelector('pre')
+    expect(pre).not.toBeNull()
+    expect(pre!.className).toContain('text-amber-200')
+  })
+})
