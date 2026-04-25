@@ -20,8 +20,8 @@ const mockedGet = vi.mocked(api.get)
 
 const mockData = {
   top_skills: [
-    { id: 'builtin-builder', name: 'Builder', uses_this_week: 5 },
-    { id: 'builtin-research', name: 'Research', uses_this_week: 2 },
+    { id: 'builtin-builder', name: 'Builder', uses_this_week: 5, prev_week_uses: 4 },
+    { id: 'builtin-research', name: 'Research', uses_this_week: 2, prev_week_uses: 0 },
   ],
   recommendations: [
     { id: 'builtin-review', name: 'Review', why: "you've been using Builder" },
@@ -120,6 +120,43 @@ describe('Adoption page', () => {
 
     fireEvent.click(cards[2])
     expect(mockNavigate).toHaveBeenCalledWith('/agents?template=builtin-research')
+  })
+
+  it('skill-delta shows "new" when prev_week_uses is 0', async () => {
+    mockedGet.mockResolvedValueOnce(mockData)
+    renderPage()
+    await waitFor(() => expect(screen.getAllByTestId('skill-card')).toHaveLength(2))
+
+    const deltas = screen.getAllByTestId('skill-delta')
+    // Builder: +25% (prev=4), Research: new (prev=0)
+    const labels = deltas.map((el) => el.textContent)
+    expect(labels).toContain('new')
+  })
+
+  it('skill-delta shows positive percent when uses_this_week > prev_week_uses', async () => {
+    mockedGet.mockResolvedValueOnce(mockData)
+    renderPage()
+    await waitFor(() => expect(screen.getAllByTestId('skill-card')).toHaveLength(2))
+
+    const deltas = screen.getAllByTestId('skill-delta')
+    // Builder: 5 this / 4 prev → +25%
+    expect(deltas[0].textContent).toBe('+25%')
+    expect(deltas[0].className).toContain('text-green-400')
+  })
+
+  it('skill-delta shows negative percent when uses_this_week < prev_week_uses', async () => {
+    mockedGet.mockResolvedValueOnce({
+      ...mockData,
+      top_skills: [
+        { id: 'builtin-builder', name: 'Builder', uses_this_week: 3, prev_week_uses: 5 },
+      ],
+    })
+    renderPage()
+    await waitFor(() => expect(screen.getAllByTestId('skill-card')).toHaveLength(1))
+
+    const delta = screen.getByTestId('skill-delta')
+    expect(delta.textContent).toBe('-40%')
+    expect(delta.className).toContain('text-red-400')
   })
 
   it('recommendation card is a button that navigates to agents with the template pre-selected', async () => {

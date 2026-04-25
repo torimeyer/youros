@@ -141,6 +141,52 @@ async def test_whats_working_brainstorm_agent_maps_to_builtin():
 
 
 @pytest.mark.asyncio
+async def test_prev_week_uses_populated_when_prev_activity():
+    """Skill used N times this week and M times prev week returns prev_week_uses=M."""
+    PREV_WEEK = (NOW - timedelta(days=10)).isoformat()
+    fake_entries = [
+        # This week: 3 builder
+        _audit_entry("agent.spawned", "builder-a"),
+        _audit_entry("agent.spawned", "builder-b"),
+        _audit_entry("agent.spawned", "builder-c"),
+        # Prev week: 2 builder
+        _audit_entry("agent.spawned", "builder-old-1", ts=PREV_WEEK),
+        _audit_entry("agent.spawned", "builder-old-2", ts=PREV_WEEK),
+    ]
+    with patch("routers.adoption.read_audit_entries", return_value=fake_entries), \
+         patch("routers.adoption.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/adoption/whats-working")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    builder = next(s for s in data["top_skills"] if s["id"] == "builtin-builder")
+    assert builder["uses_this_week"] == 3
+    assert builder["prev_week_uses"] == 2
+
+
+@pytest.mark.asyncio
+async def test_prev_week_uses_zero_when_no_prev_activity():
+    """Skill used only this week (no prev-week activity) returns prev_week_uses=0."""
+    fake_entries = [
+        _audit_entry("agent.spawned", "builder-new-1"),
+        _audit_entry("agent.spawned", "builder-new-2"),
+    ]
+    with patch("routers.adoption.read_audit_entries", return_value=fake_entries), \
+         patch("routers.adoption.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/adoption/whats-working")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    builder = next(s for s in data["top_skills"] if s["id"] == "builtin-builder")
+    assert builder["uses_this_week"] == 2
+    assert builder["prev_week_uses"] == 0
+
+
+@pytest.mark.asyncio
 async def test_whats_working_top_task_is_highest_priority():
     """top_spec_or_task returns the title of the highest-priority open task."""
     tasks = [
