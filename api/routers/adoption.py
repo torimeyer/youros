@@ -36,6 +36,8 @@ _NAME_PATTERNS: list[tuple[str, str]] = [
     ("write-test",       "builtin-eng-write-tests"),
     ("write_test",       "builtin-eng-write-tests"),
     ("test",             "builtin-test"),
+    ("brainstorm",       "builtin-brainstorm"),
+    ("ideate",           "builtin-brainstorm"),
     ("research",         "builtin-research"),
     ("review",           "builtin-review"),
     ("prd",              "builtin-pm-prd"),
@@ -75,12 +77,13 @@ _NAME_PATTERNS: list[tuple[str, str]] = [
 
 # Skill adjacency map for V1 recommendations (skill → what to try next).
 _SKILL_NEIGHBORS: dict[str, list[str]] = {
-    "builtin-builder":                  ["builtin-review", "builtin-test", "builtin-diagnose"],
+    "builtin-brainstorm":               ["builtin-research", "builtin-pm-prd", "builtin-builder"],
+    "builtin-builder":                  ["builtin-review", "builtin-test", "builtin-diagnose", "builtin-brainstorm"],
     "builtin-diagnose":                 ["builtin-builder", "builtin-test", "builtin-eng-debug-helper"],
-    "builtin-research":                 ["builtin-pm-prd", "builtin-pm-competitive-scan", "builtin-pm-roadmap"],
+    "builtin-research":                 ["builtin-pm-prd", "builtin-pm-competitive-scan", "builtin-pm-roadmap", "builtin-brainstorm"],
     "builtin-review":                   ["builtin-builder", "builtin-test"],
     "builtin-test":                     ["builtin-builder", "builtin-diagnose"],
-    "builtin-pm-prd":                   ["builtin-pm-stakeholder-update", "builtin-pm-roadmap", "builtin-pm-launch-checklist"],
+    "builtin-pm-prd":                   ["builtin-pm-stakeholder-update", "builtin-pm-roadmap", "builtin-pm-launch-checklist", "builtin-brainstorm"],
     "builtin-pm-competitive-scan":      ["builtin-research", "builtin-pm-prd"],
     "builtin-pm-roadmap":               ["builtin-pm-prd", "builtin-pm-stakeholder-update"],
     "builtin-pm-stakeholder-update":    ["builtin-pm-prd", "builtin-pm-roadmap"],

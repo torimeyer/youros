@@ -119,6 +119,28 @@ async def test_whats_working_handles_no_activity_gracefully():
 
 
 @pytest.mark.asyncio
+async def test_whats_working_brainstorm_agent_maps_to_builtin():
+    """An agent named 'brainstorm-pricing' maps to builtin-brainstorm in top_skills."""
+    fake_entries = [
+        _audit_entry("agent.spawned", "brainstorm-pricing"),
+        _audit_entry("agent.spawned", "brainstorm-naming"),
+        _audit_entry("agent.spawned", "builder-task-a"),
+    ]
+    with patch("routers.adoption.read_audit_entries", return_value=fake_entries), \
+         patch("routers.adoption.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/adoption/whats-working")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    brainstorm_skill = next((s for s in data["top_skills"] if s["id"] == "builtin-brainstorm"), None)
+    assert brainstorm_skill is not None, "builtin-brainstorm not found in top_skills"
+    assert brainstorm_skill["name"] == "Brainstorm"
+    assert brainstorm_skill["uses_this_week"] == 2
+
+
+@pytest.mark.asyncio
 async def test_whats_working_top_task_is_highest_priority():
     """top_spec_or_task returns the title of the highest-priority open task."""
     tasks = [

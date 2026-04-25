@@ -264,6 +264,31 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "produces_doc": True,
     },
     {
+        "id": "builtin-brainstorm",
+        "name": "Brainstorm",
+        "aliases": ["ideate", "ideas"],
+        "description": (
+            "Generates ideas. Takes a rough question or problem, produces a "
+            "structured list of options with tradeoffs, and recommends a path "
+            "forward in plain language."
+        ),
+        "icon": "lightbulb",
+        "prompt_template": (
+            "You are a myOS brainstorm agent. Your job: (1) Restate the problem "
+            "in one sentence so the user can confirm framing. (2) Generate 5-8 "
+            "distinct options, not variations of the same idea. (3) For each "
+            "option, give one-line description, primary tradeoff, and effort "
+            "(low/medium/high). (4) Recommend the top 1-2 with a one-line why. "
+            "(5) Call out anything you would NOT do. No jargon. No hedging."
+        ),
+        "model": "sonnet",
+        "budget": 2.0,
+        "source": "builtin",
+        "personas": [],
+        "installed": True,
+        "builtin": True,
+    },
+    {
         "id": "builtin-review",
         "name": "Review",
         "aliases": ["Code Review"],
