@@ -141,6 +141,18 @@ if ! printf '%s' "$HAY_CHECK" | grep -qE "$VERB_RE"; then
     exit 0
 fi
 
+# Require explicit Locks: header. Edit-capable spawns that omit it are
+# blocked outright so greedy path-extraction heuristics cannot fire.
+HAS_EXPLICIT_LOCKS=$(PROMPT="$PROMPT" DESCRIPTION="$DESCRIPTION" python3 -c "
+import os, re
+hay = os.environ.get('PROMPT','') + '\n' + os.environ.get('DESCRIPTION','')
+print('1' if re.search(r'[Ll]ocks\s*:\s*\[([^\]]+)\]', hay) else '0')
+" 2>/dev/null)
+if [ "${HAS_EXPLICIT_LOCKS:-0}" != "1" ]; then
+    printf '%s\n' 'Blocked: edit-capable spawn did not declare Locks. Add a header like `Locks: [path/one.py, path/two.tsx]` at the top of the prompt naming only files this agent will write. Reads do not need locks.' >&2
+    exit 2
+fi
+
 # At this point we know the prompt looks edit-capable. Route it
 # through the REST spawn path. Generate a stable-ish name from the
 # description (same rule as register-agent.sh) plus a short uuid so
@@ -178,18 +190,7 @@ if em:
         part = part.strip().strip("\"'")
         if part:
             locks.add(part)
-else:
-    # Extract file paths named in the prompt.
-    EXT_RE = re.compile(r"[\w./-]+\.(?:py|ts|tsx|sh|md|json|yml|yaml|toml|sql|css|html)\b")
-    DIR_RE = re.compile(r"\b((?:api|app|scripts|docs|agents|\.claude|\.ostk)/[\w./-]*)")
-    locks = set()
-    for m in EXT_RE.finditer(hay):
-        locks.add(m.group(0).strip(".,:;()[]{}"))
-    for m in DIR_RE.finditer(hay):
-        locks.add(m.group(1).rstrip("/,."))
-    # Fallback: if nothing concrete, use coarse repo globs to force serialization.
-    if not locks:
-        locks = {"app/**", "api/**", ".claude/**", "scripts/**"}
+
 
 body = {
     "name": os.environ["SPAWN_NAME"],
@@ -216,13 +217,15 @@ fi
 # Reachability probe. Short connect-timeout so a hung backend does
 # not wedge every Task call. If the probe fails we BLOCK (never fall
 # through) because that is the silent-no-op this hook exists to fix.
-HTTP_CODE=$(curl -sSk --connect-timeout 3 -m 5 -o /dev/null -w '%{http_code}' \
+RESP_BODY=$(mktemp)
+HTTP_CODE=$(curl -sSk --connect-timeout 3 -m 5 -o "$RESP_BODY" -w '%{http_code}' \
     -X POST "${API_BASE}/api/agents/spawn" \
     -H 'Content-Type: application/json' \
     -d "$BODY" 2>/dev/null)
 
 case "$HTTP_CODE" in
     2??)
+        rm -f "$RESP_BODY"
         # P1-b/→925: record bridge spawn so the parent session can arm Monitor.
         # PostToolUse:Agent does NOT fire after a PreToolUse-block, so writing
         # this from auto-monitor-spawn.sh wouldn't work. Write here instead.
@@ -243,6 +246,7 @@ print(json.dumps({"name": os.environ["SPAWN_NAME"], "ts": datetime.now(timezone.
         # curl prints 000 on connect-refused and leaves it empty only
         # on some platforms. Both mean "no HTTP response at all", i.e.
         # backend unreachable.
+        rm -f "$RESP_BODY"
         echo "Blocked: torios backend unreachable at ${API_BASE}/api/agents/spawn (connect-timeout or refused)." >&2
         echo "Native Task tool would silently write to the parent checkout, breaking isolation." >&2
         echo "Start the backend with scripts/dev-backend.sh and retry." >&2
@@ -250,6 +254,21 @@ print(json.dumps({"name": os.environ["SPAWN_NAME"], "ts": datetime.now(timezone.
         ;;
     *)
         echo "Blocked: /api/agents/spawn returned HTTP ${HTTP_CODE}." >&2
+        if [ -s "$RESP_BODY" ]; then
+            RESP_BODY="$RESP_BODY" python3 -c '
+import os, sys, json
+try:
+    body = json.load(open(os.environ["RESP_BODY"]))
+    conflicts = (body.get("detail") or {}).get("conflicts") or []
+    for c in conflicts:
+        held = c.get("held_by_spawn", "?")
+        path = c.get("held_path", "?")
+        print("  conflict: held_by_spawn=" + str(held) + " held_path=" + str(path))
+except Exception:
+    pass
+' >&2 2>/dev/null
+        fi
+        rm -f "$RESP_BODY"
         echo "Native Task tool would silently write to the parent checkout. Fix the backend error and retry." >&2
         exit 2
         ;;
