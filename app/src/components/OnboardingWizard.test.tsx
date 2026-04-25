@@ -865,4 +865,30 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     navigateToAfterTheme()
     await waitFor(() => expect(screen.queryByTestId('step-connect')).toBeInTheDocument())
   })
+
+  it('skips Connect and shows "Connected via Vertex AI" when vertex_ai is detected', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect')
+        return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: false, vertex_ai: true, bedrock: false })
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    render(<OnboardingWizard />)
+    await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
+    navigateToAfterTheme()
+    expect(screen.queryByTestId('step-connect')).not.toBeInTheDocument()
+    expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Vertex AI')
+  })
+
+  it('skips Connect and shows "Connected via AWS Bedrock" when bedrock is detected', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect')
+        return Promise.resolve({ claude_code: false, anthropic_key: false, gemini_key: false, vertex_ai: false, bedrock: true })
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    render(<OnboardingWizard />)
+    await waitFor(() => expect(vi.mocked(api.get)).toHaveBeenCalledWith('/providers/detect'))
+    navigateToAfterTheme()
+    expect(screen.queryByTestId('step-connect')).not.toBeInTheDocument()
+    expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('AWS Bedrock')
+  })
 })

@@ -65,11 +65,13 @@ export default function OnboardingWizard() {
   }, [])
 
   useEffect(() => {
-    api.get<{ claude_code?: boolean; anthropic_key?: boolean; gemini_key?: boolean }>('/providers/detect')
+    api.get<{ claude_code?: boolean; anthropic_key?: boolean; gemini_key?: boolean; vertex_ai?: boolean; bedrock?: boolean }>('/providers/detect')
       .then((data) => {
         if (data.claude_code) setDetectedProvider('Claude Code')
         else if (data.anthropic_key) setDetectedProvider('Anthropic')
         else if (data.gemini_key) setDetectedProvider('Gemini')
+        else if (data.vertex_ai) setDetectedProvider('Vertex AI')
+        else if (data.bedrock) setDetectedProvider('AWS Bedrock')
       })
       .catch(() => {})
   }, [])
