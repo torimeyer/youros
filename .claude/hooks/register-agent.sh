@@ -206,6 +206,46 @@ if [ -z "$AGENT_NAME" ]; then
     exit 0
 fi
 
+# --- Bridge guard (→922 Bug A, →935 regression) ------------------------
+# task-isolation-bridge.sh fires alongside this hook for every Agent/Task
+# call. When the prompt contains an edit verb, the bridge routes the call
+# to /api/agents/spawn and registers a hex-suffixed name. If we also
+# register here we produce a second unsuffixed ghost row that inflates the
+# nav badge and the Active Agents count by 1. Mirror the bridge's verb
+# detection and bail out early so only one row appears per Task spawn.
+# When the bridge is explicitly disabled (TASK_ISOLATION_BRIDGE_DISABLE=1)
+# fall through so we register normally.
+#
+# IMPORTANT: use $INPUT (the raw JSON) not the pre-parsed $PROMPT. The
+# PARSED step truncates the prompt to 500 chars for the registration
+# body. If the only edit verb appears after char 500 (e.g. "Bash/Read/Edit
+# ONLY" at position 543 in a typical subagent brief), the truncated
+# $PROMPT misses it while the bridge sees the full prompt and routes to
+# /spawn — producing a dual-register entry. Reading $INPUT directly
+# matches what the bridge does. (→935 root cause)
+if [ "${TASK_ISOLATION_BRIDGE_DISABLE:-}" != "1" ]; then
+    _BRIDGE_SKIP=$(INPUT_JSON="$INPUT" python3 -c "
+import os, re, json
+raw = os.environ.get('INPUT_JSON', '')
+try:
+    d = json.loads(raw or '{}')
+except Exception:
+    print('0')
+    exit()
+ti = d.get('tool_input', {}) or {}
+full_prompt = (ti.get('prompt') or '').strip()
+desc = (ti.get('description') or '').strip()
+hay = (full_prompt + '\n' + desc).lower()
+hay = re.sub(r'\b(?:do\s+not|don.t|never|no)\s+\w+', ' ', hay)
+VERB_RE = r'(^|[^a-z0-9_])(edit|write|fix|commit|saa|diagnose|build|add|refactor|rename|create|delete|update|modify|replace|remove)([^a-z0-9_]|\$)'
+print('1' if re.search(VERB_RE, hay) else '0')
+" 2>/dev/null || echo 0)
+    if [ "${_BRIDGE_SKIP:-0}" = "1" ]; then
+        exit 0
+    fi
+fi
+# -----------------------------------------------------------------------
+
 BODY=$(AGENT_NAME="$AGENT_NAME" MODEL="$MODEL" DESCRIPTION="$DESCRIPTION" PROMPT="$PROMPT" python3 -c '
 import os, json
 body = {
