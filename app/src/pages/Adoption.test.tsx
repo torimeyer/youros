@@ -85,6 +85,43 @@ describe('Adoption page', () => {
     expect(screen.getByText(/Ship the adoption page/)).toBeTruthy()
   })
 
+  it('empty state shows three starter cards with correct names', async () => {
+    mockedGet.mockResolvedValueOnce({
+      top_skills: [],
+      recommendations: [],
+      this_week: { agent_runs_completed: 0, top_spec_or_task: null },
+    })
+    renderPage()
+    await waitFor(() => expect(screen.getAllByTestId('starter-card')).toHaveLength(3))
+
+    const cards = screen.getAllByTestId('starter-card')
+    expect(cards[0].textContent).toContain('Builder')
+    expect(cards[1].textContent).toContain('Brainstorm')
+    expect(cards[2].textContent).toContain('Research')
+    expect(screen.queryByTestId('skill-card')).toBeNull()
+  })
+
+  it('clicking a starter card navigates to /agents?template=builtin-<id>', async () => {
+    mockedGet.mockResolvedValueOnce({
+      top_skills: [],
+      recommendations: [],
+      this_week: { agent_runs_completed: 0, top_spec_or_task: null },
+    })
+    renderPage()
+    await waitFor(() => expect(screen.getAllByTestId('starter-card')).toHaveLength(3))
+
+    const cards = screen.getAllByTestId('starter-card')
+    expect(cards[0].tagName).toBe('BUTTON')
+    fireEvent.click(cards[0])
+    expect(mockNavigate).toHaveBeenCalledWith('/agents?template=builtin-builder')
+
+    fireEvent.click(cards[1])
+    expect(mockNavigate).toHaveBeenCalledWith('/agents?template=builtin-brainstorm')
+
+    fireEvent.click(cards[2])
+    expect(mockNavigate).toHaveBeenCalledWith('/agents?template=builtin-research')
+  })
+
   it('recommendation card is a button that navigates to agents with the template pre-selected', async () => {
     mockedGet.mockResolvedValueOnce(mockData)
     renderPage()
