@@ -161,6 +161,48 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       return
     }
 
+    // Cross-path dedup: the backend creates an "agent"-type persistent
+    // notification for every agent completion AND the Agents page fires
+    // addNotification on the same running→terminal transition. Both use
+    // firedKeys (keyed by "{agentName}:{status}") but they don't share
+    // that check across paths, so the user was seeing two toasts for one
+    // event. This block bridges the two paths:
+    //   - If addNotification already fired (firedKeys has the key): record
+    //     the persistent id and exit so no duplicate toast appears.
+    //   - If we're firing first: pre-register all terminal statuses in
+    //     firedKeys so the later addNotification call skips the duplicate.
+    if (notif.type === 'agent') {
+      const agentDonePrefix = 'Agent done: '
+      const agentNameFromTitle = notif.title.startsWith(agentDonePrefix)
+        ? notif.title.slice(agentDonePrefix.length)
+        : null
+      if (agentNameFromTitle) {
+        const terminalStatuses = [
+          'completed', 'completed_timeout', 'cancelled', 'failed',
+          'terminated_stale', 'stopped', 'abandoned', 'killed',
+        ]
+        const alreadyFired = terminalStatuses.some(
+          (st) => get().firedKeys.has(`${agentNameFromTitle}:${st}`)
+        )
+        if (alreadyFired) {
+          // addNotification got here first — skip and record the id.
+          set((s) => {
+            const persistentToastIds = new Set(s.persistentToastIds)
+            persistentToastIds.add(notif.id)
+            persistentToastIds.add(contentKey)
+            return { persistentToastIds }
+          })
+          return
+        }
+        // We're firing first — pre-register so addNotification skips it.
+        set((s) => {
+          const firedKeys = new Set(s.firedKeys)
+          terminalStatuses.forEach((st) => firedKeys.add(`${agentNameFromTitle}:${st}`))
+          return { firedKeys }
+        })
+      }
+    }
+
     // Reuse the AppNotification shape so the existing NotificationToasts
     // renderer (which reads from notifications + toastIds) picks it up
     // without a second render path. agentName holds the human-readable
