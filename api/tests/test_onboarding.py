@@ -419,6 +419,44 @@ async def test_intent_invalid_returns_422(client):
 
 
 @pytest.mark.asyncio
+async def test_first_runs_writing_returns_three_hints(client):
+    resp = await client.get("/api/onboarding/first-runs?intent=writing")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["hints"]) == 3
+    for h in data["hints"]:
+        assert "label" in h
+        assert "seed" in h
+        assert h["kind"] in ("chat", "task")
+
+
+@pytest.mark.asyncio
+async def test_first_runs_all_intents_return_three_hints(client):
+    for intent in ["writing", "personal", "coding", "research", "work_role"]:
+        resp = await client.get(f"/api/onboarding/first-runs?intent={intent}")
+        assert resp.status_code == 200
+        hints = resp.json()["hints"]
+        assert len(hints) == 3, f"{intent} returned {len(hints)} hints"
+
+
+@pytest.mark.asyncio
+async def test_first_runs_unknown_intent_defaults_to_writing(client):
+    resp = await client.get("/api/onboarding/first-runs?intent=unknown_xyz")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["hints"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_first_runs_default_intent_is_writing(client):
+    resp = await client.get("/api/onboarding/first-runs")
+    assert resp.status_code == 200
+    hints = resp.json()["hints"]
+    labels = [h["label"] for h in hints]
+    assert any("blog" in lbl.lower() or "draft" in lbl.lower() or "headline" in lbl.lower() for lbl in labels)
+
+
+@pytest.mark.asyncio
 async def test_intent_endpoint_does_not_break_dream(client):
     """The dream endpoint still works after the intent endpoint is added."""
     with (
