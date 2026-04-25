@@ -85,4 +85,93 @@ if [ "$GLOBAL_AGENT_COUNT" != "1" ]; then
 fi
 
 printf 'PASS: Agent register hook wired exactly once (global only)\n'
+
+# --- Behavioral tests (→922 Bug A) ------------------------------------
+# Spin up a mock /api/agents/register server, feed register-agent.sh
+# real inputs, and assert exactly one registration per Task call.
+#
+# Test 1: edit-verb prompt  → bridge guard fires → 0 registrations
+# Test 2: read-only prompt  → guard skips        → 1 registration
+# Test 3: bridge disabled + edit-verb            → 1 registration (fall-through)
+
+MOCK_TMP=$(mktemp -d)
+MOCK_PORT=18931
+REGISTER_LOG="$MOCK_TMP/register.log"
+touch "$REGISTER_LOG"
+
+cat <<'PYEOF' | python3 - "$MOCK_PORT" "$REGISTER_LOG" &
+import sys, http.server
+
+port = int(sys.argv[1])
+log_path = sys.argv[2]
+
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get('Content-Length', 0))
+        self.rfile.read(length)
+        with open(log_path, 'a') as f:
+            f.write(self.path + '\n')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(b'{"result":"ok"}')
+    def log_message(self, *args): pass
+
+http.server.HTTPServer(('127.0.0.1', port), H).serve_forever()
+PYEOF
+MOCK_PID=$!
+
+cleanup_mock() {
+    kill "$MOCK_PID" 2>/dev/null || true
+    rm -rf "$MOCK_TMP"
+}
+trap cleanup_mock EXIT
+
+# Give the server time to bind
+sleep 0.4
+
+# Clear any stale pending-register queue so drain-pending.sh doesn't
+# replay old failures and inflate the count for these tests.
+> "$HOME/.myos/subagents/pending-register.jsonl" 2>/dev/null || true
+
+MOCK_BASE="http://127.0.0.1:$MOCK_PORT"
+REGISTER_HOOK="$HOME/.claude/hooks/register-agent.sh"
+
+count_registrations() {
+    local n
+    n=$(grep -c '^/api/agents/register$' "$REGISTER_LOG" 2>/dev/null) || n=0
+    printf '%s' "$n"
+}
+
+# Test 1: edit-verb prompt → bridge guard → no registration
+> "$REGISTER_LOG"
+printf '{"tool_name":"Agent","tool_input":{"description":"fix the null pointer in main.py","prompt":"fix the bug and commit"}}\n' \
+    | TORIOS_API_BASE="$MOCK_BASE" bash "$REGISTER_HOOK" 2>/dev/null
+N=$(count_registrations)
+if [ "$N" != "0" ]; then
+    fail "edit-verb prompt: expected 0 registrations, got $N (bridge guard not firing)"
+fi
+printf 'PASS: edit-verb prompt -> 0 registrations (bridge guard active)\n'
+
+# Test 2: read-only prompt → no edit verb → 1 registration
+> "$REGISTER_LOG"
+printf '{"tool_name":"Agent","tool_input":{"description":"search the codebase","prompt":"read the logs and summarize findings"}}\n' \
+    | TORIOS_API_BASE="$MOCK_BASE" bash "$REGISTER_HOOK" 2>/dev/null
+N=$(count_registrations)
+if [ "$N" != "1" ]; then
+    fail "read-only prompt: expected 1 registration, got $N"
+fi
+printf 'PASS: read-only prompt -> 1 registration\n'
+
+# Test 3: bridge disabled + edit-verb → 1 registration (fall-through)
+> "$REGISTER_LOG"
+printf '{"tool_name":"Agent","tool_input":{"description":"fix the bug","prompt":"edit the config file"}}\n' \
+    | TORIOS_API_BASE="$MOCK_BASE" TASK_ISOLATION_BRIDGE_DISABLE=1 bash "$REGISTER_HOOK" 2>/dev/null
+N=$(count_registrations)
+if [ "$N" != "1" ]; then
+    fail "bridge-disabled edit-verb: expected 1 registration, got $N (should fall through when bridge is off)"
+fi
+printf 'PASS: bridge-disabled edit-verb -> 1 registration (fall-through)\n'
+
+printf 'PASS: all behavioral tests passed\n'
 exit 0
