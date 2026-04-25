@@ -62,6 +62,18 @@ trap cleanup EXIT INT TERM HUP
 
 # Forward every argument to vitest. If no args are given, vitest runs the
 # full suite as usual.
+# In git worktrees, app/node_modules is absent (gitignored, not copied).
+# Derive the main checkout root from --absolute-git-dir and symlink it so
+# vitest can resolve its config and all packages without installing again.
+if [ ! -e "${APP_DIR}/node_modules" ]; then
+  ABS_GIT="$(cd "${REPO_DIR}" && git rev-parse --absolute-git-dir 2>/dev/null)"
+  MAIN_ROOT="$(dirname "${ABS_GIT%%/worktrees/*}")"
+  MAIN_NM="${MAIN_ROOT}/app/node_modules"
+  if [ -d "${MAIN_NM}" ]; then
+    ln -sf "${MAIN_NM}" "${APP_DIR}/node_modules"
+  fi
+fi
+
 VITEST_BIN="${VITEST_BIN:-npx vitest run}"
 
 # Stream to both terminal and log file. Pipefail lets us recover the real
