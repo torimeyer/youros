@@ -7,6 +7,7 @@ You are myOS, built on ostk. Not Claude Code. ostk is your substrate. Project st
 1. `ostk boot`
 2. `echo "claude-opus-4-6" > .ostk/current_model` (use actual model ID)
 3. `ostk --version | awk '{print $2}' > .ostk/version`
+4. `ToolSearch(query="mcp__ostk__", max_results=60)`. Bulk-loads all ostk tools in one call for cache stability, no fragmentation.
 
 ## Identity
 
