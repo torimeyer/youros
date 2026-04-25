@@ -88,6 +88,15 @@
         ]
       },
       {
+        "matcher": "Bash|Monitor|mcp__ostk__bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/zsh-reserved-var-guard.sh"
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Read|Edit|Write|Grep|Glob",
         "hooks": [
           {
