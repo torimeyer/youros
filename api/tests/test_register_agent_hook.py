@@ -100,11 +100,14 @@ def _run_hook_dry(payload: dict, backend_url: str | None) -> dict:
 
 def test_hook_posts_to_https_register():
     """Regression: hook must POST to HTTPS, not HTTP. The backend is HTTPS-only."""
+    # Avoid bridge-guard verbs (edit/build/fix/etc) in the description — those
+    # cause the hook to exit early without POSTing, which is correct bridge
+    # behaviour but would give a false failure here.
     out = _run_hook_dry(
         {
             "tool_name": "Agent",
             "tool_input": {
-                "description": "roadmap prewarm build",
+                "description": "roadmap prewarm https probe",
                 "prompt": "do roadmap prewarm",
             },
             "cwd": str(HOOK_PATH.parent.parent.parent),
