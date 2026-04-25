@@ -338,5 +338,108 @@ describe('notifications store', () => {
       useNotificationStore.getState().clearAll()
       expect(useNotificationStore.getState().lastFeatureLive).toBeNull()
     })
+
+    describe('cross-path dedup (agent persistent ↔ addNotification)', () => {
+      it('test_agent_persistent_toast_suppressed_when_addNotification_fired_first', () => {
+        // Regression: Agents.tsx fires addNotification on the running→completed
+        // transition, then TopBar fires addPersistentToast for the backend
+        // "agent" row with the same agent. Before the fix both toasted.
+        const { addNotification, addPersistentToast } = useNotificationStore.getState()
+
+        addNotification({ name: 'roadmap-agent', source: 'claude-code' }, 'running', 'completed')
+        addPersistentToast({
+          id: 'agent-notif-1',
+          type: 'agent',
+          title: 'Agent done: roadmap-agent',
+          body: 'Roadmap generation finished.',
+          action_url: '/agents',
+        })
+
+        const s = useNotificationStore.getState()
+        // Only one toast — the addNotification one.
+        expect(s.notifications).toHaveLength(1)
+        expect(s.toastIds).toHaveLength(1)
+        // The persistent notification id must be recorded so future polls skip it.
+        expect(s.persistentToastIds.has('agent-notif-1')).toBe(true)
+      })
+
+      it('test_addNotification_suppressed_when_agent_persistent_toast_fired_first', () => {
+        // Opposite order: TopBar poll fires addPersistentToast before Agents.tsx
+        // detects the transition. addNotification should be a no-op.
+        const { addNotification, addPersistentToast } = useNotificationStore.getState()
+
+        addPersistentToast({
+          id: 'agent-notif-2',
+          type: 'agent',
+          title: 'Agent done: roadmap-agent',
+          body: 'Roadmap generation finished.',
+          action_url: '/agents',
+        })
+        addNotification({ name: 'roadmap-agent', source: 'claude-code' }, 'running', 'completed')
+
+        const s = useNotificationStore.getState()
+        expect(s.notifications).toHaveLength(1)
+        expect(s.toastIds).toHaveLength(1)
+      })
+
+      it('different agent names do not interfere with each other', () => {
+        // Cross-path dedup must be keyed by agent name — agent-a completing
+        // must not suppress a persistent toast for agent-b.
+        const { addNotification, addPersistentToast } = useNotificationStore.getState()
+
+        addNotification({ name: 'agent-a', source: 'claude-code' }, 'running', 'completed')
+        addPersistentToast({
+          id: 'agent-notif-3',
+          type: 'agent',
+          title: 'Agent done: agent-b',
+          body: 'agent-b finished.',
+          action_url: '/agents',
+        })
+
+        const s = useNotificationStore.getState()
+        expect(s.notifications).toHaveLength(2)
+        expect(s.toastIds).toHaveLength(2)
+      })
+
+      it('agent persistent toast without "Agent done:" prefix is not cross-deduped', () => {
+        // Only titles matching the known prefix can have the agent name
+        // extracted. Custom titles fall through and toast normally.
+        const { addNotification, addPersistentToast } = useNotificationStore.getState()
+
+        addNotification({ name: 'some-agent', source: 'claude-code' }, 'running', 'completed')
+        addPersistentToast({
+          id: 'agent-notif-4',
+          type: 'agent',
+          title: 'Custom system event',
+          body: 'Something happened.',
+          action_url: null,
+        })
+
+        const s = useNotificationStore.getState()
+        // Both toast: addNotification fired, and the persistent one has no
+        // extractable agent name so cross-dedup does not apply.
+        expect(s.notifications).toHaveLength(2)
+      })
+
+      it('roadmap_ready type is not affected by cross-path dedup', () => {
+        // Only type="agent" rows trigger cross-path dedup. roadmap_ready,
+        // spec_complete, etc. always toast regardless of firedKeys state.
+        const { addNotification, addPersistentToast } = useNotificationStore.getState()
+
+        addNotification({ name: 'roadmap-agent', source: 'claude-code' }, 'running', 'completed')
+        addPersistentToast({
+          id: 'roadmap-notif-1',
+          type: 'roadmap_ready',
+          title: 'Your roadmap is ready',
+          body: 'Open roadmap.md',
+          action_url: '/files',
+        })
+
+        const s = useNotificationStore.getState()
+        // Both toast: the status-change and the meaningful roadmap_ready signal.
+        expect(s.notifications).toHaveLength(2)
+        expect(s.toastIds).toHaveLength(2)
+      })
+    })
   })
 })

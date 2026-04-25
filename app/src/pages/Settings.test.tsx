@@ -937,7 +937,8 @@ describe('Settings page — Files location', () => {
     fireEvent.change(input, { target: { value: '/tmp/new-files' } })
     fireEvent.click(screen.getByTestId('files-dir-change'))
 
-    expect(window.confirm).toHaveBeenCalled()
+    // Component uses useConfirm() (modal), not window.confirm.
+    fireEvent.click(await screen.findByTestId('confirm-modal-confirm'))
     await waitFor(() => {
       expect(vi.mocked(api.put)).toHaveBeenCalledWith(
         '/settings',

@@ -2138,7 +2138,7 @@ export default function Settings() {
         </div>
         </div>
       </div>
+      <ConfirmModal {...confirmProps} />
     </div>
-    <ConfirmModal {...confirmProps} />
   );
 }
