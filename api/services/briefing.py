@@ -325,11 +325,11 @@ def _render_briefing_from_facts(facts: dict) -> str:
     closed = facts.get("closed_yesterday") or []
     if closed:
         if len(closed) == 1:
-            p1_parts.append(f"One task closed yesterday: {closed[0]}.")
+            p1_parts.append(f"One task closed yesterday: **{closed[0]}**.")
         else:
             shown = closed[:3]
             rest = len(closed) - len(shown)
-            title_list = ", ".join(shown)
+            title_list = ", ".join(f"**{t}**" for t in shown)
             if rest > 0:
                 p1_parts.append(
                     f"{len(closed)} tasks closed yesterday, including {title_list}, "
@@ -351,7 +351,7 @@ def _render_briefing_from_facts(facts: dict) -> str:
         count = top_compound["blocks_count"]
         task_word = "task" if count == 1 else "tasks"
         p2_parts.append(
-            f"The highest-leverage task is \"{top_compound['title']}\". "
+            f"The highest-leverage task is **{top_compound['title']}**. "
             f"Finishing it unblocks {count} other {task_word}."
         )
     elif priority_tasks:
@@ -363,7 +363,7 @@ def _render_briefing_from_facts(facts: dict) -> str:
             else f"open for {age} days"
         )
         p2_parts.append(
-            f"The top task to work on is \"{top['title']}\". "
+            f"The top task to work on is **{top['title']}**. "
             f"It is a {top['priority']} and has been {age_str}."
         )
     else:

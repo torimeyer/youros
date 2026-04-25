@@ -540,6 +540,62 @@ def test_briefing_renders_no_api_paths_or_urls():
             )
 
 
+def test_render_bolds_task_titles_in_briefing():
+    """Task titles in the briefing must be wrapped in markdown bold so
+    the frontend renderer (renderMarkdown) styles them as titles instead
+    of letting them blend into the surrounding sentence. The old
+    rendering used double-quotes around titles, which read as part of
+    the sentence. Tori asked for bold instead.
+    """
+    import services.briefing as bf
+
+    facts = {
+        "events": [],
+        "priority_tasks": [
+            {
+                "id": "1",
+                "title": "Wire OAuth refresh",
+                "priority": "P1",
+                "age_days": 3,
+                "unblocks": 0,
+            }
+        ],
+        "top_compound": None,
+        "closed_yesterday": [
+            "Ship onboarding wizard",
+            "Fix mailbox lock",
+            "Patch Stitch enums",
+        ],
+        "p0p1_count": 1,
+    }
+    text = bf._render_briefing_from_facts(facts)
+    # Top open task title is bolded.
+    assert "**Wire OAuth refresh**" in text
+    # Closed-yesterday titles are bolded individually.
+    assert "**Ship onboarding wizard**" in text
+    assert "**Fix mailbox lock**" in text
+    # Old quoted form must be gone.
+    assert '"Wire OAuth refresh"' not in text
+
+
+def test_render_bolds_compound_task_title_in_briefing():
+    """The highest-leverage (compound) line must also bold the task
+    title rather than wrap it in double-quotes.
+    """
+    import services.briefing as bf
+
+    facts = {
+        "events": [],
+        "priority_tasks": [],
+        "top_compound": {"title": "Refactor billing", "blocks_count": 4},
+        "closed_yesterday": [],
+        "p0p1_count": 0,
+    }
+    text = bf._render_briefing_from_facts(facts)
+    assert "**Refactor billing**" in text
+    assert '"Refactor billing"' not in text
+
+
 # ---------------------------------------------------------------------------
 # Active task filter (needle 280)
 # ---------------------------------------------------------------------------
