@@ -33,6 +33,7 @@ import AdminPolicies from './pages/admin/Policies'
 import AdminAuditTrail from './pages/admin/AuditTrail'
 import AdminSecurity from './pages/admin/Security'
 import InviteAccept from './pages/InviteAccept'
+import TeamStart from './pages/TeamStart'
 
 export default function App() {
   const hydrated = useAppStore((s) => s.hydrated)
@@ -133,6 +134,7 @@ export default function App() {
           </Route>
           {/* Backward compat: /team redirects to /admin */}
           <Route path="team" element={<Navigate to="/admin" replace />} />
+          <Route path="team-setup" element={<TeamStart />} />
           <Route path="adoption" element={<Adoption />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/upgrade" element={<Upgrade />} />
