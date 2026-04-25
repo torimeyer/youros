@@ -3,6 +3,8 @@ import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app'
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import { PageHeader } from '../components/ui';
+import ConfirmModal from '../components/ConfirmModal';
+import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 
@@ -104,6 +106,8 @@ export default function Settings() {
     greetingStyle, setGreetingStyle,
     showBudgetCaps, setShowBudgetCaps,
   } = useAppStore();
+
+  const { confirm, confirmProps } = useConfirm();
 
   const [selectedProvider, setSelectedProvider] = useState('Anthropic');
   // Chat backend preference: "auto" picks the subscription when ready,
@@ -477,9 +481,11 @@ export default function Settings() {
   const handleChangeFilesDir = async () => {
     const next = filesDirInput.trim();
     if (next === (currentFilesDir ?? '')) return;
-    const ok = window.confirm(
-      'Changing this will point torios at the new folder. Files in your current folder stay where they are. Continue?'
-    );
+    const ok = await confirm({
+      title: 'Change files folder?',
+      message: 'Changing this will point torios at the new folder. Files in your current folder stay where they are.',
+      confirmLabel: 'Continue',
+    });
     if (!ok) return;
     try {
       await api.put('/settings', { files_dir: next || null });
@@ -2133,5 +2139,6 @@ export default function Settings() {
         </div>
       </div>
     </div>
+    <ConfirmModal {...confirmProps} />
   );
 }
