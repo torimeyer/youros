@@ -2554,4 +2554,44 @@ describe('Tasks page - 2026-04-23 regression set', () => {
     selectOnlyStatus('closed')
     expect(screen.queryByText('Agent-backed open task')).not.toBeInTheDocument()
   })
+
+  describe('default sort: in-progress first, then newest', () => {
+    it('in-progress task renders before open task regardless of created_at order', async () => {
+      const tasks = [
+        { id: 'old1', title: 'Old open task', priority: 'P1', status: 'open', created_at: '2026-01-01T00:00:00Z', goal: null, label_ids: [] },
+        { id: 'new2', title: 'New in-progress task', priority: 'P1', status: 'open', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [] },
+      ]
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: 'new2' }] })
+        return Promise.resolve({})
+      })
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByTestId('task-in-progress-indicator-new2')).toBeInTheDocument()
+      })
+      const body = document.body.textContent || ''
+      expect(body.indexOf('New in-progress task')).toBeLessThan(body.indexOf('Old open task'))
+    })
+
+    it('two open tasks render in newest-first order', async () => {
+      const tasks = [
+        { id: 'older', title: 'Older open task', priority: 'P1', status: 'open', created_at: '2024-03-01T00:00:00Z', goal: null, label_ids: [] },
+        { id: 'newer', title: 'Newer open task', priority: 'P1', status: 'open', created_at: '2026-03-01T00:00:00Z', goal: null, label_ids: [] },
+      ]
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        if (path === '/agents') return Promise.resolve({ agents: [] })
+        return Promise.resolve({})
+      })
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Newer open task')).toBeInTheDocument()
+      })
+      const body = document.body.textContent || ''
+      expect(body.indexOf('Newer open task')).toBeLessThan(body.indexOf('Older open task'))
+    })
+  })
 })
