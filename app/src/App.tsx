@@ -104,6 +104,9 @@ export default function App() {
           <Route path="specs" element={<Specs />} />
           {/* Backward compat: /docs redirects to /specs after the rename. */}
           <Route path="docs" element={<DocsRedirect />} />
+          {/* Drive and Files merged into Documents. */}
+          <Route path="drive" element={<Navigate to="/documents?tab=drive" replace />} />
+          <Route path="files" element={<Navigate to="/documents?tab=uploads" replace />} />
           {/* /onboarding is not a real route: the wizard renders conditionally
               at the app root when onboarded=false. Redirect here so deep-links
               used in QA, support, and demos always land somewhere valid. */}
