@@ -127,6 +127,10 @@ describe('Sidebar', () => {
     const badge = screen.getByTestId('sidebar-mode-badge')
     expect(badge).toBeInTheDocument()
     expect(badge.textContent).toBe('Personal')
+    expect(badge.className).toMatch(/bg-slate-200/)
+    expect(badge.className).toMatch(/text-slate-700/)
+    expect(badge.className).toMatch(/dark:bg-slate-700\/60/)
+    expect(badge.className).toMatch(/dark:text-slate-400/)
   })
 
   it('renders Team badge in team mode', () => {
