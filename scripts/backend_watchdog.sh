@@ -39,6 +39,21 @@ BACKEND_PORT="${MYOS_WATCHDOG_BACKEND_PORT:-8000}"
 BACKEND_PIDFILE="/tmp/myos-backend-${BACKEND_PORT}.pid"
 LAUNCHER_LOCK="/tmp/myos-backend-launcher-${BACKEND_PORT}.lock"
 
+# Dedup guard: exit immediately if a live watchdog is already registered.
+# Multiple watchdog processes spawn when concurrent dev-backend.sh launchers
+# both pass the (previously racy) "is watchdog running?" check at the same
+# time.  Two watchdogs firing simultaneously both call restart_backend, which
+# runs dev-backend.sh twice, which races on the PIDFILE and port — one wins
+# the exec/port race, the other fails with EADDRINUSE, and the dead loser's
+# PID ends up in PIDFILE.  On the next reload the watchdog sees that stale PID
+# as dead, bypasses backend_pid_alive(), and kills the live uvicorn.
+if [ -f "$PIDFILE" ]; then
+    _existing_wd=$(cat "$PIDFILE" 2>/dev/null || true)
+    if [ -n "$_existing_wd" ] && [ "$_existing_wd" != "$$" ] && kill -0 "$_existing_wd" 2>/dev/null; then
+        echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] watchdog: duplicate start detected (pid $_existing_wd already running), exiting" >> "$LOGFILE"
+        exit 0
+    fi
+fi
 # Always keep the freshest pid in the pidfile, even when invoked directly.
 echo $$ > "$PIDFILE"
 

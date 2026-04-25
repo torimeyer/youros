@@ -48,7 +48,14 @@ fi
 # before giving up and exiting non-zero so the caller sees a clear message.
 acquire_launcher_lock() {
     local waited=0
-    while [ -f "$LAUNCHER_LOCK" ]; do
+    # Use set -o noclobber in a subshell so the shell opens the lock file with
+    # O_CREAT|O_EXCL — a single atomic syscall that fails if the file already
+    # exists. This closes the TOCTOU window in the old check-then-write pattern
+    # (two concurrent callers could both see "no lock file" and both proceed,
+    # with the last writer winning PIDFILE but the first exec winning the port,
+    # leaving PIDFILE pointing to the dead loser and corrupting the watchdog's
+    # backend_pid_alive check on the next reload).
+    while ! ( set -o noclobber; echo $$ > "$LAUNCHER_LOCK" ) 2>/dev/null; do
         local holder
         holder=$(cat "$LAUNCHER_LOCK" 2>/dev/null || true)
         if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
@@ -58,13 +65,11 @@ acquire_launcher_lock() {
             fi
             sleep 1
             waited=$((waited + 1))
-            continue
+        else
+            # Stale lock: the recorded pid is gone. Remove and retry.
+            rm -f "$LAUNCHER_LOCK" 2>/dev/null || true
         fi
-        # Stale lock: the recorded pid is gone. Reclaim it.
-        rm -f "$LAUNCHER_LOCK" 2>/dev/null || true
-        break
     done
-    echo $$ > "$LAUNCHER_LOCK"
     return 0
 }
 
