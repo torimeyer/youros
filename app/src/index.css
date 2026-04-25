@@ -125,6 +125,7 @@ body {
 [data-theme="light"] .bg-slate-800\/60 { background-color: rgba(226, 232, 240, 0.6); }
 [data-theme="light"] .bg-slate-700 { background-color: #e2e8f0; }
 [data-theme="light"] .bg-slate-700\/50 { background-color: rgba(226, 232, 240, 0.5); }
+[data-theme="light"] .bg-slate-700\/60 { background-color: rgba(226, 232, 240, 0.6); }
 [data-theme="light"] .bg-slate-500\/20 { background-color: rgba(100, 116, 139, 0.15); }
 
 /* Additional text overrides */
