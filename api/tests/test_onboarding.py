@@ -357,3 +357,77 @@ async def test_persist_tasks_skips_auto_labels_on_ostk_failure():
     assert mock_schedule.call_count == 1
     args, _ = mock_schedule.call_args_list[0]
     assert args == ("701", "task that succeeds", "")
+
+
+# --- POST /api/onboarding/intent ---
+
+@pytest.mark.asyncio
+async def test_intent_writing_returns_writing_starter_pack(client):
+    """Writing intent returns writer agent templates."""
+    resp = await client.post("/api/onboarding/intent", json={"intent": "writing"})
+    assert resp.status_code == 200
+    pack = resp.json()["starter_pack"]
+    assert len(pack) > 0
+    ids = [item["id"] for item in pack]
+    assert "builtin-writer-blog-post" in ids
+    assert "builtin-writer-proofreader" in ids
+    # Default-selected items are correctly flagged
+    defaults = [item for item in pack if item["default_selected"]]
+    assert len(defaults) > 0
+    # Each item has the required fields
+    for item in pack:
+        assert item["kind"] == "agent"
+        assert item["name"]
+        assert item["description"]
+
+
+@pytest.mark.asyncio
+async def test_intent_coding_returns_coding_starter_pack(client):
+    """Coding intent returns engineering agent templates."""
+    resp = await client.post("/api/onboarding/intent", json={"intent": "coding"})
+    assert resp.status_code == 200
+    pack = resp.json()["starter_pack"]
+    ids = [item["id"] for item in pack]
+    assert "builtin-builder" in ids
+    assert "builtin-diagnose" in ids
+    assert "builtin-eng-write-tests" in ids
+    # Builder and Diagnose should be default-selected
+    by_id = {item["id"]: item for item in pack}
+    assert by_id["builtin-builder"]["default_selected"] is True
+    assert by_id["builtin-diagnose"]["default_selected"] is True
+
+
+@pytest.mark.asyncio
+async def test_intent_work_role_includes_role_in_request(client):
+    """work_role intent with a role string still returns a valid pack."""
+    resp = await client.post("/api/onboarding/intent", json={
+        "intent": "work_role",
+        "role": "Product manager",
+    })
+    assert resp.status_code == 200
+    pack = resp.json()["starter_pack"]
+    assert len(pack) > 0
+    ids = [item["id"] for item in pack]
+    assert "builtin-pm-prd" in ids
+
+
+@pytest.mark.asyncio
+async def test_intent_invalid_returns_422(client):
+    """An unrecognised intent value should be rejected by Pydantic validation."""
+    resp = await client.post("/api/onboarding/intent", json={"intent": "gaming"})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_intent_endpoint_does_not_break_dream(client):
+    """The dream endpoint still works after the intent endpoint is added."""
+    with (
+        patch("routers.onboarding._resolve_api_key", return_value=""),
+        patch("routers.onboarding.ostk") as mock_ostk,
+    ):
+        from unittest.mock import AsyncMock
+        mock_ostk.add_task = AsyncMock(return_value="created t-1")
+        resp = await client.post("/api/onboarding/dream", json={"dreading": "do my taxes"})
+    assert resp.status_code == 200
+    assert "goal" in resp.json()
+    assert "tasks" in resp.json()
