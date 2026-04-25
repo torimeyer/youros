@@ -13,7 +13,7 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Instance', 'Profile', 'Intent', 'Theme', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Instance', 'Profile', 'Intent', 'FirstRuns', 'Theme', 'Connect', 'Ready'] as const
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
 
@@ -49,6 +49,7 @@ export default function OnboardingWizard() {
   const [detectedProvider, setDetectedProvider] = useState<string | null>(null)
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
   const [otherSelected, setOtherSelected] = useState(false)
+  const [wizardIntent, setWizardIntent] = useState<IntentId | null>(null)
 
   // Reset osName to empty on wizard mount so a new user always starts with
   // an empty "Name your OS" field. This prevents stale values from
@@ -97,12 +98,25 @@ export default function OnboardingWizard() {
   }
 
   const connectIdx = (STEPS as readonly string[]).indexOf('Connect')
+  const firstRunsIdx = (STEPS as readonly string[]).indexOf('FirstRuns')
   const next = () => setStepIndex((i) => {
-    const n = Math.min(i + 1, STEPS.length - 1)
-    if (detectedProvider !== null && n === connectIdx) return Math.min(n + 1, STEPS.length - 1)
+    let n = Math.min(i + 1, STEPS.length - 1)
+    if (detectedProvider !== null && n === connectIdx) n = Math.min(n + 1, STEPS.length - 1)
+    if (firstRunsIdx >= 0 && n === firstRunsIdx && !wizardIntent) n = Math.min(n + 1, STEPS.length - 1)
     return n
   })
-  const back = () => setStepIndex((i) => Math.max(i - 1, 0))
+  const back = () => setStepIndex((i) => {
+    const n = Math.max(i - 1, 0)
+    if (firstRunsIdx >= 0 && n === firstRunsIdx && !wizardIntent) return Math.max(n - 1, 0)
+    return n
+  })
+
+  const handleTryIt = (seed: string, kind: 'chat' | 'task') => {
+    if (kind === 'chat') {
+      localStorage.setItem('myos-onboarding-seed', seed)
+    }
+    finish()
+  }
 
   const handlePersonaPick = (category: MarketplaceCategory) => {
     setSelectedPersonaId(category.id)
@@ -418,6 +432,17 @@ export default function OnboardingWizard() {
               subtextCls={subtextCls}
               cardCls={cardCls}
               inputCls={inputCls}
+              selectedIntent={wizardIntent}
+              onIntentChange={setWizardIntent}
+            />
+          )}
+          {step === 'FirstRuns' && (
+            <FirstRunsStep
+              intent={wizardIntent}
+              onTryIt={handleTryIt}
+              effectiveDark={effectiveDark}
+              subtextCls={subtextCls}
+              cardCls={cardCls}
             />
           )}
           {step === 'Theme' && (
@@ -597,13 +622,16 @@ function IntentStep({
   subtextCls,
   cardCls,
   inputCls,
+  selectedIntent,
+  onIntentChange,
 }: {
   effectiveDark: boolean
   subtextCls: string
   cardCls: string
   inputCls: string
+  selectedIntent: IntentId | null
+  onIntentChange: (intent: IntentId) => void
 }) {
-  const [selectedIntent, setSelectedIntent] = useState<IntentId | null>(null)
   const [role, setRole] = useState('')
   const [starterPack, setStarterPack] = useState<StarterPackItem[]>([])
   const [checked, setChecked] = useState<Set<string>>(new Set())
@@ -625,7 +653,7 @@ function IntentStep({
   }
 
   const handleSelect = (intentId: IntentId) => {
-    setSelectedIntent(intentId)
+    onIntentChange(intentId)
     setStarterPack([])
     setChecked(new Set())
     if (intentId !== 'work_role') {
@@ -735,6 +763,70 @@ function IntentStep({
               </label>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+type FirstRunsHint = { label: string; seed: string; kind: 'chat' | 'task' }
+
+function FirstRunsStep({
+  intent,
+  onTryIt,
+  effectiveDark,
+  subtextCls,
+  cardCls,
+}: {
+  intent: IntentId | null
+  onTryIt: (seed: string, kind: 'chat' | 'task') => void
+  effectiveDark: boolean
+  subtextCls: string
+  cardCls: string
+}) {
+  const [hints, setHints] = useState<FirstRunsHint[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!intent) return
+    setLoading(true)
+    api.get<{ hints: FirstRunsHint[] }>(`/onboarding/first-runs?intent=${intent}`)
+      .then((data) => setHints(data.hints))
+      .catch(() => setHints([]))
+      .finally(() => setLoading(false))
+  }, [intent])
+
+  return (
+    <div data-testid="step-first-runs">
+      <h2 className="text-2xl font-bold mb-2">Try this first</h2>
+      <p className={`mb-5 ${subtextCls}`}>
+        Pick one to jump in. Or skip and explore on your own.
+      </p>
+      {loading && (
+        <p className={`text-sm ${subtextCls}`} data-testid="first-runs-loading">Loading...</p>
+      )}
+      {!loading && hints.length > 0 && (
+        <div className="space-y-3">
+          {hints.map((hint, i) => (
+            <div
+              key={i}
+              className={`flex items-center justify-between gap-4 px-4 py-3 rounded-xl border ${cardCls}`}
+              data-testid={`first-run-card-${i}`}
+            >
+              <span className="text-sm font-medium">{hint.label}</span>
+              <button
+                onClick={() => onTryIt(hint.seed, hint.kind)}
+                className={`shrink-0 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  effectiveDark
+                    ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                    : 'bg-blue-600 hover:bg-blue-500 text-white'
+                }`}
+                data-testid={`first-run-try-${i}`}
+              >
+                Try it
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>

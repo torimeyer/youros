@@ -477,6 +477,15 @@ export function ChatPanel() {
   }, [activeTabId])
 
   const [input, setInput] = useState('')
+
+  useEffect(() => {
+    const seed = localStorage.getItem('myos-onboarding-seed')
+    if (seed) {
+      setInput(seed)
+      localStorage.removeItem('myos-onboarding-seed')
+    }
+  }, [])
+
   const [isListening, setIsListening] = useState(false)
   const speechRecRef = useRef<SpeechRecognition | null>(null)
   const [speechSupported] = useState(() =>

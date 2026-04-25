@@ -114,8 +114,8 @@ describe('OnboardingWizard', () => {
   it('shows progress dots equal to the number of steps', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    // 10 steps: Fork, Welcome, You, Name, Instance, Profile, Intent, Theme, Connect, Ready
-    expect(dots.children).toHaveLength(10)
+    // 11 steps: Fork, Welcome, You, Name, Instance, Profile, Intent, FirstRuns, Theme, Connect, Ready
+    expect(dots.children).toHaveLength(11)
   })
 
   it('does not show Back button on Fork step', () => {
@@ -616,10 +616,10 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('other-role-input')).not.toBeInTheDocument()
   })
 
-  it('step count for personal mode is 10 (Intent step added)', () => {
+  it('step count for personal mode is 11 (FirstRuns step added after Intent)', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    expect(dots.children).toHaveLength(10)
+    expect(dots.children).toHaveLength(11)
   })
 })
 
@@ -946,8 +946,9 @@ describe('OnboardingWizard — Intent step (S1)', () => {
     expect(testsCheckbox.checked).toBe(false)
   })
 
-  it('clicking Continue on Intent step advances the wizard to Theme', async () => {
+  it('clicking Continue on Intent step advances to FirstRuns when an intent is selected', async () => {
     vi.mocked(api.post).mockResolvedValue({ starter_pack: [] })
+    vi.mocked(api.get).mockResolvedValue({ hints: [] })
 
     render(<OnboardingWizard />)
     navigateToIntent()
@@ -956,6 +957,82 @@ describe('OnboardingWizard — Intent step (S1)', () => {
     await waitFor(() => expect(vi.mocked(api.post)).toHaveBeenCalledWith('/onboarding/intent', { intent: 'writing' }))
 
     fireEvent.click(screen.getByTestId('next-button'))
+    expect(screen.getByTestId('step-first-runs')).toBeInTheDocument()
+  })
+
+  it('clicking Continue on Intent step skips FirstRuns and goes to Theme when no intent is selected', () => {
+    render(<OnboardingWizard />)
+    navigateToIntent()
+
+    // Click Next without picking an intent
+    fireEvent.click(screen.getByTestId('next-button'))
     expect(screen.getByTestId('step-theme')).toBeInTheDocument()
+  })
+
+  it('FirstRuns step shows Try it cards after fetching hints', async () => {
+    vi.mocked(api.post).mockResolvedValue({ starter_pack: [] })
+    vi.mocked(api.get).mockResolvedValue({
+      hints: [
+        { label: 'Draft a blog post', seed: 'Help me draft a blog post about ', kind: 'chat' },
+        { label: 'Polish a draft', seed: "Here's a draft I'd like help polishing: ", kind: 'chat' },
+        { label: 'Write three headlines', seed: 'Write me three headline options for: ', kind: 'chat' },
+      ],
+    })
+
+    render(<OnboardingWizard />)
+    navigateToIntent()
+
+    fireEvent.click(screen.getByTestId('intent-card-writing'))
+    fireEvent.click(screen.getByTestId('next-button'))
+
+    await waitFor(() => expect(screen.getByTestId('first-run-card-0')).toBeInTheDocument())
+    expect(screen.getByText('Draft a blog post')).toBeInTheDocument()
+    expect(screen.getByTestId('first-run-try-0')).toHaveTextContent('Try it')
+    expect(screen.getByTestId('first-run-card-2')).toBeInTheDocument()
+  })
+
+  it('Try it button sets onboarding-seed in localStorage and finishes onboarding', async () => {
+    vi.mocked(api.post).mockResolvedValue({ starter_pack: [] })
+    vi.mocked(api.patch).mockResolvedValue({})
+    vi.mocked(api.get).mockResolvedValue({
+      hints: [
+        { label: 'Draft a blog post', seed: 'Help me draft a blog post about ', kind: 'chat' },
+      ],
+    })
+
+    render(<OnboardingWizard />)
+    navigateToIntent()
+
+    fireEvent.click(screen.getByTestId('intent-card-writing'))
+    fireEvent.click(screen.getByTestId('next-button'))
+
+    await waitFor(() => expect(screen.getByTestId('first-run-try-0')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('first-run-try-0'))
+
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      'myos-onboarding-seed',
+      'Help me draft a blog post about ',
+    )
+    expect(useAppStore.getState().onboarded).toBe(true)
+  })
+
+  it('Skip on FirstRuns advances to Theme without seeding localStorage', async () => {
+    vi.mocked(api.post).mockResolvedValue({ starter_pack: [] })
+    vi.mocked(api.get).mockResolvedValue({ hints: [] })
+
+    render(<OnboardingWizard />)
+    navigateToIntent()
+
+    fireEvent.click(screen.getByTestId('intent-card-coding'))
+    fireEvent.click(screen.getByTestId('next-button'))
+
+    await waitFor(() => expect(screen.getByTestId('step-first-runs')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('skip-button'))
+
+    expect(screen.getByTestId('step-theme')).toBeInTheDocument()
+    expect(localStorageMock.setItem).not.toHaveBeenCalledWith(
+      'myos-onboarding-seed',
+      expect.any(String),
+    )
   })
 })

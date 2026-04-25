@@ -92,6 +92,47 @@ _INTENT_PACKS: dict[str, list[dict]] = {
 }
 
 
+# --- First-runs hints (static, keyed by intent) ---
+
+_FIRST_RUNS_HINTS: dict[str, list[dict]] = {
+    "writing": [
+        {"label": "Draft a blog post", "seed": "Help me draft a blog post about ", "kind": "chat"},
+        {"label": "Polish a draft", "seed": "Here's a draft I'd like help polishing: ", "kind": "chat"},
+        {"label": "Write three headlines", "seed": "Write me three headline options for: ", "kind": "chat"},
+    ],
+    "personal": [
+        {"label": "Plan today", "seed": "Help me plan my day. Here's what I need to get done: ", "kind": "chat"},
+        {"label": "Summarize an email", "seed": "Here's an email I need to summarize: ", "kind": "chat"},
+        {"label": "Set a reminder", "seed": "Remind me to ", "kind": "task"},
+    ],
+    "coding": [
+        {"label": "Refactor a function", "seed": "Help me refactor this function: ", "kind": "chat"},
+        {"label": "Diagnose a failing test", "seed": "Help me figure out why this test is failing: ", "kind": "chat"},
+        {"label": "Write a README section", "seed": "Write a README section for ", "kind": "chat"},
+    ],
+    "research": [
+        {"label": "Summarize a paper or article", "seed": "Summarize this for me: ", "kind": "chat"},
+        {"label": "Compare two things", "seed": "Compare these two for me: ", "kind": "chat"},
+        {"label": "Build a reading list", "seed": "Build a reading list on the topic of ", "kind": "chat"},
+    ],
+    "work_role": [
+        {"label": "Draft a status update", "seed": "Draft a status update for my team about ", "kind": "chat"},
+        {"label": "Prep for a meeting", "seed": "Help me prepare for a meeting about ", "kind": "chat"},
+        {"label": "Write a brief", "seed": "Write a brief for ", "kind": "chat"},
+    ],
+}
+
+
+class FirstRunsItem(BaseModel):
+    label: str
+    seed: str
+    kind: Literal["chat", "task"]
+
+
+class FirstRunsResponse(BaseModel):
+    hints: list[FirstRunsItem]
+
+
 # --- LLM prompt ---
 
 _SYSTEM_PROMPT = (
@@ -216,6 +257,13 @@ async def dream(body: DreamRequest):
 
     plan = await _call_llm(body.dreading, body.done_looks_like)
     return plan
+
+
+@router.get("/onboarding/first-runs", response_model=FirstRunsResponse)
+async def first_runs(intent: str = "writing"):
+    """Return 3 concrete starter actions tailored to the user's intent."""
+    raw = _FIRST_RUNS_HINTS.get(intent, _FIRST_RUNS_HINTS["writing"])
+    return FirstRunsResponse(hints=[FirstRunsItem(**h) for h in raw])
 
 
 @router.post("/onboarding/intent", response_model=IntentResponse)
