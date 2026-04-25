@@ -1016,6 +1016,12 @@ describe('OnboardingWizard — Intent step (S1)', () => {
     expect(useAppStore.getState().onboarded).toBe(true)
   })
 
+  it('Work in a role intent card shows description without em-dash', () => {
+    render(<OnboardingWizard />)
+    navigateToIntent()
+    expect(screen.getByText('PM, sales, ops: tools for your job')).toBeInTheDocument()
+  })
+
   it('Skip on FirstRuns advances to Theme without seeding localStorage', async () => {
     vi.mocked(api.post).mockResolvedValue({ starter_pack: [] })
     vi.mocked(api.get).mockResolvedValue({ hints: [] })

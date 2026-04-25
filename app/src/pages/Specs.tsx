@@ -1281,7 +1281,7 @@ export default function Specs() {
                                   disabled={loading || buildingSpec === doc.path || allClosed}
                                   className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                                   data-testid="build-button"
-                                  title={allClosed ? "Every task is already closed — the plan is done." : "Turns this plan into tasks and starts a builder agent for each one."}
+                                  title={allClosed ? "Every task is already closed. The plan is done." : "Turns this plan into tasks and starts a builder agent for each one."}
                                 >
                                   <Icon name="rocket_launch" size={16} />
                                   {buildingSpec === doc.path ? "Building..." : "Build it"}
