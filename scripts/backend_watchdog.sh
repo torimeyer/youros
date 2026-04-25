@@ -38,6 +38,12 @@ MAX_RESTARTS="${MYOS_WATCHDOG_MAX_RESTARTS:-50}"
 BACKEND_PORT="${MYOS_WATCHDOG_BACKEND_PORT:-8000}"
 BACKEND_PIDFILE="/tmp/myos-backend-${BACKEND_PORT}.pid"
 LAUNCHER_LOCK="/tmp/myos-backend-launcher-${BACKEND_PORT}.lock"
+# Serialises concurrent restart_backend calls across watchdog instances.
+# Two simultaneous watchdogs both seeing a dead PID can both pass the
+# backend_pid_alive check and both spawn dev-backend.sh — the second then
+# kills the uvicorn the first just started (kill-and-replace) and starts
+# its own, producing a double-bind on port 8000 via macOS SO_REUSEPORT.
+RESTART_LOCK="/tmp/myos-backend-restart.lock"
 
 # Dedup guard: exit immediately if a live watchdog is already registered.
 # Multiple watchdog processes spawn when concurrent dev-backend.sh launchers
@@ -58,7 +64,19 @@ fi
 echo $$ > "$PIDFILE"
 
 cleanup() {
-    rm -f "$PIDFILE" 2>/dev/null || true
+    # Only remove files we own. Unconditional removal deletes a successor
+    # watchdog's PID record if this watchdog exits after a newer one has
+    # already overwritten the file — leaving the successor orphaned and
+    # invisible to the next dev-backend.sh check, which then starts a
+    # third watchdog. That third watchdog races with the second on the
+    # next backend crash, causing a concurrent double-spawn of dev-backend.sh
+    # and the SO_REUSEPORT double-bind seen in →942.
+    if [ -f "$PIDFILE" ] && [ "$(cat "$PIDFILE" 2>/dev/null || true)" = "$$" ]; then
+        rm -f "$PIDFILE" 2>/dev/null || true
+    fi
+    if [ -f "$RESTART_LOCK" ] && [ "$(cat "$RESTART_LOCK" 2>/dev/null || true)" = "$$" ]; then
+        rm -f "$RESTART_LOCK" 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT INT TERM
 
@@ -115,13 +133,42 @@ restart_backend() {
         log "INFO health probe failed but backend pid ($(cat "$BACKEND_PIDFILE" 2>/dev/null)) still alive; skipping restart"
         return 0
     fi
+    # Acquire restart lock atomically before spawning. When two watchdog
+    # instances run simultaneously both can pass backend_pid_alive (both
+    # read the same stale dead PID) and launcher_lock_held (neither has
+    # started yet) and both spawn dev-backend.sh. The second dev-backend.sh
+    # then kills the uvicorn the first just started (kill-and-replace),
+    # briefly dropping the backend again — which re-triggers both watchdogs
+    # and creates the 50-restart cascade seen in →942.
+    if ! ( set -o noclobber; echo $$ > "$RESTART_LOCK" ) 2>/dev/null; then
+        _rl_holder=$(cat "$RESTART_LOCK" 2>/dev/null || true)
+        if [ -n "$_rl_holder" ] && kill -0 "$_rl_holder" 2>/dev/null; then
+            log "INFO another watchdog ($_rl_holder) is already restarting; skipping duplicate restart"
+            return 0
+        fi
+        # Stale lock: holder is dead. Remove and retry once.
+        rm -f "$RESTART_LOCK" 2>/dev/null || true
+        if ! ( set -o noclobber; echo $$ > "$RESTART_LOCK" ) 2>/dev/null; then
+            log "INFO restart lock contested; skipping restart"
+            return 0
+        fi
+    fi
+    # Re-check after acquiring the lock: another watchdog may have already
+    # restarted the backend while we were spinning.
+    if backend_pid_alive; then
+        rm -f "$RESTART_LOCK" 2>/dev/null || true
+        log "INFO backend recovered while acquiring restart lock; skipping restart"
+        return 0
+    fi
     if launcher_lock_held; then
+        rm -f "$RESTART_LOCK" 2>/dev/null || true
         log "INFO dev-backend.sh launcher lock held by pid $(cat "$LAUNCHER_LOCK" 2>/dev/null); skipping restart"
         return 0
     fi
     log "WARNING backend unreachable and pid dead, restarting via $DEV_BACKEND"
     if [ ! -x "$DEV_BACKEND" ]; then
         log "ERROR dev-backend.sh not executable at $DEV_BACKEND, cannot restart"
+        rm -f "$RESTART_LOCK" 2>/dev/null || true
         return 1
     fi
     # Launch the backend detached so this watchdog stays parent of nothing
@@ -131,6 +178,16 @@ restart_backend() {
     # any concurrent manual run.
     MYOS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" >> /tmp/dev-backend.log 2>&1 &
     log "INFO restart launched, dev-backend.sh pid=$!"
+    # Hold the restart lock until uvicorn has had time to bind (up to 15 s).
+    # This blocks a concurrent second watchdog from spawning its own
+    # dev-backend.sh before the first uvicorn is visible on the port, which
+    # would otherwise trigger a second kill-and-replace and a double-bind.
+    _rw=0
+    while [ "$_rw" -lt 15 ] && ! probe_once; do
+        sleep 1
+        _rw=$((_rw + 1))
+    done
+    rm -f "$RESTART_LOCK" 2>/dev/null || true
 }
 
 restarts=0
