@@ -765,3 +765,74 @@ class TestStreamChat:
         errors = websocket.of_type("error")
         assert len(errors) == 1
         assert "set up" in errors[0]["data"].lower() or "subscription" in errors[0]["data"].lower()
+
+
+class TestSubprocessCwd:
+    """Verify the chat subprocess runs from the repo root.
+
+    Root cause regression: dev-backend.sh does `cd api/` before exec'ing
+    uvicorn, so the subprocess CWD was api/. Claude Code couldn't find
+    .claude/settings.json (PreToolUse hooks including ostk-first.sh) or
+    .mcp.json (ostk MCP server) directly in that directory, so hooks
+    never fired and the model used native Grep/Read instead of ostk tools.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_passes_repo_root_as_cwd(self):
+        """stream_chat must pass cwd=_REPO_ROOT to create_subprocess_exec."""
+        from services.claude_code_provider import _REPO_ROOT
+
+        captured: dict = {}
+
+        async def fake_create(*args, **kwargs):
+            captured["cwd"] = kwargs.get("cwd")
+            raise OSError("test sentinel — not a real error")
+
+        websocket = FakeWebSocket()
+        with patch(
+            "services.claude_code_provider._find_claude_binary",
+            return_value="/usr/local/bin/claude",
+        ), patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=fake_create,
+        ):
+            await stream_chat(
+                [{"role": "user", "content": "hi"}],
+                websocket,
+                system_prompt=None,
+            )
+
+        assert captured.get("cwd") == str(_REPO_ROOT), (
+            f"stream_chat must pass cwd=str(_REPO_ROOT) to create_subprocess_exec "
+            f"so Claude Code finds .claude/settings.json (hooks) and .mcp.json "
+            f"(ostk MCP). Got: {captured.get('cwd')!r}"
+        )
+
+    def test_repo_root_has_claude_settings(self):
+        """_REPO_ROOT must point to the directory that contains .claude/settings.json."""
+        from services.claude_code_provider import _REPO_ROOT
+
+        settings_path = _REPO_ROOT / ".claude" / "settings.json"
+        assert settings_path.exists(), (
+            f"_REPO_ROOT={_REPO_ROOT} does not contain .claude/settings.json — "
+            "the subprocess CWD fix is pointing at the wrong directory."
+        )
+
+
+class TestSystemPromptOstkTools:
+    """Verify the system prompt names mcp__ostk__* tools explicitly.
+
+    Root cause regression: the old prompt said 'use ~/.local/bin/ostk search'
+    (CLI syntax via Bash), which the model ignored in favour of native Grep/Read.
+    The prompt must now reference the MCP tool names directly.
+    """
+
+    def test_system_prompt_references_mcp_ostk_tools(self):
+        from services.chat_providers import _system_prompt
+
+        prompt = _system_prompt()
+        for tool in ("mcp__ostk__search", "mcp__ostk__fs_read", "mcp__ostk__bash"):
+            assert tool in prompt, (
+                f"System prompt must name {tool} explicitly so the Claude Code "
+                "subprocess uses ostk MCP tools instead of native Grep/Read/Bash."
+            )

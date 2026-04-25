@@ -28,7 +28,15 @@ import json
 import logging
 import shutil
 import time
+from pathlib import Path
 from typing import Any, Optional
+
+# Repo root — two parents up from api/services/claude_code_provider.py.
+# Passed as cwd to every claude subprocess so the Claude Code CLI finds
+# .claude/settings.json (with PreToolUse hooks) and .mcp.json (with the
+# ostk MCP server) at the project root rather than inheriting the
+# uvicorn worker's api/ directory where neither file exists directly.
+_REPO_ROOT: Path = Path(__file__).parent.parent.parent
 
 from fastapi import WebSocket
 
@@ -218,6 +226,7 @@ async def prewarm_cli() -> None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            cwd=str(_REPO_ROOT),
             limit=1024 * 1024,
         )
         # Drain stdout so the pipe does not fill up while we wait.
@@ -616,6 +625,15 @@ async def stream_chat(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            # Run from the repo root so the Claude Code CLI picks up
+            # .claude/settings.json (PreToolUse hooks including
+            # ostk-first.sh) and .mcp.json (ostk MCP server) from
+            # the project root. Without this the CWD is the api/
+            # directory inherited from uvicorn and neither file is
+            # found directly, so hooks never fire and ostk MCP tools
+            # are unavailable, causing the model to fall back to
+            # native Grep/Read.
+            cwd=str(_REPO_ROOT),
             # A single Claude Code stream event (e.g. a tool_result
             # containing a large Read or Grep output) can be much
             # larger than asyncio's default 64 KiB StreamReader limit.
