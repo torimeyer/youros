@@ -1323,6 +1323,9 @@ export default function Tasks() {
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       }
       if (sortBy === "date-desc") {
+        const aRun = runningAgentTaskIds.has(a.id);
+        const bRun = runningAgentTaskIds.has(b.id);
+        if (aRun !== bRun) return aRun ? -1 : 1;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       }
       if (sortBy === "status") {
