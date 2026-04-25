@@ -1448,6 +1448,87 @@ _recover_stale_agents()
 if _recover_bulk_cancelled_agents():
     _save_agent_state()
 
+# ---------------------------------------------------------------------------
+# Spawn-lock TTL sweep
+# ---------------------------------------------------------------------------
+
+import fnmatch as _fnmatch
+import os as _os
+
+_LOCK_SWEEP_TERMINAL_STATUSES = frozenset({
+    "completed", "failed", "cancelled", "terminated_stale", "timeout",
+    "abandoned", "stopped", "killed",
+})
+
+MYOS_LOCK_SWEEP_INTERVAL_S = int(
+    _os.environ.get("MYOS_LOCK_SWEEP_INTERVAL_S", "300")
+)
+
+
+def _sweep_stale_locks_once() -> int:
+    """Release spawn locks whose owning agent has reached a terminal status or gone missing.
+
+    Returns the count of locks released. Safe to call from tests directly.
+    Sweep never releases locks for agents in running/pending/spawned status.
+    """
+    from services.spawn_isolation import (
+        _spawn_lock_holders,
+        _spawn_lock_mutex,
+        release_spawn_locks as _release_spawn_locks,
+    )
+
+    now = time.time()
+    with _spawn_lock_mutex:
+        snapshot = list(_spawn_lock_holders.items())
+
+    released_count = 0
+    for key, entry in snapshot:
+        spawn_id, raw_glob, acquired_epoch = entry
+        meta = agent_metadata.get(spawn_id)
+        status = meta.get("status") if meta else None
+
+        if status in ("running", "pending", "spawned"):
+            continue
+
+        age = now - acquired_epoch
+        should_release = False
+
+        if meta is None:
+            should_release = True
+        elif status in _LOCK_SWEEP_TERMINAL_STATUSES:
+            should_release = True
+        else:
+            budget = float(meta.get("budget", "2.0") or "2.0")
+            ttl = max(budget * 3600, 1800.0)
+            if age > ttl:
+                should_release = True
+
+        if should_release:
+            released = _release_spawn_locks(spawn_id=spawn_id)
+            for _ in released:
+                logger.info(
+                    "swept stale lock: spawn=%s path=%s age=%ds",
+                    spawn_id, raw_glob, int(age),
+                )
+                released_count += 1
+
+    return released_count
+
+
+async def _spawn_lock_sweep_loop() -> None:
+    await asyncio.sleep(30)
+    while True:
+        try:
+            _sweep_stale_locks_once()
+        except Exception:
+            pass
+        await asyncio.sleep(MYOS_LOCK_SWEEP_INTERVAL_S)
+
+
+async def schedule_spawn_lock_sweep() -> None:
+    asyncio.create_task(_spawn_lock_sweep_loop())
+
+
 # Persistent file for learned agent durations
 DURATION_STATS_PATH = OSTK_DIR / "agent_durations.json"
 
@@ -6841,6 +6922,48 @@ async def get_context_pressure(name: str):
 async def list_locks():
     """List all active coordination locks."""
     locks = await ostk.list_locks()
+    return {"locks": locks}
+
+
+@router.get("/agents/spawn-locks")
+async def get_spawn_locks(paths: Optional[str] = Query(default=None)):
+    """List active spawn path-locks, optionally filtered to entries overlapping given paths.
+
+    Query param ``paths`` is a comma-separated list of path strings. When provided,
+    only locks whose recorded glob overlaps (prefix, exact, or fnmatch) at least one
+    of the given paths are returned.
+    """
+    from services.spawn_isolation import _spawn_lock_holders, _spawn_lock_mutex
+
+    with _spawn_lock_mutex:
+        snapshot = list(_spawn_lock_holders.items())
+
+    now = time.time()
+    path_list = [p.strip() for p in paths.split(",")] if paths else None
+
+    locks = []
+    for _key, entry in snapshot:
+        spawn_id, raw_glob, acquired_epoch = entry
+        if path_list is not None:
+            matched = any(
+                raw_glob == p
+                or raw_glob.startswith(p)
+                or p.startswith(raw_glob)
+                or _fnmatch.fnmatch(p, raw_glob)
+                or _fnmatch.fnmatch(raw_glob, p)
+                for p in path_list
+            )
+            if not matched:
+                continue
+        age = int(now - acquired_epoch)
+        acquired_at = datetime.fromtimestamp(acquired_epoch, tz=timezone.utc).isoformat()
+        locks.append({
+            "spawn": spawn_id,
+            "path": raw_glob,
+            "acquired_at": acquired_at,
+            "age_seconds": age,
+        })
+
     return {"locks": locks}
 
 

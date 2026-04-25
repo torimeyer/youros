@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI):
     await backfill_chat_ack_bots()
     await sweep_stale_backend_sessions()
     await schedule_agent_reconciliation()
+    await agents.schedule_spawn_lock_sweep()
     await schedule_recurring_task_spawner()
     await schedule_test_artifact_sweep()
     await schedule_test_artifact_spec_sweep()
