@@ -93,12 +93,28 @@ export default function Adoption() {
         ) : (
           <div
             data-testid="empty-state"
-            className="bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-5 text-center"
+            className="space-y-2"
           >
-            <p className="text-sm text-slate-400">No activity yet this week.</p>
-            <p className="text-xs text-slate-500 mt-1">
-              Try a skill from the Agents page to get started.
-            </p>
+            {[
+              { id: 'builtin-builder', name: 'Builder', icon: 'engineering', desc: 'Build something new' },
+              { id: 'builtin-brainstorm', name: 'Brainstorm', icon: 'lightbulb', desc: 'Explore ideas and approaches' },
+              { id: 'builtin-research', name: 'Research', icon: 'search', desc: 'Look into a topic or question' },
+            ].map((card) => (
+              <button
+                key={card.id}
+                type="button"
+                data-testid="starter-card"
+                aria-label={`Start a ${card.name} agent`}
+                onClick={() => navigate(`/agents?template=${card.id}`)}
+                className="w-full text-left flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-3 hover:bg-slate-800/60 hover:border-slate-600/60 transition-colors cursor-pointer"
+              >
+                <Icon name={card.icon} className="text-sky-400 text-lg mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-slate-100">{card.name}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{card.desc}</p>
+                </div>
+              </button>
+            ))}
           </div>
         )}
       </section>
