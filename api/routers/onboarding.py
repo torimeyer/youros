@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 import anthropic
 from fastapi import APIRouter, HTTPException
@@ -35,6 +35,61 @@ class GoalItem(BaseModel):
 class DreamResponse(BaseModel):
     goal: GoalItem
     tasks: list[TaskItem]
+
+
+class StarterPackItem(BaseModel):
+    kind: Literal["skill", "agent"]
+    id: str
+    name: str
+    description: str
+    default_selected: bool
+
+
+class IntentRequest(BaseModel):
+    intent: Literal["writing", "personal", "coding", "research", "work_role"]
+    role: Optional[str] = None
+
+
+class IntentResponse(BaseModel):
+    starter_pack: list[StarterPackItem]
+
+
+# --- Intent → starter pack mapping ---
+
+_INTENT_PACKS: dict[str, list[dict]] = {
+    "writing": [
+        {"id": "builtin-writer-blog-post", "default_selected": True},
+        {"id": "builtin-writer-social-post", "default_selected": True},
+        {"id": "builtin-writer-proofreader", "default_selected": True},
+        {"id": "builtin-writer-headlines", "default_selected": False},
+        {"id": "builtin-research", "default_selected": False},
+    ],
+    "personal": [
+        {"id": "builtin-home-meal-planner", "default_selected": True},
+        {"id": "builtin-home-trip-planner", "default_selected": True},
+        {"id": "builtin-home-gift-finder", "default_selected": True},
+        {"id": "builtin-home-grocery-list", "default_selected": False},
+    ],
+    "coding": [
+        {"id": "builtin-builder", "default_selected": True},
+        {"id": "builtin-diagnose", "default_selected": True},
+        {"id": "builtin-eng-write-tests", "default_selected": True},
+        {"id": "builtin-eng-bug-finder", "default_selected": False},
+        {"id": "builtin-eng-debug-helper", "default_selected": False},
+    ],
+    "research": [
+        {"id": "builtin-research", "default_selected": True},
+        {"id": "builtin-explain-plain", "default_selected": True},
+        {"id": "builtin-student-concept-explainer", "default_selected": True},
+        {"id": "builtin-student-study-guide", "default_selected": False},
+    ],
+    "work_role": [
+        {"id": "builtin-pm-prd", "default_selected": True},
+        {"id": "builtin-pm-competitive-scan", "default_selected": True},
+        {"id": "builtin-pm-roadmap", "default_selected": True},
+        {"id": "builtin-pm-stakeholder-update", "default_selected": False},
+    ],
+}
 
 
 # --- LLM prompt ---
@@ -155,9 +210,33 @@ async def _persist_tasks(plan: DreamResponse) -> None:
 
 @router.post("/onboarding/dream", response_model=DreamResponse)
 async def dream(body: DreamRequest):
-    """Turn something you have been dreading into a goal with tasks."""
+    # Deprecated: use /onboarding/intent instead. Kept so existing flows don't break.
     if not body.dreading.strip():
         raise HTTPException(status_code=422, detail="Please describe what you have been putting off.")
 
     plan = await _call_llm(body.dreading, body.done_looks_like)
     return plan
+
+
+@router.post("/onboarding/intent", response_model=IntentResponse)
+async def intent(body: IntentRequest):
+    """Return a tailored starter pack of agents based on the user's intended use case."""
+    from services.agent_templates_store import BUILTIN_AGENT_TEMPLATES
+
+    by_id = {t["id"]: t for t in BUILTIN_AGENT_TEMPLATES}
+    pack_spec = _INTENT_PACKS.get(body.intent, [])
+
+    items = []
+    for spec in pack_spec:
+        tpl = by_id.get(spec["id"])
+        if tpl is None:
+            continue
+        items.append(StarterPackItem(
+            kind="agent",
+            id=tpl["id"],
+            name=tpl["name"],
+            description=tpl["description"],
+            default_selected=spec["default_selected"],
+        ))
+
+    return IntentResponse(starter_pack=items)

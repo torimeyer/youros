@@ -13,7 +13,7 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Instance', 'Profile', 'Theme', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Instance', 'Profile', 'Intent', 'Theme', 'Connect', 'Ready'] as const
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
 
@@ -412,6 +412,14 @@ export default function OnboardingWizard() {
               </div>
             </div>
           )}
+          {step === 'Intent' && (
+            <IntentStep
+              effectiveDark={effectiveDark}
+              subtextCls={subtextCls}
+              cardCls={cardCls}
+              inputCls={inputCls}
+            />
+          )}
           {step === 'Theme' && (
             <ThemeStep darkMode={pickedDark} onChoose={handleDarkModeChoice} subtextCls={subtextCls} />
           )}
@@ -562,6 +570,173 @@ function ForkStep({
           </div>
         </button>
       </div>
+    </div>
+  )
+}
+
+type StarterPackItem = {
+  kind: 'skill' | 'agent'
+  id: string
+  name: string
+  description: string
+  default_selected: boolean
+}
+
+type IntentId = 'writing' | 'personal' | 'coding' | 'research' | 'work_role'
+
+const INTENT_OPTIONS: { id: IntentId; label: string; description: string; icon: string }[] = [
+  { id: 'writing', label: 'Writing', description: 'Drafts, edits, blog posts, social copy', icon: 'edit_note' },
+  { id: 'personal', label: 'Personal tasks', description: 'Meal planning, travel, home, life admin', icon: 'home' },
+  { id: 'coding', label: 'Coding', description: 'Build features, fix bugs, write tests', icon: 'code' },
+  { id: 'research', label: 'Research', description: 'Find information, summarize, explain topics', icon: 'search' },
+  { id: 'work_role', label: 'Work in a role', description: 'PM, sales, ops — tools for your job', icon: 'work' },
+]
+
+function IntentStep({
+  effectiveDark,
+  subtextCls,
+  cardCls,
+  inputCls,
+}: {
+  effectiveDark: boolean
+  subtextCls: string
+  cardCls: string
+  inputCls: string
+}) {
+  const [selectedIntent, setSelectedIntent] = useState<IntentId | null>(null)
+  const [role, setRole] = useState('')
+  const [starterPack, setStarterPack] = useState<StarterPackItem[]>([])
+  const [checked, setChecked] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(false)
+
+  const fetchPack = async (intentId: IntentId, roleVal?: string) => {
+    setLoading(true)
+    try {
+      const body: Record<string, string> = { intent: intentId }
+      if (roleVal) body.role = roleVal
+      const resp = await api.post<{ starter_pack: StarterPackItem[] }>('/onboarding/intent', body)
+      setStarterPack(resp.starter_pack)
+      setChecked(new Set(resp.starter_pack.filter((i) => i.default_selected).map((i) => i.id)))
+    } catch {
+      setStarterPack([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSelect = (intentId: IntentId) => {
+    setSelectedIntent(intentId)
+    setStarterPack([])
+    setChecked(new Set())
+    if (intentId !== 'work_role') {
+      fetchPack(intentId)
+    }
+  }
+
+  const handleWorkRoleSubmit = () => {
+    fetchPack('work_role', role)
+  }
+
+  const toggleItem = (id: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <div data-testid="step-intent">
+      <h2 className="text-2xl font-bold mb-2">What do you want to use AI for?</h2>
+      <p className={`mb-5 ${subtextCls}`}>
+        Pick the best fit. You will get a starter set of tools built for it.
+      </p>
+      <div className="space-y-2">
+        {INTENT_OPTIONS.map((opt) => {
+          const isPicked = selectedIntent === opt.id
+          return (
+            <button
+              key={opt.id}
+              onClick={() => handleSelect(opt.id)}
+              data-testid={`intent-card-${opt.id}`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors ${
+                isPicked
+                  ? 'bg-blue-500/20 border-blue-500'
+                  : `${cardCls} ${effectiveDark ? 'hover:border-slate-600' : 'hover:border-gray-400'}`
+              }`}
+            >
+              <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
+                isPicked ? 'bg-blue-500/30 text-blue-300' : effectiveDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
+              }`}>
+                <Icon name={opt.icon} size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">{opt.label}</p>
+                <p className={`text-xs ${subtextCls}`}>{opt.description}</p>
+              </div>
+              {isPicked && <Icon name="check_circle" className="text-blue-400 shrink-0" size={16} />}
+            </button>
+          )
+        })}
+      </div>
+
+      {selectedIntent === 'work_role' && (
+        <div className="mt-3 flex gap-2">
+          <input
+            type="text"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleWorkRoleSubmit() }}
+            placeholder="e.g. Product manager, Sales rep, Operations lead"
+            data-testid="work-role-input"
+            className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+            autoFocus
+          />
+          <button
+            onClick={handleWorkRoleSubmit}
+            className="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
+            data-testid="work-role-submit"
+          >
+            Load tools
+          </button>
+        </div>
+      )}
+
+      {loading && (
+        <p className={`mt-4 text-sm ${subtextCls}`} data-testid="pack-loading">Loading your starter tools...</p>
+      )}
+
+      {!loading && starterPack.length > 0 && (
+        <div className="mt-4">
+          <p className={`text-sm font-medium mb-2 ${subtextCls}`}>Your starter tools — uncheck anything you don't want:</p>
+          <div className="space-y-1.5">
+            {starterPack.map((item) => (
+              <label
+                key={item.id}
+                className={`flex items-start gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+                  checked.has(item.id)
+                    ? 'bg-blue-500/10 border-blue-500/50'
+                    : cardCls
+                }`}
+                data-testid={`pack-item-${item.id}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked.has(item.id)}
+                  onChange={() => toggleItem(item.id)}
+                  className="mt-0.5 shrink-0"
+                  data-testid={`pack-checkbox-${item.id}`}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{item.name}</p>
+                  <p className={`text-xs ${subtextCls}`}>{item.description}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
