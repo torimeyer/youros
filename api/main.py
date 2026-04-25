@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
     await sweep_stale_backend_sessions()
     await schedule_agent_reconciliation()
     await agents.schedule_spawn_lock_sweep()
+    await schedule_worktree_reaper()
     await schedule_recurring_task_spawner()
     await schedule_test_artifact_sweep()
     await schedule_test_artifact_spec_sweep()
@@ -451,6 +452,22 @@ async def schedule_ghost_spawn_reaper():
 
     from services.ghost_reaper import run_forever
 
+    asyncio.create_task(run_forever())
+
+
+async def schedule_worktree_reaper():
+    """Start the worktree + agent-row reaper loop (runs every 15 min, R5).
+
+    Skip scheduling when MYOS_REAPER_ENABLED=0 (e.g. CI envs without a
+    real git worktree layout).
+    """
+    import asyncio
+    import os
+
+    if os.environ.get("MYOS_REAPER_ENABLED") == "0":
+        return
+
+    from services.worktree_reaper import run_forever
     asyncio.create_task(run_forever())
 
 
