@@ -636,7 +636,7 @@ export default function Tasks() {
     // stick around; we only add the missing pill.
     if (match.status === "closed") {
       setSelectedStatuses(new Set<StatusPill>(["closed"]));
-    } else if (match.status === "in_progress" || runningAgentTaskIds.has(match.id)) {
+    } else if (runningAgentTaskIds.has(match.id)) {
       setSelectedStatuses((prev) =>
         prev.has("in_progress") ? prev : new Set([...prev, "in_progress"])
       );
@@ -1282,8 +1282,6 @@ export default function Tasks() {
         ? "in_progress"
         : t.status === "closed"
         ? "closed"
-        : t.status === "in_progress"
-        ? "in_progress"
         : "open";
       return selectedStatuses.has(effective);
     });
@@ -1346,11 +1344,10 @@ export default function Tasks() {
   const openCount = tasks.filter(
     (t) =>
       isActiveTask(t) &&
-      t.status !== "in_progress" &&
       !runningAgentTaskIds.has(t.id)
   ).length;
   const inProgressCount = tasks.filter(
-    (t) => t.status === "in_progress" || runningAgentTaskIds.has(t.id)
+    (t) => runningAgentTaskIds.has(t.id)
   ).length;
   const closedCount = tasks.filter((t) => t.status === "closed").length;
   const filterCounts: Partial<Record<StatusPill, number>> = {
