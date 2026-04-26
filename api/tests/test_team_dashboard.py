@@ -86,6 +86,50 @@ async def test_dashboard_returns_members_and_spend(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_unknown_user_events_excluded_from_spend(client, tmp_path):
+    """Audit events with no user field are not surfaced as 'unknown' rows."""
+    ent_path = _setup_org(tmp_path)
+
+    ostk_dir = tmp_path / ".ostk"
+    ostk_dir.mkdir(exist_ok=True)
+    audit_path = ostk_dir / "audit.jsonl"
+    audit_path.write_text(
+        # One event with no user field (pre-onboarding / local session)
+        json.dumps({
+            "event": "agent.spawned",
+            "budget": 99.0,
+            "ts": "2025-01-01T00:00:00Z",
+        }) + "\n" +
+        # One event with a real user
+        json.dumps({
+            "event": "agent.spawned",
+            "user": "admin@acme.com",
+            "budget": 1.0,
+            "ts": "2025-01-01T01:00:00Z",
+        }) + "\n"
+    )
+
+    session = _make_session_cookie("admin@acme.com", "admin")
+
+    with (
+        patch("services.enterprise_store.ENTERPRISE_PATH", ent_path),
+        patch("services.enterprise_store.MYOS_DIR", tmp_path),
+        patch("routers.costs.AUDIT_PATH", audit_path),
+    ):
+        resp = await client.get(
+            "/api/team/dashboard",
+            cookies={"myos_session": session},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    emails = [s["email"] for s in data["spend_by_user"]]
+    assert "unknown" not in emails
+    assert len(data["spend_by_user"]) == 1
+    assert data["spend_by_user"][0]["email"] == "admin@acme.com"
+
+
+@pytest.mark.asyncio
 async def test_dashboard_solo_mode_works(client, tmp_path):
     """Solo mode (no enterprise) returns empty data, not an error."""
     ent_path = tmp_path / "enterprise.json"

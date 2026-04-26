@@ -92,7 +92,7 @@ export default function AdminOverview() {
   return (
     <div className="space-y-6">
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className={cardCls}>
           <p className={`text-xs uppercase font-semibold mb-1 ${labelCls}`}>Team members</p>
           <p className={`text-2xl font-bold ${valueCls}`}>{data.total_members}</p>
@@ -104,12 +104,6 @@ export default function AdminOverview() {
         <div className={cardCls}>
           <p className={`text-xs uppercase font-semibold mb-1 ${labelCls}`}>Pending invites</p>
           <p className={`text-2xl font-bold ${valueCls}`}>{data.pending_invites?.length ?? 0}</p>
-        </div>
-        <div className={cardCls}>
-          <p className={`text-xs uppercase font-semibold mb-1 ${labelCls}`}>Total spend</p>
-          <p className={`text-2xl font-bold ${valueCls}`}>
-            ${data.spend_by_user.reduce((sum, s) => sum + s.total_budget, 0).toFixed(2)}
-          </p>
         </div>
       </div>
 

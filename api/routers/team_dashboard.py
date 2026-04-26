@@ -44,7 +44,10 @@ async def team_dashboard(request: Request):
 
     spend_by_user: dict[str, dict] = {}
     for ev in events:
-        user_email = ev.get("user", "unknown")
+        user_email = ev.get("user")
+        if not user_email:
+            # Skip events with no user attribution — unattributable in a team context
+            continue
         if user_email not in spend_by_user:
             spend_by_user[user_email] = {
                 "email": user_email,
