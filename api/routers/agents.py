@@ -6036,6 +6036,10 @@ async def nudge_agent(name: str, body: AgentNudge):
     # drains it.
     _wake_nudge_waiters(name)
 
+    # Signal the ack bot immediately so it posts "Got your message"
+    # within milliseconds instead of waiting up to ACK_POLL_INTERVAL_SECONDS.
+    chat_ack_bot.signal_nudge(name)
+
     return {
         "result": f"Nudge sent to '{name}'",
         "nudge": record,

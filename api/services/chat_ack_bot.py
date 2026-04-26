@@ -83,6 +83,25 @@ TERMINAL_STATUSES: frozenset[str] = frozenset({
 # exits out of band. Tests drive it directly to assert teardown.
 _agent_ack_tasks: dict[str, asyncio.Task] = {}
 
+# Per-agent asyncio.Event that the nudge handler sets the moment a new
+# nudge lands. The ack bot waits on this instead of sleeping a fixed
+# interval, so it fires within milliseconds of the nudge arriving
+# rather than up to ACK_POLL_INTERVAL_SECONDS later.
+_nudge_signal_events: dict[str, asyncio.Event] = {}
+
+
+def signal_nudge(name: str) -> None:
+    """Wake the ack bot for ``name`` immediately on nudge arrival.
+
+    Called by POST /nudge so the acknowledgment fires within
+    milliseconds instead of up to ACK_POLL_INTERVAL_SECONDS. Safe when
+    no bot is running: the set event is drained on the next bot start.
+    """
+    event = _nudge_signal_events.get(name)
+    if event is not None:
+        event.set()
+
+
 # Per-agent record of the latest nudge timestamp the bot has already
 # acked. We use this to:
 #
@@ -497,11 +516,10 @@ async def _hydrate_acked_ids_from_disk(name: str) -> None:
 async def run_for(name: str) -> None:
     """Run the ack loop for a single agent until it reaches terminal.
 
-    The loop polls every ``ACK_POLL_INTERVAL_SECONDS`` seconds. It
-    exits cleanly on ``asyncio.CancelledError`` (shutdown from the
-    router) and on any terminal status seen in ``agent_metadata``.
-    Exceptions from a single cycle are logged and swallowed so a
-    transient error never takes down the bot.
+    The loop wakes immediately when POST /nudge signals the per-agent
+    event, or falls through after ACK_POLL_INTERVAL_SECONDS as a safety
+    net for nudges that arrived before the bot registered the event.
+    Exits cleanly on CancelledError or any terminal status.
     """
     counter = itertools.count()
     # Hydrate the per-agent acked-id set from the on-disk replies the
@@ -509,8 +527,14 @@ async def run_for(name: str) -> None:
     # window: the in-memory dedupe alone is erased by every restart,
     # and a stale on-disk nudge would otherwise get re-acked.
     await _hydrate_acked_ids_from_disk(name)
+    # Arm (or reuse) the per-agent wake event. POST /nudge sets this
+    # the instant a new nudge lands so we ack within milliseconds.
+    event = _nudge_signal_events.setdefault(name, asyncio.Event())
     try:
         while True:
+            # Clear before checking so a nudge that arrived while
+            # _ack_once was running is caught on the NEXT iteration.
+            event.clear()
             try:
                 still_running = await _ack_once(name, counter)
             except asyncio.CancelledError:
@@ -521,7 +545,16 @@ async def run_for(name: str) -> None:
 
             if not still_running:
                 break
-            await asyncio.sleep(ACK_POLL_INTERVAL_SECONDS)
+            # Fast path: POST /nudge signals the event and we wake
+            # immediately. Slow path: fall through after the poll
+            # interval to catch nudges that raced the event setup.
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(event.wait()),
+                    timeout=ACK_POLL_INTERVAL_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                pass
     except asyncio.CancelledError:
         # Normal teardown path. Router cancels the task when the
         # agent completes or is cancelled.
@@ -529,6 +562,7 @@ async def run_for(name: str) -> None:
     finally:
         _last_ack_ts.pop(name, None)
         _acked_nudge_ids.pop(name, None)
+        _nudge_signal_events.pop(name, None)
 
 
 def start(name: str) -> asyncio.Task:

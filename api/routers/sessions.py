@@ -226,12 +226,17 @@ def _agent_sessions() -> list[dict]:
         if age > idle_window:
             continue
         status = "active" if age <= active_window else "idle"
-        results.append({
+        record: dict = {
             "session_id": name,
             "last_active": heartbeat_raw,
             "status": status,
             "recent_events": [],
-        })
+        }
+        for field in ("task", "current_step", "prompt", "spawned_at"):
+            value = meta.get(field)
+            if value:
+                record[field] = value
+        results.append(record)
     return results
 
 

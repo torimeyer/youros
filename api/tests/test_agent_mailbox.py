@@ -1108,3 +1108,99 @@ async def test_real_agent_reply_distinguished_from_ack():
                 )
     finally:
         _reset_agent(name)
+
+
+@pytest.mark.asyncio
+async def test_nudge_signal_triggers_ack_within_500ms():
+    """POST /nudge must signal the ack bot immediately so the ack
+    arrives within 500ms, not up to the 2s poll interval.
+
+    Regression for the fix that replaced asyncio.sleep(2) with
+    asyncio.wait_for(event.wait(), timeout=2) and wired signal_nudge()
+    into the POST /nudge handler. Without the signal, the ack bot would
+    sleep a full 2 seconds before checking and the UI looked slow even
+    when the backend was healthy.
+    """
+    from services import chat_ack_bot
+
+    name = "demo-ack-signal-500ms"
+    _reset_agent(name)
+    chat_ack_bot._last_ack_ts.pop(name, None)
+    chat_ack_bot._agent_ack_tasks.pop(name, None)
+    chat_ack_bot._nudge_signal_events.pop(name, None)
+    agent_metadata[name] = {"status": "running", "source": "claude-code"}
+
+    transport = ASGITransport(app=app)
+    try:
+        with patch("routers.agents.ostk") as mock_ostk, \
+             patch("routers.agents._touch_nudge_signal"):
+            current_nudges: list[dict] = []
+
+            async def _write(agent, message, kind=None):
+                row = {
+                    "agent": agent,
+                    "message": message,
+                    "timestamp": "2026-04-26T10:00:00+00:00",
+                    "source": "ui",
+                }
+                if kind:
+                    row["kind"] = kind
+                current_nudges.append(row)
+                return row
+
+            async def _append(agent, message, in_reply_to=None, kind=None):
+                return {
+                    "agent": agent,
+                    "message": message,
+                    "timestamp": "2026-04-26T10:00:01+00:00",
+                    "source": "agent",
+                    "in_reply_to": in_reply_to,
+                    "kind": kind,
+                }
+
+            mock_ostk.list_nudges = AsyncMock(
+                side_effect=lambda _n: list(current_nudges),
+            )
+            mock_ostk.list_nudge_replies = AsyncMock(return_value=[])
+            mock_ostk.write_nudge = AsyncMock(side_effect=_write)
+            mock_ostk.append_nudge_reply = AsyncMock(side_effect=_append)
+
+            ack_task = chat_ack_bot.start(name)
+            try:
+                async with AsyncClient(
+                    transport=transport, base_url="http://test",
+                ) as client:
+                    start_t = time.monotonic()
+                    resp = await client.post(
+                        f"/api/agents/{name}/nudge",
+                        json={"message": "signal path regression check"},
+                    )
+                    assert resp.status_code == 200
+
+                    # The signal should wake the ack bot immediately.
+                    # Allow 500ms instead of the old 2s poll interval.
+                    deadline = start_t + 0.5
+                    ack_seen = False
+                    while time.monotonic() < deadline:
+                        replies = nudge_replies.get(name, [])
+                        if any(r.get("kind") == "ack" for r in replies):
+                            ack_seen = True
+                            break
+                        await asyncio.sleep(0.02)
+                    elapsed = time.monotonic() - start_t
+
+                    assert ack_seen, (
+                        f"no ack landed within 500ms ({elapsed:.3f}s). "
+                        "signal_nudge() must wake the ack bot immediately "
+                        "instead of waiting the full poll interval."
+                    )
+            finally:
+                chat_ack_bot.stop(name)
+                try:
+                    await asyncio.wait_for(ack_task, timeout=1.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+    finally:
+        _reset_agent(name)
+        chat_ack_bot._last_ack_ts.pop(name, None)
+        chat_ack_bot._nudge_signal_events.pop(name, None)
