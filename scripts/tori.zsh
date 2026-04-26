@@ -39,11 +39,22 @@ tori() {
       printf '\033[38;2;140;140;140m  Updating ostk %s -> %s...\033[0m\n' "$ostk_current" "$ostk_latest"
       # v3.0.0+ uses darwin-universal with no v-prefix in filename;
       # older releases used v-prefixed aarch64-apple-darwin.
+      # Timeout budget: the darwin-universal asset is ~28MB. Earlier 15s ceiling
+      # caused silent failures when GitHub was slow (→user rule: tori MUST land
+      # latest; -m 15 left users on the old binary with no warning). 120s is
+      # generous for typical home connections; --connect-timeout 5 still bails
+      # fast when GitHub is unreachable.
       local url="https://github.com/os-tack/ostk.ai/releases/download/v${ostk_latest}/ostk-${ostk_latest}-darwin-universal.tar.gz"
-      if ! curl -fsL --connect-timeout 5 -m 15 "$url" -o /tmp/ostk-update.tar.gz 2>/dev/null; then
+      local _dl_err=""
+      if ! curl -fsL --connect-timeout 5 -m 120 "$url" -o /tmp/ostk-update.tar.gz 2>/tmp/ostk-update.err; then
+        _dl_err=$(cat /tmp/ostk-update.err 2>/dev/null)
         url="https://github.com/os-tack/ostk.ai/releases/download/v${ostk_latest}/ostk-v${ostk_latest}-aarch64-apple-darwin.tar.gz"
-        curl -fsL --connect-timeout 5 -m 15 "$url" -o /tmp/ostk-update.tar.gz 2>/dev/null
+        if ! curl -fsL --connect-timeout 5 -m 120 "$url" -o /tmp/ostk-update.tar.gz 2>/tmp/ostk-update.err; then
+          _dl_err="$_dl_err; fallback: $(cat /tmp/ostk-update.err 2>/dev/null)"
+          printf '\033[38;2;255;80;80m  ✗ ostk download failed: %s\033[0m\n' "$_dl_err"
+        fi
       fi
+      rm -f /tmp/ostk-update.err
       # Extract into a scratch dir and find the single executable inside.
       # v4.0.0+ ships 'ostk-macos'; earlier releases shipped 'ostk'. Handle both.
       local _scratch=$(mktemp -d)
@@ -60,6 +71,14 @@ tori() {
       fi
       rm -rf "$_scratch" /tmp/ostk-update.tar.gz
       ostk_current=$(~/.local/bin/ostk --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+[.0-9]*' | head -1)
+      # Post-upgrade verification: per the tori-always-updates rule, the
+      # splash version line is a contract. If we entered the upgrade branch
+      # but the binary still reports the old version, the install path
+      # silently failed (download timeout, tar layout mismatch, codesign
+      # rejection). Surface it instead of letting the splash lie.
+      if [[ "$ostk_current" != "$ostk_latest" ]]; then
+        printf '\033[38;2;255;80;80m  ✗ ostk upgrade did not take: still %s, wanted %s\033[0m\n' "$ostk_current" "$ostk_latest"
+      fi
     fi
     echo "$ostk_current" > "$_ostk_tmp"
   ) &
