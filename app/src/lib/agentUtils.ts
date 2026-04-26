@@ -7,6 +7,28 @@
  */
 
 /**
+ * Background maintenance agent name prefixes. These run autonomously on
+ * cron-like schedules and are never user-actionable, so their completion
+ * should not produce a bottom-right toast.
+ */
+const SYSTEM_AGENT_NAME_PREFIXES = [
+  'dupe-guard-',
+  'stale-complete-',
+  'reaper-',
+  'roadmap-',
+  'brainstorm-',
+]
+
+/**
+ * Returns true when the agent name matches a known background maintenance
+ * pattern. Used by the notification store to silence completion toasts
+ * that the user cannot act on.
+ */
+export function isSystemMaintenanceAgent(name: string): boolean {
+  return SYSTEM_AGENT_NAME_PREFIXES.some((prefix) => name.startsWith(prefix))
+}
+
+/**
  * Returns true when this agent is the main Claude Code interactive session
  * (the one Tori is actively typing into), NOT a spawned background agent.
  *

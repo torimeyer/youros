@@ -245,9 +245,10 @@ describe('notifications store', () => {
       expect(s.persistentToastIds.has('roadmap-3')).toBe(true)
     })
 
-    it('test_different_content_still_toasts_after_first_one', () => {
-      // The content-level dedupe must not suppress a later, legitimately-new
-      // notification whose title or body differs from the first one.
+    it('test_roadmap_ready_per_session_gate_blocks_second', () => {
+      // roadmap_ready is per-session gated: only the first one shows,
+      // subsequent ones (even with different content) are suppressed so
+      // file-watch re-fires don't spam the user.
       const { addPersistentToast } = useNotificationStore.getState()
       addPersistentToast({
         id: 'a',
@@ -264,7 +265,7 @@ describe('notifications store', () => {
         action_url: '/files',
       })
 
-      expect(useNotificationStore.getState().notifications).toHaveLength(2)
+      expect(useNotificationStore.getState().notifications).toHaveLength(1)
     })
 
     it('test_persistent_toast_stores_body_on_notification_entry', () => {
@@ -424,6 +425,8 @@ describe('notifications store', () => {
       it('roadmap_ready type is not affected by cross-path dedup', () => {
         // Only type="agent" rows trigger cross-path dedup. roadmap_ready,
         // spec_complete, etc. always toast regardless of firedKeys state.
+        // Note: roadmap-agent IS a system maintenance agent, so addNotification
+        // suppresses it. The roadmap_ready persistent toast still fires once.
         const { addNotification, addPersistentToast } = useNotificationStore.getState()
 
         addNotification({ name: 'roadmap-agent', source: 'claude-code' }, 'running', 'completed')
@@ -436,10 +439,136 @@ describe('notifications store', () => {
         })
 
         const s = useNotificationStore.getState()
-        // Both toast: the status-change and the meaningful roadmap_ready signal.
-        expect(s.notifications).toHaveLength(2)
-        expect(s.toastIds).toHaveLength(2)
+        // addNotification is suppressed (roadmap-agent is a system agent).
+        // Only the roadmap_ready persistent toast fires.
+        expect(s.notifications).toHaveLength(1)
+        expect(s.toastIds).toHaveLength(1)
+        expect(s.notifications[0].status).toBe('roadmap_ready')
       })
+    })
+  })
+
+  describe('system maintenance agent suppression', () => {
+    const systemAgentCases: [string, string][] = [
+      ['dupe-guard-abc123', 'dupe-guard-*'],
+      ['stale-complete-xyz', 'stale-complete-*'],
+      ['reaper-stale-20240426', 'reaper-*'],
+      ['roadmap-weekly', 'roadmap-*'],
+      ['brainstorm-feature-xyz', 'brainstorm-*'],
+    ]
+
+    it.each(systemAgentCases)(
+      'suppresses toast for system agent %s (matches %s pattern)',
+      (name) => {
+        useNotificationStore.getState().addNotification(
+          { name, source: 'claude-code' },
+          'running',
+          'completed',
+        )
+        const s = useNotificationStore.getState()
+        expect(s.notifications).toHaveLength(0)
+        expect(s.toastIds).toHaveLength(0)
+      },
+    )
+
+    it('still fires toast for user-spawned agent not matching system patterns', () => {
+      useNotificationStore.getState().addNotification(
+        { name: 'fix-login-bug', source: 'claude-code' },
+        'running',
+        'completed',
+      )
+      const s = useNotificationStore.getState()
+      expect(s.notifications).toHaveLength(1)
+      expect(s.toastIds).toHaveLength(1)
+      expect(s.notifications[0].agentName).toBe('fix-login-bug')
+    })
+
+    it('suppresses system agents even when they would otherwise pass isUserSpawnedAgent', () => {
+      // A dupe-guard agent registered with source=claude-code would pass
+      // isUserSpawnedAgent, but the name pattern guard fires first.
+      useNotificationStore.getState().addNotification(
+        { name: 'dupe-guard-run-1', source: 'claude-code' },
+        'running',
+        'completed',
+      )
+      expect(useNotificationStore.getState().notifications).toHaveLength(0)
+    })
+  })
+
+  describe('roadmap_ready session gate', () => {
+    it('fires only once per session even with different content', () => {
+      const { addPersistentToast } = useNotificationStore.getState()
+
+      addPersistentToast({
+        id: 'rr-1',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: 'First roadmap version',
+        action_url: '/files',
+      })
+      addPersistentToast({
+        id: 'rr-2',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: 'Second roadmap version — different content',
+        action_url: '/files',
+      })
+
+      const s = useNotificationStore.getState()
+      expect(s.notifications).toHaveLength(1)
+      expect(s.toastIds).toHaveLength(1)
+      // Both ids recorded so future polls skip them.
+      expect(s.persistentToastIds.has('rr-1')).toBe(true)
+      expect(s.persistentToastIds.has('rr-2')).toBe(true)
+      expect(s.persistentToastIds.has('type-gate:roadmap_ready')).toBe(true)
+    })
+
+    it('clearAll resets the roadmap_ready gate so a new session can toast', () => {
+      const { addPersistentToast, clearAll } = useNotificationStore.getState()
+
+      addPersistentToast({
+        id: 'rr-3',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: 'First body',
+        action_url: '/files',
+      })
+      expect(useNotificationStore.getState().notifications).toHaveLength(1)
+
+      clearAll()
+      expect(useNotificationStore.getState().persistentToastIds.size).toBe(0)
+
+      addPersistentToast({
+        id: 'rr-4',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: 'Post-clearAll body',
+        action_url: '/files',
+      })
+      expect(useNotificationStore.getState().notifications).toHaveLength(1)
+    })
+
+    it('other notification types are not affected by the roadmap gate', () => {
+      const { addPersistentToast } = useNotificationStore.getState()
+
+      // Fire a roadmap_ready first (arms the gate)
+      addPersistentToast({
+        id: 'rr-5',
+        type: 'roadmap_ready',
+        title: 'Roadmap ready',
+        body: 'Some body',
+        action_url: '/files',
+      })
+      // spec_complete is a different type and must still toast
+      addPersistentToast({
+        id: 'sc-1',
+        type: 'spec_complete',
+        title: 'Your feature is live',
+        body: 'Build done.',
+        action_url: '/specs',
+      })
+
+      expect(useNotificationStore.getState().notifications).toHaveLength(2)
     })
   })
 })

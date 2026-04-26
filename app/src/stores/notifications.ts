@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { isUserSpawnedAgent } from '../lib/agentUtils'
+import { isUserSpawnedAgent, isSystemMaintenanceAgent } from '../lib/agentUtils'
 
 export interface AppNotification {
   id: string
@@ -36,10 +36,13 @@ export interface NotificationAgent {
  * main interactive Claude Code session are NOT user-spawned agents and
  * must never fire "Agent finished" toasts. This also skips any agent
  * whose name starts with "chat-" as a belt-and-braces guard (chat-default
- * is the session Tori saw spamming her screen).
+ * is the session Tori saw spamming her screen), and any background
+ * maintenance agent (dupe-guard-*, stale-complete-*, reaper-*, etc.)
+ * whose completions are never user-actionable.
  */
 export function shouldSuppressAgentToast(agent: NotificationAgent): boolean {
   if (agent.name.startsWith('chat-')) return true
+  if (isSystemMaintenanceAgent(agent.name)) return true
   if (!isUserSpawnedAgent(agent)) return true
   return false
 }
@@ -142,6 +145,22 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
     // across polls for a given notification row.
     if (get().persistentToastIds.has(notif.id)) return
 
+    // Gate for roadmap_ready: the backend can fire a new notification row
+    // on every file-watch update of roadmap.md. Content dedup only helps
+    // when the body is identical; if the body varies, the user would see
+    // a toast per update. Fire at most one roadmap_ready toast per session.
+    if (notif.type === 'roadmap_ready') {
+      const typeGateKey = 'type-gate:roadmap_ready'
+      if (get().persistentToastIds.has(typeGateKey)) {
+        set((s) => {
+          const persistentToastIds = new Set(s.persistentToastIds)
+          persistentToastIds.add(notif.id)
+          return { persistentToastIds }
+        })
+        return
+      }
+    }
+
     // Second line of defence: if the BACKEND produced several rows with
     // different ids but identical (type + title + body) content in quick
     // succession (e.g. an agent completion code path fires the same
@@ -224,6 +243,11 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       const persistentToastIds = new Set(s.persistentToastIds)
       persistentToastIds.add(notif.id)
       persistentToastIds.add(contentKey)
+      // Arm the per-session gate so subsequent roadmap_ready rows (fired by
+      // file-watch events with varying content) are silenced.
+      if (notif.type === 'roadmap_ready') {
+        persistentToastIds.add('type-gate:roadmap_ready')
+      }
       const nextState: Partial<NotificationStore> = {
         notifications: [toastEntry, ...s.notifications].slice(0, 50),
         toastIds: [...s.toastIds, notif.id],
