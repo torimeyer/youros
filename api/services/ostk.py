@@ -544,15 +544,14 @@ class OstkService:
         return f"updated {task_id} {' and '.join(fields)}"
 
     async def update_task_status(self, task_id: str, status: str) -> str:
-        """Mark a task as actively being worked on, or move it back to the queue.
+        """Move a task back to the open queue.
 
-        Valid statuses are ``open`` (waiting in the queue) and
-        ``in_progress`` (someone is actively working on this now).
-        ``closed`` and ``shelved`` are managed through their own dedicated
-        endpoints (``close_task``, ``shelve_task``) so they are rejected
-        here to keep the transition surface small and auditable.
+        Only ``open`` is accepted here. ``in_progress`` is derived at read
+        time from live agent state and must never be written directly, since
+        it would create stuck rows if the agent dies. ``closed`` and
+        ``shelved`` are managed through their own dedicated endpoints.
         """
-        valid = {"open", "in_progress"}
+        valid = {"open"}
         if status not in valid:
             raise OstkError(
                 f"invalid status '{status}', must be one of {valid}"
@@ -570,8 +569,8 @@ class OstkService:
             if entry.get("id") == task_id:
                 current = entry.get("status")
                 # Closed and shelved tasks must not silently jump back to
-                # open or in_progress through this path. The caller should
-                # reopen or unshelve first, which is a distinct user intent.
+                # open through this path. The caller should reopen or unshelve
+                # first, which is a distinct user intent.
                 if current in ("closed", "shelved"):
                     raise OstkError(
                         f"task '{task_id}' is {current}; reopen or unshelve it first"

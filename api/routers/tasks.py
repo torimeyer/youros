@@ -929,16 +929,17 @@ async def update_task(task_id: str, body: TaskUpdate):
                 )
             )
         if body.status is not None:
-            # Only "open" and "in_progress" are accepted here. Closing and
-            # pausing a task go through their own endpoints so the audit
-            # trail captures the reason and the rapid-close guard fires.
-            valid_statuses = {"open", "in_progress"}
+            # Only "open" is accepted here. in_progress is derived at read
+            # time from live agent state (see GET /tasks overlay), so writing
+            # it directly would create stuck rows if the agent dies without
+            # clearing it. Closing and pausing go through their own endpoints.
+            valid_statuses = {"open"}
             if body.status not in valid_statuses:
                 raise HTTPException(
                     status_code=400,
                     detail=(
                         f"Invalid status '{body.status}'. "
-                        "Use 'open' or 'in_progress'. "
+                        "Only 'open' is accepted here. "
                         "To close or pause a task, call the dedicated endpoint."
                     ),
                 )

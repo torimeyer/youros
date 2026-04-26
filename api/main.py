@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     await schedule_session_task_reaper()
     await schedule_ghost_spawn_reaper()
     await backfill_chat_ack_bots()
+    await backfill_stuck_in_progress_tasks()
     await sweep_stale_backend_sessions()
     await schedule_agent_reconciliation()
     await agents.schedule_spawn_lock_sweep()
@@ -489,6 +490,47 @@ async def backfill_chat_ack_bots():
         try:
             from services import chat_ack_bot
             chat_ack_bot.start_for_running_agents()
+        except Exception:
+            pass
+
+    asyncio.create_task(_run())
+
+
+async def backfill_stuck_in_progress_tasks():
+    """Reset tasks stuck at in_progress with no live agent back to open.
+
+    in_progress is now a read-only overlay derived from live agent state.
+    Any tasks that have in_progress written directly in the DB (from before
+    this rule, or from an agent that died without cleanup) are stuck and
+    should be moved back to open so they appear in the queue again.
+    """
+    import asyncio
+
+    async def _run():
+        await asyncio.sleep(2)
+        try:
+            from routers.agents import get_running_task_ids
+            from services import ostk as _ostk_svc
+            from pathlib import Path
+            import json
+
+            svc = _ostk_svc.OstkService()
+            issues_path = Path(svc.cwd) / ".ostk" / "needles" / "issues.jsonl"
+            if not issues_path.exists():
+                return
+
+            live_ids = get_running_task_ids()
+            lines = issues_path.read_text().strip().splitlines()
+            stuck = [
+                json.loads(line) for line in lines
+                if json.loads(line).get("status") == "in_progress"
+                and str(json.loads(line).get("id", "")) not in live_ids
+            ]
+            for task in stuck:
+                try:
+                    await svc.update_task_status(str(task["id"]), "open")
+                except Exception:
+                    pass
         except Exception:
             pass
 

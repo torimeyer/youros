@@ -609,24 +609,22 @@ async def test_update_task_description_only(client):
     )
 
 
-# --- PATCH /api/tasks/{id} (mark in_progress or back to open) ---
+# --- PATCH /api/tasks/{id} (move task back to open) ---
 
 
 @pytest.mark.asyncio
-async def test_update_task_status_to_in_progress(client):
-    """PATCH with status=in_progress calls update_task_status on the ostk service."""
+async def test_update_task_status_rejects_in_progress(client):
+    """PATCH with status=in_progress must be rejected — in_progress is a read-only overlay."""
     with patch("routers.tasks.ostk") as mock_ostk:
-        mock_ostk.update_task_status = AsyncMock(
-            return_value="updated t-1 status to in_progress"
-        )
+        mock_ostk.update_task_status = AsyncMock()
         resp = await client.patch(
             "/api/tasks/t-1",
             json={"status": "in_progress"},
         )
 
-    assert resp.status_code == 200
-    assert resp.json()["result"] == "updated t-1 status to in_progress"
-    mock_ostk.update_task_status.assert_called_once_with("t-1", "in_progress")
+    assert resp.status_code == 400
+    assert "Invalid status" in resp.json()["detail"]
+    mock_ostk.update_task_status.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -700,7 +698,7 @@ async def test_update_task_status_surfaces_service_error(client):
         )
         resp = await client.patch(
             "/api/tasks/t-1",
-            json={"status": "in_progress"},
+            json={"status": "open"},
         )
 
     assert resp.status_code == 400
@@ -715,16 +713,16 @@ async def test_update_task_status_combines_with_priority(client):
             return_value="updated t-1 priority to P0"
         )
         mock_ostk.update_task_status = AsyncMock(
-            return_value="updated t-1 status to in_progress"
+            return_value="updated t-1 status to open"
         )
         resp = await client.patch(
             "/api/tasks/t-1",
-            json={"priority": "P0", "status": "in_progress"},
+            json={"priority": "P0", "status": "open"},
         )
 
     assert resp.status_code == 200
     mock_ostk.update_task_priority.assert_called_once()
-    mock_ostk.update_task_status.assert_called_once_with("t-1", "in_progress")
+    mock_ostk.update_task_status.assert_called_once_with("t-1", "open")
 
 
 # --- GET /api/tasks/{id}/briefing ---
