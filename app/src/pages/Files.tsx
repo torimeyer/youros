@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import ConfirmModal from '../components/ConfirmModal';
+import QuickLook from '../components/QuickLook';
+import ProvenanceChip, { type Provenance } from '../components/ProvenanceChip';
 import { useConfirm } from '../hooks/useConfirm';
 import { api, ApiError } from '../lib/api';
 
@@ -56,6 +58,20 @@ interface RecentDocsResponse {
   files: RecentDoc[];
 }
 
+interface TimelineFile {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  modified_at: string;
+  mime_type: string;
+  provenance: Provenance | null;
+}
+
+interface TimelineResponse {
+  files: TimelineFile[];
+}
+
 // --- Helpers ---
 
 const typeConfig: Record<string, { icon: string; color: string; label: string }> = {
@@ -79,10 +95,12 @@ function timeAgo(iso: string | null): string {
   return `${days}d ago`;
 }
 
-// Turn an auto-saved agent artifact filename into a friendly title.
-// Handles "ia-review-2026-04-16T18-31.md" -> { title: "IA Review",
-// timeLabel: "Apr 16, 6:31 PM" }. Any file that does not match the
-// <slug>-<YYYY-MM-DDTHH-MM>.md pattern falls back to its raw name.
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function agentArtifactTitle(name: string): { title: string; timeLabel: string | null } {
   const stem = name.endsWith('.md') ? name.slice(0, -3) : name;
   const match = stem.match(/^(.+)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2})$/);
@@ -106,30 +124,12 @@ function agentArtifactTitle(name: string): { title: string; timeLabel: string | 
 function fileIcon(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, string> = {
-    ts: 'code',
-    tsx: 'code',
-    js: 'javascript',
-    jsx: 'javascript',
-    py: 'code',
-    rs: 'memory',
-    go: 'speed',
-    md: 'article',
-    json: 'data_object',
-    toml: 'settings',
-    yaml: 'settings',
-    yml: 'settings',
-    html: 'web',
-    css: 'palette',
-    svg: 'image',
-    png: 'image',
-    jpg: 'image',
-    jpeg: 'image',
-    gif: 'image',
-    txt: 'description',
-    lock: 'lock',
-    sh: 'terminal',
-    zsh: 'terminal',
-    bash: 'terminal',
+    ts: 'code', tsx: 'code', js: 'javascript', jsx: 'javascript',
+    py: 'code', rs: 'memory', go: 'speed', md: 'article',
+    json: 'data_object', toml: 'settings', yaml: 'settings', yml: 'settings',
+    html: 'web', css: 'palette', svg: 'image', png: 'image',
+    jpg: 'image', jpeg: 'image', gif: 'image', txt: 'description',
+    lock: 'lock', sh: 'terminal', zsh: 'terminal', bash: 'terminal',
   };
   return map[ext] || 'description';
 }
@@ -137,6 +137,17 @@ function fileIcon(name: string): string {
 // --- Component ---
 
 export default function Files() {
+  // 'timeline' is the default view; 'files' shows the project explorer.
+  const [view, setView] = useState<'timeline' | 'files'>('timeline');
+
+  // Timeline state
+  const [timelineFiles, setTimelineFiles] = useState<TimelineFile[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(true);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
+
+  // QuickLook state (shared across both views)
+  const [quickLookTarget, setQuickLookTarget] = useState<{ path: string; mime: string } | null>(null);
+
   // null means we're at the root (project list), a string means we're browsing a directory
   const [currentPath, setCurrentPath] = useState<string | null>(null);
 
@@ -149,36 +160,45 @@ export default function Files() {
   const [browseData, setBrowseData] = useState<BrowseResponse | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
   const [browseError, setBrowseError] = useState<string | null>(null);
-  // browseForbidden is distinct from browseError: a 403 means the
-  // path is outside the browseable safelist, which is a plain empty
-  // state, not a scary red "something broke" card.
   const [browseForbidden, setBrowseForbidden] = useState(false);
 
-  // Preview state: the file currently being previewed in the side pane.
+  // Preview state for files-view side pane (pre-QuickLook)
   const [previewEntry, setPreviewEntry] = useState<BrowseEntry | null>(null);
 
-  // Recent docs state (shown on root view, populated from
-  // ~/.myos/files/*.md so every agent output lands in the Files tab).
+  // Recent docs state
   const [recentDocs, setRecentDocs] = useState<RecentDoc[]>([]);
   const [recentDocsLoading, setRecentDocsLoading] = useState(true);
 
-  // Transient toast for delete feedback. success = green, error = red.
-  // Auto-dismisses after 4 seconds so the UI does not get cluttered.
+  // Transient toast for delete feedback
   const [deleteToast, setDeleteToast] = useState<
     { kind: 'success' | 'error'; message: string } | null
   >(null);
 
-  // In-app confirm dialog (replaces window.confirm). See hooks/useConfirm.
   const { confirm, confirmProps } = useConfirm();
 
-  // Auto-dismiss the delete toast after 4 seconds.
   useEffect(() => {
     if (!deleteToast) return;
     const id = setTimeout(() => setDeleteToast(null), 4000);
     return () => clearTimeout(id);
   }, [deleteToast]);
 
-  // Fetch recent docs (generated agent output, roadmap, plans, etc.)
+  // --- Timeline fetch ---
+
+  const fetchTimeline = useCallback(async () => {
+    setTimelineLoading(true);
+    setTimelineError(null);
+    try {
+      const res = await api.get<TimelineResponse>('/files/timeline?limit=50');
+      setTimelineFiles(res.files ?? []);
+    } catch {
+      setTimelineError('Could not load files. Make sure the API is running.');
+    } finally {
+      setTimelineLoading(false);
+    }
+  }, []);
+
+  // --- Files view fetches ---
+
   const fetchRecentDocs = useCallback(async () => {
     setRecentDocsLoading(true);
     try {
@@ -191,7 +211,6 @@ export default function Files() {
     }
   }, []);
 
-  // Fetch project list (root view)
   const fetchProjects = useCallback(async () => {
     setProjectsLoading(true);
     setProjectsError(null);
@@ -205,11 +224,6 @@ export default function Files() {
     }
   }, []);
 
-  // Fetch directory contents.
-  // A 403 from the server means the folder is outside the browseable
-  // safelist (e.g. the user typed an absolute path like /Users/...).
-  // That is not a failure, it is an expected "can't show this" state,
-  // so we render a calm empty-state card instead of a red error.
   const fetchDirectory = useCallback(async (path: string) => {
     setBrowseLoading(true);
     setBrowseError(null);
@@ -229,22 +243,32 @@ export default function Files() {
     }
   }, []);
 
-  // Load data whenever the path changes
+  // Load data on mount and whenever view/path changes
   useEffect(() => {
-    if (currentPath === null) {
+    if (view === 'timeline') {
+      fetchTimeline();
+    } else if (currentPath === null) {
       fetchProjects();
       fetchRecentDocs();
     } else {
       fetchDirectory(currentPath);
     }
-  }, [currentPath, fetchProjects, fetchRecentDocs, fetchDirectory]);
+  }, [view, currentPath, fetchTimeline, fetchProjects, fetchRecentDocs, fetchDirectory]);
 
-  // Navigation helpers
-  const navigateTo = (path: string) => setCurrentPath(path);
-  const navigateToRoot = () => {
-    setCurrentPath(null);
-    setBrowseData(null);
+  const refresh = () => {
+    if (view === 'timeline') {
+      fetchTimeline();
+    } else if (currentPath === null) {
+      fetchProjects();
+      fetchRecentDocs();
+    } else {
+      fetchDirectory(currentPath);
+    }
   };
+
+  // Navigation helpers (files view)
+  const navigateTo = (path: string) => setCurrentPath(path);
+  const navigateToRoot = () => { setCurrentPath(null); setBrowseData(null); };
   const navigateUp = () => {
     if (browseData && browseData.parent_path) {
       setCurrentPath(browseData.parent_path);
@@ -253,27 +277,9 @@ export default function Files() {
     }
   };
 
-  // Open the side preview pane for a file
-  const openPreview = (entry: BrowseEntry) => {
-    setPreviewEntry(entry);
-  };
+  const openPreview = (entry: BrowseEntry) => setPreviewEntry(entry);
+  const closePreview = () => setPreviewEntry(null);
 
-  const closePreview = () => {
-    setPreviewEntry(null);
-  };
-
-  const refresh = () => {
-    if (currentPath === null) {
-      fetchProjects();
-      fetchRecentDocs();
-    } else {
-      fetchDirectory(currentPath);
-    }
-  };
-
-  // Delete a recent doc from disk, then refresh the list so the
-  // row disappears. Optimistically drop the row locally first so
-  // the UI feels instant even if the network round trip is slow.
   const deleteRecentDoc = async (doc: RecentDoc) => {
     const ok = await confirm({
       title: `Delete ${doc.name}?`,
@@ -288,10 +294,8 @@ export default function Files() {
     try {
       await api.delete(`/docs/recent?path=${encodeURIComponent(doc.path)}`);
       setDeleteToast({ kind: 'success', message: `Deleted ${doc.name}` });
-      // Re-fetch so any new items or mtimes stay in sync.
       fetchRecentDocs();
     } catch {
-      // Restore the row and warn the user so the list does not lie.
       setRecentDocs(previous);
       setDeleteToast({
         kind: 'error',
@@ -312,294 +316,364 @@ export default function Files() {
           <div className="flex items-center gap-3">
             <h1 className="text-xl sm:text-2xl font-bold">Files</h1>
           </div>
-          <button
-            onClick={refresh}
-            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors border border-slate-700"
-          >
-            <Icon name="refresh" className="text-base" />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              data-testid="files-view-toggle"
+              onClick={() => {
+                setView((v) => v === 'timeline' ? 'files' : 'timeline');
+                setCurrentPath(null);
+                setBrowseData(null);
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors border border-slate-700"
+            >
+              <Icon name={view === 'timeline' ? 'folder' : 'history'} className="text-base" />
+              {view === 'timeline' ? 'Projects' : 'Timeline'}
+            </button>
+            <button
+              onClick={refresh}
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors border border-slate-700"
+            >
+              <Icon name="refresh" className="text-base" />
+              Refresh
+            </button>
+          </div>
         </div>
 
-        {/* Breadcrumb navigation (shown when inside a directory) */}
-        {currentPath !== null && (
-          <div className="flex items-center gap-1 mb-4 text-sm flex-wrap">
-            <button
-              onClick={navigateUp}
-              className="flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors mr-2"
-              title="Go up one level"
-            >
-              <Icon name="arrow_back" size={16} />
-              Back
-            </button>
-
-            <button
-              onClick={navigateToRoot}
-              className="text-blue-400 hover:text-blue-300 transition-colors px-1"
-            >
-              Projects
-            </button>
-
-            {browseData?.breadcrumbs.map((crumb, i) => (
-              <span key={crumb.path} className="flex items-center gap-1">
-                <Icon name="chevron_right" size={14} className="text-slate-600" />
-                {i === (browseData.breadcrumbs.length - 1) ? (
-                  <span className="text-slate-200 font-medium px-1">{crumb.name}</span>
-                ) : (
-                  <button
-                    onClick={() => navigateTo(crumb.path)}
-                    className="text-blue-400 hover:text-blue-300 transition-colors px-1"
-                  >
-                    {crumb.name}
-                  </button>
-                )}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Recent Documents (root view only). Every agent output that
-            clears the length and name filter lands in ~/.myos/files/ so
-            this list picks up roadmap, IA review, PRD, and custom build
-            outputs next to repo docs. */}
-        {currentPath === null && !recentDocsLoading && recentDocs.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Icon name="schedule" className="text-base text-slate-500" />
-              Recent Documents
-            </h2>
-            <div className="flex flex-col gap-1">
-              {recentDocs.map((doc) => {
-                const friendly = agentArtifactTitle(doc.name);
-                return (
-                  <div
-                    key={doc.path}
-                    className="group grid grid-cols-[1fr_80px_80px_32px] gap-4 items-center bg-slate-900/40 border border-slate-800/60 rounded-lg px-4 py-2.5 hover:border-blue-500/40 hover:bg-slate-800/40 transition-colors w-full"
-                    data-testid={`recent-doc-row-${doc.path}`}
-                  >
-                    <button
-                      onClick={() => openPreview({
-                        name: doc.name,
-                        kind: 'file',
-                        path: doc.path,
-                        item_count: null,
-                        size: doc.size,
-                        size_display: doc.size_display,
-                        last_modified: doc.last_modified,
-                      })}
-                      className="min-w-0 text-left"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon name="article" className="text-base text-blue-400 flex-shrink-0" />
-                        <span className="text-sm text-slate-200 truncate">{friendly.title}</span>
-                        {friendly.timeLabel && (
-                          <span className="text-[11px] text-slate-600 truncate hidden sm:inline">{friendly.timeLabel}</span>
-                        )}
-                      </div>
-                      {doc.snippet && (
-                        <p className="text-[11px] text-slate-500 truncate mt-0.5 ml-6">{doc.snippet}</p>
-                      )}
-                    </button>
-                    <span className="text-xs text-slate-500">{doc.size_display}</span>
-                    <span className="text-xs text-slate-500 text-right">{timeAgo(doc.last_modified)}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteRecentDoc(doc);
-                      }}
-                      className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                      title="Delete"
-                      aria-label={`Delete ${doc.name}`}
-                      data-testid={`recent-doc-delete-${doc.path}`}
-                    >
-                      <Icon name="delete" className="text-base" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Root view: project cards */}
-        {currentPath === null && (
+        {/* Timeline view (default) */}
+        {view === 'timeline' && (
           <>
-            {projectsLoading && projects.length === 0 && (
-              <p className="text-sm text-slate-500 py-4">Loading projects...</p>
+            {timelineLoading && (
+              <p className="text-sm text-slate-500 py-4">Loading files...</p>
             )}
 
-            {projectsError && (
+            {timelineError && !timelineLoading && (
               <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4">
                 <Icon name="error" className="text-lg" />
-                <span>{projectsError}</span>
+                <span>{timelineError}</span>
               </div>
             )}
 
-            {!projectsLoading && !projectsError && projects.length === 0 && (
+            {!timelineLoading && !timelineError && timelineFiles.length === 0 && (
               <div className="text-center py-12 text-slate-500">
-                <Icon name="folder_off" className="text-4xl mb-2" />
-                <p>No projects found.</p>
+                <Icon name="folder_open" className="text-4xl mb-2" />
+                <p>No files yet. Run an agent or upload one.</p>
               </div>
             )}
 
-            {projects.length > 0 && (
+            {!timelineLoading && timelineFiles.length > 0 && (
               <div className="flex flex-col gap-1">
-                {/* Header row */}
-                <div className="grid grid-cols-[1fr_80px_60px_80px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
-                  <span>Name</span>
-                  <span>Type</span>
-                  <span>Items</span>
-                  <span className="text-right">Modified</span>
-                </div>
-
-                {projects.map((project) => {
-                  const cfg = typeConfig[project.project_type] || typeConfig.folder;
-                  return (
-                    <button
-                      key={project.name}
-                      onClick={() => navigateTo(project.name)}
-                      className="grid grid-cols-[1fr_80px_60px_80px] gap-4 items-center bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-3 hover:border-blue-500/50 hover:bg-slate-800/60 transition-colors cursor-pointer text-left w-full"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <Icon name={cfg.icon} className={`text-xl ${cfg.color}`} />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{project.name}</p>
-                          {project.description && (
-                            <p className="text-[11px] text-slate-500 truncate">{project.description}</p>
-                          )}
-                        </div>
-                        {project.has_git && (
-                          <span className="text-[10px] text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded font-medium flex-shrink-0">
-                            git
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-xs text-slate-400">{cfg.label}</span>
-                      <span className="text-xs text-slate-500">{project.file_count}</span>
-                      <span className="text-xs text-slate-500 text-right">{timeAgo(project.last_modified)}</span>
-                    </button>
-                  );
-                })}
+                {timelineFiles.map((file) => (
+                  <button
+                    key={file.id}
+                    data-testid={`files-timeline-row-${file.id}`}
+                    onClick={() => setQuickLookTarget({ path: file.path, mime: file.mime_type })}
+                    className="flex items-center gap-4 bg-slate-900/40 border border-slate-800/60 rounded-lg px-4 py-3 hover:border-blue-500/40 hover:bg-slate-800/40 transition-colors text-left w-full"
+                  >
+                    <Icon name={fileIcon(file.name)} className="text-xl text-slate-400 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-200 truncate">{file.name}</p>
+                      <ProvenanceChip provenance={file.provenance} />
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-xs text-slate-500">{formatBytes(file.size)}</p>
+                      <p className="text-xs text-slate-600">{timeAgo(file.modified_at)}</p>
+                    </div>
+                  </button>
+                ))}
               </div>
-            )}
-
-            {projects.length > 0 && (
-              <p className="mt-6 text-xs text-slate-600 text-center">
-                Click a project to browse its files
-              </p>
             )}
           </>
         )}
 
-        {/* Directory browser view */}
-        {currentPath !== null && (
+        {/* Files view: project explorer + recent docs */}
+        {view === 'files' && (
           <>
-            {browseLoading && !browseData && (
-              <p className="text-sm text-slate-500 py-4">Loading folder contents...</p>
-            )}
+            {/* Breadcrumb navigation (shown when inside a directory) */}
+            {currentPath !== null && (
+              <div className="flex items-center gap-1 mb-4 text-sm flex-wrap">
+                <button
+                  onClick={navigateUp}
+                  className="flex items-center gap-1 px-2 py-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors mr-2"
+                  title="Go up one level"
+                >
+                  <Icon name="arrow_back" size={16} />
+                  Back
+                </button>
 
-            {browseError && (
-              <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4">
-                <Icon name="error" className="text-lg" />
-                <span>{browseError}</span>
+                <button
+                  onClick={navigateToRoot}
+                  className="text-blue-400 hover:text-blue-300 transition-colors px-1"
+                >
+                  Projects
+                </button>
+
+                {browseData?.breadcrumbs.map((crumb, i) => (
+                  <span key={crumb.path} className="flex items-center gap-1">
+                    <Icon name="chevron_right" size={14} className="text-slate-600" />
+                    {i === (browseData.breadcrumbs.length - 1) ? (
+                      <span className="text-slate-200 font-medium px-1">{crumb.name}</span>
+                    ) : (
+                      <button
+                        onClick={() => navigateTo(crumb.path)}
+                        className="text-blue-400 hover:text-blue-300 transition-colors px-1"
+                      >
+                        {crumb.name}
+                      </button>
+                    )}
+                  </span>
+                ))}
               </div>
             )}
 
-            {browseForbidden && !browseLoading && (
-              <div
-                className="text-center py-12 text-slate-500"
-                data-testid="files-forbidden-empty-state"
-              >
-                <Icon name="lock" className="text-4xl mb-2" />
-                <p className="text-slate-300 text-sm font-medium mb-1">
-                  This folder can't be browsed.
-                </p>
-                <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Files only shows folders inside your workspace and
-                  ~/.myos/files. Pick a project from the list to browse its
-                  contents.
-                </p>
-              </div>
-            )}
-
-            {browseData && browseData.entries.length === 0 && !browseLoading && (
-              <div className="text-center py-12 text-slate-500">
-                <Icon name="folder_open" className="text-4xl mb-2" />
-                <p>This folder is empty.</p>
-              </div>
-            )}
-
-            {browseData && browseData.entries.length > 0 && (
-              <div className="flex flex-col gap-1">
-                {/* Header row */}
-                <div className="grid grid-cols-[1fr_100px_80px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
-                  <span>Name</span>
-                  <span>Size</span>
-                  <span className="text-right">Modified</span>
-                </div>
-
-                {browseData.entries.map((entry) => {
-                  const isFolder = entry.kind === 'folder';
-                  return (
-                    <button
-                      key={entry.name}
-                      onClick={() => {
-                        if (isFolder) {
-                          navigateTo(entry.path);
-                        } else {
-                          openPreview(entry);
-                        }
-                      }}
-                      className={`grid grid-cols-[1fr_100px_80px] gap-4 items-center border rounded-lg px-4 py-3 transition-colors cursor-pointer text-left w-full ${
-                        isFolder
-                          ? 'bg-slate-900/60 border-slate-800 hover:border-blue-500/50 hover:bg-slate-800/60'
-                          : 'bg-slate-900/40 border-slate-800/60 hover:border-slate-700 hover:bg-slate-800/40'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        {isFolder ? (
-                          <Icon name="folder" className="text-xl text-blue-400" />
-                        ) : (
-                          <Icon name={fileIcon(entry.name)} className="text-xl text-slate-400" />
-                        )}
-                        <span className={`text-sm truncate ${isFolder ? 'font-medium text-slate-100' : 'text-slate-300'}`}>
-                          {entry.name}
-                        </span>
-                        {isFolder && (
-                          <Icon name="chevron_right" size={16} className="text-slate-600 ml-auto flex-shrink-0" />
-                        )}
+            {/* Recent Documents (root view only) */}
+            {currentPath === null && !recentDocsLoading && recentDocs.length > 0 && (
+              <div className="mb-8">
+                <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Icon name="schedule" className="text-base text-slate-500" />
+                  Recent Documents
+                </h2>
+                <div className="flex flex-col gap-1">
+                  {recentDocs.map((doc) => {
+                    const friendly = agentArtifactTitle(doc.name);
+                    return (
+                      <div
+                        key={doc.path}
+                        className="group grid grid-cols-[1fr_80px_80px_32px] gap-4 items-center bg-slate-900/40 border border-slate-800/60 rounded-lg px-4 py-2.5 hover:border-blue-500/40 hover:bg-slate-800/40 transition-colors w-full"
+                        data-testid={`recent-doc-row-${doc.path}`}
+                      >
+                        <button
+                          onClick={() => openPreview({
+                            name: doc.name,
+                            kind: 'file',
+                            path: doc.path,
+                            item_count: null,
+                            size: doc.size,
+                            size_display: doc.size_display,
+                            last_modified: doc.last_modified,
+                          })}
+                          className="min-w-0 text-left"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Icon name="article" className="text-base text-blue-400 flex-shrink-0" />
+                            <span className="text-sm text-slate-200 truncate">{friendly.title}</span>
+                            {friendly.timeLabel && (
+                              <span className="text-[11px] text-slate-600 truncate hidden sm:inline">{friendly.timeLabel}</span>
+                            )}
+                          </div>
+                          {doc.snippet && (
+                            <p className="text-[11px] text-slate-500 truncate mt-0.5 ml-6">{doc.snippet}</p>
+                          )}
+                        </button>
+                        <span className="text-xs text-slate-500">{doc.size_display}</span>
+                        <span className="text-xs text-slate-500 text-right">{timeAgo(doc.last_modified)}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteRecentDoc(doc);
+                          }}
+                          className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          title="Delete"
+                          aria-label={`Delete ${doc.name}`}
+                          data-testid={`recent-doc-delete-${doc.path}`}
+                        >
+                          <Icon name="delete" className="text-base" />
+                        </button>
                       </div>
-                      <span className="text-xs text-slate-500">{entry.size_display}</span>
-                      <span className="text-xs text-slate-500 text-right">{timeAgo(entry.last_modified)}</span>
-                    </button>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             )}
 
-            {browseData && (
-              <p className="mt-6 text-xs text-slate-600 text-center">
-                {browseData.entries.length} {browseData.entries.length === 1 ? 'item' : 'items'} in this folder
-              </p>
+            {/* Root view: project cards */}
+            {currentPath === null && (
+              <>
+                {projectsLoading && projects.length === 0 && (
+                  <p className="text-sm text-slate-500 py-4">Loading projects...</p>
+                )}
+
+                {projectsError && (
+                  <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4">
+                    <Icon name="error" className="text-lg" />
+                    <span>{projectsError}</span>
+                  </div>
+                )}
+
+                {!projectsLoading && !projectsError && projects.length === 0 && (
+                  <div className="text-center py-12 text-slate-500">
+                    <Icon name="folder_off" className="text-4xl mb-2" />
+                    <p>No projects found.</p>
+                  </div>
+                )}
+
+                {projects.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <div className="grid grid-cols-[1fr_80px_60px_80px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                      <span>Name</span>
+                      <span>Type</span>
+                      <span>Items</span>
+                      <span className="text-right">Modified</span>
+                    </div>
+
+                    {projects.map((project) => {
+                      const cfg = typeConfig[project.project_type] || typeConfig.folder;
+                      return (
+                        <button
+                          key={project.name}
+                          onClick={() => navigateTo(project.name)}
+                          className="grid grid-cols-[1fr_80px_60px_80px] gap-4 items-center bg-slate-900/60 border border-slate-800 rounded-lg px-4 py-3 hover:border-blue-500/50 hover:bg-slate-800/60 transition-colors cursor-pointer text-left w-full"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Icon name={cfg.icon} className={`text-xl ${cfg.color}`} />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{project.name}</p>
+                              {project.description && (
+                                <p className="text-[11px] text-slate-500 truncate">{project.description}</p>
+                              )}
+                            </div>
+                            {project.has_git && (
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded font-medium flex-shrink-0">
+                                git
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs text-slate-400">{cfg.label}</span>
+                          <span className="text-xs text-slate-500">{project.file_count}</span>
+                          <span className="text-xs text-slate-500 text-right">{timeAgo(project.last_modified)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {projects.length > 0 && (
+                  <p className="mt-6 text-xs text-slate-600 text-center">
+                    Click a project to browse its files
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* Directory browser view */}
+            {currentPath !== null && (
+              <>
+                {browseLoading && !browseData && (
+                  <p className="text-sm text-slate-500 py-4">Loading folder contents...</p>
+                )}
+
+                {browseError && (
+                  <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4">
+                    <Icon name="error" className="text-lg" />
+                    <span>{browseError}</span>
+                  </div>
+                )}
+
+                {browseForbidden && !browseLoading && (
+                  <div
+                    className="text-center py-12 text-slate-500"
+                    data-testid="files-forbidden-empty-state"
+                  >
+                    <Icon name="lock" className="text-4xl mb-2" />
+                    <p className="text-slate-300 text-sm font-medium mb-1">
+                      This folder can't be browsed.
+                    </p>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto">
+                      Files only shows folders inside your workspace and
+                      ~/.myos/files. Pick a project from the list to browse its
+                      contents.
+                    </p>
+                  </div>
+                )}
+
+                {browseData && browseData.entries.length === 0 && !browseLoading && (
+                  <div className="text-center py-12 text-slate-500">
+                    <Icon name="folder_open" className="text-4xl mb-2" />
+                    <p>This folder is empty.</p>
+                  </div>
+                )}
+
+                {browseData && browseData.entries.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <div className="grid grid-cols-[1fr_100px_80px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                      <span>Name</span>
+                      <span>Size</span>
+                      <span className="text-right">Modified</span>
+                    </div>
+
+                    {browseData.entries.map((entry) => {
+                      const isFolder = entry.kind === 'folder';
+                      return (
+                        <button
+                          key={entry.name}
+                          onClick={() => {
+                            if (isFolder) {
+                              navigateTo(entry.path);
+                            } else {
+                              openPreview(entry);
+                            }
+                          }}
+                          className={`grid grid-cols-[1fr_100px_80px] gap-4 items-center border rounded-lg px-4 py-3 transition-colors cursor-pointer text-left w-full ${
+                            isFolder
+                              ? 'bg-slate-900/60 border-slate-800 hover:border-blue-500/50 hover:bg-slate-800/60'
+                              : 'bg-slate-900/40 border-slate-800/60 hover:border-slate-700 hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {isFolder ? (
+                              <Icon name="folder" className="text-xl text-blue-400" />
+                            ) : (
+                              <Icon name={fileIcon(entry.name)} className="text-xl text-slate-400" />
+                            )}
+                            <span className={`text-sm truncate ${isFolder ? 'font-medium text-slate-100' : 'text-slate-300'}`}>
+                              {entry.name}
+                            </span>
+                            {isFolder && (
+                              <Icon name="chevron_right" size={16} className="text-slate-600 ml-auto flex-shrink-0" />
+                            )}
+                          </div>
+                          <span className="text-xs text-slate-500">{entry.size_display}</span>
+                          <span className="text-xs text-slate-500 text-right">{timeAgo(entry.last_modified)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {browseData && (
+                  <p className="mt-6 text-xs text-slate-600 text-center">
+                    {browseData.entries.length} {browseData.entries.length === 1 ? 'item' : 'items'} in this folder
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* Files-view side preview pane (legacy, pre-QuickLook) */}
+            {previewEntry && (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+                onClick={closePreview}
+              >
+                <div
+                  className="bg-white p-8 rounded-xl text-center text-neutral-500 max-w-md"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p className="mb-4">Preview coming soon.</p>
+                  <p className="text-sm">Click outside to close, or open the file from the row menu.</p>
+                </div>
+              </div>
             )}
           </>
         )}
       </div>
 
-      {/* File preview side pane. TODO(v3.6.0 F3 QuickLook): replace with QuickLook modal. */}
-      {previewEntry && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={closePreview}
-        >
-          <div
-            className="bg-white p-8 rounded-xl text-center text-neutral-500 max-w-md"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="mb-4">Preview coming soon.</p>
-            <p className="text-sm">Click outside to close, or open the file from the row menu.</p>
-          </div>
-        </div>
+      {/* QuickLook modal (timeline view) */}
+      {quickLookTarget && (
+        <QuickLook
+          filePath={quickLookTarget.path}
+          fileType={quickLookTarget.mime}
+          isOpen={true}
+          onClose={() => setQuickLookTarget(null)}
+        />
       )}
 
       {/* In-app confirm dialog, used by delete flows. */}

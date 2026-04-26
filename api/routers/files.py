@@ -353,6 +353,61 @@ async def file_provenance(path: str = Query(..., description="Relative or absolu
     return result or {}
 
 
+def _get_files_dir() -> Path:
+    return Path.home() / ".myos" / "files"
+
+
+@router.get("/files/timeline")
+async def files_timeline(limit: int = Query(50, ge=1, le=200)):
+    """Reverse-chronological feed of agent outputs and uploads with provenance.
+
+    Scans ``~/.myos/files/`` for user-visible files, reads provenance sidecars,
+    and returns them sorted by modified_at descending. Sidecar files
+    (.provenance.json) are excluded from the listing.
+    """
+    import mimetypes
+    from datetime import datetime, timezone
+
+    from services.provenance import read_sidecar
+
+    files_dir = _get_files_dir()
+    if not files_dir.is_dir():
+        return {"files": []}
+
+    entries = []
+    for f in files_dir.iterdir():
+        if not f.is_file():
+            continue
+        if f.name.endswith(".provenance.json"):
+            continue
+        try:
+            stat = f.stat()
+        except OSError:
+            continue
+
+        mime, _ = mimetypes.guess_type(f.name)
+        provenance = read_sidecar(f)
+        if provenance and "source" not in provenance:
+            provenance["source"] = "agent"
+
+        entries.append(
+            {
+                "id": f.name,
+                "name": f.name,
+                "path": str(f),
+                "size": stat.st_size,
+                "modified_at": datetime.fromtimestamp(
+                    stat.st_mtime, tz=timezone.utc
+                ).isoformat(),
+                "mime_type": mime or "application/octet-stream",
+                "provenance": provenance,
+            }
+        )
+
+    entries.sort(key=lambda e: e["modified_at"], reverse=True)
+    return {"files": entries[:limit]}
+
+
 @router.delete("/files/delete")
 async def delete_file(path: str = Query(..., description="Relative path to the file to delete")):
     """Delete a file from the workspace.

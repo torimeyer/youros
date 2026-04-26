@@ -1,54 +1,49 @@
-import { useEffect, useState } from "react";
-
-interface ProvenanceData {
+export interface Provenance {
+  agent_id?: string;
   agent_name?: string;
   task_id?: string;
   created_at?: string;
   prompt_summary?: string;
+  source?: 'agent' | 'upload' | 'drive_import';
 }
 
 function timeAgo(isoStr: string): string {
   const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
-  if (diff < 60) return "just now";
+  if (diff < 60) return 'just now';
   if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
   return `${Math.floor(diff / 86400)} days ago`;
 }
 
-export default function ProvenanceChip({ filePath }: { filePath: string }) {
-  const [data, setData] = useState<ProvenanceData | null>(null);
+export default function ProvenanceChip({
+  provenance,
+}: {
+  provenance: Provenance | null | undefined;
+}) {
+  const agentName = provenance?.agent_name ?? provenance?.agent_id;
+  const relTime = provenance?.created_at ? timeAgo(provenance.created_at) : '';
+  const source = provenance?.source ?? (agentName ? 'agent' : 'upload');
 
-  useEffect(() => {
-    fetch(`/api/files/provenance?path=${encodeURIComponent(filePath)}`)
-      .then((r) => r.json())
-      .then((d: ProvenanceData) => {
-        if (d && d.agent_name) setData(d);
-      })
-      .catch(() => {});
-  }, [filePath]);
-
-  if (!data) return null;
-
-  const parts = [
-    `Created by ${data.agent_name}`,
-    data.task_id ? `for Task #${data.task_id}` : null,
-    data.created_at ? timeAgo(data.created_at) : null,
-  ].filter(Boolean);
+  let text: string;
+  if (!provenance) {
+    text = 'Unknown source';
+  } else if (source === 'drive_import') {
+    text = relTime ? `Imported from Drive ${relTime}` : 'Imported from Drive';
+  } else if (source === 'upload') {
+    text = relTime ? `Uploaded ${relTime}` : 'Uploaded';
+  } else {
+    const parts: string[] = [`Created by ${agentName ?? 'agent'}`];
+    if (provenance.task_id) parts.push(`for task #${provenance.task_id}`);
+    if (relTime) parts.push(relTime);
+    text = parts.join(' • ');
+  }
 
   return (
     <span
       data-testid="provenance-chip"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        fontSize: "0.75rem",
-        color: "#6b7280",
-        backgroundColor: "#f3f4f6",
-        borderRadius: "9999px",
-        padding: "2px 8px",
-      }}
+      className="inline-flex items-center text-xs text-slate-400 bg-slate-800/80 rounded-full px-2 py-0.5 border border-slate-700/50"
     >
-      {parts.join(", ")}
+      {text}
     </span>
   );
 }

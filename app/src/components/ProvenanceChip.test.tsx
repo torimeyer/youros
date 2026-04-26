@@ -1,70 +1,58 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import ProvenanceChip from "./ProvenanceChip";
+import { describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import ProvenanceChip from './ProvenanceChip';
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
-const SIDECAR = {
-  agent_name: "Builder",
-  task_id: "42",
+const AGENT_PROVENANCE = {
+  agent_name: 'Builder',
+  task_id: '42',
   created_at: new Date(Date.now() - 7200000).toISOString(),
-  prompt_summary: "Build the thing",
+  prompt_summary: 'Build the thing',
+  source: 'agent' as const,
 };
 
-describe("ProvenanceChip", () => {
-  it("renders chip when fetch returns sidecar", async () => {
-    vi.spyOn(global, "fetch").mockResolvedValueOnce({
-      json: async () => SIDECAR,
-      ok: true,
-    } as Response);
-
-    render(<ProvenanceChip filePath="/some/file.md" />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId("provenance-chip")).toBeInTheDocument()
-    );
-
-    const chip = screen.getByTestId("provenance-chip");
-    expect(chip.textContent).toContain("Created by Builder");
-    expect(chip.textContent).toContain("Task #42");
+describe('ProvenanceChip', () => {
+  it('renders agent/task line for agent provenance', () => {
+    render(<ProvenanceChip provenance={AGENT_PROVENANCE} />);
+    const chip = screen.getByTestId('provenance-chip');
+    expect(chip.textContent).toContain('Created by Builder');
+    expect(chip.textContent).toContain('task #42');
   });
 
-  it("renders nothing when fetch returns empty", async () => {
-    vi.spyOn(global, "fetch").mockResolvedValueOnce({
-      json: async () => ({}),
-      ok: true,
-    } as Response);
-
-    render(<ProvenanceChip filePath="/some/file.md" />);
-
-    await new Promise((r) => setTimeout(r, 50));
-    expect(screen.queryByTestId("provenance-chip")).not.toBeInTheDocument();
+  it("renders 'Uploaded' for upload source", () => {
+    render(
+      <ProvenanceChip
+        provenance={{ created_at: new Date().toISOString(), source: 'upload' }}
+      />
+    );
+    expect(screen.getByTestId('provenance-chip').textContent).toContain('Uploaded');
   });
 
-  it("shows time-ago in plain language", async () => {
-    vi.spyOn(global, "fetch").mockResolvedValueOnce({
-      json: async () => SIDECAR,
-      ok: true,
-    } as Response);
-
-    render(<ProvenanceChip filePath="/some/file.md" />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId("provenance-chip")).toBeInTheDocument()
+  it("renders 'Imported from Drive' for drive_import source", () => {
+    render(
+      <ProvenanceChip
+        provenance={{ created_at: new Date().toISOString(), source: 'drive_import' }}
+      />
     );
+    expect(screen.getByTestId('provenance-chip').textContent).toContain('Imported from Drive');
+  });
 
-    const text = screen.getByTestId("provenance-chip").textContent ?? "";
+  it("falls back to 'Unknown source' when provenance is null", () => {
+    render(<ProvenanceChip provenance={null} />);
+    expect(screen.getByTestId('provenance-chip').textContent).toContain('Unknown source');
+  });
+
+  it('infers agent source from agent_name when source field is absent', () => {
+    render(
+      <ProvenanceChip
+        provenance={{ agent_name: 'Writer', created_at: new Date().toISOString() }}
+      />
+    );
+    expect(screen.getByTestId('provenance-chip').textContent).toContain('Created by Writer');
+  });
+
+  it('shows time-ago in plain language', () => {
+    render(<ProvenanceChip provenance={AGENT_PROVENANCE} />);
+    const text = screen.getByTestId('provenance-chip').textContent ?? '';
     expect(text).toMatch(/ago|just now/i);
-  });
-
-  it("renders nothing when fetch fails", async () => {
-    vi.spyOn(global, "fetch").mockRejectedValueOnce(new Error("network"));
-
-    render(<ProvenanceChip filePath="/some/file.md" />);
-
-    await new Promise((r) => setTimeout(r, 50));
-    expect(screen.queryByTestId("provenance-chip")).not.toBeInTheDocument();
   });
 });
