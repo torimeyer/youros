@@ -1013,6 +1013,7 @@ export default function Tasks() {
         template?: string;
         task_id: string;
         locks: string[];
+        isolation?: string;
       } = {
         name: "",
         prompt: "",
@@ -1027,6 +1028,7 @@ export default function Tasks() {
         namePrefix = "plan";
         bannerLabel = "Plan";
         body.locks = ["*"];
+        body.isolation = "none";
       } else if (mode === "comprehensive") {
         prompt = `Implement this task: "${task.title}". Follow the comprehensive build pattern. Plan the approach, build the solution, write tests, run them, and only report done when everything is green.`;
         namePrefix = "implement";

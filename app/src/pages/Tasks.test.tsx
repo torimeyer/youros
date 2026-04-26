@@ -1438,7 +1438,7 @@ describe('Tasks page', () => {
     // Plan mode is read-only (no edit verbs) → isolation="none" → locks:["*"] is the opt-out.
     // Comprehensive and Quick modes contain "Implement" → isolation="worktree" → must declare
     // real paths; locks:["*"] is rejected by validate_locks_for_spawn for worktree spawns.
-    it('plan mode sends locks:["*"] (read-only opt-out)', async () => {
+    it('plan mode sends locks:["*"] and isolation:"none" (read-only opt-out)', async () => {
       await openFirstActionMenu()
 
       fireEvent.click(screen.getByText('Plan'))
@@ -1451,8 +1451,11 @@ describe('Tasks page', () => {
       })
 
       const spawnCall = mockedApiPost.mock.calls.find((c) => c[0] === '/agents/spawn')
-      const body = spawnCall![1] as { locks: string[] }
+      const body = spawnCall![1] as { locks: string[]; isolation?: string }
       expect(body.locks).toEqual(['*'])
+      // isolation:"none" is required so the server doesn't route "Create …" verbs
+      // through decide_isolation → "worktree", which rejects locks:["*"].
+      expect(body.isolation).toBe('none')
     })
 
     it('comprehensive mode sends real path globs, not the wildcard opt-out', async () => {
