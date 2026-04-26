@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, type MouseEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
@@ -127,6 +127,51 @@ const focusColors = [
   'bg-orange-500/20 text-orange-400',
 ];
 
+// Calendar widget range. Drives the day/week/month selector on the
+// dashboard's calendar card. Stored as a string in localStorage so
+// the user's choice survives a reload.
+type CalendarRange = 'day' | 'week' | 'month';
+
+const CALENDAR_RANGE_KEY = 'myos.calendar_widget_range';
+
+// How many days each range covers. Matches the values the backend
+// /calendar/events route accepts on the ?days= query param.
+const CALENDAR_RANGE_DAYS: Record<CalendarRange, number> = {
+  day: 1,
+  week: 7,
+  month: 30,
+};
+
+// Plain-language label shown in the widget's selector. No jargon, no
+// abbreviations, so the meaning is obvious at a glance.
+const CALENDAR_RANGE_LABEL: Record<CalendarRange, string> = {
+  day: 'Day',
+  week: 'Week',
+  month: 'Month',
+};
+
+// Empty-state copy per range. Plain language, no jargon.
+const CALENDAR_RANGE_EMPTY: Record<CalendarRange, string> = {
+  day: 'Nothing on your calendar today.',
+  week: 'Nothing on your calendar this week.',
+  month: 'Nothing on your calendar this month.',
+};
+
+// Maximum events shown in the widget so the dashboard card stays
+// compact. The full list is on the Calendar page.
+const CALENDAR_WIDGET_MAX_EVENTS = 5;
+
+function readCalendarRange(): CalendarRange {
+  if (typeof window === 'undefined') return 'week';
+  try {
+    const raw = localStorage.getItem(CALENDAR_RANGE_KEY);
+    if (raw === 'day' || raw === 'week' || raw === 'month') return raw;
+  } catch {
+    // localStorage may throw in private windows. Fall back to default.
+  }
+  return 'week';
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const toggleChat = useAppStore((s) => s.toggleChat);
@@ -151,6 +196,14 @@ export default function Dashboard() {
   // briefing. Drives the small "Refreshing..." hint so the user knows
   // the card on screen is last-known and a newer one is on the way.
   const [briefingRefreshing, setBriefingRefreshing] = useState(initialBriefingSeed !== null);
+  // Calendar widget range selector. Persisted to localStorage so a
+  // reload restores the user's choice. Default is Week to match the
+  // historical behavior from before the selector landed.
+  const [calendarRange, setCalendarRange] = useState<CalendarRange>(() => readCalendarRange());
+  // Events filtered to the chosen range, capped so the widget stays
+  // compact. Undefined while the first fetch is in flight, [] when
+  // the fetch returns nothing in the window.
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[] | undefined>(undefined);
   const [quickAddTaskOpen, setQuickAddTaskOpen] = useState(false);
   const [quickSpawnOpen, setQuickSpawnOpen] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
@@ -181,26 +234,14 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashRes, compoundsRes, diffRes, calRes] = await Promise.all([
+      const [dashRes, compoundsRes, diffRes] = await Promise.all([
         api.get<DashboardData>('/dashboard'),
         api.get<CompoundsData>('/dashboard/compounds').catch(() => null),
         api.get<SessionDiff>('/dashboard/diff').catch(() => null),
-        api.get<{ events: CalendarEvent[] }>('/calendar/events').catch(() => null),
       ]);
       setData(dashRes);
       if (compoundsRes) setCompounds(compoundsRes);
       if (diffRes) setSessionDiff(diffRes);
-      if (calRes) {
-        const now = Date.now();
-        const future = (calRes.events || []).filter((ev) => {
-          const startStr = ev.start?.dateTime || ev.start?.date;
-          if (!startStr) return false;
-          return new Date(startStr).getTime() > now;
-        });
-        setNextMeeting(future[0] ?? null);
-      } else {
-        setNextMeeting(null);
-      }
     } catch (e) {
       console.error('Failed to fetch dashboard:', e);
     } finally {
@@ -215,6 +256,43 @@ export default function Dashboard() {
     const interval = setInterval(fetchData, 15000);
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  // Calendar widget fetch. Re-runs whenever the user changes the
+  // range selector. Also re-runs every 60s so the list stays fresh
+  // without needing a manual refresh. We pass ?days= only when the
+  // range is not the default Week, so the existing 7-day cache hit
+  // path stays warm and the path-equality test mocks keep matching.
+  const fetchCalendarEvents = useCallback(async (range: CalendarRange) => {
+    const days = CALENDAR_RANGE_DAYS[range];
+    const path = days === 7 ? '/calendar/events' : `/calendar/events?days=${days}`;
+    let res: { events: CalendarEvent[] } | null = null;
+    try {
+      res = await api.get<{ events: CalendarEvent[] }>(path);
+    } catch {
+      res = null;
+    }
+    if (!res) {
+      setCalendarEvents([]);
+      return;
+    }
+    const now = Date.now();
+    const cutoff = now + days * 24 * 60 * 60 * 1000;
+    const filtered = (res.events || [])
+      .filter((ev) => {
+        const startStr = ev.start?.dateTime || ev.start?.date;
+        if (!startStr) return false;
+        const t = new Date(startStr).getTime();
+        return t > now && t <= cutoff;
+      })
+      .slice(0, CALENDAR_WIDGET_MAX_EVENTS);
+    setCalendarEvents(filtered);
+  }, []);
+
+  useEffect(() => {
+    fetchCalendarEvents(calendarRange);
+    const interval = setInterval(() => fetchCalendarEvents(calendarRange), 60000);
+    return () => clearInterval(interval);
+  }, [fetchCalendarEvents, calendarRange]);
 
 
   useEffect(() => {
@@ -380,7 +458,6 @@ export default function Dashboard() {
     { icon: 'chat', label: 'Open Chat', color: 'text-cyan-400', hoverBorder: 'hover:border-cyan-500' },
   ];
 
-  const [nextMeeting, setNextMeeting] = useState<CalendarEvent | null | undefined>(undefined);
 
 
   // cardClass replaced by Card component. Use: <Card hover padding="sm" className="sm:p-6">
@@ -704,80 +781,127 @@ export default function Dashboard() {
   );
 
   const renderNextMeeting = () => {
-    if (!nextMeeting) {
+    const events = calendarEvents ?? [];
+    const hasEvents = events.length > 0;
+    const handleRangeClick = (range: CalendarRange) => (e: MouseEvent) => {
+      // Stop propagation so clicking the selector does not also
+      // navigate the user to the Calendar page (the wrapping Card
+      // has an onClick that routes there).
+      e.stopPropagation();
+      if (range === calendarRange) return;
+      setCalendarRange(range);
+      try {
+        localStorage.setItem(CALENDAR_RANGE_KEY, range);
+      } catch {
+        // localStorage write failures are non-fatal. The selection
+        // will still apply for this session.
+      }
+    };
+    const rangeSelector = (
+      <div
+        role="group"
+        aria-label="Calendar range"
+        className="inline-flex rounded-lg bg-slate-800/60 p-0.5 text-xs"
+        data-testid="calendar-range-selector"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {(['day', 'week', 'month'] as CalendarRange[]).map((range) => {
+          const active = range === calendarRange;
+          return (
+            <button
+              key={range}
+              type="button"
+              onClick={handleRangeClick(range)}
+              aria-pressed={active}
+              data-testid={`calendar-range-${range}`}
+              className={`px-2.5 py-1 rounded-md transition-colors ${active ? 'bg-blue-500/30 text-blue-200' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              {CALENDAR_RANGE_LABEL[range]}
+            </button>
+          );
+        })}
+      </div>
+    );
+
+    const header = (
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Icon name="calendar_month" className="text-blue-400" size={20} />
+          <h2 className="text-lg font-semibold">Upcoming events</h2>
+        </div>
+        {rangeSelector}
+      </div>
+    );
+
+    if (!hasEvents) {
       return (
         <div key="next_meeting" data-testid="widget-next-meeting" className="lg:col-span-2">
-        <Card
-          hover
-          padding="sm"
-          className="sm:p-6"
-          onClick={() => navigate('/calendar')}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
-              <Icon name="calendar_month" className="text-blue-400" size={20} />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-0.5">Next event</p>
-              <p className="text-sm text-slate-400">No upcoming meetings on your calendar.</p>
-            </div>
-          </div>
-        </Card>
+          <Card hover padding="sm" className="sm:p-6" onClick={() => navigate('/calendar')}>
+            {header}
+            <p className="text-sm text-slate-400">{CALENDAR_RANGE_EMPTY[calendarRange]}</p>
+          </Card>
         </div>
       );
     }
+
     return (
       <div key="next_meeting" data-testid="widget-next-meeting" className="lg:col-span-2">
-      <Card
-        hover
-        padding="sm"
-        className="sm:p-6"
-        onClick={() => navigate('/calendar')}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
-              <Icon name="calendar_month" className="text-blue-400" size={20} />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-blue-400 uppercase tracking-wide mb-0.5">Next event</p>
-              <p className="font-semibold">{nextMeeting.summary || 'Untitled'}</p>
-              {(() => {
-                const startStr = nextMeeting.start?.dateTime || nextMeeting.start?.date;
-                if (!startStr) return null;
+        <Card hover padding="sm" className="sm:p-6" onClick={() => navigate('/calendar')}>
+          {header}
+          <ul className="space-y-2" data-testid="calendar-event-list">
+            {events.map((ev) => {
+              const startStr = ev.start?.dateTime || ev.start?.date;
+              let dayStr = '';
+              let timeStr = '';
+              if (startStr) {
                 try {
                   const d = new Date(startStr);
-                  const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                  timeStr = ev.start?.dateTime
+                    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                    : 'All day';
                   const today = new Date();
                   const isToday = d.toDateString() === today.toDateString();
                   const tomorrow = new Date(today);
                   tomorrow.setDate(today.getDate() + 1);
                   const isTomorrow = d.toDateString() === tomorrow.toDateString();
-                  const dayStr = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-                  return <p className="text-sm text-slate-400">{dayStr} at {timeStr}</p>;
+                  dayStr = isToday
+                    ? 'Today'
+                    : isTomorrow
+                      ? 'Tomorrow'
+                      : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
                 } catch {
-                  return null;
+                  // ignore unparseable dates; row will just have no time/day
                 }
-              })()}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {nextMeeting.hangoutLink && (
-              <a
-                href={nextMeeting.hangoutLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1 px-3 py-1.5 bg-green-500/20 text-green-400 rounded-lg text-sm hover:bg-green-500/30 transition-colors"
-              >
-                <Icon name="video_call" size={16} />
-                Join Meet
-              </a>
-            )}
-            <Icon name="chevron_right" className="text-slate-500" size={20} />
-          </div>
-        </div>
-      </Card>
+              }
+              return (
+                <li key={ev.id} className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{ev.summary || 'Untitled'}</p>
+                    {(dayStr || timeStr) && (
+                      <p className="text-xs text-slate-400">
+                        {dayStr}
+                        {dayStr && timeStr ? ' at ' : ''}
+                        {timeStr}
+                      </p>
+                    )}
+                  </div>
+                  {ev.hangoutLink && (
+                    <a
+                      href={ev.hangoutLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="shrink-0 flex items-center gap-1 px-2.5 py-1 bg-green-500/20 text-green-400 rounded-md text-xs hover:bg-green-500/30 transition-colors"
+                    >
+                      <Icon name="video_call" size={14} />
+                      Join
+                    </a>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
       </div>
     );
   };

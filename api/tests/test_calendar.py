@@ -855,3 +855,134 @@ def test_tool_definitions_include_new_tools():
     assert "create_calendar_event" in names
     assert "send_email" in names
     assert "upload_to_drive" in names
+
+
+# ---------------------------------------------------------------------------
+# /calendar/events ?days= range selector (Day / Week / Month)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_day_range_skips_cache(client, tmp_path):
+    """days=1 returns 200 and fetches with a 1-day window, bypassing cache."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
+    cache_path = tmp_path / "calendar_cache" / "events.json"
+    cache_path.parent.mkdir()
+    # Pre-seed cache with a different shape so we know the day fetch
+    # bypassed it.
+    today_str = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+    cache_path.write_text(json.dumps({"fetched_date": today_str, "events": _make_events(7)}))
+
+    fresh = _make_events(2)
+
+    captured: dict = {}
+    def _capture(days: int = 7):
+        captured["days"] = days
+        return fresh
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.calendar.EVENTS_CACHE_PATH", cache_path),
+        patch("services.calendar._fetch_events_sync", side_effect=_capture),
+    ):
+        resp = await client.get("/api/calendar/events?days=1")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["days"] == 1
+    assert len(data["events"]) == 2
+    assert captured["days"] == 1
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_week_range_default_uses_cache(client, tmp_path):
+    """days=7 (and the unparameterized call) returns 200 with a 7-day window."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
+    cache_path = tmp_path / "calendar_cache" / "events.json"
+    cache_path.parent.mkdir()
+
+    fresh = _make_events(3)
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.calendar.EVENTS_CACHE_PATH", cache_path),
+        patch("services.calendar._fetch_events_sync", return_value=fresh),
+    ):
+        resp = await client.get("/api/calendar/events?days=7")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["days"] == 7
+    assert len(data["events"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_month_range_skips_cache(client, tmp_path):
+    """days=30 returns 200 and fetches with a 30-day window, bypassing cache."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
+    cache_path = tmp_path / "calendar_cache" / "events.json"
+    cache_path.parent.mkdir()
+
+    fresh = _make_events(10)
+
+    captured: dict = {}
+    def _capture(days: int = 7):
+        captured["days"] = days
+        return fresh
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.calendar.EVENTS_CACHE_PATH", cache_path),
+        patch("services.calendar._fetch_events_sync", side_effect=_capture),
+    ):
+        resp = await client.get("/api/calendar/events?days=30")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["days"] == 30
+    assert len(data["events"]) == 10
+    assert captured["days"] == 30
+
+
+@pytest.mark.asyncio
+async def test_calendar_events_clamps_unsupported_days(client, tmp_path):
+    """An out-of-bucket value like days=14 is clamped to 30 (next bucket up)."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({
+        "access_token": "ya29.test",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly",
+    }))
+    cache_path = tmp_path / "calendar_cache" / "events.json"
+    cache_path.parent.mkdir()
+
+    fresh = _make_events(1)
+
+    captured: dict = {}
+    def _capture(days: int = 7):
+        captured["days"] = days
+        return fresh
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("services.calendar.EVENTS_CACHE_PATH", cache_path),
+        patch("services.calendar._fetch_events_sync", side_effect=_capture),
+    ):
+        resp = await client.get("/api/calendar/events?days=14")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["days"] == 30
+    assert captured["days"] == 30
+

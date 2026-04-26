@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 
@@ -14,6 +14,17 @@ router = APIRouter(tags=["calendar"])
 
 # Key used for the in-memory TTL cache of the status payload.
 _CALENDAR_STATUS_CACHE_KEY = "calendar_auth_status"
+
+# Default number of days to look ahead when no range is requested. Picked
+# to match historic behavior from before the day/week/month range
+# selector landed, so existing callers keep getting a 7-day window.
+_DEFAULT_EVENTS_DAYS = 7
+
+# Allowed values for the ``days`` query param. The dashboard offers a
+# Day/Week/Month range selector that maps to these three values; other
+# numbers in the 1..30 range are clamped to one of these so we never
+# fan out to an unbounded window.
+_ALLOWED_EVENT_DAYS = {1, 7, 30}
 
 
 class CreateEventBody(BaseModel):
@@ -66,8 +77,12 @@ async def calendar_auth_status():
 
 
 @router.get("/calendar/events")
-async def calendar_events():
-    """Return upcoming events for the next 7 days.
+async def calendar_events(days: int = Query(_DEFAULT_EVENTS_DAYS, ge=1, le=30)):
+    """Return upcoming events within the next ``days`` days.
+
+    The ``days`` query param accepts 1 (today), 7 (week, default) or
+    30 (month). Any other value in the 1..30 range is clamped to one
+    of those three buckets so the on-disk cache stays predictable.
 
     Returns 401 if not authenticated. Returns 403 with needs_reauth=true if
     the calendar scope is missing on the current token.
@@ -75,8 +90,27 @@ async def calendar_events():
     if not is_authenticated():
         raise HTTPException(status_code=401, detail="Not connected to Google Calendar.")
 
+    # Clamp arbitrary values to one of the three supported windows so
+    # a caller cannot bypass the cache by passing days=8.
+    if days not in _ALLOWED_EVENT_DAYS:
+        if days <= 1:
+            days = 1
+        elif days <= 7:
+            days = 7
+        else:
+            days = 30
+
     try:
-        events = await calendar_service.get_upcoming_events(days=7)
+        if days == _DEFAULT_EVENTS_DAYS:
+            # Default 7-day window uses the on-disk cache so existing
+            # callers (Calendar page, dashboard) keep their fast path.
+            events = await calendar_service.get_upcoming_events(days=days)
+        else:
+            # Day and Month windows skip the cache. The cache is keyed
+            # only by date and would otherwise return the wrong window.
+            # These calls are infrequent (user-initiated range change)
+            # so the extra Google round trip is acceptable.
+            events = await calendar_service.fetch_events_uncached(days=days)
     except Exception as exc:
         msg = str(exc).lower()
         if "accessnotconfigured" in msg or "has not been used" in msg:
@@ -94,7 +128,7 @@ async def calendar_events():
             detail=f"Could not load calendar events: {exc}",
         ) from exc
 
-    return {"events": events}
+    return {"events": events, "days": days}
 
 
 @router.post("/calendar/events")

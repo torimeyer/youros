@@ -165,6 +165,20 @@ async def get_upcoming_events(days: int = 7) -> list[dict]:
     _save_cache(events)
     return events
 
+async def fetch_events_uncached(days: int = 7) -> list[dict]:
+    """Fetch events for the next *days* days, bypassing the on-disk cache.
+
+    The shared cache is keyed by date only, not by window size. Day/Month
+    range requests must skip it so a 7-day cache hit does not get served
+    back as a 1-day or 30-day result. Cache writes are also skipped here
+    so a Day fetch cannot poison the default 7-day cache.
+    """
+    return await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _fetch_events_sync(days)
+    )
+
+
+
 
 async def get_today_events() -> list[dict]:
     """Return events starting today (local calendar day).

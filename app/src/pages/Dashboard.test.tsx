@@ -582,7 +582,7 @@ describe('Dashboard widget customization', () => {
       expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument()
     })
     // Empty state copy should appear when there are no upcoming meetings.
-    expect(screen.getByText(/No upcoming meetings/i)).toBeInTheDocument()
+    expect(screen.getByText(/Nothing on your calendar/i)).toBeInTheDocument()
   })
 
   it('toggling on Focus on this first shows an empty-state card when there are no blocking tasks', async () => {
@@ -1095,4 +1095,109 @@ describe('Briefing localStorage seed', () => {
   })
 })
 
+describe('calendar widget range selector', () => {
+  // Build a stub calendar event N days from now so the dashboard's
+  // in-window filter keeps the mocked event for whatever range is
+  // active. Using a fixed offset of 2 hours keeps the event inside
+  // every (Day, Week, Month) window we test.
+  function makeCalendarEvent(id: string) {
+    const start = new Date(Date.now() + 2 * 60 * 60 * 1000)
+    const end = new Date(start.getTime() + 30 * 60 * 1000)
+    return {
+      id,
+      summary: `Event ${id}`,
+      start: { dateTime: start.toISOString() },
+      end: { dateTime: end.toISOString() },
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    localStorage.clear()
+    localStorage.setItem('myos-tour-complete', 'true')
+    useAppStore.setState({
+      chatOpen: false,
+      osName: 'ToriOS',
+      darkMode: true,
+      showTour: false,
+      dashboardWidgets: ['next_meeting'],
+    })
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path.startsWith('/calendar/events')) {
+        return Promise.resolve({ events: [makeCalendarEvent('A')] })
+      }
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  })
+
+  it('defaults to Week and fetches /calendar/events without ?days=', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument()
+    })
+    // Week button is the active selection on first render.
+    const weekBtn = screen.getByTestId('calendar-range-week')
+    expect(weekBtn).toHaveAttribute('aria-pressed', 'true')
+    // Default Week sends no query string so the on-disk cache stays warm.
+    const calendarCalls = mockedApiGet.mock.calls
+      .map((c) => c[0])
+      .filter((p) => typeof p === 'string' && p.startsWith('/calendar/events'))
+    expect(calendarCalls.length).toBeGreaterThan(0)
+    expect(calendarCalls).toContain('/calendar/events')
+    expect(calendarCalls.every((p) => !p.includes('?days='))).toBe(true)
+  })
+
+  it('switching to Day re-fetches with ?days=1 and persists to localStorage', async () => {
+    renderDashboard()
+    await waitFor(() => expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('calendar-range-day'))
+
+    await waitFor(() => {
+      const calls = mockedApiGet.mock.calls.map((c) => c[0])
+      expect(calls).toContain('/calendar/events?days=1')
+    })
+    expect(screen.getByTestId('calendar-range-day')).toHaveAttribute('aria-pressed', 'true')
+    expect(localStorage.getItem('myos.calendar_widget_range')).toBe('day')
+  })
+
+  it('switching to Month re-fetches with ?days=30 and persists to localStorage', async () => {
+    renderDashboard()
+    await waitFor(() => expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('calendar-range-month'))
+
+    await waitFor(() => {
+      const calls = mockedApiGet.mock.calls.map((c) => c[0])
+      expect(calls).toContain('/calendar/events?days=30')
+    })
+    expect(screen.getByTestId('calendar-range-month')).toHaveAttribute('aria-pressed', 'true')
+    expect(localStorage.getItem('myos.calendar_widget_range')).toBe('month')
+  })
+
+  it('restores the saved range across remount', async () => {
+    localStorage.setItem('myos.calendar_widget_range', 'day')
+    const { unmount } = renderDashboard()
+    await waitFor(() => expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument())
+    expect(screen.getByTestId('calendar-range-day')).toHaveAttribute('aria-pressed', 'true')
+    unmount()
+
+    // Fresh render with the same localStorage value should still show Day.
+    renderDashboard()
+    await waitFor(() => expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument())
+    expect(screen.getByTestId('calendar-range-day')).toHaveAttribute('aria-pressed', 'true')
+    // And the fetch on the second mount should still ask for ?days=1.
+    const calls = mockedApiGet.mock.calls.map((c) => c[0])
+    expect(calls.filter((p) => p === '/calendar/events?days=1').length).toBeGreaterThan(0)
+  })
+})
 
