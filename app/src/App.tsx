@@ -34,6 +34,7 @@ import AdminAuditTrail from './pages/admin/AuditTrail'
 import AdminSecurity from './pages/admin/Security'
 import InviteAccept from './pages/InviteAccept'
 import TeamStart from './pages/TeamStart'
+import PrivacyPolicy from './pages/PrivacyPolicy'
 
 export default function App() {
   const hydrated = useAppStore((s) => s.hydrated)
@@ -138,6 +139,7 @@ export default function App() {
           <Route path="adoption" element={<Adoption />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/upgrade" element={<Upgrade />} />
+          <Route path="privacy" element={<PrivacyPolicy />} />
         </Route>
       </Routes>
     </BrowserRouter>

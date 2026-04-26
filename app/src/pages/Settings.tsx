@@ -2102,6 +2102,13 @@ export default function Settings() {
             >
               View transcripts
             </a>
+            <a
+              href="/privacy"
+              data-testid="developer-privacy-link"
+              className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              Privacy policy
+            </a>
           </div>
         </div>
 
