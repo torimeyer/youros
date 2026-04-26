@@ -767,25 +767,25 @@ export function Sidebar() {
       </div>
 
       {/* Theme toggle */}
-      <div className="px-4 pt-3 pb-2 mt-3 border-t border-slate-800" data-testid="theme-toggle-container">
+      <div className="px-4 pt-3 pb-2 mt-3 border-t border-slate-300 dark:border-slate-800" data-testid="theme-toggle-container">
         <button
           data-testid="theme-toggle"
           aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
           onClick={toggleDarkMode}
-          className="relative flex items-center w-full h-10 rounded-full bg-slate-800 hover:bg-slate-700 transition-colors duration-200 cursor-pointer border border-slate-700 p-1"
+          className="relative flex items-center w-full h-10 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors duration-200 cursor-pointer border border-slate-300 dark:border-slate-700 p-1"
         >
           {/* Sun icon (light) */}
-          <span className={`w-1/2 flex items-center justify-center z-10 transition-colors duration-200 ${!darkMode ? 'text-amber-400' : 'text-slate-500 hover:text-slate-400'}`}>
+          <span className={`w-1/2 flex items-center justify-center z-10 transition-colors duration-200 ${!darkMode ? 'text-amber-500' : 'text-slate-500 hover:text-slate-400'}`}>
             <Icon name="light_mode" size={20} />
           </span>
           {/* Moon icon (dark) */}
-          <span className={`w-1/2 flex items-center justify-center z-10 transition-colors duration-200 ${darkMode ? 'text-blue-400' : 'text-slate-500 hover:text-slate-400'}`}>
+          <span className={`w-1/2 flex items-center justify-center z-10 transition-colors duration-200 ${darkMode ? 'text-blue-400' : 'text-slate-400 hover:text-slate-500'}`}>
             <Icon name="dark_mode" size={20} />
           </span>
           {/* Sliding indicator */}
           <span
             data-testid="theme-toggle-indicator"
-            className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-full bg-slate-600 transition-transform duration-200 ${darkMode ? 'translate-x-[100%]' : 'translate-x-0'}`}
+            className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-full bg-white border border-slate-300 shadow-sm dark:bg-slate-600 dark:border-transparent dark:shadow-none transition-transform duration-200 ${darkMode ? 'translate-x-[100%]' : 'translate-x-0'}`}
           />
         </button>
       </div>
