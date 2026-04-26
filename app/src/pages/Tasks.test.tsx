@@ -1434,6 +1434,70 @@ describe('Tasks page', () => {
       expect(body.template).toBeUndefined()
     })
 
+    // --- Spawn locks contract (matches api/services/spawn_isolation.py) ---
+    // Plan mode is read-only (no edit verbs) → isolation="none" → locks:["*"] is the opt-out.
+    // Comprehensive and Quick modes contain "Implement" → isolation="worktree" → must declare
+    // real paths; locks:["*"] is rejected by validate_locks_for_spawn for worktree spawns.
+    it('plan mode sends locks:["*"] (read-only opt-out)', async () => {
+      await openFirstActionMenu()
+
+      fireEvent.click(screen.getByText('Plan'))
+
+      await waitFor(() => {
+        expect(mockedApiPost).toHaveBeenCalledWith(
+          '/agents/spawn',
+          expect.objectContaining({ locks: ['*'] })
+        )
+      })
+
+      const spawnCall = mockedApiPost.mock.calls.find((c) => c[0] === '/agents/spawn')
+      const body = spawnCall![1] as { locks: string[] }
+      expect(body.locks).toEqual(['*'])
+    })
+
+    it('comprehensive mode sends real path globs, not the wildcard opt-out', async () => {
+      await openFirstActionMenu()
+
+      fireEvent.click(screen.getByText('Comprehensive build'))
+
+      await waitFor(() => {
+        expect(mockedApiPost).toHaveBeenCalledWith(
+          '/agents/spawn',
+          expect.objectContaining({ template: 'comprehensive' })
+        )
+      })
+
+      const spawnCall = mockedApiPost.mock.calls.find((c) => c[0] === '/agents/spawn')
+      const body = spawnCall![1] as { locks: string[] }
+      // Must not be the wildcard — server rejects it for edit-capable spawns.
+      expect(body.locks).not.toContain('*')
+      // Must be non-empty so the server has real paths to lock.
+      expect(body.locks.length).toBeGreaterThan(0)
+      // Must cover the main code directories.
+      expect(body.locks.some((g) => g.startsWith('app/'))).toBe(true)
+      expect(body.locks.some((g) => g.startsWith('api/'))).toBe(true)
+    })
+
+    it('quick build mode sends real path globs, not the wildcard opt-out', async () => {
+      await openFirstActionMenu()
+
+      fireEvent.click(screen.getByText('Quick build'))
+
+      await waitFor(() => {
+        expect(mockedApiPost).toHaveBeenCalledWith(
+          '/agents/spawn',
+          expect.objectContaining({ name: expect.stringContaining('implement-') })
+        )
+      })
+
+      const spawnCall = mockedApiPost.mock.calls.find((c) => c[0] === '/agents/spawn')
+      const body = spawnCall![1] as { locks: string[] }
+      expect(body.locks).not.toContain('*')
+      expect(body.locks.length).toBeGreaterThan(0)
+      expect(body.locks.some((g) => g.startsWith('app/'))).toBe(true)
+      expect(body.locks.some((g) => g.startsWith('api/'))).toBe(true)
+    })
+
     it('help icon opens the plain-language popover and Escape closes it', async () => {
       await openFirstActionMenu()
 

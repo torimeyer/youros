@@ -997,6 +997,14 @@ export default function Tasks() {
       let prompt: string;
       let namePrefix: string;
       let bannerLabel: string;
+      // Build-mode spawns route to isolation="worktree" because their prompts
+      // contain edit verbs ("implement"). The server rejects locks:["*"] for
+      // worktree spawns — the wildcard is the read-only opt-out only.
+      // Plan-mode spawns have no edit verbs so they get isolation="none" where
+      // locks:["*"] is the correct opt-out. Use broad but real globs for build
+      // modes so parallel edit-spawns still conflict-detect against each other.
+      const BUILD_LOCKS = ["app/**", "api/**", "scripts/**", "docs/**"];
+
       const body: {
         name: string;
         prompt: string;
@@ -1011,22 +1019,25 @@ export default function Tasks() {
         model: "sonnet",
         budget: 2.0,
         task_id: taskId,
-        locks: ["*"],
+        locks: [],
       };
 
       if (mode === "plan") {
         prompt = `Create a detailed plan for this task: "${task.title}". Break it down into steps, identify risks, and estimate effort.`;
         namePrefix = "plan";
         bannerLabel = "Plan";
+        body.locks = ["*"];
       } else if (mode === "comprehensive") {
         prompt = `Implement this task: "${task.title}". Follow the comprehensive build pattern. Plan the approach, build the solution, write tests, run them, and only report done when everything is green.`;
         namePrefix = "implement";
         bannerLabel = "Comprehensive build";
         body.template = "comprehensive";
+        body.locks = BUILD_LOCKS;
       } else {
         prompt = `Implement this task: "${task.title}". Write the code, tests, and documentation needed.`;
         namePrefix = "implement";
         bannerLabel = "Quick build";
+        body.locks = BUILD_LOCKS;
       }
 
       body.name = `${namePrefix}-${taskId.replace(/[^a-zA-Z0-9]/g, "")}`;
