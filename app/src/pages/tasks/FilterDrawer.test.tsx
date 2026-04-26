@@ -8,15 +8,13 @@ const mockThreads = [
   { id: 't2', name: 'Backlog' },
 ]
 
-const allStatuses = new Set<StatusFilter>(['open', 'in_progress', 'closed'])
-
 const defaultProps = {
   open: true,
-  selectedStatuses: allStatuses,
+  selectedStatus: 'all' as StatusFilter,
   threadFilter: null,
   threads: mockThreads,
   filterCounts: { open: 5, in_progress: 2, closed: 2 },
-  onStatusToggle: vi.fn(),
+  onStatusChange: vi.fn(),
   onThreadChange: vi.fn(),
   onSortByChange: vi.fn(),
 }
@@ -32,13 +30,12 @@ describe('FilterDrawer', () => {
     expect(screen.getByTestId('filter-drawer')).toBeInTheDocument()
   })
 
-  it('shows only the three real status pills: Open, In progress, Closed', () => {
+  it('shows all four status pills: All, Open, In progress, Closed', () => {
     render(<FilterDrawer {...defaultProps} />)
+    expect(screen.getByTestId('status-filter-all')).toBeInTheDocument()
     expect(screen.getByTestId('status-filter-open')).toBeInTheDocument()
     expect(screen.getByTestId('status-filter-in_progress')).toBeInTheDocument()
     expect(screen.getByTestId('status-filter-closed')).toBeInTheDocument()
-    // Regression: no "all", "shelved", "week", "recurring" pills.
-    expect(screen.queryByTestId('status-filter-all')).not.toBeInTheDocument()
     expect(screen.queryByTestId('status-filter-shelved')).not.toBeInTheDocument()
     expect(screen.queryByTestId('status-filter-week')).not.toBeInTheDocument()
     expect(screen.queryByTestId('status-filter-recurring')).not.toBeInTheDocument()
@@ -46,6 +43,7 @@ describe('FilterDrawer', () => {
 
   it('pills use plain-language labels', () => {
     render(<FilterDrawer {...defaultProps} />)
+    expect(screen.getByTestId('status-filter-all')).toHaveTextContent(/^All/)
     expect(screen.getByTestId('status-filter-open')).toHaveTextContent(/^Open/)
     expect(screen.getByTestId('status-filter-in_progress')).toHaveTextContent(
       /^In progress/
@@ -53,27 +51,19 @@ describe('FilterDrawer', () => {
     expect(screen.getByTestId('status-filter-closed')).toHaveTextContent(/^Closed/)
   })
 
-  it('all three pills appear selected (aria-pressed=true) when all statuses are selected', () => {
-    render(<FilterDrawer {...defaultProps} />)
-    expect(screen.getByTestId('status-filter-open')).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
-    expect(screen.getByTestId('status-filter-in_progress')).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
-    expect(screen.getByTestId('status-filter-closed')).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+  it('selected pill has aria-pressed=true, others false', () => {
+    render(<FilterDrawer {...defaultProps} selectedStatus="open" />)
+    expect(screen.getByTestId('status-filter-all')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTestId('status-filter-open')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('status-filter-in_progress')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTestId('status-filter-closed')).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('clicking a pill calls onStatusToggle with that status', () => {
-    const onStatusToggle = vi.fn()
-    render(<FilterDrawer {...defaultProps} onStatusToggle={onStatusToggle} />)
+  it('clicking a pill calls onStatusChange with that status', () => {
+    const onStatusChange = vi.fn()
+    render(<FilterDrawer {...defaultProps} onStatusChange={onStatusChange} />)
     fireEvent.click(screen.getByTestId('status-filter-closed'))
-    expect(onStatusToggle).toHaveBeenCalledWith('closed')
+    expect(onStatusChange).toHaveBeenCalledWith('closed')
   })
 
   it('renders exactly ONE sort row (not two) - regression for duplicate sort bug', () => {

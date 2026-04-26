@@ -281,19 +281,12 @@ export default function Tasks() {
   } | null>(null);
   const [linkedLoading, setLinkedLoading] = useState(false);
   const [traceLoading, setTraceLoading] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
-  // Multi-select tri-state status pills (Open / In progress / Closed).
-  // Independent of the single-string statusFilter above, which is still used
-  // internally for legacy views (shelved, week, recurring). When the user
-  // clicks a tri-state pill we move statusFilter to "all" so every legacy
-  // filter branch becomes a no-op and filtering falls entirely to this Set.
-  // Default hides closed (keeps the page focused on actionable work). User
-  // can click the Closed pill to focus on closed, or — from a single-pill
-  // state — click additional pills to include multiple buckets (multi-select
-  // semantics are handled inside onStatusToggle below).
-  const [selectedStatuses, setSelectedStatuses] = useState<Set<StatusPill>>(
-    () => new Set<StatusPill>(["open", "in_progress"])
-  );
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  // Single-select status pill. "all" shows every non-shelved task sorted by
+  // status priority (in_progress → open → closed). The legacy statusFilter
+  // string is still used for shelved/week/recurring views triggered by code
+  // paths that call setStatusFilter directly.
+  const [selectedStatus, setSelectedStatus] = useState<StatusPill>("all");
   const [closedSortOrder] = useState<ClosedSortOrder>("newest");
   const [sortBy, setSortBy] = useState<SortBy>("date-desc");
   // Agents currently running. Keyed by task_id. A task row shows the
@@ -631,19 +624,15 @@ export default function Tasks() {
         setStatusFilter("shelved");
       }
     }
-    // Tri-state pill view: make sure the pill the focused task belongs to
-    // is selected. Keep existing selections so the user's other filters
-    // stick around; we only add the missing pill.
+    // Always switch to the status that frames the focused task so the user
+    // sees the relevant context (e.g. deep-linking a closed task shows the
+    // closed view, not everything).
     if (match.status === "closed") {
-      setSelectedStatuses(new Set<StatusPill>(["closed"]));
+      setSelectedStatus("closed");
     } else if (runningAgentTaskIds.has(match.id)) {
-      setSelectedStatuses((prev) =>
-        prev.has("in_progress") ? prev : new Set([...prev, "in_progress"])
-      );
+      setSelectedStatus("in_progress");
     } else if (isActiveTask(match)) {
-      setSelectedStatuses((prev) =>
-        prev.has("open") ? prev : new Set([...prev, "open"])
-      );
+      setSelectedStatus("open");
     }
 
     // Clear any thread filter that would hide the task.
@@ -1273,17 +1262,17 @@ export default function Tasks() {
     }
     // recurring branch is handled separately in the render; skip here.
   } else {
-    // Tri-state multi-select via selectedStatuses Set. Shelved tasks are a
-    // legacy bucket that the three pills do not cover, so they are always
-    // hidden here (user can reach them via the legacy "Paused" view).
+    // Single-select pill. Shelved tasks are a legacy bucket that the four
+    // pills do not cover, so they are always hidden here.
     filteredTasks = filteredTasks.filter((t) => {
       if (t.status === "shelved") return false;
+      if (selectedStatus === "all") return true;
       const effective: StatusPill = runningAgentTaskIds.has(t.id)
         ? "in_progress"
         : t.status === "closed"
         ? "closed"
         : "open";
-      return selectedStatuses.has(effective);
+      return effective === selectedStatus;
     });
   }
 
@@ -1291,11 +1280,23 @@ export default function Tasks() {
     filteredTasks = filteredTasks.filter((t) => t.thread_id === threadFilter);
   }
 
-  const onlyClosedSelected =
-    !isLegacyView &&
-    selectedStatuses.size === 1 &&
-    selectedStatuses.has("closed");
-  if (onlyClosedSelected) {
+  const onlyClosedSelected = !isLegacyView && selectedStatus === "closed";
+
+  if (!isLegacyView && selectedStatus === "all" && sortBy === "date-desc") {
+    // Under "All" with the default sort: in_progress (runtime) → open → closed,
+    // newest first within each bucket. Other sort-by selections fall through
+    // to the standard sort branch so sort buttons still work under "All".
+    filteredTasks = [...filteredTasks].sort((a, b) => {
+      const statusPriority = (t: typeof a) => {
+        if (runningAgentTaskIds.has(t.id)) return 0;
+        if (t.status === "closed") return 2;
+        return 1;
+      };
+      const diff = statusPriority(a) - statusPriority(b);
+      if (diff !== 0) return diff;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  } else if (onlyClosedSelected) {
     filteredTasks = [...filteredTasks].sort((a, b) => {
       const aTime = a.closed_at ? new Date(a.closed_at).getTime() : 0;
       const bTime = b.closed_at ? new Date(b.closed_at).getTime() : 0;
@@ -1887,28 +1888,15 @@ export default function Tasks() {
             {/* Always-visible filter panel */}
             <FilterDrawer
               open={true}
-              selectedStatuses={selectedStatuses}
+              selectedStatus={selectedStatus}
               threadFilter={threadFilter}
               threads={threads}
               filterCounts={filterCounts}
               sortBy={sortBy}
-              onStatusToggle={(s) => {
-                // Multi-select toggle. Clicking a pill adds it to the
-                // selected set; clicking it again removes it. At least one
-                // pill must stay selected, so the last remaining pill is a
-                // no-op on click.
-                setSelectedStatuses((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(s)) {
-                    if (next.size === 1) return prev;
-                    next.delete(s);
-                  } else {
-                    next.add(s);
-                  }
-                  return next;
-                });
-                // Leaving a legacy view (shelved/week/recurring) snaps
-                // statusFilter back to "all" so the tri-state Set takes over.
+              onStatusChange={(s) => {
+                setSelectedStatus(s);
+                // Leaving a legacy view snaps statusFilter back to "all"
+                // so legacy branches become no-ops.
                 setStatusFilter("all");
               }}
               onThreadChange={setThreadFilter}

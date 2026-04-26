@@ -1,9 +1,8 @@
 import Icon from "../../components/Icon";
 
-// Tri-state status set. A task is shown when its effective status is in the
-// selected set. "In progress" reflects live agent activity, not just stored
-// status.
-export type StatusFilter = "open" | "in_progress" | "closed";
+// Single-select status filter. "In progress" reflects live agent activity,
+// not just stored status. "all" shows every non-shelved task.
+export type StatusFilter = "all" | "open" | "in_progress" | "closed";
 
 interface Thread {
   id: string;
@@ -16,17 +15,18 @@ export type SortBy = "date-desc" | "date-asc" | "status" | "label";
 
 interface FilterDrawerProps {
   open?: boolean;
-  selectedStatuses: Set<StatusFilter>;
+  selectedStatus: StatusFilter;
   threadFilter: string | null;
   threads: Thread[];
-  filterCounts: Partial<Record<StatusFilter, number>>;
+  filterCounts: Partial<Record<Exclude<StatusFilter, "all">, number>>;
   sortBy?: SortBy;
-  onStatusToggle: (s: StatusFilter) => void;
+  onStatusChange: (s: StatusFilter) => void;
   onThreadChange: (id: string | null) => void;
   onSortByChange?: (s: SortBy) => void;
 }
 
 const STATUS_LABELS: Record<StatusFilter, string> = {
+  all: "All",
   open: "Open",
   in_progress: "In progress",
   closed: "Closed",
@@ -34,12 +34,12 @@ const STATUS_LABELS: Record<StatusFilter, string> = {
 
 export function FilterDrawer({
   open: _open,
-  selectedStatuses,
+  selectedStatus,
   threadFilter,
   threads,
   filterCounts,
   sortBy = "date-desc",
-  onStatusToggle,
+  onStatusChange,
   onThreadChange,
   onSortByChange,
 }: FilterDrawerProps) {
@@ -53,7 +53,7 @@ export function FilterDrawer({
       data-testid="filter-drawer"
       className="mb-4 bg-slate-100 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-4"
     >
-      {/* Status row: three pills, multi-select. At least one must remain selected. */}
+      {/* Status row: four chips, single-select. */}
       <div
         data-testid="filter-drawer-status-row"
         className="flex flex-wrap items-center gap-2"
@@ -62,18 +62,19 @@ export function FilterDrawer({
           Status
         </span>
         <div className="flex items-center gap-1 flex-wrap">
-          {(["open", "in_progress", "closed"] as StatusFilter[]).map((f) => {
-            const active = selectedStatuses.has(f);
+          {(["all", "in_progress", "open", "closed"] as StatusFilter[]).map((f) => {
+            const active = selectedStatus === f;
+            const count = f !== "all" ? filterCounts[f] : undefined;
             return (
               <button
                 key={f}
                 data-testid={`status-filter-${f}`}
                 aria-pressed={active}
                 className={pillClass(active)}
-                onClick={() => onStatusToggle(f)}
+                onClick={() => onStatusChange(f)}
               >
                 {STATUS_LABELS[f]}
-                {filterCounts[f] !== undefined && (
+                {count !== undefined && (
                   <span
                     className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                       active
@@ -81,7 +82,7 @@ export function FilterDrawer({
                         : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-500"
                     }`}
                   >
-                    {filterCounts[f]}
+                    {count}
                   </span>
                 )}
               </button>
