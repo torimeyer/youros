@@ -11355,6 +11355,9 @@ async def test_autocomplete_completes_non_preregister_with_no_transcript(tmp_pat
         "status": "running",
         "budget": "1.0",
         "model": "claude-sonnet-4-6",
+        # tokens_used > 0 so ghost detection does NOT fire — this agent did
+        # real work and just never called /complete (legitimate Path B case).
+        "tokens_used": 250,
         # hook_preregister NOT set / False
     }
 
@@ -11362,14 +11365,15 @@ async def test_autocomplete_completes_non_preregister_with_no_transcript(tmp_pat
         with patch("routers.agents._is_pid_alive", return_value=False), \
              patch("routers.agents._proc_handle_is_alive", return_value=False), \
              patch("routers.agents._resolve_transcript_source", return_value=None), \
-             patch("routers.agents._save_agent_state"):
+             patch("routers.agents._save_agent_state"), \
+             patch("routers.agents._emit_audit_event"):
             _autocomplete_exited_subagents()
 
         assert agent_metadata[agent_name]["status"] == "completed", (
-            "A non-hook-preregister claude-code row with stale heartbeat and "
-            "no transcript must still auto-complete via Path B. The guard is "
-            "specific to hook_preregister rows. Got status="
-            f"{agent_metadata[agent_name]['status']!r}."
+            "A non-hook-preregister claude-code row with stale heartbeat, "
+            "no transcript, but real token usage must still auto-complete via "
+            "Path B. Ghost detection only fires when tokens_used == 0. Got "
+            f"status={agent_metadata[agent_name]['status']!r}."
         )
     finally:
         agent_metadata.pop(agent_name, None)

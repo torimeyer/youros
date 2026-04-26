@@ -917,6 +917,136 @@ def _write_terminated_banner(path, name: str, reason: str) -> bool:
 # infinite loops where a consistently crashing agent gets re-spawned forever.
 MAX_RECOVERY_ATTEMPTS = 3
 
+# Queue populated by _autocomplete_exited_subagents (sync) and drained by
+# _reconcile_loop (async) to schedule Haiku retries without blocking the sweep.
+_pending_ghost_retries: list = []
+
+# Tier name for ghost retries — resolved via MODEL_MAP so it always matches
+# whatever the canonical Haiku ID is in services/model_routing.py.
+_GHOST_RETRY_HAIKU_MODEL = "haiku"
+
+
+def _worktree_has_new_work(worktree_path: str) -> bool:
+    """Return True if the worktree has new commits or dirty files vs main.
+
+    Used by ghost detection to distinguish a quota-capped no-op spawn
+    (transcript=0, tokens=0, worktree clean) from a spawn that wrote
+    commits but produced no transcript (rare but possible for shell-only
+    agents).
+    """
+    import subprocess as _sp
+    try:
+        r = _sp.run(
+            ["git", "log", "--oneline", "main..HEAD"],
+            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return True
+        r2 = _sp.run(
+            ["git", "status", "--porcelain"],
+            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+        )
+        if r2.returncode == 0 and r2.stdout.strip():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _is_ghost_completion(meta: dict, name: str) -> tuple:
+    """Return (True, reason) if this agent completed with zero real work.
+
+    Ghost signature (all must hold):
+      - tokens_used == 0   (no API calls recorded)
+      - transcript_bytes == 0   (subprocess wrote nothing)
+      - if isolation == "worktree": no new commits and no dirty files
+
+    Agents already in a recovery cycle (recovery_count > 0) are skipped
+    to avoid double-marking a retry that legitimately ran out of quota.
+
+    Returns (False, "") when the agent should be treated as completed normally.
+    """
+    if not isinstance(meta, dict):
+        return False, ""
+    if (meta.get("recovery_count") or 0) > 0:
+        return False, ""
+    tokens = meta.get("tokens_used") or 0
+    if tokens != 0:
+        return False, ""
+    metrics = _get_transcript_metrics(name)
+    if metrics.get("transcript_bytes", 0) != 0:
+        return False, ""
+    isolation = meta.get("isolation") or "none"
+    if isolation == "worktree":
+        worktree_path = meta.get("worktree_path")
+        if worktree_path:
+            from pathlib import Path as _Path
+            if _Path(worktree_path).exists():
+                if _worktree_has_new_work(worktree_path):
+                    return False, ""
+    return True, "silent_quota_or_subprocess_failure"
+
+
+def _ghost_retry_enabled() -> bool:
+    """Return True when OSTK_AUTO_RETRY_ON_HAIKU=1 is set in the environment."""
+    import os as _os_env
+    return _os_env.environ.get("OSTK_AUTO_RETRY_ON_HAIKU", "").lower() in ("1", "true", "yes")
+
+
+async def _schedule_ghost_retry(name: str) -> None:
+    """Spawn a Haiku retry for a ghost-failed agent.
+
+    Only fires when OSTK_AUTO_RETRY_ON_HAIKU=1 and recovery_count < cap.
+    Requires the original prompt to have been stored in metadata at spawn
+    time (spawn_meta["prompt"]); logs a warning and skips if absent.
+    """
+    if not _ghost_retry_enabled():
+        return
+    meta = agent_metadata.get(name)
+    if not meta:
+        return
+    recovery_count = meta.get("recovery_count") or 0
+    if recovery_count >= MAX_RECOVERY_ATTEMPTS:
+        logger.info(
+            "ghost_retry.skip name=%s recovery_count=%d cap=%d",
+            name, recovery_count, MAX_RECOVERY_ATTEMPTS,
+        )
+        return
+    original_prompt = meta.get("prompt") or ""
+    if not original_prompt:
+        logger.warning(
+            "ghost_retry.no_prompt name=%s — retry requires stored prompt", name
+        )
+        return
+    meta["recovery_count"] = recovery_count + 1
+    meta["last_recovery_at"] = _now_iso()
+    meta["recovery_reason"] = "ghost_haiku_retry"
+    _save_agent_state()
+    from models.schemas import AgentSpawn as _AgentSpawn
+    spawn_body = _AgentSpawn(
+        name=name,
+        prompt=original_prompt,
+        model=_GHOST_RETRY_HAIKU_MODEL,
+        budget=float(meta.get("budget") or "2.0"),
+        task_id=meta.get("task_id"),
+        needle_id=meta.get("needle_id"),
+        isolation=meta.get("isolation") or "none",
+        locks=meta.get("locks"),
+        token_limit=meta.get("token_limit"),
+        source=meta.get("source") or "claude-code",
+    )
+    try:
+        result = await spawn_agent(spawn_body)
+        logger.info(
+            "ghost_retry.spawned name=%s model=haiku result=%s",
+            name, result.get("result", "?"),
+        )
+    except Exception as exc:
+        logger.warning("ghost_retry.failed name=%s err=%s", name, exc)
+        if name in agent_metadata:
+            agent_metadata[name]["recovery_count"] = recovery_count
+            _save_agent_state()
+
 # Approximate cost per 1M tokens by model family. Used to estimate cost from
 # token counts. These are rough averages of input+output pricing.
 _COST_PER_MILLION_TOKENS = {
@@ -1223,12 +1353,26 @@ def _autocomplete_exited_subagents() -> bool:
         if transcript_source is not None:
             if not _transcript_grew_recently(name, now):
                 # Transcript exists and is idle: agent finished.
-                meta["status"] = "completed"
-                meta["completed_at"] = now.isoformat()
-                meta["summary"] = _stale_sweep_summary_for(name)
+                # Ghost check: if transcript is 0 bytes and no tokens were
+                # used, this is likely a quota-cap silent failure.
+                _ghost, _ghost_reason = _is_ghost_completion(meta, name)
+                if _ghost:
+                    meta["status"] = "failed"
+                    meta["failed_at"] = now.isoformat()
+                    meta["fail_reason"] = _ghost_reason
+                    meta["summary"] = _stale_sweep_summary_for(name)
+                    _pending_ghost_retries.append(name)
+                    logger.warning(
+                        "ghost.detected path=A name=%s reason=%s",
+                        name, _ghost_reason,
+                    )
+                else:
+                    meta["status"] = "completed"
+                    meta["completed_at"] = now.isoformat()
+                    meta["summary"] = _stale_sweep_summary_for(name)
+                    _emit_audit_event("agent.completed", {"name": name})
                 changed = True
-                _emit_audit_event("agent.completed", {"name": name})
-            # Either idle (just completed above) or still active.
+            # Either idle (just completed/failed above) or still active.
             # Either way, skip Path B -- transcript is the authority.
             continue
 
@@ -1261,11 +1405,24 @@ def _autocomplete_exited_subagents() -> bool:
         if age_seconds <= STALE_AGENT_AUTOCOMPLETE_SECONDS:
             continue
         # All checks passed: agent exited without calling /complete.
-        meta["status"] = "completed"
-        meta["completed_at"] = now.isoformat()
-        meta["summary"] = _stale_sweep_summary_for(name)
+        # Ghost check: transcript absent + no tokens = quota cap.
+        _ghost_b, _ghost_reason_b = _is_ghost_completion(meta, name)
+        if _ghost_b:
+            meta["status"] = "failed"
+            meta["failed_at"] = now.isoformat()
+            meta["fail_reason"] = _ghost_reason_b
+            meta["summary"] = _stale_sweep_summary_for(name)
+            _pending_ghost_retries.append(name)
+            logger.warning(
+                "ghost.detected path=B name=%s reason=%s",
+                name, _ghost_reason_b,
+            )
+        else:
+            meta["status"] = "completed"
+            meta["completed_at"] = now.isoformat()
+            meta["summary"] = _stale_sweep_summary_for(name)
+            _emit_audit_event("agent.completed", {"name": name})
         changed = True
-        _emit_audit_event("agent.completed", {"name": name})
     return changed
 
 
@@ -3751,6 +3908,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         # file in the parent session -- which may be a Monitor's .output
         # file, not the agent's own transcript.
         spawn_meta["transcript_path"] = str(transcript_path)
+        # Store the original prompt (capped at 4000 chars) and locks so
+        # ghost-retry can re-spawn on Haiku with the same task without
+        # needing a separate register call to have populated them.
+        if body.prompt:
+            spawn_meta["prompt"] = body.prompt[:4000]
+        if body.locks:
+            spawn_meta["locks"] = list(body.locks)
         agent_metadata[body.name] = spawn_meta
         _save_agent_state()
 
@@ -5738,6 +5902,11 @@ async def _reconcile_loop():
             ac_changed = _autocomplete_exited_subagents()
             if stale_changed or ac_changed:
                 _save_agent_state()
+            # Drain ghost retry queue populated by _autocomplete_exited_subagents.
+            retries = _pending_ghost_retries[:]
+            _pending_ghost_retries.clear()
+            for _ghost_name in retries:
+                asyncio.create_task(_schedule_ghost_retry(_ghost_name))
         except Exception:
             pass
         try:
