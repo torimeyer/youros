@@ -1095,3 +1095,115 @@ describe('Briefing localStorage seed', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Live Sessions widget row rendering
+// ---------------------------------------------------------------------------
+
+describe('Live Sessions widget', () => {
+  const baseSession = {
+    session_id: 'claude-code-a61b5ea0',
+    last_active: new Date(Date.now() - 14 * 60 * 1000).toISOString(),
+    status: 'active' as const,
+    recent_events: [],
+  }
+
+  const mockAll = (sessions: object[]) => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/adventures/templates') return Promise.resolve({ adventures: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      if (path === '/sessions/active') return Promise.resolve({
+        sessions,
+        count: sessions.length,
+        active_count: sessions.filter((s: any) => s.status === 'active').length,
+        idle_count: sessions.filter((s: any) => s.status === 'idle').length,
+      })
+      return Promise.resolve({})
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false })
+    localStorage.setItem('myos-tour-complete', 'true')
+  })
+
+  it('uses task field as primary label when present', async () => {
+    mockAll([{ ...baseSession, task: 'fix auth bug in login flow' }])
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-live-sessions')).toBeInTheDocument()
+    })
+    const label = screen.getByTestId('session-label')
+    expect(label).toHaveTextContent('fix auth bug in login flow')
+  })
+
+  it('falls back to current_step when task is absent', async () => {
+    mockAll([{ ...baseSession, current_step: 'running pytest suite' }])
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-live-sessions')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('session-label')).toHaveTextContent('running pytest suite')
+  })
+
+  it('falls back to stripped session_id when no task/step/prompt', async () => {
+    mockAll([baseSession])
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-live-sessions')).toBeInTheDocument()
+    })
+    const label = screen.getByTestId('session-label')
+    expect(label.textContent).toBe('a61b5ea0')
+    expect(label.textContent).not.toMatch(/claude-code-/)
+  })
+
+  it('truncates task label to 60 chars', async () => {
+    const long = 'a'.repeat(80)
+    mockAll([{ ...baseSession, task: long }])
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-live-sessions')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('session-label').textContent?.length).toBe(60)
+  })
+
+  it('shows elapsed time from spawned_at when present', async () => {
+    const spawnedAt = new Date(Date.now() - 14 * 60 * 1000).toISOString()
+    mockAll([{ ...baseSession, task: 'some task', spawned_at: spawnedAt }])
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-live-sessions')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('session-elapsed')).toHaveTextContent('14m')
+  })
+
+  it('shows elapsed time from last_active when spawned_at absent', async () => {
+    const lastActive = new Date(Date.now() - 3 * 60 * 60 * 1000 + 5 * 60 * 1000).toISOString()
+    mockAll([{ ...baseSession, last_active: lastActive, task: 'some task' }])
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-live-sessions')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('session-elapsed')).toHaveTextContent(/\d+h/)
+  })
+
+  it('card does not use solid gray background class', async () => {
+    mockAll([baseSession])
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-live-sessions')).toBeInTheDocument()
+    })
+    const card = screen.getByTestId('session-card')
+    expect(card?.className).not.toMatch(/bg-slate-800/)
+    expect(card?.className).toMatch(/border/)
+  })
+})
+

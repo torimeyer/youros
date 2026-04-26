@@ -120,6 +120,10 @@ interface LiveSession {
   last_active: string;
   status: 'active' | 'idle';
   recent_events: { type: string; timestamp: string }[];
+  task?: string;
+  current_step?: string;
+  prompt?: string;
+  spawned_at?: string;
 }
 
 interface LiveSessionsData {
@@ -857,20 +861,22 @@ export default function Dashboard() {
     const idleCount = liveSessions?.idle_count ?? 0;
     const total = activeCount + idleCount;
 
-    const lastToolLabel = (session: LiveSession) => {
-      const events = session.recent_events;
-      if (!events.length) return 'no recent activity';
-      const last = events[events.length - 1];
-      return last.type || 'event';
+    const sessionLabel = (session: LiveSession): string => {
+      const raw = session.task || session.current_step || session.prompt || '';
+      if (raw) return raw.slice(0, 60);
+      return session.session_id.replace(/^claude-code-/, '');
     };
 
-    const timeAgo = (isoStr: string) => {
+    const elapsedTime = (isoStr: string | undefined): string => {
+      if (!isoStr) return '';
       try {
         const diff = Date.now() - new Date(isoStr).getTime();
         const mins = Math.floor(diff / 60000);
         if (mins < 1) return 'just now';
-        if (mins === 1) return '1 min ago';
-        return `${mins} min ago`;
+        if (mins < 60) return `${mins}m`;
+        const hours = Math.floor(mins / 60);
+        const rem = mins % 60;
+        return rem > 0 ? `${hours}h ${rem}m` : `${hours}h`;
       } catch {
         return '';
       }
@@ -906,7 +912,8 @@ export default function Dashboard() {
             {sessions.map((s) => (
               <div
                 key={s.session_id}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-800/40"
+                data-testid="session-card"
+                className="flex items-center gap-3 px-3 py-2 rounded-lg border border-slate-200 bg-transparent dark:bg-slate-700/50 dark:border-slate-600"
               >
                 <span
                   className={`w-2 h-2 rounded-full shrink-0 ${
@@ -914,9 +921,11 @@ export default function Dashboard() {
                   }`}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-200 truncate">{s.session_id}</p>
-                  <p className="text-xs text-slate-500 truncate">
-                    {lastToolLabel(s)} . {timeAgo(s.last_active)}
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate" data-testid="session-label">
+                    {sessionLabel(s)}
+                  </p>
+                  <p className="text-xs text-slate-500 truncate" data-testid="session-elapsed">
+                    {elapsedTime(s.spawned_at || s.last_active)}
                   </p>
                 </div>
               </div>
