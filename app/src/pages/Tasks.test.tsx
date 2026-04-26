@@ -1568,6 +1568,61 @@ describe('Tasks page', () => {
       expect(bannerElements.length).toBe(0)
     })
 
+    it('shows named lock-conflict banner when spawn returns 409 with held_by_spawn', async () => {
+      const lockError = {
+        status: 409,
+        response: {
+          data: {
+            detail: {
+              error: 'lock_conflict',
+              message: 'Another spawn is already holding one of the paths this spawn asked to edit.',
+              conflicts: [{ held_by_spawn: 'implement-task-456', held_path: 'app/**' }],
+            },
+          },
+        },
+      }
+      mockedApiPost.mockRejectedValue(lockError)
+      await openFirstActionMenu()
+      fireEvent.click(screen.getByText('Comprehensive build'))
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Another build \(implement-task-456\) is editing some of the same files\. Wait for it to finish, then try again\./i)
+        ).toBeInTheDocument()
+      })
+    })
+
+    it('shows generic lock-conflict banner when 409 has no held_by_spawn', async () => {
+      const lockError = {
+        status: 409,
+        response: {
+          data: {
+            detail: {
+              error: 'lock_conflict',
+              message: 'Another spawn is already holding one of the paths this spawn asked to edit.',
+              conflicts: [],
+            },
+          },
+        },
+      }
+      mockedApiPost.mockRejectedValue(lockError)
+      await openFirstActionMenu()
+      fireEvent.click(screen.getByText('Comprehensive build'))
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Another build is already running on the same files\. Wait for it to finish, then try again\./i)
+        ).toBeInTheDocument()
+      })
+    })
+
+    it('shows generic error banner for non-lock-conflict failures', async () => {
+      mockedApiPost.mockRejectedValue(new Error('Network failure'))
+      await openFirstActionMenu()
+      fireEvent.click(screen.getByText('Comprehensive build'))
+      await waitFor(() => {
+        expect(screen.getByText(/Could not start Comprehensive build\. Please try again\./i)).toBeInTheDocument()
+      })
+    })
+
     it('bulk Implement all posts template=comprehensive for every selected task', async () => {
       renderTasks()
       await waitFor(() => {
