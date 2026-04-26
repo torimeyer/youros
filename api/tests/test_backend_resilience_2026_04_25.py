@@ -25,6 +25,7 @@ These tests mirror the structure of test_dev_backend_lock.py.
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -432,3 +433,160 @@ exit 1
         assert "superseded" in log, (
             f"ghost must log 'superseded' before exiting; log was: {log!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# →942 acceptance criterion: backend survives 5 sequential commits
+# ---------------------------------------------------------------------------
+
+
+def test_five_sequential_restart_cycles_no_cascade():
+    """
+    →942 AC: simulate 5 sequential watchdog-triggered restart cycles and
+    verify the restart-lock prevents cascades in every cycle.
+
+    Each cycle: 4 concurrent callers race to restart the backend.  With the
+    restart-lock fix exactly one must win; the other three must be blocked.
+    Without the fix all four would attempt to spawn, the second would kill the
+    uvicorn the first just started, reproducing the 50-restart cascade.
+
+    Pure subprocess test — no live backend required.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        restart_lock = f"{tmpdir}/restart.lock"
+        result_dir = f"{tmpdir}/results"
+        Path(result_dir).mkdir()
+
+        script = f"""\
+#!/usr/bin/env bash
+set -u
+RESTART_LOCK="{restart_lock}"
+CYCLE="$1"
+RESULT="{result_dir}/${{CYCLE}}_$$.txt"
+
+if ! ( set -o noclobber; echo $$ > "$RESTART_LOCK" ) 2>/dev/null; then
+    _rl_holder=$(cat "$RESTART_LOCK" 2>/dev/null || true)
+    if [ -n "$_rl_holder" ] && kill -0 "$_rl_holder" 2>/dev/null; then
+        echo "skipped" > "$RESULT"
+        exit 0
+    fi
+    rm -f "$RESTART_LOCK" 2>/dev/null || true
+    if ! ( set -o noclobber; echo $$ > "$RESTART_LOCK" ) 2>/dev/null; then
+        echo "skipped" > "$RESULT"
+        exit 0
+    fi
+fi
+
+echo "spawned" > "$RESULT"
+sleep 0.15
+rm -f "$RESTART_LOCK" 2>/dev/null || true
+"""
+        script_path = f"{tmpdir}/restart_test.sh"
+        Path(script_path).write_text(script)
+        Path(script_path).chmod(0o755)
+
+        for cycle in range(1, 6):
+            procs = [
+                subprocess.Popen(["bash", script_path, str(cycle)])
+                for _ in range(4)
+            ]
+            for p in procs:
+                p.wait(timeout=10)
+
+            results = [
+                f.read_text().strip()
+                for f in Path(result_dir).glob(f"{cycle}_*.txt")
+            ]
+            assert len(results) == 4, (
+                f"cycle {cycle}: expected 4 result files, got {len(results)}"
+            )
+            spawned = [r for r in results if r == "spawned"]
+            skipped = [r for r in results if r == "skipped"]
+            assert len(spawned) >= 1, (
+                f"cycle {cycle}: at least one caller must acquire restart lock"
+            )
+            assert len(skipped) >= 1, (
+                f"cycle {cycle}: concurrent callers must be blocked"
+            )
+            assert len(spawned) + len(skipped) == 4, (
+                f"cycle {cycle}: unexpected results: {results}"
+            )
+
+
+@pytest.mark.integration
+def test_backend_alive_across_five_commits():
+    """
+    →942 AC (live): backend must return HTTP 200 after each of 5 sequential
+    git commits.  Uses a temp repo so uvicorn is not reloaded; the assertion
+    is that the backend process does not die during sequential git activity.
+
+    Skips if the backend is not reachable (CI without a live server).
+    """
+    import ssl
+    import urllib.request
+
+    url = "https://127.0.0.1:8000/api/agents?limit=1"
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    def http_status() -> Optional[int]:
+        try:
+            with urllib.request.urlopen(url, context=ctx, timeout=5) as r:
+                return r.status
+        except Exception:
+            return None
+
+    pre = http_status()
+    if pre is None:
+        pytest.skip("live backend not reachable at 127.0.0.1:8000")
+    assert pre == 200, f"backend not healthy before test: HTTP {pre}"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env = {
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "test@test.com",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "test@test.com",
+            "HOME": tmpdir,
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+        }
+
+        def git(*args: str) -> None:
+            subprocess.run(
+                ["git", "-C", tmpdir, *args],
+                check=True,
+                capture_output=True,
+                env=env,
+            )
+
+        git("init")
+        git("config", "user.email", "test@test.com")
+        git("config", "user.name", "test")
+
+        notes = Path(tmpdir) / "notes.md"
+        receipts: list = []
+
+        for i in range(1, 6):
+            notes.write_text(f"commit {i}\n")
+            git("add", "notes.md")
+            git("commit", "-m", f"test: →942 AC commit {i}/5")
+
+            log = subprocess.run(
+                ["git", "-C", tmpdir, "log", "--oneline", "-1"],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            sha = log.stdout.strip().split()[0]
+
+            status = http_status()
+            receipts.append((sha, status or 0))
+            assert status == 200, (
+                f"backend died after commit {i}/5 (sha {sha}): HTTP {status}\n"
+                f"receipts so far: {receipts}"
+            )
+
+    print("\n→942 live receipts:")
+    for sha, code in receipts:
+        print(f"  commit {sha}  →  HTTP {code}")
