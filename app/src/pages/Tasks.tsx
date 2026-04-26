@@ -1049,7 +1049,25 @@ export default function Tasks() {
     } catch (e) {
       console.error(`Failed to spawn ${mode} agent:`, e);
       const label = mode === "plan" ? "plan" : mode === "comprehensive" ? "Comprehensive build" : "Quick build";
-      setBanner(`Could not start ${label}. Please try again.`);
+      const detail =
+        e != null &&
+        typeof e === 'object' &&
+        (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
+      const isLockConflict =
+        (e as { status?: number })?.status === 409 &&
+        typeof detail === 'object' &&
+        detail !== null &&
+        (detail as { error?: string }).error === 'lock_conflict';
+      if (isLockConflict) {
+        const heldBy = (detail as { conflicts?: Array<{ held_by_spawn?: string }> }).conflicts?.[0]?.held_by_spawn;
+        setBanner(
+          heldBy
+            ? `Another build (${heldBy}) is editing some of the same files. Wait for it to finish, then try again.`
+            : `Another build is already running on the same files. Wait for it to finish, then try again.`
+        );
+      } else {
+        setBanner(`Could not start ${label}. Please try again.`);
+      }
       setTimeout(() => setBanner(null), 4000);
     } finally {
       setActionLoading(null);
