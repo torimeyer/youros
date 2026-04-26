@@ -454,24 +454,14 @@ if [ -n "$VERSION" ]; then
     # GitHub tag name is "v4.0.0" but tarball filenames are "ostk-4.0.0-..." (no v).
     VERSION_NUMBER="${VERSION#v}"
 
-    # Check that the Mac ARM binary actually exists
-    TARBALL="ostk-${VERSION_NUMBER}-aarch64-apple-darwin.tar.gz"
-    URL="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL}"
-    HTTP_CODE=$(curl -fsSL -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
-    if [ "$HTTP_CODE" = "200" ]; then
-        assert "ostk Mac ARM tarball downloads (HTTP 200)" 0
+    # Check that the Mac universal binary actually exists (darwin-universal replaces separate ARM/Intel tarballs)
+    TARBALL_MAC="ostk-${VERSION_NUMBER}-darwin-universal.tar.gz"
+    URL_MAC="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL_MAC}"
+    HTTP_CODE_MAC=$(curl -fsSL -o /dev/null -w "%{http_code}" "$URL_MAC" 2>/dev/null || echo "000")
+    if [ "$HTTP_CODE_MAC" = "200" ]; then
+        assert "ostk Mac universal tarball downloads (HTTP 200)" 0
     else
-        assert "ostk Mac ARM tarball downloads (HTTP $HTTP_CODE)" 1
-    fi
-
-    # Check Mac Intel binary
-    TARBALL_INTEL="ostk-${VERSION_NUMBER}-x86_64-apple-darwin.tar.gz"
-    URL_INTEL="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL_INTEL}"
-    HTTP_CODE_INTEL=$(curl -fsSL -o /dev/null -w "%{http_code}" "$URL_INTEL" 2>/dev/null || echo "000")
-    if [ "$HTTP_CODE_INTEL" = "200" ]; then
-        assert "ostk Mac Intel tarball downloads (HTTP 200)" 0
-    else
-        assert "ostk Mac Intel tarball downloads (HTTP $HTTP_CODE_INTEL)" 1
+        assert "ostk Mac universal tarball downloads (HTTP $HTTP_CODE_MAC)" 1
     fi
 
     # Check Linux binary

@@ -96,6 +96,9 @@ if ! command -v ostk &> /dev/null; then
 
     if [ -n "$OS_TAG" ]; then
         PLATFORM="${ARCH}-${OS_TAG}"
+        if [ "$OS_TAG" = "apple-darwin" ]; then
+            PLATFORM="darwin-universal"
+        fi
         OSTK_REPO="os-tack/ostk.ai"
         VERSION=$(curl -fsSL "https://api.github.com/repos/${OSTK_REPO}/releases/latest" \
             | grep '"tag_name"' | head -1 | cut -d'"' -f4)

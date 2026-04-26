@@ -184,7 +184,7 @@ else
     VERSION_NUMBER="${VERSION#v}"
     echo "  checking version: ${VERSION} (filename uses ${VERSION_NUMBER})"
 
-    for PLATFORM in "aarch64-apple-darwin" "x86_64-apple-darwin" "x86_64-unknown-linux-musl"; do
+    for PLATFORM in "darwin-universal" "x86_64-unknown-linux-musl"; do
         TARBALL="ostk-${VERSION_NUMBER}-${PLATFORM}.tar.gz"
         URL="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL}"
         HTTP_CODE=$(curl --connect-timeout 3 -m 10 -fsSL -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
