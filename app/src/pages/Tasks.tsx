@@ -1004,12 +1004,14 @@ export default function Tasks() {
         budget: number;
         template?: string;
         task_id: string;
+        locks: string[];
       } = {
         name: "",
         prompt: "",
         model: "sonnet",
         budget: 2.0,
         task_id: taskId,
+        locks: ["*"],
       };
 
       if (mode === "plan") {
@@ -1282,18 +1284,28 @@ export default function Tasks() {
 
   const onlyClosedSelected = !isLegacyView && selectedStatus === "closed";
 
-  if (!isLegacyView && selectedStatus === "all" && sortBy === "date-desc") {
-    // Under "All" with the default sort: in_progress (runtime) → open → closed,
-    // newest first within each bucket. Other sort-by selections fall through
-    // to the standard sort branch so sort buttons still work under "All".
+  if (!isLegacyView && selectedStatus === "all") {
     filteredTasks = [...filteredTasks].sort((a, b) => {
+      // 1. Status group
       const statusPriority = (t: typeof a) => {
         if (runningAgentTaskIds.has(t.id)) return 0;
         if (t.status === "closed") return 2;
         return 1;
       };
-      const diff = statusPriority(a) - statusPriority(b);
-      if (diff !== 0) return diff;
+      const statusDiff = statusPriority(a) - statusPriority(b);
+      if (statusDiff !== 0) return statusDiff;
+      // 2. Priority (P0 < P1 < P2 < P3 < none)
+      const priorityOrder = (t: typeof a) => {
+        const p = t.priority;
+        if (p === "P0") return 0;
+        if (p === "P1") return 1;
+        if (p === "P2") return 2;
+        if (p === "P3") return 3;
+        return 4;
+      };
+      const priorityDiff = priorityOrder(a) - priorityOrder(b);
+      if (priorityDiff !== 0) return priorityDiff;
+      // 3. Newest first
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
   } else if (onlyClosedSelected) {
@@ -1316,7 +1328,7 @@ export default function Tasks() {
       }
       if (sortBy === "status") {
         // Open tasks before closed/shelved; within same status keep by date desc.
-        const statusOrder: Record<string, number> = { open: 0, in_progress: 1, shelved: 2, closed: 3 };
+        const statusOrder: Record<string, number> = { in_progress: 0, open: 1, shelved: 2, closed: 3 };
         const aOrd = statusOrder[a.status] ?? 99;
         const bOrd = statusOrder[b.status] ?? 99;
         if (aOrd !== bOrd) return aOrd - bOrd;
@@ -1338,6 +1350,18 @@ export default function Tasks() {
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
   }
+
+  // Render groups: flat sorted list for "all" view, priority-grouped for others.
+  const taskGroups: { key: string; tasks: Task[] }[] =
+    !isLegacyView && selectedStatus === "all"
+      ? [{ key: "all-sorted", tasks: filteredTasks }]
+      : PRIORITIES.reduce<{ key: string; tasks: Task[] }[]>((acc, p) => {
+          const grouped = filteredTasks.filter((t) =>
+            p === "P3" ? t.priority === "P3" || !t.priority : t.priority === p
+          );
+          if (grouped.length > 0) acc.push({ key: p, tasks: grouped });
+          return acc;
+        }, []);
 
   // Unfiltered counts used by the FilterDrawer status badge pills so the
   // user can see how many tasks live in each status bucket before choosing
@@ -1963,18 +1987,7 @@ export default function Tasks() {
               {!loading && filteredTasks.length === 0 && tasks.length > 0 && (
                 <p className="text-sm text-slate-500 py-4">No tasks match this filter.</p>
               )}
-              {PRIORITIES.map((priority) => {
-                // Tasks with a null/undefined priority fall into the P3 (lowest) bucket
-                // so they always appear. Without this, tasks created without a priority
-                // are silently dropped from rendering while still being counted in the
-                // footer (visibleCount), causing the "6 Open" / empty-list mismatch.
-                const groupTasks = filteredTasks.filter((t) =>
-                  priority === "P3"
-                    ? t.priority === "P3" || !t.priority
-                    : t.priority === priority
-                );
-                if (groupTasks.length === 0) return null;
-                return (
+              {taskGroups.map(({ key: priority, tasks: groupTasks }) => (
                   <SortableContext
                     key={priority}
                     items={groupTasks.map((t) => t.id)}
@@ -2891,8 +2904,7 @@ export default function Tasks() {
               </SortableTaskWrapper>
                     ))}
                   </SortableContext>
-                );
-              })}
+              ))}
             </div>
             <DragOverlay>
               {activeDragId ? (

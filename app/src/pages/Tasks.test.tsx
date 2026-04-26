@@ -358,11 +358,12 @@ describe('Tasks page', () => {
       expect(screen.getByText('Newest task')).toBeInTheDocument()
     })
 
-    // Default (date-desc): newest appears before oldest
+    // All view: fixed sort (status → priority → date), newest first by default
     const defaultBody = document.body.textContent || ''
     expect(defaultBody.indexOf('Newest task')).toBeLessThan(defaultBody.indexOf('Oldest task'))
 
-    // Switch to date ascending
+    // Open filter respects date-asc sortBy
+    selectOnlyStatus('open')
     fireEvent.click(screen.getByTestId('sort-by-date-asc'))
     await waitFor(() => {
       const ascBody = document.body.textContent || ''
@@ -386,6 +387,8 @@ describe('Tasks page', () => {
       expect(screen.getByText('Zebra task')).toBeInTheDocument()
     })
 
+    // Open filter respects label sortBy
+    selectOnlyStatus('open')
     fireEvent.click(screen.getByTestId('sort-by-label'))
     await waitFor(() => {
       const body = document.body.textContent || ''
