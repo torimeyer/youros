@@ -4696,6 +4696,73 @@ async def test_spawn_without_task_id_skips_status_transition(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_register_persists_task_id_and_survives_reregister():
+    """POST /agents/register must save task_id into agent_metadata, and
+    a subsequent re-register must not erase it.
+
+    Root cause of the in-progress indicator not showing on the Tasks page:
+    register_agent() built a fresh record without saving body.task_id or
+    carrying existing["task_id"] forward, so GET /agents never included
+    task_id in agent rows and runningAgentTaskIds stayed empty.
+    """
+    from routers.agents import agent_metadata
+
+    agent_name = "reg-task-id-test-unique"
+    agent_metadata.pop(agent_name, None)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents._save_agent_state"):
+            # First register: includes task_id
+            resp = await client.post(
+                "/api/agents/register",
+                json={
+                    "name": agent_name,
+                    "task": "Fix the bug",
+                    "model": "sonnet",
+                    "budget": 1.0,
+                    "source": "claude-code",
+                    "task_id": "task-999",
+                },
+            )
+            assert resp.status_code == 200
+            assert agent_metadata[agent_name]["task_id"] == "task-999"
+
+            # Re-register without task_id: must carry the existing value forward
+            resp2 = await client.post(
+                "/api/agents/register",
+                json={
+                    "name": agent_name,
+                    "task": "Fix the bug",
+                    "model": "sonnet",
+                    "budget": 1.0,
+                    "source": "claude-code",
+                },
+            )
+            assert resp2.status_code == 200
+            assert agent_metadata[agent_name]["task_id"] == "task-999", (
+                "task_id must survive re-register even when not passed again"
+            )
+
+    # Verify GET /agents includes task_id in the response
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with patch("routers.agents.ostk") as mock_ostk, \
+             patch("routers.agents._save_agent_state"):
+            mock_ostk.kernel_ps = AsyncMock(return_value={"daemon_running": False, "agents": []})
+            mock_ostk.audit_agents = AsyncMock(return_value=[])
+            resp3 = await client.get("/api/agents")
+            assert resp3.status_code == 200
+            agents = resp3.json().get("agents", [])
+            matching = [a for a in agents if a.get("name") == agent_name]
+            assert matching, f"agent {agent_name} not found in GET /agents"
+            assert matching[0].get("task_id") == "task-999", (
+                "GET /agents must include task_id so the Tasks page can populate runningAgentTaskIds"
+            )
+
+    agent_metadata.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
 async def test_agent_spawn_prepends_standing_instructions_to_prompt(tmp_path, monkeypatch):
     """POST /agents/spawn must prepend the user's saved standing instructions.
 

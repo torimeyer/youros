@@ -4560,6 +4560,18 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     for fleet_field in ("fleet_id", "fleet_name", "role"):
         if existing.get(fleet_field) and fleet_field not in record:
             record[fleet_field] = existing[fleet_field]
+    # Task and needle linkage: persist from the request body, or carry
+    # forward from existing metadata on re-register. Without this, a
+    # spawn-set task_id is erased when the subagent self-registers, and
+    # bridge-spawned agents that pass task_id at /register lose it too.
+    if body.task_id:
+        record["task_id"] = body.task_id
+    elif existing.get("task_id"):
+        record["task_id"] = existing["task_id"]
+    if body.needle_id:
+        record["needle_id"] = body.needle_id
+    elif existing.get("needle_id"):
+        record["needle_id"] = existing["needle_id"]
     agent_metadata[body.name] = record
     _save_agent_state()
 
