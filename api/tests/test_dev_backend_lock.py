@@ -60,7 +60,9 @@ def test_watchdog_dedup_checks_before_pidfile_write():
     """The dedup guard must appear before 'echo $$ > PIDFILE' in watchdog script."""
     text = WATCHDOG.read_text()
     dedup_pos = text.find("duplicate start")
-    pidfile_pos = text.find("echo $$ > \"$PIDFILE\"")
+    # Use rfind: the string also appears in a comment earlier in the file.
+    # The actual write is the last occurrence.
+    pidfile_pos = text.rfind("echo $$ > \"$PIDFILE\"")
     assert dedup_pos != -1, "dedup guard not found"
     assert pidfile_pos != -1, "pidfile write not found"
     assert dedup_pos < pidfile_pos, (
