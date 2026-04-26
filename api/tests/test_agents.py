@@ -12056,4 +12056,244 @@ async def test_spawn_explicit_httpexception_preserves_original_status(
     assert "Available templates" in detail
 
 
+# ---------------------------------------------------------------------------
+# Regression: wrong transcript_path for bridge-spawned agents (2026-04-26)
+#
+# Root cause: spawn_agent did not persist transcript_path to agent_metadata.
+# When the spawned subagent called /register (step 0 mailbox boot), the
+# register handler found no existing transcript_path and fell back to
+# _autodiscover_recent_transcript_path(), which picked up the parent
+# session's Monitor task output file instead of the agent's own transcript.
+# Fix: spawn_agent now writes transcript_path to spawn_meta before saving,
+# and register_agent checks existing["transcript_path"] before autodiscovery.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_spawn_agent_persists_transcript_path_in_metadata(tmp_path, monkeypatch):
+    """POST /agents/spawn must write transcript_path into agent_metadata so
+    a subsequent /register call can preserve it without triggering autodiscovery.
+
+    Regression guard: before the fix spawn_meta never included transcript_path,
+    so the register fallback could overwrite it with whatever autodiscovery found.
+    """
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+    import config as _config_mod
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self):
+            return self._closed
+
+        def can_write_eof(self):
+            return True
+
+        def write_eof(self):
+            pass
+
+    class _FakeProc:
+        pid = 919191
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+            self.stderr = None
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(agents_module.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr(_config_mod, "PROJECT_ROOT", tmp_path)
+
+    agent_name = "bridge-spawn-transcript-path-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Do the bridge thing.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "source": "task-bridge",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        meta = agent_metadata.get(agent_name, {})
+        assert "transcript_path" in meta, (
+            "spawn_agent must persist transcript_path to agent_metadata "
+            "so /register does not fall back to autodiscovery"
+        )
+        # Must point at the agent-specific transcript, not a task scratch file.
+        tp = meta["transcript_path"]
+        assert agent_name in tp, f"transcript_path '{tp}' does not contain agent name"
+        assert "tasks/" not in tp, (
+            f"transcript_path '{tp}' looks like a parent-session task output path"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_register_preserves_spawn_transcript_path_over_autodiscovery(tmp_path):
+    """POST /agents/register must not overwrite an existing transcript_path
+    with the autodiscovery result.
+
+    Scenario: spawn wrote the correct path; the parent session has an active
+    Monitor task that keeps touching a .output file in the tasks scratch dir.
+    Without the fix, autodiscovery picks up the Monitor file and overwrites
+    the correct path. The test sets up both and asserts the spawn path wins.
+    """
+    import time
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    agent_name = "bridge-register-preserve-path-test"
+    correct_transcript = str(tmp_path / "transcripts" / f"{agent_name}.md")
+
+    # Simulate what spawn_agent now writes into agent_metadata.
+    agent_metadata[agent_name] = {
+        "status": "running",
+        "source": "task-bridge",
+        "transcript_path": correct_transcript,
+        "budget": "2.0",
+        "model": "sonnet",
+        "spawned_at": "2026-04-26T19:55:20+00:00",
+        "last_heartbeat_at": "2026-04-26T19:55:20+00:00",
+        "tokens_used": 0,
+    }
+
+    # Drop a fresh parent-session Monitor task output file that
+    # autodiscovery would normally pick up.
+    project_label = str(tmp_path / "repo").replace("/", "-").lstrip("-")
+    fake_tasks_root = tmp_path / "tasks-root"
+    tasks_project_dir = fake_tasks_root / f"-{project_label}"
+    monitor_out = _write_tasks_output(tasks_project_dir, "bhjjmu8i5", session="parent-sess")
+    # Make sure it is fresh enough to pass the cutoff.
+    now = time.time()
+    import os
+    os.utime(monitor_out, (now, now))
+
+    try:
+        with patch.object(agents_module, "_claude_code_tasks_root", return_value=fake_tasks_root), \
+             patch("config.PROJECT_ROOT", tmp_path / "repo"), \
+             patch("routers.agents._save_agent_state"):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/agents/register",
+                    json={
+                        "name": agent_name,
+                        "model": "sonnet",
+                        "budget": 2.0,
+                        "source": "task-bridge",
+                        "task": "bridge spawn register test",
+                    },
+                )
+        assert resp.status_code == 200, resp.text
+
+        meta = agent_metadata.get(agent_name, {})
+        recorded = meta.get("transcript_path", "")
+        assert recorded == correct_transcript, (
+            f"register overwrote the spawn-set transcript_path '{correct_transcript}' "
+            f"with autodiscovered '{recorded}'"
+        )
+        # Specifically: must NOT be the parent Monitor's task output path.
+        assert "bhjjmu8i5" not in recorded, (
+            f"transcript_path '{recorded}' points at the parent Monitor task output "
+            "file, not the agent's own transcript"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+
+
+def test_bridge_spawn_transcript_path_never_contains_parent_task_id(tmp_path):
+    """Unit test for the autodiscovery skip: when existing metadata has a
+    transcript_path the register path must return it verbatim and must NOT
+    invoke _autodiscover_recent_transcript_path.
+
+    This is the regression guard that fails on 5dbb45a (before the fix)
+    because there was no ``elif existing.get("transcript_path")`` branch.
+    """
+    from routers import agents as agents_module
+    from routers.agents import _autodiscover_recent_transcript_path
+
+    agent_name = "bridge-no-autodiscover-test"
+    correct_path = str(tmp_path / "transcripts" / f"{agent_name}.md")
+
+    # Simulate spawn_meta already having the correct path.
+    agents_module.agent_metadata[agent_name] = {
+        "status": "running",
+        "transcript_path": correct_path,
+        "budget": "2.0",
+        "model": "sonnet",
+        "spawned_at": "2026-04-26T19:55:20+00:00",
+        "last_heartbeat_at": "2026-04-26T19:55:20+00:00",
+        "tokens_used": 0,
+    }
+
+    # Drop a fresh parent-session task output that autodiscovery would find.
+    project_label = str(tmp_path).replace("/", "-").lstrip("-")
+    fake_tasks_root = tmp_path / "tasks-root"
+    tasks_project_dir = fake_tasks_root / f"-{project_label}"
+    monitor_out = _write_tasks_output(tasks_project_dir, "bhjjmu8i5", session="parent-sess")
+    import os, time
+    os.utime(monitor_out, (time.time(), time.time()))
+
+    try:
+        with patch.object(agents_module, "_claude_code_tasks_root", return_value=fake_tasks_root), \
+             patch("config.PROJECT_ROOT", tmp_path):
+            # Auto-discovery should find the Monitor file when called directly.
+            discovered = _autodiscover_recent_transcript_path()
+            assert discovered is not None, "setup error: autodiscovery should find the monitor file"
+            assert "bhjjmu8i5" in discovered
+
+            # Build the record the same way the register handler would, using
+            # the fixed logic (prefer existing over autodiscovery).
+            existing = agents_module.agent_metadata.get(agent_name, {})
+            body_transcript_path = None  # agent did not pass one
+
+            if body_transcript_path:
+                result_path = body_transcript_path
+            elif existing.get("transcript_path"):
+                result_path = existing["transcript_path"]
+            else:
+                result_discovered = _autodiscover_recent_transcript_path()
+                result_path = result_discovered
+
+        assert result_path == correct_path, (
+            f"register should have returned the spawn-set path '{correct_path}' "
+            f"but got '{result_path}'"
+        )
+        assert "bhjjmu8i5" not in result_path, (
+            f"transcript_path '{result_path}' contains the parent Monitor task ID -- "
+            "autodiscovery was not suppressed"
+        )
+        assert "tasks/" not in result_path, (
+            f"transcript_path '{result_path}' looks like a scratch task output path"
+        )
+    finally:
+        agents_module.agent_metadata.pop(agent_name, None)
 

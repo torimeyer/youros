@@ -3744,6 +3744,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         workflow_run_id = body.workflow_run_id or existing_meta.get("workflow_run_id")
         if workflow_run_id:
             spawn_meta["workflow_run_id"] = workflow_run_id
+        # Record the transcript path so that a subsequent /register call
+        # (step 0 of the agent's mailbox boot) can preserve this path
+        # instead of falling back to auto-discovery. Without this the
+        # register fallback picks up the most-recently-written task output
+        # file in the parent session -- which may be a Monitor's .output
+        # file, not the agent's own transcript.
+        spawn_meta["transcript_path"] = str(transcript_path)
         agent_metadata[body.name] = spawn_meta
         _save_agent_state()
 
@@ -4357,6 +4364,15 @@ async def register_agent(body: AgentSpawn, request: Request = None):
             record["template"] = existing["template"]
     if body.transcript_path:
         record["transcript_path"] = body.transcript_path
+    elif existing.get("transcript_path"):
+        # The spawn endpoint already stamped the correct transcript path
+        # into the agent record. Preserve it so that a bridge-spawned
+        # agent's /register call (step 0 of the mailbox boot) does not
+        # overwrite the real path with whatever auto-discovery finds.
+        # Auto-discovery scans the parent session's task scratch dir, so
+        # it can pick up a Monitor's .output file instead of this agent's
+        # own transcript -- the exact bug this fixes.
+        record["transcript_path"] = existing["transcript_path"]
     else:
         # Best-effort auto-discovery: Claude Code's Agent tool writes
         # streaming output to /private/tmp/claude-<uid>/.../tasks/*.output
