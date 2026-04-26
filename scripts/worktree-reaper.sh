@@ -154,11 +154,76 @@ fi
 echo
 echo "applying: removing $absorbed_count absorbed worktree(s)..."
 
+# ------------------------------------------------------------------
+# Active-agent guard (→947): never remove a worktree whose owning
+# agent is still in a non-terminal state.
+#
+# Source priority:
+#   1. MYOS_ACTIVE_AGENTS env var (comma-separated names; set by the
+#      Python worktree_reaper service before calling this script).
+#   2. $PRIMARY/.ostk/agent_state.json (used when called standalone,
+#      e.g. via launchd / scripts/scheduled/reaper.sh).
+#
+# Terminal statuses (safe to remove):
+#   stopped, completed, completed_timeout, failed, cancelled,
+#   abandoned, terminated_stale.
+# Anything else (running, pending, spawned, queued, unknown) is active.
+#
+# If the state file exists but cannot be parsed, we fail safe: skip
+# all removals rather than risk deleting an active agent's checkout.
+# ------------------------------------------------------------------
+_ACTIVE_NAMES_LOADED=0
+ACTIVE_AGENT_NAMES=""
+
+if [ "${MYOS_ACTIVE_AGENTS+set}" = "set" ]; then
+  ACTIVE_AGENT_NAMES="${MYOS_ACTIVE_AGENTS}"
+  _ACTIVE_NAMES_LOADED=1
+elif [ -f "$PRIMARY/.ostk/agent_state.json" ]; then
+  _state_out=$(STATE_FILE="$PRIMARY/.ostk/agent_state.json" python3 -c "
+import json, os, sys
+TERMINAL = {
+    'stopped','completed','completed_timeout','failed',
+    'cancelled','abandoned','terminated_stale',
+}
+try:
+    d = json.load(open(os.environ['STATE_FILE']))
+    active = [k for k, v in d.items()
+              if isinstance(v, dict) and v.get('status') not in TERMINAL]
+    print('ok:' + ','.join(active))
+except Exception as exc:
+    print('error:' + str(exc))
+" 2>/dev/null)
+  case "${_state_out:-}" in
+    ok:*)
+      ACTIVE_AGENT_NAMES="${_state_out#ok:}"
+      _ACTIVE_NAMES_LOADED=1
+      ;;
+    error:*)
+      echo "error: could not parse $PRIMARY/.ostk/agent_state.json; skipping all removals to protect running agents (→947)" >&2
+      echo "  detail: ${_state_out#error:}" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 i=0
+protected_count=0
 while [ "$i" -lt "${#absorbed_branches[@]}" ]; do
   br="${absorbed_branches[$i]}"
   pa="${absorbed_paths[$i]}"
   i=$((i + 1))
+
+  # Derive agent name: worktree path ends with agent-<name>.
+  _agent_name="${pa##*/agent-}"
+
+  # Skip if the owning agent is still alive.
+  if [ "$_ACTIVE_NAMES_LOADED" -eq 1 ] && [ -n "$ACTIVE_AGENT_NAMES" ]; then
+    if echo ",$ACTIVE_AGENT_NAMES," | grep -qF ",$_agent_name,"; then
+      echo "  protected (agent '$_agent_name' still active; leaving worktree in place): $br"
+      protected_count=$((protected_count + 1))
+      continue
+    fi
+  fi
 
   # Unlock if locked (ignore failure; it may not be locked).
   git worktree unlock "$pa" >/dev/null 2>&1 || true
@@ -176,8 +241,9 @@ while [ "$i" -lt "${#absorbed_branches[@]}" ]; do
   fi
 done
 
+_actually_removed=$((absorbed_count - removal_fail - protected_count))
 echo
-echo "done. removed=$((absorbed_count - removal_fail)) failed=$removal_fail"
+echo "done. removed=$_actually_removed protected=$protected_count failed=$removal_fail"
 
 if [ "$removal_fail" -gt 0 ] || [ "$error_count" -gt 0 ]; then
   exit 1
