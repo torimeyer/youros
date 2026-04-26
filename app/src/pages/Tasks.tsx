@@ -2382,7 +2382,7 @@ export default function Tasks() {
                     </div>
                   </div>
 
-                  {/* Detail panel (Context + History tabs) */}
+                  {/* Detail panel (Context + Changelog tabs) */}
                   {selectedTaskId === task.id && (
                     <div data-testid="briefing-panel" className="ml-0 sm:ml-8 mt-1 mb-2 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-blue-500/30 rounded-lg p-3 sm:p-4 text-sm text-slate-700 dark:text-slate-300">
                       {/* Action buttons */}
@@ -2425,7 +2425,7 @@ export default function Tasks() {
                           Context
                         </button>
                         <button
-                          data-testid="history-tab"
+                          data-testid="changelog-tab"
                           onClick={() => setDetailTab("history")}
                           className={`text-xs font-medium pb-1 ${
                             detailTab === "history"
@@ -2433,7 +2433,7 @@ export default function Tasks() {
                               : "text-slate-500 hover:text-slate-300"
                           }`}
                         >
-                          History
+                          Changelog
                         </button>
                         <button
                           data-testid="related-tab"
@@ -2628,7 +2628,7 @@ export default function Tasks() {
                         </div>
                       )}
 
-                      {/* History tab (trace / attribution chain) */}
+                      {/* Changelog tab (trace / attribution chain) */}
                       {detailTab === "history" && (
                         <div data-testid="trace-panel">
                           {traceLoading && (

@@ -13,7 +13,6 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'quick_launch',
   'next_meeting',
   'day_summary',
-  'live_sessions',
   'recent_specs',
 ]
 
@@ -27,7 +26,6 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   quick_launch: 'Quick Launch',
   next_meeting: 'Next Event',
   day_summary: 'Day Summary',
-  live_sessions: 'Live Sessions',
   recent_specs: 'Recent Specs',
 }
 

@@ -1014,7 +1014,7 @@ describe('Tasks page', () => {
     })
   })
 
-  it('shows Context and History tabs in the briefing panel', async () => {
+  it('shows Context and Changelog tabs in the briefing panel', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
@@ -1039,12 +1039,12 @@ describe('Tasks page', () => {
       expect(screen.getByTestId('briefing-panel')).toBeInTheDocument()
     })
 
-    // Should see Context and History tab buttons
+    // Should see Context and Changelog tab buttons
     expect(screen.getByRole('button', { name: 'Context' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'History' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Changelog' })).toBeInTheDocument()
   })
 
-  // --- History / Trace panel ---
+  // --- Changelog / Trace panel ---
 
   it('fetches trace data when a task is clicked', async () => {
     mockedApiGet.mockImplementation((path: string) => {
@@ -1072,7 +1072,7 @@ describe('Tasks page', () => {
     })
   })
 
-  it('clicking History tab shows the trace panel with commits', async () => {
+  it('clicking Changelog tab shows the trace panel with commits', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
@@ -1102,10 +1102,10 @@ describe('Tasks page', () => {
     fireEvent.click(screen.getByText('Fix login bug'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('history-tab')).toBeInTheDocument()
+      expect(screen.getByTestId('changelog-tab')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('history-tab'))
+    fireEvent.click(screen.getByTestId('changelog-tab'))
 
     await waitFor(() => {
       expect(screen.getByTestId('trace-panel')).toBeInTheDocument()
@@ -1118,7 +1118,7 @@ describe('Tasks page', () => {
     })
   })
 
-  it('History tab shows empty message when trace has no data', async () => {
+  it('Changelog tab shows empty message when trace has no data', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
       if (path === '/labels') return Promise.resolve({ labels: mockLabels })
@@ -1140,10 +1140,10 @@ describe('Tasks page', () => {
     fireEvent.click(screen.getByText('Fix login bug'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('history-tab')).toBeInTheDocument()
+      expect(screen.getByTestId('changelog-tab')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('history-tab'))
+    fireEvent.click(screen.getByTestId('changelog-tab'))
 
     await waitFor(() => {
       expect(screen.getByText('No history yet. Specs, drafts, commits, and connections will appear here as work happens.')).toBeInTheDocument()

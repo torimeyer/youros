@@ -115,23 +115,6 @@ interface SessionDiff {
   audit_total: number;
 }
 
-interface LiveSession {
-  session_id: string;
-  last_active: string;
-  status: 'active' | 'idle';
-  recent_events: { type: string; timestamp: string }[];
-  task?: string;
-  current_step?: string;
-  prompt?: string;
-  spawned_at?: string;
-}
-
-interface LiveSessionsData {
-  sessions: LiveSession[];
-  count: number;
-  active_count: number;
-  idle_count: number;
-}
 
 
 
@@ -168,7 +151,6 @@ export default function Dashboard() {
   // briefing. Drives the small "Refreshing..." hint so the user knows
   // the card on screen is last-known and a newer one is on the way.
   const [briefingRefreshing, setBriefingRefreshing] = useState(initialBriefingSeed !== null);
-  const [liveSessions, setLiveSessions] = useState<LiveSessionsData | null>(null);
   const [quickAddTaskOpen, setQuickAddTaskOpen] = useState(false);
   const [quickSpawnOpen, setQuickSpawnOpen] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
@@ -234,19 +216,6 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  useEffect(() => {
-    const fetchSessions = async () => {
-      try {
-        const res = await api.get<LiveSessionsData>('/sessions/active');
-        setLiveSessions(res);
-      } catch {
-        // ignore
-      }
-    };
-    fetchSessions();
-    const interval = setInterval(fetchSessions, 10000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     // If we have a seeded briefing on screen from localStorage, keep
@@ -855,87 +824,6 @@ export default function Dashboard() {
     );
   };
 
-  const renderLiveSessions = () => {
-    const sessions = liveSessions?.sessions ?? [];
-    const activeCount = liveSessions?.active_count ?? 0;
-    const idleCount = liveSessions?.idle_count ?? 0;
-    const total = activeCount + idleCount;
-
-    const sessionLabel = (session: LiveSession): string => {
-      const raw = session.task || session.current_step || session.prompt || '';
-      if (raw) return raw.slice(0, 60);
-      return session.session_id.replace(/^claude-code-/, '');
-    };
-
-    const elapsedTime = (isoStr: string | undefined): string => {
-      if (!isoStr) return '';
-      try {
-        const diff = Date.now() - new Date(isoStr).getTime();
-        const mins = Math.floor(diff / 60000);
-        if (mins < 1) return 'just now';
-        if (mins < 60) return `${mins}m`;
-        const hours = Math.floor(mins / 60);
-        const rem = mins % 60;
-        return rem > 0 ? `${hours}h ${rem}m` : `${hours}h`;
-      } catch {
-        return '';
-      }
-    };
-
-    return (
-      <div key="live_sessions" data-testid="widget-live-sessions">
-      <Card hover padding="sm" className="sm:p-6">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Icon name="terminal" className="text-emerald-400" size={20} />
-            <h2 className="text-lg font-semibold">Live Sessions</h2>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            {activeCount > 0 && (
-              <span className="flex items-center gap-1 text-green-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                {activeCount} active
-              </span>
-            )}
-            {idleCount > 0 && (
-              <span className="flex items-center gap-1 text-amber-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                {idleCount} idle
-              </span>
-            )}
-          </div>
-        </div>
-        {total === 0 ? (
-          <p className="text-sm text-slate-500">No active sessions right now.</p>
-        ) : (
-          <div className="space-y-2">
-            {sessions.map((s) => (
-              <div
-                key={s.session_id}
-                data-testid="session-card"
-                className="flex items-center gap-3 px-3 py-2 rounded-lg border border-slate-200 bg-transparent dark:bg-slate-700/50 dark:border-slate-600"
-              >
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    s.status === 'active' ? 'bg-green-400 animate-pulse' : 'bg-amber-400'
-                  }`}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate" data-testid="session-label">
-                    {sessionLabel(s)}
-                  </p>
-                  <p className="text-xs text-slate-500 truncate" data-testid="session-elapsed">
-                    {elapsedTime(s.spawned_at || s.last_active)}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-      </div>
-    );
-  };
 
   const renderAdventure = () => {
     if (adventureDismissed) return null;
@@ -1038,7 +926,6 @@ export default function Dashboard() {
     quick_launch: renderQuickLaunch,
     next_meeting: renderNextMeeting,
     day_summary: renderDaySummary,
-    live_sessions: renderLiveSessions,
     recent_specs: renderRecentSpecs,
   };
 
