@@ -325,3 +325,110 @@ sleep 5
         assert len(exited) == 3, (
             f"other 3 must exit as duplicates; got: {exited}"
         )
+
+
+# ---------------------------------------------------------------------------
+# →942 second recurrence: ghost purge + main-loop self-check
+# ---------------------------------------------------------------------------
+
+
+def test_ghost_purge_uses_pgrep():
+    """backend_watchdog.sh must use pgrep to find and kill ghost watchdog siblings."""
+    text = _watchdog_text()
+    assert "pgrep" in text and "backend_watchdog.sh" in text, (
+        "backend_watchdog.sh must use pgrep to find ghost watchdog siblings"
+    )
+
+
+def test_ghost_purge_excludes_self():
+    """The ghost purge must exclude the current process (grep -v $$)."""
+    text = _watchdog_text()
+    # The purge block must filter out the running watchdog's own PID
+    assert 'grep -v "^$$"' in text or "grep -v '^$$'" in text, (
+        "ghost purge must exclude own PID via 'grep -v \"^$$\"' to avoid self-kill"
+    )
+
+
+def test_ghost_purge_comes_after_pidfile_write():
+    """Ghost purge must happen AFTER we write our PID to PIDFILE.
+
+    Order matters: write PIDFILE first so ghosts that self-check see the
+    new canonical PID; then kill them. Reversing the order leaves a window
+    where a ghost re-acquires PIDFILE between its kill-check and our write.
+    """
+    text = _watchdog_text()
+    pidfile_write_pos = text.find('echo $$ > "$PIDFILE"')
+    pgrep_pos = text.find('pgrep -f "backend_watchdog.sh"')
+    assert pidfile_write_pos != -1, "PIDFILE write not found"
+    assert pgrep_pos != -1, "pgrep ghost purge not found"
+    assert pidfile_write_pos < pgrep_pos, (
+        "PIDFILE write must precede ghost purge (so ghosts see new canonical PID)"
+    )
+
+
+def test_main_loop_self_check_present():
+    """Main loop must check PIDFILE against own PID and exit if superseded."""
+    text = _watchdog_text()
+    assert "superseded" in text, (
+        "main loop must contain self-check that exits when PIDFILE has a different live PID"
+    )
+
+
+def test_main_loop_self_check_uses_kill_zero():
+    """Self-check must verify the PIDFILE holder is alive before exiting.
+
+    Without kill -0, a stale PIDFILE (dead PID) would cause the watchdog
+    to exit even when no live successor exists — leaving the backend unmonitored.
+    """
+    text = _watchdog_text()
+    # Find the self-check block by looking for "superseded"
+    superseded_pos = text.find("superseded")
+    assert superseded_pos != -1, "self-check block not found"
+    # kill -0 must appear before the superseded log line
+    kill_zero_pos = text.rfind("kill -0", 0, superseded_pos)
+    assert kill_zero_pos != -1, (
+        "self-check must use 'kill -0' to confirm PIDFILE holder is alive "
+        "before exiting (prevents spurious exit on stale PIDFILE)"
+    )
+
+
+def test_ghost_watchdog_exits_when_superseded():
+    """Functional: a watchdog that finds a newer live PID in PIDFILE must exit.
+
+    Simulates the ghost scenario: ghost watchdog's PIDFILE has a different
+    (live) PID. Ghost must exit within one loop iteration.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pidfile = f"{tmpdir}/watchdog.pid"
+        logfile = f"{tmpdir}/watchdog.log"
+
+        # Ghost is a small script mimicking the self-check logic in the main loop.
+        ghost_script = f"""\
+#!/usr/bin/env bash
+PIDFILE="{pidfile}"
+LOGFILE="{logfile}"
+touch "$LOGFILE"
+_loop_wd=$(cat "$PIDFILE" 2>/dev/null || true)
+if [ -n "$_loop_wd" ] && [ "$_loop_wd" != "$$" ] && kill -0 "$_loop_wd" 2>/dev/null; then
+    echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] watchdog: INFO superseded by pid $_loop_wd; exiting to avoid ghost watchdog" >> "$LOGFILE"
+    exit 0
+fi
+# Should not reach here in test
+exit 1
+"""
+        ghost_path = f"{tmpdir}/ghost.sh"
+        Path(ghost_path).write_text(ghost_script)
+        Path(ghost_path).chmod(0o755)
+
+        # Write a live PID (ourselves) as the canonical watchdog
+        import os
+        Path(pidfile).write_text(str(os.getpid()))
+
+        result = subprocess.run(["bash", ghost_path], timeout=5)
+        assert result.returncode == 0, (
+            "ghost watchdog must exit cleanly when PIDFILE has a live superseding PID"
+        )
+        log = Path(logfile).read_text()
+        assert "superseded" in log, (
+            f"ghost must log 'superseded' before exiting; log was: {log!r}"
+        )

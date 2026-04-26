@@ -91,6 +91,20 @@ fi
 echo $$ > "$PIDFILE"
 rm -f "$STARTUP_LOCK" 2>/dev/null || true
 
+# Kill any ghost watchdog processes that survived a pre-fix double-spawn.
+# The STARTUP_LOCK (above) serializes concurrent startups so only ONE new
+# watchdog writes PIDFILE, but ghost siblings from before the STARTUP_LOCK
+# fix was deployed can still be alive — they hold no lock and appear in
+# pgrep but not in PIDFILE. Without this purge they run indefinitely, and
+# both fire restart_backend on the next backend failure, causing dual
+# dev-backend.sh spawns and the kill-and-replace cascade in →942.
+_ghost_wds=$(pgrep -f "backend_watchdog.sh" 2>/dev/null | grep -v "^$$" || true)
+if [ -n "$_ghost_wds" ]; then
+    log "INFO purging ghost watchdog(s): $(echo "$_ghost_wds" | tr '\n' ' ')"
+    # shellcheck disable=SC2086
+    kill $_ghost_wds 2>/dev/null || true
+fi
+
 cleanup() {
     # Only remove files we own. Unconditional removal deletes a successor
     # watchdog's PID record if this watchdog exits after a newer one has
@@ -225,6 +239,15 @@ restarts=0
 log "INFO watchdog started, interval=${INTERVAL}s, health=$HEALTH_URL"
 
 while :; do
+    # Self-check: exit if PIDFILE now has a different live PID. This catches
+    # any ghost watchdog that survived long enough to reach the main loop —
+    # once a newer canonical watchdog writes its PID, all ghosts detect it
+    # here and exit within one INTERVAL (30 s) rather than running forever.
+    _loop_wd=$(cat "$PIDFILE" 2>/dev/null || true)
+    if [ -n "$_loop_wd" ] && [ "$_loop_wd" != "$$" ] && kill -0 "$_loop_wd" 2>/dev/null; then
+        log "INFO superseded by pid $_loop_wd; exiting to avoid ghost watchdog"
+        exit 0
+    fi
     sleep "$INTERVAL"
     if probe_once; then
         continue
