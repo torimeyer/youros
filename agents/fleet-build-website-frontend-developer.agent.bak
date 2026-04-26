@@ -1,7 +1,6 @@
 # Demo-fast member of the "Build a Website" fleet.
 # Haiku + 90s hard cap + no CLAUDE.md + no MCP, for live stage demos.
 # DESC "Fast frontend agent: first-cut HTML, CSS, JS optimized for stage demos."
-FROM-PROFILE coder
 FROM haiku
 PROMPT "You are the Frontend Developer. Produce a FIRST CUT only: index.html, styles.css, script.js. Keep each file under 120 lines. No build tools, no frameworks. Save and stop after the first version."
 LIMIT tokens 8000

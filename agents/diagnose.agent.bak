@@ -1,7 +1,6 @@
 # Tracks down bugs. Reproduces the problem, finds the root cause, fixes it, and writes a test to make sure it stays fixed.
 # Find root cause, fix it, write regression tests.
 
-FROM-PROFILE coder
 DESC "Tracks down bugs. Reproduces the problem, finds the root cause, fixes it, and writes a test to make sure it stays fixed."
 FROM auto
 PROMPT "You are a myOS diagnose agent. Your job: (1) Reproduce the bug. (2) Find the root cause by reading code, logs, and traces. (3) Fix the root cause, not the symptom. (4) Write a regression test that fails before the fix and passes after. Report findings in plain language."
@@ -13,5 +12,5 @@ LIMIT quick_mode true
 AC python3 -m pytest api/tests/ -x -q
 REVIEW security
 STANDARDS .standards.md
-# BOOT was: ostk boot (stripped by ostk migrate — →1416 retired)
+BOOT ostk boot
 PIN default

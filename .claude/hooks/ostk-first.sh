@@ -43,9 +43,9 @@ if [ ! -S "$SOCK" ]; then
 fi
 
 case "$TOOL" in
-  Bash)  EQ="mcp__ostk__shell" ;;
-  Read)  EQ="mcp__ostk__fs_read" ;;
-  Edit)  EQ="mcp__ostk__edit" ;;
+  Bash) trace "no-mcp-43-allowed" ""; exit 0 ;;
+  Read) trace "no-mcp-43-allowed" ""; exit 0 ;;
+  Edit) trace "no-mcp-43-allowed" ""; exit 0 ;;
   Write) trace "write-no-ostk-equivalent-allowed" "$TOOL"; exit 0 ;;
   Grep|Glob) EQ="mcp__ostk__search" ;;
   *) trace "non-matching-allowed" "$TOOL"; exit 0 ;;

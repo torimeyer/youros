@@ -6,5 +6,4 @@
 # ALIAS redirects the resolver to builder.agent so updates to the
 # canonical build pattern (AC gates, standards, etc.) flow through.
 
-FROM-PROFILE coder
 ALIAS builder
