@@ -89,17 +89,21 @@ def _install_spawn_doubles(
       * ``calls["fork_called"]`` - True iff ``git worktree add`` was issued.
     """
     from routers import agents as agents_module
+    import services.spawn_isolation as _siso
 
     calls: dict[str, Any] = {"exec": [], "fork_called": False}
 
     async def _fake_create_subprocess_exec(*args, **kwargs):
         calls["exec"].append((args, kwargs))
-        # First positional is the program. Route git-worktree forks to
-        # the fork-proc double, everything else (claude --print) to the
-        # general fake proc.
-        if args and args[0] == "git" and "worktree" in args[:4]:
-            calls["fork_called"] = True
-            return _FakeForkProc(returncode=fork_returncode, stderr=fork_stderr)
+        if args and args[0] == "git":
+            # Route only "worktree add" to the configured fork outcome.
+            # Pre-clean calls (worktree unlock, worktree remove, branch -D)
+            # always succeed so they don't interfere with fork-failure tests.
+            if "worktree" in args and "add" in args:
+                calls["fork_called"] = True
+                return _FakeForkProc(returncode=fork_returncode, stderr=fork_stderr)
+            # All other git sub-commands (unlock, remove, branch) succeed.
+            return _FakeForkProc(returncode=0)
         return _FakeProc()
 
     async def _noop_run(*args, **kwargs):
@@ -107,6 +111,12 @@ def _install_spawn_doubles(
 
     monkeypatch.setattr(
         agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    # Also patch spawn_isolation so _run_git calls are intercepted too.
+    monkeypatch.setattr(
+        _siso.asyncio,
         "create_subprocess_exec",
         _fake_create_subprocess_exec,
     )

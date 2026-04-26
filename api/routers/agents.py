@@ -3605,8 +3605,11 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         # When isolation=="worktree", fork a git worktree for this agent
         # and run the subprocess there so its commits stay isolated from
         # the main tree (see spawn_burst_commit_contamination memory
-        # entry). On fork failure, fall back to the main worktree — never
-        # fail the spawn for a tooling hiccup.
+        # entry). create_worktree() handles the re-spawn case: it removes
+        # any prior worktree/branch with the same name before creating so
+        # repeated spawns do not silently fall back to the parent checkout.
+        # On fork failure, fall back to the main worktree — never fail the
+        # spawn for a tooling hiccup.
         _spawn_cwd = str(PROJECT_ROOT)
         _worktree_path: Optional[str] = None
         _worktree_branch: Optional[str] = None
@@ -3614,31 +3617,22 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             _wt_branch = f"worktree-agent-{body.name}"
             _wt_path = PROJECT_ROOT / ".claude" / "worktrees" / f"agent-{body.name}"
             try:
-                _wt_path.parent.mkdir(parents=True, exist_ok=True)
-                # L2.3 follow-up (→P2-f from retro): pin new branch to main's
-                # HEAD so drifted parent sessions don't produce stale-base
-                # worktrees (the 71-commit drift bug from L2.1's merge).
-                _fork_proc = await asyncio.create_subprocess_exec(
-                    "git", "worktree", "add", "--lock",
-                    str(_wt_path), "-b", _wt_branch, "main",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(PROJECT_ROOT),
+                from services.spawn_isolation import (
+                    create_worktree as _create_worktree,
+                    sync_claude_dir_to_worktree as _sync,
                 )
-                _fork_out, _fork_err = await asyncio.wait_for(
-                    _fork_proc.communicate(), timeout=20.0
+                _wt_ok, _wt_err = await _create_worktree(
+                    project_root=PROJECT_ROOT,
+                    agent_name=body.name,
+                    branch=_wt_branch,
+                    wt_path=_wt_path,
                 )
-                if _fork_proc.returncode == 0:
+                if _wt_ok:
                     _spawn_cwd = str(_wt_path)
                     _worktree_path = str(_wt_path)
                     _worktree_branch = _wt_branch
-                    logger.info(
-                        "spawn.worktree.created name=%s path=%s branch=%s",
-                        body.name, _worktree_path, _worktree_branch,
-                    )
                     # L2.3 (→902): sync .claude/ into the new worktree so hook
-                    # edits do not leak across sessions. See sync_claude_dir_to_worktree.
-                    from services.spawn_isolation import sync_claude_dir_to_worktree as _sync
+                    # edits do not leak across sessions.
                     await _sync(PROJECT_ROOT / ".claude", _wt_path / ".claude")
                     # Anchor the ostk MCP root to this worktree. Without .ostk/
                     # here the server traverses up to .claude/worktrees/.ostk/
@@ -3648,10 +3642,8 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     (_wt_path / ".ostk").mkdir(parents=True, exist_ok=True)
                 else:
                     logger.warning(
-                        "spawn.worktree.fork_failed name=%s rc=%s err=%s",
-                        body.name,
-                        _fork_proc.returncode,
-                        (_fork_err or b"").decode(errors="replace")[:200],
+                        "spawn.worktree.fork_failed name=%s err=%s",
+                        body.name, _wt_err,
                     )
                     body.isolation = "none"
             except Exception as _wt_exc:
@@ -3804,6 +3796,27 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                 logger.warning(
                     "spawn.locks.release_failed name=%s err=%s",
                     name, _rel_exc,
+                )
+            # Clean up the git worktree so the next re-spawn of this agent
+            # name gets a clean slate. Without this, `git worktree add -b
+            # worktree-agent-<name>` fails on the second spawn because the
+            # branch / locked worktree still exists, and the handler silently
+            # falls back to the parent checkout where all agents race.
+            try:
+                _meta_snap = agent_metadata.get(name) or {}
+                _cleanup_wt_path = _meta_snap.get("worktree_path")
+                _cleanup_wt_branch = _meta_snap.get("worktree_branch")
+                if _cleanup_wt_path and _cleanup_wt_branch:
+                    from services.spawn_isolation import remove_worktree as _remove_wt
+                    await _remove_wt(
+                        project_root=PROJECT_ROOT,
+                        wt_path=_cleanup_wt_path,
+                        branch=_cleanup_wt_branch,
+                    )
+            except Exception as _cleanup_exc:
+                logger.warning(
+                    "spawn.worktree.cleanup_failed name=%s err=%s",
+                    name, _cleanup_exc,
                 )
 
         try:

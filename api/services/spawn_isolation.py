@@ -433,6 +433,161 @@ def _reset_spawn_lock_registry_for_tests() -> None:
 
 
 
+async def _run_git(
+    *args: str,
+    cwd: str,
+    timeout: float = 15.0,
+) -> tuple[int, bytes, bytes]:
+    """Run a git command and return (returncode, stdout, stderr)."""
+    proc = await asyncio.create_subprocess_exec(
+        "git", *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
+    )
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return -1, b"", b"timeout"
+    return proc.returncode or 0, out, err
+
+
+async def create_worktree(
+    *,
+    project_root,
+    agent_name: str,
+    branch: str,
+    wt_path,
+    timeout: float = 20.0,
+) -> tuple[bool, str]:
+    """Create a real git worktree for an agent at wt_path on branch.
+
+    Handles the re-spawn case: if the branch or worktree already exists from a
+    prior run, removes them before creating a fresh one. Returns (ok, error).
+
+    This is the authoritative worktree-creation path. Callers must not call
+    git worktree add directly so the pre-clean logic is always applied.
+    """
+    from pathlib import Path as _P
+
+    cwd = str(project_root)
+    wt = _P(wt_path)
+
+    # 1. Remove any existing registered worktree at this path.
+    #    Worktrees are created with --lock, so a plain `git worktree remove
+    #    --force` will be refused ("locked") unless we unlock first.
+    if wt.exists():
+        # Unlock (no-op if not locked; never fatal).
+        await _run_git("worktree", "unlock", str(wt), cwd=cwd, timeout=5.0)
+        # Now remove the worktree registration and its directory.
+        rc, _, err = await _run_git(
+            "worktree", "remove", "--force", str(wt),
+            cwd=cwd, timeout=timeout,
+        )
+        if rc != 0:
+            logger.debug(
+                "spawn.worktree.pre_remove_nonzero path=%s rc=%s err=%s",
+                wt, rc, err.decode(errors="replace")[:120],
+            )
+        # If the directory survived (unregistered orphan), remove it from disk.
+        if wt.exists():
+            import shutil as _shutil
+            try:
+                _shutil.rmtree(str(wt))
+            except Exception as exc:
+                logger.warning("spawn.worktree.orphan_rmtree_failed path=%s err=%s", wt, exc)
+                return False, f"orphan dir {wt} could not be removed: {exc}"
+
+    # 2. Delete the branch if it still exists.
+    rc, _, _ = await _run_git(
+        "branch", "-D", branch,
+        cwd=cwd, timeout=5.0,
+    )
+    # rc != 0 just means the branch didn't exist; that's fine.
+
+    # 3. Create the worktree on a fresh branch pinned to main.
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    rc, out, err = await _run_git(
+        "worktree", "add", "--lock",
+        str(wt), "-b", branch, "main",
+        cwd=cwd, timeout=timeout,
+    )
+    if rc != 0:
+        # Clean up any partial directory left by git.
+        if wt.exists():
+            import shutil as _shutil
+            try:
+                _shutil.rmtree(str(wt))
+            except Exception:
+                pass
+        err_msg = err.decode(errors="replace")[:200]
+        logger.warning(
+            "spawn.worktree.add_failed name=%s rc=%s err=%s",
+            agent_name, rc, err_msg,
+        )
+        return False, f"git worktree add exited {rc}: {err_msg}"
+
+    logger.info(
+        "spawn.worktree.created name=%s path=%s branch=%s",
+        agent_name, wt, branch,
+    )
+    return True, ""
+
+
+async def remove_worktree(
+    *,
+    project_root,
+    wt_path,
+    branch: str,
+    timeout: float = 10.0,
+) -> bool:
+    """Remove a git worktree and delete its branch.
+
+    Called from the agent completion path so the next re-spawn of the same
+    agent name gets a clean slate. Never raises; returns True on full success.
+    """
+    from pathlib import Path as _P
+
+    cwd = str(project_root)
+    wt = _P(wt_path)
+    ok = True
+
+    if wt.exists() or True:  # attempt even if dir is gone (unregister stale entry)
+        # Unlock first; worktrees are created with --lock so a plain remove
+        # --force will be refused without the prior unlock.
+        await _run_git("worktree", "unlock", str(wt), cwd=cwd, timeout=5.0)
+        rc, _, err = await _run_git(
+            "worktree", "remove", "--force", str(wt),
+            cwd=cwd, timeout=timeout,
+        )
+        if rc != 0:
+            logger.warning(
+                "spawn.worktree.remove_failed path=%s rc=%s err=%s",
+                wt, rc, err.decode(errors="replace")[:120],
+            )
+            ok = False
+        # Ensure directory is gone even if git didn't clean it.
+        if wt.exists():
+            import shutil as _shutil
+            try:
+                _shutil.rmtree(str(wt))
+            except Exception as exc:
+                logger.warning("spawn.worktree.rmtree_failed path=%s err=%s", wt, exc)
+                ok = False
+
+    # Delete the branch.
+    rc, _, _ = await _run_git("branch", "-D", branch, cwd=cwd, timeout=5.0)
+    if rc != 0:
+        logger.debug("spawn.worktree.branch_delete_nonzero branch=%s rc=%s", branch, rc)
+        # Not fatal; branch may have already been deleted by the agent itself.
+
+    return ok
+
+
 async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10.0):
     """Sync .claude/ (hooks + lib) into a new worktree via rsync.
 

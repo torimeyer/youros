@@ -20,20 +20,19 @@ if str(_api_root) not in sys.path:
 def test_worktree_add_command_includes_main_as_base():
     """The spawn path must pass 'main' as the start-point to git worktree add.
 
-    This test verifies by scanning the source file for the known invocation
-    rather than spinning up the full spawn endpoint, which requires
-    elaborate mocks already covered by other spawn tests.
+    The worktree-creation logic lives in services/spawn_isolation.py
+    (create_worktree). This test scans that file to confirm the 'main'
+    literal is still present as the branch start-point, preventing the
+    stale-base drifted-parent bug from retro 2026-04-24 (→P2-f).
     """
-    source = (_api_root / "routers" / "agents.py").read_text()
-    # The relevant block contains these args in order
-    # "git", "worktree", "add", "--lock", ..., "-b", ..., "main"
-    # After the ..., -b, branch-name, 'main' must appear.
-    # We require that both the branch-var reference AND the "main" literal
-    # are present as subsequent elements to the git worktree add call.
-    assert '"git", "worktree", "add", "--lock"' in source, "worktree add call missing"
-    # Confirm the "main" argument landed right after the branch name arg.
-    assert '-b", _wt_branch, "main"' in source, (
-        "spawn path must pass 'main' as explicit start-point to git worktree "
-        "add to prevent stale-base drifted-parent bugs (→P2-f from retro "
-        "2026-04-24)"
+    source = (_api_root / "services" / "spawn_isolation.py").read_text()
+    # create_worktree passes "worktree", "add", "--lock", str(wt), "-b", branch, "main"
+    # to _run_git. Verify both the --lock flag and the "main" base are present.
+    assert '"worktree", "add", "--lock"' in source, (
+        "create_worktree must pass --lock to git worktree add"
+    )
+    assert '"-b", branch, "main"' in source, (
+        "create_worktree must pass 'main' as explicit start-point to git "
+        "worktree add to prevent stale-base drifted-parent bugs (→P2-f from "
+        "retro 2026-04-24)"
     )

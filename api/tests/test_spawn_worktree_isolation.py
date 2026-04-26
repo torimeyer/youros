@@ -83,23 +83,28 @@ class _FakeForkProc:
 
 def _install_spawn_doubles(monkeypatch, fork_returncode: int = 0) -> dict[str, Any]:
     from routers import agents as agents_module
+    import services.spawn_isolation as _siso
 
     calls: dict[str, Any] = {"exec": [], "fork_called": False, "wt_path": None}
 
     async def _fake_exec(*args, **kwargs):
         calls["exec"].append((args, kwargs))
-        if args and args[0] == "git" and "worktree" in args[:4]:
-            calls["fork_called"] = True
-            # Record which worktree path git would have created
-            wt_arg = next(
-                (a for a in args if "worktrees/agent-" in str(a)), None
-            )
-            if wt_arg:
-                calls["wt_path"] = str(wt_arg)
-            return _FakeForkProc(returncode=fork_returncode)
+        if args and args[0] == "git":
+            if "worktree" in args and "add" in args:
+                calls["fork_called"] = True
+                wt_arg = next(
+                    (a for a in args if "worktrees/agent-" in str(a)), None
+                )
+                if wt_arg:
+                    calls["wt_path"] = str(wt_arg)
+                return _FakeForkProc(returncode=fork_returncode)
+            # Pre-clean calls (unlock, remove, branch -D) always succeed.
+            return _FakeForkProc(returncode=0)
         return _FakeProc()
 
     monkeypatch.setattr(agents_module.asyncio, "create_subprocess_exec", _fake_exec)
+    # Also patch spawn_isolation so _run_git calls are intercepted.
+    monkeypatch.setattr(_siso.asyncio, "create_subprocess_exec", _fake_exec)
 
     async def _noop_run(*a, **kw):
         return ""
