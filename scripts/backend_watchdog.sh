@@ -44,6 +44,10 @@ LAUNCHER_LOCK="/tmp/myos-backend-launcher-${BACKEND_PORT}.lock"
 # kills the uvicorn the first just started (kill-and-replace) and starts
 # its own, producing a double-bind on port 8000 via macOS SO_REUSEPORT.
 RESTART_LOCK="/tmp/myos-backend-restart.lock"
+# Serialises concurrent watchdog startups so two simultaneous launches cannot
+# both pass the dedup check (→942 recurrence: duplicate log lines at identical
+# timestamps confirmed two live watchdogs).
+STARTUP_LOCK="/tmp/myos-backend-watchdog-startup.lock"
 
 # Dedup guard: exit immediately if a live watchdog is already registered.
 # Multiple watchdog processes spawn when concurrent dev-backend.sh launchers
@@ -53,15 +57,39 @@ RESTART_LOCK="/tmp/myos-backend-restart.lock"
 # the exec/port race, the other fails with EADDRINUSE, and the dead loser's
 # PID ends up in PIDFILE.  On the next reload the watchdog sees that stale PID
 # as dead, bypasses backend_pid_alive(), and kills the live uvicorn.
+#
+# The TOCTOU fix (→942 recurrence): wrap the read-check-write in STARTUP_LOCK
+# so only one process at a time can evaluate PIDFILE and claim ownership.
+# Without this, two concurrent spawns both read a stale dead PID, both skip
+# the dedup exit, and both execute `echo $$ > "$PIDFILE"` — producing two
+# live watchdogs even though the last write "wins" the file.
+_sl_waited=0
+while ! ( set -o noclobber; echo $$ > "$STARTUP_LOCK" ) 2>/dev/null; do
+    _sl_holder=$(cat "$STARTUP_LOCK" 2>/dev/null || true)
+    if [ -n "$_sl_holder" ] && kill -0 "$_sl_holder" 2>/dev/null; then
+        if [ "$_sl_waited" -ge 5 ]; then
+            # Startup lock held for > 5s — bail rather than stack a third watchdog.
+            exit 0
+        fi
+        sleep 1
+        _sl_waited=$((_sl_waited + 1))
+    else
+        # Stale lock: holder is dead. Remove and retry.
+        rm -f "$STARTUP_LOCK" 2>/dev/null || true
+    fi
+done
+# STARTUP_LOCK held. Now check+write PIDFILE as an atomic unit.
 if [ -f "$PIDFILE" ]; then
     _existing_wd=$(cat "$PIDFILE" 2>/dev/null || true)
     if [ -n "$_existing_wd" ] && [ "$_existing_wd" != "$$" ] && kill -0 "$_existing_wd" 2>/dev/null; then
         echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] watchdog: duplicate start detected (pid $_existing_wd already running), exiting" >> "$LOGFILE"
+        rm -f "$STARTUP_LOCK" 2>/dev/null || true
         exit 0
     fi
 fi
 # Always keep the freshest pid in the pidfile, even when invoked directly.
 echo $$ > "$PIDFILE"
+rm -f "$STARTUP_LOCK" 2>/dev/null || true
 
 cleanup() {
     # Only remove files we own. Unconditional removal deletes a successor
@@ -76,6 +104,9 @@ cleanup() {
     fi
     if [ -f "$RESTART_LOCK" ] && [ "$(cat "$RESTART_LOCK" 2>/dev/null || true)" = "$$" ]; then
         rm -f "$RESTART_LOCK" 2>/dev/null || true
+    fi
+    if [ -f "$STARTUP_LOCK" ] && [ "$(cat "$STARTUP_LOCK" 2>/dev/null || true)" = "$$" ]; then
+        rm -f "$STARTUP_LOCK" 2>/dev/null || true
     fi
 }
 trap cleanup EXIT INT TERM
