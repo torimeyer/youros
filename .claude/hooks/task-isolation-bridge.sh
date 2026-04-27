@@ -218,7 +218,7 @@ fi
 # not wedge every Task call. If the probe fails we BLOCK (never fall
 # through) because that is the silent-no-op this hook exists to fix.
 RESP_BODY=$(mktemp)
-HTTP_CODE=$(curl -sSk --connect-timeout 3 -m 5 -o "$RESP_BODY" -w '%{http_code}' \
+HTTP_CODE=$(curl --silent --insecure --connect-timeout 3 -m 5 -o "$RESP_BODY" -w '%{http_code}' \
     -X POST "${API_BASE}/api/agents/spawn" \
     -H 'Content-Type: application/json' \
     -d "$BODY" 2>/dev/null)
