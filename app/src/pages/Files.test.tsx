@@ -213,8 +213,11 @@ describe('Files page', () => {
   })
 
   it('timeline renders rows in newest-first order', async () => {
+    // API returns oldest-first; frontend must re-sort to newest-first
     mockedApiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith('/files/timeline')) return mockTimelineResponse
+      if (path.startsWith('/files/timeline')) return {
+        files: [mockTimelineResponse.files[1], mockTimelineResponse.files[0]],
+      }
       return {}
     })
 
@@ -228,6 +231,42 @@ describe('Files page', () => {
     expect(rows).toHaveLength(2)
     expect(rows[0]).toHaveAttribute('data-testid', 'files-timeline-row-report-new.md')
     expect(rows[1]).toHaveAttribute('data-testid', 'files-timeline-row-report-old.md')
+  })
+
+  it('recent docs renders rows in newest-first order', async () => {
+    const newerDoc = {
+      name: 'newer-doc.md',
+      path: '/home/user/.myos/files/newer-doc.md',
+      size: 512,
+      size_display: '512 B',
+      last_modified: new Date('2026-04-25T12:00:00Z').toISOString(),
+      snippet: 'newer content',
+    }
+    const olderDoc = {
+      name: 'older-doc.md',
+      path: '/home/user/.myos/files/older-doc.md',
+      size: 256,
+      size_display: '256 B',
+      last_modified: new Date('2026-04-25T10:00:00Z').toISOString(),
+      snippet: 'older content',
+    }
+    // API returns oldest-first; frontend must re-sort to newest-first
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/projects') return mockProjectsResponse
+      if (path.startsWith('/docs/recent')) return { files: [olderDoc, newerDoc] }
+      return {}
+    })
+
+    renderFiles()
+    switchToFilesView()
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`recent-doc-row-${newerDoc.path}`)).toBeInTheDocument()
+    })
+
+    const rows = screen.getAllByTestId(/^recent-doc-row-/)
+    expect(rows[0]).toHaveAttribute('data-testid', `recent-doc-row-${newerDoc.path}`)
+    expect(rows[1]).toHaveAttribute('data-testid', `recent-doc-row-${olderDoc.path}`)
   })
 
   it('each timeline row has the expected testid', async () => {
@@ -258,7 +297,7 @@ describe('Files page', () => {
 
     fireEvent.click(screen.getByTestId('files-timeline-row-report-new.md'))
 
-    expect(screen.getByTestId('quicklook-backdrop')).toBeInTheDocument()
+    expect(screen.getByTestId('quicklook-modal')).toBeInTheDocument()
   })
 
   it('ProvenanceChip shows agent attribution for agent-generated file', async () => {

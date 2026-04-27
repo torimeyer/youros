@@ -189,7 +189,10 @@ export default function Files() {
     setTimelineError(null);
     try {
       const res = await api.get<TimelineResponse>('/files/timeline?limit=50');
-      setTimelineFiles(res.files ?? []);
+      const files = [...(res.files ?? [])].sort(
+        (a, b) => new Date(b.modified_at).getTime() - new Date(a.modified_at).getTime()
+      );
+      setTimelineFiles(files);
     } catch {
       setTimelineError('Could not load files. Make sure the API is running.');
     } finally {
@@ -203,7 +206,10 @@ export default function Files() {
     setRecentDocsLoading(true);
     try {
       const res = await api.get<RecentDocsResponse>('/docs/recent?limit=8');
-      setRecentDocs(res.files ?? []);
+      const files = [...(res.files ?? [])].sort(
+        (a, b) => new Date(b.last_modified ?? 0).getTime() - new Date(a.last_modified ?? 0).getTime()
+      );
+      setRecentDocs(files);
     } catch {
       setRecentDocs([]);
     } finally {
