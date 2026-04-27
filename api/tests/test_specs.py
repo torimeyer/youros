@@ -873,6 +873,74 @@ async def test_auto_advancer_does_not_notify_when_some_tasks_still_open(
 
 
 @pytest.mark.asyncio
+async def test_auto_advancer_is_noop_when_spec_already_complete(
+    tmp_path, monkeypatch
+):
+    """Regression for the random 'Your feature is live' modal.
+
+    If a builder agent's /complete fires twice (reconnect, retry) or the
+    advancer is triggered after the spec is already marked complete,
+    it must NOT rewrite the file (which would bump mtime and re-arm the
+    60s grace window) and must NOT fire a second spec_complete notification
+    (which would create a new bell row once the user reads the first one).
+    """
+    from routers import specs as specs_router
+    from services import ostk as ostk_module
+
+    (tmp_path / "docs" / "spec").mkdir(parents=True)
+    spec_path = "docs/spec/already-done.md"
+    spec_file = tmp_path / spec_path
+    original_text = (
+        "---\n"
+        "title: Already done\n"
+        "status: complete\n"
+        "linked_tasks: [\"9001\"]\n"
+        "---\n\n"
+        "## Acceptance criteria\n\n"
+        "- [x] Feature shipped\n"
+    )
+    spec_file.write_text(original_text)
+    original_mtime = spec_file.stat().st_mtime
+
+    monkeypatch.setattr(specs_router, "PROJECT_ROOT", str(tmp_path))
+    specs_router._spec_task_origin.clear()
+    specs_router._spec_task_origin["9001"] = spec_path
+    monkeypatch.setattr(
+        ostk_module.ostk,
+        "list_tasks",
+        AsyncMock(return_value=[{"id": "9001", "status": "closed"}]),
+    )
+
+    notif_calls: list[dict] = []
+
+    class _FakeNotif:
+        def add(self, **kwargs):
+            notif_calls.append(kwargs)
+            return None
+
+    with patch("services.notifications.notifications_service", _FakeNotif()):
+        result = await specs_router._advance_spec_status_if_all_builder_tasks_closed_async(
+            "9001"
+        )
+
+    assert result is None, (
+        "advancer must return None (no-op) when the spec is already complete"
+    )
+    assert spec_file.stat().st_mtime == original_mtime, (
+        "advancer must not touch the spec file when it is already complete "
+        "(file mtime bump re-arms the 60s grace window and causes spurious modals)"
+    )
+    assert notif_calls == [], (
+        "advancer must not fire a second spec_complete notification when the "
+        "spec is already complete (would create a new bell row once the user "
+        "reads the first one, re-triggering the modal)"
+    )
+    assert spec_file.read_text() == original_text, (
+        "advancer must not modify file contents when spec is already complete"
+    )
+
+
+@pytest.mark.asyncio
 async def test_compute_spec_status_in_progress_when_frontmatter_complete_but_task_open():
     """Regression for the 3-tasks-1-open bug.
 

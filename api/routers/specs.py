@@ -1187,6 +1187,15 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
         if in_fm and not saw_fm_end:
             stripped = line.strip()
             if stripped.startswith("status:") and not flipped:
+                current_val = stripped[len("status:"):].strip().strip('"').strip("'")
+                if current_val == "complete":
+                    # Already complete — skip the rewrite and the
+                    # notification. The notification service's target-based
+                    # dedup only collapses repeats while the row is unread;
+                    # once the user reads the bell, a second call here would
+                    # insert a NEW row and re-fire the modal. Early-exit
+                    # prevents the file-mtime bump and the spurious notification.
+                    return None
                 indent = line[: len(line) - len(line.lstrip())]
                 # Write ``complete`` (not ``done``). The writer used to
                 # emit ``done`` but the reader (compute_spec_status) only

@@ -9,17 +9,19 @@ This module provides a pure identification function ``reap_ghost_agents``
 and a ``run_forever`` coroutine wired into the FastAPI startup sequence.
 
 Ghost criteria — ALL must be true:
-  1. ``status`` in ("running", "completed_timeout")
-  2. ``last_heartbeat_at`` (or ``spawned_at``) is older than
+  1. ``source`` == "claude-code" (never touch daemon or system entries)
+  2. ``status`` in ("running", "completed_timeout")
+  3. subprocess PID (if recorded) is no longer alive
+  4. ``last_heartbeat_at`` (or ``spawned_at``) is older than
      ``stale_heartbeat_seconds`` (default 300 s / 5 min)
-  3. transcript file at ``{transcripts_dir}/{name}.md`` is 0 bytes or absent
-  4. ``source`` == "claude-code" (never touch daemon or system entries)
+  5. transcript file at ``{transcripts_dir}/{name}.md`` is 0 bytes or absent
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict
@@ -74,6 +76,23 @@ def reap_ghost_agents(
         status = (meta.get("status") or "").strip().lower()
         if status not in GHOST_STATUSES:
             continue
+
+        # PID-alive guard: REST-spawned agents record the subprocess PID.
+        # If the process is still running, it's not a ghost regardless of
+        # heartbeat age or transcript size. This prevents the ghost reaper
+        # from deleting worktree-isolation agents that are mid-run inside a
+        # long tool call and haven't heartbeated recently.
+        pid = meta.get("pid")
+        if pid is not None:
+            try:
+                os.kill(int(pid), 0)
+                continue  # process is alive
+            except ProcessLookupError:
+                pass  # process is dead, continue to ghost check
+            except (PermissionError, OSError):
+                continue  # process exists (no permission) or unknown — keep safe
+            except (ValueError, TypeError):
+                pass  # invalid pid, fall through
 
         # Heartbeat staleness check — fall back to spawned_at if no heartbeat
         hb_raw = meta.get("last_heartbeat_at") or meta.get("spawned_at")

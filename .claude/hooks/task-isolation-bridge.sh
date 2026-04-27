@@ -239,7 +239,7 @@ print(json.dumps({"name": os.environ["SPAWN_NAME"], "ts": datetime.now(timezone.
         echo "Blocked: Task tool call redirected through /api/agents/spawn for worktree isolation." >&2
         echo "Spawned REST agent name: ${SPAWN_NAME}" >&2
         echo "Poll status via: curl -sSk ${API_BASE}/api/agents | jq '.agents[] | select(.name==\"${SPAWN_NAME}\")'" >&2
-        echo "The native Task call was NOT run. This is needle ->915 / ->916." >&2
+        echo "Worktree isolation is active: the Task tool call was redirected, not failed." >&2
         exit 2
         ;;
     ""|"000")

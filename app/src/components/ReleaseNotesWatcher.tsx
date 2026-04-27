@@ -208,6 +208,21 @@ export default function ReleaseNotesWatcher() {
     const path = `notification:${lastFeatureLive.id}`
     if (celebratedRef.current.has(path)) return
     celebratedRef.current.add(path)
+    // Bridge the two dedup namespaces: the polling path keys on the spec
+    // file path (e.g. "docs/spec/foo.md") while the notification path
+    // keys on "notification:<id>". Without this bridge, dismissing via
+    // the notification path leaves the spec path absent from celebratedRef,
+    // so a hard-refresh within the 60s grace window re-fires the modal via
+    // the polling path even though the user already dismissed it.
+    if (lastFeatureLive.action_url) {
+      try {
+        const u = new URL(lastFeatureLive.action_url, 'https://x')
+        const specPath = u.searchParams.get('expand')
+        if (specPath) celebratedRef.current.add(specPath)
+      } catch {
+        // malformed action_url — in-memory key still dedups this session
+      }
+    }
     saveCelebratedToStorage(celebratedRef.current)
     setCurrent({
       path,

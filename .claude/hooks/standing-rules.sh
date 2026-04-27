@@ -17,6 +17,23 @@ If your reply uses any trigger word, it MUST include at least one of:
   - A testid / aria-label verified via `grep` this turn
   - A direct quote from a file read this turn, with path
 If none of the above are in the reply, regenerate. Relaying a subagent's "tests pass" without re-running the tests yourself is banned. See feedback_receipts_for_every_done_claim.md.
+
+ZERO-BYTE TRANSCRIPT CLAIM CHECK (run before sending any reply):
+Trigger: your reply names a cause for a 0-byte transcript OR cites a memory entry to explain a 0-byte/silent subagent failure.
+Before stating any cause from memory, you MUST show ALL of the following in the same reply:
+  - What \{
+  "loggedIn": true,
+  "authMethod": "claude.ai",
+  "apiProvider": "firstParty",
+  "apiKeySource": "ANTHROPIC_API_KEY",
+  "email": null,
+  "orgId": null,
+  "orgName": null,
+  "subscriptionType": null
+} returned THIS turn (run the command now, do not quote session-start context)
+  - The value of completed_at and spawned_at for the failing agent row, from a live /api/agents call THIS turn
+  - If citing a memory entry: a verbatim line from that file read THIS turn (path:line format)
+Quota cap (feedback_quota_silent_fail.md) is only valid when auth status shows a Max subscription, NOT apiKeySource: ANTHROPIC_API_KEY. Missing these = regenerate. See feedback_zero_byte_transcript_diagnose_order.md for the correct ordered checklist.
 EOF
 
 # --- Curated HUMANFILE excerpt ---
