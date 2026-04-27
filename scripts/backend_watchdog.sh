@@ -131,7 +131,7 @@ log() { echo "[$(ts)] watchdog: $*" >> "$LOGFILE"; }
 probe_once() {
     # Returns 0 if /api/health returns 200 within 5 seconds, else nonzero.
     local code
-    code=$(curl -sk --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null || echo "000")
+    code=$(curl --silent --insecure --tlsv1.2 --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null || echo "000")
     [ "$code" = "200" ]
 }
 
