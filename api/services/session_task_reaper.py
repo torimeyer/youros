@@ -26,6 +26,7 @@ note is emitted so operators can trace the decision.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -98,6 +99,8 @@ def _session_process_alive(session_id: str) -> bool:
     any extra dependencies. Any error reading ``ps`` is treated as "not
     sure", which we bias toward "alive" so the reaper never closes a
     task while the session might still be running.
+
+    Sync — callers in async contexts must use asyncio.to_thread.
     """
     if not session_id:
         return False
@@ -185,7 +188,7 @@ async def sweep(
             summary["kept_fresh"] += 1
             continue
 
-        if _session_process_alive(session_id):
+        if await asyncio.to_thread(_session_process_alive, session_id):
             summary["kept_live"] += 1
             continue
 

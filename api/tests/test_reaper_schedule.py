@@ -59,7 +59,7 @@ async def test_run_once_calls_worktree_script(tmp_path, monkeypatch):
 
     script_calls = []
 
-    async def fake_call(script, repo_root):
+    async def fake_call(script, repo_root, active_names=None):
         script_calls.append((script, repo_root))
         return _completed(stdout="done. removed=0 failed=0\n")
 
@@ -80,7 +80,7 @@ async def test_run_once_respects_myos_reaper_script_env(tmp_path, monkeypatch):
 
     seen = {}
 
-    async def capture(script, repo_root):
+    async def capture(script, repo_root, active_names=None):
         seen["script"] = script
         return _completed(stdout="done. removed=0 failed=0\n")
 
@@ -125,7 +125,7 @@ async def test_run_once_handles_script_exception(tmp_path, monkeypatch):
     """Script invocation raising an exception must not propagate."""
     monkeypatch.setenv("MYOS_REAPER_SCRIPT", "/fake/worktree-reaper.sh")
 
-    async def boom(script, repo_root):
+    async def boom(script, repo_root, active_names=None):
         raise OSError("no such file")
 
     with patch("services.worktree_reaper._call_reaper_script", new=boom), \

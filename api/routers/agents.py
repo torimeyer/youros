@@ -938,13 +938,13 @@ def _worktree_has_new_work(worktree_path: str) -> bool:
     try:
         r = _sp.run(
             ["git", "log", "--oneline", "main..HEAD"],
-            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+            cwd=worktree_path, capture_output=True, text=True, timeout=2,
         )
         if r.returncode == 0 and r.stdout.strip():
             return True
         r2 = _sp.run(
             ["git", "status", "--porcelain"],
-            cwd=worktree_path, capture_output=True, text=True, timeout=5,
+            cwd=worktree_path, capture_output=True, text=True, timeout=2,
         )
         if r2.returncode == 0 and r2.stdout.strip():
             return True
@@ -1786,6 +1786,15 @@ def _is_stub_markdown(path: Path) -> bool:
 # during one process run should call _reset_transcript_resolver_cache().
 _resolve_cache: dict[str, tuple[float, Optional[Path]]] = {}
 _RESOLVE_TTL_SECONDS = 30.0
+
+# Serialize concurrent enrich passes in list_agents. Without this, multiple
+# pollers (standing-rules hooks across many sessions) hit a cold resolve
+# and candidates cache simultaneously, each thread duplicating the same
+# 1108-file glob+readline scan and contending on shared dicts. Two threads
+# can amplify the cold pass from ~5s to >120s. With the lock, only one
+# pass runs at a time; once it warms the caches, every queued poller gets
+# a near-zero pass.
+_enrich_lock = asyncio.Lock()
 
 
 def _reset_transcript_resolver_cache() -> None:
@@ -3030,7 +3039,7 @@ async def list_agents(
     # auto-completed (correct: a stale timeout is not a clean exit).
     # Persists once and updates agents_map so the response reflects the
     # new status immediately.
-    ac_changed = _autocomplete_exited_subagents()
+    ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
     if ac_changed:
         _save_agent_state()
         # Reflect the completed status into agents_map for this response.
@@ -3110,64 +3119,70 @@ async def list_agents(
 
     all_agents = list(agents_map.values())
 
-    # Enrich agents with transcript metrics and budget info
-    for agent in all_agents:
-        metrics = _get_transcript_metrics(agent["name"])
-        agent.update(metrics)
-        # Add budget/token info from metadata
-        meta = agent_metadata.get(agent["name"], {})
-        tokens_used = meta.get("tokens_used", 0)
-        token_limit = meta.get("token_limit")
-        agent["tokens_used"] = tokens_used
-        agent["token_limit"] = token_limit
-        if token_limit and token_limit > 0:
-            agent["token_usage_pct"] = round(tokens_used / token_limit * 100, 1)
-        else:
-            agent["token_usage_pct"] = None
-        agent["cost_estimate"] = _estimate_cost(
-            meta.get("model", ""), tokens_used
-        )
-        # Add recovery info
-        agent["recovery_count"] = meta.get("recovery_count", 0)
-        agent["max_recoveries"] = MAX_RECOVERY_ATTEMPTS
-        # UX patch: if a row was swept to terminated_stale in a previous
-        # request but the transcript has grown since then, the sweep fired
-        # in a narrow timing window while the agent was still working.
-        # Return the status as "running" in this response only (do not
-        # overwrite the persisted record here -- /complete will flip it
-        # to completed when the agent finishes). This prevents a false-red
-        # row in the UI for agents that are actively writing output.
-        if agent.get("status") == "terminated_stale" and _transcript_recently_active(
-            agent["name"], now_for_sweep
-        ):
-            agent["status"] = "running"
-
-    # Filter out agents the user explicitly deleted
-    filtered_agents = [a for a in all_agents if a.get("name") not in deleted_names]
-
-    # Optional: apply the same filter the Agents page uses so CLI callers
-    # (status scripts, sidebar badge math, etc.) get the exact same count.
+    # Status flip + filter + enrich, all in one thread.
+    # The status flip calls _transcript_recently_active, which resolves
+    # transcript paths on the filesystem. With ~850 rows and many in
+    # terminated_stale status, this loop alone takes 5-25s of cold work.
+    # Filtering first then enriching the subset keeps the standing-rules
+    # hook (status=running&limit=20) cheap by enriching only a few rows.
+    # Whole pipeline runs in to_thread so the event loop accepts incoming
+    # TLS handshakes during the work; _enrich_lock serializes concurrent
+    # pollers onto a single cold pass.
     if user_spawned_only:
         from services.agent_filters import is_user_spawned_agent
-        filtered_agents = [a for a in filtered_agents if is_user_spawned_agent(a)]
+    else:
+        is_user_spawned_agent = None  # type: ignore[assignment]
 
-    # Compact-mode params (summary/status/source/limit). These are used by
-    # the UserPromptSubmit standing-rules hook so it can poll the backend
-    # on every turn without pulling the full 600KB+ payload. Hook timeout
-    # is 5s and the full response routinely exceeds that on transfer
-    # alone, which was falsely tripping the "couldn't reach myOS backend"
-    # fallback even when the backend was healthy.
-    if filter_status:
-        filtered_agents = [a for a in filtered_agents if a.get("status") == filter_status]
-    if filter_source:
-        filtered_agents = [a for a in filtered_agents if a.get("source") == filter_source]
-    if limit is not None and limit >= 0:
-        # Sort oldest-first on spawned_at so long-runners surface at the top,
-        # matching the standing-rules hook's display order.
-        filtered_agents = sorted(
-            filtered_agents,
-            key=lambda a: a.get("spawned_at") or "",
-        )[:limit]
+    # Serialize the heavy enrich pipeline. Concurrent unfiltered requests
+    # otherwise multiply their O(N) filesystem work into O(N^2) wall time
+    # via sleep(0) yields ping-ponging between them. With the lock, the
+    # first request warms the resolve and metrics caches in ~5-10s; every
+    # queued waiter then runs in milliseconds because the cache is hot.
+    async with _enrich_lock:
+        # 1. Pre-filter status flip for terminated_stale rows still active.
+        # _transcript_recently_active hits the filesystem; yield every 10
+        # iterations so the event loop can accept incoming TLS handshakes
+        # while we work through the fleet.
+        for i, agent in enumerate(all_agents):
+            if i % 10 == 0:
+                await asyncio.sleep(0)
+            if agent.get("status") == "terminated_stale" and _transcript_recently_active(
+                agent["name"], now_for_sweep
+            ):
+                agent["status"] = "running"
+        # 2. Apply filters (cheap, no yields needed).
+        filtered_agents = [a for a in all_agents if a.get("name") not in deleted_names]
+        if is_user_spawned_agent is not None:
+            filtered_agents = [a for a in filtered_agents if is_user_spawned_agent(a)]
+        if filter_status:
+            filtered_agents = [a for a in filtered_agents if a.get("status") == filter_status]
+        if filter_source:
+            filtered_agents = [a for a in filtered_agents if a.get("source") == filter_source]
+        if limit is not None and limit >= 0:
+            filtered_agents = sorted(
+                filtered_agents, key=lambda a: a.get("spawned_at") or ""
+            )[:limit]
+        # 3. Enrich the filtered subset, yielding every 10 to keep the loop
+        # responsive on cold caches.
+        for i, agent in enumerate(filtered_agents):
+            if i % 10 == 0:
+                await asyncio.sleep(0)
+            metrics = _get_transcript_metrics(agent["name"])
+            agent.update(metrics)
+            meta = agent_metadata.get(agent["name"], {})
+            tokens_used = meta.get("tokens_used", 0)
+            token_limit = meta.get("token_limit")
+            agent["tokens_used"] = tokens_used
+            agent["token_limit"] = token_limit
+            if token_limit and token_limit > 0:
+                agent["token_usage_pct"] = round(tokens_used / token_limit * 100, 1)
+            else:
+                agent["token_usage_pct"] = None
+            agent["cost_estimate"] = _estimate_cost(
+                meta.get("model", ""), tokens_used
+            )
+            agent["recovery_count"] = meta.get("recovery_count", 0)
+            agent["max_recoveries"] = MAX_RECOVERY_ATTEMPTS
 
     if summary:
         # description + model are required by the frontend's
@@ -5936,7 +5951,7 @@ async def _reconcile_loop():
     while True:
         try:
             stale_changed = _sweep_stale_running_agents()
-            ac_changed = _autocomplete_exited_subagents()
+            ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
             if stale_changed or ac_changed:
                 _save_agent_state()
             # Drain ghost retry queue populated by _autocomplete_exited_subagents.

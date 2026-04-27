@@ -259,7 +259,7 @@ async def schedule_settings_sync_pull():
             if not settings_sync.is_configured():
                 return
 
-            result = settings_sync.pull()
+            result = await asyncio.to_thread(settings_sync.pull)
             if result.get("files"):
                 notifications_service.add(
                     type="sync",
@@ -411,13 +411,13 @@ async def prewarm_savings():
     async def _warm():
         await asyncio.sleep(2)
         try:
-            # Warm the token_metrics layer first (shells out to ostk binary).
-            token_metrics.get_ostk_savings()
-            # Then warm the router cache for the "all" period so the first
-            # HTTP request to /api/costs/savings?period=all returns in <10 ms.
+            loop = asyncio.get_event_loop()
+            # Both calls shell out or do heavy I/O — run in a thread so the
+            # event loop stays responsive to incoming requests while warming.
+            await loop.run_in_executor(None, token_metrics.get_ostk_savings)
             from routers.costs import _compute_savings_for_period, _savings_cache
             import time as _time
-            result = _compute_savings_for_period(None)
+            result = await loop.run_in_executor(None, _compute_savings_for_period, None)
             _savings_cache["all"] = (result, _time.monotonic() + 300.0)
         except Exception:
             pass
