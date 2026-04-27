@@ -232,15 +232,15 @@ export default function ReleaseNotesWatcher() {
     if (seenNotificationIdsRef.current.has(lastFeatureLive.id)) return
     seenNotificationIdsRef.current.add(lastFeatureLive.id)
     saveSeenNotificationIds(seenNotificationIdsRef.current)
-    // Synthesize a Spec-shaped object so the existing render path
-    // works unchanged. The notification body goes into a single
-    // acceptance-criteria-like bullet so the modal shows "why this
-    // matters" rather than just the title. Mark the celebration in
-    // the same dedup set /api/specs polling uses so a later matching
-    // spec poll does not double-fire.
-    const path = `notification:${lastFeatureLive.id}`
-    if (celebratedRef.current.has(path)) return
-    celebratedRef.current.add(path)
+    // Use the spec path as the dedup key when we have it. This is the
+    // same key the /api/specs polling path stores when it celebrates,
+    // so whichever path fires first (polling at ~2s, notification at
+    // ~10s) will block the other from opening the modal a second time.
+    // Fall back to notification:id when specPath is absent (legacy
+    // notifications without an expand= action_url).
+    const dedupPath = lastFeatureLive.specPath || `notification:${lastFeatureLive.id}`
+    if (celebratedRef.current.has(dedupPath)) return
+    celebratedRef.current.add(dedupPath)
     // Bridge the two dedup namespaces: the polling path keys on the spec
     // file path (e.g. "docs/spec/foo.md") while the notification path
     // keys on "notification:<id>". Without this bridge, dismissing via
@@ -258,7 +258,7 @@ export default function ReleaseNotesWatcher() {
     }
     saveCelebratedToStorage(celebratedRef.current)
     setCurrent({
-      path,
+      path: dedupPath,
       title: lastFeatureLive.title,
       status: 'complete',
       acceptance_criteria: lastFeatureLive.body

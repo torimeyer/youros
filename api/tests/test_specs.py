@@ -882,7 +882,8 @@ async def test_auto_advancer_is_noop_when_spec_already_complete(
     advancer is triggered after the spec is already marked complete,
     it must NOT rewrite the file (which would bump mtime and re-arm the
     60s grace window) and must NOT fire a second spec_complete notification
-    (which would create a new bell row once the user reads the first one).
+    (which would create a new bell row once the user reads the first one,
+    re-triggering the modal).
     """
     from routers import specs as specs_router
     from services import ostk as ostk_module

@@ -404,6 +404,59 @@ describe('ReleaseNotesWatcher', () => {
     expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
   })
 
+  it('notification path seeds the spec path into celebratedRef so a 60s-window refresh does not re-fire', async () => {
+    // Regression for the random "Your feature is live" modal:
+    // The notification path keyed celebratedRef on "notification:<id>"
+    // while the polling path keyed on "docs/spec/foo.md". After dismissing
+    // via the notification path, a hard-refresh within the 60s grace
+    // window would re-fire the modal via the polling path because the spec
+    // path was absent from the persisted dedup set.
+    const recentMs = Date.now() - 5_000 // 5 seconds ago
+
+    mockedApiGet.mockResolvedValue(specsResponse([]))
+
+    const { unmount } = render(<ReleaseNotesWatcher />)
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalled()
+    })
+
+    act(() => {
+      useNotificationStore.getState().addPersistentToast({
+        id: 'notif-bridge',
+        type: 'spec_complete',
+        title: 'Your feature is live',
+        body: 'auto close is built and ready to try.',
+        action_url: '/specs?expand=docs/spec/auto-close.md',
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
+    })
+
+    unmount()
+
+    // On the next mount the spec file appears within the grace window.
+    // The polling path must NOT re-fire because the spec path was bridged
+    // into celebratedRef when the notification fired.
+    mockedApiGet.mockResolvedValue({
+      docs: [
+        {
+          path: 'docs/spec/auto-close.md',
+          title: 'auto close',
+          status: 'complete',
+          updated_at_ms: recentMs,
+          acceptance_criteria: [],
+        },
+      ],
+    })
+
+    render(<ReleaseNotesWatcher />)
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalled()
+    })
+    expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
+  })
+
   it('closes the release-notes modal when Escape is pressed', async () => {
     // Muscle-memory UX: users hit Esc to dismiss any modal.
     mockedApiGet.mockResolvedValue(specsResponse([]))

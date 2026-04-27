@@ -80,8 +80,13 @@ interface NotificationStore {
    *  ``body``/``agentName``), and a monotonic ``at`` timestamp used by
    *  the ChatPanel to drive its one-time "New" pulse on the All pill
    *  after a Build-it landing. ``null`` until the first spec_complete
-   *  arrives in this session. */
-  lastFeatureLive: { id: string; title: string; body: string; at: number; action_url?: string | null } | null
+   *  arrives in this session.
+   *
+   *  ``specPath`` is extracted from the notification's ``action_url``
+   *  (``/specs?expand=docs/spec/foo.md``) so ReleaseNotesWatcher can
+   *  share the same dedup key as the /api/specs polling path and avoid
+   *  double-firing the modal. */
+  lastFeatureLive: { id: string; title: string; body: string; at: number; action_url?: string | null; specPath?: string } | null
   addNotification: (
     agent: NotificationAgent,
     prevStatus: string,
