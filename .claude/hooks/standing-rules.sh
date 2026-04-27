@@ -3,11 +3,17 @@
 # then append a live "currently running agents" snapshot so the parent
 # session does not narrate stale state from its append-only tool-call memory.
 
+# Write user-turn stamp so edit-cycle hooks can reset their per-turn counters.
+mkdir -p "${HOME}/.myos/hooks" 2>/dev/null || true
+date +%s > "${HOME}/.myos/hooks/last-user-turn.stamp" 2>/dev/null || true
+
 cat <<'EOF'
 STANDING RULES (non-negotiable this turn):
 1. ostk tools first. Bash/Read/Edit/Grep only if ostk MCP is offline. If ostk tools are deferred, reload via ToolSearch before falling through.
 2. If the user says saa/diagnose/fix, spawn a subagent via Agent. No inline work, even for small items.
 3. If ostk MCP drops, tell the user immediately. Reload via ToolSearch, do not silently fall back.
+4. If iterating over N things is slow, ask why there are N first. Reduce N before optimizing the loop.
+5. Commit verified wins incrementally. Five or more uncommitted files is a slow-down signal.
 
 RECEIPTS CHECK (run before sending any reply):
 Trigger words: "done", "fixed", "landed", "committed", "passing", "shipped", "complete", "resolved", or any relay of a subagent saying the same.
