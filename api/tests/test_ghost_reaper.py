@@ -105,6 +105,53 @@ def test_reaps_bridge_agent_when_transcript_path_also_empty(tmp_path):
     assert result == ["bridge-ghost"]
 
 
+def test_does_not_reap_agent_with_live_pid(tmp_path):
+    """Agent whose subprocess PID is still alive must never be reaped.
+
+    Reproduces the live failure: bridge-spawned worktree agents are run via
+    asyncio.create_subprocess_exec; the spawn handler records ``pid`` in
+    metadata. When the agent is in a long tool call it may not heartbeat for
+    >5 min and its transcript is 0 bytes — previously the ghost reaper would
+    delete the row, causing the worktree reaper to delete the worktree and
+    kill the running subprocess.
+    """
+    import os
+    live_pid = os.getpid()  # our own PID — guaranteed alive
+    (tmp_path / "live-agent.md").write_bytes(b"")  # 0-byte transcript
+    meta = {**_ghost_meta(), "pid": live_pid}  # stale heartbeat, but PID alive
+    reg = _registry(("live-agent", meta))
+    result = reap_ghost_agents(reg, tmp_path, _NOW)
+    assert result == [], "agent with live PID must not be reaped"
+
+
+def test_reaps_agent_with_dead_pid(tmp_path):
+    """Agent whose subprocess PID is dead falls through to normal ghost check."""
+    import os
+    # Use a PID that almost certainly doesn't exist.
+    dead_pid = 99999999
+    try:
+        os.kill(dead_pid, 0)
+        pytest.skip("PID 99999999 unexpectedly alive — cannot test dead-PID path")
+    except ProcessLookupError:
+        pass  # as expected
+    (tmp_path / "dead-agent.md").write_bytes(b"")
+    meta = {**_ghost_meta(), "pid": dead_pid}
+    reg = _registry(("dead-agent", meta))
+    result = reap_ghost_agents(reg, tmp_path, _NOW)
+    assert result == ["dead-agent"], "agent with dead PID + stale HB + empty transcript is a ghost"
+
+
+def test_does_not_reap_agent_with_invalid_pid(tmp_path):
+    """Malformed PID value (None, empty string) is treated as no-PID: normal ghost check applies."""
+    (tmp_path / "no-pid-ghost.md").write_bytes(b"")
+    for bad_pid in (None, "", "not-a-number"):
+        meta = {**_ghost_meta(), "pid": bad_pid}
+        reg = _registry(("no-pid-ghost", meta))
+        # No pid → ghost criteria still apply
+        result = reap_ghost_agents(reg, tmp_path, _NOW)
+        assert result == ["no-pid-ghost"], f"pid={bad_pid!r} should not protect from reap"
+
+
 def test_concurrent_reap_safe(tmp_path):
     """Two concurrent reap calls return consistent results and do not crash.
 

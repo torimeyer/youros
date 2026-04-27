@@ -26,15 +26,53 @@ a different executable. The test suite uses this to avoid hitting real git.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Set
 
 logger = logging.getLogger(__name__)
 
 REAPER_INTERVAL_SECONDS = 900  # 15 minutes
+
+# Statuses that mean "the agent is still doing work and must not be reaped".
+ACTIVE_STATUSES = frozenset(
+    {"running", "pending", "spawned", "queued", "in_progress"}
+)
+
+# Statuses that are safe to treat as done.
+_TERMINAL_STATUSES = frozenset(
+    {
+        "stopped",
+        "completed",
+        "completed_timeout",
+        "failed",
+        "cancelled",
+        "abandoned",
+        "terminated_stale",
+    }
+)
+
+
+def _active_agent_names(repo_root: Path) -> Set[str]:
+    """Return names of non-terminal agents from .ostk/agent_state.json.
+
+    Returns an empty set when the file is missing or unreadable so
+    callers can safely proceed without protection in that case.
+    """
+    state_file = repo_root / ".ostk" / "agent_state.json"
+    try:
+        with open(state_file) as fh:
+            data = json.load(fh)
+        return {
+            name
+            for name, rec in data.items()
+            if isinstance(rec, dict) and rec.get("status") not in _TERMINAL_STATUSES
+        }
+    except Exception:
+        return set()
 
 
 def _reaper_script(repo_root: Path) -> str:
@@ -44,8 +82,19 @@ def _reaper_script(repo_root: Path) -> str:
     return str(repo_root / "scripts" / "worktree-reaper.sh")
 
 
-async def _call_reaper_script(script: str, repo_root: Path) -> subprocess.CompletedProcess:
-    """Run worktree-reaper.sh --apply in a thread. Thin wrapper so tests can patch."""
+async def _call_reaper_script(
+    script: str,
+    repo_root: Path,
+    active_names: Optional[Set[str]] = None,
+) -> subprocess.CompletedProcess:
+    """Run worktree-reaper.sh --apply in a thread. Thin wrapper so tests can patch.
+
+    Passes MYOS_ACTIVE_AGENTS env var to the script so it can skip
+    worktrees whose agent is still alive (→947).
+    """
+    env = {**os.environ}
+    if active_names is not None:
+        env["MYOS_ACTIVE_AGENTS"] = ",".join(sorted(active_names))
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(
         None,
@@ -54,6 +103,7 @@ async def _call_reaper_script(script: str, repo_root: Path) -> subprocess.Comple
             capture_output=True,
             text=True,
             cwd=str(repo_root),
+            env=env,
         ),
     )
 
@@ -74,10 +124,11 @@ async def run_once(
     # Step 1: worktree sweep
     # ------------------------------------------------------------------
     script = _reaper_script(repo_root)
+    active_names = _active_agent_names(repo_root)
     wt_ok = False
     wt_removed = 0
     try:
-        result = await _call_reaper_script(script, repo_root)
+        result = await _call_reaper_script(script, repo_root, active_names=active_names)
         wt_ok = result.returncode == 0
         for line in result.stdout.splitlines():
             if line.startswith("done. removed="):
