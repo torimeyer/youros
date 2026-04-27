@@ -643,7 +643,7 @@ export function Sidebar() {
             to="/team-setup"
             className="block mt-2 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors"
           >
-            Share with your team →
+            Start or join a team →
           </Link>
         )}
       </div>

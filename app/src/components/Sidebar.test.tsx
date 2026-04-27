@@ -160,6 +160,19 @@ describe('Sidebar', () => {
     expect(cta).toHaveAttribute('href', '/team-setup')
   })
 
+  it("team CTA reads 'Start or join a team' in personal mode", () => {
+    useAppStore.setState({ instanceMode: 'personal' })
+    renderSidebar()
+    const cta = screen.getByTestId('team-cta')
+    expect(cta.textContent).toContain('Start or join a team')
+  })
+
+  it("team CTA text is not visible in team mode", () => {
+    useAppStore.setState({ instanceMode: 'team' })
+    renderSidebar()
+    expect(screen.queryByText(/Start or join a team/)).not.toBeInTheDocument()
+  })
+
   it('all nav items are links with correct paths (groups expanded)', () => {
     renderSidebar()
     // Ensure all groups are expanded (only expand if currently collapsed)

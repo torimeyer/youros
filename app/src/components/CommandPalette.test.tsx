@@ -210,8 +210,8 @@ describe('CommandPalette', () => {
     renderPalette(true, onClose)
 
     const input = screen.getByTestId('command-palette-input')
-    // 10 total commands. Pressing ArrowDown 10 times wraps back to index 0.
-    for (let i = 0; i < 10; i++) {
+    // 11 total commands. Pressing ArrowDown 11 times wraps back to index 0.
+    for (let i = 0; i < 11; i++) {
       fireEvent.keyDown(input, { key: 'ArrowDown' })
     }
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -356,5 +356,16 @@ describe('CommandPalette search', () => {
     renderPalette()
     fireEvent.click(screen.getByText('Go to Drive'))
     expect(mockNavigate).toHaveBeenCalledWith('/drive')
+  })
+
+  it('shows Adoption navigation command', () => {
+    renderPalette()
+    expect(screen.getByText('Go to Adoption')).toBeInTheDocument()
+  })
+
+  it('navigates to /adoption when Go to Adoption is selected', () => {
+    renderPalette()
+    fireEvent.click(screen.getByText('Go to Adoption'))
+    expect(mockNavigate).toHaveBeenCalledWith('/adoption')
   })
 })
