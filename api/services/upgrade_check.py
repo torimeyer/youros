@@ -136,7 +136,8 @@ async def check_ostk() -> dict:
     """Return ostk version info: current installed version vs. latest GitHub release."""
     current = "unknown"
     try:
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["ostk", "--version"],
             capture_output=True,
             text=True,
@@ -278,7 +279,8 @@ async def _upgrade_ostk() -> str:
                             f.write(chunk)
 
                     # Extract and install
-                    result = subprocess.run(
+                    result = await asyncio.to_thread(
+                        subprocess.run,
                         ["tar", "-xzf", str(tarball_path), "-C", tmpdir],
                         capture_output=True,
                         timeout=30,
