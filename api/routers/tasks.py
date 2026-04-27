@@ -335,7 +335,9 @@ async def task_counts():
 async def next_task():
     try:
         result = await ostk.next_task()
-        return {"suggestion": result}
+        if result and result.strip():
+            return {"message": result.strip()}
+        return {"message": "No open tasks right now."}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 

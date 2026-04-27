@@ -2158,6 +2158,32 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
     expect(screen.getByTestId('what-should-i-do-next')).toBeInTheDocument()
   })
 
+  it('clicking "What should I do next?" shows suggestion banner when backend returns message', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/next') return Promise.resolve({ message: '→850 review prompts [P3]' })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('what-should-i-do-next'))
+    await waitFor(() => expect(screen.getByText('→850 review prompts [P3]')).toBeInTheDocument())
+  })
+
+  it('clicking "What should I do next?" shows fallback banner when no suggestion', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      if (path === '/tasks/next') return Promise.resolve({ message: 'No open tasks right now.' })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('what-should-i-do-next'))
+    await waitFor(() => expect(screen.getByText('No open tasks right now.')).toBeInTheDocument())
+  })
+
   it('renders overflow menu trigger button', async () => {
     renderTasks()
     await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
