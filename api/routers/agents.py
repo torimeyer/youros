@@ -4560,6 +4560,15 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     for fleet_field in ("fleet_id", "fleet_name", "role"):
         if existing.get(fleet_field) and fleet_field not in record:
             record[fleet_field] = existing[fleet_field]
+    # Worktree isolation: the spawn endpoint writes worktree_path,
+    # worktree_branch, and isolation into the metadata row BEFORE the
+    # agent boots. The agent then calls /register as step 0 of its
+    # mailbox boot. Without this block the fresh record dict overwrites
+    # those fields with nothing, making worktree_path null in /api/agents
+    # even though the worktree was created successfully.
+    for wt_field in ("worktree_path", "worktree_branch", "isolation"):
+        if existing.get(wt_field) and wt_field not in record:
+            record[wt_field] = existing[wt_field]
     # Task and needle linkage: persist from the request body, or carry
     # forward from existing metadata on re-register. Without this, a
     # spawn-set task_id is erased when the subagent self-registers, and
