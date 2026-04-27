@@ -115,6 +115,7 @@ export default function Settings() {
   // pathway from the Settings page.
   const [chatBackendPreference, setChatBackendPreference] = useState<'auto' | 'claude_code' | 'anthropic_api'>('auto');
   const [claudeCodeReady, setClaudeCodeReady] = useState<boolean | null>(null);
+  const [recheckingClaude, setRecheckingClaude] = useState(false);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({ Anthropic: '', 'Google Gemini': '' });
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [selectedModel, setSelectedModel] = useState('claude-sonnet-4-6');
@@ -531,6 +532,14 @@ export default function Settings() {
   const handleChatBackendPreferenceChange = (value: 'auto' | 'claude_code' | 'anthropic_api') => {
     setChatBackendPreference(value);
     api.patch('/settings', { chat_backend_preference: value }).catch(() => {});
+  };
+
+  const handleRecheckClaudeStatus = () => {
+    setRecheckingClaude(true);
+    api.get<{ claude_code_available?: boolean }>('/settings/chat-backend-status')
+      .then((data) => setClaudeCodeReady(!!data.claude_code_available))
+      .catch(() => setClaudeCodeReady(false))
+      .finally(() => setRecheckingClaude(false));
   };
 
 
@@ -1190,7 +1199,7 @@ export default function Settings() {
         {/* Row 2: AI Provider + Notifications */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
           {/* AI Provider */}
-          <div className={cardClass}>
+          <div className={cardClass} data-testid="ai-provider-section">
             <h2 className="text-lg font-semibold mb-5">AI Provider</h2>
 
             {/* Provider for API Key setup */}
@@ -1394,63 +1403,6 @@ export default function Settings() {
               </div>
             )}
 
-            {/* Chat backend: pick the subscription or the API key.
-                Default is auto, which uses the subscription when the
-                local program is signed in and falls back to the key
-                otherwise. */}
-            <div className="mt-6 pt-5 border-t border-slate-800">
-              <label className="text-sm text-slate-400 mb-2 block">Chat backend</label>
-              <p className="text-xs text-slate-500 mb-3">
-                Pick which sign-in powers your chat. Your Claude subscription is free if you already pay for Pro or Max. Using your Anthropic key costs money per message.
-              </p>
-              <div className="space-y-2" data-testid="chat-backend-radios">
-                {[
-                  { value: 'auto' as const, label: 'Auto pick the best one' },
-                  { value: 'claude_code' as const, label: 'Always use my Claude subscription' },
-                  { value: 'anthropic_api' as const, label: 'Always use my Anthropic API key' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${
-                      chatBackendPreference === opt.value
-                        ? 'accent-border accent-highlight'
-                        : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="chat-backend-preference"
-                      value={opt.value}
-                      checked={chatBackendPreference === opt.value}
-                      onChange={() => handleChatBackendPreferenceChange(opt.value)}
-                      className="accent-blue-500"
-                    />
-                    <span className="text-sm text-slate-200">{opt.label}</span>
-                  </label>
-                ))}
-              </div>
-              <div
-                data-testid="claude-code-ready-indicator"
-                className="flex items-center gap-2 mt-3 text-xs"
-              >
-                {claudeCodeReady === null ? (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-slate-500" />
-                    <span className="text-slate-500">Checking your Claude sign-in...</span>
-                  </>
-                ) : claudeCodeReady ? (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-green-500" />
-                    <span className="text-green-400">Claude subscription is ready</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-slate-500" />
-                    <span className="text-slate-400">Claude subscription is not installed or signed in</span>
-                  </>
-                )}
-              </div>
-            </div>
           </div>
 
           {/* Notifications */}
@@ -1588,6 +1540,82 @@ export default function Settings() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Chat backend */}
+        <div className={cardClass} data-testid="chat-backend-section">
+          <h2 className="text-lg font-semibold mb-1">Chat backend</h2>
+          <p className="text-sm text-slate-400 mb-4">
+            Pick which sign-in powers your chat. Your Claude subscription costs nothing extra if you already pay for Pro or Max. Using your Anthropic key charges per message.
+          </p>
+          <div className="space-y-2" data-testid="chat-backend-radios">
+            {[
+              { value: 'auto' as const, label: 'Auto pick the best one' },
+              { value: 'claude_code' as const, label: 'Always use my Claude subscription' },
+              { value: 'anthropic_api' as const, label: 'Always use my Anthropic API key' },
+            ].map((opt) => (
+              <label
+                key={opt.value}
+                className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                  chatBackendPreference === opt.value
+                    ? 'accent-border accent-highlight'
+                    : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="chat-backend-preference"
+                  value={opt.value}
+                  checked={chatBackendPreference === opt.value}
+                  onChange={() => handleChatBackendPreferenceChange(opt.value)}
+                  className="accent-blue-500"
+                />
+                <span className="text-sm text-slate-200">{opt.label}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-slate-800">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div
+                data-testid="claude-code-ready-indicator"
+                className="flex items-center gap-2 text-xs"
+              >
+                {claudeCodeReady === null ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-slate-500" />
+                    <span className="text-slate-500">Checking your Claude sign-in...</span>
+                  </>
+                ) : claudeCodeReady ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-green-400" data-testid="claude-auth-status-signed-in">Claude subscription is ready</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span className="text-amber-400" data-testid="claude-auth-status-not-signed-in">Claude subscription not signed in</span>
+                  </>
+                )}
+              </div>
+              <button
+                data-testid="claude-recheck-button"
+                onClick={handleRecheckClaudeStatus}
+                disabled={recheckingClaude}
+                className="text-xs px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:border-slate-500 transition-colors disabled:opacity-50"
+              >
+                {recheckingClaude ? 'Checking...' : 'Re-check'}
+              </button>
+            </div>
+            {claudeCodeReady === false && (
+              <div className="mt-3 p-3 rounded-lg bg-slate-800/60 border border-slate-700 text-sm text-slate-300" data-testid="claude-login-instructions">
+                <p className="font-medium text-white mb-1">To sign in with Claude Pro or Max</p>
+                <p>Open your Terminal app and run:</p>
+                <code className="block mt-1.5 px-2 py-1 bg-slate-900 rounded text-green-400 font-mono text-xs select-all">claude login</code>
+                <p className="mt-2 text-slate-400 text-xs">Then click Re-check above to confirm it worked.</p>
+              </div>
+            )}
           </div>
         </div>
 

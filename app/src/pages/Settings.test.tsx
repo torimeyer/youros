@@ -643,6 +643,86 @@ describe('Settings', () => {
       })
     })
   })
+
+  describe('Chat backend section (Fix 2: separate card)', () => {
+    it('renders a separate Chat backend section with its own heading', () => {
+      renderSettings()
+      expect(screen.getByTestId('chat-backend-section')).toBeInTheDocument()
+      expect(screen.getByText('Chat backend')).toBeInTheDocument()
+    })
+
+    it('AI Provider section has its own heading separate from Chat backend', () => {
+      renderSettings()
+      expect(screen.getByTestId('ai-provider-section')).toBeInTheDocument()
+      expect(screen.getByText('AI Provider')).toBeInTheDocument()
+    })
+
+    it('chat backend radios are inside the chat-backend-section, not ai-provider-section', () => {
+      renderSettings()
+      const chatBackendSection = screen.getByTestId('chat-backend-section')
+      const radios = chatBackendSection.querySelectorAll('input[type="radio"]')
+      expect(radios.length).toBe(3)
+      const aiProviderSection = screen.getByTestId('ai-provider-section')
+      expect(aiProviderSection.querySelector('input[type="radio"]')).toBeNull()
+    })
+
+    it('toggling provider does NOT call chat_backend_preference API', () => {
+      renderSettings()
+      const geminiCard = screen.getByText('Google Gemini').closest('div[class*="cursor-pointer"]')!
+      fireEvent.click(geminiCard)
+      const patchCalls = vi.mocked(api.patch).mock.calls
+      const chatBackendCalls = patchCalls.filter(
+        ([, body]) => body && typeof body === 'object' && 'chat_backend_preference' in body
+      )
+      expect(chatBackendCalls).toHaveLength(0)
+    })
+
+    it('renders the Re-check button', () => {
+      renderSettings()
+      expect(screen.getByTestId('claude-recheck-button')).toBeInTheDocument()
+    })
+
+    it('Re-check button calls the chat-backend-status endpoint', async () => {
+      vi.mocked(api.get).mockResolvedValue({})
+      renderSettings()
+      fireEvent.click(screen.getByTestId('claude-recheck-button'))
+      await waitFor(() => {
+        expect(vi.mocked(api.get)).toHaveBeenCalledWith('/settings/chat-backend-status')
+      })
+    })
+  })
+
+  describe('Provider sign-in status (Fix 1)', () => {
+    it('renders the claude-code-ready-indicator in the chat-backend-section', () => {
+      renderSettings()
+      const chatBackendSection = screen.getByTestId('chat-backend-section')
+      expect(chatBackendSection.querySelector('[data-testid="claude-code-ready-indicator"]')).toBeInTheDocument()
+    })
+
+    it('shows claude login instructions when Claude is not signed in', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/settings/chat-backend-status') return Promise.resolve({ claude_code_available: false })
+        return Promise.resolve({})
+      })
+      renderSettings()
+      await waitFor(() => {
+        expect(screen.getByTestId('claude-login-instructions')).toBeInTheDocument()
+      })
+      expect(screen.getByText(/claude login/i)).toBeInTheDocument()
+    })
+
+    it('does not show claude login instructions when Claude is signed in', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/settings/chat-backend-status') return Promise.resolve({ claude_code_available: true })
+        return Promise.resolve({})
+      })
+      renderSettings()
+      await waitFor(() => {
+        expect(screen.getByTestId('claude-auth-status-signed-in')).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('claude-login-instructions')).not.toBeInTheDocument()
+    })
+  })
 })
 
 describe('Settings - Enter key submit', () => {
