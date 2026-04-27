@@ -20,6 +20,11 @@ describe('QuickLook', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('renders modal with data-testid="quicklook-modal" when open', () => {
+    render(<QuickLook {...base} />)
+    expect(screen.getByTestId('quicklook-modal')).toBeInTheDocument()
+  })
+
   it('renders an img when fileType is image/png', () => {
     render(<QuickLook {...base} filePath="/test/photo.png" fileType="image/png" />)
     expect(screen.getByTestId('quicklook-image')).toBeInTheDocument()
@@ -64,7 +69,7 @@ describe('QuickLook', () => {
   it('calls onClose on backdrop click', () => {
     const onClose = vi.fn()
     render(<QuickLook {...base} onClose={onClose} />)
-    fireEvent.click(screen.getByTestId('quicklook-backdrop'))
+    fireEvent.click(screen.getByTestId('quicklook-modal'))
     expect(onClose).toHaveBeenCalled()
   })
 

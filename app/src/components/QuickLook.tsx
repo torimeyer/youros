@@ -88,7 +88,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
       role="dialog"
       aria-modal="true"
       aria-label={`Preview: ${name}`}
-      data-testid="quicklook-backdrop"
+      data-testid="quicklook-modal"
       onClick={handleBackdropClick}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
     >
