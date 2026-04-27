@@ -195,8 +195,8 @@ tori() {
   fi
   printf '\n'
 
-  # Boot ostk kernel (suppress raw diagnostics)
-  ~/.local/bin/ostk boot >/dev/null 2>&1
+  # Boot ostk kernel
+  ~/.local/bin/ostk boot
 
   # Run :boot tack as soon as ostk is up
   ~/.local/bin/ostk tack ":boot" >/dev/null 2>&1
