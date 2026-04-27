@@ -132,6 +132,8 @@ interface AppState {
   setPowerUserMode: (v: boolean) => void
   whatsNewLastSeen: string
   setWhatsNewLastSeen: (v: string) => void
+  agentsLastViewed: string
+  setAgentsLastViewed: (v: string) => void
   customAgentTemplates: CustomAgentTemplate[]
   setCustomAgentTemplates: (templates: CustomAgentTemplate[]) => void
   dashboardWidgets: string[]
@@ -187,6 +189,7 @@ const LS_KEYS = {
   tourComplete: 'myos-tour-complete',
   powerUserMode: 'myos-power-user-mode',
   whatsNewLastSeen: 'myos-whats-new-last-seen',
+  agentsLastViewed: 'myos-agents-last-viewed',
   customAgentTemplates: 'myos-custom-templates',
   dashboardWidgets: 'myos-dashboard-widgets',
   chatWidth: 'myos-chat-width',
@@ -238,7 +241,7 @@ function lsSet(key: string, value: string): void {
 
 // Fire and forget server patch. We never want to throw from a setter.
 function patchServer(body: Record<string, unknown>): void {
-  api.patch('/settings', body).catch(() => {})
+  api.patch('/settings', body)?.catch(() => {})
 }
 
 // Translate between UI model key ("claude") and server model string ("@claude").
@@ -275,6 +278,7 @@ const initialSideBySideEnabled = lsGet(LS_KEYS.sideBySideEnabled) === 'true'
 const initialUseOstkTerms = lsGet(LS_KEYS.useOstkTerms) === 'true'
 const initialTourComplete = lsGet(LS_KEYS.tourComplete) === 'true'
 const initialWhatsNewLastSeen = lsGet(LS_KEYS.whatsNewLastSeen) || ''
+const initialAgentsLastViewed = lsGet(LS_KEYS.agentsLastViewed) || ''
 const initialSidebarPosition = (lsGet(LS_KEYS.sidebarPosition) as SidebarPosition) || 'left'
 const initialCompactMode = lsGet(LS_KEYS.compactMode) === 'true'
 const initialFontSize = (lsGet(LS_KEYS.fontSize) as FontSize) || 'medium'
@@ -459,6 +463,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     lsSet(LS_KEYS.whatsNewLastSeen, whatsNewLastSeen)
     set({ whatsNewLastSeen })
     patchServer({ whats_new_last_seen: whatsNewLastSeen })
+  },
+  agentsLastViewed: initialAgentsLastViewed,
+  setAgentsLastViewed: (agentsLastViewed) => {
+    lsSet(LS_KEYS.agentsLastViewed, agentsLastViewed)
+    set({ agentsLastViewed })
+    patchServer({ agents_last_viewed: agentsLastViewed })
   },
   customAgentTemplates: initialCustomAgentTemplates,
   setCustomAgentTemplates: (customAgentTemplates) => {
@@ -721,6 +731,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       lsSet(LS_KEYS.whatsNewLastSeen, v)
     } else if (state.whatsNewLastSeen) {
       backfill.whats_new_last_seen = state.whatsNewLastSeen
+    }
+
+    // agents_last_viewed
+    if (hasValue(server.agents_last_viewed)) {
+      const v = String(server.agents_last_viewed)
+      updates.agentsLastViewed = v
+      lsSet(LS_KEYS.agentsLastViewed, v)
+    } else if (state.agentsLastViewed) {
+      backfill.agents_last_viewed = state.agentsLastViewed
     }
 
     // custom_agent_templates

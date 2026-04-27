@@ -1879,6 +1879,16 @@ export default function Agents() {
   const [, setLastUpdate] = useState<Date | null>(null);
   const [transcriptModal, setTranscriptModal] = useState<{name: string; content: string; loading: boolean; error?: string; retryable?: boolean} | null>(null);
   const { confirm, confirmProps } = useConfirm();
+  const setAgentsLastViewed = useAppStore((s) => s.setAgentsLastViewed);
+
+  // Mark agents as viewed on mount and when the window regains focus so the
+  // sidebar badge clears the moment the user looks at this page.
+  useEffect(() => {
+    const mark = () => setAgentsLastViewed(new Date().toISOString());
+    mark();
+    window.addEventListener('focus', mark);
+    return () => window.removeEventListener('focus', mark);
+  }, [setAgentsLastViewed]);
 
   // Escape closes the transcript viewer.
   useEffect(() => {

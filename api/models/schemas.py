@@ -87,6 +87,7 @@ class Settings(BaseModel):
     use_ostk_terms: bool = False
     tour_complete: bool = False
     whats_new_last_seen: str = ""
+    agents_last_viewed: str = ""
     custom_agent_templates: List[Dict] = []
     auto_template_matching: bool = True
     features: Dict[str, bool] = {

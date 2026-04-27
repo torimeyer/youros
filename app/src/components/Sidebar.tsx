@@ -17,6 +17,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import Icon from './Icon'
 import WhatsNew from './WhatsNew'
+import SinceYouLastLooked from './SinceYouLastLooked'
 import { useAppStore } from '../stores/app'
 import AdminSection from './AdminSection'
 import { api } from '../lib/api'
@@ -707,6 +708,7 @@ export function Sidebar() {
       </nav>
 
       <div className="px-3 flex flex-col gap-1">
+        <SinceYouLastLooked />
         <WhatsNew />
         <button
           data-testid="tour-button"
