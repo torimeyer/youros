@@ -1,4 +1,5 @@
 .ostk/
+.ostk.pre-*/
 .venv/
 node_modules/
 dist/
