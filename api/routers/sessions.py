@@ -281,6 +281,85 @@ def cleanup_stale_backend_sessions() -> int:
     return swept
 
 
+def _session_type(session_id: str) -> str:
+    if session_id.startswith("claude-code-"):
+        return "claude-code"
+    if session_id.startswith("agent-"):
+        return "agent"
+    if session_id.startswith("chat-"):
+        return "chat"
+    return "ostk"
+
+
+@router.get("/sessions/coordination")
+async def get_coordination():
+    """Visible coordination panel: sessions, locks, and recent inter-session events."""
+    from services.ostk import ostk
+    from routers.agents import agent_metadata, nudge_history
+
+    # --- sessions ---
+    raw_sessions = _get_sessions()
+    seen: set[str] = {s["session_id"] for s in raw_sessions}
+    for extra in _agent_sessions():
+        if extra["session_id"] not in seen:
+            raw_sessions.append(extra)
+            seen.add(extra["session_id"])
+    for extra in _claude_code_transcript_sessions():
+        if extra["session_id"] not in seen:
+            raw_sessions.append(extra)
+            seen.add(extra["session_id"])
+    raw_sessions = [s for s in raw_sessions if not _is_backend_self_session(s["session_id"])]
+    raw_sessions.sort(key=lambda s: s["last_active"], reverse=True)
+
+    sessions = []
+    for s in raw_sessions:
+        sid = s["session_id"]
+        meta = agent_metadata.get(sid, {})
+        sessions.append({
+            "id": sid,
+            "name": meta.get("task") or sid,
+            "type": _session_type(sid),
+            "started_at": meta.get("spawned_at"),
+            "last_active_at": s["last_active"],
+            "status": s["status"],
+        })
+
+    # --- locks ---
+    try:
+        raw_locks = await ostk.list_locks()
+    except Exception:
+        raw_locks = []
+
+    locks = []
+    for lk in raw_locks:
+        locks.append({
+            "lock_name": lk.get("name", ""),
+            "held_by_session": lk.get("holder") or lk.get("held_by", ""),
+            "started_at": lk.get("created_at") or lk.get("started_at"),
+            "paths": lk.get("paths", []),
+        })
+
+    # --- recent coordination events (nudges across all agents, last 20) ---
+    all_events: list[dict] = []
+    for agent_name, nudges in nudge_history.items():
+        for nudge in nudges:
+            all_events.append({
+                "from_session": "user",
+                "to_session": agent_name,
+                "message": nudge.get("message", ""),
+                "timestamp": nudge.get("timestamp", ""),
+                "kind": nudge.get("kind", "user_message"),
+            })
+    all_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+    events = all_events[:20]
+
+    return {
+        "sessions": sessions,
+        "locks": locks,
+        "events": events,
+    }
+
+
 @router.get("/sessions/active")
 async def get_active_sessions():
     """Return all sessions that have written events in the last 30 minutes,

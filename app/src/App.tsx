@@ -24,6 +24,7 @@ import Workflows from './pages/Workflows'
 import WorkflowBuilder from './pages/WorkflowBuilder'
 import Drive from './pages/Drive'
 import Files from './pages/Files'
+import Sessions from './pages/Sessions'
 import { useAppStore } from './stores/app'
 import ShareView from './pages/ShareView'
 import AdminLayout from './components/AdminLayout'
@@ -108,6 +109,7 @@ export default function App() {
           <Route path="transcripts" element={<Transcripts />} />
           <Route path="specs" element={<Specs />} />
           <Route path="files" element={<Files />} />
+          <Route path="sessions" element={<Sessions />} />
           <Route path="drive" element={<Drive />} />
           {/* Backward compat: /docs redirects to /specs after the rename. */}
           <Route path="docs" element={<DocsRedirect />} />
