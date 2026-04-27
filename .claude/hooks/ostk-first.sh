@@ -33,6 +33,14 @@ trace() {
 PROJ_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 SOCK="${PROJ_DIR}/.ostk/ostk.sock"
 
+# Fallback: when Claude is opened from a parent directory (e.g. ~/claude
+# instead of ~/claude/torios), PROJ_DIR won't contain the socket. Search
+# up to 3 levels deep so the hook fires regardless of launch directory.
+if [ ! -S "$SOCK" ]; then
+  SEARCH_ROOT="${PROJ_DIR:-$HOME/claude}"
+  SOCK=$(find "$SEARCH_ROOT" -maxdepth 3 -name "ostk.sock" 2>/dev/null | head -1)
+fi
+
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | python3 -c "import sys,json;print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null)
 
