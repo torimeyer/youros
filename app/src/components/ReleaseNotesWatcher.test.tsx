@@ -292,6 +292,56 @@ describe('ReleaseNotesWatcher', () => {
     expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
   })
 
+  it('does not re-fire when notification arrives for a spec already celebrated via spec polling', async () => {
+    // Root-cause regression for the double-fire bug. The /api/specs polling
+    // path fires at ~2s after spec completion and stores "docs/spec/foo.md"
+    // in the celebrated set. The notification path fires ~10s later (TopBar
+    // poll) with a different key ("notification:{id}"). Without the fix,
+    // both paths opened the modal independently. With specPath sharing the
+    // same dedup key, the notification path sees the already-celebrated key
+    // and stays silent.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    // First poll: in-progress. Second: complete (observed in-session transition).
+    mockedApiGet.mockResolvedValueOnce(
+      specsResponse([{ path: 'docs/spec/auto-close.md', title: 'auto close', status: 'in-progress' }])
+    )
+    mockedApiGet.mockResolvedValue(
+      specsResponse([{ path: 'docs/spec/auto-close.md', title: 'auto close', status: 'complete' }])
+    )
+
+    render(<ReleaseNotesWatcher />)
+
+    await waitFor(() => { expect(mockedApiGet).toHaveBeenCalled() })
+    await vi.advanceTimersByTimeAsync(2100)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
+    })
+
+    // Dismiss the modal.
+    fireEvent.click(screen.getByText('Close'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
+    })
+
+    // Now the notification path fires for the SAME spec.
+    act(() => {
+      useNotificationStore.getState().addPersistentToast({
+        id: 'notif-double-fire',
+        type: 'spec_complete',
+        title: 'auto close',
+        body: 'auto close is built and ready to try.',
+        action_url: '/specs?expand=docs/spec/auto-close.md',
+      })
+    })
+
+    // The modal must NOT re-open because 'docs/spec/auto-close.md' is
+    // already in the celebrated set from the spec polling path.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
+  })
+
   it('notification path seeds the spec path into celebratedRef so a 60s-window refresh does not re-fire', async () => {
     // Regression for the random "Your feature is live" modal:
     // The notification path keyed celebratedRef on "notification:<id>"
@@ -300,9 +350,9 @@ describe('ReleaseNotesWatcher', () => {
     // window would re-fire the modal via the polling path because the spec
     // path was absent from the persisted dedup set.
     //
-    // Fix: when the notification path fires, extract the spec path from
-    // action_url and add BOTH keys to celebratedRef so a subsequent mount
-    // that finds the spec "recent" stays silent.
+    // Fix: when the notification path fires, specPath is shared via
+    // lastFeatureLive.specPath so celebratedRef uses the same key as
+    // the /api/specs polling path, blocking the second open.
     const recentMs = Date.now() - 5_000 // 5 seconds ago
 
     // Simulate the notification path firing first (spec file might be gone).
@@ -330,7 +380,7 @@ describe('ReleaseNotesWatcher', () => {
     unmount()
 
     // Now the spec file appears on the next poll within the grace window.
-    // The polling path must NOT re-fire because the spec path was bridged
+    // The polling path must NOT re-fire because the spec path was seeded
     // into celebratedRef (and localStorage) when the notification fired.
     mockedApiGet.mockResolvedValue({
       docs: [
@@ -401,59 +451,6 @@ describe('ReleaseNotesWatcher', () => {
 
     // The modal must NOT appear — the permanent dedup key still has
     // 'notif-persist-reset' even though the ephemeral set was cleared.
-    expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
-  })
-
-  it('notification path seeds the spec path into celebratedRef so a 60s-window refresh does not re-fire', async () => {
-    // Regression for the random "Your feature is live" modal:
-    // The notification path keyed celebratedRef on "notification:<id>"
-    // while the polling path keyed on "docs/spec/foo.md". After dismissing
-    // via the notification path, a hard-refresh within the 60s grace
-    // window would re-fire the modal via the polling path because the spec
-    // path was absent from the persisted dedup set.
-    const recentMs = Date.now() - 5_000 // 5 seconds ago
-
-    mockedApiGet.mockResolvedValue(specsResponse([]))
-
-    const { unmount } = render(<ReleaseNotesWatcher />)
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalled()
-    })
-
-    act(() => {
-      useNotificationStore.getState().addPersistentToast({
-        id: 'notif-bridge',
-        type: 'spec_complete',
-        title: 'Your feature is live',
-        body: 'auto close is built and ready to try.',
-        action_url: '/specs?expand=docs/spec/auto-close.md',
-      })
-    })
-    await waitFor(() => {
-      expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
-    })
-
-    unmount()
-
-    // On the next mount the spec file appears within the grace window.
-    // The polling path must NOT re-fire because the spec path was bridged
-    // into celebratedRef when the notification fired.
-    mockedApiGet.mockResolvedValue({
-      docs: [
-        {
-          path: 'docs/spec/auto-close.md',
-          title: 'auto close',
-          status: 'complete',
-          updated_at_ms: recentMs,
-          acceptance_criteria: [],
-        },
-      ],
-    })
-
-    render(<ReleaseNotesWatcher />)
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalled()
-    })
     expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
   })
 

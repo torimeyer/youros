@@ -313,6 +313,44 @@ describe('notifications store', () => {
       expect(typeof live?.at).toBe('number')
     })
 
+    it('extracts specPath from action_url expand param', () => {
+      // ReleaseNotesWatcher uses specPath as the dedup key so the
+      // /api/specs polling path and the notification path share the
+      // same key and cannot double-fire for the same spec.
+      useNotificationStore.getState().addPersistentToast({
+        id: 'fl-sp-1',
+        type: 'spec_complete',
+        title: 'Your feature is live',
+        body: 'auto close is built.',
+        action_url: '/specs?expand=docs/spec/auto-close.md',
+      })
+      expect(useNotificationStore.getState().lastFeatureLive?.specPath).toBe(
+        'docs/spec/auto-close.md'
+      )
+    })
+
+    it('leaves specPath undefined when action_url has no expand param', () => {
+      useNotificationStore.getState().addPersistentToast({
+        id: 'fl-sp-2',
+        type: 'spec_complete',
+        title: 'Your feature is live',
+        body: 'build done.',
+        action_url: '/specs',
+      })
+      expect(useNotificationStore.getState().lastFeatureLive?.specPath).toBeUndefined()
+    })
+
+    it('leaves specPath undefined when action_url is null', () => {
+      useNotificationStore.getState().addPersistentToast({
+        id: 'fl-sp-3',
+        type: 'spec_complete',
+        title: 'Your feature is live',
+        body: 'build done.',
+        action_url: null,
+      })
+      expect(useNotificationStore.getState().lastFeatureLive?.specPath).toBeUndefined()
+    })
+
     it('leaves lastFeatureLive untouched for non-spec_complete toast types', () => {
       // Guard: the feature-live stamp must not fire on generic agent
       // completion toasts. Otherwise the pill would pulse every time

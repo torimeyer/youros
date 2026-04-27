@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 REAPER_INTERVAL_SECONDS = 900  # 15 minutes
 
 # Statuses that mean "the agent is still doing work and must not be reaped".
+# Unknown statuses are treated as active by _active_agent_names (fail-safe)
+# so a future status value never causes an accidental removal.
 ACTIVE_STATUSES = frozenset(
     {"running", "pending", "spawned", "queued", "in_progress"}
 )
@@ -52,24 +54,28 @@ _TERMINAL_STATUSES = frozenset(
         "cancelled",
         "abandoned",
         "terminated_stale",
+        "killed",
     }
 )
 
 
 def _active_agent_names(repo_root: Path) -> Set[str]:
-    """Return names of non-terminal agents from .ostk/agent_state.json.
+    """Return agent names whose status is non-terminal.
 
-    Returns an empty set when the file is missing or unreadable so
-    callers can safely proceed without protection in that case.
+    Reads ``.ostk/agent_state.json``. Unknown statuses are treated as
+    active (fail-safe): a new status string must never cause the reaper
+    to accidentally remove a live worktree.
     """
     state_file = repo_root / ".ostk" / "agent_state.json"
+    if not state_file.exists():
+        return set()
     try:
-        with open(state_file) as fh:
-            data = json.load(fh)
+        records = json.loads(state_file.read_text())
         return {
             name
-            for name, rec in data.items()
-            if isinstance(rec, dict) and rec.get("status") not in _TERMINAL_STATUSES
+            for name, info in records.items()
+            if isinstance(info, dict)
+            and info.get("status") not in _TERMINAL_STATUSES
         }
     except Exception:
         return set()
@@ -92,7 +98,7 @@ async def _call_reaper_script(
     Passes MYOS_ACTIVE_AGENTS env var to the script so it can skip
     worktrees whose agent is still alive (→947).
     """
-    env = {**os.environ}
+    env = os.environ.copy()
     if active_names is not None:
         env["MYOS_ACTIVE_AGENTS"] = ",".join(sorted(active_names))
     loop = asyncio.get_event_loop()

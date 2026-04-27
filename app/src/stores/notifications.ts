@@ -263,12 +263,28 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       // open the modal even when /api/specs is empty (which happens
       // whenever the spec file has been cleaned up after the build).
       if (notif.type === 'spec_complete') {
+        // Extract the spec path from action_url so ReleaseNotesWatcher
+        // can use the same dedup key as the /api/specs polling path and
+        // avoid double-firing the modal when both paths fire for the
+        // same completion (spec polling fires at ~2s, notification at
+        // ~10s — different keys meant both opened the modal).
+        let specPath: string | undefined
+        try {
+          if (notif.action_url) {
+            const url = new URL(notif.action_url, 'https://x')
+            const expand = url.searchParams.get('expand')
+            if (expand) specPath = expand
+          }
+        } catch {
+          // malformed url — specPath stays undefined, fallback dedup key is used
+        }
         nextState.lastFeatureLive = {
           id: notif.id,
           title: notif.title || 'Your feature is live',
           body: notif.body || '',
           at: Date.now(),
           action_url: notif.action_url,
+          specPath,
         }
       }
       return nextState as NotificationStore
