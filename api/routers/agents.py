@@ -3592,6 +3592,9 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
 
     try:
         _spawn_env = {**os.environ}
+        # Drop the API key so subagents authenticate via the stored claude.ai
+        # subscription instead of billing against the key's spending limit.
+        _spawn_env.pop("ANTHROPIC_API_KEY", None)
         try:
             from services.tracing import get_trace_id as _get_trace_id
             _tid = _get_trace_id()
