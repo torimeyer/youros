@@ -13,7 +13,7 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Connect', 'Ready', 'NowWhat'] as const
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
 
@@ -205,7 +205,10 @@ export default function OnboardingWizard() {
     }
   }
 
-  const skip = () => next()
+  const skip = () => {
+    if (step === 'NowWhat') finish()
+    else next()
+  }
 
   // Global Enter handler: advance (or finish) when Enter is pressed on any non-input element.
   // Input/textarea elements handle Enter themselves so we skip them here to avoid double-fires.
@@ -215,8 +218,10 @@ export default function OnboardingWizard() {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON') return
     // Fork step: no action (user must click a card)
     if (step === 'Fork') return
-    // Ready / TeamReady: trigger finish
-    if (step === 'Ready' || step === 'TeamReady') { finish(); return }
+    // Ready: advance to NowWhat. TeamReady: finish directly (no NowWhat in team flow).
+    if (step === 'TeamReady') { finish(); return }
+    if (step === 'Ready') { next(); return }
+    if (step === 'NowWhat') { finish(); return }
     next()
   }
 
@@ -437,6 +442,14 @@ export default function OnboardingWizard() {
               detectedProvider={detectedProvider}
             />
           )}
+          {step === 'NowWhat' && (
+            <NowWhatStep
+              selectedPersonaId={selectedPersonaId}
+              onFinish={finish}
+              subtextCls={subtextCls}
+              cardCls={cardCls}
+            />
+          )}
           {/* Team steps */}
           {step === 'OrgName' && (
             <OrgNameStep orgName={teamOrgName} setOrgName={setTeamOrgName} inputCls={inputCls} subtextCls={subtextCls} />
@@ -465,7 +478,7 @@ export default function OnboardingWizard() {
         {/* Navigation buttons */}
         <div className="flex items-center justify-between mt-8">
           <div>
-            {stepIndex > 0 && step !== 'Ready' && step !== 'TeamReady' && step !== 'Fork' && (
+            {stepIndex > 0 && step !== 'Ready' && step !== 'TeamReady' && step !== 'Fork' && step !== 'NowWhat' && (
               <button
                 onClick={back}
                 className={`px-4 py-2 text-sm transition-colors ${navBtnCls}`}
@@ -483,13 +496,21 @@ export default function OnboardingWizard() {
                 className={`px-4 py-2 text-sm transition-colors ${navBtnCls}`}
                 data-testid="skip-button"
               >
-                Skip
+                {step === 'NowWhat' ? 'Skip for now' : 'Skip'}
               </button>
             )}
 
-            {step === 'Fork' ? null : (step === 'Ready' || step === 'TeamReady') ? (
+            {step === 'Fork' || step === 'NowWhat' ? null : step === 'TeamReady' ? (
               <button
                 onClick={finish}
+                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
+                data-testid="finish-button"
+              >
+                Get started
+              </button>
+            ) : step === 'Ready' ? (
+              <button
+                onClick={next}
                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
                 data-testid="finish-button"
               >
@@ -570,6 +591,46 @@ type StarterPackItem = {
   description: string
   default_selected: boolean
 }
+
+// First-run suggestions per persona, mirrors api/services/agent_templates_store.py first_runs().
+const FIRST_RUNS: Record<string, Array<{ id: string; title: string; description: string; icon: string }>> = {
+  pm: [
+    { id: 'fr-pm-1', title: 'Write your first PRD', description: 'Turn a rough idea into a clear product requirements doc.', icon: 'article' },
+    { id: 'fr-pm-2', title: 'Scan your competition', description: 'See what competitors have shipped in the last 6 months.', icon: 'monitor_heart' },
+    { id: 'fr-pm-3', title: 'Plan your roadmap', description: 'Draft a quarterly roadmap from a list of initiatives.', icon: 'timeline' },
+  ],
+  engineer: [
+    { id: 'fr-eng-1', title: 'Write tests for your code', description: 'Generate test cases for a function or module.', icon: 'bug_report' },
+    { id: 'fr-eng-2', title: 'Find bugs in your code', description: 'Scan code for bugs, security issues, and edge cases.', icon: 'pest_control' },
+    { id: 'fr-eng-3', title: 'Review a code change', description: 'Get actionable feedback on a diff or patch.', icon: 'rate_review' },
+  ],
+  writer: [
+    { id: 'fr-writer-1', title: 'Write a blog post', description: 'Turn an outline or idea into a full draft.', icon: 'edit_note' },
+    { id: 'fr-writer-2', title: 'Repurpose for social', description: 'Turn a long piece into LinkedIn, Twitter, and Instagram versions.', icon: 'share' },
+    { id: 'fr-writer-3', title: 'Proofread something', description: 'Catch typos, grammar, and awkward phrasing.', icon: 'spellcheck' },
+  ],
+  sales: [
+    { id: 'fr-sales-1', title: 'Research a prospect', description: 'Get a one-page brief on a company before a call.', icon: 'business' },
+    { id: 'fr-sales-2', title: 'Draft a cold outreach email', description: 'Write a short, personalized first email to a new prospect.', icon: 'outgoing_mail' },
+    { id: 'fr-sales-3', title: 'Prep for a call', description: 'Build a one-page brief for an upcoming customer meeting.', icon: 'support_agent' },
+  ],
+  home: [
+    { id: 'fr-home-1', title: 'Plan this week\'s meals', description: 'Get a 7-dinner plan based on what\'s in the fridge.', icon: 'restaurant' },
+    { id: 'fr-home-2', title: 'Build a grocery list', description: 'Turn a meal plan into an organized shopping list.', icon: 'shopping_cart' },
+    { id: 'fr-home-3', title: 'Plan a trip', description: 'Get a day-by-day plan with activities and costs.', icon: 'flight_takeoff' },
+  ],
+  student: [
+    { id: 'fr-student-1', title: 'Build a study guide', description: 'Turn class notes into a guide with key concepts and practice questions.', icon: 'menu_book' },
+    { id: 'fr-student-2', title: 'Outline an essay', description: 'Build a structured outline from a prompt or topic.', icon: 'format_list_numbered' },
+    { id: 'fr-student-3', title: 'Make flash cards', description: 'Turn a reading into a set of Q&A flash cards.', icon: 'quiz' },
+  ],
+}
+
+const DEFAULT_FIRST_RUNS = [
+  { id: 'fr-default-1', title: 'Start a conversation', description: 'Open chat and ask anything.', icon: 'chat' },
+  { id: 'fr-default-2', title: 'Try a quick research task', description: 'Ask your AI to research a topic and summarize it.', icon: 'search' },
+  { id: 'fr-default-3', title: 'Brainstorm an idea', description: 'Describe a problem or goal and get a list of options.', icon: 'lightbulb' },
+]
 
 // Maps persona IDs (from agentMarketplace) to the intent key used by /onboarding/intent
 const PERSONA_TO_INTENT: Record<string, string> = {
@@ -1091,6 +1152,50 @@ function ReadyStep({
             <span className="text-sm font-medium" data-testid="summary-connected-via">{detectedProvider}</span>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function NowWhatStep({
+  selectedPersonaId,
+  onFinish,
+  subtextCls,
+  cardCls,
+}: {
+  selectedPersonaId: string | null
+  onFinish: () => void
+  subtextCls: string
+  cardCls: string
+}) {
+  const suggestions = selectedPersonaId
+    ? (FIRST_RUNS[selectedPersonaId] ?? DEFAULT_FIRST_RUNS)
+    : DEFAULT_FIRST_RUNS
+
+  return (
+    <div data-testid="step-now-what">
+      <h2 className="text-2xl font-bold mb-2">Three things to try first</h2>
+      <p className={`mb-6 ${subtextCls}`}>Open one in chat to see what it can do.</p>
+      <div className="space-y-3" data-testid="now-what-suggestions">
+        {suggestions.map((s) => (
+          <button
+            key={s.id}
+            onClick={onFinish}
+            data-testid={`now-what-${s.id}`}
+            className={`w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-colors hover:border-blue-500 hover:bg-blue-500/5 ${cardCls}`}
+          >
+            <div className="w-9 h-9 rounded-lg bg-blue-500/15 text-blue-400 flex items-center justify-center shrink-0">
+              <Icon name={s.icon} size={20} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{s.title}</p>
+              <p className={`text-xs mt-0.5 ${subtextCls}`}>{s.description}</p>
+            </div>
+            <span className="text-xs text-blue-400 font-medium whitespace-nowrap ml-auto shrink-0">
+              Open in chat
+            </span>
+          </button>
+        ))}
       </div>
     </div>
   )

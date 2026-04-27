@@ -1674,3 +1674,55 @@ class AgentTemplatesStore:
 
 
 agent_templates_store = AgentTemplatesStore()
+
+
+# First-run suggestions per persona (v1: hardcoded, one flat list per persona).
+# Trade-off: fast and zero extra infra; updating requires a code deploy.
+# Future: could derive from installed templates or user activity data.
+_FIRST_RUNS: dict[str, list[dict]] = {
+    "pm": [
+        {"id": "fr-pm-1", "title": "Write your first PRD", "description": "Turn a rough idea into a clear product requirements doc.", "icon": "article", "agent_id": "builtin-pm-prd"},
+        {"id": "fr-pm-2", "title": "Scan your competition", "description": "See what competitors have shipped in the last 6 months.", "icon": "monitor_heart", "agent_id": "builtin-pm-competitive-scan"},
+        {"id": "fr-pm-3", "title": "Plan your roadmap", "description": "Draft a quarterly roadmap from a list of initiatives.", "icon": "timeline", "agent_id": "builtin-pm-roadmap"},
+    ],
+    "engineer": [
+        {"id": "fr-eng-1", "title": "Write tests for your code", "description": "Generate test cases for a function or module.", "icon": "bug_report", "agent_id": "builtin-eng-write-tests"},
+        {"id": "fr-eng-2", "title": "Find bugs in your code", "description": "Scan code for bugs, security issues, and edge cases.", "icon": "pest_control", "agent_id": "builtin-eng-bug-finder"},
+        {"id": "fr-eng-3", "title": "Review a code change", "description": "Get actionable feedback on a diff or patch.", "icon": "rate_review", "agent_id": "builtin-review"},
+    ],
+    "writer": [
+        {"id": "fr-writer-1", "title": "Write a blog post", "description": "Turn an outline or idea into a full draft.", "icon": "edit_note", "agent_id": "builtin-writer-blog-post"},
+        {"id": "fr-writer-2", "title": "Repurpose for social", "description": "Turn a long piece into LinkedIn, Twitter, and Instagram versions.", "icon": "share", "agent_id": "builtin-writer-social-post"},
+        {"id": "fr-writer-3", "title": "Proofread something", "description": "Catch typos, grammar, and awkward phrasing.", "icon": "spellcheck", "agent_id": "builtin-writer-proofreader"},
+    ],
+    "sales": [
+        {"id": "fr-sales-1", "title": "Research a prospect", "description": "Get a one-page brief on a company before a call.", "icon": "business", "agent_id": "builtin-sales-prospect-research"},
+        {"id": "fr-sales-2", "title": "Draft a cold outreach email", "description": "Write a short, personalized first email to a new prospect.", "icon": "outgoing_mail", "agent_id": "builtin-sales-cold-outreach"},
+        {"id": "fr-sales-3", "title": "Prep for a call", "description": "Build a one-page brief for an upcoming customer meeting.", "icon": "support_agent", "agent_id": "builtin-sales-call-prep"},
+    ],
+    "home": [
+        {"id": "fr-home-1", "title": "Plan this week's meals", "description": "Get a 7-dinner plan based on what's in the fridge.", "icon": "restaurant", "agent_id": "builtin-home-meal-planner"},
+        {"id": "fr-home-2", "title": "Build a grocery list", "description": "Turn a meal plan into an organized shopping list.", "icon": "shopping_cart", "agent_id": "builtin-home-grocery-list"},
+        {"id": "fr-home-3", "title": "Plan a trip", "description": "Get a day-by-day plan with activities and costs.", "icon": "flight_takeoff", "agent_id": "builtin-home-trip-planner"},
+    ],
+    "student": [
+        {"id": "fr-student-1", "title": "Build a study guide", "description": "Turn class notes into a guide with key concepts and practice questions.", "icon": "menu_book", "agent_id": "builtin-student-study-guide"},
+        {"id": "fr-student-2", "title": "Outline an essay", "description": "Build a structured outline from a prompt or topic.", "icon": "format_list_numbered", "agent_id": "builtin-student-essay-outline"},
+        {"id": "fr-student-3", "title": "Make flash cards", "description": "Turn a reading into a set of Q&A flash cards.", "icon": "quiz", "agent_id": "builtin-student-flash-cards"},
+    ],
+}
+
+_DEFAULT_FIRST_RUNS: list[dict] = [
+    {"id": "fr-default-1", "title": "Start a conversation", "description": "Open chat and ask anything.", "icon": "chat", "agent_id": None},
+    {"id": "fr-default-2", "title": "Try a quick research task", "description": "Ask your AI to research a topic and summarize it.", "icon": "search", "agent_id": "builtin-research"},
+    {"id": "fr-default-3", "title": "Brainstorm an idea", "description": "Describe a problem or goal and get a list of options.", "icon": "lightbulb", "agent_id": "builtin-brainstorm"},
+]
+
+
+def first_runs(pack_id: str) -> list[dict]:
+    """Return 3 first-run action suggestions for a given persona/pack ID.
+
+    v1 trade-off: hardcoded per persona; no extra infra needed.
+    Future: derive from installed templates or user activity data.
+    """
+    return list(_FIRST_RUNS.get(pack_id, _DEFAULT_FIRST_RUNS))
