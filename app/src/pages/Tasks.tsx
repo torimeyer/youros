@@ -2522,13 +2522,6 @@ export default function Tasks() {
                                   <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{task.description}</p>
                                 </div>
                               )}
-                              {briefing.sphere && (
-                                <div>
-                                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Where this task sits</h4>
-                                  <p className="text-slate-300">{briefing.sphere}</p>
-                                </div>
-                              )}
-
                               {briefing.blocked_by.length > 0 && (
                                 <div>
                                   <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Waiting on</h4>
@@ -2628,7 +2621,7 @@ export default function Tasks() {
                                 </div>
                               )}
 
-                              {!briefing.sphere && briefing.blocked_by.length === 0 && briefing.unblocks.length === 0 && briefing.neighbors.length === 0 && (
+                              {briefing.blocked_by.length === 0 && briefing.unblocks.length === 0 && briefing.neighbors.length === 0 && (
                                 <p className="text-slate-500">This task is standalone. No blockers, no dependencies, no related tasks.</p>
                               )}
                             </div>
