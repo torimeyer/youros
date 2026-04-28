@@ -32,6 +32,19 @@ router = APIRouter(tags=["chat"])
 # the websocket endpoint lifetime, so entries always get cleaned up.
 _ACTIVE_CHAT_WEBSOCKETS: set[WebSocket] = set()
 
+# Strong references to fire-and-forget background tasks. asyncio only keeps
+# weak refs to tasks, so without this set the GC can destroy them before they
+# complete and emit "Task was destroyed but it is pending!".
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _fire_and_forget(coro) -> asyncio.Task:
+    """Schedule a coroutine as a background task with a strong reference."""
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
 
 def _register_active_ws(ws: WebSocket) -> None:
     _ACTIVE_CHAT_WEBSOCKETS.add(ws)
@@ -515,6 +528,32 @@ async def build_context() -> str:
         return ""
 
 
+async def build_baseline_context() -> str:
+    """Always-on system context injected into every chat turn."""
+    lines = []
+    os_name = settings_store.get("os_name") or "myOS"
+    user_name = settings_store.get("user_name") or ""
+    standing = settings_store.get("standing_instructions") or ""
+    lines.append(
+        f"You are the AI assistant inside {os_name}, a personal AI operating system running locally on the user's machine."
+    )
+    if user_name:
+        lines.append(f"The user's name is {user_name}.")
+    if standing:
+        lines.append(f"Standing instructions: {standing}")
+    try:
+        needles = await ostk.list_tasks(status="open")
+        if needles:
+            lines.append("Current open work items:")
+            for n in needles[:10]:
+                pri = n.get("priority", "")
+                title = n.get("title", "")
+                lines.append(f"  [{pri}] {title}")
+    except Exception:
+        pass
+    return "\n".join(lines)
+
+
 def should_inject_context(text: str) -> bool:
     words = set(text.lower().split())
     return bool(words & CONTEXT_KEYWORDS)
@@ -611,7 +650,7 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
         chat_agent_name = f"chat-{tab_id[:8]}" if tab_id else "chat-default"
     try:
         from routers.agents import register_chat_session
-        asyncio.create_task(register_chat_session(
+        _fire_and_forget(register_chat_session(
             chat_agent_name,
             model=provider,
             prompt_preview=last_user,
@@ -638,7 +677,7 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
     finally:
         try:
             from routers.agents import complete_chat_session
-            asyncio.create_task(complete_chat_session(chat_agent_name, status=status))
+            _fire_and_forget(complete_chat_session(chat_agent_name, status=status))
         except Exception:
             pass
 
@@ -1185,6 +1224,11 @@ async def chat_websocket(websocket: WebSocket):
             if not mentioned_models:
                 model_key = MODEL_ALIASES.get(fallback_model.lower(), "claude")
                 mentioned_models = [model_key]
+
+            # Always inject baseline project context (who the user is, what's in flight)
+            baseline = await build_baseline_context()
+            if baseline:
+                messages = [{"role": "user", "content": baseline}] + messages
 
             # Inject ostk context if relevant (only when not using tool mode,
             # since the agent can look up context itself via tools)

@@ -3663,3 +3663,69 @@ class TestChatAuthorshipGrounding:
         assert _agent_is_non_authoring({}) is False
         # Non-dict input: never trips (defensive).
         assert _agent_is_non_authoring(None) is False  # type: ignore[arg-type]
+
+
+class TestBuildBaselineContext:
+    @pytest.mark.asyncio
+    async def test_contains_assistant_identity(self):
+        from routers.chat import build_baseline_context
+
+        with (
+            patch("routers.chat.settings_store") as mock_settings,
+            patch("routers.chat.ostk") as mock_ostk,
+        ):
+            mock_settings.get.side_effect = lambda key, default=None: {
+                "os_name": "testOS",
+                "user_name": "Alice",
+                "standing_instructions": "",
+            }.get(key, default)
+            mock_ostk.list_tasks = AsyncMock(return_value=[])
+
+            result = await build_baseline_context()
+
+        assert "AI assistant inside" in result
+        assert "testOS" in result
+        assert "Alice" in result
+
+    @pytest.mark.asyncio
+    async def test_includes_open_needles(self):
+        from routers.chat import build_baseline_context
+
+        fake_needles = [
+            {"priority": "high", "title": "Fix login bug"},
+            {"priority": "med", "title": "Add dark mode"},
+        ]
+        with (
+            patch("routers.chat.settings_store") as mock_settings,
+            patch("routers.chat.ostk") as mock_ostk,
+        ):
+            mock_settings.get.side_effect = lambda key, default=None: {
+                "os_name": "myOS",
+                "user_name": "",
+                "standing_instructions": "",
+            }.get(key, default)
+            mock_ostk.list_tasks = AsyncMock(return_value=fake_needles)
+
+            result = await build_baseline_context()
+
+        assert "Fix login bug" in result
+        assert "Add dark mode" in result
+
+    @pytest.mark.asyncio
+    async def test_graceful_on_ostk_failure(self):
+        from routers.chat import build_baseline_context
+
+        with (
+            patch("routers.chat.settings_store") as mock_settings,
+            patch("routers.chat.ostk") as mock_ostk,
+        ):
+            mock_settings.get.side_effect = lambda key, default=None: {
+                "os_name": "myOS",
+                "user_name": "",
+                "standing_instructions": "",
+            }.get(key, default)
+            mock_ostk.list_tasks = AsyncMock(side_effect=Exception("ostk offline"))
+
+            result = await build_baseline_context()
+
+        assert "AI assistant inside" in result
