@@ -8,7 +8,9 @@ enterprise mode active.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -16,6 +18,96 @@ from services import enterprise_store
 from services.auth import get_current_user
 
 router = APIRouter(tags=["team"])
+
+
+def _adoption_rollup_data(
+    members: list[dict],
+    events: list[dict],
+    catalog_entries: Optional[list[dict]] = None,
+) -> dict:
+    """Classify members into intensity buckets and surface adoption signals."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+
+    stats: dict[str, dict] = {}
+    for m in members:
+        email = m.get("email", "")
+        if email:
+            stats[email] = {"agent_count": 0, "total_budget": 0.0}
+
+    skill_counts: dict[str, int] = {}
+
+    for ev in events:
+        if ev.get("event") != "agent.spawned":
+            continue
+        user_email = ev.get("user")
+        if not user_email:
+            continue
+
+        ts_str = ev.get("ts", "")
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            ts = datetime.now(timezone.utc)
+        if ts < cutoff:
+            continue
+
+        if user_email not in stats:
+            stats[user_email] = {"agent_count": 0, "total_budget": 0.0}
+        stats[user_email]["agent_count"] += 1
+        try:
+            stats[user_email]["total_budget"] += float(ev.get("budget", 0))
+        except (ValueError, TypeError):
+            pass
+
+        task_name = ev.get("task", ev.get("name", ""))
+        if task_name:
+            skill_counts[task_name] = skill_counts.get(task_name, 0) + 1
+
+    FREQ_HIGH = 3
+    DEPTH_HIGH = 2.0
+
+    buckets: dict[str, list[str]] = {
+        "power_user": [],
+        "active": [],
+        "explorer": [],
+        "inactive": [],
+    }
+
+    for email, s in stats.items():
+        count = s["agent_count"]
+        avg_depth = s["total_budget"] / count if count > 0 else 0.0
+        high_freq = count >= FREQ_HIGH
+        high_depth = avg_depth >= DEPTH_HIGH
+
+        if high_freq and high_depth:
+            buckets["power_user"].append(email)
+        elif high_freq:
+            buckets["active"].append(email)
+        elif high_depth:
+            buckets["explorer"].append(email)
+        else:
+            buckets["inactive"].append(email)
+
+    top_skill = ""
+    if skill_counts:
+        top_skill = max(skill_counts, key=lambda k: skill_counts[k])
+    elif catalog_entries:
+        top_skill = catalog_entries[0].get("name", "") if catalog_entries else ""
+
+    adoption_gap = ""
+    if catalog_entries:
+        used_skills = set(skill_counts.keys())
+        for entry in catalog_entries:
+            name = entry.get("name", "")
+            if name and name not in used_skills:
+                adoption_gap = name
+                break
+
+    return {
+        "buckets": buckets,
+        "top_skill": top_skill,
+        "adoption_gap": adoption_gap,
+    }
 
 
 @router.get("/team/dashboard")
@@ -97,3 +189,33 @@ async def team_dashboard(request: Request):
         "active_agents": active_agents,
         "pending_invites": pending_invites,
     }
+
+
+@router.get("/team/adoption-rollup")
+async def team_adoption_rollup(request: Request):
+    """Admin-only endpoint: member intensity buckets, top skill, and adoption gap."""
+    user = get_current_user(request)
+
+    if user is None:
+        return {
+            "buckets": {"power_user": [], "active": [], "explorer": [], "inactive": []},
+            "top_skill": "",
+            "adoption_gap": "",
+        }
+
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    members = enterprise_store.list_members()
+
+    from routers.costs import _parse_audit_events
+    events = _parse_audit_events()
+
+    catalog_entries: list[dict] = []
+    try:
+        from services import team_catalog as tc
+        catalog_entries = tc.list_catalog("default")
+    except Exception:
+        pass
+
+    return _adoption_rollup_data(members, events, catalog_entries)
