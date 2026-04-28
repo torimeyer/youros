@@ -120,8 +120,6 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
     }
   }
 
-  const isNativeOnly = kind === 'unknown'
-
   return (
     <div
       role="dialog"
