@@ -208,6 +208,7 @@ export default function Settings() {
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeSection, setActiveSection] = useState('section-instructions');
 
 
   useEffect(() => {
@@ -791,25 +792,91 @@ export default function Settings() {
   const cardClass =
     'bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-700 transition-colors';
 
+  const navItems = [
+    { id: 'section-instructions', label: 'Instructions', icon: 'edit_note' },
+    { id: 'section-appearance', label: 'Appearance', icon: 'palette' },
+    { id: 'section-ai-chat', label: 'AI & Chat', icon: 'smart_toy' },
+    { id: 'section-connections', label: 'Connections', icon: 'hub' },
+    { id: 'section-notifications', label: 'Notifications', icon: 'notifications' },
+    { id: 'section-privacy', label: 'Privacy & Data', icon: 'lock' },
+    { id: 'section-developer', label: 'Developer', icon: 'code' },
+    { id: 'section-shortcuts', label: 'Shortcuts', icon: 'keyboard' },
+    ...(instanceMode === 'team' ? [{ id: 'section-team-admin', label: 'Team Admin', icon: 'admin_panel_settings' }] : []),
+  ];
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const sectionIds = navItems.map((n) => n.id);
+    const observers: IntersectionObserver[] = [];
+    sectionIds.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const obs = new IntersectionObserver(
+        ([entry]) => { if (entry.isIntersecting) setActiveSection(id); },
+        { rootMargin: '-20% 0px -70% 0px' }
+      );
+      obs.observe(el);
+      observers.push(obs);
+    });
+    return () => observers.forEach((o) => o.disconnect());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instanceMode]);
+
   return (
     <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="Settings" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 space-y-6">
-        <PageHeader title="Settings" />
+      {/* Mobile horizontal nav */}
+      <div className="lg:hidden overflow-x-auto flex gap-2 px-4 py-2 border-b border-slate-800 sticky top-16 bg-slate-950 z-10">
+        {navItems.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth' })}
+            className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium flex-shrink-0 transition-colors ${
+              activeSection === item.id ? 'bg-slate-700 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
 
-        <div className="text-sm text-slate-400" data-testid="privacy-link-row">
-          <a href="/privacy" className="underline hover:text-slate-200">Privacy</a>
-          <span className="ml-2">How torios handles your data.</span>
-        </div>
+      <div className="flex pt-16 sm:pt-20">
+        {/* Left nav rail — sticky on desktop */}
+        <nav className="hidden lg:flex flex-col sticky top-20 self-start w-52 shrink-0 pl-4 py-6 space-y-0.5">
+          {navItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth' })}
+              className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+                activeSection === item.id
+                  ? 'bg-slate-800 text-white font-medium'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <Icon name={item.icon} size={15} className="shrink-0" />
+              {item.label}
+            </button>
+          ))}
+        </nav>
 
-        {/* Standing instructions */}
-        <div
-          ref={standingSectionRef}
-          id="standing-instructions"
-          className={cardClass}
-          data-testid="standing-instructions-section"
-        >
+        {/* Main content */}
+        <div className="flex-1 min-w-0 px-4 pb-8 sm:px-6 lg:pr-8 space-y-10">
+          <PageHeader title="Settings" />
+
+          <div className="text-sm text-slate-400" data-testid="privacy-link-row">
+            <a href="/privacy" className="underline hover:text-slate-200">Privacy</a>
+            <span className="ml-2">How torios handles your data.</span>
+          </div>
+
+          {/* ── 1. Instructions ─────────────────────── */}
+          <div id="section-instructions">
+          <div
+            ref={standingSectionRef}
+            id="standing-instructions"
+            className={cardClass}
+            data-testid="standing-instructions-section"
+          >
           <h2 className="text-lg font-semibold mb-2">Standing instructions</h2>
           <p className="text-sm text-slate-400 mb-4">
             Write instructions once and every chat, agent run, and task will follow them. Examples: your preferred tone, what apps to prefer, how you want code explained.
@@ -921,10 +988,12 @@ export default function Settings() {
               </span>
             )}
           </div>
-        </div>
+          </div>
+          </div>
 
-        {/* Files location */}
-        <div className="mb-6" data-testid="files-location-section">
+          {/* ── 6. Privacy & Data ───────────────────── */}
+          <div id="section-privacy" className="space-y-6">
+          <div className={cardClass} data-testid="files-location-section">
           <h2 className="text-lg font-semibold mb-2">Files location</h2>
           <p className="text-sm text-slate-400 mb-3">
             This is the folder on your computer where torios saves your
@@ -948,11 +1017,11 @@ export default function Settings() {
               Change
             </button>
           </div>
-        </div>
+          </div>
 
-        {/* Row 1: Appearance + System Features */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-          <div>
+          {/* ── 2. Appearance ───────────────────────── */}
+          <div id="section-appearance" className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">Appearance</h2>
 
             {/* Color Mode */}
@@ -1194,11 +1263,10 @@ export default function Settings() {
             <p className="text-xs text-slate-500 mt-2">Shows advanced agent tabs (Delegate and Shared Workspace) in the Agents page.</p>
           </div>
           </div>
-        </div>
+          </div>
 
-        {/* Row 2: AI Provider + Notifications */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-          {/* AI Provider */}
+          {/* ── 3. AI & Chat ────────────────────────── */}
+          <div id="section-ai-chat" className="space-y-6">
           <div className={cardClass} data-testid="ai-provider-section">
             <h2 className="text-lg font-semibold mb-5">AI Provider</h2>
 
@@ -1405,7 +1473,8 @@ export default function Settings() {
 
           </div>
 
-          {/* Notifications */}
+          {/* ── 5. Notifications ────────────────────── */}
+          <div id="section-notifications">
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">Notifications</h2>
             <div className="space-y-3">
@@ -1541,10 +1610,10 @@ export default function Settings() {
               </div>
             </div>
           </div>
-        </div>
+          </div>
+          </div>
 
-        {/* Chat backend */}
-        <div className={cardClass} data-testid="chat-backend-section">
+          <div className={cardClass} data-testid="chat-backend-section">
           <h2 className="text-lg font-semibold mb-1">Chat backend</h2>
           <p className="text-sm text-slate-400 mb-4">
             Pick which sign-in powers your chat. Your Claude subscription costs nothing extra if you already pay for Pro or Max. Using your Anthropic key charges per message.
@@ -1617,10 +1686,11 @@ export default function Settings() {
               </div>
             )}
           </div>
-        </div>
+          </div>
 
-        {/* Connections: Gmail, Calendar, Drive, Slack status dots */}
-        <div className={cardClass} data-testid="connections-section">
+          {/* ── 4. Connections ──────────────────────── */}
+          <div id="section-connections" className="space-y-6">
+          <div className={cardClass} data-testid="connections-section">
           <div className="flex items-center gap-2 mb-4">
             <h2 className="text-lg font-semibold">Connections</h2>
             <div className="group relative ml-1">
@@ -1663,11 +1733,10 @@ export default function Settings() {
               );
             })}
           </div>
-        </div>
+          </div>
 
-        {/* Row 3: MCP Servers + Sync */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-        <div className={cardClass}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+          <div className={cardClass}>
           <div className="flex items-center gap-2 mb-5">
             <h2 className="text-lg font-semibold">Connected Tools</h2>
             <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">MCP</span>
@@ -1974,12 +2043,13 @@ export default function Settings() {
               )}
             </div>
           )}
-        </div>
-        </div>
+          </div>
+          </div>
+          </div>
 
-        {/* Row 4: Admin Link + Data Management */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-        {instanceMode === 'team' && (
+          {/* ── Team Admin (gated) ──────────────────── */}
+          {instanceMode === 'team' && (
+          <div id="section-team-admin">
           <div className={cardClass}>
             <div className="flex items-center gap-2 mb-3">
               <Icon name="admin_panel_settings" size={22} className="text-indigo-400" />
@@ -1996,8 +2066,10 @@ export default function Settings() {
               Open admin settings
             </a>
           </div>
-        )}
-<div className={cardClass}>
+          </div>
+          )}
+
+          <div className={cardClass}>
           <div className="flex items-center gap-2 mb-2">
             <h2 className="text-lg font-semibold">Data Management</h2>
             <div className="group relative">
@@ -2054,12 +2126,9 @@ export default function Settings() {
               Restart Setup
             </button>
           </div>
-        </div>
-        </div>
+          </div>
 
-        {/* Row 5: Shared Links + Shortcuts */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-        <div className={cardClass}>
+          <div className={cardClass}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">Shared links</h2>
             <button
@@ -2108,10 +2177,12 @@ export default function Settings() {
               ))}
             </div>
           )}
-        </div>
+          </div>
 
-        <div className={cardClass} data-testid="developer-section">
-          <h2 className="text-lg font-semibold mb-2">Developer</h2>
+          {/* ── 7. Developer ────────────────────────── */}
+          <div id="section-developer">
+          <div className={cardClass} data-testid="developer-section">
+            <h2 className="text-lg font-semibold mb-2">Developer</h2>
           <p className="text-sm text-slate-400 mb-4">
             Behind-the-scenes views for debugging and auditing what happened.
           </p>
@@ -2138,10 +2209,13 @@ export default function Settings() {
               Privacy policy
             </a>
           </div>
-        </div>
+          </div>
+          </div>
 
-        <div className={cardClass}>
-          <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
+          {/* ── 8. Shortcuts ────────────────────────── */}
+          <div id="section-shortcuts">
+          <div className={cardClass}>
+            <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
           <div className="space-y-3">
             {shortcuts.map((s) => (
               <div key={s.label} className="flex items-center justify-between py-2">
@@ -2170,7 +2244,9 @@ export default function Settings() {
               ))}
             </div>
           )}
-        </div>
+          </div>
+          </div>
+          </div>
         </div>
       </div>
       <ConfirmModal {...confirmProps} />

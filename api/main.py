@@ -52,8 +52,9 @@ _STARTUP_TASKS: set = set()
 
 
 def _keep(task):
-    _STARTUP_TASKS.add(task)
-    task.add_done_callback(_STARTUP_TASKS.discard)
+    if task is not None:
+        _STARTUP_TASKS.add(task)
+        task.add_done_callback(_STARTUP_TASKS.discard)
     return task
 
 

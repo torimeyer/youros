@@ -735,11 +735,10 @@ describe('Settings - Enter key submit', () => {
   it('Enter on the OS Identifier field saves the name', async () => {
     renderSettings()
 
-    // Navigate to the Appearance section where OS Identifier lives
+    // OS Identifier field lives in the Appearance section (always rendered in new layout)
     await waitFor(() => {
-      expect(screen.getByText('Appearance')).toBeInTheDocument()
+      expect(screen.getAllByText('Appearance').length).toBeGreaterThan(0)
     })
-    fireEvent.click(screen.getByText('Appearance'))
 
     const osInput = await screen.findByDisplayValue('myOS')
     fireEvent.change(osInput, { target: { value: 'ToriOS' } })
