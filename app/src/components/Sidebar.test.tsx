@@ -121,50 +121,40 @@ describe('Sidebar', () => {
     expect(screen.getByText(/OS/)).toBeInTheDocument()
   })
 
-  it('renders Personal badge in personal mode', () => {
+  it('does not render mode badge (team mode hidden)', () => {
     useAppStore.setState({ instanceMode: 'personal' })
     renderSidebar()
-    const badge = screen.getByTestId('sidebar-mode-badge')
-    expect(badge).toBeInTheDocument()
-    expect(badge.textContent).toBe('Personal')
-    expect(badge.className).toMatch(/bg-slate-200/)
-    expect(badge.className).toMatch(/text-slate-700/)
-    expect(badge.className).toMatch(/dark:bg-slate-700\/60/)
-    expect(badge.className).toMatch(/dark:text-slate-400/)
+    expect(screen.queryByTestId('sidebar-mode-badge')).not.toBeInTheDocument()
   })
 
-  it('renders Team badge in team mode', () => {
+  it('does not render mode badge in team mode either (team mode hidden)', () => {
     useAppStore.setState({ instanceMode: 'team' })
     renderSidebar()
-    const badge = screen.getByTestId('sidebar-mode-badge')
-    expect(badge).toBeInTheDocument()
-    expect(badge.textContent).toBe('Team')
+    expect(screen.queryByTestId('sidebar-mode-badge')).not.toBeInTheDocument()
   })
 
-  it('shows team CTA in personal mode', () => {
+  it('does not show team CTA in personal mode (team mode hidden)', () => {
     useAppStore.setState({ instanceMode: 'personal' })
     renderSidebar()
-    expect(screen.getByTestId('team-cta')).toBeInTheDocument()
+    expect(screen.queryByTestId('team-cta')).not.toBeInTheDocument()
   })
 
-  it('hides team CTA in team mode', () => {
+  it('does not show team CTA in team mode (team mode hidden)', () => {
     useAppStore.setState({ instanceMode: 'team' })
     renderSidebar()
     expect(screen.queryByTestId('team-cta')).not.toBeInTheDocument()
   })
 
-  it('team CTA links to /team-setup', () => {
+  it('does not show team-setup link (team mode hidden)', () => {
     useAppStore.setState({ instanceMode: 'personal' })
     renderSidebar()
-    const cta = screen.getByTestId('team-cta')
-    expect(cta).toHaveAttribute('href', '/team-setup')
+    expect(screen.queryByTestId('team-cta')).not.toBeInTheDocument()
   })
 
-  it("team CTA reads 'Start or join a team' in personal mode", () => {
+  it("does not show 'Start or join a team' text (team mode hidden)", () => {
     useAppStore.setState({ instanceMode: 'personal' })
     renderSidebar()
-    const cta = screen.getByTestId('team-cta')
-    expect(cta.textContent).toContain('Start or join a team')
+    expect(screen.queryByText(/Start or join a team/)).not.toBeInTheDocument()
   })
 
   it("team CTA text is not visible in team mode", () => {

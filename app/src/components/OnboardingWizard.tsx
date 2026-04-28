@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { useAppStore } from '../stores/app'
+import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import Icon from './Icon'
 import { api } from '../lib/api'
 import { AGENT_MARKETPLACE, PERSONA_ICONS, type MarketplaceCategory } from '../data/agentMarketplace'
@@ -14,6 +14,7 @@ import {
 } from './TeamOnboardingSteps'
 
 const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Connect', 'Ready'] as const
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
 
@@ -24,8 +25,8 @@ const PROVIDER_SECRET_NAME: Record<string, string> = {
 
 export default function OnboardingWizard() {
   const [stepIndex, setStepIndex] = useState(0)
-  const [onboardingMode, setOnboardingMode] = useState<OnboardingMode>('undecided')
-  const STEPS = onboardingMode === 'team' ? TEAM_STEPS : PERSONAL_STEPS
+  const [onboardingMode, setOnboardingMode] = useState<OnboardingMode>(TEAM_MODE_VISIBLE ? 'undecided' : 'personal')
+  const STEPS = onboardingMode === 'team' ? TEAM_STEPS : (TEAM_MODE_VISIBLE ? PERSONAL_STEPS : PERSONAL_STEPS_NO_FORK)
   const step = STEPS[stepIndex]
 
   // Store bindings

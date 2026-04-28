@@ -66,9 +66,9 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
-// Helper: choose personal mode on the Fork step to get past it
+// Fork step is hidden (TEAM_MODE_VISIBLE = false); this is a no-op kept for call-site compatibility
 function choosePersonalMode() {
-  fireEvent.click(screen.getByTestId('fork-personal'))
+  // no-op: wizard starts directly on Welcome step
 }
 
 // Helper: click Next n times
@@ -105,25 +105,25 @@ describe('OnboardingWizard', () => {
     expect(screen.getByTestId('onboarding-wizard')).toBeInTheDocument()
   })
 
-  it('starts on the Fork step', () => {
+  it('starts on the Welcome step', () => {
     render(<OnboardingWizard />)
-    expect(screen.getByTestId('step-fork')).toBeInTheDocument()
-    expect(screen.getByText('Who is this for?')).toBeInTheDocument()
+    expect(screen.getByTestId('step-welcome')).toBeInTheDocument()
+    expect(screen.getByText('Welcome!')).toBeInTheDocument()
   })
 
   it('shows progress dots equal to the number of steps', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    // 9 steps: Fork, Welcome, You, Name, Profile, Customize, Theme, Connect, Ready
-    expect(dots.children).toHaveLength(9)
+    // 8 steps: Welcome, You, Name, Profile, Customize, Theme, Connect, Ready
+    expect(dots.children).toHaveLength(8)
   })
 
-  it('does not show Back button on Fork step', () => {
+  it('does not show Back button on Welcome step', () => {
     render(<OnboardingWizard />)
     expect(screen.queryByTestId('back-button')).not.toBeInTheDocument()
   })
 
-  it('does not show Skip button on Fork step', () => {
+  it('does not show Skip button on Welcome step', () => {
     render(<OnboardingWizard />)
     expect(screen.queryByTestId('skip-button')).not.toBeInTheDocument()
   })
@@ -190,7 +190,7 @@ describe('OnboardingWizard', () => {
   it('does not show an intent step at any point in the flow', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    // Walk all 7 steps after Fork and verify step-intent never appears
+    // Walk all 7 steps and verify step-intent never appears
     for (let i = 0; i < 7; i++) {
       expect(screen.queryByTestId('step-intent')).not.toBeInTheDocument()
       fireEvent.click(screen.getByTestId('next-button'))
@@ -557,10 +557,10 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('other-role-input')).not.toBeInTheDocument()
   })
 
-  it('step count for personal mode is 9', () => {
+  it('step count for personal mode is 8', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    expect(dots.children).toHaveLength(9)
+    expect(dots.children).toHaveLength(8)
   })
 })
 
@@ -715,7 +715,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
 
 describe('OnboardingWizard — provider auto-detection (→931)', () => {
   function navigateToAfterTheme() {
-    fireEvent.click(screen.getByTestId('fork-personal'))
+    
     fireEvent.click(screen.getByTestId('next-button'))   // Welcome → You
     for (let i = 0; i < 5; i++) {
       fireEvent.click(screen.getByTestId('skip-button')) // You/Name/Profile/Customize/Theme
@@ -824,7 +824,7 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
 describe('OnboardingWizard — Customize agents step', () => {
   // Navigate to the Customize step: Fork → Welcome → You → Name → Profile → Customize
   function navigateToCustomize() {
-    fireEvent.click(screen.getByTestId('fork-personal'))
+    
     // Welcome
     fireEvent.click(screen.getByTestId('next-button'))
     // You → Name → Profile (3 skips)
@@ -867,7 +867,7 @@ describe('OnboardingWizard — Customize agents step', () => {
 
     render(<OnboardingWizard />)
     // Choose personal, advance to Profile
-    fireEvent.click(screen.getByTestId('fork-personal'))
+    
     fireEvent.click(screen.getByTestId('next-button')) // Welcome
     for (let i = 0; i < 2; i++) fireEvent.click(screen.getByTestId('skip-button')) // You, Name
 
@@ -892,7 +892,7 @@ describe('OnboardingWizard — Customize agents step', () => {
     vi.mocked(api.post).mockResolvedValue(MOCK_PACK)
 
     render(<OnboardingWizard />)
-    fireEvent.click(screen.getByTestId('fork-personal'))
+    
     fireEvent.click(screen.getByTestId('next-button'))
     for (let i = 0; i < 2; i++) fireEvent.click(screen.getByTestId('skip-button'))
 
@@ -913,7 +913,7 @@ describe('OnboardingWizard — Customize agents step', () => {
     vi.mocked(api.post).mockResolvedValue(MOCK_PACK)
 
     render(<OnboardingWizard />)
-    fireEvent.click(screen.getByTestId('fork-personal'))
+    
     fireEvent.click(screen.getByTestId('next-button'))
     for (let i = 0; i < 2; i++) fireEvent.click(screen.getByTestId('skip-button'))
 
@@ -935,7 +935,7 @@ describe('OnboardingWizard — Customize agents step', () => {
     vi.mocked(api.post).mockResolvedValue(MOCK_PACK)
 
     render(<OnboardingWizard />)
-    fireEvent.click(screen.getByTestId('fork-personal'))
+    
     fireEvent.click(screen.getByTestId('next-button'))
     for (let i = 0; i < 2; i++) fireEvent.click(screen.getByTestId('skip-button'))
 
@@ -964,7 +964,7 @@ describe('OnboardingWizard — Customize agents step', () => {
     vi.mocked(api.post).mockResolvedValue({ starter_pack: [] })
 
     render(<OnboardingWizard />)
-    fireEvent.click(screen.getByTestId('fork-personal'))
+    
     fireEvent.click(screen.getByTestId('next-button'))
     for (let i = 0; i < 2; i++) fireEvent.click(screen.getByTestId('skip-button'))
 

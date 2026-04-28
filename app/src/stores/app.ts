@@ -3,6 +3,8 @@ import { api } from '../lib/api'
 
 export type AccentColor = 'blue' | 'pink' | 'purple' | 'cyan' | 'orange'
 
+export const TEAM_MODE_VISIBLE = false
+
 // Default order and visibility for home dashboard widgets. Users can
 // hide any of these and reorder them via the Customize modal.
 export const DEFAULT_DASHBOARD_WIDGETS: string[] = [

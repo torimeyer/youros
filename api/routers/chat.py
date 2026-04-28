@@ -1389,15 +1389,18 @@ async def chat_websocket(websocket: WebSocket):
                     if not had_explicit_mention:
                         try:
                             from services import enterprise_store as _es
+                            from routers.gemini import is_gemini_available
                             org = _es.get_org()
                             if org:
                                 from routers.org_settings import _load_settings, _default_settings
                                 org_settings = {**_default_settings(), **_load_settings(org["id"])}
                                 org_policy = org_settings.get("provider_policy", "auto")
+                                gemini_ok = await is_gemini_available()
+                                available = ["claude"] + (["gemini"] if gemini_ok else [])
                                 model = route_provider(
                                     message=last_text if isinstance(last_text, str) else "",
                                     org_policy=org_policy,
-                                    available_providers=list(ALL_MODELS),
+                                    available_providers=available,
                                 )
                         except Exception:
                             pass

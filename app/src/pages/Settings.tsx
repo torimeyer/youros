@@ -166,6 +166,15 @@ export default function Settings() {
   const [keySource, setKeySource] = useState<Record<string, string>>({});
   const [ostkMcpServers, setOstkMcpServers] = useState<OstkMCPServer[]>([]);
 
+  // Gemini Enterprise provider state
+  interface GeminiStatus {
+    loading: boolean;
+    available: boolean;
+    email: string | null;
+  }
+  const [geminiStatus, setGeminiStatus] = useState<GeminiStatus>({ loading: true, available: false, email: null });
+  const [defaultProvider, setDefaultProvider] = useState<'claude' | 'gemini'>('claude');
+
   // Connection-status state for Gmail, Calendar, Drive, and Slack.
   // All four are fetched in parallel on mount so every dot appears in
   // the same render tick rather than 1-2 seconds apart.
@@ -282,6 +291,10 @@ export default function Settings() {
         if (prefRaw === 'auto' || prefRaw === 'claude_code' || prefRaw === 'anthropic_api') {
           setChatBackendPreference(prefRaw);
         }
+        const providerRaw = (data as any).default_provider;
+        if (providerRaw === 'claude' || providerRaw === 'gemini') {
+          setDefaultProvider(providerRaw);
+        }
       } catch {
         // API not available, use defaults
       }
@@ -315,6 +328,11 @@ export default function Settings() {
     api.get<{ ostk_servers?: OstkMCPServer[] }>('/settings/mcp-servers')
       .then((data) => setOstkMcpServers(data.ostk_servers ?? []))
       .catch(() => {});
+
+    // Fetch Gemini Enterprise availability
+    api.get<{ available: boolean; email: string | null }>('/gemini/status')
+      .then((data) => setGeminiStatus({ loading: false, available: !!data.available, email: data.email ?? null }))
+      .catch(() => setGeminiStatus({ loading: false, available: false, email: null }));
 
     // Kick off all four connection status fetches in parallel so every
     // dot renders in the same tick. Each call is cached server-side with
@@ -533,6 +551,11 @@ export default function Settings() {
   const handleChatBackendPreferenceChange = (value: 'auto' | 'claude_code' | 'anthropic_api') => {
     setChatBackendPreference(value);
     api.patch('/settings', { chat_backend_preference: value }).catch(() => {});
+  };
+
+  const handleDefaultProviderChange = (value: 'claude' | 'gemini') => {
+    setDefaultProvider(value);
+    api.patch('/settings', { default_provider: value }).catch(() => {});
   };
 
   const handleRecheckClaudeStatus = () => {
@@ -1267,7 +1290,7 @@ export default function Settings() {
 
           {/* ── 3. AI & Chat ────────────────────────── */}
           <div id="section-ai-chat" className="space-y-6">
-          <div className={cardClass} data-testid="ai-provider-section">
+          <div className={cardClass} data-testid="api-key-setup-section">
             <h2 className="text-lg font-semibold mb-5">AI Provider</h2>
 
             {/* Provider for API Key setup */}
@@ -1688,7 +1711,83 @@ export default function Settings() {
           </div>
           </div>
 
-          {/* ── 4. Connections ──────────────────────── */}
+          {/* ── 4. AI Provider ──────────────────────── */}
+          <div id="section-ai-provider" className="space-y-6">
+          <div className={cardClass} data-testid="ai-provider-section">
+            <h2 className="text-lg font-semibold mb-1">AI Provider</h2>
+            <p className="text-sm text-slate-400 mb-4">
+              Choose which AI answers your messages. Claude is always available. Connect your Google account to use Gemini Enterprise.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Claude card */}
+              <button
+                data-testid="provider-card-claude"
+                onClick={() => handleDefaultProviderChange('claude')}
+                className={`flex items-start gap-3 p-3.5 rounded-lg border text-left transition-colors ${
+                  defaultProvider === 'claude'
+                    ? 'accent-border accent-highlight'
+                    : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                }`}
+              >
+                <span className="mt-1 w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-200">Claude</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Always connected</p>
+                  {defaultProvider === 'claude' && (
+                    <p className="text-xs accent-text mt-1 font-medium">Default</p>
+                  )}
+                </div>
+              </button>
+
+              {/* Gemini Enterprise card */}
+              <button
+                data-testid="provider-card-gemini"
+                onClick={() => geminiStatus.available && handleDefaultProviderChange('gemini')}
+                disabled={!geminiStatus.available}
+                className={`flex items-start gap-3 p-3.5 rounded-lg border text-left transition-colors ${
+                  defaultProvider === 'gemini' && geminiStatus.available
+                    ? 'accent-border accent-highlight'
+                    : geminiStatus.available
+                    ? 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+                    : 'border-slate-800 bg-slate-900/30 opacity-60 cursor-not-allowed'
+                }`}
+              >
+                <span
+                  data-testid="gemini-status-dot"
+                  className={`mt-1 w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                    geminiStatus.loading
+                      ? 'bg-slate-600'
+                      : geminiStatus.available
+                      ? 'bg-emerald-400'
+                      : 'bg-slate-600'
+                  }`}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-200">Gemini Enterprise</p>
+                  {geminiStatus.loading ? (
+                    <p className="text-xs text-slate-500 mt-0.5">Checking...</p>
+                  ) : geminiStatus.available ? (
+                    <>
+                      {geminiStatus.email && (
+                        <p className="text-xs text-slate-400 mt-0.5 truncate">{geminiStatus.email}</p>
+                      )}
+                      <p className="text-xs text-slate-500 mt-0.5">Google Workspace · Slack · Jira · Confluence</p>
+                      {defaultProvider === 'gemini' && (
+                        <p className="text-xs accent-text mt-1 font-medium">Default</p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Run <code className="text-green-400 font-mono">gcloud auth application-default login</code> or the Gemini CLI to connect
+                    </p>
+                  )}
+                </div>
+              </button>
+            </div>
+          </div>
+          </div>
+
+          {/* ── 5. Connections ──────────────────────── */}
           <div id="section-connections" className="space-y-6">
           <div className={cardClass} data-testid="connections-section">
           <div className="flex items-center gap-2 mb-4">

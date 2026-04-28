@@ -150,6 +150,7 @@ class Settings(BaseModel):
     # gives a normal run enough headroom for real work. Power users can
     # tighten this for faster feedback or loosen it for long-running specs.
     spec_build_deadline_s: int = 600
+    default_provider: str = "claude"  # "claude" | "gemini"
 
 
 class MCPServer(BaseModel):

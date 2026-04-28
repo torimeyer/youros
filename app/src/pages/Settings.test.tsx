@@ -301,33 +301,41 @@ describe('Settings', () => {
   })
 
   describe('AI Provider selector', () => {
-    it('renders the AI Provider section with Anthropic and Google Gemini options', () => {
+    it('renders the AI Provider section with Claude and Gemini Enterprise options', () => {
       renderSettings()
-      expect(screen.getByText('AI Provider')).toBeInTheDocument()
-      expect(screen.getByText('Anthropic')).toBeInTheDocument()
-      expect(screen.getByText('Google Gemini')).toBeInTheDocument()
+      expect(screen.getByTestId('ai-provider-section')).toBeInTheDocument()
+      expect(screen.getByTestId('provider-card-claude')).toBeInTheDocument()
+      expect(screen.getByTestId('provider-card-gemini')).toBeInTheDocument()
+      expect(screen.getByText('Claude')).toBeInTheDocument()
+      expect(screen.getByText('Gemini Enterprise')).toBeInTheDocument()
     })
 
-    it('selects Gemini provider and persists to API', () => {
+    it('selects Gemini provider and persists to API', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/gemini/status') return Promise.resolve({ available: true, email: null })
+        return Promise.resolve({})
+      })
       renderSettings()
-      // Find the Google Gemini provider card and click it
-      const geminiCard = screen.getByText('Google Gemini').closest('div[class*="cursor-pointer"]')!
-      fireEvent.click(geminiCard)
-
-      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { provider: 'Google Gemini' })
+      await waitFor(() => {
+        expect(screen.getByTestId('provider-card-gemini')).not.toBeDisabled()
+      })
+      fireEvent.click(screen.getByTestId('provider-card-gemini'))
+      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { default_provider: 'gemini' })
     })
 
-    it('selects Anthropic provider and persists to API', () => {
+    it('selects Claude provider and persists to API', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/gemini/status') return Promise.resolve({ available: true, email: null })
+        return Promise.resolve({})
+      })
       renderSettings()
-      // First select Gemini, then go back to Anthropic
-      const geminiCard = screen.getByText('Google Gemini').closest('div[class*="cursor-pointer"]')!
-      fireEvent.click(geminiCard)
+      await waitFor(() => {
+        expect(screen.getByTestId('provider-card-gemini')).not.toBeDisabled()
+      })
+      fireEvent.click(screen.getByTestId('provider-card-gemini'))
       vi.clearAllMocks()
-
-      const anthropicCard = screen.getByText('Anthropic').closest('div[class*="cursor-pointer"]')!
-      fireEvent.click(anthropicCard)
-
-      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { provider: 'Anthropic' })
+      fireEvent.click(screen.getByTestId('provider-card-claude'))
+      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { default_provider: 'claude' })
     })
 
     it('loads default_model from API on mount and updates the store', async () => {
@@ -653,8 +661,9 @@ describe('Settings', () => {
 
     it('AI Provider section has its own heading separate from Chat backend', () => {
       renderSettings()
-      expect(screen.getByTestId('ai-provider-section')).toBeInTheDocument()
-      expect(screen.getByText('AI Provider')).toBeInTheDocument()
+      const aiSection = screen.getByTestId('ai-provider-section')
+      expect(aiSection).toBeInTheDocument()
+      expect(aiSection.querySelector('h2')?.textContent).toBe('AI Provider')
     })
 
     it('chat backend radios are inside the chat-backend-section, not ai-provider-section', () => {

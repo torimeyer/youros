@@ -19,7 +19,7 @@ import Icon from './Icon'
 import WhatsNew from './WhatsNew'
 import SinceYouLastLooked from './SinceYouLastLooked'
 import ConfirmModal from './ConfirmModal'
-import { useAppStore } from '../stores/app'
+import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import AdminSection from './AdminSection'
 import { api } from '../lib/api'
 import { onAgentsChange, onTasksChange, onSpecsChange, isDismissed } from '../lib/sidebarBus'
@@ -625,21 +625,23 @@ export function Sidebar() {
 
     <aside data-tour="sidebar" className={`h-dvh w-56 fixed top-0 ${sidebarPosition === 'right' ? 'right-0 border-l' : 'left-0 border-r'} border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : sidebarPosition === 'right' ? 'translate-x-full' : '-translate-x-full'} lg:translate-x-0`}>
       <div className="px-5 mb-8">
-        <span className={`text-xl font-black tracking-tight ${instanceMode === 'team' ? 'team-text' : 'accent-text'}`}>{displayOsName}</span>
-        <span
-          data-testid="sidebar-mode-badge"
-          className={`ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full align-middle ${
-            instanceMode === 'team'
-              ? 'bg-indigo-500/20 text-indigo-400'
-              : 'bg-slate-200 text-slate-700 dark:bg-slate-700/60 dark:text-slate-400'
-          }`}
-        >
-          {instanceMode === 'team' ? 'Team' : 'Personal'}
-        </span>
+        <span className="text-xl font-black tracking-tight accent-text">{displayOsName}</span>
+        {TEAM_MODE_VISIBLE && (
+          <span
+            data-testid="sidebar-mode-badge"
+            className={`ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full align-middle ${
+              instanceMode === 'team'
+                ? 'bg-indigo-500/20 text-indigo-400'
+                : 'bg-slate-200 text-slate-700 dark:bg-slate-700/60 dark:text-slate-400'
+            }`}
+          >
+            {instanceMode === 'team' ? 'Team' : 'Personal'}
+          </span>
+        )}
         {version && (
           <span className="block text-[10px] text-slate-500 font-mono mt-0.5">{version}</span>
         )}
-        {instanceMode === 'personal' && (
+        {TEAM_MODE_VISIBLE && instanceMode === 'personal' && (
           <Link
             data-testid="team-cta"
             to="/team-setup"
@@ -720,14 +722,14 @@ export function Sidebar() {
           <Icon name="explore" filled={iconStyle === 'filled'} className="text-xl" />
           <span className="text-sm font-medium">Tour</span>
         </button>
-        {instanceMode === 'team' && enterpriseUser?.role === 'admin' && (
+        {TEAM_MODE_VISIBLE && instanceMode === 'team' && enterpriseUser?.role === 'admin' && (
           <AdminSection
             linkClass={linkClass}
             iconStyle={iconStyle}
             onNavigate={() => setMobileOpen(false)}
           />
         )}
-        {instanceMode === 'team' && enterpriseUser && enterpriseUser.role !== 'admin' && (
+        {TEAM_MODE_VISIBLE && instanceMode === 'team' && enterpriseUser && enterpriseUser.role !== 'admin' && (
           <NavLink
             to="/team"
             onClick={() => setMobileOpen(false)}
@@ -741,7 +743,7 @@ export function Sidebar() {
             )}
           </NavLink>
         )}
-        {instanceMode === 'team' && (
+        {TEAM_MODE_VISIBLE && instanceMode === 'team' && (
           <button
             data-testid="switch-to-personal-mode"
             onClick={() => setShowSwitchPersonalConfirm(true)}

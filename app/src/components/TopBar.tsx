@@ -147,8 +147,6 @@ export default function TopBar({ title }: TopBarProps) {
   const toggleChat = useAppStore((s) => s.toggleChat)
   const setCommandPaletteOpen = useAppStore((s) => s.setCommandPaletteOpen)
   const displayOsName = useAppStore((s) => s.displayOsName())
-  const instanceMode = useAppStore((s) => s.instanceMode)
-  const enterpriseUser = useAppStore((s) => s.enterpriseUser)
   const chatOpen = useAppStore((s) => s.chatOpen)
   const chatWidth = useAppStore((s) => s.chatWidth)
   const [isDesktop, setIsDesktop] = useState(() =>
@@ -451,10 +449,8 @@ export default function TopBar({ title }: TopBarProps) {
             <span className="text-xs text-amber-300">Offline</span>
           </div>
         )}
-        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold ${instanceMode === 'team' ? 'bg-gradient-to-br from-indigo-500 to-blue-600' : 'bg-gradient-to-br from-pink-500 to-purple-600'}`}>
-          {instanceMode === 'team' && enterpriseUser?.email
-            ? enterpriseUser.email.charAt(0).toUpperCase()
-            : displayOsName.charAt(0).toUpperCase()}
+        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold bg-gradient-to-br from-pink-500 to-purple-600">
+          {displayOsName.charAt(0).toUpperCase()}
         </div>
       </div>
     </header>
