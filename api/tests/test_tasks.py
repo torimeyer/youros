@@ -369,7 +369,7 @@ async def test_next_task(client):
         resp = await client.get("/api/tasks/next")
 
     assert resp.status_code == 200
-    assert resp.json()["suggestion"] == "Work on lego-app"
+    assert resp.json()["message"] == "Work on lego-app"
 
 
 # --- Goal enrichment (backward compatible) ---

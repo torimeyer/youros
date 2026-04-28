@@ -7486,10 +7486,15 @@ async def agent_stream(websocket: WebSocket, name: str):
         )
         for task in pending:
             task.cancel()
+        # Await cancelled tasks so their CancelledError is processed and they
+        # are not destroyed while still pending ("Task was destroyed but it is pending!").
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
     except Exception:
         logger.exception("agent attach task wait failed for %s", name)
         stdout_task.cancel()
         client_task.cancel()
+        await asyncio.gather(stdout_task, client_task, return_exceptions=True)
 
 
 @router.websocket("/ws/agents/{name}/stream")
@@ -7572,10 +7577,15 @@ async def agent_attach_stream(websocket: WebSocket, name: str):
             )
             for task in _pending:
                 task.cancel()
+            # Await cancelled tasks so they process CancelledError and are not
+            # destroyed while pending ("Task was destroyed but it is pending!").
+            if _pending:
+                await asyncio.gather(*_pending, return_exceptions=True)
         except Exception:
             logger.exception("agent stream task wait failed for %s", name)
             output_task.cancel()
             client_read_task.cancel()
+            await asyncio.gather(output_task, client_read_task, return_exceptions=True)
     finally:
         # Always kill the subprocess to avoid orphans.
         if proc is not None and proc.returncode is None:

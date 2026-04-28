@@ -147,7 +147,15 @@ trap 'rm -f "$TMP_JSON"' EXIT
 # 3s connect, 5s total. Safe now that summary-mode keeps the payload
 # tiny; the old 2s/3s budget kept tripping on the full 660KB response
 # even when the backend was healthy.
-if ! curl --silent --insecure --tlsv1.2 --connect-timeout 3 -m 5 "${BACKEND_URL}${SUMMARY_PATH}" -o "$TMP_JSON" 2>/dev/null; then
+_sr_ok=0
+for _retry in 1 2 3; do
+    if curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 3 -m 5 "${BACKEND_URL}${SUMMARY_PATH}" -o "$TMP_JSON" 2>/dev/null; then
+        _sr_ok=1
+        break
+    fi
+    [ "$_retry" -lt 3 ] && sleep 5
+done
+if [ "$_sr_ok" -eq 0 ]; then
   cat <<'EOF'
 
 CURRENT RUNNING AGENTS: couldn't reach myOS backend to confirm current agents. Your in-memory list of running agents may be stale. Verify before reporting status.
@@ -259,7 +267,15 @@ PYEOF
 TMP_COMPLETED="$(mktemp -t standing-rules-completed.XXXXXX 2>/dev/null)" || TMP_COMPLETED="/tmp/standing-rules-completed.$$"
 trap 'rm -f "$TMP_JSON" "$TMP_COMPLETED"' EXIT
 
-if curl --silent --insecure --tlsv1.2 --connect-timeout 3 -m 5 "${BACKEND_URL}${COMPLETED_PATH}" -o "$TMP_COMPLETED" 2>/dev/null && [ -s "$TMP_COMPLETED" ]; then
+_sr_done=0
+for _retry in 1 2 3; do
+    if curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 3 -m 5 "${BACKEND_URL}${COMPLETED_PATH}" -o "$TMP_COMPLETED" 2>/dev/null; then
+        _sr_done=1
+        break
+    fi
+    [ "$_retry" -lt 3 ] && sleep 5
+done
+if [ "$_sr_done" -eq 1 ] && [ -s "$TMP_COMPLETED" ]; then
     AGENTS_FILE="$TMP_COMPLETED" STAMP_FILE="$COMPLETED_STAMP" python3 - <<'PYEOF2'
 import json, os, sys
 from datetime import datetime, timezone

@@ -48,6 +48,15 @@ app = FastAPI(title="myOS API", lifespan=lifespan)
 
 import os as _os
 
+_STARTUP_TASKS: set = set()
+
+
+def _keep(task):
+    _STARTUP_TASKS.add(task)
+    task.add_done_callback(_STARTUP_TASKS.discard)
+    return task
+
+
 # Restrict CORS to localhost origins so malicious webpages cannot make
 # credentialed requests to the local API while the backend is running.
 # In production/enterprise deployments set CORS_ALLOWED_ORIGINS to a
@@ -244,7 +253,7 @@ async def schedule_upgrade_check():
             pass
 
     import asyncio
-    asyncio.create_task(_check())
+    _keep(asyncio.create_task(_check()))
 
 
 async def schedule_label_backfill():
@@ -280,7 +289,7 @@ async def schedule_label_backfill():
         except Exception:
             pass
 
-    asyncio.create_task(_backfill())
+    _keep(asyncio.create_task(_backfill()))
 
 
 async def schedule_settings_sync_pull():
@@ -313,7 +322,7 @@ async def schedule_settings_sync_pull():
         except Exception:
             pass
 
-    asyncio.create_task(_pull())
+    _keep(asyncio.create_task(_pull()))
 
 
 async def schedule_gmail_unread_notification():
@@ -351,7 +360,7 @@ async def schedule_gmail_unread_notification():
         except Exception:
             pass
 
-    asyncio.create_task(_check())
+    _keep(asyncio.create_task(_check()))
 
 
 async def schedule_overdue_task_check():
@@ -392,7 +401,7 @@ async def schedule_overdue_task_check():
         except Exception:
             pass
 
-    asyncio.create_task(_check())
+    _keep(asyncio.create_task(_check()))
 
 
 async def prewarm_claude_cli():
@@ -415,7 +424,7 @@ async def prewarm_claude_cli():
         except Exception:
             pass
 
-    asyncio.create_task(_warm())
+    _keep(asyncio.create_task(_warm()))
 
 
 async def pregenerate_briefing():
@@ -436,7 +445,7 @@ async def pregenerate_briefing():
         except Exception:
             pass
 
-    asyncio.create_task(_gen())
+    _keep(asyncio.create_task(_gen()))
 
 
 async def prewarm_savings():
@@ -464,7 +473,7 @@ async def prewarm_savings():
         except Exception:
             pass
 
-    asyncio.create_task(_warm())
+    _keep(asyncio.create_task(_warm()))
 
 
 async def schedule_session_task_reaper():
@@ -480,7 +489,7 @@ async def schedule_session_task_reaper():
 
     from services.session_task_reaper import run_forever
 
-    asyncio.create_task(run_forever())
+    _keep(asyncio.create_task(run_forever()))
 
 
 async def schedule_ghost_spawn_reaper():
@@ -495,7 +504,7 @@ async def schedule_ghost_spawn_reaper():
 
     from services.ghost_reaper import run_forever
 
-    asyncio.create_task(run_forever())
+    _keep(asyncio.create_task(run_forever()))
 
 
 async def schedule_worktree_reaper():
@@ -511,7 +520,7 @@ async def schedule_worktree_reaper():
         return
 
     from services.worktree_reaper import run_forever
-    asyncio.create_task(run_forever())
+    _keep(asyncio.create_task(run_forever()))
 
 
 async def backfill_chat_ack_bots():
@@ -535,7 +544,7 @@ async def backfill_chat_ack_bots():
         except Exception:
             pass
 
-    asyncio.create_task(_run())
+    _keep(asyncio.create_task(_run()))
 
 
 async def backfill_stuck_in_progress_tasks():
@@ -576,7 +585,7 @@ async def backfill_stuck_in_progress_tasks():
         except Exception:
             pass
 
-    asyncio.create_task(_run())
+    _keep(asyncio.create_task(_run()))
 
 
 async def sweep_stale_backend_sessions():
@@ -607,7 +616,7 @@ async def schedule_agent_reconciliation():
 
     from routers.agents import _reconcile_loop
 
-    asyncio.create_task(_reconcile_loop())
+    _keep(asyncio.create_task(_reconcile_loop()))
 
 
 async def schedule_recurring_task_spawner():
@@ -633,7 +642,7 @@ async def schedule_recurring_task_spawner():
             # Check again in 30 minutes.
             await asyncio.sleep(30 * 60)
 
-    asyncio.create_task(_loop())
+    _keep(asyncio.create_task(_loop()))
 
 
 async def schedule_test_artifact_sweep():
@@ -728,7 +737,7 @@ async def schedule_test_artifact_sweep():
             # Sweep again in 5 minutes.
             await asyncio.sleep(300)
 
-    asyncio.create_task(_loop())
+    _keep(asyncio.create_task(_loop()))
 
 
 async def schedule_test_artifact_spec_sweep():
@@ -783,7 +792,7 @@ async def schedule_test_artifact_spec_sweep():
             # Sweep again in 5 minutes.
             await asyncio.sleep(300)
 
-    asyncio.create_task(_loop())
+    _keep(asyncio.create_task(_loop()))
 
 
 async def install_signal_shutdown_hook():
@@ -815,10 +824,15 @@ async def install_signal_shutdown_hook():
 
     loop = asyncio.get_running_loop()
 
+    # Strong-ref set so the notify task is not GC'd before it finishes.
+    _shutdown_tasks: set = set()
+
     def _handler(signum):
         # Schedule the notifier and then re-raise the default signal
         # behavior so uvicorn's own shutdown still proceeds.
-        asyncio.create_task(_notify_and_continue())
+        t = asyncio.create_task(_notify_and_continue())
+        _shutdown_tasks.add(t)
+        t.add_done_callback(_shutdown_tasks.discard)
         # Remove our handler so a second signal hits the default.
         try:
             loop.remove_signal_handler(signum)

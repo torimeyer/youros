@@ -130,8 +130,14 @@ log() { echo "[$(ts)] watchdog: $*" >> "$LOGFILE"; }
 
 probe_once() {
     # Returns 0 if /api/health returns 200 within 5 seconds, else nonzero.
+    # Retries 3x with 5s sleep to survive TLS handshake warm-up after restart.
     local code
-    code=$(curl --silent --insecure --tlsv1.2 --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null || echo "000")
+    code="000"
+    for _retry in 1 2 3; do
+        code=$(curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "$HEALTH_URL" 2>/dev/null || echo "000")
+        [ "$code" != "000" ] && break
+        [ "$_retry" -lt 3 ] && sleep 5
+    done
     [ "$code" = "200" ]
 }
 

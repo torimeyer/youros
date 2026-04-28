@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
 import TemplateCard from "../components/TemplateCard";
@@ -186,6 +186,7 @@ const AGENTFILE_ICONS: Record<string, string> = {
 };
 
 function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
+  const navigate = useNavigate();
   const [agentfiles, setAgentfiles] = useState<AgentfileInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -387,17 +388,26 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
                         </div>
                       </div>
                     )}
-                    <Button
-                      variant="primary"
-                      size="md"
-                      fullWidth
-                      onClick={() => handleLaunch(af.name)}
-                      disabled={launching === af.name}
-                      loading={launching === af.name}
-                      className="mt-2"
-                    >
-                      {launching === af.name ? "Launching..." : "Launch Agent"}
-                    </Button>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        variant="primary"
+                        size="md"
+                        fullWidth
+                        onClick={() => handleLaunch(af.name)}
+                        disabled={launching === af.name}
+                        loading={launching === af.name}
+                      >
+                        {launching === af.name ? "Launching..." : "Launch"}
+                      </Button>
+                      <button
+                        onClick={() => navigate(`/agentfiles/${encodeURIComponent(af.name)}/edit`)}
+                        className="flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-white text-xs transition-colors"
+                        aria-label={`Edit ${af.name}`}
+                      >
+                        <Icon name="edit" className="text-sm" />
+                        Edit
+                      </button>
+                    </div>
                   </div>
                 )}
               </Card>

@@ -156,7 +156,7 @@ tori() {
   local _http_code=""
   while [ $_attempt -lt $_max_retries ]; do
     _attempt=$((_attempt + 1))
-    _response=$(curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 1 -m 1 -w "\n%{http_code}" "${_be_scheme}://127.0.0.1:8000/api/health" 2>&1)
+    _response=$(curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 3 -m 5 -w "\n%{http_code}" "${_be_scheme}://127.0.0.1:8000/api/health" 2>&1)
     _http_code=$(echo "$_response" | tail -1)
     if [ "$_http_code" = "200" ]; then
       _ready=1
