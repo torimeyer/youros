@@ -42,6 +42,10 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Build the backend API stub",
             "Run a security review",
         ],
+        "user_inputs": [
+            {"key": "purpose", "label": "What is the website for?", "placeholder": "e.g. portfolio, SaaS product, marketing site", "type": "text", "required": True},
+            {"key": "audience", "label": "Who is the audience?", "placeholder": "e.g. small business owners, developers", "type": "text", "required": False},
+        ],
     },
     {
         "id": "product-launch",
@@ -65,6 +69,10 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Write the launch plan",
             "Write the user-facing documentation",
             "Write the test plan",
+        ],
+        "user_inputs": [
+            {"key": "product", "label": "What product or feature is launching?", "placeholder": "e.g. new checkout flow, mobile app v2", "type": "text", "required": True},
+            {"key": "date", "label": "What's the target launch date?", "placeholder": "e.g. May 15, end of Q2", "type": "text", "required": False},
         ],
     },
     {
@@ -92,6 +100,10 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Run the technical analysis",
             "Write the synthesis and recommendation",
         ],
+        "user_inputs": [
+            {"key": "question", "label": "What's the research question?", "placeholder": "e.g. Should we build a mobile app?", "type": "text", "required": True},
+            {"key": "angles", "label": "Any specific angles to cover?", "placeholder": "e.g. focus on competitor pricing", "type": "text", "required": False},
+        ],
     },
     {
         "id": "code-review",
@@ -114,6 +126,10 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Run the architecture review",
             "Run the security review",
             "Run the performance review",
+        ],
+        "user_inputs": [
+            {"key": "codebase", "label": "What codebase or PR is being reviewed?", "placeholder": "e.g. PR #123, the auth module", "type": "text", "required": True},
+            {"key": "focus", "label": "Any specific focus areas?", "placeholder": "e.g. focus on the database layer", "type": "text", "required": False},
         ],
     },
     {
@@ -139,6 +155,10 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Write the draft",
             "Edit and polish",
         ],
+        "user_inputs": [
+            {"key": "topic", "label": "What's the topic?", "placeholder": "e.g. why remote work is here to stay", "type": "text", "required": True},
+            {"key": "audience", "label": "Who is the target audience?", "placeholder": "e.g. startup founders, engineers", "type": "text", "required": False},
+        ],
     },
     {
         "id": "incident-response",
@@ -163,6 +183,9 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Implement and test the fix",
             "Write the customer communication",
         ],
+        "user_inputs": [
+            {"key": "incident", "label": "Describe the incident and symptoms", "placeholder": "e.g. login is failing for all users since 2pm", "type": "textarea", "required": True},
+        ],
     },
     {
         "id": "api-design",
@@ -185,6 +208,10 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Draft the API spec",
             "Run the developer experience review",
             "Run the security review",
+        ],
+        "user_inputs": [
+            {"key": "api", "label": "What API are you designing?", "placeholder": "e.g. payments API, user profile API", "type": "text", "required": True},
+            {"key": "consumers", "label": "Who will use it?", "placeholder": "e.g. mobile apps, third-party developers", "type": "text", "required": False},
         ],
     },
     {
@@ -211,6 +238,10 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Write the business case",
             "Write the contrarian brief",
         ],
+        "user_inputs": [
+            {"key": "opportunity", "label": "What opportunity or decision are you evaluating?", "placeholder": "e.g. build a native mobile app vs. improve the web app", "type": "text", "required": True},
+            {"key": "constraints", "label": "Any key constraints or context?", "placeholder": "e.g. 3-person team, 6-month runway", "type": "text", "required": False},
+        ],
     },
     {
         "id": "ia-review",
@@ -236,6 +267,10 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Run the naming audit",
             "Write the consolidation proposal",
         ],
+        "user_inputs": [
+            {"key": "product", "label": "What app or product are you reviewing?", "placeholder": "e.g. the onboarding flow, the settings page", "type": "text", "required": True},
+            {"key": "concern", "label": "What's the main concern?", "placeholder": "e.g. users keep getting lost in navigation", "type": "text", "required": False},
+        ],
     },
     {
         "id": "weekly-review-writeup",
@@ -257,6 +292,9 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Collect what shipped this week",
             "Collect what got stuck",
             "Name next week's priorities",
+        ],
+        "user_inputs": [
+            {"key": "notes", "label": "Paste your raw notes from the week", "placeholder": "What shipped, what got stuck, what's coming up...", "type": "textarea", "required": True},
         ],
     },
     {
@@ -281,6 +319,10 @@ BUILTIN_SPEC_TEMPLATES: list[dict[str, Any]] = [
             "Draft the announcement",
             "Add the call to action",
             "Proofread and polish",
+        ],
+        "user_inputs": [
+            {"key": "what", "label": "What shipped?", "placeholder": "e.g. dark mode, new billing page", "type": "text", "required": True},
+            {"key": "audience", "label": "Who is the announcement for?", "placeholder": "e.g. customers, internal team, press", "type": "text", "required": False},
         ],
     },
 ]

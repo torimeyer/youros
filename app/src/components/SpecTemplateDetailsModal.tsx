@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import Icon from "./Icon";
 
+interface SpecUserInput {
+  key: string;
+  label: string;
+  placeholder?: string;
+  type: "text" | "textarea";
+  required?: boolean;
+}
+
 // Shape of a spec template. Kept loose so this modal does not have to
 // depend on the full type in Specs.tsx. Only the fields we show or
 // submit are referenced below.
@@ -11,6 +19,7 @@ export interface SpecTemplateDetails {
   icon: string;
   acceptance_criteria?: string[];
   tasks?: string[];
+  user_inputs?: SpecUserInput[];
 }
 
 // Values the user entered before applying the template. The parent
@@ -42,6 +51,7 @@ export default function SpecTemplateDetailsModal({
 }: Props) {
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const titleRef = useRef<HTMLInputElement>(null);
   const noteRef = useRef<HTMLTextAreaElement>(null);
 
@@ -50,6 +60,7 @@ export default function SpecTemplateDetailsModal({
     if (open && template) {
       setTitle(template.name);
       setNote("");
+      setFieldValues({});
       setTimeout(() => titleRef.current?.focus(), 0);
     }
   }, [open, template]);
@@ -69,11 +80,23 @@ export default function SpecTemplateDetailsModal({
   if (!open || !template) return null;
 
   const trimmedTitle = title.trim();
-  const canSubmit = trimmedTitle.length > 0 && !submitting;
+  const hasUserInputs = (template?.user_inputs?.length ?? 0) > 0;
+  const requiredFilled = !hasUserInputs || template!.user_inputs!.filter((i) => i.required).every((i) => fieldValues[i.key]?.trim());
+  const canSubmit = trimmedTitle.length > 0 && !submitting && requiredFilled;
+
+  function buildSpecMessage(inputs: SpecUserInput[], values: Record<string, string>): string {
+    return inputs
+      .filter((inp) => values[inp.key]?.trim())
+      .map((inp) => `${inp.label}: ${values[inp.key].trim()}`)
+      .join("\n");
+  }
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    onSubmit({ title: trimmedTitle, note: note.trim() });
+    const builtNote = hasUserInputs
+      ? buildSpecMessage(template!.user_inputs!, fieldValues)
+      : note.trim();
+    onSubmit({ title: trimmedTitle, note: builtNote });
   };
 
   const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -151,21 +174,49 @@ export default function SpecTemplateDetailsModal({
             />
           </div>
 
-          <div>
-            <label className="block text-xs text-slate-400 mb-1.5">
-              Anything extra we should know? (optional)
-            </label>
-            <textarea
-              ref={noteRef}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              onKeyDown={handleNoteKeyDown}
-              placeholder="Add audience, deadline, or anything else that matters."
-              rows={3}
-              data-testid="spec-template-note-input"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
-            />
-          </div>
+          {hasUserInputs ? (
+            template!.user_inputs!.map((inp) => (
+              <div key={inp.key}>
+                <label className="block text-xs text-slate-400 mb-1.5">
+                  {inp.label}{!inp.required ? " (optional)" : ""}
+                </label>
+                {inp.type === "textarea" ? (
+                  <textarea
+                    value={fieldValues[inp.key] || ""}
+                    onChange={(e) => setFieldValues((prev) => ({ ...prev, [inp.key]: e.target.value }))}
+                    placeholder={inp.placeholder}
+                    rows={3}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={fieldValues[inp.key] || ""}
+                    onChange={(e) => setFieldValues((prev) => ({ ...prev, [inp.key]: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSubmit(); } }}
+                    placeholder={inp.placeholder}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                )}
+              </div>
+            ))
+          ) : (
+            <div>
+              <label className="block text-xs text-slate-400 mb-1.5">
+                Anything extra we should know? (optional)
+              </label>
+              <textarea
+                ref={noteRef}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                onKeyDown={handleNoteKeyDown}
+                placeholder="Add audience, deadline, or anything else that matters."
+                rows={3}
+                data-testid="spec-template-note-input"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+              />
+            </div>
+          )}
 
           {criteria.length > 0 && (
             <div data-testid="spec-template-ac-preview">
