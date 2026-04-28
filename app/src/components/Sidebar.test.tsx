@@ -649,14 +649,14 @@ describe('Sidebar', () => {
     expandAllGroups()
 
     await waitFor(() => {
-      const specsLink = screen.getByText('Specs').closest('a')
+      const specsLink = screen.getByText('Plans').closest('a')
       expect(specsLink?.textContent).toContain('3')
     })
 
     // Styling must match the Agents and Tasks badges: green pill, pulsing
     // green dot, tiny bold text. Guards against one badge drifting out of
     // visual sync with the others.
-    const specsLink = screen.getByText('Specs').closest('a')
+    const specsLink = screen.getByText('Plans').closest('a')
     const badge = specsLink?.querySelector('.bg-green-500\\/20')
     expect(badge).not.toBeNull()
     expect(badge?.className).toContain('text-green-400')
@@ -679,10 +679,10 @@ describe('Sidebar', () => {
       expect(mockedApiGet).toHaveBeenCalledWith('/specs/counts')
     })
 
-    const specsLink = screen.getByText('Specs').closest('a')
+    const specsLink = screen.getByText('Plans').closest('a')
     // No count pill should render when there's nothing unfinished.
     expect(specsLink?.querySelectorAll('.rounded-full').length).toBe(0)
-    expect(specsLink?.textContent).toContain('Specs')
+    expect(specsLink?.textContent).toContain('Plans')
     expect(specsLink?.textContent).not.toMatch(/\d/)
   })
 
@@ -754,7 +754,7 @@ describe('Sidebar', () => {
       expect(agentsLink?.textContent).toContain('1')
       const tasksLink = screen.getByText('Tasks').closest('a')
       expect(tasksLink?.textContent).toContain('2')
-      const specsLink = screen.getByText('Specs').closest('a')
+      const specsLink = screen.getByText('Plans').closest('a')
       expect(specsLink?.textContent).toContain('3')
     })
   })
@@ -930,7 +930,7 @@ describe('Sidebar grouped nav', () => {
       { label: 'Home', href: '/' },
       { label: 'Tasks', href: '/tasks' },
       { label: 'Agents', href: '/agents' },
-      { label: 'Specs', href: '/specs' },
+      { label: 'Plans', href: '/specs' },
       { label: 'Gmail', href: '/gmail' },
       { label: 'Calendar', href: '/calendar' },
       { label: 'iMessage', href: '/imessage' },

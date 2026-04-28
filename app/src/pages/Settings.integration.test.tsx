@@ -171,7 +171,7 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
       ),
     })
     renderSidebar()
-    expect(screen.queryByText('Specs')).not.toBeInTheDocument()
+    expect(screen.queryByText('Plans')).not.toBeInTheDocument()
   })
 
   it('hides Agents nav item when Agents feature is disabled', () => {
@@ -220,7 +220,7 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
   it('shows all items when all features are enabled', () => {
     renderSidebar()
     expect(screen.getByText('Tasks')).toBeInTheDocument()
-    expect(screen.getByText('Specs')).toBeInTheDocument()
+    expect(screen.getByText('Plans')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
   })
 

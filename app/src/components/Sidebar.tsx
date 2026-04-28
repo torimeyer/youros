@@ -18,6 +18,7 @@ import { CSS } from '@dnd-kit/utilities'
 import Icon from './Icon'
 import WhatsNew from './WhatsNew'
 import SinceYouLastLooked from './SinceYouLastLooked'
+import ConfirmModal from './ConfirmModal'
 import { useAppStore } from '../stores/app'
 import AdminSection from './AdminSection'
 import { api } from '../lib/api'
@@ -58,7 +59,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Files & Docs',
     icon: 'folder_open',
     items: [
-      { to: '/specs', icon: 'description', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
+      { to: '/specs', icon: 'description', label: 'Plans', featureLabel: 'Specs', specsBadge: true },
       { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
       { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
     ],
@@ -442,6 +443,7 @@ export function Sidebar() {
   // hits Undo. Without this offset the Specs page showed 0 while the
   // sidebar badge showed 1 for the full 5 s window.
   const [pendingSpecDelta, setPendingSpecDelta] = useState(0)
+  const [showSwitchPersonalConfirm, setShowSwitchPersonalConfirm] = useState(false)
   useEffect(() => {
     const handler = (e: Event) => {
       const ce = e as CustomEvent<{ delta: number }>
@@ -739,6 +741,16 @@ export function Sidebar() {
             )}
           </NavLink>
         )}
+        {instanceMode === 'team' && (
+          <button
+            data-testid="switch-to-personal-mode"
+            onClick={() => setShowSwitchPersonalConfirm(true)}
+            className="group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-500 hover:text-slate-300 hover:bg-slate-800/30"
+          >
+            <Icon name="person" filled={false} className="text-xl" />
+            <span className="text-sm font-medium">Switch to personal</span>
+          </button>
+        )}
         {usageEnabled && (
           <NavLink
             data-testid="usage-nav-link"
@@ -819,6 +831,17 @@ export function Sidebar() {
         )}
       </div>
     </aside>
+    <ConfirmModal
+      open={showSwitchPersonalConfirm}
+      title="Switch to personal mode?"
+      message="Your team data stays saved."
+      confirmLabel="Switch"
+      onConfirm={() => {
+        setShowSwitchPersonalConfirm(false)
+        useAppStore.getState().setInstanceMode('personal')
+      }}
+      onCancel={() => setShowSwitchPersonalConfirm(false)}
+    />
     </>
   )
 }
