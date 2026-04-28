@@ -553,10 +553,10 @@ export default function Dashboard() {
                         review_agent: 'smart_toy',
                       };
                       const colorMap: Record<string, string> = {
-                        reply_email: 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30',
-                        close_task: 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30',
-                        prep_meeting: 'bg-purple-500/20 text-purple-300 hover:bg-purple-500/30',
-                        review_agent: 'bg-orange-500/20 text-orange-300 hover:bg-orange-500/30',
+                        reply_email: 'bg-blue-500/20 text-blue-700 dark:text-blue-300 hover:bg-blue-500/30',
+                        close_task: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/30',
+                        prep_meeting: 'bg-purple-500/20 text-purple-700 dark:text-purple-300 hover:bg-purple-500/30',
+                        review_agent: 'bg-orange-500/20 text-orange-700 dark:text-orange-300 hover:bg-orange-500/30',
                       };
                       return (
                         <button
@@ -571,7 +571,7 @@ export default function Dashboard() {
                             }
                           }}
                           title={item.context}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${colorMap[item.type] || 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'}`}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${colorMap[item.type] || 'bg-slate-500/20 text-slate-700 dark:text-slate-300 hover:bg-slate-500/30'}`}
                         >
                           <Icon name={iconMap[item.type] || 'bolt'} size={14} />
                           {item.label}
