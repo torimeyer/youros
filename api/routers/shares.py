@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from services import recent_deletes
@@ -26,8 +26,8 @@ router = APIRouter(tags=["shares"])
 
 
 class ShareCreate(BaseModel):
-    share_type: str          # "task_list" | "agent_output" | "label_view"
-    content_ids: list[str]   # task IDs, agent name, or label ID
+    share_type: str          # "task_list" | "agent_output" | "label_view" | "file"
+    content_ids: list[str]   # task IDs, agent name, label ID, or file path
     title: str
     expires_in_days: int = 7
 
@@ -113,10 +113,10 @@ async def create_share(body: ShareCreate, request: Request):
     if not title:
         raise HTTPException(status_code=400, detail="Title is required")
 
-    if body.share_type not in ("task_list", "agent_output", "label_view"):
+    if body.share_type not in ("task_list", "agent_output", "label_view", "file"):
         raise HTTPException(
             status_code=400,
-            detail="share_type must be 'task_list', 'agent_output', or 'label_view'",
+            detail="share_type must be 'task_list', 'agent_output', 'label_view', or 'file'",
         )
 
     if not body.content_ids:
@@ -194,3 +194,59 @@ async def delete_share(token: str):
         raise HTTPException(status_code=404, detail="Share not found")
     recent_deletes.record_id(f"share:{token}")
     return {"result": "revoked"}
+
+
+@router.post("/files/share")
+async def create_file_share(
+    request: Request,
+    path: str = Query(..., description="Path to the file to share"),
+    expires_in_days: int = Query(7, ge=1, le=365),
+):
+    """Create a public share link for a file.
+
+    Snapshots the file content and provenance sidecar at creation time so
+    the share is a stable copy. Returns {token, url}.
+    """
+    from routers.projects import _resolve_readable_path
+    from services.provenance import read_sidecar
+
+    resolved = _resolve_readable_path(path)
+    if resolved is None or not resolved.is_file():
+        raise HTTPException(status_code=404, detail="File not found or not readable")
+
+    try:
+        raw = resolved.read_bytes()
+        # Treat as text; fall back to base64 for binary blobs
+        try:
+            content = raw[:16_000].decode("utf-8", errors="strict")
+            is_binary = False
+        except UnicodeDecodeError:
+            content = ""
+            is_binary = True
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not read file: {exc}")
+
+    provenance = read_sidecar(resolved)
+
+    snapshot = [{
+        "file_name": resolved.name,
+        "file_path": path,
+        "content": content,
+        "is_binary": is_binary,
+        "provenance": provenance,
+    }]
+
+    try:
+        share = shares_store.create_share(
+            share_type="file",
+            content_ids=[path],
+            title=resolved.name,
+            content_snapshot=snapshot,
+            expires_in_days=expires_in_days,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    token = share["token"]
+    path_url = f"/share/{token}"
+    return {"token": token, "url": path_url, "path": path_url, "share": share}

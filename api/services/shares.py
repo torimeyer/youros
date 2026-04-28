@@ -17,7 +17,7 @@ from services.atomic_io import atomic_write_json, atomic_write_text
 
 SHARES_PATH = Path.home() / ".myos" / "shares.json"
 
-SHARE_TYPES = {"task_list", "agent_output", "label_view"}
+SHARE_TYPES = {"task_list", "agent_output", "label_view", "file"}
 
 
 class SharesStore:

@@ -4,6 +4,7 @@ import TopBar from '../components/TopBar';
 import ConfirmModal from '../components/ConfirmModal';
 import QuickLook from '../components/QuickLook';
 import ProvenanceChip, { type Provenance } from '../components/ProvenanceChip';
+import FileShareModal from '../components/FileShareModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { api, ApiError } from '../lib/api';
 
@@ -147,6 +148,9 @@ export default function Files() {
 
   // QuickLook state (shared across both views)
   const [quickLookTarget, setQuickLookTarget] = useState<{ path: string; mime: string } | null>(null);
+
+  // File share modal state
+  const [shareTarget, setShareTarget] = useState<{ path: string; name: string } | null>(null);
 
   // null means we're at the root (project list), a string means we're browsing a directory
   const [currentPath, setCurrentPath] = useState<string | null>(null);
@@ -369,22 +373,34 @@ export default function Files() {
             {!timelineLoading && timelineFiles.length > 0 && (
               <div className="flex flex-col gap-1">
                 {timelineFiles.map((file) => (
-                  <button
+                  <div
                     key={file.id}
-                    data-testid={`files-timeline-row-${file.id}`}
-                    onClick={() => setQuickLookTarget({ path: file.path, mime: file.mime_type })}
-                    className="flex items-center gap-4 bg-slate-900/40 border border-slate-800/60 rounded-lg px-4 py-3 hover:border-blue-500/40 hover:bg-slate-800/40 transition-colors text-left w-full"
+                    className="group flex items-center gap-4 bg-slate-900/40 border border-slate-800/60 rounded-lg px-4 py-3 hover:border-blue-500/40 hover:bg-slate-800/40 transition-colors"
                   >
-                    <Icon name={fileIcon(file.name)} className="text-xl text-slate-400 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-200 truncate">{file.name}</p>
-                      <ProvenanceChip provenance={file.provenance} />
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-xs text-slate-500">{formatBytes(file.size)}</p>
-                      <p className="text-xs text-slate-600">{timeAgo(file.modified_at)}</p>
-                    </div>
-                  </button>
+                    <button
+                      data-testid={`files-timeline-row-${file.id}`}
+                      onClick={() => setQuickLookTarget({ path: file.path, mime: file.mime_type })}
+                      className="flex items-center gap-4 flex-1 min-w-0 text-left"
+                    >
+                      <Icon name={fileIcon(file.name)} className="text-xl text-slate-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-slate-200 truncate">{file.name}</p>
+                        <ProvenanceChip provenance={file.provenance} />
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-xs text-slate-500">{formatBytes(file.size)}</p>
+                        <p className="text-xs text-slate-600">{timeAgo(file.modified_at)}</p>
+                      </div>
+                    </button>
+                    <button
+                      data-testid={`files-timeline-share-${file.id}`}
+                      onClick={(e) => { e.stopPropagation(); setShareTarget({ path: file.path, name: file.name }); }}
+                      className="shrink-0 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-blue-400 transition-all"
+                      title="Share file"
+                    >
+                      <Icon name="link" size={16} />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -679,6 +695,15 @@ export default function Files() {
           fileType={quickLookTarget.mime}
           isOpen={true}
           onClose={() => setQuickLookTarget(null)}
+        />
+      )}
+
+      {/* File share modal */}
+      {shareTarget && (
+        <FileShareModal
+          filePath={shareTarget.path}
+          fileName={shareTarget.name}
+          onClose={() => setShareTarget(null)}
         />
       )}
 
