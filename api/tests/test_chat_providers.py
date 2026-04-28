@@ -2997,6 +2997,141 @@ class TestGeminiStreamReceivesInlineDataForImages:
             assert payload[0].text == "hello gemini"
 
 
+# --- Gemini mid-stream disconnect / API error handling ---
+
+
+class TestGeminiMidStreamDisconnect:
+    """stream_gemini must handle mid-stream WebSocket disconnects and Google
+    API errors without letting exceptions escape or sending on a closed socket.
+    """
+
+    @pytest.mark.asyncio
+    async def test_websocket_disconnect_during_token_send_is_swallowed(self):
+        """When the WebSocket closes mid-stream (client navigated away), the
+        WebSocketDisconnect raised by send_json must be caught silently. No
+        error event is sent and nothing escapes stream_gemini."""
+        from starlette.websockets import WebSocketDisconnect
+        from services.chat_providers import _clear_gemini_client_cache
+        _clear_gemini_client_cache()
+
+        call_count = 0
+
+        class _DisconnectWebSocket(FakeWebSocket):
+            async def send_json(self, data: dict):
+                nonlocal call_count
+                call_count += 1
+                if data.get("type") == "token":
+                    raise WebSocketDisconnect(code=1001)
+                await super().send_json(data)
+
+        ws = _DisconnectWebSocket()
+        response = _FakeGeminiResponse(
+            chunks=[_FakeGeminiChunk("hello"), _FakeGeminiChunk("world")],
+            finish_reason_name="STOP",
+        )
+
+        import google
+        import google.generativeai as real_genai
+        import sys
+
+        fake_genai_module = MagicMock()
+        fake_genai_module.configure = MagicMock()
+        fake_genai_module.GenerativeModel = MagicMock(
+            return_value=_FakeGeminiModel(response)
+        )
+        fake_genai_module.types = real_genai.types
+        fake_genai_module.protos = real_genai.protos
+
+        original_sys_module = sys.modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        sys.modules["google.generativeai"] = fake_genai_module
+        google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        try:
+            with patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value="test-key"),
+            ):
+                service = ChatService()
+                # Must not raise
+                await service.stream_gemini(
+                    [{"role": "user", "content": "hi"}], ws
+                )
+        finally:
+            if original_sys_module is not None:
+                sys.modules["google.generativeai"] = original_sys_module
+            else:
+                sys.modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+            _clear_gemini_client_cache()
+
+        # No error event should have been sent (the socket is closed).
+        error_msgs = [m for m in ws.messages if m.get("type") == "error"]
+        assert error_msgs == [], f"Unexpected error events sent to closed socket: {error_msgs}"
+
+    @pytest.mark.asyncio
+    async def test_service_unavailable_surfaces_as_error_event(self):
+        """When _pull_next_chunk raises google.api_core.exceptions.ServiceUnavailable,
+        stream_gemini must catch it in the outer handler and send a proper
+        {"type": "error"} event, not drop the connection bare."""
+        from services.chat_providers import _clear_gemini_client_cache
+        _clear_gemini_client_cache()
+
+        import google.api_core.exceptions
+
+        class _ErrorResponse(_FakeGeminiResponse):
+            def __iter__(self):
+                raise google.api_core.exceptions.ServiceUnavailable("503 upstream")
+
+        ws = FakeWebSocket()
+        response = _ErrorResponse(chunks=[], finish_reason_name="STOP")
+
+        import google
+        import google.generativeai as real_genai
+        import sys
+
+        fake_genai_module = MagicMock()
+        fake_genai_module.configure = MagicMock()
+        fake_genai_module.GenerativeModel = MagicMock(
+            return_value=_FakeGeminiModel(response)
+        )
+        fake_genai_module.types = real_genai.types
+        fake_genai_module.protos = real_genai.protos
+
+        original_sys_module = sys.modules.get("google.generativeai")
+        original_attr = getattr(google, "generativeai", None)
+        sys.modules["google.generativeai"] = fake_genai_module
+        google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        try:
+            with patch(
+                "services.chat_providers._resolve_api_key",
+                new=AsyncMock(return_value="test-key"),
+            ):
+                service = ChatService()
+                await service.stream_gemini(
+                    [{"role": "user", "content": "hi"}], ws
+                )
+        finally:
+            if original_sys_module is not None:
+                sys.modules["google.generativeai"] = original_sys_module
+            else:
+                sys.modules.pop("google.generativeai", None)
+            if original_attr is not None:
+                google.generativeai = original_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "generativeai"):
+                delattr(google, "generativeai")
+            _clear_gemini_client_cache()
+
+        error_msgs = [m for m in ws.messages if m.get("type") == "error"]
+        assert len(error_msgs) == 1, (
+            f"Expected exactly one error event, got: {ws.messages}"
+        )
+        # Must not be a bare connection-dropped silence; must contain text.
+        assert error_msgs[0].get("data"), "Error event must carry a message"
+
+
 # --- Standing instructions injection ---
 
 

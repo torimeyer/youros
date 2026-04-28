@@ -6,6 +6,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 import anthropic
 from fastapi import WebSocket
+from starlette.websockets import WebSocketDisconnect
 
 # Pre-warm the Google Generative AI SDK at module import time. On a cold
 # uvicorn worker the first `import google.generativeai` inside a chat
@@ -2835,6 +2836,9 @@ class ChatService:
                             _first_token_logged = True
                         full_text += text
                         await websocket.send_json({"type": "token", "data": text})
+            except WebSocketDisconnect:
+                # Client disconnected mid-stream. Nothing to send.
+                return full_text
             except genai.types.BlockedPromptException:
                 # The PROMPT itself was blocked before any tokens were
                 # emitted. The model never produced a response at all,
@@ -2942,10 +2946,16 @@ class ChatService:
                 _gem_output,
             )
             await websocket.send_json({"type": "done"})
+        except WebSocketDisconnect:
+            # Client already gone; nothing to send.
+            pass
         except Exception as e:
             error_text = str(e)
             friendly = _friendly_gemini_error(error_text)
-            await websocket.send_json({"type": "error", "data": friendly})
+            try:
+                await websocket.send_json({"type": "error", "data": friendly})
+            except Exception:
+                pass  # socket already closed; client will show its own disconnect message
 
         return full_text
 

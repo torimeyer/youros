@@ -217,6 +217,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": [],
         "installed": True,
         "builtin": True,
+        "user_inputs": [
+            {"key": "task", "label": "What do you want to build?", "placeholder": "Describe the feature, fix, or task in plain language", "type": "textarea", "required": True, "advanced": False},
+            {"key": "constraints", "label": "Any requirements or constraints?", "placeholder": "e.g. must work on mobile, no new dependencies", "type": "text", "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-diagnose",
@@ -240,6 +244,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": [],
         "installed": True,
         "builtin": True,
+        "user_inputs": [
+            {"key": "bug", "label": "Describe the bug or paste the error", "placeholder": "What's happening? Paste any stack trace or error message here", "type": "textarea", "required": True, "advanced": False},
+            {"key": "hypothesis", "label": "Where do you think the problem is?", "placeholder": "e.g. probably in the auth middleware", "type": "text", "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-research",
@@ -262,6 +270,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": True,
         "builtin": False,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "query", "label": "What do you want to know?", "placeholder": "e.g. What are the top project management tools in 2025?", "type": "text", "required": True, "advanced": False},
+            {"key": "constraints", "label": "Any specific sources or constraints?", "placeholder": "e.g. focus on peer-reviewed sources, or avoid paywalled sites", "type": "text", "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-brainstorm",
@@ -287,6 +299,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": [],
         "installed": True,
         "builtin": True,
+        "user_inputs": [
+            {"key": "problem", "label": "What problem or question do you want ideas for?", "placeholder": "e.g. How should we increase user retention?", "type": "text", "required": True, "advanced": False},
+            {"key": "constraints", "label": "Any must-haves or constraints?", "placeholder": "e.g. must be free, no engineering work needed", "type": "text", "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-review",
@@ -314,6 +330,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": [],
         "installed": True,
         "builtin": False,
+        "user_inputs": [
+            {"key": "code", "label": "Paste the code or describe the changes to review", "placeholder": "Paste code, a PR description, or describe what changed", "type": "textarea", "required": True, "advanced": False},
+            {"key": "focus", "label": "What should the reviewer focus on?", "placeholder": "", "type": "multi_chips", "options": ["Bugs", "Security", "Performance", "Style", "Tests"], "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-test",
@@ -326,10 +346,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "icon": "science",
         "prompt_template": (
             "You are a myOS test runner agent. Your job: (1) Discover and "
-            "run all relevant tests. (2) Report which tests pass and which "
-            "fail. (3) For failures, read the test code and source code to "
-            "suggest a fix. (4) Never skip failing tests. Report results in "
-            "plain language."
+            "run all relevant tests using the test command or path the user "
+            "specifies. (2) Report which tests pass and which fail. (3) For "
+            "failures, read the test code and source code to suggest a fix. "
+            "(4) Never skip failing tests. Report results in plain language."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -337,6 +357,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": [],
         "installed": True,
         "builtin": False,
+        "user_inputs": [
+            {"key": "tests", "label": "Which tests should run, or paste the test command?", "placeholder": "e.g. pytest tests/test_auth.py, or just \"all tests\"", "type": "text", "required": True, "advanced": False},
+        ],
     },
     # --- PM templates (marketplace, personas=["pm"]) ---
     {
@@ -358,6 +381,11 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "area", "label": "What product area are we looking at?", "placeholder": "e.g. project management, AI writing tools", "type": "text", "required": True, "advanced": False},
+            {"key": "timeframe", "label": "Timeframe", "placeholder": "", "type": "chips", "options": ["Last 3 months", "Last 6 months", "Last year"], "required": False, "advanced": True},
+            {"key": "competitors", "label": "Which competitors to focus on?", "placeholder": "e.g. Notion, Linear, Asana (or leave blank for top players)", "type": "text", "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-pm-prd",
@@ -378,6 +406,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "idea", "label": "Describe the feature or idea in a few sentences", "placeholder": "e.g. Users need a way to export their data as a CSV", "type": "textarea", "required": True, "advanced": False},
+            {"key": "user", "label": "Who is this for?", "placeholder": "e.g. enterprise admins, new free-tier users", "type": "text", "required": False, "advanced": False},
+        ],
     },
     {
         "id": "builtin-pm-customer-interviews",
@@ -397,6 +429,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "transcript", "label": "Paste your raw interview notes or transcript", "placeholder": "Paste the interview transcript or your rough notes here", "type": "textarea", "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-pm-launch-checklist",
@@ -417,6 +452,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "feature", "label": "Feature name and what it does", "placeholder": "e.g. CSV export — lets users download their data as a spreadsheet", "type": "textarea", "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-pm-roadmap",
@@ -431,12 +469,12 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         # mailbox block and warm-up. Keep this prompt in sync with the
         # agentfile so re-seeding produces the same text.
         "prompt_template": (
-            "You are a senior PM. Produce a 3-year roadmap as a JSON array "
-            "of 12 quarters. Each quarter is an object with these exact "
-            "keys: quarter (string like 'Q1 2026'), theme (one short "
-            "sentence), initiatives (array of 3 to 5 short strings). Plain "
-            "language, no jargon. Reply with ONLY the JSON array. No "
-            "preamble, no trailing text, no markdown fences."
+            "You are a senior PM. Produce a roadmap as a JSON array of "
+            "quarters based on the user's timeframe. Each quarter is an "
+            "object with these exact keys: quarter (string like 'Q1 2026'), "
+            "theme (one short sentence), initiatives (array of 3 to 5 short "
+            "strings). Plain language, no jargon. Reply with ONLY the JSON "
+            "array. No preamble, no trailing text, no markdown fences."
         ),
         "model": "sonnet",
         "budget": 3.0,
@@ -445,6 +483,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "initiatives", "label": "What are the main initiatives for the next year?", "placeholder": "List the big bets, one per line", "type": "textarea", "required": True, "advanced": False},
+            {"key": "timeframe", "label": "Timeframe", "placeholder": "", "type": "chips", "options": ["1 year", "2 years", "3 years", "5 years"], "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-pm-stakeholder-update",
@@ -465,6 +507,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "notes", "label": "Paste your raw notes on what shipped, what's in progress, and what's at risk", "placeholder": "Bullet points are fine", "type": "textarea", "required": True, "advanced": False},
+        ],
     },
     # --- Engineers ---
     # NOTE: "Code Review" is retired. It is now an alias on the built-in
@@ -488,6 +533,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["engineer"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "code", "label": "Paste the function or module to test", "placeholder": "Paste the code you want tests written for", "type": "textarea", "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-eng-bug-finder",
@@ -507,6 +555,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["engineer"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "code", "label": "Paste the code to audit", "placeholder": "Paste the code you want checked for bugs and security issues", "type": "textarea", "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-eng-debug-helper",
@@ -525,6 +576,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["engineer"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "error", "label": "Paste the error log or stack trace", "placeholder": "Paste the full error output here", "type": "textarea", "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-eng-refactor-plan",
@@ -545,6 +599,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "code", "label": "Paste the code to refactor", "placeholder": "Paste the code you want cleaned up", "type": "textarea", "required": True, "advanced": False},
+            {"key": "goal", "label": "What are you trying to improve?", "placeholder": "", "type": "chips", "options": ["Readability", "Performance", "Testability", "Simplicity"], "required": True, "advanced": False},
+        ],
     },
     # --- Sales and customer success ---
     {
@@ -555,7 +613,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "icon": "business",
         "prompt_template": (
             "You are a sales researcher. For the company and contact the user "
-            "names, produce a one-page brief: recent news, likely pain points, "
+            "provides, produce a one-page brief: recent news, likely pain points, "
             "the decision maker's background, and 3 conversation openers. "
             "Plain language, no hype."
         ),
@@ -566,6 +624,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "company", "label": "Company name", "placeholder": "e.g. Acme Corp", "type": "text", "required": True, "advanced": False},
+            {"key": "contact", "label": "Contact name and role", "placeholder": "e.g. Jane Smith, VP of Engineering", "type": "text", "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-sales-cold-outreach",
@@ -585,6 +647,11 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["sales"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "prospect", "label": "Who is the prospect? (role and company)", "placeholder": "e.g. Head of Engineering at a 50-person fintech startup", "type": "text", "required": True, "advanced": False},
+            {"key": "value_prop", "label": "What's your value prop for them?", "placeholder": "e.g. We cut deployment time by 80% for teams like theirs", "type": "text", "required": True, "advanced": False},
+            {"key": "tone", "label": "Tone", "placeholder": "", "type": "chips", "options": ["Warm", "Professional", "Direct"], "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-sales-call-prep",
@@ -603,6 +670,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["sales"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "call", "label": "Who is on the call and what's the goal?", "placeholder": "e.g. renewal call with Jane Smith, goal is to close a 2-year deal", "type": "text", "required": True, "advanced": False},
+            {"key": "context", "label": "Key context (their stage, recent events)", "placeholder": "e.g. they had a bad experience with our support last month", "type": "textarea", "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-sales-follow-up",
@@ -622,6 +693,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["sales"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "notes", "label": "Paste your call notes", "placeholder": "Bullet points are fine", "type": "textarea", "required": True, "advanced": False},
+            {"key": "next_step", "label": "What's the agreed next step?", "placeholder": "e.g. send proposal by Friday", "type": "text", "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-sales-objection-handling",
@@ -631,7 +706,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "icon": "question_answer",
         "prompt_template": (
             "You are a sales coach. For the product and objection the user "
-            "names, propose 3 response options ranked by tone (empathetic, "
+            "provides, propose 3 response options ranked by tone (empathetic, "
             "direct, curious). Each response is one paragraph. Suggest the "
             "discovery question you would ask instead of answering."
         ),
@@ -641,6 +716,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["sales"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "objection", "label": "What objection are you preparing for?", "placeholder": "e.g. \"Your product is too expensive\"", "type": "text", "required": True, "advanced": False},
+            {"key": "product", "label": "What product or service is involved?", "placeholder": "e.g. enterprise analytics platform", "type": "text", "required": True, "advanced": False},
+        ],
     },
     # --- Writers and creators ---
     {
@@ -650,9 +729,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "description": "Write a draft blog post from an outline or rough idea.",
         "icon": "edit_note",
         "prompt_template": (
-            "You are a blog writer. From the user's outline or idea, produce "
+            "You are a blog writer. From the user's topic, produce "
             "a draft post: strong opening, 3-5 body sections with subheads, a "
-            "short closing. Plain, warm, specific. Under 700 words."
+            "short closing. Plain, warm, specific. Match the length the user "
+            "requests, or default to under 700 words."
         ),
         "model": "sonnet",
         "budget": 3.0,
@@ -661,6 +741,11 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "topic", "label": "What's the topic or rough idea?", "placeholder": "e.g. why remote work is actually better for introverts", "type": "text", "required": True, "advanced": False},
+            {"key": "audience", "label": "Who is this for?", "placeholder": "e.g. startup founders, working parents", "type": "text", "required": False, "advanced": False},
+            {"key": "length", "label": "Length", "placeholder": "", "type": "chips", "options": ["Short (~400 words)", "Standard (~700 words)", "Long-form (~1200 words)"], "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-writer-social-post",
@@ -669,10 +754,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "description": "Turn a long post into short, punchy social versions.",
         "icon": "share",
         "prompt_template": (
-            "You are a social copywriter. Turn the long input into 3 "
-            "versions: a LinkedIn post (under 200 words), a Twitter thread "
-            "(5 short tweets), and an Instagram caption. Keep the voice "
-            "specific and human."
+            "You are a social copywriter. Turn the long input into versions "
+            "for the platforms the user selects. LinkedIn: under 200 words. "
+            "Twitter/X: a 5-tweet thread. Instagram: a short caption. Keep "
+            "the voice specific and human. Only produce the selected platforms."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -680,6 +765,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["writer"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "content", "label": "Paste the content to adapt", "placeholder": "Paste the blog post, article, or long-form content here", "type": "textarea", "required": True, "advanced": False},
+            {"key": "platforms", "label": "Which platforms?", "placeholder": "", "type": "multi_chips", "options": ["LinkedIn", "Twitter/X", "Instagram"], "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-writer-headlines",
@@ -689,7 +778,8 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "icon": "title",
         "prompt_template": (
             "You are a headline writer. For the content the user describes, "
-            "produce 10 headline options covering a mix of: curiosity, "
+            "produce 10 headline options. If the user selected specific styles, "
+            "weight toward those; otherwise cover a mix of: curiosity, "
             "benefit, number-driven, contrarian, and direct. No clickbait."
         ),
         "model": "sonnet",
@@ -698,6 +788,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["writer"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "content", "label": "Describe the content in a few sentences", "placeholder": "e.g. a blog post about why async work is better for deep focus", "type": "textarea", "required": True, "advanced": False},
+            {"key": "styles", "label": "Style focus", "placeholder": "", "type": "multi_chips", "options": ["Curiosity", "Benefit", "Number-driven", "Contrarian", "Direct"], "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-writer-proofreader",
@@ -717,6 +811,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["writer"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "text", "label": "Paste the text to proofread", "placeholder": "Paste your draft here", "type": "textarea", "required": True, "advanced": False},
+            {"key": "focus", "label": "Focus on", "placeholder": "", "type": "multi_chips", "options": ["Grammar", "Style", "Clarity", "Tone"], "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-writer-name-generator",
@@ -726,8 +824,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "icon": "label",
         "prompt_template": (
             "You are a naming expert. For the thing the user describes, "
-            "produce 15 name candidates grouped by vibe (playful, serious, "
-            "abstract, descriptive). One line each. Flag any names that "
+            "produce 15 name candidates. Weight toward the vibes the user "
+            "selected; if none selected, spread across playful, serious, "
+            "abstract, and descriptive. One line each. Flag any names that "
             "might conflict with a well-known brand."
         ),
         "model": "sonnet",
@@ -736,6 +835,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["writer"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "thing", "label": "What are you naming?", "placeholder": "e.g. a project management app, a consulting firm, a podcast", "type": "text", "required": True, "advanced": False},
+            {"key": "vibe", "label": "What vibe should it have?", "placeholder": "", "type": "multi_chips", "options": ["Playful", "Serious", "Abstract", "Descriptive"], "required": True, "advanced": False},
+        ],
     },
     # --- Home and family ---
     {
@@ -755,6 +858,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["home"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "ingredients", "label": "What ingredients do you have?", "placeholder": "List what's in the fridge and pantry", "type": "textarea", "required": True, "advanced": False},
+            {"key": "restrictions", "label": "Dietary restrictions or preferences?", "placeholder": "e.g. vegetarian, no gluten, nut allergy", "type": "text", "required": False, "advanced": True},
+        ],
     },
     {
         "id": "builtin-home-grocery-list",
@@ -773,6 +880,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["home"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "meal_plan", "label": "Paste or describe your meal plan", "placeholder": "e.g. Mon: pasta, Tue: tacos, Wed: stir fry...", "type": "textarea", "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-home-trip-planner",
@@ -792,6 +902,11 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["home"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "destination", "label": "Where and when? (destination and dates)", "placeholder": "e.g. Barcelona, June 10-17", "type": "text", "required": True, "advanced": False},
+            {"key": "group", "label": "Budget and group size", "placeholder": "e.g. $3000, 2 adults and 1 kid", "type": "text", "required": True, "advanced": False},
+            {"key": "trip_type", "label": "Trip type", "placeholder": "", "type": "chips", "options": ["Day trip", "Weekend getaway", "Full vacation", "Business travel"], "required": False, "advanced": False},
+        ],
     },
     {
         "id": "builtin-home-gift-finder",
@@ -810,6 +925,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["home"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "recipient", "label": "Who is this gift for?", "placeholder": "e.g. my mom, 60s, loves gardening and cooking", "type": "text", "required": True, "advanced": False},
+            {"key": "occasion", "label": "What's the occasion and budget?", "placeholder": "e.g. birthday, budget around $75", "type": "text", "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-home-homework-helper",
@@ -820,7 +939,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "prompt_template": (
             "You are a patient tutor. Walk the student through the problem "
             "step by step. Ask one guiding question at a time instead of "
-            "giving the answer. Adjust to the grade level the user names."
+            "giving the answer. Adjust to the grade level the user provides."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -828,6 +947,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["home"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "problem", "label": "What's the problem or assignment?", "placeholder": "Paste the question or describe what they're stuck on", "type": "textarea", "required": True, "advanced": False},
+            {"key": "grade", "label": "Grade level", "placeholder": "", "type": "chips", "options": ["Elementary", "Middle school", "High school", "College"], "required": True, "advanced": False},
+        ],
     },
     # --- Students ---
     {
@@ -849,6 +972,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "notes", "label": "Paste your class notes", "placeholder": "Paste your notes, slides, or reading material here", "type": "textarea", "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-student-essay-outline",
@@ -869,6 +995,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "user_inputs": [
+            {"key": "prompt", "label": "Paste the essay prompt or describe the topic", "placeholder": "e.g. Analyze the causes of World War I, or paste the assignment", "type": "textarea", "required": True, "advanced": False},
+            {"key": "type", "label": "Essay type", "placeholder": "", "type": "chips", "options": ["Argumentative", "Analytical", "Compare & contrast", "Research paper"], "required": False, "advanced": False},
+        ],
     },
     {
         "id": "builtin-student-flash-cards",
@@ -887,6 +1017,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["student"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "reading", "label": "Paste the reading or describe the topic", "placeholder": "Paste the text, chapter, or article you want flash cards for", "type": "textarea", "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-student-citation-helper",
@@ -896,7 +1029,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "icon": "format_quote",
         "prompt_template": (
             "You are a citation helper. Format the sources the user pastes "
-            "in the style they request (APA, MLA, or Chicago). Return one "
+            "in the style they select (APA, MLA, or Chicago). Return one "
             "formatted citation per line and flag any sources with missing "
             "fields."
         ),
@@ -906,6 +1039,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["student"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "sources", "label": "Paste the sources to cite", "placeholder": "Paste URLs, book titles, article names, or raw reference info", "type": "textarea", "required": True, "advanced": False},
+            {"key": "style", "label": "Citation style", "placeholder": "", "type": "chips", "options": ["APA", "MLA", "Chicago"], "required": True, "advanced": False},
+        ],
     },
     {
         "id": "builtin-student-concept-explainer",
@@ -914,7 +1051,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "description": "Explain a hard concept in plain language with an example.",
         "icon": "lightbulb",
         "prompt_template": (
-            "You are a patient teacher. Explain the concept the user names "
+            "You are a patient teacher. Explain the concept the user provides "
             "at two levels: a one-paragraph plain-English version, and a "
             "more detailed version with a worked example. No jargon in the "
             "first version."
@@ -925,6 +1062,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": ["student"],
         "installed": False,
         "builtin": True,
+        "user_inputs": [
+            {"key": "concept", "label": "What concept do you want explained?", "placeholder": "e.g. supply and demand, the Pythagorean theorem", "type": "text", "required": True, "advanced": False},
+            {"key": "subject", "label": "What class or subject is this for?", "placeholder": "e.g. AP Economics, high school biology", "type": "text", "required": False, "advanced": True},
+        ],
     },
     # --- General utility templates (available to every persona) ---
     # "explain-plain" is the plain-language explainer. It replaces the old
@@ -956,6 +1097,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "personas": [],
         "installed": True,
         "builtin": True,
+        "user_inputs": [
+            {"key": "subject", "label": "What do you want explained?", "placeholder": "e.g. how compound interest works, what a REST API is", "type": "text", "required": True, "advanced": False},
+        ],
     },
 ]
 
