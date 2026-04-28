@@ -36,6 +36,9 @@ async def test_creates_task_when_enabled_by_default(monkeypatch):
         await main.schedule_worktree_reaper()
 
     assert len(created) == 1, "expected exactly one create_task call"
+    for c in created:
+        if asyncio.iscoroutine(c):
+            c.close()
 
 
 @pytest.mark.asyncio
