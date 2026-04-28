@@ -568,6 +568,47 @@ async def set_isolation(body: IsolationUpdate):
     return {"level": body.level, "config": level_config}
 
 
+# --- Org signing key ---
+
+@router.get("/org/signing-key")
+async def get_signing_key():
+    """Return signing key status. Never returns private key."""
+    from services import signing
+    org = enterprise_store.get_org()
+    org_id = org.get("id", "default") if org else "default"
+    return signing.get_status(org_id)
+
+
+@router.post("/org/signing-key/generate")
+async def generate_signing_key(request: Request):
+    """Admin generates an Ed25519 signing key for catalog item signing."""
+    from services.auth import get_current_user
+    from services import signing
+    user = get_current_user(request)
+    if user and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can manage the org signing key")
+    org = enterprise_store.get_org()
+    org_id = org.get("id", "default") if org else "default"
+    return signing.generate(org_id)
+
+
+@router.post("/org/signing-key/revoke")
+async def revoke_signing_key(request: Request):
+    """Admin removes the org signing key. Signed catalog items can no longer be verified."""
+    from services.auth import get_current_user
+    from services import signing
+    user = get_current_user(request)
+    if user and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can manage the org signing key")
+    org = enterprise_store.get_org()
+    org_id = org.get("id", "default") if org else "default"
+    signing.revoke(org_id)
+    return {
+        "ok": True,
+        "warning": "The org signing key has been removed. Catalog items signed with this key can no longer be verified.",
+    }
+
+
 # --- Agentfile ---
 
 @router.get("/enterprise/agentfile")

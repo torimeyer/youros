@@ -51,13 +51,27 @@ def _save(org_id: str, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _verify_entry(entry: dict, org_id: str):
+    """Return True/False/None for the entry's signature validity."""
+    sig = entry.get("signature")
+    if sig is None:
+        return None
+    try:
+        from services import signing as signing_svc
+        return signing_svc.verify_content(entry["content"], sig, org_id)
+    except Exception:
+        return None
+
+
 def list_catalog(org_id: str) -> list[dict]:
     """Return all published entries (latest version per name)."""
     data = _load(org_id)
     result = []
     for entry_id, entry in data["entries"].items():
         if entry["status"] == "published":
-            result.append(entry)
+            e = dict(entry)
+            e["signature_valid"] = _verify_entry(e, org_id)
+            result.append(e)
     # Sort newest first
     result.sort(key=lambda e: e["published_at"] or "", reverse=True)
     return result
@@ -94,7 +108,17 @@ def publish_agentfile(
         "signed_by_org": signed_by,
         "published_at": datetime.now(timezone.utc).isoformat(),
         "status": "published",
+        "signature": None,
     }
+
+    # Sign content if org signing key exists
+    try:
+        from services import signing as signing_svc
+        sig = signing_svc.sign_content(content, org_id)
+        if sig:
+            entry["signature"] = sig
+    except Exception:
+        pass
 
     # Mark any previously published version for this name as rolled_back
     # so the list only shows the current published one.

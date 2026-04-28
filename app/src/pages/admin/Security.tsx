@@ -9,6 +9,12 @@ interface SSOConfig {
   issuer_url?: string
 }
 
+interface SigningKeyStatus {
+  exists: boolean
+  fingerprint: string | null
+  generated_at: string | null
+}
+
 export default function AdminSecurity() {
   const darkMode = useAppStore((s) => s.darkMode)
 
@@ -26,6 +32,11 @@ export default function AdminSecurity() {
   const [apiKeyValue, setApiKeyValue] = useState('')
   const [apiKeySaving, setApiKeySaving] = useState(false)
 
+  // Signing key state
+  const [signingKey, setSigningKey] = useState<SigningKeyStatus>({ exists: false, fingerprint: null, generated_at: null })
+  const [signingBusy, setSigningBusy] = useState(false)
+  const [revokeConfirm, setRevokeConfirm] = useState(false)
+
   const [loading, setLoading] = useState(true)
 
   const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
@@ -38,10 +49,12 @@ export default function AdminSecurity() {
     Promise.all([
       api.get<SSOConfig>('/enterprise/sso'),
       api.get<{ providers: string[] }>('/enterprise/api-keys'),
+      api.get<SigningKeyStatus>('/org/signing-key'),
     ])
-      .then(([ssoRes, keysRes]) => {
+      .then(([ssoRes, keysRes, sigRes]) => {
         setSSO(ssoRes)
         setApiKeyProviders(keysRes.providers || [])
+        setSigningKey(sigRes)
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -97,6 +110,31 @@ export default function AdminSecurity() {
       setApiKeyProviders(res.providers || [])
     } catch {
       // ignore
+    }
+  }
+
+  const handleGenerateKey = async () => {
+    setSigningBusy(true)
+    try {
+      const res = await api.post<SigningKeyStatus>('/org/signing-key/generate', {})
+      setSigningKey({ exists: true, fingerprint: res.fingerprint, generated_at: res.generated_at })
+    } catch {
+      // ignore
+    } finally {
+      setSigningBusy(false)
+    }
+  }
+
+  const handleRevokeKey = async () => {
+    setSigningBusy(true)
+    try {
+      await api.post('/org/signing-key/revoke', {})
+      setSigningKey({ exists: false, fingerprint: null, generated_at: null })
+      setRevokeConfirm(false)
+    } catch {
+      // ignore
+    } finally {
+      setSigningBusy(false)
     }
   }
 
@@ -249,6 +287,89 @@ export default function AdminSecurity() {
           >
             {apiKeySaving ? 'Saving...' : 'Save'}
           </button>
+        </div>
+      </div>
+
+      {/* Org Signing Key */}
+      <div className={cardCls} data-testid="signing-key-card">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className={`text-base font-semibold ${headingCls}`}>Org signing key</h2>
+          <span
+            data-testid="signing-key-status-badge"
+            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              signingKey.exists
+                ? 'bg-green-500/20 text-green-400'
+                : 'bg-slate-500/20 text-slate-400'
+            }`}
+          >
+            {signingKey.exists ? 'Active' : 'Not set'}
+          </span>
+        </div>
+
+        <p className={`text-sm mb-4 ${labelCls}`}>
+          A signing key lets your org put a tamper-evident stamp on catalog items.
+          When a key is active, every item you publish gets signed automatically.
+          Anyone on your team can verify that an item came from your org and has not been changed.
+        </p>
+
+        {signingKey.exists && signingKey.fingerprint && (
+          <div className="mb-4 space-y-2">
+            <div className="flex items-start justify-between gap-4">
+              <span className={`text-sm ${labelCls}`}>Fingerprint</span>
+              <span className={`text-xs font-mono break-all ${valueCls}`} data-testid="signing-key-fingerprint">
+                {signingKey.fingerprint}
+              </span>
+            </div>
+            {signingKey.generated_at && (
+              <div className="flex items-center justify-between">
+                <span className={`text-sm ${labelCls}`}>Generated</span>
+                <span className={`text-sm ${valueCls}`}>
+                  {new Date(signingKey.generated_at).toLocaleDateString()}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleGenerateKey}
+            disabled={signingBusy}
+            data-testid="generate-signing-key-btn"
+            className="px-4 py-2 team-bg hover:opacity-90 disabled:opacity-50 text-white font-semibold text-sm rounded-lg transition-opacity"
+          >
+            {signingBusy ? 'Working...' : signingKey.exists ? 'Rotate key' : 'Generate key'}
+          </button>
+
+          {signingKey.exists && !revokeConfirm && (
+            <button
+              onClick={() => setRevokeConfirm(true)}
+              data-testid="revoke-signing-key-btn"
+              className="text-sm text-red-400 hover:text-red-300 transition-colors"
+            >
+              Revoke key
+            </button>
+          )}
+
+          {revokeConfirm && (
+            <div className="flex items-center gap-2">
+              <span className={`text-sm ${labelCls}`}>Remove the key? Signed items can no longer be verified.</span>
+              <button
+                onClick={handleRevokeKey}
+                disabled={signingBusy}
+                data-testid="revoke-confirm-btn"
+                className="text-sm text-red-400 hover:text-red-300 transition-colors font-semibold"
+              >
+                Yes, remove
+              </button>
+              <button
+                onClick={() => setRevokeConfirm(false)}
+                className={`text-sm ${labelCls} hover:text-slate-300 transition-colors`}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
