@@ -408,6 +408,28 @@ async def files_timeline(limit: int = Query(50, ge=1, le=200)):
     return {"files": entries[:limit]}
 
 
+@router.post("/files/open")
+async def open_file_native(path: str = Query(..., description="Relative or absolute path to the file")):
+    """Open a file in the system's default native app (macOS: open, Linux: xdg-open).
+
+    Uses the same safe-path resolution as other file endpoints.
+    """
+    import subprocess
+    import sys
+
+    resolved = _resolve_readable_path(path)
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file.")
+
+    cmd = ["open", str(resolved)] if sys.platform == "darwin" else ["xdg-open", str(resolved)]
+    try:
+        subprocess.Popen(cmd)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not open file: {exc}")
+
+    return {"ok": True, "path": str(resolved)}
+
+
 @router.delete("/files/delete")
 async def delete_file(path: str = Query(..., description="Relative path to the file to delete")):
     """Delete a file from the workspace.
@@ -431,3 +453,169 @@ async def delete_file(path: str = Query(..., description="Relative path to the f
     # Tombstone so a racing re-upload or preview does not resurrect the row.
     recent_deletes.record_id(f"file:{path}")
     return {"ok": True, "deleted": str(resolved.name)}
+
+
+# ---------------------------------------------------------------------------
+# Drive import
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel
+
+
+class DriveImportBody(BaseModel):
+    drive_file_id: str
+
+
+@router.post("/files/import-from-drive")
+async def import_file_from_drive(body: DriveImportBody):
+    """Download a Google Drive file into ~/.myos/files/imports/.
+
+    Writes a sidecar JSON next to the file recording provenance
+    (source, drive_file_id, imported_at). No inline editing: this is a
+    reference-library import only.
+    """
+    import asyncio
+    import json
+    import re
+    import time
+
+    from services.google_auth import get_credentials, is_authenticated
+
+    if not is_authenticated():
+        raise HTTPException(status_code=401, detail="Not connected to Google Drive.")
+
+    file_id = body.drive_file_id.strip()
+    if not file_id:
+        raise HTTPException(status_code=400, detail="drive_file_id is required.")
+
+    # Fetch file metadata to get the name.
+    try:
+        from googleapiclient.discovery import build
+        from google.oauth2.credentials import Credentials
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Google API client is not available on this server.",
+        ) from exc
+
+    def _get_meta():
+        tokens = get_credentials()
+        creds = Credentials(
+            token=tokens.get("access_token"),
+            refresh_token=tokens.get("refresh_token"),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=None,
+            client_secret=None,
+        )
+        service = build("drive", "v3", credentials=creds)
+        return (
+            service.files()
+            .get(fileId=file_id, fields="id,name,mimeType,size")
+            .execute()
+        )
+
+    def _download(meta: dict) -> bytes:
+        import io
+        from googleapiclient.http import MediaIoBaseDownload
+
+        tokens = get_credentials()
+        creds = Credentials(
+            token=tokens.get("access_token"),
+            refresh_token=tokens.get("refresh_token"),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=None,
+            client_secret=None,
+        )
+        service = build("drive", "v3", credentials=creds)
+        mime = meta.get("mimeType", "")
+
+        # Google-native files: export as PDF.
+        exportable = {
+            "application/vnd.google-apps.document",
+            "application/vnd.google-apps.presentation",
+            "application/vnd.google-apps.spreadsheet",
+            "application/vnd.google-apps.drawing",
+        }
+        if mime in exportable:
+            req = service.files().export_media(fileId=file_id, mimeType="application/pdf")
+        else:
+            req = service.files().get_media(fileId=file_id)
+
+        buf = io.BytesIO()
+        dl = MediaIoBaseDownload(buf, req)
+        done = False
+        while not done:
+            _, done = dl.next_chunk()
+        return buf.getvalue()
+
+    try:
+        meta = await asyncio.get_event_loop().run_in_executor(None, _get_meta)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not get file info from Drive: {exc}",
+        ) from exc
+
+    original_name = meta.get("name", "import")
+    mime = meta.get("mimeType", "")
+
+    # Sanitise the filename for local storage.
+    safe_stem = re.sub(r"[^\w\-. ]", "_", original_name).strip()[:200] or "import"
+    # Google-native exports land as PDF.
+    native_types = {
+        "application/vnd.google-apps.document",
+        "application/vnd.google-apps.presentation",
+        "application/vnd.google-apps.spreadsheet",
+        "application/vnd.google-apps.drawing",
+    }
+    if mime in native_types and not safe_stem.lower().endswith(".pdf"):
+        safe_stem = safe_stem + ".pdf"
+
+    imports_dir = Path.home() / ".myos" / "files" / "imports"
+    imports_dir.mkdir(parents=True, exist_ok=True)
+
+    dest = imports_dir / safe_stem
+    # Deduplicate: append counter if the name already exists.
+    if dest.exists():
+        stem = dest.stem
+        suffix = dest.suffix
+        counter = 1
+        while dest.exists():
+            dest = imports_dir / f"{stem} ({counter}){suffix}"
+            counter += 1
+
+    try:
+        content = await asyncio.get_event_loop().run_in_executor(None, lambda: _download(meta))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not download file from Drive: {exc}",
+        ) from exc
+
+    try:
+        dest.write_bytes(content)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not write file to disk: {exc}",
+        ) from exc
+
+    # Write sidecar provenance JSON.
+    sidecar = dest.with_suffix(dest.suffix + ".provenance.json")
+    provenance = {
+        "source": "google-drive",
+        "drive_file_id": file_id,
+        "drive_name": original_name,
+        "imported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    try:
+        sidecar.write_text(json.dumps(provenance, indent=2))
+    except OSError:
+        pass  # Sidecar write is best-effort.
+
+    return {
+        "ok": True,
+        "path": str(dest),
+        "name": dest.name,
+        "provenance": provenance,
+    }
