@@ -156,7 +156,7 @@ tori() {
   local _http_code=""
   while [ $_attempt -lt $_max_retries ]; do
     _attempt=$((_attempt + 1))
-    _response=$(curl --silent --insecure --tlsv1.2 --connect-timeout 1 -m 1 -w "\n%{http_code}" "${_be_scheme}://127.0.0.1:8000/api/health" 2>&1)
+    _response=$(curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 1 -m 1 -w "\n%{http_code}" "${_be_scheme}://127.0.0.1:8000/api/health" 2>&1)
     _http_code=$(echo "$_response" | tail -1)
     if [ "$_http_code" = "200" ]; then
       _ready=1
@@ -195,8 +195,15 @@ tori() {
   fi
   printf '\n'
 
-  # Boot ostk kernel
-  ~/.local/bin/ostk boot
+  # Boot ostk kernel. Advisory/trust warnings (humanfile OAE, primefile
+  # mismatches) go to a log so the splash stays clean. Run `ostk boot`
+  # directly or check ~/.myos/logs/ostk-boot.log to see full output.
+  mkdir -p "$HOME/.myos/logs"
+  local _boot_exit=0
+  ~/.local/bin/ostk boot >>"$HOME/.myos/logs/ostk-boot.log" 2>&1 || _boot_exit=$?
+  if [ "$_boot_exit" -ne 0 ]; then
+    printf '\033[38;2;255;200;80m  ⚠ ostk boot warnings — see ~/.myos/logs/ostk-boot.log\033[0m\n'
+  fi
 
   # Run :boot tack as soon as ostk is up
   ~/.local/bin/ostk tack ":boot" >/dev/null 2>&1
