@@ -846,6 +846,52 @@ def serialize_agentfile(config: AgentfileConfig) -> str:
     return "\n".join(lines) + "\n" if lines else ""
 
 
+COMMON_TOOLS = ["bash", "read", "write", "search", "web"]
+
+
+def agentfile_to_form(text: str) -> dict:
+    """Parse agentfile text and return structured form fields.
+
+    Returns a stable dict with: name, description, model, tools, instructions, tags.
+    Missing fields get sensible defaults.
+    """
+    from pathlib import Path as _Path
+    import tempfile as _tempfile
+
+    with _tempfile.NamedTemporaryFile(suffix=".agent", mode="w", delete=False) as f:
+        f.write(text)
+        tmp = _Path(f.name)
+
+    try:
+        config = parse_agentfile(tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    return {
+        "name": config.name,
+        "description": config.description or "",
+        "model": config.model or "auto",
+        "tools": config.tools,
+        "instructions": config.prompt or "",
+        "tags": config.beta,
+    }
+
+
+def form_to_agentfile(form_data: dict) -> str:
+    """Convert form fields back to clean agentfile text.
+
+    Accepted keys: name, description, model, tools (list), instructions, tags (list).
+    """
+    config = AgentfileConfig()
+    config.name = (form_data.get("name") or "").strip()
+    config.description = (form_data.get("description") or "").strip()
+    config.model = (form_data.get("model") or "auto").strip()
+    config.tools = [t for t in (form_data.get("tools") or []) if t]
+    config.prompt = (form_data.get("instructions") or "").strip()
+    config.beta = [t for t in (form_data.get("tags") or []) if t]
+    return serialize_agentfile(config)
+
+
 def build_capabilities_summary(config: AgentfileConfig) -> dict:
     """Build a plain-language capabilities summary for the Agents UI.
 

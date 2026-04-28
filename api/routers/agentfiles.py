@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from config import AGENTS_DIR
+from services.agentfile_parser import agentfile_to_form, form_to_agentfile
 
 router = APIRouter(tags=["agentfiles"])
 
@@ -33,6 +34,15 @@ class AgentfileCreate(BaseModel):
     tools: list[str] = ["shell", "file:read", "file:write"]
     token_limit: int = 200000
     description: Optional[str] = None
+
+
+class AgentfileFormData(BaseModel):
+    name: str
+    description: str = ""
+    model: str = "auto"
+    tools: list[str] = []
+    instructions: str = ""
+    tags: list[str] = []
 
 
 class AgentfileRunRequest(BaseModel):
@@ -211,6 +221,39 @@ async def get_agentfile(name: str):
             return parsed
 
     raise HTTPException(status_code=404, detail=f"Agentfile '{name}' not found")
+
+
+@router.get("/agentfiles/{name}/form")
+async def get_agentfile_form(name: str):
+    """Return parsed form fields for an agentfile."""
+    for directory in [AGENTS_DIR, USER_AGENTFILES_DIR]:
+        path = directory / f"{name}.agent"
+        if path.exists():
+            form = agentfile_to_form(path.read_text())
+            form["name"] = name  # always use the file stem as the canonical name
+            form["source"] = "builtin" if str(path).startswith(str(AGENTS_DIR)) else "user"
+            return form
+
+    raise HTTPException(status_code=404, detail=f"Agentfile '{name}' not found")
+
+
+@router.put("/agentfiles/{name}/form")
+async def update_agentfile_form(name: str, body: AgentfileFormData):
+    """Accept form fields, convert to agentfile text, save to user directory."""
+    USER_AGENTFILES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Only user agentfiles are editable
+    path = USER_AGENTFILES_DIR / f"{name}.agent"
+    if not path.exists():
+        # Check if it's a builtin; if so, refuse
+        builtin_path = AGENTS_DIR / f"{name}.agent"
+        if builtin_path.exists():
+            raise HTTPException(status_code=403, detail="Built-in agent setups cannot be edited. Create a copy first.")
+        raise HTTPException(status_code=404, detail=f"Agentfile '{name}' not found")
+
+    text = form_to_agentfile(body.model_dump())
+    path.write_text(text)
+    return {"updated": name, "path": str(path)}
 
 
 @router.post("/agentfiles")
