@@ -3679,13 +3679,35 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         "spawn.worktree.fork_failed name=%s err=%s",
                         body.name, _wt_err,
                     )
-                    body.isolation = "none"
+                    raise HTTPException(
+                        status_code=500,
+                        detail={
+                            "error": "worktree_creation_failed",
+                            "message": (
+                                "Could not create a git worktree for this agent. "
+                                f"Reason: {_wt_err or 'unknown'}. "
+                                "Fix the underlying git error and retry."
+                            ),
+                        },
+                    )
+            except HTTPException:
+                raise
             except Exception as _wt_exc:
                 logger.warning(
                     "spawn.worktree.fork_exception name=%s err=%s",
                     body.name, _wt_exc,
                 )
-                body.isolation = "none"
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": "worktree_creation_exception",
+                        "message": (
+                            "An unexpected error prevented worktree creation for this agent. "
+                            f"Error: {_wt_exc}. "
+                            "Fix the underlying error and retry."
+                        ),
+                    },
+                )
         # Create the transcript file immediately so the resolver can find it
         # even before the subprocess writes its first byte. The _drain_stdout
         # coroutine below writes+flushes each chunk so the file grows in real

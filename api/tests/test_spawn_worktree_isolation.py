@@ -201,10 +201,9 @@ async def test_ostk_dir_created_at_worktree_root_on_successful_fork(tmp_path, mo
 
 @pytest.mark.asyncio
 async def test_ostk_dir_not_created_when_fork_fails(tmp_path, monkeypatch):
-    """When git worktree add fails, isolation falls back to none.
+    """→951: When git worktree add fails, spawn must return 500 (not silently fall back).
 
-    No .ostk/ should be created, and the spawn should still succeed in the
-    main worktree.
+    No .ostk/ should be created, and the agent must not run in the main checkout.
     """
     from services.spawn_isolation import _reset_spawn_lock_registry_for_tests
     _reset_spawn_lock_registry_for_tests()
@@ -239,19 +238,25 @@ async def test_ostk_dir_not_created_when_fork_fails(tmp_path, monkeypatch):
                     "locks": ["api/services/retry.py"],
                 },
             )
-        assert resp.status_code == 200, resp.text
+        # Fork failed -> spawn must return 500, not 200.
+        assert resp.status_code == 500, resp.text
         assert calls["fork_called"] is True
 
-        # Fork failed -> no worktree dir, no .ostk/ to create there
+        # Fork failed -> no worktree dir, no .ostk/ to create there.
         assert not (wt_path / ".ostk").exists(), (
             ".ostk/ should not exist when fork failed"
         )
 
-        meta = agent_metadata[agent_name]
-        assert meta.get("isolation") == "none"
+        # Agent must not have started.
+        claude_calls = [
+            (a, kw) for (a, kw) in calls["exec"]
+            if a and a[0] not in ("git", "rsync")
+        ]
+        assert len(claude_calls) == 0, "agent subprocess must not start when worktree fails"
     finally:
         agent_metadata.pop(agent_name, None)
         active_agents.pop(agent_name, None)
+        _reset_spawn_lock_registry_for_tests()
 
 
 @pytest.mark.asyncio

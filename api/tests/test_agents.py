@@ -4383,14 +4383,36 @@ async def test_spawn_build_agent_includes_display_name_with_task_title(tmp_path,
         def is_closing(self) -> bool:
             return self._closed
 
+        def can_write_eof(self) -> bool:
+            return True
+
+        def write_eof(self) -> None:
+            self._closed = True
+
+    class _FakeGitProc:
+        """Minimal proc for git subprocess calls inside create_worktree."""
+        returncode = 0
+
+        async def communicate(self):
+            return (b"", b"")
+
     class _FakeProc:
         pid = 525252
         returncode = None
 
         def __init__(self):
             self.stdin = _FakeStdin()
+            self.stderr = type("S", (), {"read": lambda self, n: _async_empty()})()
+
+        async def wait(self):
+            return 0
+
+    async def _async_empty():
+        return b""
 
     async def _fake_create_subprocess_exec(*args, **kwargs):
+        if args and args[0] == "git":
+            return _FakeGitProc()
         return _FakeProc()
 
     async def _noop_run(*args, **kwargs):
@@ -5092,12 +5114,34 @@ class _CaptureStdin:
         return self.closed
 
 
+class _FakeGitProc:
+    """Minimal stand-in for git subprocess calls inside create_worktree."""
+    returncode = 0
+
+    async def communicate(self):
+        return (b"", b"")
+
+
 class _FakeProc:
     """Minimal stand-in for the process object returned by create_subprocess_exec."""
 
     def __init__(self):
         self.pid = 424242
         self.stdin = _CaptureStdin()
+
+
+def _make_spawn_returner(fake_proc):
+    """Return a create_subprocess_exec side_effect that routes git calls to _FakeGitProc.
+
+    →951: create_worktree calls asyncio.create_subprocess_exec("git", ...) and
+    requires a proc with communicate(). Return _FakeGitProc for git calls so
+    worktree creation succeeds; return fake_proc for all other calls (claude).
+    """
+    async def _returner(*args, **kwargs):
+        if args and args[0] == "git":
+            return _FakeGitProc()
+        return fake_proc
+    return _returner
 
 
 def _patch_build_templates(monkeypatch, agents_dir: Path) -> None:
@@ -5167,11 +5211,8 @@ async def test_spawn_with_template_comprehensive_attaches_full_envelope(tmp_path
 
     fake_proc = _FakeProc()
 
-    async def _returner(*args, **kwargs):
-        return fake_proc
-
     # Use canonical name "builder" (the agentfile stem)
-    with patch("asyncio.create_subprocess_exec", side_effect=_returner):
+    with patch("asyncio.create_subprocess_exec", side_effect=_make_spawn_returner(fake_proc)):
         with patch("routers.agents.ostk._run", new_callable=AsyncMock):
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -5206,10 +5247,7 @@ async def test_spawn_with_template_saa_alias_resolves_to_comprehensive(tmp_path,
 
     fake_proc = _FakeProc()
 
-    async def _returner(*args, **kwargs):
-        return fake_proc
-
-    with patch("asyncio.create_subprocess_exec", side_effect=_returner):
+    with patch("asyncio.create_subprocess_exec", side_effect=_make_spawn_returner(fake_proc)):
         with patch("routers.agents.ostk._run", new_callable=AsyncMock):
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -5241,10 +5279,7 @@ async def test_spawn_without_template_does_not_inject_template_envelope(tmp_path
 
     fake_proc = _FakeProc()
 
-    async def _returner(*args, **kwargs):
-        return fake_proc
-
-    with patch("asyncio.create_subprocess_exec", side_effect=_returner):
+    with patch("asyncio.create_subprocess_exec", side_effect=_make_spawn_returner(fake_proc)):
         with patch("routers.agents.ostk._run", new_callable=AsyncMock):
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:

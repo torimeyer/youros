@@ -4,8 +4,8 @@ Covers:
   * isolation="worktree" -> git worktree add invoked, subprocess cwd set to fork
   * isolation="none" -> no worktree add, cwd == PROJECT_ROOT
   * spawn_meta records worktree_path/worktree_branch on success
-  * git worktree add failure -> WARN log, body.isolation flipped to "none",
-    spawn still succeeds in the main worktree
+  * git worktree add failure -> WARN log, HTTP 500 returned, no subprocess started
+    (→951: silent fallback to main checkout was the root cause of fake isolation)
 """
 
 from __future__ import annotations
@@ -255,16 +255,25 @@ async def test_spawn_isolation_none_does_not_fork(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_spawn_worktree_fork_failure_falls_back(tmp_path, monkeypatch, caplog):
+async def test_spawn_worktree_fork_failure_returns_500(tmp_path, monkeypatch, caplog):
+    """→951: worktree creation failure must return HTTP 500, not silently fall back.
+
+    Before the fix the spawn returned 200 and ran the agent in the main checkout.
+    The bridge hook saw 200 and announced "Worktree isolation is active" — a lie.
+    The agent then wrote to the parent tree (or produced hallucinated receipts).
+    After the fix the spawn returns 500; the bridge blocks the native Task call.
+    """
     from main import app
     from routers.agents import active_agents, agent_metadata
+    import services.spawn_isolation as _siso
+    _siso._reset_spawn_lock_registry_for_tests()
 
     calls = _install_spawn_doubles(
         monkeypatch,
         fork_returncode=128,
         fork_stderr=b"fatal: cannot lock working tree",
     )
-    agent_name = "wt-fork-failure"
+    agent_name = "wt-fork-failure-951"
     agent_metadata.pop(agent_name, None)
     active_agents.pop(agent_name, None)
 
@@ -279,28 +288,33 @@ async def test_spawn_worktree_fork_failure_falls_back(tmp_path, monkeypatch, cap
                     "prompt": "implement the retry helper",  # -> worktree
                     "model": "sonnet",
                     "budget": 2.0,
-                    # Mandatory lock-on-spawn for edit verbs.
                     "locks": ["api/services/retry.py"],
                 },
             )
-        # Fork failed, but the spawn still succeeded.
-        assert resp.status_code == 200, resp.text
+        # Fork failed: spawn must return 500, not 200.
+        assert resp.status_code == 500, resp.text
+        body = resp.json()
+        assert body.get("detail", {}).get("error") == "worktree_creation_failed"
 
         # The fork was attempted.
         assert calls["fork_called"] is True
-        # Claude ran in the main worktree (no agent-<name> suffix).
+
+        # No claude subprocess should have been started.
         claude_calls = [
             (a, kw) for (a, kw) in calls["exec"]
             if a and a[0] not in ("git", "rsync")
         ]
-        assert len(claude_calls) == 1
-        _, kw = claude_calls[0]
-        assert f"agent-{agent_name}" not in kw.get("cwd", "")
+        assert len(claude_calls) == 0, "agent subprocess must not start when worktree fails"
 
-        # Metadata reflects the fallback.
-        meta = agent_metadata[agent_name]
-        assert meta.get("isolation") == "none"
-        assert "worktree_path" not in meta
+        # Agent must not appear in metadata as running.
+        meta = agent_metadata.get(agent_name)
+        assert meta is None or meta.get("status") != "running", (
+            "agent row must not be running when worktree creation failed"
+        )
+
+        # Locks must have been released (no orphan lock for the next spawn).
+        held = _siso._spawn_lock_holders
+        assert agent_name not in str(held), "spawn locks must be released on worktree failure"
 
         # A WARN log was emitted.
         assert any(
@@ -310,3 +324,58 @@ async def test_spawn_worktree_fork_failure_falls_back(tmp_path, monkeypatch, cap
     finally:
         agent_metadata.pop(agent_name, None)
         active_agents.pop(agent_name, None)
+        _siso._reset_spawn_lock_registry_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_spawn_worktree_exception_returns_500(tmp_path, monkeypatch, caplog):
+    """→951: an exception during worktree creation must also return HTTP 500."""
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+    import services.spawn_isolation as _siso
+    _siso._reset_spawn_lock_registry_for_tests()
+
+    agent_name = "wt-fork-exception-951"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    # Patch create_worktree to raise directly.
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("simulated disk full")
+
+    import services.spawn_isolation as _siso_mod
+    monkeypatch.setattr(_siso_mod, "create_worktree", _boom)
+
+    # We still need to patch asyncio.create_subprocess_exec so the claude
+    # subprocess would not actually run (and for the git pre-clean steps).
+    _install_spawn_doubles(monkeypatch)
+
+    try:
+        caplog.set_level(logging.WARNING, logger="routers.agents")
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "fix the flaky test",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "locks": ["api/tests/test_flaky.py"],
+                },
+            )
+        assert resp.status_code == 500, resp.text
+        body = resp.json()
+        assert body.get("detail", {}).get("error") == "worktree_creation_exception"
+
+        meta = agent_metadata.get(agent_name)
+        assert meta is None or meta.get("status") != "running"
+
+        assert any(
+            "worktree.fork_exception" in r.getMessage()
+            for r in caplog.records
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+        _siso._reset_spawn_lock_registry_for_tests()
