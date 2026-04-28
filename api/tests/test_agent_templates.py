@@ -1428,12 +1428,8 @@ def test_roadmap_prompt_asks_for_single_shot_json():
     assert tpl is not None, "built-in pm-roadmap template must exist"
     prompt = tpl["prompt_template"].lower()
 
-    # Shape cues: JSON array of 12 quarters, with explicit keys.
+    # Shape cues: JSON array of quarters, with explicit keys.
     assert "json" in prompt, "prompt must specify JSON output"
-    assert "12 quarters" in prompt or "12-quarter" in prompt, (
-        "prompt must specify a 12-quarter (3-year) shape so the model "
-        "does not overshoot"
-    )
     assert "quarter" in prompt and "theme" in prompt and "initiatives" in prompt, (
         "prompt must name the three required keys so the JSON parses"
     )

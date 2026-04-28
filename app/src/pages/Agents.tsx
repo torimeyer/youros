@@ -423,6 +423,95 @@ const POWER_USER_TABS = ["Delegate", "Workspace"];
 
 type CustomTemplate = CustomAgentTemplate;
 
+/* ---------- Template Input Helpers ---------- */
+
+function buildMessage(inputs: UserInput[], values: Record<string, string>): string {
+  return inputs
+    .filter((inp) => values[inp.key]?.trim())
+    .map((inp) => `${inp.label}: ${values[inp.key].trim()}`)
+    .join("\n");
+}
+
+function ChipsField({ input, value, onChange, autoFocus }: {
+  input: UserInput;
+  value: string;
+  onChange: (v: string) => void;
+  autoFocus?: boolean;
+}) {
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [otherText, setOtherText] = useState("");
+  const isKnown = (input.options ?? []).includes(value);
+  const isOther = value !== "" && !isKnown;
+
+  const selectKnown = (opt: string) => {
+    setOtherOpen(false);
+    onChange(opt);
+  };
+  const openOther = () => {
+    setOtherOpen(true);
+    onChange(otherText);
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2">
+        {(input.options ?? []).map((opt) => (
+          <button key={opt} type="button" onClick={() => selectKnown(opt)}
+            className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+              value === opt
+                ? "border-blue-500 bg-blue-500/20 text-blue-300"
+                : "border-slate-600 text-slate-400 hover:border-slate-400 hover:text-slate-300"
+            }`}>
+            {opt}
+          </button>
+        ))}
+        <button type="button" onClick={openOther}
+          className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+            isOther || otherOpen
+              ? "border-blue-500 bg-blue-500/20 text-blue-300"
+              : "border-slate-600 text-slate-400 hover:border-slate-400 hover:text-slate-300"
+          }`}>
+          Other
+        </button>
+      </div>
+      {otherOpen && (
+        <input type="text" value={otherText} autoFocus={autoFocus}
+          onChange={(e) => { setOtherText(e.target.value); onChange(e.target.value); }}
+          placeholder="Type your own..."
+          className="mt-2 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+      )}
+    </div>
+  );
+}
+
+function MultiChipsField({ input, value, onChange }: {
+  input: UserInput;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const selected = value ? value.split(", ").filter(Boolean) : [];
+  const toggle = (opt: string) => {
+    const next = selected.includes(opt)
+      ? selected.filter((s) => s !== opt)
+      : [...selected, opt];
+    onChange(next.join(", "));
+  };
+  return (
+    <div className="flex flex-wrap gap-2">
+      {(input.options ?? []).map((opt) => (
+        <button key={opt} type="button" onClick={() => toggle(opt)}
+          className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+            selected.includes(opt)
+              ? "border-blue-500 bg-blue-500/20 text-blue-300"
+              : "border-slate-600 text-slate-400 hover:border-slate-400 hover:text-slate-300"
+          }`}>
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /* ---------- Template Editor Modal ---------- */
 // prompt_template is the system prompt shown read-only in detail view.
 // userMessage is what the user types before spawning.
@@ -434,6 +523,7 @@ function TemplateEditorModal({
   source,
   aliases,
   capabilities,
+  userInputs,
   onSpawn,
   onSave,
   onCancel,
@@ -446,6 +536,7 @@ function TemplateEditorModal({
   source?: string;
   aliases?: string[];
   capabilities?: { writes_to: string; cannot_touch: string; budget: string; time_limit: string; sandbox: string } | null;
+  userInputs?: UserInput[];
   onSpawn: (t: CustomTemplate, userMessage: string) => void;
   onSave: (t: CustomTemplate) => void;
   onCancel: () => void;
@@ -456,8 +547,18 @@ function TemplateEditorModal({
   const [icon, setIcon] = useState(initial?.icon ?? "smart_toy");
   const [model, setModel] = useState(initial?.model ?? "sonnet");
   const [budget, setBudget] = useState(initial?.budget ?? 2.0);
-  // The initial user message typed before spawning
+  // Structured field values for per-template inputs
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Legacy single textarea for templates without userInputs
   const [userMessage, setUserMessage] = useState("");
+
+  // Reset field values when the template changes
+  useEffect(() => {
+    setFieldValues({});
+    setAdvancedOpen(false);
+    setUserMessage("");
+  }, [initial?.name]);
 
   // Alias editing state
   const [aliasValue, setAliasValue] = useState("");
@@ -742,21 +843,126 @@ function TemplateEditorModal({
               </div>
             )}
 
-            {/* User message input */}
+            {/* User input section — structured fields or legacy textarea */}
             <div data-testid="template-user-input-section">
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                What do you want to tell this agent?
-              </label>
-              <textarea
-                value={userMessage}
-                onChange={(e) => setUserMessage(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSpawn(current, userMessage); } }}
-                rows={3}
-                placeholder="Describe the specific task, provide context, or paste content for the agent to work with... (Enter to spawn, Shift+Enter for newline)"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
-                data-testid="template-user-message-input"
-                autoFocus
-              />
+              {userInputs && userInputs.length > 0 ? (
+                <>
+                  {/* Main (non-advanced) fields */}
+                  {userInputs.filter((inp) => !inp.advanced).map((inp, idx) => (
+                    <div key={inp.key} className="mb-3">
+                      <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                        {inp.label}{inp.required && <span className="text-pink-400 ml-1">*</span>}
+                      </label>
+                      {inp.type === "textarea" && (
+                        <textarea
+                          value={fieldValues[inp.key] ?? ""}
+                          onChange={(e) => setFieldValues((v) => ({ ...v, [inp.key]: e.target.value }))}
+                          rows={3}
+                          placeholder={inp.placeholder ?? ""}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                          autoFocus={idx === 0}
+                          data-testid={idx === 0 ? "template-user-message-input" : undefined}
+                        />
+                      )}
+                      {inp.type === "text" && (
+                        <input
+                          type="text"
+                          value={fieldValues[inp.key] ?? ""}
+                          onChange={(e) => setFieldValues((v) => ({ ...v, [inp.key]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); onSpawn(current, buildMessage(userInputs, fieldValues)); }
+                          }}
+                          placeholder={inp.placeholder ?? ""}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                          autoFocus={idx === 0}
+                          data-testid={idx === 0 ? "template-user-message-input" : undefined}
+                        />
+                      )}
+                      {inp.type === "chips" && (
+                        <ChipsField input={inp} value={fieldValues[inp.key] ?? ""} onChange={(v) => setFieldValues((prev) => ({ ...prev, [inp.key]: v }))} autoFocus={idx === 0} />
+                      )}
+                      {inp.type === "multi_chips" && (
+                        <MultiChipsField input={inp} value={fieldValues[inp.key] ?? ""} onChange={(v) => setFieldValues((prev) => ({ ...prev, [inp.key]: v }))} />
+                      )}
+                      {inp.type === "select" && (
+                        <select
+                          value={fieldValues[inp.key] ?? ""}
+                          onChange={(e) => setFieldValues((v) => ({ ...v, [inp.key]: e.target.value }))}
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="">Select...</option>
+                          {(inp.options ?? []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      )}
+                    </div>
+                  ))}
+                  {/* Advanced options */}
+                  {userInputs.some((inp) => inp.advanced) && (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setAdvancedOpen((o) => !o)}
+                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-sm">{advancedOpen ? "expand_less" : "expand_more"}</span>
+                        Advanced options
+                      </button>
+                      {advancedOpen && (
+                        <div className="mt-3 space-y-3">
+                          {userInputs.filter((inp) => inp.advanced).map((inp) => (
+                            <div key={inp.key}>
+                              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                                {inp.label}
+                              </label>
+                              {inp.type === "textarea" && (
+                                <textarea
+                                  value={fieldValues[inp.key] ?? ""}
+                                  onChange={(e) => setFieldValues((v) => ({ ...v, [inp.key]: e.target.value }))}
+                                  rows={2}
+                                  placeholder={inp.placeholder ?? ""}
+                                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                                />
+                              )}
+                              {inp.type === "text" && (
+                                <input
+                                  type="text"
+                                  value={fieldValues[inp.key] ?? ""}
+                                  onChange={(e) => setFieldValues((v) => ({ ...v, [inp.key]: e.target.value }))}
+                                  placeholder={inp.placeholder ?? ""}
+                                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                                />
+                              )}
+                              {inp.type === "chips" && (
+                                <ChipsField input={inp} value={fieldValues[inp.key] ?? ""} onChange={(v) => setFieldValues((prev) => ({ ...prev, [inp.key]: v }))} />
+                              )}
+                              {inp.type === "multi_chips" && (
+                                <MultiChipsField input={inp} value={fieldValues[inp.key] ?? ""} onChange={(v) => setFieldValues((prev) => ({ ...prev, [inp.key]: v }))} />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* Legacy: no user_inputs — show generic textarea */
+                <>
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                    What do you want to tell this agent?
+                  </label>
+                  <textarea
+                    value={userMessage}
+                    onChange={(e) => setUserMessage(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSpawn(current, userMessage); } }}
+                    rows={3}
+                    placeholder="Describe the specific task, provide context, or paste content for the agent to work with... (Enter to spawn, Shift+Enter for newline)"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+                    data-testid="template-user-message-input"
+                    autoFocus
+                  />
+                </>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-1">
@@ -767,7 +973,12 @@ function TemplateEditorModal({
                 Cancel
               </button>
               <button
-                onClick={() => { onSpawn(current, userMessage); }}
+                onClick={() => {
+                  const msg = userInputs && userInputs.length > 0
+                    ? buildMessage(userInputs, fieldValues)
+                    : userMessage;
+                  onSpawn(current, msg);
+                }}
                 className="bg-pink-500 hover:bg-pink-600 text-white rounded-lg px-5 py-2 text-sm font-medium transition-colors"
                 data-testid="template-spawn-button"
               >
@@ -1506,6 +1717,16 @@ interface TemplatesResponse {
   templates: AgentfileTemplate[];
 }
 
+interface UserInput {
+  key: string;
+  label: string;
+  placeholder?: string;
+  type: "text" | "textarea" | "select" | "chips" | "multi_chips";
+  options?: string[];
+  required?: boolean;
+  advanced?: boolean;
+}
+
 interface PMAgentTemplate {
   id: string;
   name: string;
@@ -1516,6 +1737,7 @@ interface PMAgentTemplate {
   budget: number;
   builtin: boolean;
   source?: 'builtin' | 'marketplace' | 'custom' | string;
+  user_inputs?: UserInput[];
 }
 
 interface PMTemplatesResponse {
@@ -2164,6 +2386,7 @@ export default function Agents() {
   const [editorSource, setEditorSource] = useState<string | undefined>(undefined);
   const [editorAliases, setEditorAliases] = useState<string[] | undefined>(undefined);
   const [editorCapabilities, setEditorCapabilities] = useState<{ writes_to: string; cannot_touch: string; budget: string; time_limit: string; sandbox: string } | null>(null);
+  const [editorUserInputs, setEditorUserInputs] = useState<UserInput[] | undefined>(undefined);
 
   // Custom templates live on the server via the app store. localStorage
   // is only a first paint cache.
@@ -2390,6 +2613,7 @@ export default function Agents() {
     setEditorSource(tpl.source ?? (tpl.builtin ? "builtin" : "marketplace"));
     setEditorAliases(undefined);
     setEditorCapabilities(null);
+    setEditorUserInputs(tpl.user_inputs);
     setEditorOpen(true);
   };
 
@@ -4242,6 +4466,7 @@ export default function Agents() {
               setEditorSource(undefined);
               setEditorAliases(undefined);
               setEditorCapabilities(null);
+              setEditorUserInputs(undefined);
               setEditorOpen(true);
             }}
             className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
@@ -4289,6 +4514,7 @@ export default function Agents() {
                   setEditorSource(tpl.isBuiltIn ? "builtin" : "custom");
                   setEditorAliases(tpl.aliases);
                   setEditorCapabilities(tpl.capabilities ?? null);
+                  setEditorUserInputs(undefined);
                   setEditorOpen(true);
                 } : undefined}
                 actionLabel="Use"
@@ -4419,6 +4645,7 @@ export default function Agents() {
             source={editorSource}
             aliases={editorAliases}
             capabilities={editorCapabilities}
+            userInputs={editorUserInputs}
             onSpawn={(t, userMessage) => {
               // If the user typed a message, use it as the prompt. Otherwise
               // fall back to the template description so the agent has context.
