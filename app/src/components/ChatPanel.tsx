@@ -12,6 +12,7 @@ import {
   isRoadmapToTasksRequest,
   type RoadmapToTasksResponse,
 } from '../lib/roadmapChatCommand'
+import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
 
 // Local cache key. The server is the source of truth for chat history.
 // We still mirror to localStorage so the very first paint after a hard
@@ -559,6 +560,8 @@ export function ChatPanel() {
   const [showGiphy, setShowGiphy] = useState(false)
   const [giphyInitialSearch, setGiphyInitialSearch] = useState('')
   const [pendingImage, setPendingImage] = useState<string | null>(null)
+  const [showAttachmentPicker, setShowAttachmentPicker] = useState(false)
+  const [pendingAttachment, setPendingAttachment] = useState<AttachmentFile | null>(null)
   const [commandHistory, setCommandHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const lastEscRef = useRef(0)
@@ -1505,7 +1508,7 @@ export function ChatPanel() {
       return
     }
 
-    if (!text.trim() && !pendingImage) return
+    if (!text.trim() && !pendingImage && !pendingAttachment) return
     // Clear any prior template badge so the next response shows its own.
     setActiveTemplate(null)
 
@@ -1520,11 +1523,19 @@ export function ChatPanel() {
       }
     }
 
+    let msgContent = text.trim()
+    if (pendingAttachment) {
+      const ref = pendingAttachment.path
+        ? `[Attached: ${pendingAttachment.name} — ${pendingAttachment.path}]`
+        : `[Attached: ${pendingAttachment.name}]`
+      msgContent = msgContent ? `${msgContent}\n${ref}` : ref
+    }
+
     const userMsgId = genId()
     const userMessage: Message = {
       id: userMsgId,
       role: 'user',
-      content: text.trim(),
+      content: msgContent,
       replyTo: replyingTo || undefined,
       thread_id: replyThreadId,
       imageUrl: pendingImage || undefined,
@@ -1547,6 +1558,7 @@ export function ChatPanel() {
     setCurrentModel(detectedModel)
     setReplyingTo(null)
     setPendingImage(null)
+    setPendingAttachment(null)
     // Reset turn-level tracking for the new message so stale state
     // from the previous turn does not leak into the new one.
     // Note: processedMessageRef is intentionally NOT reset here. The
@@ -1696,7 +1708,7 @@ export function ChatPanel() {
   }
 
   const handleSend = () => {
-    if (!input.trim() && !pendingImage) return
+    if (!input.trim() && !pendingImage && !pendingAttachment) return
     if (input.trim()) {
       setCommandHistory(prev => [...prev, input.trim()])
       setHistoryIndex(-1)
@@ -2342,6 +2354,13 @@ export function ChatPanel() {
         />
       )}
 
+      {/* Attachment picker */}
+      <AttachmentPicker
+        open={showAttachmentPicker}
+        onSelect={(file) => { setPendingAttachment(file); setShowAttachmentPicker(false) }}
+        onClose={() => setShowAttachmentPicker(false)}
+      />
+
       {/* In-progress banner: shown while one or more agents spawned from
           chat are still running. Disappears automatically when the agent
           finishes and the polling effect appends the completion bubble. */}
@@ -2389,6 +2408,21 @@ export function ChatPanel() {
               className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-slate-700 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors"
             >
               <Icon name="close" className="text-xs text-white" />
+            </button>
+          </div>
+        )}
+
+        {/* Pending attachment chip */}
+        {pendingAttachment && (
+          <div className="mb-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700" data-testid="pending-attachment-chip">
+            <Icon name="attach_file" className="text-slate-400 text-sm" />
+            <span className="text-xs text-slate-300 truncate max-w-[200px]">{pendingAttachment.name}</span>
+            <button
+              onClick={() => setPendingAttachment(null)}
+              className="p-0.5 text-slate-500 hover:text-white transition-colors"
+              aria-label="Remove attachment"
+            >
+              <Icon name="close" className="text-xs" />
             </button>
           </div>
         )}
@@ -2456,6 +2490,14 @@ export function ChatPanel() {
           >
             <Icon name="gif_box" className="text-lg" />
           </button>
+          <button
+            onClick={() => setShowAttachmentPicker(true)}
+            className={`p-2 transition-colors rounded-lg ${pendingAttachment ? 'text-pink-400 bg-pink-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
+            title="Attach a file"
+            data-testid="attach-btn"
+          >
+            <Icon name="attach_file" className="text-lg" />
+          </button>
           {speechSupported && (
             <button
               onClick={toggleSpeech}
@@ -2467,7 +2509,7 @@ export function ChatPanel() {
           )}
           <button
             onClick={handleSend}
-            disabled={!input.trim() && !pendingImage}
+            disabled={!input.trim() && !pendingImage && !pendingAttachment}
             className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isStreaming ? (
