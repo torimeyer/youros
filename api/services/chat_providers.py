@@ -3339,3 +3339,47 @@ async def stream_group_broadcast(
 
 
 chat_service = ChatService()
+
+
+import re as _re
+
+_CODE_BLOCK_RE = _re.compile(r"```", _re.DOTALL)
+_TOOL_INDICATOR_RE = _re.compile(
+    r"\b(bash|python|javascript|typescript|code|script|function|class|import|def |lambda|grep|awk|sed|curl|git |npm |pip )\b",
+    _re.IGNORECASE,
+)
+
+
+def route_provider(
+    message: str,
+    org_policy: Optional[str],
+    available_providers: list[str],
+) -> str:
+    """Select a provider key based on org policy and message heuristics.
+
+    Policy values:
+      - "claude_only": always claude
+      - "gemini_only": gemini, fallback to claude if unavailable
+      - "prefer_gemini" / "auto": gemini for short simple messages, else claude
+      - None / anything else: treated as "auto"
+
+    Always falls back to "claude" if the preferred provider is not in
+    available_providers.
+    """
+    policy = org_policy or "auto"
+
+    def _available(provider: str) -> bool:
+        return provider in available_providers
+
+    if policy == "claude_only":
+        return "claude"
+
+    if policy == "gemini_only":
+        return "gemini" if _available("gemini") else "claude"
+
+    # "auto" or "prefer_gemini": use gemini for short, code-free messages
+    short = len(message) < 500
+    has_code = bool(_CODE_BLOCK_RE.search(message)) or bool(_TOOL_INDICATOR_RE.search(message))
+    if short and not has_code and _available("gemini"):
+        return "gemini"
+    return "claude"

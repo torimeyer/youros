@@ -42,6 +42,29 @@ const ISOLATION_LEVELS = [
   },
 ]
 
+const PROVIDER_POLICY_OPTIONS = [
+  {
+    value: 'auto',
+    label: 'Smart (recommended)',
+    description: 'Picks the best AI for each message automatically.',
+  },
+  {
+    value: 'claude_only',
+    label: 'Claude only',
+    description: 'All messages go to Claude. Gemini is never used.',
+  },
+  {
+    value: 'gemini_only',
+    label: 'Gemini only',
+    description: 'All messages go to Gemini. Falls back to Claude if Gemini is unavailable.',
+  },
+  {
+    value: 'prefer_gemini',
+    label: 'Prefer Gemini for simple tasks',
+    description: 'Short, straightforward messages go to Gemini. Longer or code-heavy messages go to Claude.',
+  },
+]
+
 export default function AdminPolicies() {
   const darkMode = useAppStore((s) => s.darkMode)
   const [policies, setPolicies] = useState<Policies | null>(null)
@@ -54,6 +77,8 @@ export default function AdminPolicies() {
   const [maxBudget, setMaxBudget] = useState('')
   const [approvalAbove, setApprovalAbove] = useState('')
   const [auditRetention, setAuditRetention] = useState('')
+  const [providerPolicy, setProviderPolicy] = useState('auto')
+  const [savingProvider, setSavingProvider] = useState(false)
 
   const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
   const labelCls = darkMode ? 'text-slate-400' : 'text-slate-500'
@@ -66,8 +91,9 @@ export default function AdminPolicies() {
       api.get<{ policies: Policies }>('/enterprise/policies'),
       api.get<{ templates: OrgTemplate[] }>('/enterprise/templates'),
       api.get<{ content: string }>('/enterprise/agentfile'),
+      api.get<{ settings: { provider_policy?: string } }>('/org/settings').catch(() => ({ settings: {} })),
     ])
-      .then(([polRes, tmplRes, afRes]) => {
+      .then(([polRes, tmplRes, afRes, orgRes]) => {
         const p = polRes.policies || polRes as unknown as Policies
         setPolicies(p)
         setMaxBudget(String(p.max_agent_budget))
@@ -75,6 +101,8 @@ export default function AdminPolicies() {
         setAuditRetention(String(p.audit_retention_days))
         setTemplates(tmplRes.templates || [])
         setAgentfile(afRes.content || '')
+        const s = (orgRes as { settings?: { provider_policy?: string } }).settings || {}
+        setProviderPolicy(s.provider_policy || 'auto')
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -101,6 +129,18 @@ export default function AdminPolicies() {
       // ignore
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleSaveProviderPolicy = async (value: string) => {
+    setProviderPolicy(value)
+    setSavingProvider(true)
+    try {
+      await api.patch('/org/settings', { provider_policy: value })
+    } catch {
+      // ignore
+    } finally {
+      setSavingProvider(false)
     }
   }
 
@@ -167,6 +207,32 @@ export default function AdminPolicies() {
             )
           })}
         </div>
+      </div>
+
+      {/* Provider routing */}
+      <div className={cardCls}>
+        <h2 className={`text-base font-semibold mb-2 ${headingCls}`}>Provider routing</h2>
+        <p className={`text-sm mb-4 ${labelCls}`}>
+          Controls which AI answers chat messages for your team. Personal chats always use smart routing.
+        </p>
+        <select
+          data-testid="provider-policy-select"
+          value={providerPolicy}
+          onChange={(e) => handleSaveProviderPolicy(e.target.value)}
+          disabled={savingProvider}
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 disabled:opacity-50 ${inputCls}`}
+        >
+          {PROVIDER_POLICY_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        {providerPolicy && (
+          <p className={`text-xs mt-2 ${labelCls}`}>
+            {PROVIDER_POLICY_OPTIONS.find((o) => o.value === providerPolicy)?.description}
+          </p>
+        )}
       </div>
 
       {/* Budget and approval */}

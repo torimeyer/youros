@@ -46,6 +46,9 @@ def _save_settings(org_id: str, data: dict) -> None:
     atomic_write_json(path, data)
 
 
+PROVIDER_POLICY_VALUES = {"auto", "claude_only", "gemini_only", "prefer_gemini"}
+
+
 def _default_settings() -> dict:
     return {
         "org_name": "",
@@ -53,6 +56,7 @@ def _default_settings() -> dict:
         "marketplace_url": "",
         "welcome_message": "",
         "default_skill_pack_id": "",
+        "provider_policy": "auto",
     }
 
 
@@ -62,6 +66,7 @@ class OrgSettingsUpdate(BaseModel):
     marketplace_url: Optional[str] = None
     welcome_message: Optional[str] = None
     default_skill_pack_id: Optional[str] = None
+    provider_policy: Optional[str] = None
 
 
 @router.get("/org/settings")
@@ -98,6 +103,8 @@ async def update_org_settings(body: OrgSettingsUpdate, request: Request):
 
     settings = {**_default_settings(), **_load_settings(org["id"])}
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "provider_policy" in updates and updates["provider_policy"] not in PROVIDER_POLICY_VALUES:
+        raise HTTPException(status_code=422, detail=f"provider_policy must be one of: {sorted(PROVIDER_POLICY_VALUES)}")
     settings.update(updates)
     _save_settings(org["id"], settings)
 

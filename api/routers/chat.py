@@ -12,6 +12,7 @@ from services.chat_history_store import chat_history_store
 from services.chat_providers import (
     MULTI_AI_DEFAULT_ROUNDS,
     chat_service,
+    route_provider,
     stream_group_broadcast,
     stream_multi_ai_conversation,
 )
@@ -1128,6 +1129,7 @@ async def chat_websocket(websocket: WebSocket):
 
             use_tools = data.get("tools", False)
             mentioned_models = parse_mentions(last_text)
+            had_explicit_mention = bool(mentioned_models)
 
             # Side-by-side broadcast flag. Baseline-permanent so the
             # frontend can opt a turn into broadcast without requiring
@@ -1338,6 +1340,23 @@ async def chat_websocket(websocket: WebSocket):
                 else:
                     # Single model call (even if @mentioned)
                     model = mentioned_models[0]
+                    # Apply org provider policy only in team mode and when the
+                    # user did not explicitly @mention a specific model.
+                    if not had_explicit_mention:
+                        try:
+                            from services import enterprise_store as _es
+                            org = _es.get_org()
+                            if org:
+                                from routers.org_settings import _load_settings, _default_settings
+                                org_settings = {**_default_settings(), **_load_settings(org["id"])}
+                                org_policy = org_settings.get("provider_policy", "auto")
+                                model = route_provider(
+                                    message=last_text if isinstance(last_text, str) else "",
+                                    org_policy=org_policy,
+                                    available_providers=list(ALL_MODELS),
+                                )
+                        except Exception:
+                            pass
                     label = model.capitalize() if len(mentioned_models) > 0 else ""
                     await call_model(model, messages, tracked_ws, label=label, use_tools=use_tools, tab_id=tab_id)
             except WebSocketDisconnect:
