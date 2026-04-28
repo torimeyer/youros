@@ -92,6 +92,7 @@ describe('OnboardingWizard', () => {
       displayOsName: () => 'myOS',
       setInstanceMode: vi.fn() as unknown as (mode: 'personal' | 'team') => void,
       setOrgName: vi.fn(),
+      setAgentsLastViewed: vi.fn() as unknown as (v: string) => void,
     })
     vi.mocked(api.get).mockReset()
     vi.mocked(api.post).mockReset()
@@ -322,6 +323,23 @@ describe('OnboardingWizard', () => {
 
     expect(useAppStore.getState().onboarded).toBe(true)
     expect(localStorageMock.setItem).toHaveBeenCalledWith('myos-onboarded', 'true')
+  })
+
+  it('resets agentsLastViewed to now when personal onboarding finishes (Bug 2: stale Finished badge)', () => {
+    const setAgentsLastViewed = vi.fn()
+    useAppStore.setState({ setAgentsLastViewed: setAgentsLastViewed as unknown as (v: string) => void })
+
+    const before = Date.now()
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(7)
+    fireEvent.click(screen.getByTestId('finish-button'))
+    const after = Date.now()
+
+    expect(setAgentsLastViewed).toHaveBeenCalledTimes(1)
+    const ts = new Date(setAgentsLastViewed.mock.calls[0][0]).getTime()
+    expect(ts).toBeGreaterThanOrEqual(before)
+    expect(ts).toBeLessThanOrEqual(after)
   })
 
   it('navigates to the homepage "/" when finished', () => {

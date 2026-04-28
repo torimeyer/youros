@@ -569,6 +569,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   enterpriseUser: null,
   instanceMode: initialInstanceMode,
   setInstanceMode: (instanceMode) => {
+    if (!TEAM_MODE_VISIBLE && instanceMode === 'team') return
     lsSet(LS_KEYS.instanceMode, instanceMode)
     set({ instanceMode })
     patchServer({ instance_mode: instanceMode })
@@ -665,7 +666,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // instance_mode
     if (hasValue(server.instance_mode)) {
-      const v = String(server.instance_mode) as InstanceMode
+      let v = String(server.instance_mode) as InstanceMode
+      // When team mode is hidden, ignore a stale 'team' value from the
+      // server. The user may have set it in a previous session before
+      // the flag was turned off, but surfacing team UI would be wrong.
+      if (!TEAM_MODE_VISIBLE && v === 'team') v = 'personal'
       updates.instanceMode = v
       lsSet(LS_KEYS.instanceMode, v)
     } else if (state.instanceMode !== 'personal') {
@@ -840,9 +845,11 @@ export const useAppStore = create<AppState>((set, get) => ({
             set({ orgName: ent.org.name })
           }
         } catch { /* org fetch is non-blocking */ }
-        // Auto-migrate: if enterprise is active but instance mode was never set to team
+        // Auto-migrate: if enterprise is active but instance mode was never set to team.
+        // Only do this when team mode is visible — if the flag is off, enterprise
+        // detection must not silently switch the user into team mode.
         const current = get()
-        if (current.instanceMode === 'personal') {
+        if (TEAM_MODE_VISIBLE && current.instanceMode === 'personal') {
           lsSet(LS_KEYS.instanceMode, 'team')
           set({ instanceMode: 'team' })
           patchServer({ instance_mode: 'team' })

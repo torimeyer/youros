@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useAppStore } from './app'
+import { useAppStore, TEAM_MODE_VISIBLE } from './app'
 import { api } from '../lib/api'
 
 // Mock the api module so no real network calls fire and we can assert
@@ -402,5 +402,62 @@ describe('useAppStore', () => {
         expect.objectContaining({ custom_agent_templates: templates }),
       )
     })
+  })
+})
+
+// Bug 1: team mode must never leak through when TEAM_MODE_VISIBLE = false
+
+describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
+  beforeEach(() => {
+    vi.mocked(api.get).mockReset().mockResolvedValue({})
+    vi.mocked(api.patch).mockReset().mockResolvedValue({})
+    useAppStore.setState({ instanceMode: 'personal', orgName: '' })
+    try { localStorage.clear() } catch { /* noop */ }
+  })
+
+  it('TEAM_MODE_VISIBLE is false in this build', () => {
+    expect(TEAM_MODE_VISIBLE).toBe(false)
+  })
+
+  it('setInstanceMode("team") is a no-op when TEAM_MODE_VISIBLE=false', () => {
+    useAppStore.setState({ instanceMode: 'personal' })
+    useAppStore.getState().setInstanceMode('team')
+    expect(useAppStore.getState().instanceMode).toBe('personal')
+  })
+
+  it('setInstanceMode("team") does not patch the server when TEAM_MODE_VISIBLE=false', () => {
+    useAppStore.setState({ instanceMode: 'personal' })
+    useAppStore.getState().setInstanceMode('team')
+    expect(api.patch).not.toHaveBeenCalled()
+  })
+
+  it('setInstanceMode("personal") still works when TEAM_MODE_VISIBLE=false', () => {
+    useAppStore.setState({ instanceMode: 'personal' })
+    useAppStore.getState().setInstanceMode('personal')
+    expect(useAppStore.getState().instanceMode).toBe('personal')
+  })
+
+  it('hydrateFromServer forces instanceMode to personal when server has team and flag is off', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ instance_mode: 'team', onboarded: true })
+    await useAppStore.getState().hydrateFromServer()
+    expect(useAppStore.getState().instanceMode).toBe('personal')
+  })
+
+  it('displayOsName returns osName even when orgName is set and server had team mode', async () => {
+    useAppStore.setState({ osName: 'myOS', orgName: 'Meyer', instanceMode: 'personal' })
+    // Simulate stale server returning team mode — hydration should neutralise it
+    vi.mocked(api.get).mockResolvedValueOnce({ instance_mode: 'team', onboarded: true })
+    await useAppStore.getState().hydrateFromServer()
+    expect(useAppStore.getState().displayOsName()).toBe('myOS')
+  })
+
+  it('enterprise auto-migration does not switch to team when TEAM_MODE_VISIBLE=false', async () => {
+    useAppStore.setState({ instanceMode: 'personal' })
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ onboarded: true })  // /settings
+      .mockResolvedValueOnce({ authenticated: true, enterprise: true, email: 'a@b.com', role: 'member' })  // /enterprise/me
+      .mockResolvedValueOnce({ org: { name: 'Acme' } })  // /enterprise
+    await useAppStore.getState().hydrateFromServer()
+    expect(useAppStore.getState().instanceMode).toBe('personal')
   })
 })

@@ -40,6 +40,7 @@ export default function OnboardingWizard() {
   const setCustomAgentTemplates = useAppStore((s) => s.setCustomAgentTemplates)
   const setInstanceMode = useAppStore((s) => s.setInstanceMode)
   const setOrgName = useAppStore((s) => s.setOrgName)
+  const setAgentsLastViewed = useAppStore((s) => s.setAgentsLastViewed)
 
   // Local state
   const [userName, setUserName] = useState('')
@@ -161,6 +162,9 @@ export default function OnboardingWizard() {
       // Sync the store with what the user picked in the wizard
       if (pickedDarkRef.current !== darkMode) toggleDarkMode()
       api.patch('/settings', settings).catch(() => {})
+      // Reset the "Finished" baseline so agents from before onboarding
+      // do not immediately show a stale count in the sidebar.
+      setAgentsLastViewed(new Date().toISOString())
       // Navigate home BEFORE flipping onboarded. Once onboarded=true the
       // wizard unmounts and BrowserRouter mounts at whatever URL is current.
       goHome()
@@ -182,6 +186,9 @@ export default function OnboardingWizard() {
     // Sync the store with what the user picked in the wizard
     if (pickedDarkRef.current !== darkMode) toggleDarkMode()
     api.patch('/settings', settings).catch(() => {})
+    // Reset the "Finished" baseline so agents from before onboarding
+    // do not immediately show a stale count in the sidebar.
+    setAgentsLastViewed(new Date().toISOString())
     // Navigate home BEFORE flipping onboarded (see goHome comment above).
     goHome()
     setOnboarded(true)
