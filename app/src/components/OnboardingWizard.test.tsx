@@ -114,8 +114,8 @@ describe('OnboardingWizard', () => {
   it('shows progress dots equal to the number of steps', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    // 10 steps: Fork, Welcome, You, Name, Profile, Customize, Theme, Connect, Ready, NowWhat
-    expect(dots.children).toHaveLength(10)
+    // 9 steps: Fork, Welcome, You, Name, Profile, Customize, Theme, Connect, Ready
+    expect(dots.children).toHaveLength(9)
   })
 
   it('does not show Back button on Fork step', () => {
@@ -318,8 +318,7 @@ describe('OnboardingWizard', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(7)
-    fireEvent.click(screen.getByTestId('finish-button')) // Ready → NowWhat
-    fireEvent.click(screen.getByTestId('skip-button'))   // NowWhat → finish
+    fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
     expect(useAppStore.getState().onboarded).toBe(true)
     expect(localStorageMock.setItem).toHaveBeenCalledWith('myos-onboarded', 'true')
@@ -332,8 +331,7 @@ describe('OnboardingWizard', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(7)
-    fireEvent.click(screen.getByTestId('finish-button')) // Ready → NowWhat
-    fireEvent.click(screen.getByTestId('skip-button'))   // NowWhat → finish
+    fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
     expect(window.location.pathname).toBe('/')
   })
@@ -351,8 +349,7 @@ describe('OnboardingWizard', () => {
 
     clickNext(4) // Profile -> Customize -> Theme -> Connect -> Ready
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('finish-button')) // Ready → NowWhat
-    fireEvent.click(screen.getByTestId('skip-button'))   // NowWhat → finish
+    fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
     expect(useAppStore.getState().onboarded).toBe(true)
     expect(window.location.pathname).toBe('/')
@@ -371,8 +368,7 @@ describe('OnboardingWizard', () => {
       render(<OnboardingWizard />)
       choosePersonalMode()
       clickNext(7)
-      fireEvent.click(screen.getByTestId('finish-button')) // Ready → NowWhat
-      fireEvent.click(screen.getByTestId('skip-button'))   // NowWhat → finish
+      fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
     } finally {
       unsubscribe()
     }
@@ -561,10 +557,10 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('other-role-input')).not.toBeInTheDocument()
   })
 
-  it('step count for personal mode is 10', () => {
+  it('step count for personal mode is 9', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    expect(dots.children).toHaveLength(10)
+    expect(dots.children).toHaveLength(9)
   })
 })
 
@@ -681,7 +677,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     })
   })
 
-  it('Enter on the Ready step advances to NowWhat, Enter on NowWhat finishes', async () => {
+  it('Enter on the Ready step finishes onboarding', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(7) // Welcome -> ... -> Ready
@@ -689,13 +685,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
 
     const wizard = screen.getByTestId('onboarding-wizard')
-    fireEvent.keyDown(wizard, { key: 'Enter' }) // Ready → NowWhat
-
-    await waitFor(() => {
-      expect(screen.getByTestId('step-now-what')).toBeInTheDocument()
-    })
-
-    fireEvent.keyDown(wizard, { key: 'Enter' }) // NowWhat → finish
+    fireEvent.keyDown(wizard, { key: 'Enter' }) // Ready → finish
 
     await waitFor(() => {
       expect(useAppStore.getState().onboarded).toBe(true)
@@ -988,103 +978,4 @@ describe('OnboardingWizard — Customize agents step', () => {
   })
 })
 
-describe('OnboardingWizard — NowWhat pointer step (P4)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.mocked(api.get).mockResolvedValue({})
-    vi.mocked(api.post).mockResolvedValue({})
-    vi.mocked(api.patch).mockResolvedValue({})
-    useAppStore.setState({ onboarded: false, osName: '', darkMode: false })
-  })
 
-  function navigateToNowWhat() {
-    fireEvent.click(screen.getByTestId('fork-personal'))
-    fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
-    for (let i = 0; i < 6; i++) {
-      fireEvent.click(screen.getByTestId('skip-button')) // You, Name, Profile, Customize, Theme, Connect
-    }
-    fireEvent.click(screen.getByTestId('finish-button')) // Ready → NowWhat
-  }
-
-  function navigateToNowWhatWithPersona(personaId: string) {
-    fireEvent.click(screen.getByTestId('fork-personal'))
-    fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
-    fireEvent.click(screen.getByTestId('skip-button')) // You → Name
-    fireEvent.click(screen.getByTestId('skip-button')) // Name → Profile
-    const cat = AGENT_MARKETPLACE.find((c) => c.id === personaId)!
-    fireEvent.click(screen.getByText(cat.category))
-    fireEvent.click(screen.getByTestId('next-button')) // Profile → Customize
-    fireEvent.click(screen.getByTestId('skip-button')) // Customize → Theme
-    fireEvent.click(screen.getByTestId('skip-button')) // Theme → Connect
-    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
-    fireEvent.click(screen.getByTestId('finish-button')) // Ready → NowWhat
-  }
-
-  it('shows NowWhat step after clicking Get started on Ready', () => {
-    render(<OnboardingWizard />)
-    navigateToNowWhat()
-    expect(screen.getByTestId('step-now-what')).toBeInTheDocument()
-  })
-
-  it('renders 3 suggestion cards when a persona is selected', () => {
-    render(<OnboardingWizard />)
-    navigateToNowWhatWithPersona('pm')
-    expect(screen.getByTestId('step-now-what')).toBeInTheDocument()
-    const suggestions = screen.getByTestId('now-what-suggestions')
-    expect(suggestions.children).toHaveLength(3)
-  })
-
-  it('renders 3 default suggestion cards when no persona is selected', () => {
-    render(<OnboardingWizard />)
-    navigateToNowWhat()
-    const suggestions = screen.getByTestId('now-what-suggestions')
-    expect(suggestions.children).toHaveLength(3)
-  })
-
-  it('shows "Skip for now" button on NowWhat step', () => {
-    render(<OnboardingWizard />)
-    navigateToNowWhat()
-    const skipBtn = screen.getByTestId('skip-button')
-    expect(skipBtn).toBeInTheDocument()
-    expect(skipBtn).toHaveTextContent('Skip for now')
-  })
-
-  it('Skip for now routes to same destination as today wizard finish', () => {
-    window.history.replaceState({}, '', '/settings')
-    render(<OnboardingWizard />)
-    navigateToNowWhat()
-    fireEvent.click(screen.getByTestId('skip-button'))
-    expect(useAppStore.getState().onboarded).toBe(true)
-    expect(window.location.pathname).toBe('/')
-  })
-
-  it('clicking an action card also finishes onboarding and goes home', () => {
-    window.history.replaceState({}, '', '/settings')
-    render(<OnboardingWizard />)
-    navigateToNowWhat()
-    const firstCard = screen.getByTestId('now-what-fr-default-1')
-    fireEvent.click(firstCard)
-    expect(useAppStore.getState().onboarded).toBe(true)
-    expect(window.location.pathname).toBe('/')
-  })
-
-  it('shows persona-specific suggestions for pm persona', () => {
-    render(<OnboardingWizard />)
-    navigateToNowWhatWithPersona('pm')
-    expect(screen.getByText('Write your first PRD')).toBeInTheDocument()
-    expect(screen.getByText('Scan your competition')).toBeInTheDocument()
-    expect(screen.getByText('Plan your roadmap')).toBeInTheDocument()
-  })
-
-  it('does not show Back button on NowWhat step', () => {
-    render(<OnboardingWizard />)
-    navigateToNowWhat()
-    expect(screen.queryByTestId('back-button')).not.toBeInTheDocument()
-  })
-
-  it('does not show a Next button on NowWhat step', () => {
-    render(<OnboardingWizard />)
-    navigateToNowWhat()
-    expect(screen.queryByTestId('next-button')).not.toBeInTheDocument()
-  })
-})
