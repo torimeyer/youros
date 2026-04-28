@@ -3,7 +3,6 @@ import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
 import ConfirmModal from '../components/ConfirmModal';
 import QuickLook from '../components/QuickLook';
-import ProvenanceChip, { type Provenance } from '../components/ProvenanceChip';
 import FileShareModal from '../components/FileShareModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { api, ApiError } from '../lib/api';
@@ -59,19 +58,6 @@ interface RecentDocsResponse {
   files: RecentDoc[];
 }
 
-interface TimelineFile {
-  id: string;
-  name: string;
-  path: string;
-  size: number;
-  modified_at: string;
-  mime_type: string;
-  provenance: Provenance | null;
-}
-
-interface TimelineResponse {
-  files: TimelineFile[];
-}
 
 // --- Helpers ---
 
@@ -96,11 +82,6 @@ function timeAgo(iso: string | null): string {
   return `${days}d ago`;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function agentArtifactTitle(name: string): { title: string; timeLabel: string | null } {
   const stem = name.endsWith('.md') ? name.slice(0, -3) : name;
@@ -138,14 +119,6 @@ function fileIcon(name: string): string {
 // --- Component ---
 
 export default function Files() {
-  // 'timeline' is the default view; 'files' shows the project explorer.
-  const [view, setView] = useState<'timeline' | 'files'>('timeline');
-
-  // Timeline state
-  const [timelineFiles, setTimelineFiles] = useState<TimelineFile[]>([]);
-  const [timelineLoading, setTimelineLoading] = useState(true);
-  const [timelineError, setTimelineError] = useState<string | null>(null);
-
   // QuickLook state (shared across both views)
   const [quickLookTarget, setQuickLookTarget] = useState<{ path: string; mime: string } | null>(null);
 
@@ -185,24 +158,6 @@ export default function Files() {
     const id = setTimeout(() => setDeleteToast(null), 4000);
     return () => clearTimeout(id);
   }, [deleteToast]);
-
-  // --- Timeline fetch ---
-
-  const fetchTimeline = useCallback(async () => {
-    setTimelineLoading(true);
-    setTimelineError(null);
-    try {
-      const res = await api.get<TimelineResponse>('/files/timeline?limit=50');
-      const files = [...(res.files ?? [])].sort(
-        (a, b) => new Date(b.modified_at).getTime() - new Date(a.modified_at).getTime()
-      );
-      setTimelineFiles(files);
-    } catch {
-      setTimelineError('Could not load files. Make sure the API is running.');
-    } finally {
-      setTimelineLoading(false);
-    }
-  }, []);
 
   // --- Files view fetches ---
 
@@ -253,22 +208,18 @@ export default function Files() {
     }
   }, []);
 
-  // Load data on mount and whenever view/path changes
+  // Load data on mount and whenever path changes
   useEffect(() => {
-    if (view === 'timeline') {
-      fetchTimeline();
-    } else if (currentPath === null) {
+    if (currentPath === null) {
       fetchProjects();
       fetchRecentDocs();
     } else {
       fetchDirectory(currentPath);
     }
-  }, [view, currentPath, fetchTimeline, fetchProjects, fetchRecentDocs, fetchDirectory]);
+  }, [currentPath, fetchProjects, fetchRecentDocs, fetchDirectory]);
 
   const refresh = () => {
-    if (view === 'timeline') {
-      fetchTimeline();
-    } else if (currentPath === null) {
+    if (currentPath === null) {
       fetchProjects();
       fetchRecentDocs();
     } else {
@@ -328,18 +279,6 @@ export default function Files() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              data-testid="files-view-toggle"
-              onClick={() => {
-                setView((v) => v === 'timeline' ? 'files' : 'timeline');
-                setCurrentPath(null);
-                setBrowseData(null);
-              }}
-              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors border border-slate-700"
-            >
-              <Icon name={view === 'timeline' ? 'folder' : 'history'} className="text-base" />
-              {view === 'timeline' ? 'Projects' : 'Timeline'}
-            </button>
-            <button
               onClick={refresh}
               className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-300 transition-colors border border-slate-700"
             >
@@ -349,67 +288,8 @@ export default function Files() {
           </div>
         </div>
 
-        {/* Timeline view (default) */}
-        {view === 'timeline' && (
-          <>
-            {timelineLoading && (
-              <p className="text-sm text-slate-500 py-4">Loading files...</p>
-            )}
-
-            {timelineError && !timelineLoading && (
-              <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm mb-4">
-                <Icon name="error" className="text-lg" />
-                <span>{timelineError}</span>
-              </div>
-            )}
-
-            {!timelineLoading && !timelineError && timelineFiles.length === 0 && (
-              <div className="text-center py-12 text-slate-500">
-                <Icon name="folder_open" className="text-4xl mb-2" />
-                <p>No files yet. Run an agent or upload one.</p>
-              </div>
-            )}
-
-            {!timelineLoading && timelineFiles.length > 0 && (
-              <div className="flex flex-col gap-1">
-                {timelineFiles.map((file) => (
-                  <div
-                    key={file.id}
-                    className="group flex items-center gap-4 bg-slate-900/40 border border-slate-800/60 rounded-lg px-4 py-3 hover:border-blue-500/40 hover:bg-slate-800/40 transition-colors"
-                  >
-                    <button
-                      data-testid={`files-timeline-row-${file.id}`}
-                      onClick={() => setQuickLookTarget({ path: file.path, mime: file.mime_type })}
-                      className="flex items-center gap-4 flex-1 min-w-0 text-left"
-                    >
-                      <Icon name={fileIcon(file.name)} className="text-xl text-slate-400 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-slate-200 truncate">{file.name}</p>
-                        <ProvenanceChip provenance={file.provenance} />
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-xs text-slate-500">{formatBytes(file.size)}</p>
-                        <p className="text-xs text-slate-600">{timeAgo(file.modified_at)}</p>
-                      </div>
-                    </button>
-                    <button
-                      data-testid={`files-timeline-share-${file.id}`}
-                      onClick={(e) => { e.stopPropagation(); setShareTarget({ path: file.path, name: file.name }); }}
-                      className="shrink-0 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-blue-400 transition-all"
-                      title="Share file"
-                    >
-                      <Icon name="link" size={16} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Files view: project explorer + recent docs */}
-        {view === 'files' && (
-          <>
+        {/* Files: project explorer + recent docs */}
+        <>
             {/* Breadcrumb navigation (shown when inside a directory) */}
             {currentPath !== null && (
               <div className="flex items-center gap-1 mb-4 text-sm flex-wrap">
@@ -685,10 +565,9 @@ export default function Files() {
               </div>
             )}
           </>
-        )}
       </div>
 
-      {/* QuickLook modal (timeline view) */}
+      {/* QuickLook modal */}
       {quickLookTarget && (
         <QuickLook
           filePath={quickLookTarget.path}

@@ -94,34 +94,6 @@ const mockBrowseResponse = {
   ],
 }
 
-const mockTimelineResponse = {
-  files: [
-    {
-      id: 'report-new.md',
-      name: 'report-new.md',
-      path: '/home/user/.myos/files/report-new.md',
-      size: 1024,
-      modified_at: new Date('2026-04-25T12:00:00Z').toISOString(),
-      mime_type: 'text/markdown',
-      provenance: {
-        agent_name: 'Builder',
-        task_id: '42',
-        created_at: new Date('2026-04-25T11:00:00Z').toISOString(),
-        source: 'agent' as const,
-      },
-    },
-    {
-      id: 'report-old.md',
-      name: 'report-old.md',
-      path: '/home/user/.myos/files/report-old.md',
-      size: 512,
-      modified_at: new Date('2026-04-25T10:00:00Z').toISOString(),
-      mime_type: 'text/markdown',
-      provenance: null,
-    },
-  ],
-}
-
 function renderFiles() {
   return render(
     <MemoryRouter>
@@ -130,18 +102,11 @@ function renderFiles() {
   )
 }
 
-// Click the view toggle to switch from timeline → files view.
-const switchToFilesView = () => fireEvent.click(screen.getByTestId('files-view-toggle'))
-
 describe('Files page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({ chatOpen: false, osName: 'myOS', darkMode: true })
-    // Default: timeline returns empty; everything else falls through to projects mock.
-    mockedApiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith('/files/timeline')) return { files: [] }
-      return mockProjectsResponse
-    })
+    mockedApiGet.mockResolvedValue(mockProjectsResponse)
     mockedApiPost.mockResolvedValue({})
     mockedApiDelete.mockResolvedValue({ ok: true, path: '' })
   })
@@ -151,11 +116,6 @@ describe('Files page', () => {
   it('renders the page title', async () => {
     renderFiles()
     expect(screen.getByRole('heading', { name: 'Files' })).toBeInTheDocument()
-  })
-
-  it('shows the view toggle button', () => {
-    renderFiles()
-    expect(screen.getByTestId('files-view-toggle')).toBeInTheDocument()
   })
 
   it('has a Refresh button', async () => {
@@ -178,59 +138,70 @@ describe('Files page', () => {
     })
   })
 
-  // --- Timeline view (default) ---
+  // --- Project list ---
 
-  it('calls api.get with /files/timeline on mount', async () => {
-    renderFiles()
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringContaining('/files/timeline'))
-    })
-  })
-
-  it('shows loading text before files arrive', () => {
-    mockedApiGet.mockReturnValue(new Promise(() => {}))
-    renderFiles()
-    expect(screen.getByText('Loading files...')).toBeInTheDocument()
-  })
-
-  it('shows error state on API failure', async () => {
-    mockedApiGet.mockRejectedValue(new Error('Network error'))
-    renderFiles()
-    await waitFor(() => {
-      expect(
-        screen.getByText('Could not load files. Make sure the API is running.')
-      ).toBeInTheDocument()
-    })
-  })
-
-  it('shows empty state when no files in timeline', async () => {
-    renderFiles()
-    await waitFor(() => {
-      expect(
-        screen.getByText('No files yet. Run an agent or upload one.')
-      ).toBeInTheDocument()
-    })
-  })
-
-  it('timeline renders rows in newest-first order', async () => {
-    // API returns oldest-first; frontend must re-sort to newest-first
-    mockedApiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith('/files/timeline')) return {
-        files: [mockTimelineResponse.files[1], mockTimelineResponse.files[0]],
-      }
-      return {}
-    })
-
+  it('fetches and renders project list', async () => {
     renderFiles()
 
     await waitFor(() => {
-      expect(screen.getByTestId('files-timeline-row-report-new.md')).toBeInTheDocument()
+      expect(screen.getByText('my-app')).toBeInTheDocument()
+    })
+    expect(screen.getByText('api-service')).toBeInTheDocument()
+  })
+
+  it('shows project descriptions when available', async () => {
+    renderFiles()
+
+    await waitFor(() => {
+      expect(screen.getByText('A sample application')).toBeInTheDocument()
+    })
+  })
+
+  it('shows git badge for projects with git', async () => {
+    renderFiles()
+
+    await waitFor(() => {
+      expect(screen.getByText('my-app')).toBeInTheDocument()
     })
 
-    const rows = screen.getAllByTestId(/^files-timeline-row-/)
-    expect(rows).toHaveLength(2)
-    expect(rows[0]).toHaveAttribute('data-testid', 'files-timeline-row-report-new.md')
-    expect(rows[1]).toHaveAttribute('data-testid', 'files-timeline-row-report-old.md')
+    const gitBadges = screen.getAllByText('git')
+    expect(gitBadges.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows project type label', async () => {
+    renderFiles()
+
+    await waitFor(() => {
+      expect(screen.getByText('Node.js')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Python')).toBeInTheDocument()
+  })
+
+  it('shows file count for each project', async () => {
+    renderFiles()
+
+    await waitFor(() => {
+      expect(screen.getByText('42')).toBeInTheDocument()
+    })
+    expect(screen.getByText('15')).toBeInTheDocument()
+  })
+
+  it('shows empty state when no projects', async () => {
+    mockedApiGet.mockResolvedValue({ projects: [] })
+
+    renderFiles()
+
+    await waitFor(() => {
+      expect(screen.getByText('No projects found.')).toBeInTheDocument()
+    })
+  })
+
+  it('shows footer text when projects are loaded', async () => {
+    renderFiles()
+
+    await waitFor(() => {
+      expect(screen.getByText('Click a project to browse its files')).toBeInTheDocument()
+    })
   })
 
   it('recent docs renders rows in newest-first order', async () => {
@@ -250,7 +221,6 @@ describe('Files page', () => {
       last_modified: new Date('2026-04-25T10:00:00Z').toISOString(),
       snippet: 'older content',
     }
-    // API returns oldest-first; frontend must re-sort to newest-first
     mockedApiGet.mockImplementation(async (path: string) => {
       if (path === '/projects') return mockProjectsResponse
       if (path.startsWith('/docs/recent')) return { files: [olderDoc, newerDoc] }
@@ -258,7 +228,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(screen.getByTestId(`recent-doc-row-${newerDoc.path}`)).toBeInTheDocument()
@@ -267,131 +236,6 @@ describe('Files page', () => {
     const rows = screen.getAllByTestId(/^recent-doc-row-/)
     expect(rows[0]).toHaveAttribute('data-testid', `recent-doc-row-${newerDoc.path}`)
     expect(rows[1]).toHaveAttribute('data-testid', `recent-doc-row-${olderDoc.path}`)
-  })
-
-  it('each timeline row has the expected testid', async () => {
-    mockedApiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith('/files/timeline')) return mockTimelineResponse
-      return {}
-    })
-
-    renderFiles()
-
-    await waitFor(() => {
-      expect(screen.getByTestId('files-timeline-row-report-new.md')).toBeInTheDocument()
-      expect(screen.getByTestId('files-timeline-row-report-old.md')).toBeInTheDocument()
-    })
-  })
-
-  it('clicking a timeline row opens QuickLook', async () => {
-    mockedApiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith('/files/timeline')) return mockTimelineResponse
-      return {}
-    })
-
-    renderFiles()
-
-    await waitFor(() => {
-      expect(screen.getByTestId('files-timeline-row-report-new.md')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByTestId('files-timeline-row-report-new.md'))
-
-    expect(screen.getByTestId('quicklook-modal')).toBeInTheDocument()
-  })
-
-  it('ProvenanceChip shows agent attribution for agent-generated file', async () => {
-    mockedApiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith('/files/timeline')) return mockTimelineResponse
-      return {}
-    })
-
-    renderFiles()
-
-    await waitFor(() => {
-      expect(screen.getByTestId('files-timeline-row-report-new.md')).toBeInTheDocument()
-    })
-
-    const chips = screen.getAllByTestId('provenance-chip')
-    const agentChip = chips[0]
-    expect(agentChip.textContent).toContain('Created by Builder')
-    expect(agentChip.textContent).toContain('task #42')
-  })
-
-  // --- Files view: project list ---
-
-  it('fetches and renders project list in Files view', async () => {
-    renderFiles()
-    switchToFilesView()
-
-    await waitFor(() => {
-      expect(screen.getByText('my-app')).toBeInTheDocument()
-    })
-    expect(screen.getByText('api-service')).toBeInTheDocument()
-  })
-
-  it('shows project descriptions when available', async () => {
-    renderFiles()
-    switchToFilesView()
-
-    await waitFor(() => {
-      expect(screen.getByText('A sample application')).toBeInTheDocument()
-    })
-  })
-
-  it('shows git badge for projects with git', async () => {
-    renderFiles()
-    switchToFilesView()
-
-    await waitFor(() => {
-      expect(screen.getByText('my-app')).toBeInTheDocument()
-    })
-
-    const gitBadges = screen.getAllByText('git')
-    expect(gitBadges.length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('shows project type label', async () => {
-    renderFiles()
-    switchToFilesView()
-
-    await waitFor(() => {
-      expect(screen.getByText('Node.js')).toBeInTheDocument()
-    })
-    expect(screen.getByText('Python')).toBeInTheDocument()
-  })
-
-  it('shows file count for each project', async () => {
-    renderFiles()
-    switchToFilesView()
-
-    await waitFor(() => {
-      expect(screen.getByText('42')).toBeInTheDocument()
-    })
-    expect(screen.getByText('15')).toBeInTheDocument()
-  })
-
-  it('shows empty state when no projects', async () => {
-    mockedApiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith('/files/timeline')) return { files: [] }
-      return { projects: [] }
-    })
-
-    renderFiles()
-    switchToFilesView()
-
-    await waitFor(() => {
-      expect(screen.getByText('No projects found.')).toBeInTheDocument()
-    })
-  })
-
-  it('shows footer text when projects are loaded', async () => {
-    renderFiles()
-    switchToFilesView()
-
-    await waitFor(() => {
-      expect(screen.getByText('Click a project to browse its files')).toBeInTheDocument()
-    })
   })
 
   // --- Directory browser view ---
@@ -404,7 +248,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(screen.getByText('my-app')).toBeInTheDocument()
@@ -426,7 +269,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(screen.getByText('my-app')).toBeInTheDocument()
@@ -451,7 +293,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(screen.getByText('my-app')).toBeInTheDocument()
@@ -476,7 +317,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(screen.getByText('my-app')).toBeInTheDocument()
@@ -498,7 +338,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(screen.getByText('my-app')).toBeInTheDocument()
@@ -525,7 +364,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(screen.getByText('my-app')).toBeInTheDocument()
@@ -552,7 +390,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(screen.getByText('my-app')).toBeInTheDocument()
@@ -574,7 +411,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(screen.getByText('my-app')).toBeInTheDocument()
@@ -616,7 +452,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(screen.getByText('my-app')).toBeInTheDocument()
@@ -658,7 +493,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     await waitFor(() => {
       expect(
@@ -676,7 +510,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     const doc = mockRecentDocsResponse.files[0]
     await waitFor(() => {
@@ -703,7 +536,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     const doc = mockRecentDocsResponse.files[0]
     await waitFor(() => {
@@ -734,7 +566,6 @@ describe('Files page', () => {
     })
 
     renderFiles()
-    switchToFilesView()
 
     const doc = mockRecentDocsResponse.files[0]
     await waitFor(() => {
@@ -760,7 +591,6 @@ describe('Files page', () => {
     mockedApiDelete.mockRejectedValueOnce(new Error('boom'))
 
     renderFiles()
-    switchToFilesView()
 
     const doc = mockRecentDocsResponse.files[0]
     await waitFor(() => {

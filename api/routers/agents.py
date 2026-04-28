@@ -15,6 +15,7 @@ from services.agentfile_parser import get_agent_config
 import services.agent_memory as agent_memory_svc
 from services import chat_ack_bot
 from services import recent_deletes
+from services import agent_chat_responder
 from services.tracing import trace_event
 
 logger = logging.getLogger(__name__)
@@ -4612,6 +4613,14 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         record["needle_id"] = body.needle_id
     elif existing.get("needle_id"):
         record["needle_id"] = existing["needle_id"]
+    # Needle 857: stamp conversational chat mode for claude-code agents so
+    # the nudge handler knows it can generate a full LLM reply instead of
+    # relying on the ack bot's canned receipts. Preserved on re-register so
+    # the flag survives the subagent's own /register call at step 0.
+    if body.source == "claude-code":
+        record["chat_mode"] = "conversational"
+    elif existing.get("chat_mode"):
+        record["chat_mode"] = existing["chat_mode"]
     agent_metadata[body.name] = record
     _save_agent_state()
 
@@ -6279,6 +6288,30 @@ async def nudge_agent(name: str, body: AgentNudge):
     # Signal the ack bot immediately so it posts "Got your message"
     # within milliseconds instead of waiting up to ACK_POLL_INTERVAL_SECONDS.
     chat_ack_bot.signal_nudge(name)
+
+    # Needle 857: pause-and-chat. When the agent's metadata marks it as
+    # conversational, fire a background LLM call that generates a real
+    # answer to the user's message and posts it as kind="conversational".
+    # This replaces the canned ack-bot receipt with a substantive reply
+    # without requiring any change to the subagent's own prompt or any
+    # new endpoint. The call is fire-and-forget: if it fails or times
+    # out the ack bot still covers the 2-second receipt promise.
+    if (meta or {}).get("chat_mode") == "conversational":
+        nudge_ts = record.get("timestamp", "")
+        agent_task = (meta or {}).get("task", "")
+        session_nudges = list(nudge_history.get(name, []))
+        session_replies = list(nudge_replies.get(name, []))
+        asyncio.create_task(
+            agent_chat_responder.reply_to_nudge(
+                name,
+                message,
+                nudge_ts,
+                session_nudges,
+                session_replies,
+                agent_task=agent_task,
+            ),
+            name=f"conversational_reply:{name}",
+        )
 
     return {
         "result": f"Nudge sent to '{name}'",

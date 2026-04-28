@@ -222,3 +222,94 @@ describe("AgentChatThread - nudge delivery banner copy", () => {
     ).toBeNull();
   });
 });
+
+describe("AgentChatThread - conversational reply kind (needle 857)", () => {
+  it("renders a conversational reply with an AI badge", () => {
+    render(
+      <AgentChatThread
+        agentName="chat-bot"
+        nudges={[
+          {
+            message: "what are you working on?",
+            timestamp: "2026-04-23T10:00:00Z",
+          },
+        ]}
+        replies={[
+          {
+            message: "Looking into the test failures right now.",
+            timestamp: "2026-04-23T10:00:03Z",
+            kind: "conversational",
+          },
+        ]}
+        onSend={vi.fn()}
+        isSending={false}
+      />
+    );
+
+    expect(screen.getByTestId("agent-chat-conversational-row")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-chat-conversational-bubble")).toBeInTheDocument();
+    expect(
+      screen.getByText("Looking into the test failures right now.")
+    ).toBeInTheDocument();
+    // AI badge is present
+    expect(screen.getByTestId("agent-chat-conversational-label")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-chat-conversational-label").textContent).toBe("AI");
+  });
+
+  it("does not show thinking dots after a conversational reply", () => {
+    render(
+      <AgentChatThread
+        agentName="chat-bot"
+        nudges={[
+          {
+            message: "ping",
+            timestamp: "2026-04-23T10:00:00Z",
+          },
+        ]}
+        replies={[
+          {
+            message: "Still working on the build.",
+            timestamp: "2026-04-23T10:00:02Z",
+            kind: "conversational",
+          },
+        ]}
+        onSend={vi.fn()}
+        isSending={false}
+      />
+    );
+
+    // Thinking dots should be gone once any substantive reply (ack excluded) lands
+    expect(screen.queryByTestId("agent-chat-thinking")).toBeNull();
+  });
+
+  it("still shows thinking dots after an ack but not after conversational", () => {
+    const { rerender } = render(
+      <AgentChatThread
+        agentName="chat-bot"
+        nudges={[{ message: "hey", timestamp: "2026-04-23T10:00:00Z" }]}
+        replies={[
+          { message: "Got your message.", timestamp: "2026-04-23T10:00:01Z", kind: "ack" },
+        ]}
+        onSend={vi.fn()}
+        isSending={false}
+      />
+    );
+    // Ack only: dots still showing
+    expect(screen.getByTestId("agent-chat-thinking")).toBeInTheDocument();
+
+    rerender(
+      <AgentChatThread
+        agentName="chat-bot"
+        nudges={[{ message: "hey", timestamp: "2026-04-23T10:00:00Z" }]}
+        replies={[
+          { message: "Got your message.", timestamp: "2026-04-23T10:00:01Z", kind: "ack" },
+          { message: "Here is my answer.", timestamp: "2026-04-23T10:00:04Z", kind: "conversational" },
+        ]}
+        onSend={vi.fn()}
+        isSending={false}
+      />
+    );
+    // Conversational reply landed: dots gone
+    expect(screen.queryByTestId("agent-chat-thinking")).toBeNull();
+  });
+});

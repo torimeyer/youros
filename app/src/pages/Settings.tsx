@@ -691,6 +691,14 @@ export default function Settings() {
     }
   };
 
+  const scrollToElement = (el: Element | null | undefined) => {
+    if (!el) return;
+    const y = el.getBoundingClientRect().top + window.scrollY - 80;
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+  };
+
+  const scrollToId = (id: string) => scrollToElement(document.getElementById(id));
+
   // Scroll to the standing instructions section when the page loads
   // with ``#standing-instructions`` in the URL. The Usage page uses this
   // anchor so the cache-reuse hint deep-links straight to the feature.
@@ -705,7 +713,7 @@ export default function Settings() {
     }
     // Defer a tick so the section has mounted before we try to scroll.
     const handle = window.setTimeout(() => {
-      standingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      scrollToElement(standingSectionRef.current);
       if (hash === '#standing-instructions-suggest') {
         handleSuggestStandingInstructions();
       }
@@ -854,7 +862,7 @@ export default function Settings() {
         {navItems.map((item) => (
           <button
             key={item.id}
-            onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth' })}
+            onClick={() => scrollToId(item.id)}
             className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium flex-shrink-0 transition-colors ${
               activeSection === item.id ? 'bg-slate-700 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'
             }`}
@@ -870,7 +878,7 @@ export default function Settings() {
           {navItems.map((item) => (
             <button
               key={item.id}
-              onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth' })}
+              onClick={() => scrollToId(item.id)}
               className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-left transition-colors ${
                 activeSection === item.id
                   ? 'bg-slate-800 text-white font-medium'

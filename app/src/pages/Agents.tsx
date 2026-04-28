@@ -522,7 +522,6 @@ function TemplateEditorModal({
   templateId,
   source,
   aliases,
-  capabilities,
   userInputs,
   onSpawn,
   onSave,
@@ -535,7 +534,6 @@ function TemplateEditorModal({
   templateId?: string;
   source?: string;
   aliases?: string[];
-  capabilities?: { writes_to: string; cannot_touch: string; budget: string; time_limit: string; sandbox: string } | null;
   userInputs?: UserInput[];
   onSpawn: (t: CustomTemplate, userMessage: string) => void;
   onSave: (t: CustomTemplate) => void;
@@ -768,31 +766,6 @@ function TemplateEditorModal({
                 </button>
               )}
             </div>
-
-            {/* Capabilities section */}
-            {capabilities && (
-              <div data-testid="template-capabilities-section">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Capabilities</p>
-                <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
-                  <div className="bg-slate-800/60 rounded-lg px-3 py-2">
-                    <span className="text-slate-500 block text-[10px]">Writes to</span>
-                    {capabilities.writes_to}
-                  </div>
-                  <div className="bg-slate-800/60 rounded-lg px-3 py-2">
-                    <span className="text-slate-500 block text-[10px]">Token budget</span>
-                    {formatTokenBudgetApprox(budget, model) || capabilities.budget}
-                  </div>
-                  <div className="bg-slate-800/60 rounded-lg px-3 py-2">
-                    <span className="text-slate-500 block text-[10px]">Time limit</span>
-                    {capabilities.time_limit}
-                  </div>
-                  <div className="bg-slate-800/60 rounded-lg px-3 py-2">
-                    <span className="text-slate-500 block text-[10px]">Sandbox</span>
-                    {capabilities.sandbox}
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Alias section */}
             {templateId && (
@@ -2385,7 +2358,6 @@ export default function Agents() {
   const [editorTemplateId, setEditorTemplateId] = useState<string | undefined>(undefined);
   const [editorSource, setEditorSource] = useState<string | undefined>(undefined);
   const [editorAliases, setEditorAliases] = useState<string[] | undefined>(undefined);
-  const [editorCapabilities, setEditorCapabilities] = useState<{ writes_to: string; cannot_touch: string; budget: string; time_limit: string; sandbox: string } | null>(null);
   const [editorUserInputs, setEditorUserInputs] = useState<UserInput[] | undefined>(undefined);
 
   // Custom templates live on the server via the app store. localStorage
@@ -2612,7 +2584,7 @@ export default function Agents() {
     setEditorTemplateId(tpl.id);
     setEditorSource(tpl.source ?? (tpl.builtin ? "builtin" : "marketplace"));
     setEditorAliases(undefined);
-    setEditorCapabilities(null);
+
     setEditorUserInputs(tpl.user_inputs);
     setEditorOpen(true);
   };
@@ -4465,7 +4437,7 @@ export default function Agents() {
               setEditorTemplateId(undefined);
               setEditorSource(undefined);
               setEditorAliases(undefined);
-              setEditorCapabilities(null);
+          
               setEditorUserInputs(undefined);
               setEditorOpen(true);
             }}
@@ -4513,7 +4485,6 @@ export default function Agents() {
                   setEditorTemplateId(tpl.templateId);
                   setEditorSource(tpl.isBuiltIn ? "builtin" : "custom");
                   setEditorAliases(tpl.aliases);
-                  setEditorCapabilities(tpl.capabilities ?? null);
                   setEditorUserInputs(undefined);
                   setEditorOpen(true);
                 } : undefined}
@@ -4644,7 +4615,6 @@ export default function Agents() {
             templateId={editorTemplateId}
             source={editorSource}
             aliases={editorAliases}
-            capabilities={editorCapabilities}
             userInputs={editorUserInputs}
             onSpawn={(t, userMessage) => {
               // If the user typed a message, use it as the prompt. Otherwise
