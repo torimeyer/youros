@@ -489,6 +489,179 @@ async def create_from_template(body: SpecFromTemplate):
     }
 
 
+class SpeckitImport(BaseModel):
+    yaml: str
+    format: str = "speckit"
+
+
+@router.post("/specs/import")
+async def import_spec(body: SpeckitImport):
+    """Import a spec from spec-kit YAML.
+
+    Parses the YAML, creates a spec draft via ostk, writes the body,
+    and creates tasks for each entry in the tasks list.
+    Returns the created spec id (its path).
+    """
+    if body.format != "speckit":
+        raise HTTPException(status_code=400, detail=f"Unsupported format: {body.format}")
+    from services.speckit_import import parse_speckit, SpeckitParseError
+    try:
+        parsed = parse_speckit(body.yaml)
+    except SpeckitParseError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    spec = {"title": parsed["name"], "description": parsed["description"], "tasks": parsed["tasks"]}
+
+    # Draft the spec via ostk.
+    try:
+        result = await ostk.doc_draft(spec["title"])
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    draft_path = result.strip()
+
+    # Write description + acceptance criteria from tasks into the draft.
+    tasks = spec.get("tasks") or []
+    body_lines: list[str] = []
+    if spec["description"]:
+        body_lines.append(spec["description"])
+        body_lines.append("")
+    if tasks:
+        body_lines.append("## Acceptance criteria")
+        for t in tasks:
+            acs = t.get("acceptance_criteria") or []
+            if acs:
+                for ac in acs:
+                    body_lines.append(f"- [ ] {ac}")
+            else:
+                body_lines.append(f"- [ ] {t['title']}")
+        body_lines.append("")
+
+    # Write tasks section as context.
+    if tasks:
+        body_lines.append("## Tasks")
+        for t in tasks:
+            priority = t.get("priority", "P2")
+            body_lines.append(f"- **[{priority}]** {t['title']}")
+            if t.get("description"):
+                body_lines.append(f"  {t['description']}")
+        body_lines.append("")
+
+    docs_root = (Path(ostk.cwd) / "docs").resolve()
+    full_path = (Path(ostk.cwd) / draft_path).resolve()
+    ac_written = False
+    if body_lines and full_path.exists() and full_path.is_relative_to(docs_root):
+        content = full_path.read_text()
+        appended = "\n".join(body_lines)
+        if content.endswith("\n"):
+            content += "\n" + appended
+        else:
+            content += "\n\n" + appended
+        full_path.write_text(content)
+        ac_written = any("- [ ]" in line for line in body_lines)
+
+    # Auto-promote when we have acceptance criteria.
+    status = "draft"
+    promoted_path: str | None = None
+    if ac_written:
+        try:
+            promoted_path = await ostk.doc_promote(draft_path)
+            status = "ready"
+        except OstkError:
+            pass
+
+    # Create tasks from the spec-kit tasks list.
+    created_task_ids: list[str] = []
+    for t in tasks:
+        try:
+            ac_lines = t.get("acceptance_criteria") or []
+            ac_text = "; ".join(ac_lines) if ac_lines else t["title"]
+            raw = await ostk.add_task(
+                title=t["title"],
+                priority=t.get("priority", "P2"),
+                description=t.get("description", ""),
+                ac=ac_text,
+            )
+            for line in (raw or "").split("\n"):
+                m = __import__("re").search(r"(?:->|→)(\d+)", line)
+                if m:
+                    created_task_ids.append(m.group(1))
+                    break
+        except OstkError:
+            pass
+
+    trace_event("spec_imported", path=draft_path, format="speckit", task_count=len(tasks))
+    return {
+        "id": promoted_path or draft_path,
+        "path": promoted_path or draft_path,
+        "status": status,
+        "task_ids": created_task_ids,
+        "title": spec["title"],
+    }
+
+
+@router.get("/specs/{spec_path:path}/export")
+async def export_spec(spec_path: str, format: str = "speckit"):
+    """Export a spec as spec-kit YAML.
+
+    Returns the spec-kit YAML as plain text. Raises 404 if the spec
+    does not exist, 400 for unsupported formats.
+    """
+    if format != "speckit":
+        raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+    _validate_doc_path(spec_path)
+    full_path = (Path(PROJECT_ROOT) / spec_path).resolve()
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
+    text = full_path.read_text()
+
+    # Parse title and body from the spec file.
+    lines = text.split("\n")
+    title = ""
+    description_lines: list[str] = []
+    tasks: list[dict] = []
+
+    # Extract front matter fields.
+    fm_end = 0
+    if lines and lines[0].strip() == "---":
+        for i, line in enumerate(lines[1:], 1):
+            if line.strip() == "---":
+                fm_end = i
+                break
+            if line.startswith("title:"):
+                title = line[len("title:"):].strip().strip('"').strip("'")
+
+    body_lines = lines[fm_end + 1:] if fm_end else lines
+    body_text = "\n".join(body_lines).strip()
+
+    # Extract description (first non-heading paragraph).
+    in_description = True
+    for line in body_lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            in_description = False
+            break
+        if stripped:
+            description_lines.append(stripped)
+
+    description = " ".join(description_lines).strip()
+
+    # Extract AC bullets as tasks.
+    ac_bullets = _parse_unchecked_ac_bullets(body_text)
+    for bullet in ac_bullets:
+        tasks.append({"title": bullet, "acceptance_criteria": [bullet]})
+
+    from services.speckit_import import spec_to_speckit
+    spec_dict = {"title": title, "description": description, "tasks": tasks}
+    yaml_str = spec_to_speckit(spec_dict)
+
+    from fastapi.responses import Response
+    filename = Path(spec_path).stem + ".speckit.yaml"
+    return Response(
+        content=yaml_str,
+        media_type="text/yaml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/specs/promote")
 async def promote_draft(body: SpecPromote):
     """Promote a draft to a finalized spec."""

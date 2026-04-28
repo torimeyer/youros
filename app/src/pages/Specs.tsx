@@ -955,6 +955,13 @@ export default function Specs() {
           >
             New Spec
           </Button>
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => navigate("/specs/import")}
+          >
+            Import from spec-kit
+          </Button>
         </div>
 
         {/* Status message */}

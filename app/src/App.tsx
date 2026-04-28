@@ -11,6 +11,7 @@ import Transcripts from './pages/Transcripts'
 import Activity from './pages/Activity'
 import CostTracking from './pages/CostTracking'
 import Specs from './pages/Specs'
+import SpecImport from './pages/SpecImport'
 import DocsRedirect from './pages/DocsRedirect'
 import Calendar from './pages/Calendar'
 import Gmail from './pages/Gmail'
@@ -37,6 +38,7 @@ import InviteAccept from './pages/InviteAccept'
 import TeamStart from './pages/TeamStart'
 import TeamHome from './pages/TeamHome'
 import PrivacyPolicy from './pages/PrivacyPolicy'
+import AgentfileEditor from './pages/AgentfileEditor'
 
 export default function App() {
   const hydrated = useAppStore((s) => s.hydrated)
@@ -107,8 +109,10 @@ export default function App() {
           <Route path="timeline" element={<Timeline />} />
           <Route path="activity" element={<Activity />} />
           <Route path="agents" element={<Agents />} />
+          <Route path="agentfiles/:name/edit" element={<AgentfileEditor />} />
           <Route path="transcripts" element={<Transcripts />} />
           <Route path="specs" element={<Specs />} />
+          <Route path="specs/import" element={<SpecImport />} />
           <Route path="files" element={<Files />} />
           <Route path="sessions" element={<Sessions />} />
           <Route path="drive" element={<Drive />} />
