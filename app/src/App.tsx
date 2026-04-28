@@ -35,6 +35,7 @@ import AdminAuditTrail from './pages/admin/AuditTrail'
 import AdminSecurity from './pages/admin/Security'
 import InviteAccept from './pages/InviteAccept'
 import TeamStart from './pages/TeamStart'
+import TeamHome from './pages/TeamHome'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 
 export default function App() {
@@ -135,8 +136,8 @@ export default function App() {
             <Route path="audit" element={<AdminAuditTrail />} />
             <Route path="security" element={<AdminSecurity />} />
           </Route>
-          {/* Backward compat: /team redirects to /admin */}
-          <Route path="team" element={<Navigate to="/admin" replace />} />
+          {/* Member-facing team home; admins also see it but have the admin section too */}
+          <Route path="team" element={<TeamHome />} />
           <Route path="team-setup" element={<TeamStart />} />
           <Route path="adoption" element={<Adoption />} />
           <Route path="settings" element={<Settings />} />

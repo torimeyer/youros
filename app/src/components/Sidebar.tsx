@@ -727,7 +727,7 @@ export function Sidebar() {
         )}
         {instanceMode === 'team' && enterpriseUser && enterpriseUser.role !== 'admin' && (
           <NavLink
-            to="/admin"
+            to="/team"
             onClick={() => setMobileOpen(false)}
             className={({ isActive }) => linkClass(isActive)}
           >
