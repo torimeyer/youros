@@ -1306,6 +1306,19 @@ export default function Specs() {
                                   Unlock and edit
                                 </button>
                               )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.open(`/api/specs/${doc.path}/export?format=speckit`);
+                                }}
+                                className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+                                data-testid="export-spec-button"
+                                title="Download this spec as a YAML file you can share or reimport."
+                              >
+                                <Icon name="download" size={16} />
+                                Export YAML
+                              </button>
                             </div>
                           );
                         })()}
