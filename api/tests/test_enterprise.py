@@ -402,3 +402,67 @@ async def test_delete_org_template(client, tmp_path):
 
         resp = await client.get("/api/enterprise/templates")
         assert len(resp.json()["templates"]) == 0
+
+
+# --- Agentfile edit endpoints ---
+
+@pytest.mark.asyncio
+async def test_get_agentfile_form_empty(client, tmp_path):
+    """GET /enterprise/agentfile/form returns defaults when no Agentfile exists."""
+    with patch("config.PROJECT_ROOT", tmp_path):
+        resp = await client.get("/api/enterprise/agentfile/form")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "name" in data
+    assert "model" in data
+    assert isinstance(data["tools"], list)
+
+
+@pytest.mark.asyncio
+async def test_put_agentfile_form_writes_file(client, tmp_path):
+    """PUT /enterprise/agentfile/form writes the Agentfile to disk."""
+    fake_agentfile = tmp_path / "Agentfile"
+    form_payload = {
+        "name": "org-default",
+        "description": "Team default agent",
+        "model": "claude-sonnet-4-6",
+        "tools": ["bash", "read"],
+        "instructions": "You help the team.",
+        "tags": [],
+    }
+    with patch("config.PROJECT_ROOT", tmp_path):
+        resp = await client.put("/api/enterprise/agentfile/form", json=form_payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "content" in data
+    assert fake_agentfile.exists()
+    written = fake_agentfile.read_text()
+    assert "claude-sonnet-4-6" in written
+
+
+@pytest.mark.asyncio
+async def test_patch_agentfile_raw_writes_file(client, tmp_path):
+    """PATCH /enterprise/agentfile writes raw content to disk."""
+    fake_agentfile = tmp_path / "Agentfile"
+    raw = "FROM auto\nPROMPT \"hello\"\nTOOL bash\n"
+    with patch("config.PROJECT_ROOT", tmp_path):
+        resp = await client.patch("/api/enterprise/agentfile", json={"content": raw})
+    assert resp.status_code == 200
+    assert fake_agentfile.read_text() == raw
+
+
+@pytest.mark.asyncio
+async def test_get_agentfile_form_parses_existing_file(client, tmp_path):
+    """GET /enterprise/agentfile/form parses an existing Agentfile correctly."""
+    fake_agentfile = tmp_path / "Agentfile"
+    fake_agentfile.write_text(
+        'FROM claude-sonnet-4-6\nPROMPT "Do the thing"\nTOOL bash\nTOOL read\n'
+    )
+    with patch("config.PROJECT_ROOT", tmp_path):
+        resp = await client.get("/api/enterprise/agentfile/form")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["model"] == "claude-sonnet-4-6"
+    assert data["instructions"] == "Do the thing"
+    assert "bash" in data["tools"]
+    assert "read" in data["tools"]

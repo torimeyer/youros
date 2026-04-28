@@ -21,6 +21,30 @@ interface OrgTemplate {
   budget: number
 }
 
+interface AgentfileForm {
+  name: string
+  description: string
+  model: string
+  tools: string[]
+  instructions: string
+  tags: string[]
+}
+
+const AGENTFILE_MODELS = [
+  { value: 'auto', label: 'Auto (recommended)' },
+  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+  { value: 'claude-haiku-4-5', label: 'Haiku 4.5 (fast)' },
+  { value: 'claude-opus-4-7', label: 'Opus 4.7 (powerful)' },
+]
+
+const AGENTFILE_TOOLS = [
+  { value: 'bash', label: 'Run commands' },
+  { value: 'read', label: 'Read files' },
+  { value: 'write', label: 'Write files' },
+  { value: 'search', label: 'Search code' },
+  { value: 'web', label: 'Browse web' },
+]
+
 const ISOLATION_LEVELS = [
   {
     id: 'open',
@@ -79,6 +103,15 @@ export default function AdminPolicies() {
   const [auditRetention, setAuditRetention] = useState('')
   const [providerPolicy, setProviderPolicy] = useState('auto')
   const [savingProvider, setSavingProvider] = useState(false)
+
+  // Agentfile editor
+  const [editingAgentfile, setEditingAgentfile] = useState(false)
+  const [agentfileForm, setAgentfileForm] = useState<AgentfileForm>({ name: '', description: '', model: 'auto', tools: [], instructions: '', tags: [] })
+  const [agentfileRawView, setAgentfileRawView] = useState(false)
+  const [agentfileRaw, setAgentfileRaw] = useState('')
+  const [savingAgentfile, setSavingAgentfile] = useState(false)
+  const [savedAgentfile, setSavedAgentfile] = useState(false)
+  const [agentfileError, setAgentfileError] = useState<string | null>(null)
 
   const cardCls = `rounded-xl border p-6 ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-slate-200'}`
   const labelCls = darkMode ? 'text-slate-400' : 'text-slate-500'
@@ -151,6 +184,53 @@ export default function AdminPolicies() {
     } catch {
       // ignore
     }
+  }
+
+  const handleOpenEditAgentfile = async () => {
+    setAgentfileError(null)
+    setSavedAgentfile(false)
+    setAgentfileRaw(agentfile)
+    try {
+      const form = await api.get<AgentfileForm>('/enterprise/agentfile/form')
+      setAgentfileForm(form)
+    } catch {
+      setAgentfileForm({ name: 'org-default', description: '', model: 'auto', tools: [], instructions: '', tags: [] })
+    }
+    setEditingAgentfile(true)
+  }
+
+  const handleSaveAgentfile = async () => {
+    setSavingAgentfile(true)
+    setAgentfileError(null)
+    try {
+      if (agentfileRawView) {
+        const res = await api.patch<{ content: string }>('/enterprise/agentfile', { content: agentfileRaw })
+        setAgentfile(res.content || agentfileRaw)
+      } else {
+        const res = await api.put<{ content: string }>('/enterprise/agentfile/form', agentfileForm)
+        setAgentfile(res.content || '')
+      }
+      setSavedAgentfile(true)
+      setEditingAgentfile(false)
+      setTimeout(() => setSavedAgentfile(false), 3000)
+    } catch {
+      setAgentfileError('Something went wrong saving the agent setup. Try again.')
+    } finally {
+      setSavingAgentfile(false)
+    }
+  }
+
+  const handleCancelEditAgentfile = () => {
+    setEditingAgentfile(false)
+    setAgentfileError(null)
+    setAgentfileRawView(false)
+  }
+
+  const handleAgentfileToolToggle = (tool: string) => {
+    setAgentfileForm((f) => ({
+      ...f,
+      tools: f.tools.includes(tool) ? f.tools.filter((t) => t !== tool) : [...f.tools, tool],
+    }))
   }
 
   const handleDeleteTemplate = async (id: string) => {
@@ -311,16 +391,164 @@ export default function AdminPolicies() {
       <div className={cardCls}>
         <div className="flex items-center justify-between mb-4">
           <h2 className={`text-base font-semibold ${headingCls}`}>Agentfile</h2>
-          <button
-            onClick={handleRegenerateAgentfile}
-            className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
-          >
-            Regenerate
-          </button>
+          <div className="flex items-center gap-3">
+            {savedAgentfile && (
+              <span className="text-xs text-green-400 flex items-center gap-1">
+                <Icon name="check_circle" size={14} />
+                Saved
+              </span>
+            )}
+            {!editingAgentfile && (
+              <>
+                <button
+                  onClick={handleOpenEditAgentfile}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                  data-testid="agentfile-edit-btn"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={handleRegenerateAgentfile}
+                  className="text-xs text-slate-400 hover:text-slate-300 transition-colors"
+                >
+                  Regenerate
+                </button>
+              </>
+            )}
+          </div>
         </div>
-        <pre className={`text-xs p-4 rounded-lg overflow-x-auto ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-700'}`}>
-          {agentfile || 'No Agentfile configured.'}
-        </pre>
+
+        {!editingAgentfile ? (
+          <pre className={`text-xs p-4 rounded-lg overflow-x-auto ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-50 text-slate-700'}`}>
+            {agentfile || 'No Agentfile configured.'}
+          </pre>
+        ) : (
+          <div className="space-y-4">
+            {/* YAML toggle */}
+            <div className="flex items-center justify-end">
+              <button
+                onClick={() => setAgentfileRawView(!agentfileRawView)}
+                className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 ${
+                  darkMode ? 'border-slate-700 text-slate-400 hover:text-white hover:border-slate-600' : 'border-slate-300 text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Icon name={agentfileRawView ? 'edit' : 'code'} size={14} />
+                {agentfileRawView ? 'Form view' : 'Edit YAML'}
+              </button>
+            </div>
+
+            {agentfileError && (
+              <div className={`text-sm px-4 py-3 rounded-lg border ${darkMode ? 'bg-red-900/20 border-red-700/40 text-red-400' : 'bg-red-50 border-red-200 text-red-600'}`}>
+                {agentfileError}
+              </div>
+            )}
+
+            {agentfileRawView ? (
+              <textarea
+                value={agentfileRaw}
+                onChange={(e) => setAgentfileRaw(e.target.value)}
+                rows={12}
+                className={`w-full font-mono text-xs rounded-lg border px-3 py-2 focus:outline-none focus:border-indigo-500 resize-y ${
+                  darkMode ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-50 border-slate-300 text-slate-700'
+                }`}
+                data-testid="agentfile-raw-textarea"
+              />
+            ) : (
+              <div className="space-y-4">
+                {/* Description */}
+                <div>
+                  <label className={`block text-sm font-medium mb-1 ${labelCls}`}>Description</label>
+                  <input
+                    type="text"
+                    value={agentfileForm.description}
+                    onChange={(e) => setAgentfileForm({ ...agentfileForm, description: e.target.value })}
+                    placeholder="What does this agent do?"
+                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 ${inputCls}`}
+                    data-testid="agentfile-description"
+                  />
+                </div>
+
+                {/* Model */}
+                <div>
+                  <label className={`block text-sm font-medium mb-1 ${labelCls}`}>Model</label>
+                  <select
+                    value={agentfileForm.model}
+                    onChange={(e) => setAgentfileForm({ ...agentfileForm, model: e.target.value })}
+                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 ${inputCls}`}
+                    data-testid="agentfile-model"
+                  >
+                    {AGENTFILE_MODELS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Tools */}
+                <div>
+                  <label className={`block text-sm font-medium mb-2 ${labelCls}`}>Tools</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {AGENTFILE_TOOLS.map((tool) => {
+                      const checked = agentfileForm.tools.includes(tool.value)
+                      return (
+                        <label
+                          key={tool.value}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+                            checked
+                              ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300'
+                              : darkMode
+                                ? 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-slate-600'
+                                : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => handleAgentfileToolToggle(tool.value)}
+                            className="sr-only"
+                            aria-label={tool.label}
+                          />
+                          <Icon name={checked ? 'check_box' : 'check_box_outline_blank'} size={16} />
+                          <span className="text-xs">{tool.label}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Instructions */}
+                <div>
+                  <label className={`block text-sm font-medium mb-1 ${labelCls}`}>What this agent does</label>
+                  <textarea
+                    value={agentfileForm.instructions}
+                    onChange={(e) => setAgentfileForm({ ...agentfileForm, instructions: e.target.value })}
+                    rows={5}
+                    placeholder="Describe what this agent should do when launched..."
+                    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 resize-y ${inputCls}`}
+                    data-testid="agentfile-instructions"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                onClick={handleSaveAgentfile}
+                disabled={savingAgentfile}
+                className="px-4 py-2 team-bg hover:opacity-90 disabled:opacity-50 text-white font-semibold text-sm rounded-lg transition-opacity"
+                data-testid="agentfile-save-btn"
+              >
+                {savingAgentfile ? 'Saving...' : 'Save changes'}
+              </button>
+              <button
+                onClick={handleCancelEditAgentfile}
+                className={`text-sm ${labelCls} hover:opacity-80 transition-opacity`}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

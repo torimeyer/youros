@@ -611,6 +611,72 @@ async def revoke_signing_key(request: Request):
 
 # --- Agentfile ---
 
+class AgentfileRawUpdate(BaseModel):
+    content: str
+
+
+class AgentfileFormUpdate(BaseModel):
+    name: str = ""
+    description: str = ""
+    model: str = "auto"
+    tools: list = []
+    instructions: str = ""
+    tags: list = []
+
+
+@router.get("/enterprise/agentfile/form")
+async def get_agentfile_form():
+    """Return the org Agentfile parsed into structured form fields."""
+    from config import PROJECT_ROOT
+    from services.agentfile_parser import agentfile_to_form
+
+    agentfile_path = PROJECT_ROOT / "Agentfile"
+    content = ""
+    if agentfile_path.exists():
+        try:
+            content = agentfile_path.read_text()
+        except OSError:
+            pass
+    form = agentfile_to_form(content) if content else {
+        "name": "org-default",
+        "description": "",
+        "model": "auto",
+        "tools": [],
+        "instructions": "",
+        "tags": [],
+    }
+    form["name"] = form.get("name") or "org-default"
+    return form
+
+
+@router.put("/enterprise/agentfile/form")
+async def update_agentfile_form(body: AgentfileFormUpdate):
+    """Save form fields back to the org Agentfile."""
+    from config import PROJECT_ROOT
+    from services.agentfile_parser import form_to_agentfile
+
+    content = form_to_agentfile(body.model_dump())
+    agentfile_path = PROJECT_ROOT / "Agentfile"
+    try:
+        agentfile_path.write_text(content)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Could not save Agentfile: {e}")
+    return {"content": content, "path": str(agentfile_path)}
+
+
+@router.patch("/enterprise/agentfile")
+async def update_agentfile_raw(body: AgentfileRawUpdate):
+    """Save raw agentfile text for the org."""
+    from config import PROJECT_ROOT
+
+    agentfile_path = PROJECT_ROOT / "Agentfile"
+    try:
+        agentfile_path.write_text(body.content)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Could not save Agentfile: {e}")
+    return {"content": body.content, "path": str(agentfile_path)}
+
+
 @router.get("/enterprise/agentfile")
 async def get_agentfile():
     """Return the current Agentfile configuration."""
