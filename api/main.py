@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     await prewarm_savings()
     await schedule_session_task_reaper()
     await schedule_ghost_spawn_reaper()
+    await schedule_liveness_supervisor()
     await backfill_chat_ack_bots()
     await backfill_stuck_in_progress_tasks()
     await sweep_stale_backend_sessions()
@@ -505,6 +506,21 @@ async def schedule_ghost_spawn_reaper():
     import asyncio
 
     from services.ghost_reaper import run_forever
+
+    _keep(asyncio.create_task(run_forever()))
+
+
+async def schedule_liveness_supervisor():
+    """Mark stuck running agents as failed before the ghost_reaper deletes them.
+
+    Targets agents whose subprocess PID is dead, heartbeat is stale for 3+ min,
+    and transcript is essentially empty. Marks them status=failed with a
+    human-readable last_error so the Agents page shows a useful failure message.
+    Runs every 30 seconds.
+    """
+    import asyncio
+
+    from lib.agent_reaper import run_forever
 
     _keep(asyncio.create_task(run_forever()))
 

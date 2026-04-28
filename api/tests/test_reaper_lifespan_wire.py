@@ -72,6 +72,7 @@ _LIFESPAN_STARTUP_NOOPS = [
     "main.prewarm_savings",
     "main.schedule_session_task_reaper",
     "main.schedule_ghost_spawn_reaper",
+    "main.schedule_liveness_supervisor",
     "main.backfill_chat_ack_bots",
     "main.sweep_stale_backend_sessions",
     "main.schedule_agent_reconciliation",
