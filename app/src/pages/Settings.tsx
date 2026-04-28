@@ -899,6 +899,10 @@ export default function Settings() {
             <a href="/privacy" className="underline hover:text-slate-200">Privacy</a>
             <span className="ml-2">How torios handles your data.</span>
           </div>
+          <div className="text-sm text-slate-400 mt-2" data-testid="about-link-row">
+            <a href="/about" className="underline hover:text-slate-200">About myOS</a>
+            <span className="ml-2">What myOS is and how it works.</span>
+          </div>
 
           {/* ── 1. Instructions ─────────────────────── */}
           <div id="section-instructions">

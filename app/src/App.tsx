@@ -38,6 +38,7 @@ import InviteAccept from './pages/InviteAccept'
 import TeamStart from './pages/TeamStart'
 import TeamHome from './pages/TeamHome'
 import PrivacyPolicy from './pages/PrivacyPolicy'
+import AboutMyOS from './pages/AboutMyOS'
 import AgentfileEditor from './pages/AgentfileEditor'
 import MySetup from './pages/MySetup'
 
@@ -148,6 +149,7 @@ export default function App() {
           <Route path="settings" element={<Settings />} />
           <Route path="settings/upgrade" element={<Upgrade />} />
           <Route path="privacy" element={<PrivacyPolicy />} />
+          <Route path="about" element={<AboutMyOS />} />
           <Route path="my-setup" element={<MySetup />} />
         </Route>
       </Routes>
