@@ -773,7 +773,7 @@ _ANTHROPIC_INFRA_MARKERS = ("overloaded", "529")
 # directly (source='api') they are myOS internals, not user work, so
 # failures from them must not clutter the briefing's Review failed list.
 _INFRA_AGENT_NAME_RE = re.compile(
-    r"^(demo-smoke-|build-\d+|test-|smoke-|overnight-|fix-|diagnose-|verify-|harden-|dedupe-|cleanup-|backfill-|backend-|template-|tasks-|usage-|github-|calendar-|drive-|inline-|onboarding-|chat-|workflow-|spec-|fleet-build-)",
+    r"^(demo-smoke-|build-\d+|test-|smoke-|overnight-|fix-|diagnose-|verify-|harden-|dedupe-|cleanup-|backfill-|backend-|template-|tasks-|usage-|github-|calendar-|drive-|inline-|onboarding-|chat-|workflow-|spec-|fleet-build-|dupe-guard-|stale-complete-|reap-|ghost-)",
     re.IGNORECASE,
 )
 

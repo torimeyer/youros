@@ -4703,7 +4703,8 @@ def _is_test_artifact_agent_name(agent_name: str) -> bool:
             r"^(demo-smoke-|build-\d+|test-|smoke-|overnight-|fix-|diagnose-|"
             r"verify-|harden-|dedupe-|cleanup-|backfill-|backend-|template-|"
             r"tasks-|usage-|github-|calendar-|drive-|inline-|onboarding-|"
-            r"chat-|workflow-|spec-|fleet-build-)",
+            r"chat-|workflow-|spec-|fleet-build-|dupe-guard-|stale-complete-|"
+            r"reap-|ghost-)",
             _re.IGNORECASE,
         )
         return bool(fallback.match(agent_name or ""))
@@ -5446,20 +5447,22 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         transcript.write_text(f"Agent '{name}' completed (registered externally).\n")
 
     # Fire a persistent notification so the bell lights up when an agent finishes.
-    try:
-        from services.notifications import notifications_service
-        description = agent_metadata.get(name, {}).get("description", "")
-        body = description if description else f"Agent '{name}' finished its work."
-        notifications_service.add(
-            type="agent",
-            title=f"Agent done: {name}",
-            body=body,
-            action_label="View agents",
-            action_url="/agents",
-            metadata={"agent_name": name},
-        )
-    except Exception:
-        pass
+    # Skip internal housekeeping agents — they are infrastructure noise, not user work.
+    if not _is_test_artifact_agent_name(name):
+        try:
+            from services.notifications import notifications_service
+            description = agent_metadata.get(name, {}).get("description", "")
+            body = description if description else f"Agent '{name}' finished its work."
+            notifications_service.add(
+                type="agent",
+                title=f"Agent done: {name}",
+                body=body,
+                action_label="View agents",
+                action_url="/agents",
+                metadata={"agent_name": name},
+            )
+        except Exception:
+            pass
 
     # Drop the stdin writer on completion so future /nudge calls don't try
     # to write to a dead pipe.

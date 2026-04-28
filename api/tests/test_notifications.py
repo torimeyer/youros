@@ -427,3 +427,108 @@ async def test_agent_complete_fires_notification(tmp_path):
     assert fired[0]["type"] == "agent"
     assert "notif-test-agent" in fired[0]["title"]
     assert fired[0]["action_url"] == "/agents"
+
+
+# ---------------------------------------------------------------------------
+# Infra-agent completion must NOT fire notifications
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("infra_name", [
+    "dupe-guard-abc123",
+    "stale-complete-20260428",
+    "reap-ghost-worker",
+    "ghost-cleaner-0a1b2c",
+])
+async def test_infra_agent_complete_no_notification(tmp_path, infra_name):
+    """Internal housekeeping agents (dupe-guard-*, stale-complete-*, reap-*, ghost-*)
+    must NOT produce a completion toast — they are infra noise, not user work."""
+    from unittest.mock import AsyncMock, MagicMock
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+    from routers.agents import agent_metadata
+
+    agent_metadata[infra_name] = {
+        "spawned_at": "2026-04-28T00:00:00+00:00",
+        "budget": "0.1",
+        "model": "claude-haiku-4-5-20251001",
+        "source": "api",
+        "description": "Internal housekeeping.",
+    }
+
+    fired: list[dict] = []
+
+    def fake_add(**kwargs):
+        fired.append(kwargs)
+        n = MagicMock()
+        n.id = "fake-notif-id"
+        return n
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("services.notifications.notifications_service") as mock_notif_svc, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_notif_svc.add.side_effect = fake_add
+
+                resp = await client.post(f"/api/agents/{infra_name}/complete")
+                assert resp.status_code == 200
+
+        finally:
+            agent_metadata.pop(infra_name, None)
+
+    assert fired == [], (
+        f"Infra agent '{infra_name}' must not fire a notification, but got: {fired}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_normal_user_agent_complete_fires_notification(tmp_path):
+    """A normal user-spawned agent must still produce a completion notification
+    after the infra-agent guard is in place."""
+    from unittest.mock import AsyncMock, MagicMock
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+    from routers.agents import agent_metadata
+
+    agent_name = "my-feature-agent-abc"
+    agent_metadata[agent_name] = {
+        "spawned_at": "2026-04-28T00:00:00+00:00",
+        "budget": "2.0",
+        "model": "claude-sonnet-4-6",
+        "source": "claude-code",
+        "description": "Implements my feature.",
+    }
+
+    fired: list[dict] = []
+
+    def fake_add(**kwargs):
+        fired.append(kwargs)
+        n = MagicMock()
+        n.id = "fake-notif-id"
+        return n
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("services.notifications.notifications_service") as mock_notif_svc, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_notif_svc.add.side_effect = fake_add
+
+                resp = await client.post(f"/api/agents/{agent_name}/complete")
+                assert resp.status_code == 200
+
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+    assert len(fired) == 1, (
+        f"User agent '{agent_name}' must fire exactly one notification, but got: {fired}"
+    )
+    assert fired[0]["type"] == "agent"
+    assert agent_name in fired[0]["title"]
