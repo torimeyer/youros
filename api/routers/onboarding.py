@@ -46,7 +46,7 @@ class StarterPackItem(BaseModel):
 
 
 class IntentRequest(BaseModel):
-    intent: Literal["writing", "personal", "coding", "research", "work_role"]
+    intent: Literal["writing", "personal", "coding", "research", "work_role", "sales", "general"]
     role: Optional[str] = None
 
 
@@ -89,6 +89,20 @@ _INTENT_PACKS: dict[str, list[dict]] = {
         {"id": "builtin-pm-roadmap", "default_selected": True},
         {"id": "builtin-pm-stakeholder-update", "default_selected": False},
     ],
+    "sales": [
+        {"id": "builtin-sales-prospect-research", "default_selected": True},
+        {"id": "builtin-sales-cold-outreach", "default_selected": True},
+        {"id": "builtin-sales-call-prep", "default_selected": True},
+        {"id": "builtin-sales-follow-up", "default_selected": False},
+        {"id": "builtin-sales-objection-handling", "default_selected": False},
+    ],
+    "general": [
+        {"id": "builtin-builder", "default_selected": True},
+        {"id": "builtin-research", "default_selected": True},
+        {"id": "builtin-brainstorm", "default_selected": True},
+        {"id": "builtin-explain-plain", "default_selected": True},
+        {"id": "builtin-diagnose", "default_selected": False},
+    ],
 }
 
 
@@ -119,6 +133,16 @@ _FIRST_RUNS_HINTS: dict[str, list[dict]] = {
         {"label": "Draft a status update", "seed": "Draft a status update for my team about ", "kind": "chat"},
         {"label": "Prep for a meeting", "seed": "Help me prepare for a meeting about ", "kind": "chat"},
         {"label": "Write a brief", "seed": "Write a brief for ", "kind": "chat"},
+    ],
+    "sales": [
+        {"label": "Research a prospect", "seed": "Research this company for me: ", "kind": "chat"},
+        {"label": "Draft an outreach email", "seed": "Help me write an outreach email to ", "kind": "chat"},
+        {"label": "Prep for a call", "seed": "Help me prepare for a sales call with ", "kind": "chat"},
+    ],
+    "general": [
+        {"label": "Build something", "seed": "Build this for me: ", "kind": "chat"},
+        {"label": "Research a topic", "seed": "Research this for me: ", "kind": "chat"},
+        {"label": "Brainstorm ideas", "seed": "Give me ideas for ", "kind": "chat"},
     ],
 }
 

@@ -412,6 +412,40 @@ async def test_intent_work_role_includes_role_in_request(client):
 
 
 @pytest.mark.asyncio
+async def test_intent_sales_returns_sales_starter_pack(client):
+    """Sales intent returns sales agent templates, not PM templates."""
+    resp = await client.post("/api/onboarding/intent", json={"intent": "sales"})
+    assert resp.status_code == 200
+    pack = resp.json()["starter_pack"]
+    assert len(pack) > 0
+    ids = [item["id"] for item in pack]
+    assert "builtin-sales-prospect-research" in ids
+    assert "builtin-sales-cold-outreach" in ids
+    assert "builtin-sales-call-prep" in ids
+    by_id = {item["id"]: item for item in pack}
+    assert by_id["builtin-sales-prospect-research"]["default_selected"] is True
+    assert by_id["builtin-sales-cold-outreach"]["default_selected"] is True
+    assert "builtin-pm-prd" not in ids, "Sales intent must not include PM templates"
+
+
+@pytest.mark.asyncio
+async def test_intent_general_returns_universal_starter_pack(client):
+    """General intent returns universal templates, not PM templates."""
+    resp = await client.post("/api/onboarding/intent", json={"intent": "general"})
+    assert resp.status_code == 200
+    pack = resp.json()["starter_pack"]
+    assert len(pack) > 0
+    ids = [item["id"] for item in pack]
+    assert "builtin-builder" in ids
+    assert "builtin-research" in ids
+    assert "builtin-brainstorm" in ids
+    assert "builtin-explain-plain" in ids
+    by_id = {item["id"]: item for item in pack}
+    assert by_id["builtin-builder"]["default_selected"] is True
+    assert "builtin-pm-prd" not in ids, "General intent must not include PM templates"
+
+
+@pytest.mark.asyncio
 async def test_intent_invalid_returns_422(client):
     """An unrecognised intent value should be rejected by Pydantic validation."""
     resp = await client.post("/api/onboarding/intent", json={"intent": "gaming"})
@@ -432,7 +466,7 @@ async def test_first_runs_writing_returns_three_hints(client):
 
 @pytest.mark.asyncio
 async def test_first_runs_all_intents_return_three_hints(client):
-    for intent in ["writing", "personal", "coding", "research", "work_role"]:
+    for intent in ["writing", "personal", "coding", "research", "work_role", "sales", "general"]:
         resp = await client.get(f"/api/onboarding/first-runs?intent={intent}")
         assert resp.status_code == 200
         hints = resp.json()["hints"]

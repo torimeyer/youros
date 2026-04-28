@@ -569,10 +569,10 @@ type StarterPackItem = {
 
 // Maps persona IDs (from agentMarketplace) to the intent key used by /onboarding/intent
 const PERSONA_TO_INTENT: Record<string, string> = {
-  everyone: 'work_role',
+  everyone: 'general',
   pm: 'work_role',
   engineer: 'coding',
-  sales: 'work_role',
+  sales: 'sales',
   writer: 'writing',
   home: 'personal',
   student: 'research',
