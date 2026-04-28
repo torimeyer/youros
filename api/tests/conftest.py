@@ -36,6 +36,11 @@ os.environ.setdefault("MYOS_SKIP_CHAT_NOTIFICATIONS", "1")
 # explicitly clear this and call services.rate_limit._reset_all().
 os.environ.setdefault("MYOS_DISABLE_RATE_LIMIT", "1")
 
+# Disable the periodic worktree reaper so its 5-second boot sweep does not
+# run subprocess.run() against the real repo during tests and slow down
+# (or fail) event-loop latency assertions like test_websocket_round_trip.
+os.environ.setdefault("MYOS_REAPER_ENABLED", "0")
+
 from main import app
 
 

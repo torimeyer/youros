@@ -109,19 +109,38 @@ while IFS= read -r line; do
           case "$wt_branch" in
             worktree-agent-*)
               # eligible
-              if ! diff_files=$(git diff "main...$wt_branch" --name-only 2>/dev/null); then
+              # Count commits on the branch not yet merged into main.
+              # git rev-list --count main..branch is immune to the case
+              # where a commit produces content identical to main (which
+              # git diff would report as empty, causing a false "absorbed"
+              # classification and deleting live agent worktrees).
+              if ! ahead=$(git rev-list --count "main..$wt_branch" 2>/dev/null); then
                 printf '%-48s %-10s %s\n' "$wt_branch" "error" "?"
                 error_count=$((error_count + 1))
+              elif [ "$ahead" -gt 0 ]; then
+                printf '%-48s %-10s %s\n' "$wt_branch" "unique" "$ahead"
+                echo "  [reaper] $wt_branch has $ahead unmerged commits ahead of main, skipping -- cherry-pick before removing" >&2
+                unique_count=$((unique_count + 1))
               else
-                if [ -z "$diff_files" ]; then
+                # No commits ahead of main. Also guard against uncommitted
+                # work (staged or unstaged) left behind if an agent was
+                # killed before it could commit.
+                wt_dirty=0
+                if [ -d "$wt_path" ]; then
+                  if ! git -C "$wt_path" diff --quiet 2>/dev/null || \
+                     ! git -C "$wt_path" diff --cached --quiet 2>/dev/null; then
+                    wt_dirty=1
+                  fi
+                fi
+                if [ "$wt_dirty" -eq 1 ]; then
+                  printf '%-48s %-10s %s\n' "$wt_branch" "unique" "dirty"
+                  echo "  [reaper] $wt_branch has uncommitted work, skipping" >&2
+                  unique_count=$((unique_count + 1))
+                else
                   printf '%-48s %-10s %s\n' "$wt_branch" "absorbed" "0"
                   absorbed_branches+=("$wt_branch")
                   absorbed_paths+=("$wt_path")
                   absorbed_count=$((absorbed_count + 1))
-                else
-                  file_count=$(printf '%s\n' "$diff_files" | wc -l | tr -d ' ')
-                  printf '%-48s %-10s %s\n' "$wt_branch" "unique" "$file_count"
-                  unique_count=$((unique_count + 1))
                 fi
               fi
               ;;

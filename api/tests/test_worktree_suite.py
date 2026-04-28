@@ -16,12 +16,13 @@ from pathlib import Path
 
 import pytest
 
-# The helper lives outside the api/ package, under scripts/lib/. Add
-# the scripts/ dir to sys.path so we can import it as lib.worktree_suite.
+# The helper lives under scripts/lib/worktree_suite.py. We add scripts/lib/
+# directly to sys.path (not scripts/) to avoid a namespace conflict with
+# api/lib/, which conftest already registers as the `lib` package.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_REPO_ROOT / "scripts"))
+sys.path.insert(0, str(_REPO_ROOT / "scripts" / "lib"))
 
-from lib.worktree_suite import (  # noqa: E402
+from worktree_suite import (  # noqa: E402
     infer_suite,
     write_status,
     status_path,
