@@ -3668,10 +3668,15 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     body.name, _wt_exc,
                 )
                 body.isolation = "none"
+        # Create the transcript file immediately so the resolver can find it
+        # even before the subprocess writes its first byte. The _drain_stdout
+        # coroutine below writes+flushes each chunk so the file grows in real
+        # time during the run.
+        transcript_path.touch()
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
-            stdout=open(str(transcript_path), "w"),
+            stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=_spawn_cwd,
             env=_spawn_env,
@@ -3835,6 +3840,32 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     name, _cleanup_exc,
                 )
 
+        async def _drain_stdout(p, name: str, tpath: Path) -> None:
+            """Drain subprocess stdout to the transcript file, flushing after each chunk.
+
+            With stdout=asyncio.subprocess.PIPE the subprocess writes to a pipe.
+            We read from the pipe here and immediately write+flush to tpath so the
+            transcript file grows in real time during the run rather than staying
+            at 0 bytes until the process exits (which happened with the previous
+            stdout=open(file) redirect, where the subprocess's internal buffer was
+            only flushed on buffer-full or process exit).
+            """
+            try:
+                with open(str(tpath), "ab") as tfh:
+                    while True:
+                        if p.stdout is None:
+                            break
+                        chunk = await p.stdout.read(4096)
+                        if not chunk:
+                            break
+                        try:
+                            tfh.write(chunk)
+                            tfh.flush()
+                        except Exception:
+                            pass
+            except Exception as exc:
+                logger.warning("spawn.stdout_drain name=%s err=%s", name, exc)
+
         try:
             asyncio.create_task(
                 _drain_stderr(proc, body.name, transcript_path, stderr_log_path, body.template or "")
@@ -3849,6 +3880,12 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                 _release_spawn_locks(spawn_id=body.name)
             except Exception:
                 pass
+        try:
+            asyncio.create_task(
+                _drain_stdout(proc, body.name, transcript_path)
+            )
+        except Exception:
+            pass
         # Kick off the ack bot so inline chat gets a warm acknowledgment
         # within two seconds even when the subagent is locked inside a
         # long tool call. The bot polls /nudges on its own cadence and

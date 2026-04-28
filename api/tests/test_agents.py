@@ -12368,3 +12368,139 @@ def test_bridge_spawn_transcript_path_never_contains_parent_task_id(tmp_path):
     finally:
         agents_module.agent_metadata.pop(agent_name, None)
 
+
+# ---------------------------------------------------------------------------
+# Regression: worktree agents show transcript_bytes=0 throughout their run
+# (2026-04-28)
+#
+# Root cause: spawn_agent used stdout=open(transcript_path, "w"), which
+# redirected the subprocess stdout to a file. The subprocess (claude-code)
+# buffers stdout internally (libc full buffering for non-TTY file descriptors),
+# so the transcript file stayed at 0 bytes throughout the run. Data only
+# appeared when the buffer filled up or the process exited.
+#
+# Fix: change to stdout=asyncio.subprocess.PIPE and add a _drain_stdout
+# coroutine that reads from the pipe and writes+flushes to the transcript
+# file after each chunk, making the file grow in real time.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_worktree_agent_transcript_drains_to_file(tmp_path, monkeypatch):
+    """POST /agents/spawn must write subprocess stdout to the transcript file
+    with flush after each chunk so transcript_bytes > 0 while the agent runs.
+
+    Regression guard: the previous implementation used stdout=open(file, "w"),
+    which buffered subprocess output in the process internals and kept the
+    transcript at 0 bytes throughout the run.
+    Fix: stdout=asyncio.subprocess.PIPE + _drain_stdout coroutine.
+    """
+    from routers import agents as agents_module
+    from routers.agents import (
+        active_agents,
+        agent_metadata,
+        _get_transcript_metrics,
+        _reset_transcript_resolver_cache,
+        _reset_candidates_cache,
+        _transcript_metrics_cache,
+    )
+
+    FAKE_OUTPUT = b"Hello from the subprocess stdout!\nSecond line of output.\n"
+
+    captured: dict = {"stdout_arg": None}
+
+    class _FakeStdout:
+        def __init__(self):
+            self._data = FAKE_OUTPUT
+            self._pos = 0
+
+        async def read(self, n: int) -> bytes:
+            chunk = self._data[self._pos: self._pos + n]
+            self._pos += len(chunk)
+            return chunk
+
+    class _FakeStdin:
+        def write(self, _): pass
+        async def drain(self): pass
+        def close(self): pass
+        def is_closing(self): return False
+        def can_write_eof(self): return True
+        def write_eof(self): pass
+
+    class _FakeStderr:
+        async def read(self, _n: int) -> bytes:
+            return b""
+
+    class _FakeProc:
+        pid = 878787
+        returncode = 0
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+            self.stdout = _FakeStdout()
+            self.stderr = _FakeStderr()
+
+        async def wait(self) -> int:
+            return 0
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        captured["stdout_arg"] = kwargs.get("stdout")
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(agents_module.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec)
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+    monkeypatch.setattr("config.PROJECT_ROOT", tmp_path)
+
+    agent_name = "transcript-drain-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Do some work.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        # Confirm stdout was passed as PIPE (not a file object).
+        assert captured["stdout_arg"] == asyncio.subprocess.PIPE, (
+            "spawn_agent must pass stdout=asyncio.subprocess.PIPE so the "
+            "_drain_stdout coroutine can read and flush data to the transcript"
+        )
+
+        # Give the event loop several ticks to run the _drain_stdout coroutine.
+        # Each asyncio.sleep(0) yields control so pending tasks can advance.
+        for _ in range(8):
+            await asyncio.sleep(0)
+
+        # The transcript file must now contain the subprocess output.
+        transcript_path = tmp_path / "transcripts" / f"{agent_name}.md"
+        assert transcript_path.exists(), "transcript file was not created at spawn time"
+        written = transcript_path.read_bytes()
+        assert written == FAKE_OUTPUT, (
+            f"transcript file contains {written!r} but expected {FAKE_OUTPUT!r}; "
+            "stdout drain is not flushing subprocess output to disk"
+        )
+
+        # _get_transcript_metrics must report bytes > 0.
+        _reset_transcript_resolver_cache()
+        _reset_candidates_cache()
+        _transcript_metrics_cache.clear()
+        metrics = _get_transcript_metrics(agent_name)
+        assert metrics["transcript_bytes"] == len(FAKE_OUTPUT), (
+            f"transcript_bytes={metrics['transcript_bytes']} want {len(FAKE_OUTPUT)}"
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+
