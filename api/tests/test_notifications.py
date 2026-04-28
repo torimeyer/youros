@@ -201,6 +201,35 @@ class TestNotificationsService:
         all_notifs = svc.list_all()
         assert len(all_notifs) == 2
 
+    def test_spec_complete_dedup_survives_read(self, tmp_path):
+        """spec_complete notifications dedup even after the user reads them.
+
+        Regression for the "Your feature is live" modal re-firing every time
+        a completed spec's verify endpoint is hit again. The fix makes
+        spec_complete a permanent-dedup type so a read notification still
+        absorbs repeat fires.
+        """
+        svc = self._patched_service(tmp_path)
+        first = svc.add(
+            type="spec_complete",
+            title="Your feature is live",
+            body="auto close is built and ready to try.",
+            target="spec_complete:docs/spec/auto-close.md",
+            metadata={"spec_path": "docs/spec/auto-close.md"},
+        )
+        svc.mark_read(first.id)
+        second = svc.add(
+            type="spec_complete",
+            title="Your feature is live",
+            body="auto close is built and ready to try.",
+            target="spec_complete:docs/spec/auto-close.md",
+            metadata={"spec_path": "docs/spec/auto-close.md"},
+        )
+        all_notifs = svc.list_all()
+        assert len(all_notifs) == 1, "read spec_complete must not re-fire"
+        assert second.id == first.id, "second add must return the original row"
+        assert int(all_notifs[0].metadata.get("count", 1)) == 2
+
     def test_dedup_different_targets_keeps_both(self, tmp_path):
         svc = self._patched_service(tmp_path)
         svc.add(

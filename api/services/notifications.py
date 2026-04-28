@@ -202,16 +202,20 @@ class NotificationsService:
                 self._save(notifications)
                 return existing
 
-        # Dedup: if an unread notification with the same (type, target)
-        # already exists, refresh its timestamp and bump a count instead of
-        # inserting a new row. This prevents the flood of duplicate agent
-        # completion notifications.
+        # Dedup: if a notification with the same (type, target) already
+        # exists, refresh its timestamp and bump a count instead of inserting
+        # a new row. For one-shot types like spec_complete the dedup applies
+        # even after the user has read it — a spec that shipped once never
+        # needs to announce itself again. For other types the dedup only
+        # applies while unread, so re-triggerable events (agent completion,
+        # etc.) still show up after the user clears the tray.
+        _PERMANENT_DEDUP_TYPES = {"spec_complete"}
         new_target = self._target_key(n)
         if new_target is not None:
             for existing in notifications:
                 if (
                     existing.type == type
-                    and not existing.read
+                    and (existing.type in _PERMANENT_DEDUP_TYPES or not existing.read)
                     and self._target_key(existing) == new_target
                 ):
                     existing.created_at = now_iso
