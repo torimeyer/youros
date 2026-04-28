@@ -2019,6 +2019,24 @@ def _resolve_transcript_source_uncached(name: str) -> Optional[Path]:
                 project_dir, row_description
             )
 
+    # 3c. Worktree project dir: when the agent ran in a git worktree, Claude Code
+    # encodes the worktree path (not PROJECT_ROOT) into its project dir label, so
+    # the JSONL lives under a different ~/.claude/projects/ subdir. Search it so
+    # worktree-isolated Agent-tool subagents are found by the resolver, preventing
+    # false-positive ghost detection (transcript_bytes=0 triggering "failed" status
+    # while the agent is still actively writing its JSONL).
+    if subagent_hit is None:
+        _wt_path_str = (agent_metadata.get(name) or {}).get("worktree_path")
+        if _wt_path_str:
+            _wt_project_label = str(_wt_path_str).replace("/", "-").lstrip("-")
+            _wt_project_dir = projects_dir / f"-{_wt_project_label}"
+            if _wt_project_dir.exists() and _wt_project_dir != project_dir:
+                subagent_hit = _find_freshest_matching_jsonl(
+                    _wt_project_dir,
+                    needle,
+                    "*/subagents/agent-*.jsonl",
+                )
+
     # Prefer whichever of (legacy_md, subagent_hit) has the fresher mtime.
     # This is the core fix for the "agent marked completed 20s after spawn"
     # bug: a live JSONL must beat a stale legacy .md from a prior run with
@@ -3863,6 +3881,30 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                             tfh.flush()
                         except Exception:
                             pass
+                # All stdout consumed. If transcript is still empty the subprocess
+                # produced no final text response. Write a diagnostic note so:
+                #   1. transcript_bytes > 0 → ghost-detection check won't fire a
+                #      false positive and mark the agent "failed" while it's alive.
+                #   2. The user sees a useful message instead of the opaque
+                #      "registered externally" stub from mark_agent_complete.
+                # This is the correct place (not _drain_stderr) because we know
+                # stdout is fully drained before checking — no race with the
+                # concurrent stderr drain task.
+                try:
+                    if not tpath.exists() or tpath.stat().st_size == 0:
+                        _rc = getattr(p, "returncode", None)
+                        _rc_str = str(_rc) if _rc is not None else "unknown"
+                        with open(str(tpath), "a") as fh:
+                            fh.write(
+                                f"Agent '{name}' subprocess exited (rc={_rc_str})"
+                                f" with no stdout output.\n"
+                            )
+                        logger.warning(
+                            "spawn.empty_transcript name=%s rc=%s",
+                            name, _rc,
+                        )
+                except Exception:
+                    pass
             except Exception as exc:
                 logger.warning("spawn.stdout_drain name=%s err=%s", name, exc)
 
