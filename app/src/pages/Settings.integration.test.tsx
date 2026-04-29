@@ -220,7 +220,7 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
   it('shows all items when all features are enabled', () => {
     renderSidebar()
     expect(screen.getByText('Tasks')).toBeInTheDocument()
-    expect(screen.getByText('Plans')).toBeInTheDocument()
+    expect(screen.getByText('Specs')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
   })
 

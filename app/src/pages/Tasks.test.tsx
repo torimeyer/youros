@@ -1476,9 +1476,9 @@ describe('Tasks page', () => {
       expect(body.locks).not.toContain('*')
       // Must be non-empty so the server has real paths to lock.
       expect(body.locks.length).toBeGreaterThan(0)
-      // Must cover the main code directories.
-      expect(body.locks.some((g) => g.startsWith('app/'))).toBe(true)
-      expect(body.locks.some((g) => g.startsWith('api/'))).toBe(true)
+      // Lock is task-specific (tasks/${taskId}) since ca22e3a changed from
+      // broad path globs to narrow per-task locks to prevent 409 conflicts.
+      expect(body.locks).toContain('tasks/1')
     })
 
     it('quick build mode sends real path globs, not the wildcard opt-out', async () => {
@@ -1497,8 +1497,7 @@ describe('Tasks page', () => {
       const body = spawnCall![1] as { locks: string[] }
       expect(body.locks).not.toContain('*')
       expect(body.locks.length).toBeGreaterThan(0)
-      expect(body.locks.some((g) => g.startsWith('app/'))).toBe(true)
-      expect(body.locks.some((g) => g.startsWith('api/'))).toBe(true)
+      expect(body.locks).toContain('tasks/1')
     })
 
     it('help icon opens the plain-language popover and Escape closes it', async () => {
