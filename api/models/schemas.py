@@ -14,6 +14,10 @@ class TaskCreate(BaseModel):
     # SessionStart hook, the caller can pass the session UUID so the
     # row can link back to the transcript.
     session_id: Optional[str] = None
+    # Where this task came from. One of "slack", "meeting", "email", "manual".
+    source: Optional[str] = None
+    # Opaque identifier from the source system, max 500 chars.
+    source_ref: Optional[str] = None
 
 
 class TaskClose(BaseModel):

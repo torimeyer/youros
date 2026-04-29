@@ -14,6 +14,7 @@ from services.ostk import ostk, OstkError
 from services.labels_store import labels_store, LABEL_COLORS
 from services.task_labels_store import task_labels_store
 from services.task_order_store import task_order_store
+from services.task_source_store import task_source_store
 from services.threads_store import threads_store
 from services.task_labeling import (
     apply_auto_labels,
@@ -137,6 +138,10 @@ def _enrich_task(
             task["session_id"] = None
             task["child_task_count"] = 0
 
+    source_entry = task_source_store.get_source(task_id)
+    task["source"] = source_entry["source"]
+    task["source_ref"] = source_entry["source_ref"]
+
     return task
 
 
@@ -180,6 +185,7 @@ async def list_tasks(
     priority: Optional[str] = None,
     include_test_data: bool = False,
     include_session_tasks: bool = False,
+    source: Optional[str] = None,
 ):
     try:
         tasks = await ostk.list_tasks(status=status, priority=priority)
@@ -262,6 +268,8 @@ async def list_tasks(
         # ?include_session_tasks=true explicitly.
         if not include_session_tasks:
             tasks = [t for t in tasks if not is_session_task(t)]
+        if source is not None:
+            tasks = [t for t in tasks if t.get("source") == source]
         # Add compound scores (how many tasks each one unblocks)
         compound_scores = _compute_compound_scores(tasks)
         for t in tasks:
@@ -907,6 +915,9 @@ async def create_task(body: TaskCreate, include_test_data: bool = False):
     if new_id and body.parent_session_id:
         session_task_map.link_child_task(new_id, body.parent_session_id)
 
+    if new_id and (body.source is not None or body.source_ref is not None):
+        task_source_store.set_source(new_id, body.source, body.source_ref)
+
     trace_event("task_created", task_id=new_id, title=clean_title, priority=body.priority)
     return {"result": result, "task_id": new_id}
 
@@ -1044,10 +1055,11 @@ async def delete_task(task_id: str):
     # the same IDs come back with reworded titles.
     recent_deletes.record_id(task_id)
 
-    # Clean up label assignments, thread memberships, and sort order for this task
+    # Clean up label assignments, thread memberships, sort order, and source for this task
     task_labels_store.remove_task(task_id)
     threads_store.remove_task_from_all_threads(task_id)
     task_order_store.remove_task(task_id)
+    task_source_store.remove_task(task_id)
     trace_event("task_deleted", task_id=task_id, title=deleted_title)
     return {"result": result}
 
