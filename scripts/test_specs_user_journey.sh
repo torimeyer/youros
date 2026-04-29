@@ -126,7 +126,7 @@ while [ $draft_attempt -lt $draft_max ]; do
     draft_resp=$(curl -sS $CURL_OPTS $_draft_timeouts -X POST \
         "${API_BASE}/api/specs/draft" \
         -H 'content-type: application/json' \
-        -d "{\"title\":\"${SPEC_TITLE}\"}" 2> "$DRAFT_ERR_FILE" || true)
+        -d "{\"title\":\"${SPEC_TITLE}\",\"fallback_ac\":true}" 2> "$DRAFT_ERR_FILE" || true)
     if echo "$draft_resp" | grep -q '"result"'; then
         break
     fi

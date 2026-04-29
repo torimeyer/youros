@@ -285,6 +285,7 @@ class ThreadUpdate(BaseModel):
 
 class SpecDraft(BaseModel):
     title: str = Field(..., max_length=500)
+    fallback_ac: bool = Field(False)
 
 
 class SpecPromote(BaseModel):

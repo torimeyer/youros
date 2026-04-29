@@ -347,6 +347,19 @@ async def create_draft(body: SpecDraft):
     except Exception:
         pass  # If AI generation fails, the draft is still created without AC
 
+    # When the caller requests fallback_ac (e.g. smoke tests that run
+    # without a live AI model), write a minimal placeholder checkbox so
+    # promote doesn't reject the draft.
+    if not ac_written and body.fallback_ac:
+        from pathlib import Path
+        draft_path = result.strip()
+        docs_root = (Path(ostk.cwd) / "docs").resolve()
+        full_path = (Path(ostk.cwd) / draft_path).resolve()
+        if full_path.exists() and full_path.is_relative_to(docs_root):
+            placeholder = "\n## Acceptance Criteria\n\n- [ ] (e2e smoke test placeholder)\n"
+            full_path.write_text(full_path.read_text() + placeholder)
+            ac_written = True
+
     # Auto-promote so the user never has to click "Promote to Plan" for
     # a draft that already has AI-written acceptance criteria. If the
     # promote call fails (for example, no AC was actually written), we
