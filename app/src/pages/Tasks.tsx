@@ -1001,9 +1001,10 @@ export default function Tasks() {
       // contain edit verbs ("implement"). The server rejects locks:["*"] for
       // worktree spawns — the wildcard is the read-only opt-out only.
       // Plan-mode spawns have no edit verbs so they get isolation="none" where
-      // locks:["*"] is the correct opt-out. Use broad but real globs for build
-      // modes so parallel edit-spawns still conflict-detect against each other.
-      const BUILD_LOCKS = ["app/**", "api/**", "scripts/**", "docs/**"];
+      // locks:["*"] is the correct opt-out. Use a task-specific lock so
+      // parallel spawns for different tasks never conflict with each other,
+      // while a duplicate spawn for the same task still gets 409.
+      const BUILD_LOCKS = [`tasks/${taskId}`];
 
       const body: {
         name: string;
