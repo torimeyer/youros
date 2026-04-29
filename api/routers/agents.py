@@ -3711,6 +3711,11 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     # L2.3 (→902): sync .claude/ into the new worktree so hook
                     # edits do not leak across sessions.
                     await _sync(PROJECT_ROOT / ".claude", _wt_path / ".claude")
+                    # Copy .mcp.json so subagents get the ostk MCP server (→952).
+                    _mcp_src = PROJECT_ROOT / ".mcp.json"
+                    if _mcp_src.exists() and _wt_path.is_dir():
+                        import shutil as _shutil
+                        _shutil.copy2(_mcp_src, _wt_path / ".mcp.json")
                     # Anchor the ostk MCP root to this worktree. Without .ostk/
                     # here the server traverses up to .claude/worktrees/.ostk/
                     # (the shared parent state) and roots all bash calls to

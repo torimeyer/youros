@@ -66,14 +66,15 @@ class _FakeProc:
 
 
 class _FakeForkProc:
-    """Stands in for the ``git worktree add`` subprocess."""
+    """Stands in for git subprocess calls during worktree operations."""
 
-    def __init__(self, returncode: int = 0, stderr: bytes = b"") -> None:
+    def __init__(self, returncode: int = 0, stderr: bytes = b"", stdout: bytes = b"0\n") -> None:
         self.returncode = returncode
         self._stderr = stderr
+        self._stdout = stdout
 
     async def communicate(self):
-        return (b"", self._stderr)
+        return (self._stdout, self._stderr)
 
 
 def _install_spawn_doubles(
@@ -376,6 +377,79 @@ async def test_spawn_worktree_exception_returns_500(tmp_path, monkeypatch, caplo
             for r in caplog.records
         )
     finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+        _siso._reset_spawn_lock_registry_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_spawn_worktree_copies_mcp_json(tmp_path, monkeypatch):
+    """Regression for →952: .mcp.json must be copied into the worktree so
+    subagents have the ostk MCP server available."""
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+    import routers.agents as agents_module
+    import services.spawn_isolation as _siso
+
+    agent_name = "wt-mcp-json-copy"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    # Fake project root with a .mcp.json and a pre-created worktree dir.
+    fake_project = tmp_path / "project"
+    fake_project.mkdir()
+    fake_mcp = fake_project / ".mcp.json"
+    fake_mcp.write_text('{"mcpServers":{"ostk":{"command":"ostk"}}}')
+
+    wt_dir = fake_project / ".claude" / "worktrees" / f"agent-{agent_name}"
+    wt_dir.mkdir(parents=True)
+
+    import config as _config_mod
+    monkeypatch.setattr(_config_mod, "PROJECT_ROOT", fake_project)
+
+    async def _fake_create_wt(**kwargs):
+        return True, None
+
+    monkeypatch.setattr(_siso, "create_worktree", _fake_create_wt)
+
+    async def _fake_sync(src, dst):
+        dst.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(_siso, "sync_claude_dir_to_worktree", _fake_sync)
+
+    _install_spawn_doubles(monkeypatch)
+
+    copied: list[tuple] = []
+    import sys
+    shutil_mod = sys.modules["shutil"]
+    real_copy2 = shutil_mod.copy2
+
+    def _fake_copy2(src, dst):
+        copied.append((str(src), str(dst)))
+
+    monkeypatch.setattr(shutil_mod, "copy2", _fake_copy2)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "fix the flaky test",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "locks": ["api/tests/test_flaky.py"],
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        assert any(
+            str(fake_mcp) in src and f"agent-{agent_name}" in dst
+            for src, dst in copied
+        ), f"Expected .mcp.json copy into worktree, got: {copied}"
+    finally:
+        monkeypatch.setattr(shutil_mod, "copy2", real_copy2)
         agent_metadata.pop(agent_name, None)
         active_agents.pop(agent_name, None)
         _siso._reset_spawn_lock_registry_for_tests()

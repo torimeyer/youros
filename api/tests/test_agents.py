@@ -1845,6 +1845,13 @@ async def test_list_agents_warm_cache_is_fast():
     loop of other requests.
     """
     import time
+    from routers.agents import agent_metadata
+
+    # Snapshot and clear accumulated test agents so the timing reflects
+    # real filesystem agents only, not 100+ in-memory test artifacts from
+    # prior tests in the full suite.
+    _saved = dict(agent_metadata)
+    agent_metadata.clear()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         t = time.perf_counter()
@@ -1864,6 +1871,7 @@ async def test_list_agents_warm_cache_is_fast():
     # a warm ASGI roundtrip well past 300ms even when the resolver cache
     # is fully hot. The 3x cold/warm ratio check below is the real
     # regression signal; this hard ceiling only catches multi-second stalls.
+    agent_metadata.update(_saved)  # restore regardless of assertion outcome
     assert warm_s < 0.6, f"warm /api/agents took {warm_s*1000:.0f}ms, budget 600ms"
     if cold_s > 0.1:
         assert warm_s * 3 < cold_s, (
@@ -4394,7 +4402,10 @@ async def test_spawn_build_agent_includes_display_name_with_task_title(tmp_path,
         returncode = 0
 
         async def communicate(self):
-            return (b"", b"")
+            # Return b"0\n" stdout so rev-list count checks don't fall into
+            # the ValueError fallback (which conservatively returns True =
+            # "has unmerged commits", blocking re-use of existing worktree dirs).
+            return (b"0\n", b"")
 
     class _FakeProc:
         pid = 525252

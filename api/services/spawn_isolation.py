@@ -442,7 +442,11 @@ async def _has_unmerged_commits(cwd: str, branch: str) -> bool:
         )
         if rc != 0:
             return True  # conservative: assume unmerged if check fails
-        return int(out.strip()) > 0
+        stripped = out.strip()
+        if not stripped:
+            # rc=0 + empty stdout never occurs with real git; treat as 0.
+            return False
+        return int(stripped) > 0
     except Exception:
         return True  # conservative: assume unmerged on any error
 
