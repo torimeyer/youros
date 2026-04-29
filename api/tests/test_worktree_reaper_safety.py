@@ -1,0 +1,237 @@
+"""Regression tests for the second reaper deletion path.
+
+Commit 80d19cf fixed scripts/worktree-reaper.sh so the 15-min periodic sweep
+never deletes worktrees with unmerged commits. But spawn_isolation.py has two
+more deletion paths that bypass the shell script:
+
+  - remove_worktree(): called on agent subprocess exit (agents.py:3871)
+  - create_worktree() pre-clean: called when re-spawning same agent name
+
+Both must refuse to delete/overwrite a worktree whose branch has commits
+ahead of main. These tests verify that contract end-to-end using real git.
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+_api_root = Path(__file__).resolve().parents[1]
+if str(_api_root) not in sys.path:
+    sys.path.insert(0, str(_api_root))
+
+from services.spawn_isolation import create_worktree, remove_worktree
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _init_repo(path: Path) -> None:
+    _git(path, "init", "-b", "main")
+    _git(path, "config", "user.email", "test@example.com")
+    _git(path, "config", "user.name", "Test")
+    (path / "README.md").write_text("hello\n")
+    _git(path, "add", ".")
+    _git(path, "commit", "-m", "init")
+
+
+def _worktree_list(repo: Path) -> list[str]:
+    result = _git(repo, "worktree", "list", "--porcelain")
+    paths = []
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            wt = line.removeprefix("worktree ").strip()
+            if wt != str(repo):
+                paths.append(wt)
+    return paths
+
+
+def _branch_exists(repo: Path, branch: str) -> bool:
+    result = _git(repo, "branch", "--format=%(refname:short)")
+    return branch in [b.strip() for b in result.stdout.splitlines()]
+
+
+def _add_commit_to_worktree(repo: Path, wt_path: Path, filename: str) -> None:
+    """Write a file and commit it inside the worktree (puts branch 1 ahead of main)."""
+    (wt_path / filename).write_text("unmerged work\n")
+    _git(wt_path, "add", filename)
+    subprocess.run(
+        ["git", "commit", "-m", f"add {filename}"],
+        cwd=str(wt_path),
+        capture_output=True,
+        check=False,
+        env={
+            **{},
+            "GIT_AUTHOR_NAME": "Test",
+            "GIT_AUTHOR_EMAIL": "test@example.com",
+            "GIT_COMMITTER_NAME": "Test",
+            "GIT_COMMITTER_EMAIL": "test@example.com",
+            "PATH": subprocess.os.environ["PATH"],
+            "HOME": subprocess.os.environ.get("HOME", "/tmp"),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests: remove_worktree() must refuse when branch has unmerged commits
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_remove_worktree_refuses_when_branch_has_unmerged_commits(tmp_path):
+    """remove_worktree() must not delete a worktree whose branch is ahead of main."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    branch = "worktree-agent-safety-test"
+    wt_path = repo / ".claude" / "worktrees" / "agent-safety-test"
+
+    # Create the worktree.
+    ok, err = await create_worktree(
+        project_root=repo,
+        agent_name="safety-test",
+        branch=branch,
+        wt_path=wt_path,
+    )
+    assert ok, f"create_worktree setup failed: {err}"
+
+    # Add a commit in the worktree so the branch is 1 ahead of main.
+    _add_commit_to_worktree(repo, wt_path, "work.txt")
+
+    # Verify the setup: branch should be ahead of main.
+    count = subprocess.run(
+        ["git", "rev-list", "--count", f"main..{branch}"],
+        cwd=str(repo), capture_output=True, text=True, check=False,
+    )
+    assert count.stdout.strip() == "1", (
+        f"setup: expected 1 commit ahead of main, got: {count.stdout.strip()!r}"
+    )
+
+    # remove_worktree() must refuse.
+    result = await remove_worktree(
+        project_root=repo,
+        wt_path=wt_path,
+        branch=branch,
+    )
+    assert result is False, "remove_worktree must return False when branch has unmerged commits"
+
+    # Worktree directory must still exist.
+    assert wt_path.exists(), "worktree directory was deleted despite unmerged commits"
+
+    # Branch must still exist.
+    assert _branch_exists(repo, branch), f"branch {branch} was deleted despite unmerged commits"
+
+    # Worktree must still be registered in git.
+    listed = _worktree_list(repo)
+    assert str(wt_path) in listed, (
+        f"worktree deregistered from git despite unmerged commits. Listed: {listed}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests: create_worktree() pre-clean must refuse when branch has unmerged commits
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_worktree_pre_clean_refuses_when_branch_has_unmerged_commits(tmp_path):
+    """create_worktree() must not wipe an existing worktree that is ahead of main."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    branch = "worktree-agent-respawn-test"
+    wt_path = repo / ".claude" / "worktrees" / "agent-respawn-test"
+
+    # First spawn: create the worktree.
+    ok, err = await create_worktree(
+        project_root=repo,
+        agent_name="respawn-test",
+        branch=branch,
+        wt_path=wt_path,
+    )
+    assert ok, f"first create_worktree failed: {err}"
+
+    # Add a commit so the branch is ahead of main.
+    _add_commit_to_worktree(repo, wt_path, "feature.txt")
+
+    count = subprocess.run(
+        ["git", "rev-list", "--count", f"main..{branch}"],
+        cwd=str(repo), capture_output=True, text=True, check=False,
+    )
+    assert count.stdout.strip() == "1", (
+        f"setup: expected 1 commit ahead of main, got: {count.stdout.strip()!r}"
+    )
+
+    # Second spawn attempt: must refuse to pre-clean the existing worktree.
+    ok2, err2 = await create_worktree(
+        project_root=repo,
+        agent_name="respawn-test",
+        branch=branch,
+        wt_path=wt_path,
+    )
+    assert ok2 is False, (
+        "create_worktree must refuse (return False) when existing worktree has unmerged commits"
+    )
+    assert "safety" in err2.lower() or "unmerged" in err2.lower(), (
+        f"error message should mention safety/unmerged, got: {err2!r}"
+    )
+
+    # The original worktree and branch must be untouched.
+    assert wt_path.exists(), "worktree directory was deleted by pre-clean despite unmerged commits"
+    assert _branch_exists(repo, branch), (
+        f"branch {branch} was deleted by pre-clean despite unmerged commits"
+    )
+    listed = _worktree_list(repo)
+    assert str(wt_path) in listed, (
+        f"worktree deregistered by pre-clean despite unmerged commits. Listed: {listed}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests: safe path still works (no unmerged commits → removal succeeds)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_remove_worktree_succeeds_when_branch_is_merged(tmp_path):
+    """remove_worktree() must proceed normally when there are no unmerged commits."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    branch = "worktree-agent-merged-test"
+    wt_path = repo / ".claude" / "worktrees" / "agent-merged-test"
+
+    ok, err = await create_worktree(
+        project_root=repo,
+        agent_name="merged-test",
+        branch=branch,
+        wt_path=wt_path,
+    )
+    assert ok, f"create_worktree setup failed: {err}"
+
+    # No commits added -- branch is even with main.
+    result = await remove_worktree(
+        project_root=repo,
+        wt_path=wt_path,
+        branch=branch,
+    )
+    assert result is True, "remove_worktree must succeed when branch has no unmerged commits"
+    assert not wt_path.exists(), "worktree directory should be gone after clean removal"
+    assert not _branch_exists(repo, branch), "branch should be deleted after clean removal"

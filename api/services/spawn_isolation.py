@@ -433,6 +433,20 @@ def _reset_spawn_lock_registry_for_tests() -> None:
 
 
 
+async def _has_unmerged_commits(cwd: str, branch: str) -> bool:
+    """Return True if branch has commits ahead of main (safe default: True on error)."""
+    try:
+        rc, out, _ = await _run_git(
+            "rev-list", "--count", f"main..{branch}",
+            cwd=cwd, timeout=5.0,
+        )
+        if rc != 0:
+            return True  # conservative: assume unmerged if check fails
+        return int(out.strip()) > 0
+    except Exception:
+        return True  # conservative: assume unmerged on any error
+
+
 async def _run_git(
     *args: str,
     cwd: str,
@@ -481,6 +495,14 @@ async def create_worktree(
     #    Worktrees are created with --lock, so a plain `git worktree remove
     #    --force` will be refused ("locked") unless we unlock first.
     if wt.exists():
+        # Safety: refuse to destroy a worktree that has unmerged commits.
+        if await _has_unmerged_commits(cwd, branch):
+            logger.warning(
+                "spawn.worktree.unmerged_safety name=%s branch=%s -- refusing pre-clean",
+                agent_name, branch,
+            )
+            return False, f"safety: branch {branch} has unmerged commits; cherry-pick before re-spawning"
+
         # Unlock (no-op if not locked; never fatal).
         await _run_git("worktree", "unlock", str(wt), cwd=cwd, timeout=5.0)
         # Now remove the worktree registration and its directory.
@@ -555,6 +577,14 @@ async def remove_worktree(
     cwd = str(project_root)
     wt = _P(wt_path)
     ok = True
+
+    # Safety: refuse to delete a worktree that has unmerged commits.
+    if await _has_unmerged_commits(cwd, branch):
+        logger.warning(
+            "spawn.worktree.remove_unmerged_safety branch=%s -- refusing removal",
+            branch,
+        )
+        return False
 
     if wt.exists() or True:  # attempt even if dir is gone (unregister stale entry)
         # Unlock first; worktrees are created with --lock so a plain remove
