@@ -111,6 +111,29 @@ class NotificationsService:
                 )
             except OSError:
                 pass
+
+        # Prune stale roadmap_ready entries whose roadmap file no longer
+        # exists on disk. These can accumulate when test runs write to the
+        # real notification store before the conftest isolation fixture is
+        # applied, or when a user deletes their roadmap.md. Without this
+        # guard the badge stays lit forever even though no roadmap exists.
+        pruned = [
+            n for n in notifications
+            if not (
+                n.type == "roadmap_ready"
+                and n.metadata.get("roadmap_path")
+                and not Path(n.metadata["roadmap_path"]).exists()
+            )
+        ]
+        if len(pruned) < len(notifications):
+            try:
+                NOTIFICATIONS_FILE.write_text(
+                    json.dumps([n.to_dict() for n in pruned], indent=2)
+                )
+            except OSError:
+                pass
+            notifications = pruned
+
         return notifications
 
     def _save(self, notifications: list[Notification]) -> None:

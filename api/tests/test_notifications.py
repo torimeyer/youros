@@ -617,3 +617,134 @@ async def test_normal_user_agent_complete_fires_notification(tmp_path):
     )
     assert fired[0]["type"] == "agent"
     assert agent_name in fired[0]["title"]
+
+
+# ---------------------------------------------------------------------------
+# Stale roadmap_ready cleanup (root cause: no-roadmap false positive)
+# ---------------------------------------------------------------------------
+
+
+def test_stale_roadmap_ready_notification_pruned_when_file_missing(tmp_path):
+    """A roadmap_ready notification whose roadmap_path no longer exists on disk
+    must be silently removed from the store on the next load. This guards
+    against stale toasts that linger after test leakage or a user deleting
+    their roadmap file."""
+    import services.notifications as mod
+    from services.notifications import NotificationsService
+
+    notif_file = tmp_path / "notifications.json"
+    stale_path = tmp_path / "files" / "roadmap.md"  # deliberately NOT created
+
+    stale_entry = {
+        "id": "stale-roadmap-notif-001",
+        "type": "roadmap_ready",
+        "title": "Roadmap ready",
+        "body": "Open roadmap.md.",
+        "action_label": "Open roadmap",
+        "action_url": f"/files?path={stale_path}",
+        "read": False,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "metadata": {"roadmap_path": str(stale_path), "kind": "roadmap_ready"},
+    }
+    notif_file.write_text(json.dumps([stale_entry]))
+
+    svc = NotificationsService()
+    with patch.object(mod, "NOTIFICATIONS_FILE", notif_file), \
+         patch.object(mod, "MYOS_DIR", tmp_path):
+        result = svc.list_all()
+
+    assert result == [], (
+        f"Stale roadmap_ready notification must be pruned on load, got: {result}"
+    )
+    remaining = json.loads(notif_file.read_text())
+    assert remaining == [], (
+        "Stale entry must be removed from the persistent store, got: "
+        f"{remaining}"
+    )
+
+
+def test_valid_roadmap_ready_notification_kept_when_file_exists(tmp_path):
+    """A roadmap_ready notification whose roadmap_path exists on disk must NOT
+    be pruned. Only stale entries (missing file) are removed."""
+    import services.notifications as mod
+    from services.notifications import NotificationsService
+
+    notif_file = tmp_path / "notifications.json"
+    real_path = tmp_path / "files" / "roadmap.md"
+    real_path.parent.mkdir(parents=True, exist_ok=True)
+    real_path.write_text("# Roadmap\n\nQ1: ship things.\n")
+
+    live_entry = {
+        "id": "live-roadmap-notif-001",
+        "type": "roadmap_ready",
+        "title": "Roadmap ready",
+        "body": "Open roadmap.md.",
+        "action_label": "Open roadmap",
+        "action_url": f"/files?path={real_path}",
+        "read": False,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "metadata": {"roadmap_path": str(real_path), "kind": "roadmap_ready"},
+    }
+    notif_file.write_text(json.dumps([live_entry]))
+
+    svc = NotificationsService()
+    with patch.object(mod, "NOTIFICATIONS_FILE", notif_file), \
+         patch.object(mod, "MYOS_DIR", tmp_path):
+        result = svc.list_all()
+
+    assert len(result) == 1, (
+        f"Live roadmap_ready notification must NOT be pruned, got: {result}"
+    )
+    assert result[0].id == "live-roadmap-notif-001"
+
+
+@pytest.mark.asyncio
+async def test_non_roadmap_agent_complete_does_not_emit_roadmap_ready(tmp_path):
+    """A non-roadmap agent completing must NOT emit a roadmap_ready
+    notification, even when it produces a summary. This is the regression
+    guard for the stale toast that appeared for users who never ran the
+    Roadmap template."""
+    from unittest.mock import AsyncMock, MagicMock
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+    from routers.agents import agent_metadata
+
+    agent_name = "prd-agent-no-roadmap-xyz"
+    agent_metadata[agent_name] = {
+        "spawned_at": "2026-04-29T00:00:00+00:00",
+        "template": "PRD",
+        "status": "running",
+        "source": "claude-code",
+        "template_produces_doc": True,
+    }
+
+    fired: list[dict] = []
+
+    def fake_add(**kwargs):
+        fired.append(kwargs)
+        n = MagicMock()
+        n.id = "fake-notif-id"
+        return n
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch("routers.agents.ostk") as mock_ostk, \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("services.notifications.notifications_service") as mock_notif_svc, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_notif_svc.add.side_effect = fake_add
+
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/complete",
+                    json={"summary": "Wrote the PRD. Audience, key pages, success criteria covered."},
+                )
+            assert resp.status_code == 200
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+    roadmap_fired = [f for f in fired if f.get("type") == "roadmap_ready"]
+    assert roadmap_fired == [], (
+        f"Non-roadmap agent must not emit roadmap_ready notification, got: {roadmap_fired}"
+    )
