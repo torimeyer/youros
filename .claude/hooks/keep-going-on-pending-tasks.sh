@@ -14,7 +14,7 @@ fi
 if [ "${MYOS_AGENTS_FIXTURE+x}" = "x" ]; then
   AGENTS_JSON="$MYOS_AGENTS_FIXTURE"
 else
-  AGENTS_JSON="$(curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 3 -m 5     "${BACKEND_URL}/api/agents?limit=50" 2>/dev/null)"
+  AGENTS_JSON="$(curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 3 -m 8     "${BACKEND_URL}/api/agents" 2>/dev/null)"
 fi
 
 [ -z "$TASKS_JSON" ] && exit 0
