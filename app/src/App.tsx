@@ -36,12 +36,13 @@ import AdminAuditTrail from './pages/admin/AuditTrail'
 import AdminSecurity from './pages/admin/Security'
 import InviteAccept from './pages/InviteAccept'
 import TeamStart from './pages/TeamStart'
-import TeamHome from './pages/TeamHome'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import AboutMyOS from './pages/AboutMyOS'
 import AgentfileEditor from './pages/AgentfileEditor'
 import MySetup from './pages/MySetup'
 import Inbox from './pages/Inbox'
+import Team from './pages/Team'
+import TeamSettings from './pages/TeamSettings'
 
 export default function App() {
   const hydrated = useAppStore((s) => s.hydrated)
@@ -144,7 +145,8 @@ export default function App() {
             <Route path="security" element={<AdminSecurity />} />
           </Route>
           {/* Member-facing team home; admins also see it but have the admin section too */}
-          <Route path="team" element={<TeamHome />} />
+          <Route path="team" element={<Team />} />
+          <Route path="team/settings" element={<TeamSettings />} />
           <Route path="team-setup" element={<TeamStart />} />
           <Route path="adoption" element={<Adoption />} />
           <Route path="settings" element={<Settings />} />
