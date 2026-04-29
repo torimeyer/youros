@@ -540,7 +540,7 @@ async def build_baseline_context() -> str:
     if user_name:
         lines.append(f"The user's name is {user_name}.")
     if standing:
-        lines.append(f"Standing instructions: {standing}")
+        lines.append(f"STANDING INSTRUCTIONS (from the user, always apply):\n{standing}")
     try:
         needles = await ostk.list_tasks(status="open")
         if needles:

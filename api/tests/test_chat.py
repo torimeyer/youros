@@ -3729,3 +3729,25 @@ class TestBuildBaselineContext:
             result = await build_baseline_context()
 
         assert "AI assistant inside" in result
+
+    @pytest.mark.asyncio
+    async def test_standing_instructions_framing_matches_system_prompt(self):
+        """build_baseline_context must use the canonical STANDING INSTRUCTIONS framing."""
+        from routers.chat import build_baseline_context
+
+        with (
+            patch("routers.chat.settings_store") as mock_settings,
+            patch("routers.chat.ostk") as mock_ostk,
+        ):
+            mock_settings.get.side_effect = lambda key, default=None: {
+                "os_name": "myOS",
+                "user_name": "",
+                "standing_instructions": "Always reply in plain English.",
+            }.get(key, default)
+            mock_ostk.list_tasks = AsyncMock(return_value=[])
+
+            result = await build_baseline_context()
+
+        assert "STANDING INSTRUCTIONS" in result
+        assert "always apply" in result.lower()
+        assert "Always reply in plain English." in result
