@@ -255,6 +255,19 @@ async def search_messages(query: str, count: int = 20) -> list[dict]:
         return []
 
 
+async def get_message_permalink(channel_id: str, ts: str) -> str:
+    """Return the permalink URL for a Slack message.
+
+    Calls chat.getPermalink with the bot token. Returns an empty string
+    if the call fails so callers can store the followup anyway.
+    """
+    try:
+        data = await _slack_get("chat.getPermalink", {"channel": channel_id, "message_ts": ts})
+        return data.get("permalink", "")
+    except Exception:
+        return ""
+
+
 async def exchange_code(
     code: str,
     client_id: str,

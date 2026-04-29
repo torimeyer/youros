@@ -181,3 +181,61 @@ async def slack_disconnect():
     slack_service.disconnect()
     recent_deletes.record_id("slack-connection")
     return {"ok": True}
+
+
+# --- Follow-ups (flagged messages) ---
+
+from services import slack_followups as followups_service  # noqa: E402
+
+
+class SlackFollowupRequest(BaseModel):
+    channel_id: str
+    channel_name: str
+    ts: str
+    user: str
+    text: str
+
+
+@router.post("/slack/followups")
+async def add_followup(req: SlackFollowupRequest):
+    """Flag a Slack message for follow-up."""
+    if not slack_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Slack.")
+
+    permalink = await slack_service.get_message_permalink(req.channel_id, req.ts)
+    row = followups_service.add_followup(
+        channel_id=req.channel_id,
+        channel_name=req.channel_name,
+        ts=req.ts,
+        user=req.user,
+        text=req.text,
+        permalink=permalink,
+    )
+    return row
+
+
+@router.get("/slack/followups")
+async def list_followups():
+    """Return all flagged follow-ups, newest first."""
+    if not slack_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Slack.")
+    return {"followups": followups_service.list_followups()}
+
+
+@router.delete("/slack/followups/{followup_id}")
+async def delete_followup(followup_id: str):
+    """Remove a flagged follow-up by id."""
+    if not slack_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Slack.")
+    removed = followups_service.remove_followup(followup_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Follow-up not found.")
+    return {"ok": True}
+
+
+@router.get("/slack/followups/count")
+async def followup_count():
+    """Return the number of flagged follow-ups (for the sidebar badge)."""
+    if not slack_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Slack.")
+    return {"count": followups_service.count()}
