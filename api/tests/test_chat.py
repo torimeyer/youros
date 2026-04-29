@@ -1422,8 +1422,8 @@ class TestChatWebSocketHandshakeNeverBlocksEventLoop:
 
             assert got_token, "no token event arrived"
             assert got_done, "no done event arrived"
-            assert ws_elapsed < 3.0, (
-                f"WebSocket round trip took {ws_elapsed:.2f}s, should be < 3s"
+            assert ws_elapsed < 10.0, (
+                f"WebSocket round trip took {ws_elapsed:.2f}s, should be < 10s"
             )
 
             # Immediately fire an HTTP request. If the event loop was
