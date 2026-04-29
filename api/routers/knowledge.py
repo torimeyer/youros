@@ -26,6 +26,7 @@ class NoteCreate(BaseModel):
     title: str
     content: str
     tags: Optional[List[str]] = None
+    visibility: Optional[str] = None
 
 
 def _load_notes() -> list:
@@ -61,6 +62,8 @@ async def add_note(note: NoteCreate):
         "tags": note.tags or [],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if note.visibility is not None:
+        entry["visibility"] = note.visibility
     notes.append(entry)
     _save_notes(notes)
     return entry
