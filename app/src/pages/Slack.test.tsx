@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Slack from './Slack'
 
@@ -14,6 +14,22 @@ vi.mock('../lib/api', async () => {
     },
   }
 })
+
+vi.mock('../lib/sidebarBus', async () => {
+  const actual = await vi.importActual<typeof import('../lib/sidebarBus')>('../lib/sidebarBus')
+  return {
+    ...actual,
+    notifyInboxChange: vi.fn(),
+  }
+})
+
+vi.mock('../components/SlackReplyComposer', () => ({
+  default: ({ onCancel }: { onCancel: () => void }) => (
+    <div data-testid="mock-slack-reply-composer">
+      <button onClick={onCancel}>Cancel</button>
+    </div>
+  ),
+}))
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
@@ -30,8 +46,11 @@ Object.defineProperty(window, 'matchMedia', {
 })
 
 import { api } from '../lib/api'
+import { notifyInboxChange } from '../lib/sidebarBus'
 
 const mockedApiGet = vi.mocked(api.get)
+const mockedApiPost = vi.mocked(api.post)
+const mockedNotifyInboxChange = vi.mocked(notifyInboxChange)
 
 function renderSlack() {
   return render(
@@ -40,6 +59,94 @@ function renderSlack() {
     </MemoryRouter>
   )
 }
+
+function mockConnectedWithMessages() {
+  mockedApiGet.mockImplementation((path: string) => {
+    if (path.includes('/slack/status')) {
+      return Promise.resolve({ connected: true, team_name: 'Acme', team_id: 'T1', configured: true })
+    }
+    if (path.includes('/slack/channels')) {
+      return Promise.resolve({
+        channels: [{ id: 'C1', name: 'general', is_private: false, num_members: 10, topic: '' }],
+      })
+    }
+    if (path.includes('/slack/messages/C1')) {
+      return Promise.resolve({
+        messages: [
+          { ts: '1000000001.000100', user: 'alice', text: 'Hey team!', type: 'message' },
+        ],
+      })
+    }
+    return Promise.resolve({})
+  })
+  mockedApiPost.mockResolvedValue({ ok: true })
+}
+
+describe('Slack flag + reply buttons', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.slackChannels.v1')
+  })
+
+  async function renderAndOpenChannel() {
+    mockConnectedWithMessages()
+    renderSlack()
+    await waitFor(() => {
+      expect(screen.getByText('general')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('general'))
+    await waitFor(() => {
+      expect(screen.getByText('Hey team!')).toBeInTheDocument()
+    })
+  }
+
+  it('flag button calls /slack/followups and notifies inbox', async () => {
+    await renderAndOpenChannel()
+
+    const flagBtn = screen.getByTestId('slack-flag-1000000001.000100')
+    fireEvent.click(flagBtn)
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/slack/followups', {
+        channel_id: 'C1',
+        channel_name: 'general',
+        ts: '1000000001.000100',
+        user: 'alice',
+        text: 'Hey team!',
+      })
+    })
+
+    await waitFor(() => {
+      expect(mockedNotifyInboxChange).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('reply button opens the SlackReplyComposer inline', async () => {
+    await renderAndOpenChannel()
+
+    expect(screen.queryByTestId('mock-slack-reply-composer')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('slack-reply-1000000001.000100'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-slack-reply-composer')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking cancel on the composer closes it', async () => {
+    await renderAndOpenChannel()
+
+    fireEvent.click(screen.getByTestId('slack-reply-1000000001.000100'))
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-slack-reply-composer')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => {
+      expect(screen.queryByTestId('mock-slack-reply-composer')).not.toBeInTheDocument()
+    })
+  })
+})
 
 describe('Slack ConnectCard (chunk-d migration)', () => {
   beforeEach(() => {

@@ -4,6 +4,8 @@ import Icon from '../components/Icon'
 import TopBar from '../components/TopBar'
 import { ConnectCard, LoadingState, EmptyState } from '../components/ui'
 import { api } from '../lib/api'
+import SlackReplyComposer from '../components/SlackReplyComposer'
+import { notifyInboxChange } from '../lib/sidebarBus'
 
 interface SlackChannel {
   id: string
@@ -62,6 +64,8 @@ export default function Slack() {
   const [newMessage, setNewMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
+  const [flaggedTs, setFlaggedTs] = useState<Set<string>>(new Set())
+  const [replyOpenTs, setReplyOpenTs] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -156,6 +160,24 @@ export default function Slack() {
       // ignore
     } finally {
       setSending(false)
+    }
+  }
+
+  const handleFlag = async (msg: SlackMessage) => {
+    if (!selectedChannel) return
+    const channelName = channels.find((c) => c.id === selectedChannel)?.name || ''
+    try {
+      await api.post('/slack/followups', {
+        channel_id: selectedChannel,
+        channel_name: channelName,
+        ts: msg.ts,
+        user: msg.user,
+        text: msg.text,
+      })
+      setFlaggedTs((prev) => new Set([...prev, msg.ts]))
+      notifyInboxChange()
+    } catch {
+      // ignore
     }
   }
 
@@ -302,23 +324,60 @@ export default function Slack() {
               <>
                 <div className="space-y-3 max-h-[50vh] overflow-y-auto mb-4">
                   {[...messages].reverse().map((msg) => (
-                    <div key={msg.ts} className="group flex items-start gap-3 px-2 py-2 rounded-lg hover:bg-slate-800/40">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-sm font-medium text-slate-200">{msg.user || 'Unknown'}</span>
-                          <span className="text-xs text-slate-500">
-                            {new Date(parseFloat(msg.ts) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                          </span>
+                    <div key={msg.ts}>
+                      <div className="group flex items-start gap-3 px-2 py-2 rounded-lg hover:bg-slate-800/40">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-sm font-medium text-slate-200">{msg.user || 'Unknown'}</span>
+                            <span className="text-xs text-slate-500">
+                              {new Date(parseFloat(msg.ts) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <p className="text-sm text-slate-300 whitespace-pre-wrap">{msg.text}</p>
                         </div>
-                        <p className="text-sm text-slate-300 whitespace-pre-wrap">{msg.text}</p>
+                        <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                          <button
+                            data-testid={`slack-flag-${msg.ts}`}
+                            onClick={() => handleFlag(msg)}
+                            title="Flag for follow-up"
+                            className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                          >
+                            <Icon
+                              name={flaggedTs.has(msg.ts) ? 'flag' : 'flag'}
+                              size={16}
+                              className={flaggedTs.has(msg.ts) ? 'text-amber-400' : 'text-slate-400'}
+                            />
+                          </button>
+                          <button
+                            data-testid={`slack-reply-${msg.ts}`}
+                            onClick={() =>
+                              setReplyOpenTs((prev) => (prev === msg.ts ? null : msg.ts))
+                            }
+                            title="Reply"
+                            className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                          >
+                            <Icon name="reply" size={16} className="text-slate-400" />
+                          </button>
+                          <button
+                            onClick={() => handleCreateTask(msg)}
+                            title="Create task from this message"
+                            className="p-1.5 rounded-lg hover:bg-slate-700 transition-colors"
+                          >
+                            <Icon name="add_task" size={16} className="text-slate-400" />
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => handleCreateTask(msg)}
-                        title="Create task from this message"
-                        className="shrink-0 opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-slate-700 transition-all"
-                      >
-                        <Icon name="add_task" size={16} className="text-slate-400" />
-                      </button>
+                      {replyOpenTs === msg.ts && selectedChannel && (
+                        <SlackReplyComposer
+                          channelId={selectedChannel}
+                          ts={msg.ts}
+                          onCancel={() => setReplyOpenTs(null)}
+                          onSent={() => {
+                            setReplyOpenTs(null)
+                            fetchMessages(selectedChannel)
+                          }}
+                        />
+                      )}
                     </div>
                   ))}
                 </div>

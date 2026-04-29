@@ -33,6 +33,7 @@ const specsListeners = new Set<Listener>()
 // manual reload or its next mount. Needle for "chat adds event but
 // Calendar tab stays stale" bug.
 const calendarListeners = new Set<Listener>()
+const inboxListeners = new Set<Listener>()
 
 // Names the user has locally dismissed (cancelled or deleted from the
 // Agents page). Shared at module scope so BOTH the Agents page and the
@@ -44,7 +45,7 @@ const calendarListeners = new Set<Listener>()
 const dismissedAgents = new Set<string>()
 
 type BroadcastPayload =
-  | { kind: 'agents' | 'tasks' | 'specs' | 'calendar' }
+  | { kind: 'agents' | 'tasks' | 'specs' | 'calendar' | 'inbox' }
   | { kind: 'dismiss'; name: string }
 
 // BroadcastChannel is wrapped in a try/catch because some environments
@@ -64,6 +65,8 @@ try {
         fanOut(specsListeners)
       } else if (kind === 'calendar') {
         fanOut(calendarListeners)
+      } else if (kind === 'inbox') {
+        fanOut(inboxListeners)
       } else if (kind === 'dismiss') {
         // Another tab just dismissed an agent locally. Mirror it into this
         // tab's set so our Sidebar badge and Agents list filter match.
@@ -116,6 +119,13 @@ export function onCalendarChange(fn: Listener): () => void {
   }
 }
 
+export function onInboxChange(fn: Listener): () => void {
+  inboxListeners.add(fn)
+  return () => {
+    inboxListeners.delete(fn)
+  }
+}
+
 export function bumpAgents(): void {
   fanOut(agentsListeners)
   // Notify other tabs. postMessage never fires onmessage in the sender,
@@ -154,6 +164,15 @@ export function bumpCalendar(): void {
   }
 }
 
+export function notifyInboxChange(): void {
+  fanOut(inboxListeners)
+  try {
+    channel?.postMessage({ kind: 'inbox' } satisfies BroadcastPayload)
+  } catch {
+    // ignore
+  }
+}
+
 // Fire every channel at once. Used by the global freshness hooks
 // (window focus, tab visibility, resume-from-idle) so the whole app
 // "perks up" the moment the user returns or resumes activity. Every
@@ -174,6 +193,7 @@ export function _resetSidebarBus(): void {
   tasksListeners.clear()
   specsListeners.clear()
   calendarListeners.clear()
+  inboxListeners.clear()
   dismissedAgents.clear()
 }
 
