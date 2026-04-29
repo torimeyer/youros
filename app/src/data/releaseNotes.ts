@@ -11,6 +11,24 @@ export interface ReleaseGroup {
 
 const releaseNotes: ReleaseGroup[] = [
   {
+    date: '2026-04-29',
+    label: 'April 29, 2026',
+    entries: [
+      {
+        title: 'Flag it, reply from Inbox',
+        description: 'Flag a Slack message for follow-up. It lands in your Inbox. Open a reply right there, let Gemini Enterprise draft it, edit if you want, and send. The loop is one page, not three.',
+      },
+      {
+        title: 'Unified Inbox',
+        description: 'Everything that needs your attention in one place: flagged Slack messages and tasks that came in from outside. Dismiss what you\'ve handled, convert anything to a task, or reply without leaving.',
+      },
+      {
+        title: 'Gemini Enterprise replies',
+        description: 'Your organization\'s Gemini writes Slack replies in your voice. One click to draft, yours to edit, one more to send.',
+      },
+    ],
+  },
+  {
     date: '2026-04-28',
     label: 'April 28, 2026',
     entries: [
