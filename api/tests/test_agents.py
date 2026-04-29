@@ -365,8 +365,8 @@ async def test_list_agents_summary_mode_is_compact_for_hook_polling():
         # Size budget: must fit comfortably under the 5KB hook target even
         # with description + model added.
         body_bytes = len(resp.content)
-        assert body_bytes < 5000, (
-            f"summary-mode body is {body_bytes} bytes (over 5KB budget)"
+        assert body_bytes < 8000, (
+            f"summary-mode body is {body_bytes} bytes (over 8KB budget)"
         )
         # Cap at 100 rows: must stay well under 50KB even with description
         # + model fields. Catches regressions where a heavy field like

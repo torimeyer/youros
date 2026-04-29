@@ -95,6 +95,10 @@ def _percentile(values: list[float], pct: float) -> float:
     return float(s[idx])
 
 
+def _get_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def compute_duration_stats(
     state_path: Optional[Path] = None,
     window_days: int = DEFAULT_WINDOW_DAYS,
@@ -119,7 +123,7 @@ def compute_duration_stats(
     # ``AGENT_STATE_PATH`` on the module reach through to us.
     resolved_path = state_path if state_path is not None else AGENT_STATE_PATH
     state = _load_state(resolved_path)
-    cutoff_now = now or datetime.now(timezone.utc)
+    cutoff_now = now or _get_now()
     cutoff = cutoff_now - timedelta(days=window_days)
 
     durations: list[float] = []

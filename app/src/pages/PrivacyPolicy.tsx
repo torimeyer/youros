@@ -127,7 +127,7 @@ export default function PrivacyPolicy() {
   return (
     <div className="min-h-dvh bg-slate-950">
       <TopBar title="Privacy" />
-      <main className="pt-24 pb-16 px-8 max-w-2xl">
+      <main className="pt-24 pb-16 px-8">
         <p className="text-slate-400 text-sm mb-8">
           Plain-language summary of what this app stores, what it sends, and how you stay in
           control.

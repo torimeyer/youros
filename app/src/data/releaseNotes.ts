@@ -38,7 +38,7 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'Setup that knows you',
-        description: 'The setup wizard now asks what you actually use myOS for and builds your starter pack around that. Pick your focus and your first agents, plans, and task suggestions are already calibrated to fit.',
+        description: 'The setup wizard now asks what you actually use myOS for and builds your starter pack around that. Pick your focus and your first agents, specs, and task suggestions are already calibrated to fit.',
       },
       {
         title: 'Brainstorm',
@@ -54,7 +54,7 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'Agents read the brief',
-        description: 'When you launch a Build-it, the agent gets your plan\'s acceptance criteria automatically. No pasting requirements. It knows what done looks like before it starts.',
+        description: 'When you launch a Build-it, the agent gets your spec\'s acceptance criteria automatically. No pasting requirements. It knows what done looks like before it starts.',
       },
       {
         title: 'Specs is now Plans',
@@ -262,7 +262,7 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'Document planning',
-        description: 'Create plans and break them into tasks automatically.',
+        description: 'Create specs and break them into tasks automatically.',
       },
       {
         title: 'What changed',

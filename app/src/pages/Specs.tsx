@@ -591,7 +591,7 @@ export default function Specs() {
       setSelectedTemplate(null);
     } catch {
       setTemplateError(
-        `Could not create plan from "${template.name}". Try again.`,
+        `Could not create spec from "${template.name}". Try again.`,
       );
     } finally {
       setTemplateLoading(null);
@@ -671,9 +671,9 @@ export default function Specs() {
       const encodedPath = path.split("/").map(encodeURIComponent).join("/");
       await api.post<{ result: string; path: string }>(`/specs/${encodedPath}/unlock`);
       await fetchDocs();
-      showMessage("Plan reopened. You can now change the acceptance criteria.");
+      showMessage("Spec reopened. You can now change the acceptance criteria.");
     } catch {
-      showMessage("Could not reopen this plan. Try again.", "error");
+      showMessage("Could not reopen this spec. Try again.", "error");
     } finally {
       setLoading(false);
     }
@@ -939,7 +939,7 @@ export default function Specs() {
         <div className="flex gap-3 mb-8">
           <input
             type="text"
-            placeholder="Name your plan..."
+            placeholder="Name your spec..."
             value={titleInput}
             onChange={(e) => setTitleInput(e.target.value)}
             onKeyDown={(e) => {
@@ -1134,7 +1134,7 @@ export default function Specs() {
                                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700"
                               >
                                 <Icon name="delete" size={16} className="text-red-400" />
-                                Delete plan
+                                Delete spec
                               </button>
                             </div>
                           )}
@@ -1206,7 +1206,7 @@ export default function Specs() {
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
                             <Icon name="arrow_forward" size={16} className="text-blue-400" />
                             <p className="text-xs text-blue-300">
-                              <span className="font-bold">Next step:</span> Click "Build it" to turn this plan into tasks and spawn a builder agent for each one.
+                              <span className="font-bold">Next step:</span> Click "Build it" to turn this spec into tasks and spawn a builder agent for each one.
                             </p>
                           </div>
                         )}
@@ -1214,7 +1214,7 @@ export default function Specs() {
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
                             <Icon name="arrow_forward" size={16} className="text-yellow-400" />
                             <p className="text-xs text-yellow-300">
-                              <span className="font-bold">In progress:</span> Agents are working. The plan flips to Done automatically when every task closes.
+                              <span className="font-bold">In progress:</span> Agents are working. The spec flips to Done automatically when every task closes.
                             </p>
                           </div>
                         )}
@@ -1276,7 +1276,7 @@ export default function Specs() {
                                   disabled={loading || buildingSpec === doc.path}
                                   className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                                   data-testid="build-button"
-                                  title="Turns this plan into tasks and starts a builder agent for each one."
+                                  title="Turns this spec into tasks and starts a builder agent for each one."
                                 >
                                   <Icon name="rocket_launch" size={16} />
                                   {buildingSpec === doc.path ? "Building..." : "Build it"}
@@ -1288,7 +1288,7 @@ export default function Specs() {
                                   disabled={loading || buildingSpec === doc.path || allClosed}
                                   className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                                   data-testid="build-button"
-                                  title={allClosed ? "Every task is already closed. The plan is done." : "Turns this plan into tasks and starts a builder agent for each one."}
+                                  title={allClosed ? "Every task is already closed. The spec is done." : "Turns this spec into tasks and starts a builder agent for each one."}
                                 >
                                   <Icon name="rocket_launch" size={16} />
                                   {buildingSpec === doc.path ? "Building..." : "Build it"}
@@ -1300,7 +1300,7 @@ export default function Specs() {
                                   disabled={loading}
                                   className="border border-slate-600 text-slate-400 hover:text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                                   data-testid="unlock-spec-button"
-                                  title="Reopen this plan so you can change the acceptance criteria."
+                                  title="Reopen this spec so you can change the acceptance criteria."
                                 >
                                   <Icon name="lock_open" size={16} />
                                   Unlock and edit
@@ -1361,7 +1361,7 @@ export default function Specs() {
                               className="mt-3 rounded-lg border border-slate-700 bg-slate-800/40 p-3 text-xs text-slate-300"
                               data-testid="build-no-acs-info"
                             >
-                              This plan has no unchecked acceptance criteria. Add at least one and click Build.
+                              This spec has no unchecked acceptance criteria. Add at least one and click Build.
                             </div>
                           )}
                       </div>
@@ -1404,7 +1404,7 @@ export default function Specs() {
                         {t.description}
                       </p>
                       {loading && (
-                        <p className="text-xs text-blue-300 mt-2">Creating plan...</p>
+                        <p className="text-xs text-blue-300 mt-2">Creating spec...</p>
                       )}
                     </div>
                   </button>

@@ -106,7 +106,7 @@ export default function SpecImport() {
         <div className="mb-6">
           <h2 className="text-lg font-semibold mb-1">Import from spec-kit YAML</h2>
           <p className="text-sm text-gray-500">
-            Paste or upload a spec-kit YAML file. We'll create a plan you can build from.
+            Paste or upload a spec-kit YAML file. We'll create a spec you can build from.
           </p>
         </div>
 

@@ -125,7 +125,7 @@ export default function SpecTemplateDetailsModal({
   return (
     <div
       role="dialog"
-      aria-label="Plan template details"
+      aria-label="Spec template details"
       onClick={handleBackdropClick}
       data-testid="spec-template-details-backdrop"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -160,15 +160,15 @@ export default function SpecTemplateDetailsModal({
         <div className="space-y-4">
           <div>
             <label className="block text-xs text-slate-400 mb-1.5">
-              Plan name
-            </label>
+              Spec name
+</label>
             <input
               ref={titleRef}
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={handleTitleKeyDown}
-              placeholder="Name this plan"
+              placeholder="Name this spec"
               data-testid="spec-template-title-input"
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
@@ -221,8 +221,8 @@ export default function SpecTemplateDetailsModal({
           {criteria.length > 0 && (
             <div data-testid="spec-template-ac-preview">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                What this plan will ship
-              </p>
+                What this spec will ship
+</p>
               <ul className="space-y-1">
                 {criteria.map((c, i) => (
                   <li key={i} className="flex items-start gap-2 text-sm text-slate-300">
@@ -237,7 +237,7 @@ export default function SpecTemplateDetailsModal({
           {tasks.length > 0 && (
             <div data-testid="spec-template-tasks-preview">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                Work this plan will break into
+                Work this spec will break into
               </p>
               <ul className="space-y-1">
                 {tasks.map((t, i) => (
@@ -270,7 +270,7 @@ export default function SpecTemplateDetailsModal({
             data-testid="spec-template-apply"
             className="bg-blue-500 hover:bg-blue-600 disabled:bg-blue-500/40 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 text-sm transition-colors"
           >
-            {submitting ? "Creating plan..." : "Create plan"}
+            {submitting ? "Creating spec..." : "Create spec"}
           </button>
         </div>
       </div>

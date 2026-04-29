@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
@@ -896,11 +897,11 @@ export default function Settings() {
           <PageHeader title="Settings" />
 
           <div className="text-sm text-slate-400" data-testid="privacy-link-row">
-            <a href="/privacy" className="underline hover:text-slate-200">Privacy</a>
+            <Link to="/privacy" className="underline hover:text-slate-200">Privacy</Link>
             <span className="ml-2">How torios handles your data.</span>
           </div>
           <div className="text-sm text-slate-400 mt-2" data-testid="about-link-row">
-            <a href="/about" className="underline hover:text-slate-200">About myOS</a>
+            <Link to="/about" className="underline hover:text-slate-200">About myOS</Link>
             <span className="ml-2">What myOS is and how it works.</span>
           </div>
 
@@ -2312,13 +2313,13 @@ export default function Settings() {
             >
               View transcripts
             </a>
-            <a
-              href="/privacy"
+            <Link
+              to="/privacy"
               data-testid="developer-privacy-link"
               className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
             >
               Privacy policy
-            </a>
+            </Link>
           </div>
           </div>
           </div>

@@ -60,7 +60,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Files & Docs',
     icon: 'folder_open',
     items: [
-      { to: '/specs', icon: 'description', label: 'Plans', featureLabel: 'Specs', specsBadge: true },
+      { to: '/specs', icon: 'description', label: 'Specs', featureLabel: 'Specs', specsBadge: true },
       { to: '/files', icon: 'folder', label: 'Files', featureLabel: 'Projects' },
       { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive' },
     ],
@@ -646,7 +646,7 @@ export function Sidebar() {
 
     <aside data-tour="sidebar" className={`h-dvh w-56 fixed top-0 ${sidebarPosition === 'right' ? 'right-0 border-l' : 'left-0 border-r'} border-slate-800 bg-slate-950 shadow-2xl flex flex-col py-6 z-50 transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : sidebarPosition === 'right' ? 'translate-x-full' : '-translate-x-full'} lg:translate-x-0`}>
       <div className="px-5 mb-8">
-        <span className="text-xl font-black tracking-tight accent-text">{displayOsName}</span>
+        <span data-testid="sidebar-os-name" className="text-xl font-black tracking-tight accent-text">{displayOsName}</span>
         {TEAM_MODE_VISIBLE && (
           <span
             data-testid="sidebar-mode-badge"

@@ -56,6 +56,27 @@ const mockItems = [
   },
 ]
 
+const mockNotifications = [
+  {
+    id: 'notif-1',
+    type: 'agent',
+    title: 'Agent finished',
+    body: 'Your build agent completed successfully.',
+    action_url: 'https://example.com/agents/1',
+    read: false,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'notif-2',
+    type: 'spec_complete',
+    title: 'Dashboard shipped',
+    body: 'The new dashboard feature is live.',
+    action_url: null,
+    read: true,
+    created_at: new Date().toISOString(),
+  },
+]
+
 function renderInbox() {
   return render(
     <MemoryRouter>
@@ -68,7 +89,10 @@ describe('Inbox page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
-    mockedApiGet.mockResolvedValue({ items: mockItems })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/notifications') return Promise.resolve([])
+      return Promise.resolve({ items: mockItems })
+    })
     mockedApiPost.mockResolvedValue({})
     mockedApiDelete.mockResolvedValue({})
   })
@@ -133,7 +157,10 @@ describe('Inbox page', () => {
   })
 
   it('shows empty state when no items', async () => {
-    mockedApiGet.mockResolvedValue({ items: [] })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/notifications') return Promise.resolve([])
+      return Promise.resolve({ items: [] })
+    })
     renderInbox()
     await waitFor(() => {
       expect(screen.getByText('Your inbox is clear.')).toBeInTheDocument()
@@ -187,6 +214,80 @@ describe('Inbox page', () => {
     fireEvent.click(screen.getByTestId('slack-send-button'))
     await waitFor(() => {
       expect(screen.queryByTestId('inbox-item-slack:abc123')).not.toBeInTheDocument()
+    })
+  })
+
+  // Notification tests
+  it('notifications section renders when notifications exist', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/notifications') return Promise.resolve(mockNotifications)
+      return Promise.resolve({ items: mockItems })
+    })
+    renderInbox()
+    await waitFor(() => {
+      expect(screen.getByTestId('notification-item-notif-1')).toBeInTheDocument()
+      expect(screen.getByTestId('notification-item-notif-2')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Notifications')).toBeInTheDocument()
+  })
+
+  it('notification unread dot shown when read is false', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/notifications') return Promise.resolve(mockNotifications)
+      return Promise.resolve({ items: [] })
+    })
+    renderInbox()
+    await waitFor(() => screen.getByTestId('notif-unread-dot-notif-1'))
+    expect(screen.queryByTestId('notif-unread-dot-notif-2')).not.toBeInTheDocument()
+  })
+
+  it('notification type badge shows plain-English label', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/notifications') return Promise.resolve(mockNotifications)
+      return Promise.resolve({ items: [] })
+    })
+    renderInbox()
+    await waitFor(() => {
+      expect(screen.getByText('Agent')).toBeInTheDocument()
+      expect(screen.getByText('Feature live')).toBeInTheDocument()
+    })
+  })
+
+  it('notification dismiss calls DELETE and read, removes row', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/notifications') return Promise.resolve(mockNotifications)
+      return Promise.resolve({ items: [] })
+    })
+    renderInbox()
+    await waitFor(() => screen.getByTestId('notif-dismiss-notif-1'))
+    fireEvent.click(screen.getByTestId('notif-dismiss-notif-1'))
+    expect(mockedApiDelete).toHaveBeenCalledWith('/notifications/notif-1')
+    expect(mockedApiPost).toHaveBeenCalledWith('/notifications/notif-1/read', {})
+    await waitFor(() => {
+      expect(screen.queryByTestId('notification-item-notif-1')).not.toBeInTheDocument()
+    })
+  })
+
+  it('empty state shows only when both inbox and notifications are empty', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/notifications') return Promise.resolve([])
+      return Promise.resolve({ items: [] })
+    })
+    renderInbox()
+    await waitFor(() => {
+      expect(screen.getByText('Your inbox is clear.')).toBeInTheDocument()
+    })
+  })
+
+  it('no empty state when inbox empty but notifications exist', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/notifications') return Promise.resolve(mockNotifications)
+      return Promise.resolve({ items: [] })
+    })
+    renderInbox()
+    await waitFor(() => {
+      expect(screen.queryByText('Your inbox is clear.')).not.toBeInTheDocument()
+      expect(screen.getByTestId('notification-item-notif-1')).toBeInTheDocument()
     })
   })
 })

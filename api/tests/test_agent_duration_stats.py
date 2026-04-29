@@ -152,6 +152,7 @@ def test_cache_force_refresh(monkeypatch, seeded_state: Path):
 async def test_duration_stats_endpoint(client, monkeypatch, seeded_state: Path):
     invalidate_cache()
     monkeypatch.setattr(stats_mod, "AGENT_STATE_PATH", seeded_state)
+    monkeypatch.setattr(stats_mod, "_get_now", lambda: datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc))
     r = await client.get("/api/agents/duration-stats")
     assert r.status_code == 200
     body = r.json()

@@ -32,7 +32,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     selector: '[data-tour="specs"]',
     title: 'Specs',
-    description: 'Turn an idea into a plan, then hit Build-it to have an agent write the code and open a pull request for you.',
+    description: 'Turn an idea into a spec, then hit Build-it to have an agent write the code and open a pull request for you.',
     route: '/specs',
     position: 'bottom',
   },

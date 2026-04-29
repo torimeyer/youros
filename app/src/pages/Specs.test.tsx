@@ -185,7 +185,7 @@ describe('Specs page', () => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
 
-    const input = screen.getByPlaceholderText('Name your plan...')
+    const input = screen.getByPlaceholderText('Name your spec...')
     fireEvent.change(input, { target: { value: 'My new plan' } })
 
     const button = screen.getByRole('button', { name: 'New Spec' })
@@ -203,7 +203,7 @@ describe('Specs page', () => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
 
-    const input = screen.getByPlaceholderText('Name your plan...') as HTMLInputElement
+    const input = screen.getByPlaceholderText('Name your spec...') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'Temp' } })
     expect(input.value).toBe('Temp')
 
@@ -221,7 +221,7 @@ describe('Specs page', () => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
 
-    const input = screen.getByPlaceholderText('Name your plan...')
+    const input = screen.getByPlaceholderText('Name your spec...')
     fireEvent.change(input, { target: { value: 'Enter plan' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -744,7 +744,7 @@ describe('Specs page', () => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
 
-    const input = screen.getByPlaceholderText('Name your plan...')
+    const input = screen.getByPlaceholderText('Name your spec...')
     fireEvent.change(input, { target: { value: 'Test plan' } })
     fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
 
@@ -762,7 +762,7 @@ describe('Specs page', () => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
 
-    const input = screen.getByPlaceholderText('Name your plan...')
+    const input = screen.getByPlaceholderText('Name your spec...')
     fireEvent.change(input, { target: { value: 'Bad plan' } })
     fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
 
@@ -1041,7 +1041,7 @@ describe('Specs page', () => {
       expect(mockedApiGet).toHaveBeenCalledWith('/specs')
     })
 
-    const input = screen.getByPlaceholderText('Name your plan...')
+    const input = screen.getByPlaceholderText('Name your spec...')
     fireEvent.change(input, { target: { value: 'Instant plan' } })
     fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
 
@@ -1093,7 +1093,7 @@ describe('Specs page', () => {
       expect(mockedApiGet).toHaveBeenCalledWith('/specs')
     })
 
-    const input = screen.getByPlaceholderText('Name your plan...')
+    const input = screen.getByPlaceholderText('Name your spec...')
     fireEvent.change(input, { target: { value: 'Fresh plan' } })
     fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
 
@@ -1485,7 +1485,7 @@ describe('Specs page', () => {
     fireEvent.click(authOverflow)
 
     // The Delete menu item is reachable by its accessible name.
-    const deleteItem = screen.getByRole('menuitem', { name: /Delete plan/i })
+    const deleteItem = screen.getByRole('menuitem', { name: /Delete spec/i })
     expect(deleteItem).toBeInTheDocument()
 
     fireEvent.click(deleteItem)
@@ -1709,7 +1709,7 @@ describe('Specs page real-time bus', () => {
 
     expect(screen.getByTestId('build-button')).toHaveAttribute(
       'title',
-      'Every task is already closed. The plan is done.'
+      'Every task is already closed. The spec is done.'
     )
   })
 })
