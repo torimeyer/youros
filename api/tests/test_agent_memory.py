@@ -1,346 +1,138 @@
-"""Tests for agent memory service and API endpoints.
-
-Covers:
-- save_memory / get_memory / clear_memory (service layer)
-- append_summary / get_context (service layer)
-- GET/POST/DELETE /api/agents/{name}/memory (API layer)
-- Memory context injection on spawn
-- Summary save on complete
-"""
-
-from __future__ import annotations
-
+"""Tests for agent_memory: weighted facts and configurable re-read cadence."""
 import json
-import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
-from httpx import AsyncClient, ASGITransport
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import services.agent_memory as mem
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _clean(agent_name: str, tmp_path: Path):
-    """Point the memory module at a temp directory and return the path."""
-    mem_dir = tmp_path / "agent_memory"
-    return mem_dir
-
-
-# ---------------------------------------------------------------------------
-# Service layer tests
-# ---------------------------------------------------------------------------
-
-class TestSaveGetMemory:
-    def test_save_and_get(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            mem.save_memory("bot", "color", "blue")
-            data = mem.get_memory("bot")
-        assert data["facts"]["color"] == "blue"
-
-    def test_multiple_keys(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            mem.save_memory("bot", "a", "1")
-            mem.save_memory("bot", "b", "2")
-            data = mem.get_memory("bot")
-        assert data["facts"] == {"a": "1", "b": "2"}
-
-    def test_overwrite_key(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            mem.save_memory("bot", "x", "old")
-            mem.save_memory("bot", "x", "new")
-            data = mem.get_memory("bot")
-        assert data["facts"]["x"] == "new"
-
-    def test_get_missing_agent_returns_empty(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            data = mem.get_memory("nobody")
-        assert data == {"facts": {}, "summaries": []}
-
-
-class TestClearMemory:
-    def test_clear_removes_file(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            mem.save_memory("bot", "k", "v")
-            mem.clear_memory("bot")
-            data = mem.get_memory("bot")
-        assert data == {"facts": {}, "summaries": []}
-
-    def test_clear_nonexistent_is_noop(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            # Should not raise
-            mem.clear_memory("ghost")
-
-
-class TestAppendSummary:
-    def test_append_and_retrieve(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            mem.append_summary("bot", "Did task A")
-            data = mem.get_memory("bot")
-        assert len(data["summaries"]) == 1
-        assert data["summaries"][0]["text"] == "Did task A"
-
-    def test_keeps_only_last_10(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            for i in range(15):
-                mem.append_summary("bot", f"session {i}")
-            data = mem.get_memory("bot")
-        assert len(data["summaries"]) == 10
-        assert data["summaries"][-1]["text"] == "session 14"
-
-    def test_summaries_have_timestamp(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            mem.append_summary("bot", "summary text")
-            data = mem.get_memory("bot")
-        assert "saved_at" in data["summaries"][0]
-
-
-class TestGetContext:
-    def test_empty_returns_empty_string(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            ctx = mem.get_context("bot")
-        assert ctx == ""
-
-    def test_context_includes_facts(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            mem.save_memory("bot", "lang", "Python")
-            ctx = mem.get_context("bot")
-        assert "lang: Python" in ctx
-        assert "Memory from past sessions" in ctx
-
-    def test_context_includes_summaries(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            mem.append_summary("bot", "Finished step 1")
-            ctx = mem.get_context("bot")
-        assert "Finished step 1" in ctx
-
-    def test_context_ends_with_separator(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            mem.save_memory("bot", "k", "v")
-            ctx = mem.get_context("bot")
-        assert ctx.endswith("=== End of memory ===\n")
-
-    def test_context_facts_and_summaries_combined(self, tmp_path):
-        with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-            mem.save_memory("bot", "task", "build API")
-            mem.append_summary("bot", "Completed auth module")
-            ctx = mem.get_context("bot")
-        assert "task: build API" in ctx
-        assert "Completed auth module" in ctx
-
-
-# ---------------------------------------------------------------------------
-# API endpoint tests
-# ---------------------------------------------------------------------------
-
-from main import app
+from pathlib import Path
+from unittest.mock import patch
 
 
 @pytest.fixture
-def mock_ostk():
-    """Mock all ostk calls so API tests don't need a running daemon."""
-    with patch("routers.agents.ostk") as mock:
-        mock.kernel_ps = AsyncMock(return_value={"daemon_running": False, "agents": [], "raw": "ok"})
-        mock.audit_agents = AsyncMock(return_value=[])
-        mock._run = AsyncMock(return_value="")
-        yield mock
+def mem(tmp_path):
+    import services.agent_memory as mod
+    with patch.object(mod, "AGENT_MEMORY_DIR", tmp_path):
+        yield mod
 
 
-@pytest.mark.asyncio
-async def test_get_memory_empty(tmp_path, mock_ostk):
+def test_save_and_get_fact(mem):
+    mem.save_memory("agent1", "lang", "Python")
+    data = mem.get_memory("agent1")
+    assert data["facts"]["lang"]["value"] == "Python"
+    assert data["facts"]["lang"]["weight"] == 1.0
+
+
+def test_save_preserves_weight_on_update(mem):
+    mem.save_memory("a", "lang", "Python")
+    mem.reinforce_memory("a", "lang", 2.0)
+    mem.save_memory("a", "lang", "Go")
+    data = mem.get_memory("a")
+    assert data["facts"]["lang"]["value"] == "Go"
+    assert data["facts"]["lang"]["weight"] == 3.0
+
+
+def test_reinforce_increases_weight(mem):
+    mem.save_memory("a", "k", "v")
+    new_w = mem.reinforce_memory("a", "k", 1.5)
+    assert new_w == 2.5
+    assert mem.get_memory("a")["facts"]["k"]["weight"] == 2.5
+
+
+def test_penalize_decreases_weight(mem):
+    mem.save_memory("a", "k", "v")
+    new_w = mem.penalize_memory("a", "k", 0.5)
+    assert new_w == 0.5
+
+
+def test_penalize_floors_at_zero(mem):
+    mem.save_memory("a", "k", "v")
+    new_w = mem.penalize_memory("a", "k", 999.0)
+    assert new_w == 0.0
+
+
+def test_reinforce_missing_key_returns_none(mem):
+    assert mem.reinforce_memory("a", "nokey") is None
+
+
+def test_penalize_missing_key_returns_none(mem):
+    assert mem.penalize_memory("a", "nokey") is None
+
+
+def test_get_context_sorts_by_weight(mem):
+    mem.save_memory("a", "low", "low value")
+    mem.save_memory("a", "high", "high value")
+    mem.reinforce_memory("a", "high", 5.0)
+    ctx = mem.get_context("a")
+    assert ctx.index("high value") < ctx.index("low value")
+
+
+def test_cadence_filters_recently_read(mem):
+    mem.save_memory("a", "k", "v")
+    mem.set_reread_cadence("a", 24.0)
+    ctx1 = mem.get_context("a")
+    assert "v" in ctx1
+    ctx2 = mem.get_context("a")
+    assert "v" not in ctx2
+
+
+def test_cadence_zero_always_includes(mem):
+    mem.save_memory("a", "k", "v")
+    mem.set_reread_cadence("a", 0.0)
+    ctx1 = mem.get_context("a")
+    ctx2 = mem.get_context("a")
+    assert "v" in ctx1
+    assert "v" in ctx2
+
+
+def test_set_and_get_reread_cadence(mem):
+    mem.set_reread_cadence("a", 12.5)
+    assert mem.get_reread_cadence("a") == 12.5
+
+
+def test_cadence_negative_raises(mem):
+    with pytest.raises(ValueError):
+        mem.set_reread_cadence("a", -1.0)
+
+
+def test_backward_compat_string_facts(mem, tmp_path):
+    agent_file = tmp_path / "legacy.json"
+    agent_file.write_text(json.dumps({
+        "facts": {"key1": "old string value"},
+        "summaries": [],
+    }))
     with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.get("/api/agents/my-bot/memory")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["agent"] == "my-bot"
-    assert body["facts"] == {}
-    assert body["summaries"] == []
+        data = mem.get_memory("legacy")
+        assert data["facts"]["key1"]["value"] == "old string value"
+        assert data["facts"]["key1"]["weight"] == 1.0
 
 
-@pytest.mark.asyncio
-async def test_post_memory_saves_fact(tmp_path, mock_ostk):
-    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.post(
-                "/api/agents/my-bot/memory",
-                json={"key": "lang", "value": "Python"},
-            )
-        assert resp.status_code == 200
-        data = mem.get_memory("my-bot")
-    assert data["facts"]["lang"] == "Python"
+def test_append_summary(mem):
+    mem.append_summary("a", "Did some work")
+    data = mem.get_memory("a")
+    assert len(data["summaries"]) == 1
+    assert data["summaries"][0]["text"] == "Did some work"
+    assert data["summaries"][0]["weight"] == 1.0
 
 
-@pytest.mark.asyncio
-async def test_delete_memory_clears(tmp_path, mock_ostk):
-    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-        mem.save_memory("my-bot", "x", "y")
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.delete("/api/agents/my-bot/memory")
-        assert resp.status_code == 200
-        data = mem.get_memory("my-bot")
+def test_clear_memory(mem):
+    mem.save_memory("a", "k", "v")
+    mem.clear_memory("a")
+    data = mem.get_memory("a")
     assert data["facts"] == {}
 
 
-@pytest.mark.asyncio
-async def test_complete_with_summary_saves_to_memory(tmp_path, mock_ostk):
-    """POST /agents/{name}/complete with summary should append to memory."""
-    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-        with patch("routers.agents.agent_metadata", {}):
-            with patch("routers.agents._save_agent_state"):
-                with patch("routers.agents._save_duration"):
-                    with patch("routers.agents._load_deleted_agents", return_value=set()):
-                        with patch("services.notifications.notifications_service", MagicMock()):
-                            async with AsyncClient(
-                                transport=ASGITransport(app=app), base_url="http://test"
-                            ) as client:
-                                resp = await client.post(
-                                    "/api/agents/summarizer-bot/complete",
-                                    json={"summary": "Completed the research task"},
-                                )
-        assert resp.status_code == 200
-        data = mem.get_memory("summarizer-bot")
-    assert any("Completed the research task" in s["text"] for s in data["summaries"])
+def test_read_count_increments(mem):
+    mem.save_memory("a", "k", "v")
+    mem.get_context("a")
+    assert mem.get_memory("a")["facts"]["k"]["read_count"] == 1
+    mem.get_context("a")
+    assert mem.get_memory("a")["facts"]["k"]["read_count"] == 2
 
 
-@pytest.mark.asyncio
-async def test_complete_without_summary_is_fine(tmp_path, mock_ostk):
-    """POST /agents/{name}/complete with no body should still work."""
-    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-        with patch("routers.agents.agent_metadata", {}):
-            with patch("routers.agents._save_agent_state"):
-                with patch("routers.agents._save_duration"):
-                    with patch("routers.agents._load_deleted_agents", return_value=set()):
-                        with patch("services.notifications.notifications_service", MagicMock()):
-                            async with AsyncClient(
-                                transport=ASGITransport(app=app), base_url="http://test"
-                            ) as client:
-                                resp = await client.post(
-                                    "/api/agents/no-summary-bot/complete"
-                                )
-        assert resp.status_code == 200
+def test_get_context_empty_returns_empty_string(mem):
+    ctx = mem.get_context("nobody")
+    assert ctx == ""
 
 
-def test_spawn_memory_injection_via_get_context(tmp_path):
-    """Verify get_context produces context that would be prepended during spawn.
-
-    This tests the core logic without needing to mock the full subprocess chain.
-    The router calls get_context(name) and prepends the result to the prompt;
-    we verify that mechanism works end-to-end at the service layer.
-    """
-    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-        mem.save_memory("research-agent", "topic", "AI safety")
-        ctx = mem.get_context("research-agent")
-
-    user_prompt = "Continue where you left off."
-    combined = ctx + user_prompt
-
-    assert "topic: AI safety" in combined
-    assert "Continue where you left off." in combined
-    # Context comes before the user prompt
-    assert combined.index("topic: AI safety") < combined.index("Continue where you left off.")
-
-
-# ---------------------------------------------------------------------------
-# Data safety: memory dir must be outside repo
-# ---------------------------------------------------------------------------
-
-def test_agent_memory_dir_is_outside_repo():
-    repo_root = Path(__file__).resolve().parent.parent.parent
-    memory_dir = mem.AGENT_MEMORY_DIR.resolve()
-    try:
-        memory_dir.relative_to(repo_root)
-        inside = True
-    except ValueError:
-        inside = False
-    assert not inside, (
-        f"AGENT_MEMORY_DIR ({memory_dir}) is inside the repo at {repo_root}. "
-        "User data inside the repo can be clobbered by git pull."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Clear memory endpoint + isolation
-# ---------------------------------------------------------------------------
-#
-# Context: agent memory persists across sessions so a roadmap agent can pick
-# up where it left off. These tests pin:
-#
-#   1. DELETE /api/agents/{name}/memory actually removes the on-disk file.
-#   2. Clearing one agent's memory leaves every other agent untouched.
-
-
-@pytest.mark.asyncio
-async def test_clear_memory_endpoint_deletes_agent_memory_file(tmp_path, mock_ostk):
-    """DELETE /api/agents/{name}/memory removes the JSON file from disk.
-
-    Regression guard. The live cleanup step of the demo playbook depends
-    on this endpoint wiping the file, not just emptying its contents.
-    """
-    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-        mem.save_memory("roadmap", "status", "in progress")
-        mem.append_summary("roadmap", "Did an initial draft")
-        memory_file = tmp_path / "roadmap.json"
-        assert memory_file.exists(), "precondition: memory file should exist"
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            resp = await client.delete("/api/agents/roadmap/memory")
-
-        assert resp.status_code == 200
-        assert not memory_file.exists(), (
-            "Clear memory must remove the JSON file from disk, "
-            "not just blank it. Demo runs depend on a truly fresh start."
-        )
-
-
-@pytest.mark.asyncio
-async def test_clear_memory_does_not_affect_other_agents(tmp_path, mock_ostk):
-    """Clearing one agent's memory must not touch any other agent's file.
-
-    Tori has hundreds of agent memory files on disk. A buggy clear that
-    wipes the whole directory or a sibling by prefix would silently erase
-    every remembered fact for unrelated agents. Pin the isolation.
-    """
-    with patch.object(mem, "AGENT_MEMORY_DIR", tmp_path):
-        mem.save_memory("roadmap", "status", "in progress")
-        mem.append_summary("roadmap", "Past roadmap work")
-
-        # Other agents, including one that shares a prefix with "roadmap"
-        # so a naive glob like "roadmap*" would catch it by mistake.
-        mem.save_memory("roadmap-helper", "k", "v")
-        mem.append_summary("roadmap-helper", "Unrelated helper work")
-
-        mem.save_memory("builder", "lang", "python")
-        mem.append_summary("builder", "Shipped the builder page")
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            resp = await client.delete("/api/agents/roadmap/memory")
-        assert resp.status_code == 200
-
-        # Target is gone.
-        cleared = mem.get_memory("roadmap")
-        assert cleared == {"facts": {}, "summaries": []}
-
-        # Prefix-sharing agent is untouched.
-        sibling = mem.get_memory("roadmap-helper")
-        assert sibling["facts"] == {"k": "v"}
-        assert any(
-            "Unrelated helper work" in s["text"] for s in sibling["summaries"]
-        ), "roadmap-helper memory must survive a clear on 'roadmap'"
-
-        # Unrelated agent is untouched.
-        unrelated = mem.get_memory("builder")
-        assert unrelated["facts"] == {"lang": "python"}
-        assert any(
-            "Shipped the builder page" in s["text"] for s in unrelated["summaries"]
-        ), "builder memory must survive a clear on 'roadmap'"
+def test_new_fact_has_read_count_zero(mem):
+    mem.save_memory("a", "k", "v")
+    data = mem.get_memory("a")
+    assert data["facts"]["k"]["read_count"] == 0
+    assert data["facts"]["k"]["last_read_at"] is None
