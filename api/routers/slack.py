@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from services import connections_cache, recent_deletes
 from services import slack as slack_service
+from services import slack_reply as slack_reply_service
 
 router = APIRouter(tags=["slack"])
 
@@ -239,3 +240,49 @@ async def followup_count():
     if not slack_service.is_connected():
         raise HTTPException(status_code=401, detail="Not connected to Slack.")
     return {"count": followups_service.count()}
+
+
+# --- Draft + send replies via Gemini Enterprise ---
+
+
+class SlackDraftReplyBody(BaseModel):
+    channel_id: str
+    ts: str
+
+
+class SlackReplyBody(BaseModel):
+    channel_id: str
+    ts: str
+    text: str
+
+
+@router.post("/slack/draft_reply")
+async def slack_draft_reply(body: SlackDraftReplyBody) -> dict:
+    """Draft a Slack thread reply using Gemini Enterprise."""
+    if not slack_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Slack.")
+
+    try:
+        draft = await slack_reply_service.draft_reply(body.channel_id, body.ts)
+        return {"ok": True, "draft": draft}
+    except RuntimeError as exc:
+        if "Gemini Enterprise not connected" in str(exc):
+            return {
+                "ok": False,
+                "error": "Connect Gemini Enterprise in Settings to enable Slack drafts.",
+                "needs_gemini": True,
+            }
+        return {"ok": False, "error": str(exc)}
+
+
+@router.post("/slack/reply")
+async def slack_reply(body: SlackReplyBody) -> dict:
+    """Send a threaded reply to a Slack message."""
+    if not slack_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Slack.")
+
+    try:
+        result = await slack_reply_service.send_reply(body.channel_id, body.ts, body.text)
+        return result
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
