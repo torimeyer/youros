@@ -183,6 +183,11 @@ if [ -n "$PROMOTED" ]; then
     pass "journey: promote draft to spec (auto-promoted in Step 1)"
     info "spec path: ${SPEC_PATH}"
 else
+    # First, try the normal manual promote path (works when the draft has
+    # AI-generated acceptance criteria). If the backend rejects it (no AC),
+    # fall back to from-template which writes pre-written criteria without
+    # needing an AI key. The fallback deletes the empty draft first so
+    # there is no leftover artifact.
     promote_resp=$(curl -sS $CURL_OPTS $CURL_TIMEOUTS -X POST \
         "${API_BASE}/api/specs/promote" \
         -H 'content-type: application/json' \
@@ -203,6 +208,38 @@ print(m.group(1) if m else '')
             SPEC_PATH="$PROMOTED"
         fi
         info "spec path: ${SPEC_PATH}"
+    elif echo "$promote_resp" | grep -qi "unchecked checkbox\|acceptance criteria"; then
+        # Draft has no AC — AI was not available. Delete the empty draft
+        # and re-create using a template which provides pre-written criteria.
+        info "promote rejected (no AI-generated AC); falling back to from-template"
+        curl -sS $CURL_OPTS $CURL_TIMEOUTS -X DELETE \
+            "${API_BASE}/api/${DRAFT_PATH}" > /dev/null 2>&1 || true
+        DRAFT_PATH=""
+
+        tmpl_resp=$(curl -sS $CURL_OPTS $CURL_TIMEOUTS -X POST \
+            "${API_BASE}/api/specs/from-template" \
+            -H 'content-type: application/json' \
+            -d "{\"template_id\":\"build-a-website\",\"title\":\"${SPEC_TITLE}\"}" \
+            2>/tmp/specs-journey-tmpl.err || printf "")
+
+        PROMOTED=$(echo "$tmpl_resp" | python3 -c "
+import sys, json, re
+try:
+    d = json.load(sys.stdin)
+    p = d.get('promoted_path', '') or d.get('result', '')
+except Exception:
+    sys.exit(0)
+m = re.search(r'(docs/spec/[^\s]+\.md)', str(p))
+print(m.group(1) if m else '')
+" 2>/dev/null)
+        if [ -n "$PROMOTED" ]; then
+            SPEC_PATH="$PROMOTED"
+            pass "journey: promote draft to spec (template fallback, no AI key)"
+            info "spec path: ${SPEC_PATH}"
+        else
+            fail "journey: from-template fallback failed (response: ${tmpl_resp:0:200})"
+            exit 1
+        fi
     else
         fail "journey: promote draft (response: ${promote_resp:0:200})"
         exit 1
