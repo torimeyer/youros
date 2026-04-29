@@ -238,6 +238,66 @@ def test_transcript_at_threshold_is_not_stuck():
 
 
 # ---------------------------------------------------------------------------
+# current_step_updated_at guards (case 3 regression)
+# ---------------------------------------------------------------------------
+
+
+def test_skips_when_current_step_updated_recently():
+    """Case 3 regression: agent blocked in long subprocess (tsc/vitest).
+
+    current_step_updated_at is fresh (30s ago) but last_heartbeat_at is absent
+    and spawned_at is stale. The reaper must NOT mark this agent failed because
+    the step was updated recently, proving the agent was alive and progressing.
+    """
+    dead_pid = 99999999
+    try:
+        os.kill(dead_pid, 0)
+        pytest.skip("PID 99999999 unexpectedly alive")
+    except ProcessLookupError:
+        pass
+
+    recent_step_ts = (_NOW - timedelta(seconds=30)).isoformat()
+    meta = {
+        "status": "running",
+        "source": "claude-code",
+        "spawned_at": _STALE,              # 5+ min ago — stale
+        "last_heartbeat_at": None,         # heartbeat loop stalled
+        "current_step": "running tsc",
+        "current_step_updated_at": recent_step_ts,  # 30s ago — fresh
+        "pid": dead_pid,
+    }
+    reg = {"diagnose-pause-click-gate-pause-81c5a2": meta}
+    result = find_stuck_agents(reg, _NOW, get_transcript_bytes=_no_bytes)
+    assert result == [], (
+        "agent with recent current_step_updated_at must not be reaped "
+        "even when spawned_at is stale and last_heartbeat_at is absent"
+    )
+
+
+def test_reaps_when_current_step_updated_is_stale():
+    """Complement: if both heartbeat and current_step_updated_at are stale, reap."""
+    dead_pid = 99999999
+    try:
+        os.kill(dead_pid, 0)
+        pytest.skip("PID 99999999 unexpectedly alive")
+    except ProcessLookupError:
+        pass
+
+    meta = {
+        "status": "running",
+        "source": "claude-code",
+        "spawned_at": _STALE,
+        "last_heartbeat_at": None,
+        "current_step": "running tsc",
+        "current_step_updated_at": _STALE,  # also stale
+        "pid": dead_pid,
+    }
+    reg = {"agent": meta}
+    result = find_stuck_agents(reg, _NOW, get_transcript_bytes=_no_bytes)
+    assert len(result) == 1, "agent with stale current_step_updated_at must be reaped"
+
+
+# ---------------------------------------------------------------------------
 # spawned_at fallback
 # ---------------------------------------------------------------------------
 

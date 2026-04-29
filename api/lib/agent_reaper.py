@@ -106,12 +106,19 @@ def find_stuck_agents(
         if alive is True:
             continue  # process is running — definitely not stuck
 
-        # Progress time: last_heartbeat_at is refreshed on every heartbeat.
-        # Fall back to spawned_at for agents that never heartbeated after register.
-        last_progress_raw = meta.get("last_heartbeat_at") or meta.get("spawned_at")
-        last_progress = _parse_iso(last_progress_raw)
-        if last_progress is None:
+        # Progress time: use the most recent of last_heartbeat_at,
+        # current_step_updated_at, and spawned_at so that an agent blocked
+        # inside a long subprocess (no new HTTP heartbeats) is not reaped as
+        # long as its step was updated recently.
+        candidates = [
+            _parse_iso(meta.get("last_heartbeat_at")),
+            _parse_iso(meta.get("current_step_updated_at")),
+            _parse_iso(meta.get("spawned_at")),
+        ]
+        valid = [t for t in candidates if t is not None]
+        if not valid:
             continue
+        last_progress = max(valid)
         if last_progress >= cutoff:
             continue  # still within threshold (not yet > threshold)
 

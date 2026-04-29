@@ -5639,6 +5639,7 @@ async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
     meta["last_heartbeat_at"] = now_iso
     if body and body.step:
         meta["current_step"] = body.step
+        meta["current_step_updated_at"] = now_iso
     _save_agent_state()
     return {"ok": True, "last_heartbeat_at": now_iso}
 
