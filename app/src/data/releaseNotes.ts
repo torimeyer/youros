@@ -16,35 +16,35 @@ const releaseNotes: ReleaseGroup[] = [
     entries: [
       {
         title: 'Files, finally',
-        description: 'The Files tab now shows a timeline of everything in your workspace: when each file was created or changed, and which agent touched it. Open any file in a full preview without leaving the app. Share files with a link, attach files to chat, and see provenance chips that trace exactly where each file came from.',
+        description: 'Your workspace now has a Files tab. See everything agents have created or changed, when it happened, and which agent touched it. Open, preview, and share any file without leaving the app.',
       },
       {
-        title: 'Setup that fits you',
-        description: 'The setup wizard now asks what you want to use myOS for and gives you a starter pack that matches. Pick executive assistant, coder, researcher, or another intent and the agents, plans, and task suggestions you see first are already tuned for your use case.',
+        title: 'Setup that knows you',
+        description: 'The setup wizard now asks what you actually use myOS for and builds your starter pack around that. Pick your focus and your first agents, plans, and task suggestions are already calibrated to fit.',
       },
       {
-        title: 'Brainstorm agent',
-        description: 'New agent that takes any rough question and returns 5 to 8 distinct options with tradeoffs and effort estimates, then recommends the top one or two. Use it for product, design, technical approach, or naming decisions.',
+        title: 'Brainstorm',
+        description: 'Describe a decision you\'re stuck on. Get back 5 to 8 concrete options, each with tradeoffs and effort, plus the one or two the agent would actually recommend. Faster than a whiteboard, sharper than a gut check.',
       },
       {
-        title: 'Smarter task priority',
-        description: 'When you create a task, myOS now reads the title and description for deadline language ("by Friday", "before the demo") and urgency signals ("critical", "blocking"). It suggests the right priority automatically. Tasks left untouched too long get quietly demoted so your P1 list stays honest.',
+        title: 'Tasks that read the room',
+        description: 'Write "blocking" or "by Friday" in a task and myOS suggests the right priority for you. Tasks that sit untouched too long quietly drop a level so your urgent list doesn\'t turn into a graveyard.',
       },
       {
-        title: 'My AI Setup page',
-        description: 'New page under Settings that shows your full AI configuration in plain language: which model you are using, what provider it connects to, and how each piece fits together. Shareable so you can show teammates exactly how your setup works.',
+        title: 'Your AI setup, explained',
+        description: 'A new page in Settings shows your full AI configuration in plain English: which model, which provider, and how the pieces fit. Share the link with a teammate so they can match your setup exactly.',
       },
       {
-        title: 'Agents use your plans',
-        description: 'When you start a Build-it on a plan, the agent now gets the full acceptance criteria from that plan automatically. No more copy-pasting requirements into the prompt. The agent knows what done looks like before it starts.',
+        title: 'Agents read the brief',
+        description: 'When you launch a Build-it, the agent gets your plan\'s acceptance criteria automatically. No pasting requirements. It knows what done looks like before it starts.',
       },
       {
-        title: 'Plans (renamed from Specs)',
-        description: 'The Specs tab is now called Plans. Same place, clearer name. All your existing specs are still there.',
+        title: 'Specs is now Plans',
+        description: 'Same tab, cleaner name. Everything you had is still there.',
       },
       {
-        title: 'Agents that keep going',
-        description: 'Agents now check for pending tasks when they finish a job and pick up the next one without waiting for you to say go. If there is nothing left, they stop on their own. No more babysitting.',
+        title: 'Agents that don\'t stop',
+        description: 'Finish one job, pick up the next. When the queue is empty, stop. No more nudging.',
       },
     ],
   },
