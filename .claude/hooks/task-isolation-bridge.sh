@@ -241,10 +241,9 @@ import os, json
 from datetime import datetime, timezone
 print(json.dumps({"name": os.environ["SPAWN_NAME"], "ts": datetime.now(timezone.utc).isoformat(), "source": "task-isolation-bridge"}))
 ' 2>/dev/null >> "$PENDING_FILE" 2>/dev/null || true
-        echo "Blocked: Task tool call redirected through /api/agents/spawn for worktree isolation." >&2
-        echo "Spawned REST agent name: ${SPAWN_NAME}" >&2
-        echo "Poll status via: curl -sSk ${API_BASE}/api/agents | jq '.agents[] | select(.name==\"${SPAWN_NAME}\")'" >&2
-        echo "Worktree isolation is active: the Task tool call was redirected, not failed." >&2
+        echo "Redirected to /api/agents/spawn for worktree isolation (this is expected, not an error)." >&2
+        echo "Agent name: ${SPAWN_NAME}" >&2
+        echo "Status: curl -sSk ${API_BASE}/api/agents | jq '.agents[] | select(.name==\"${SPAWN_NAME}\")'" >&2
         exit 2
         ;;
     ""|"000")
