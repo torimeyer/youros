@@ -1,0 +1,25 @@
+#!/bin/bash
+# UserPromptSubmit: emit a FIRE-NOW directive when open tasks exist and no agents are running.
+# Mechanical enforcement that memory entries alone cannot provide -- fires every turn.
+
+BACKEND_URL="${MYOS_BACKEND_URL:-https://127.0.0.1:8000}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ "${MYOS_TASKS_FIXTURE+x}" = "x" ]; then
+  TASKS_JSON="$MYOS_TASKS_FIXTURE"
+else
+  TASKS_JSON="$(curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 3 -m 5     "${BACKEND_URL}/api/tasks?limit=30" 2>/dev/null)"
+fi
+
+if [ "${MYOS_AGENTS_FIXTURE+x}" = "x" ]; then
+  AGENTS_JSON="$MYOS_AGENTS_FIXTURE"
+else
+  AGENTS_JSON="$(curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 3 -m 5     "${BACKEND_URL}/api/agents?source=claude-code&limit=20" 2>/dev/null)"
+fi
+
+[ -z "$TASKS_JSON" ] && exit 0
+[ -z "$AGENTS_JSON" ] && exit 0
+
+TASKS_JSON="$TASKS_JSON" AGENTS_JSON="$AGENTS_JSON"   python3 "${SCRIPT_DIR}/lib/keep-going-check.py"
+
+exit 0
