@@ -678,6 +678,17 @@ function WelcomeStep({ subtextCls }: { subtextCls: string }) {
       <p className={`${subtextCls} text-sm leading-relaxed mt-4`} data-testid="onboarding-files-location-note">
         Your files live in ~/.myos/files. You can change this in Settings.
       </p>
+      <p className={`${subtextCls} text-xs leading-relaxed mt-3`}>
+        <a
+          href="/privacy"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline opacity-60 hover:opacity-100"
+          data-testid="onboarding-privacy-link"
+        >
+          Privacy policy
+        </a>
+      </p>
     </div>
   )
 }

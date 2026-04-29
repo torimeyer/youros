@@ -728,6 +728,14 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     expect(note).toHaveTextContent(/change this in Settings/i)
   })
 
+  it('WelcomeStep shows a link to the privacy policy', () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    const link = screen.getByTestId('onboarding-privacy-link')
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute('href', '/privacy')
+  })
+
 })
 
 
