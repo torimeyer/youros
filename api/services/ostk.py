@@ -586,12 +586,61 @@ class OstkService:
         return f"updated {task_id} status to {status}"
 
     async def shelve_task(self, task_id: str) -> str:
-        """Pause a task via ``ostk work shelve``."""
-        return await self._run("work", "shelve", task_id)
+        """Pause a task by writing 'shelved' status directly to issues.jsonl.
+
+        ``ostk work shelve`` does not exist in the installed CLI; we manage
+        the status field the same way update_task_status does.
+        """
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        if not issues_path.exists():
+            raise OstkError("issues.jsonl not found")
+
+        lines = issues_path.read_text().strip().splitlines()
+        found = False
+        updated = []
+        for line in lines:
+            entry = json.loads(line)
+            if entry.get("id") == task_id:
+                if entry.get("status") == "closed":
+                    raise OstkError(f"task '{task_id}' is closed; reopen it first")
+                entry["status"] = "shelved"
+                found = True
+            updated.append(json.dumps(entry, ensure_ascii=False))
+
+        if not found:
+            raise OstkError(f"task '{task_id}' not found")
+
+        issues_path.write_text("\n".join(updated) + "\n")
+        return f"shelved {task_id}"
 
     async def unshelve_task(self, task_id: str) -> str:
-        """Resume a shelved task via ``ostk work unshelve``."""
-        return await self._run("work", "unshelve", task_id)
+        """Resume a shelved task by writing 'open' status directly to issues.jsonl.
+
+        ``ostk work unshelve`` does not exist in the installed CLI.
+        """
+        issues_path = Path(self.cwd) / ".ostk" / "needles" / "issues.jsonl"
+        if not issues_path.exists():
+            raise OstkError("issues.jsonl not found")
+
+        lines = issues_path.read_text().strip().splitlines()
+        found = False
+        updated = []
+        for line in lines:
+            entry = json.loads(line)
+            if entry.get("id") == task_id:
+                if entry.get("status") != "shelved":
+                    raise OstkError(
+                        f"task '{task_id}' is not shelved (status: {entry.get('status')})"
+                    )
+                entry["status"] = "open"
+                found = True
+            updated.append(json.dumps(entry, ensure_ascii=False))
+
+        if not found:
+            raise OstkError(f"task '{task_id}' not found")
+
+        issues_path.write_text("\n".join(updated) + "\n")
+        return f"unshelved {task_id}"
 
     async def link_tasks(self, source: str, relation: str, target: str) -> str:
         """Link two tasks with a relationship (blocks or depends-on)."""

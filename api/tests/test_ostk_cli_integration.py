@@ -134,3 +134,40 @@ async def test_close_task_against_real_ostk(ostk_repo: Path):
     same = [t for t in tasks_after if t.get("id") == task_id]
     assert same, "task disappeared from list"
     assert same[0].get("status") == "closed"
+
+
+@pytest.mark.asyncio
+async def test_shelve_and_unshelve_task(ostk_repo: Path):
+    """shelve_task writes 'shelved' status directly; unshelve_task restores 'open'."""
+    svc = OstkService(cwd=str(ostk_repo))
+    await svc.add_task("pauseable task", priority="P1")
+    tasks = await svc.list_tasks()
+    pauseable = [t for t in tasks if t.get("title") == "pauseable task"]
+    assert pauseable, "task was not added"
+    task_id = pauseable[0].get("id")
+    assert task_id
+
+    await svc.shelve_task(task_id)
+    tasks_after = await svc.list_tasks()
+    same = [t for t in tasks_after if t.get("id") == task_id]
+    assert same, "task disappeared from list after shelve"
+    assert same[0].get("status") == "shelved"
+
+    await svc.unshelve_task(task_id)
+    tasks_final = await svc.list_tasks()
+    restored = [t for t in tasks_final if t.get("id") == task_id]
+    assert restored, "task disappeared from list after unshelve"
+    assert restored[0].get("status") == "open"
+
+
+@pytest.mark.asyncio
+async def test_unshelve_task_rejects_non_shelved(ostk_repo: Path):
+    """unshelve_task must raise OstkError when the task is not shelved."""
+    svc = OstkService(cwd=str(ostk_repo))
+    await svc.add_task("open task", priority="P2")
+    tasks = await svc.list_tasks()
+    open_task = [t for t in tasks if t.get("title") == "open task"]
+    task_id = open_task[0].get("id")
+
+    with pytest.raises(OstkError, match="not shelved"):
+        await svc.unshelve_task(task_id)

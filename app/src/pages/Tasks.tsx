@@ -2313,21 +2313,23 @@ export default function Tasks() {
                           <div className="border-t border-slate-700 my-1" />
                           {task.status === "shelved" ? (
                             <button
+                              data-testid="task-action-resume"
                               onClick={() => unshelveTask(task.id)}
                               className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
                             >
                               <Icon name="play_arrow" className="text-sm text-green-400" />
                               Resume
                             </button>
-                          ) : (
+                          ) : task.status === "in_progress" ? (
                             <button
+                              data-testid="task-action-pause"
                               onClick={() => shelveTask(task.id)}
                               className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-700 transition-colors text-slate-300"
                             >
                               <Icon name="pause" className="text-sm text-slate-400" />
                               Pause
                             </button>
-                          )}
+                          ) : null}
                           {actionLoading === task.id && (
                             <div className="px-3 py-1 flex items-center gap-2 text-xs text-slate-500">
                               <Icon name="hourglass_empty" className="text-sm animate-spin" />

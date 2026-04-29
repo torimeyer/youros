@@ -1967,6 +1967,80 @@ describe('Tasks page', () => {
       expect(screen.queryByTestId('closed-at-3')).not.toBeInTheDocument()
     })
   })
+
+  // ── Bug fix: Pause gate ────────────────────────────────────────────
+  // Pause must only appear when a task is in_progress.
+  // Resume must only appear when a task is shelved.
+  describe('Pause action gate (only in_progress tasks can be paused)', () => {
+    async function openActionMenuForTask(taskId: string) {
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      // Each row has a title="Actions" button; find the one for our target task
+      const rows = screen.getAllByTitle('Actions')
+      // rows[0] corresponds to task id '1' (Fix login bug) which is open
+      // rows[1] corresponds to task id '2' (Add dark mode) which is open
+      // We find by iterating; simplest: match by index based on test data order
+      const taskOrder = ['1', '2', '3']
+      const idx = taskOrder.indexOf(taskId)
+      fireEvent.click(rows[idx])
+    }
+
+    it('Pause button is NOT shown for an open task', async () => {
+      renderTasks()
+      await openActionMenuForTask('1')
+      await waitFor(() => {
+        expect(screen.getByText('Comprehensive build')).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('task-action-pause')).not.toBeInTheDocument()
+    })
+
+    it('Pause button IS shown for an in_progress task', async () => {
+      const tasksWithInProgress = [
+        { id: '1', title: 'Fix login bug', priority: 'P0', status: 'in_progress', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+        { id: '2', title: 'Add dark mode', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+        { id: '3', title: 'Write docs', priority: 'P2', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+      ]
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: tasksWithInProgress })
+        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+        return Promise.resolve({})
+      })
+      renderTasks()
+      await openActionMenuForTask('1')
+      await waitFor(() => {
+        expect(screen.getByTestId('task-action-pause')).toBeInTheDocument()
+      })
+    })
+
+    it('neither Pause nor Resume is shown for a closed task', async () => {
+      const tasksWithClosed = [
+        { id: '1', title: 'Fix login bug', priority: 'P0', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [] },
+        { id: '2', title: 'Add dark mode', priority: 'P1', status: 'open', created_at: new Date().toISOString(), goal: null, label_ids: [] },
+      ]
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: tasksWithClosed })
+        if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+        return Promise.resolve({})
+      })
+      renderTasks()
+      // Switch to closed view to see the closed task
+      await waitFor(() => {
+        expect(screen.getByText('Add dark mode')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('status-filter-closed'))
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      const rows = screen.getAllByTitle('Actions')
+      fireEvent.click(rows[0])
+      await waitFor(() => {
+        expect(screen.getByText('Comprehensive build')).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('task-action-pause')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('task-action-resume')).not.toBeInTheDocument()
+    })
+  })
 })
 
 // Regression for needle 299: the Tasks page was showing "Loading tasks..."
