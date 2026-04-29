@@ -78,7 +78,10 @@ def test_sync_outbound_respects_visibility(tmp_path, monkeypatch):
 
     with patch("subprocess.run") as mock_run:
         mock_run.return_value.returncode = 1
-        team_sync.sync_outbound(cfg)
+        result = team_sync.sync_outbound(cfg)
+
+    assert "pushed" in result
+    assert result["pushed"] > 0
 
     out_path = team_repo / "alice@example.com" / "decisions.jsonl"
     assert out_path.exists()
