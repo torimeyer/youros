@@ -80,16 +80,19 @@ chmod +x "$WORKDIR/scripts/backend_watchdog.sh"
 # Run with a very fast interval so the test finishes quickly.
 MYOS_WATCHDOG_INTERVAL=1 \
 MYOS_WATCHDOG_HEALTH_URL="http://127.0.0.1:${DEAD_PORT}/api/health" \
+MYOS_WATCHDOG_BACKEND_PORT="$DEAD_PORT" \
+MYOS_WATCHDOG_PIDFILE="$WD_PIDFILE" \
+MYOS_WATCHDOG_LOGFILE="$WD_LOG" \
+MYOS_WATCHDOG_RESTART_WAIT=1 \
 MYOS_WATCHDOG_MAX_RESTARTS=2 \
 MYOS_NO_WATCHDOG=1 \
 bash "$WORKDIR/scripts/backend_watchdog.sh" >/dev/null 2>&1 &
 WD_PID=$!
 echo "$WD_PID" > "$WD_PIDFILE"
 
-# Wait up to 15 seconds for the sentinel to appear (1s probe + 2s retry +
-# 5s post-restart sleep = ~8s for first restart, give double headroom).
+# Wait up to 25 seconds: 1s interval + 3x5s retries + restart = ~17s worst case.
 got_restart=0
-for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+for i in $(seq 1 25); do
     sleep 1
     if [ -f "$SENTINEL" ]; then
         got_restart=1
@@ -109,9 +112,10 @@ else
 fi
 
 # --- Test 3: watchdog respects MAX_RESTARTS and exits cleanly. ---
-# After MAX_RESTARTS=2 restarts, it should exit. Wait up to 20 more seconds.
+# After MAX_RESTARTS=2 restarts the watchdog should exit. With INTERVAL=1 and
+# RESTART_WAIT=1 each loop is ~17s, so 3 loops (~51s) before exit. Wait 65s.
 exited=0
-for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+for i in $(seq 1 65); do
     sleep 1
     if ! ps -p "$WD_PID" >/dev/null 2>&1; then
         exited=1
@@ -133,6 +137,9 @@ rm -f "$SENTINEL"
 
 MYOS_WATCHDOG_INTERVAL=1 \
 MYOS_WATCHDOG_HEALTH_URL="http://127.0.0.1:${LIVE_PORT}/" \
+MYOS_WATCHDOG_BACKEND_PORT="$LIVE_PORT" \
+MYOS_WATCHDOG_PIDFILE="$WORKDIR/watchdog2.pid" \
+MYOS_WATCHDOG_LOGFILE="$WORKDIR/watchdog2.log" \
 MYOS_WATCHDOG_MAX_RESTARTS=5 \
 MYOS_NO_WATCHDOG=1 \
 bash "$WORKDIR/scripts/backend_watchdog.sh" >/dev/null 2>&1 &
@@ -151,6 +158,49 @@ fi
 kill "$WD_PID2" 2>/dev/null || true
 kill "$LIVE_PID" 2>/dev/null || true
 wait 2>/dev/null || true
+
+# --- Test 5: when the backend PID is alive but health consistently fails,
+#             the watchdog should SIGKILL the process and restart. ---
+DEADLOCK_PORT=18801
+DEADLOCK_PIDFILE="/tmp/myos-backend-${DEADLOCK_PORT}.pid"
+
+# Start a long-running process to impersonate a deadlocked backend (alive but silent).
+sleep 300 &
+FAKE_PID=$!
+echo "$FAKE_PID" > "$DEADLOCK_PIDFILE"
+
+# Remove the shared sentinel so we get a clean read.
+rm -f "$SENTINEL"
+
+# Run with a fast interval, SIGKILL threshold=2, and health pointed at the dead port.
+MYOS_WATCHDOG_INTERVAL=1 \
+MYOS_WATCHDOG_HEALTH_URL="http://127.0.0.1:${DEAD_PORT}/api/health" \
+MYOS_WATCHDOG_BACKEND_PORT="$DEADLOCK_PORT" \
+MYOS_WATCHDOG_PIDFILE="$WORKDIR/watchdog3.pid" \
+MYOS_WATCHDOG_LOGFILE="$WORKDIR/watchdog3.log" \
+MYOS_WATCHDOG_DEADLOCK_THRESHOLD=2 \
+MYOS_WATCHDOG_RESTART_WAIT=1 \
+MYOS_WATCHDOG_MAX_RESTARTS=5 \
+MYOS_NO_WATCHDOG=1 \
+bash "$WORKDIR/scripts/backend_watchdog.sh" >/dev/null 2>&1 &
+WD_PID3=$!
+
+# Wait up to 60s: two full loop iterations at ~16s each + SIGKILL wait + margin.
+got_deadlock_restart=0
+for i in $(seq 1 60); do
+    sleep 1
+    if [ -f "$SENTINEL" ]; then
+        got_deadlock_restart=1
+        break
+    fi
+done
+
+kill "$WD_PID3" 2>/dev/null || true
+kill "$FAKE_PID" 2>/dev/null || true
+rm -f "$DEADLOCK_PIDFILE"
+wait 2>/dev/null || true
+
+assert "watchdog_sigkills_deadlocked_pid_and_restarts" "$got_deadlock_restart"
 
 echo ""
 echo "Results: $pass passed, $fail failed"

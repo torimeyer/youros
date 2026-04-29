@@ -19,13 +19,26 @@
 #   MYOS_WATCHDOG_MAX_RESTARTS hard cap on restarts in one process lifetime
 #                              (default 50, prevents infinite loops if the
 #                              backend can never come up)
+#   MYOS_WATCHDOG_DEADLOCK_THRESHOLD consecutive failed health probes while
+#                              the backend PID is still alive before the
+#                              watchdog treats it as a deadlocked event loop
+#                              and sends SIGKILL (default 3)
+#   MYOS_WATCHDOG_RESTART_WAIT seconds to wait for the new backend to become
+#                              healthy after a restart before releasing the
+#                              restart lock (default 15; tests use 1)
+#   MYOS_WATCHDOG_PIDFILE      path to the watchdog pidfile (default
+#                              /tmp/myos-backend-watchdog.pid; tests use a
+#                              temp path to avoid dedup-guard conflicts with
+#                              a live dev watchdog)
+#   MYOS_WATCHDOG_LOGFILE      path to the watchdog logfile (default
+#                              /tmp/myos-backend-watchdog.log)
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEV_BACKEND="$SCRIPT_DIR/dev-backend.sh"
-PIDFILE="/tmp/myos-backend-watchdog.pid"
-LOGFILE="/tmp/myos-backend-watchdog.log"
+PIDFILE="${MYOS_WATCHDOG_PIDFILE:-/tmp/myos-backend-watchdog.pid}"
+LOGFILE="${MYOS_WATCHDOG_LOGFILE:-/tmp/myos-backend-watchdog.log}"
 INTERVAL="${MYOS_WATCHDOG_INTERVAL:-30}"
 HEALTH_URL="${MYOS_WATCHDOG_HEALTH_URL:-https://127.0.0.1:8000/api/health}"
 MAX_RESTARTS="${MYOS_WATCHDOG_MAX_RESTARTS:-50}"
@@ -47,7 +60,7 @@ RESTART_LOCK="/tmp/myos-backend-restart.lock"
 # Serialises concurrent watchdog startups so two simultaneous launches cannot
 # both pass the dedup check (→942 recurrence: duplicate log lines at identical
 # timestamps confirmed two live watchdogs).
-STARTUP_LOCK="/tmp/myos-backend-watchdog-startup.lock"
+STARTUP_LOCK="${PIDFILE%.pid}-startup.lock"
 
 # Dedup guard: exit immediately if a live watchdog is already registered.
 # Multiple watchdog processes spawn when concurrent dev-backend.sh launchers
@@ -181,8 +194,29 @@ restart_backend() {
     # restart entirely to avoid stacking a second uvicorn next to the
     # one that is just slow to respond.
     if backend_pid_alive; then
-        log "INFO health probe failed but backend pid ($(cat "$BACKEND_PIDFILE" 2>/dev/null)) still alive; skipping restart"
-        return 0
+        consecutive_pid_alive_failures=$((consecutive_pid_alive_failures + 1))
+        _threshold="${MYOS_WATCHDOG_DEADLOCK_THRESHOLD:-3}"
+        if [ "$consecutive_pid_alive_failures" -lt "$_threshold" ]; then
+            log "INFO health probe failed but backend pid alive (deadlock check ${consecutive_pid_alive_failures}/${_threshold}); skipping restart"
+            return 0
+        fi
+        _locked_pid=$(cat "$BACKEND_PIDFILE" 2>/dev/null || true)
+        log "WARNING backend pid $_locked_pid alive but health probe failed ${consecutive_pid_alive_failures}x -- event loop likely deadlocked; sending SIGKILL"
+        kill -9 "$_locked_pid" 2>/dev/null || true
+        # Wait up to 5s for the process to actually die before spawning a replacement.
+        _kw=0
+        while [ "$_kw" -lt 5 ] && kill -0 "$_locked_pid" 2>/dev/null; do
+            sleep 1
+            _kw=$((_kw + 1))
+        done
+        if kill -0 "$_locked_pid" 2>/dev/null; then
+            log "ERROR pid $_locked_pid still alive after SIGKILL; proceeding anyway"
+        else
+            log "INFO pid $_locked_pid confirmed dead after SIGKILL"
+        fi
+        rm -f "$BACKEND_PIDFILE" 2>/dev/null || true
+        consecutive_pid_alive_failures=0
+        # Fall through to the normal restart path below.
     fi
     # Acquire restart lock atomically before spawning. When two watchdog
     # instances run simultaneously both can pass backend_pid_alive (both
@@ -229,12 +263,12 @@ restart_backend() {
     # any concurrent manual run.
     MYOS_NO_WATCHDOG=1 nohup "$DEV_BACKEND" >> /tmp/dev-backend.log 2>&1 &
     log "INFO restart launched, dev-backend.sh pid=$!"
-    # Hold the restart lock until uvicorn has had time to bind (up to 15 s).
-    # This blocks a concurrent second watchdog from spawning its own
-    # dev-backend.sh before the first uvicorn is visible on the port, which
-    # would otherwise trigger a second kill-and-replace and a double-bind.
+    # Hold the restart lock until uvicorn has had time to bind (up to
+    # MYOS_WATCHDOG_RESTART_WAIT seconds, default 15). Tests set this to a
+    # small value so they don't have to wait the full startup window.
+    _restart_wait="${MYOS_WATCHDOG_RESTART_WAIT:-15}"
     _rw=0
-    while [ "$_rw" -lt 15 ] && ! probe_once; do
+    while [ "$_rw" -lt "$_restart_wait" ] && ! probe_once; do
         sleep 1
         _rw=$((_rw + 1))
     done
@@ -242,6 +276,7 @@ restart_backend() {
 }
 
 restarts=0
+consecutive_pid_alive_failures=0
 log "INFO watchdog started, interval=${INTERVAL}s, health=$HEALTH_URL"
 
 while :; do
@@ -256,6 +291,7 @@ while :; do
     fi
     sleep "$INTERVAL"
     if probe_once; then
+        consecutive_pid_alive_failures=0
         continue
     fi
     # Three spaced retries absorb the full uvicorn reload window
