@@ -1952,9 +1952,24 @@ def _run_enrich_pipeline(
         if limit is not None and limit >= 0:
             filtered = sorted(filtered, key=lambda a: a.get("spawned_at") or "")[:limit]
         # 3. Enrich the filtered subset with transcript metrics and cost.
+        # Skip transcript I/O for old stopped agents: cold-cache walk over
+        # 1000+ entries takes 14s. Only running and recently-spawned agents
+        # need live transcript byte/line counts.
+        _enrich_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         for agent in filtered:
-            metrics = _get_transcript_metrics(agent["name"])
-            agent.update(metrics)
+            _status = agent.get("status", "")
+            _spawned_at = agent.get("spawned_at") or ""
+            _is_old_stopped = (
+                bool(_spawned_at)
+                and _status in ("stopped", "completed", "failed", "abandoned")
+                and _spawned_at < _enrich_cutoff
+            )
+            if _is_old_stopped:
+                agent.setdefault("transcript_bytes", 0)
+                agent.setdefault("transcript_lines", 0)
+            else:
+                metrics = _get_transcript_metrics(agent["name"])
+                agent.update(metrics)
             meta = agent_metadata.get(agent["name"], {})
             tokens_used = meta.get("tokens_used", 0)
             token_limit = meta.get("token_limit")
