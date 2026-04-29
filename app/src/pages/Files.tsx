@@ -139,9 +139,6 @@ export default function Files() {
   const [browseError, setBrowseError] = useState<string | null>(null);
   const [browseForbidden, setBrowseForbidden] = useState(false);
 
-  // Preview state for files-view side pane (pre-QuickLook)
-  const [previewEntry, setPreviewEntry] = useState<BrowseEntry | null>(null);
-
   // Recent docs state
   const [recentDocs, setRecentDocs] = useState<RecentDoc[]>([]);
   const [recentDocsLoading, setRecentDocsLoading] = useState(true);
@@ -238,8 +235,7 @@ export default function Files() {
     }
   };
 
-  const openPreview = (entry: BrowseEntry) => setPreviewEntry(entry);
-  const closePreview = () => setPreviewEntry(null);
+  const openPreview = (entry: BrowseEntry) => setQuickLookTarget({ path: entry.path, mime: '' });
 
   const deleteRecentDoc = async (doc: RecentDoc) => {
     const ok = await confirm({
@@ -549,21 +545,6 @@ export default function Files() {
               </>
             )}
 
-            {/* Files-view side preview pane (legacy, pre-QuickLook) */}
-            {previewEntry && (
-              <div
-                className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-                onClick={closePreview}
-              >
-                <div
-                  className="bg-white p-8 rounded-xl text-center text-neutral-500 max-w-md"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <p className="mb-4">Preview coming soon.</p>
-                  <p className="text-sm">Click outside to close, or open the file from the row menu.</p>
-                </div>
-              </div>
-            )}
           </>
       </div>
 
