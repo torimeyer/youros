@@ -41,7 +41,7 @@ const mockItems = [
     source_ref: 'https://slack.com/archives/abc',
     permalink: 'https://slack.com/archives/abc',
     created_at: new Date().toISOString(),
-    raw: {},
+    raw: { channel_id: 'C123', ts: '1234567890.000100' },
   },
   {
     id: 'task:task1',
@@ -145,6 +145,48 @@ describe('Inbox page', () => {
     await waitFor(() => {
       expect(screen.getByText('Slack')).toBeInTheDocument()
       expect(screen.getByText('Email')).toBeInTheDocument()
+    })
+  })
+
+  it('Reply button only appears on slack items', async () => {
+    renderInbox()
+    await waitFor(() => screen.getByTestId('inbox-item-slack:abc123'))
+    expect(screen.getByTestId('inbox-reply-slack:abc123')).toBeInTheDocument()
+    expect(screen.queryByTestId('inbox-reply-task:task1')).not.toBeInTheDocument()
+  })
+
+  it('Reply button opens SlackReplyComposer inline', async () => {
+    renderInbox()
+    await waitFor(() => screen.getByTestId('inbox-reply-slack:abc123'))
+    fireEvent.click(screen.getByTestId('inbox-reply-slack:abc123'))
+    await waitFor(() => {
+      expect(screen.getByTestId('slack-reply-composer')).toBeInTheDocument()
+    })
+  })
+
+  it('Cancel closes the composer', async () => {
+    renderInbox()
+    await waitFor(() => screen.getByTestId('inbox-reply-slack:abc123'))
+    fireEvent.click(screen.getByTestId('inbox-reply-slack:abc123'))
+    await waitFor(() => screen.getByTestId('slack-reply-composer'))
+    fireEvent.click(screen.getByTestId('slack-cancel-button'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('slack-reply-composer')).not.toBeInTheDocument()
+    })
+  })
+
+  it('onSent dismisses the item', async () => {
+    mockedApiPost.mockResolvedValue({ ok: true })
+    renderInbox()
+    await waitFor(() => screen.getByTestId('inbox-reply-slack:abc123'))
+    fireEvent.click(screen.getByTestId('inbox-reply-slack:abc123'))
+    await waitFor(() => screen.getByTestId('slack-reply-composer'))
+    fireEvent.change(screen.getByLabelText('Reply body'), {
+      target: { value: 'Sounds good!' },
+    })
+    fireEvent.click(screen.getByTestId('slack-send-button'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('inbox-item-slack:abc123')).not.toBeInTheDocument()
     })
   })
 })

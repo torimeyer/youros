@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import TopBar from '../components/TopBar'
 import { api } from '../lib/api'
 import Icon from '../components/Icon'
+import SlackReplyComposer from '../components/SlackReplyComposer'
 
 interface InboxItem {
   id: string
@@ -40,6 +41,7 @@ export default function Inbox() {
     }
   })
   const [loading, setLoading] = useState(true)
+  const [replyingTo, setReplyingTo] = useState<string | null>(null)
 
   useEffect(() => {
     api
@@ -95,52 +97,72 @@ export default function Inbox() {
                       <div
                         key={item.id}
                         data-testid={`inbox-item-${item.id}`}
-                        className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-start gap-4"
+                        className="bg-slate-900 border border-slate-800 rounded-xl p-4"
                       >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-medium text-slate-100 truncate">
-                              {item.title}
-                            </span>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400 shrink-0">
-                              {sourceLabel(item.source)}
-                            </span>
+                        <div className="flex items-start gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm font-medium text-slate-100 truncate">
+                                {item.title}
+                              </span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400 shrink-0">
+                                {sourceLabel(item.source)}
+                              </span>
+                            </div>
+                            {item.preview && (
+                              <p className="text-xs text-slate-400">
+                                {item.preview.length > 120
+                                  ? `${item.preview.slice(0, 120)}...`
+                                  : item.preview}
+                              </p>
+                            )}
                           </div>
-                          {item.preview && (
-                            <p className="text-xs text-slate-400">
-                              {item.preview.length > 120
-                                ? `${item.preview.slice(0, 120)}...`
-                                : item.preview}
-                            </p>
-                          )}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {item.source === 'slack' && (
+                              <button
+                                type="button"
+                                data-testid={`inbox-reply-${item.id}`}
+                                onClick={() => setReplyingTo(item.id)}
+                                className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
+                              >
+                                Reply
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={!item.permalink}
+                              onClick={() =>
+                                item.permalink &&
+                                window.open(item.permalink, '_blank')
+                              }
+                              className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              Open
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { void handleConvert(item) }}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-colors"
+                            >
+                              Convert to task
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDismiss(item.id)}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 transition-colors"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            disabled={!item.permalink}
-                            onClick={() =>
-                              item.permalink &&
-                              window.open(item.permalink, '_blank')
-                            }
-                            className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                          >
-                            Open
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { void handleConvert(item) }}
-                            className="text-xs px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-colors"
-                          >
-                            Convert to task
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDismiss(item.id)}
-                            className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 transition-colors"
-                          >
-                            Dismiss
-                          </button>
-                        </div>
+                        {replyingTo === item.id && (
+                          <SlackReplyComposer
+                            channelId={item.raw.channel_id as string}
+                            ts={item.raw.ts as string}
+                            onCancel={() => setReplyingTo(null)}
+                            onSent={() => handleDismiss(item.id)}
+                          />
+                        )}
                       </div>
                     ))}
                 </div>
