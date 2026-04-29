@@ -148,6 +148,137 @@ describe('Slack flag + reply buttons', () => {
   })
 })
 
+describe('Slack stale cache cleared on disconnect', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.slackChannels.v1')
+  })
+
+  it('clears channel cache from localStorage when status returns disconnected', async () => {
+    // Pre-seed stale channel data in localStorage
+    window.localStorage.setItem(
+      'myos.slackChannels.v1',
+      JSON.stringify([{ id: 'C_OLD', name: 'old-channel', is_private: false, num_members: 5, topic: '' }])
+    )
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: false, team_name: '', team_id: '', configured: true })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+
+    const cached = window.localStorage.getItem('myos.slackChannels.v1')
+    expect(JSON.parse(cached ?? '[]')).toEqual([])
+  })
+
+  it('clears channel cache from localStorage after disconnect action', async () => {
+    // Start connected with channels
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: true, team_name: 'Acme', team_id: 'T1', configured: true })
+      }
+      if (path.includes('/slack/channels')) {
+        return Promise.resolve({
+          channels: [{ id: 'C1', name: 'general', is_private: false, num_members: 10, topic: '' }],
+        })
+      }
+      return Promise.resolve({})
+    })
+    const mockedApiDelete = vi.mocked(api.delete)
+    mockedApiDelete.mockResolvedValue({})
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByText('general')).toBeInTheDocument()
+    })
+
+    // Verify cache was written
+    expect(window.localStorage.getItem('myos.slackChannels.v1')).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /Disconnect/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+
+    const cached = window.localStorage.getItem('myos.slackChannels.v1')
+    expect(JSON.parse(cached ?? '[]')).toEqual([])
+  })
+})
+
+describe('Slack mrkdwn stripping in channel topics', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.slackChannels.v1')
+  })
+
+  it('renders plain URL from <url> mrkdwn syntax in channel topic', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: true, team_name: 'Acme', team_id: 'T1', configured: true })
+      }
+      if (path.includes('/slack/channels')) {
+        return Promise.resolve({
+          channels: [
+            {
+              id: 'C1',
+              name: 'general',
+              is_private: false,
+              num_members: 10,
+              topic: 'Check <https://example.com> for docs',
+            },
+          ],
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByText('Check https://example.com for docs')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/\<https:\/\/example\.com\>/)).not.toBeInTheDocument()
+  })
+
+  it('renders link text from <url|text> mrkdwn syntax in channel topic', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: true, team_name: 'Acme', team_id: 'T1', configured: true })
+      }
+      if (path.includes('/slack/channels')) {
+        return Promise.resolve({
+          channels: [
+            {
+              id: 'C1',
+              name: 'general',
+              is_private: false,
+              num_members: 10,
+              topic: 'Visit <https://example.com|our site> today',
+            },
+          ],
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByText('Visit our site today')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/our site\>/)).not.toBeInTheDocument()
+  })
+})
+
 describe('Slack ConnectCard (chunk-d migration)', () => {
   beforeEach(() => {
     vi.clearAllMocks()

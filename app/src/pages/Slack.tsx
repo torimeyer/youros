@@ -53,6 +53,10 @@ function writeChannelCache(channels: SlackChannel[]) {
   }
 }
 
+function stripSlackMrkdwn(text: string): string {
+  return text.replace(/<([^|>]+)\|([^>]+)>/g, '$2').replace(/<([^>]+)>/g, '$1')
+}
+
 export default function Slack() {
   const [searchParams] = useSearchParams()
   const [status, setStatus] = useState<SlackStatus | null>(null)
@@ -107,6 +111,9 @@ export default function Slack() {
         setStatus(s)
         if (s.connected) {
           await fetchChannels()
+        } else {
+          setChannels([])
+          writeChannelCache([])
         }
       } catch {
         setStatus({ connected: false, team_name: '', team_id: '', configured: false })
@@ -137,6 +144,7 @@ export default function Slack() {
       await api.delete('/slack/disconnect')
       setStatus({ connected: false, team_name: '', team_id: '', configured: false })
       setChannels([])
+      writeChannelCache([])
       setSelectedChannel(null)
       setMessages([])
     } catch {
@@ -295,7 +303,7 @@ export default function Slack() {
                       {ch.name}
                     </span>
                     {ch.topic && (
-                      <span className="text-xs text-slate-500 truncate block mt-0.5">{ch.topic}</span>
+                      <span className="text-xs text-slate-500 truncate block mt-0.5">{stripSlackMrkdwn(ch.topic)}</span>
                     )}
                   </button>
                 ))}
