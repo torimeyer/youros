@@ -3379,6 +3379,37 @@ def get_running_needle_ids() -> set[str]:
     return live
 
 
+def _build_spec_ac_block(task_id: str, docs: list[dict]) -> str:
+    """Return an AC injection block if any doc in *docs* references *task_id*.
+
+    Normalises arrow-prefixed IDs (→950 == 950) on both sides so the
+    lookup works regardless of whether the spec was created via
+    POST /specs/from-task (stores bare ID) or via ostk decompose (may
+    store arrow-prefixed). Returns an empty string when no match is found
+    so callers can do a simple truthiness check.
+    """
+    norm = task_id.lstrip("→").strip()
+    for doc in docs:
+        doc_ids = {t.lstrip("→").strip() for t in doc.get("task_ids", [])}
+        if norm not in doc_ids:
+            continue
+        ac = doc.get("acceptance_criteria", [])
+        if not ac:
+            break
+        lines = "\n".join(
+            f"- [{'x' if c.get('checked') else ' '}] {c.get('text', '')}"
+            for c in ac
+        )
+        title = doc.get("title", "Spec")
+        return (
+            f"## Spec: {title}\n\n"
+            f"These are the acceptance criteria your solution must satisfy:\n\n"
+            f"{lines}\n\n"
+            f"Treat unchecked items as your definition of done."
+        )
+    return ""
+
+
 @router.post("/agents/spawn")
 async def spawn_agent(body: AgentSpawn, request: Request = None):
     from services.rate_limit import rate_limit_check
@@ -3612,6 +3643,18 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         quality_instructions = build_quality_gate_instructions(agent_config)
         if quality_instructions:
             prompt_with_memory = prompt_with_memory + "\n\n---\n\n" + quality_instructions
+
+    # When the spawn is tied to a task and that task has a linked spec,
+    # inject the spec's acceptance criteria directly into the prompt so
+    # the builder can see the definition of done without hunting for it.
+    if body.task_id:
+        try:
+            _docs = await ostk.list_docs()
+            _ac_block = _build_spec_ac_block(body.task_id, _docs)
+            if _ac_block:
+                prompt_with_memory = prompt_with_memory + "\n\n---\n\n" + _ac_block
+        except Exception:
+            pass  # spec lookup is best-effort; never block a spawn
 
     # Map isolation level to Claude CLI permission mode
     _perm_mode = isolation_to_permission_mode(get_isolation_level())
