@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import services.agent_memory as mem
+from services import recent_deletes
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
@@ -70,4 +71,5 @@ async def update_config(agent_name: str, body: CadenceConfigRequest):
 @router.delete("/{agent_name}")
 async def delete_memory(agent_name: str):
     mem.clear_memory(agent_name)
+    recent_deletes.record_id(f"agent-memory:{agent_name}")
     return {"ok": True}
