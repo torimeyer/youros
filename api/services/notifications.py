@@ -218,6 +218,8 @@ class NotificationsService:
                     and (existing.type in _PERMANENT_DEDUP_TYPES or not existing.read)
                     and self._target_key(existing) == new_target
                 ):
+                    if existing.type in _PERMANENT_DEDUP_TYPES:
+                        return existing  # already announced; never refresh timestamp
                     existing.created_at = now_iso
                     existing.title = title
                     existing.body = body

@@ -228,7 +228,9 @@ class TestNotificationsService:
         all_notifs = svc.list_all()
         assert len(all_notifs) == 1, "read spec_complete must not re-fire"
         assert second.id == first.id, "second add must return the original row"
-        assert int(all_notifs[0].metadata.get("count", 1)) == 2
+        # Permanent dedup returns the existing row without any mutation,
+        # so count stays at 1 and created_at is not refreshed.
+        assert int(all_notifs[0].metadata.get("count", 1)) == 1
 
     def test_dedup_different_targets_keeps_both(self, tmp_path):
         svc = self._patched_service(tmp_path)
