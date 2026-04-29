@@ -1408,27 +1408,29 @@ async def chat_websocket(websocket: WebSocket):
                     await call_model(model, messages, tracked_ws, label=label, use_tools=use_tools, tab_id=tab_id)
             except WebSocketDisconnect:
                 raise
-            except Exception as exc:
-                # Catch-all: make sure the frontend always receives an error
-                # so it can clear the "Thinking" state instead of hanging.
+            except BaseException as exc:
+                # Catch-all including CancelledError (a BaseException in
+                # Python 3.8+). Make sure the frontend always receives a
+                # terminal frame so it clears its "Thinking" state instead
+                # of hanging. Re-raise non-Exception BaseExceptions (like
+                # CancelledError) after trying to notify the client.
                 try:
                     await tracked_ws.send_json({"type": "error", "data": str(exc)})
                 except Exception:
                     pass
+                if not isinstance(exc, Exception):
+                    raise
             finally:
                 # Guarantee terminal frame. If the provider reached a
                 # silent exit path (subprocess torn down, cleanup
                 # happened before ``done`` or ``error`` reached the
-                # wire), emit a fallback error frame here so the frontend
-                # clears its "Thinking" state instead of hanging until
-                # the socket idle timer closes and fires the dropped
-                # connection banner.
+                # wire), emit a fallback ``done`` frame so the frontend
+                # clears its "Thinking" state and the WebSocket close
+                # handshake can complete cleanly instead of the client
+                # seeing "no close frame received or sent".
                 if not tracked_ws.terminal_sent:
                     try:
-                        await tracked_ws.send_json({
-                            "type": "error",
-                            "data": "The response ended unexpectedly. Please try again.",
-                        })
+                        await tracked_ws.send_json({"type": "done"})
                     except Exception:
                         pass
 
@@ -1436,3 +1438,19 @@ async def chat_websocket(websocket: WebSocket):
         pass
     finally:
         _unregister_active_ws(websocket)
+        # Close the WebSocket so the WS close-frame handshake completes
+        # cleanly. Without this, if the handler exits due to an unhandled
+        # BaseException (e.g. CancelledError from a server reload mid-
+        # stream), the TCP connection is dropped without a WS CLOSE frame
+        # and the client raises "no close frame received or sent". Guard
+        # on client_state so we do not call close() on a socket that the
+        # client has already torn down — that would block until the
+        # starlette TestClient's internal channel times out.
+        try:
+            from starlette.websockets import WebSocketState
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await websocket.close()
+        except BaseException:
+            # BaseException covers CancelledError (not caught by
+            # Exception in Python 3.8+) as well as standard errors.
+            pass
