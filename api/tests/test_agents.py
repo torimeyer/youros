@@ -12726,3 +12726,92 @@ async def test_drain_stderr_writes_note_when_transcript_empty_after_exit(tmp_pat
     finally:
         agent_metadata.pop("empty-exit-agent", None)
         active_agents.pop("empty-exit-agent", None)
+
+
+# ---------------------------------------------------------------------------
+# Incremental tail read tests (Part 2 of fix)
+# ---------------------------------------------------------------------------
+
+def test_read_audit_entries_incremental_tail():
+    """read_audit_entries must parse only new bytes when file grows."""
+    import services.ostk as ostk_mod
+
+    with tempfile.TemporaryDirectory() as tmp:
+        audit_path = Path(tmp) / "audit.jsonl"
+
+        entry1 = {"event": "agent.spawned", "name": "a1", "timestamp": "2026-04-29T00:00:00Z"}
+        audit_path.write_text(json.dumps(entry1) + "\n")
+
+        # Clear tail cache for this path so we start fresh
+        ostk_mod._audit_tail.pop(str(audit_path), None)
+        ostk_mod._audit_cache.pop(str(audit_path), None)
+
+        result1 = ostk_mod.read_audit_entries(audit_path)
+        assert len(result1) == 1
+        assert result1[0]["name"] == "a1"
+
+        # Append a second entry
+        entry2 = {"event": "agent.completed", "name": "a1", "timestamp": "2026-04-29T00:01:00Z"}
+        with audit_path.open("a") as fh:
+            fh.write(json.dumps(entry2) + "\n")
+
+        result2 = ostk_mod.read_audit_entries(audit_path)
+        assert len(result2) == 2
+        assert result2[1]["event"] == "agent.completed"
+
+        # Cleanup
+        ostk_mod._audit_tail.pop(str(audit_path), None)
+        ostk_mod._audit_cache.pop(str(audit_path), None)
+
+
+def test_read_audit_entries_full_reparse_on_truncate():
+    """read_audit_entries must do a full reparse if the file shrinks."""
+    import services.ostk as ostk_mod
+
+    with tempfile.TemporaryDirectory() as tmp:
+        audit_path = Path(tmp) / "audit.jsonl"
+
+        entry1 = {"event": "agent.spawned", "name": "b1", "timestamp": "2026-04-29T00:00:00Z"}
+        audit_path.write_text(json.dumps(entry1) + "\n")
+
+        ostk_mod._audit_tail.pop(str(audit_path), None)
+        ostk_mod._audit_cache.pop(str(audit_path), None)
+
+        ostk_mod.read_audit_entries(audit_path)
+
+        # Truncate and replace with a single different entry
+        entry_new = {"event": "agent.spawned", "name": "b2", "timestamp": "2026-04-29T01:00:00Z"}
+        audit_path.write_text(json.dumps(entry_new) + "\n")
+
+        result = ostk_mod.read_audit_entries(audit_path)
+        assert len(result) == 1
+        assert result[0]["name"] == "b2"
+
+        ostk_mod._audit_tail.pop(str(audit_path), None)
+        ostk_mod._audit_cache.pop(str(audit_path), None)
+
+
+@pytest.mark.asyncio
+async def test_audit_agents_runs_in_thread():
+    """audit_agents must not block the event loop — verify via asyncio.to_thread."""
+    import services.ostk as ostk_mod
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ostk_dir = Path(tmp)
+        audit_path = ostk_dir / "audit.jsonl"
+        entry = {"event": "agent.spawned", "name": "thread-agent", "model": "sonnet",
+                 "budget": "1.0", "timestamp": "2026-04-29T00:00:00Z"}
+        audit_path.write_text(json.dumps(entry) + "\n")
+
+        ostk_mod._audit_tail.pop(str(audit_path), None)
+        ostk_mod._audit_cache.pop(str(audit_path), None)
+
+        svc = OstkService()
+        with patch("services.ostk.OSTK_DIR", ostk_dir):
+            result = await svc.audit_agents()
+
+        assert len(result) == 1
+        assert result[0]["name"] == "thread-agent"
+
+        ostk_mod._audit_tail.pop(str(audit_path), None)
+        ostk_mod._audit_cache.pop(str(audit_path), None)

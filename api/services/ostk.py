@@ -29,6 +29,11 @@ class OstkError(Exception):
 # is unchanged. Callers get a shared list[dict] they must NOT mutate.
 _audit_cache: dict[str, tuple[int, int, list[dict]]] = {}
 
+# Incremental tail cache: stores (last_offset, entries_so_far) per path.
+# When the file grows (active agents appending), we seek to last_offset
+# and parse only the new bytes instead of re-parsing the full file.
+_audit_tail: dict[str, tuple[int, list[dict]]] = {}
+
 
 # Per-event-loop lock that serializes ``close_task`` rewrites of
 # ``issues.jsonl``. Without this, three parallel spec-builder agents
@@ -65,12 +70,16 @@ def _get_close_task_lock() -> asyncio.Lock:
 
 
 def read_audit_entries(audit_path: Optional[Path] = None) -> list[dict]:
-    """Return the parsed list of audit.jsonl entries, caching by (size, mtime_ns).
+    """Return the parsed list of audit.jsonl entries.
 
-    Thread-safe enough for FastAPI's async event loop: a dict write of
-    the cache slot is a single reference assignment. The cache is keyed
-    on the string path so multiple OstkService instances pointed at the
-    same file share one parse.
+    Uses an incremental tail cache: on the first read (or if the file
+    shrinks/truncates) we parse from the start. On subsequent reads where
+    the file only grew, we seek to the previous end-of-file offset and
+    parse only the new bytes. This makes each append O(new bytes) instead
+    of O(total file size), which is critical when agents are actively
+    writing to a 2.6 MB / 20K-line audit.jsonl.
+
+    Thread-safe: all mutations are single dict-slot reference assignments.
     """
     if audit_path is None:
         audit_path = OSTK_DIR / "audit.jsonl"
@@ -80,10 +89,42 @@ def read_audit_entries(audit_path: Optional[Path] = None) -> list[dict]:
         stat = audit_path.stat()
     except OSError:
         return []
+
     key = str(audit_path)
+    current_size = stat.st_size
+
+    # Fast path: size unchanged (mtime may drift but content didn't grow)
     cached = _audit_cache.get(key)
-    if cached is not None and cached[0] == stat.st_size and cached[1] == stat.st_mtime_ns:
+    if cached is not None and cached[0] == current_size and cached[1] == stat.st_mtime_ns:
         return cached[2]
+
+    # Incremental path: file strictly grew since last read.
+    # If size is unchanged but mtime changed (content replaced at same size),
+    # the fast path above would have returned; reaching here means mtime changed
+    # too — fall through to full reparse rather than returning stale entries.
+    tail = _audit_tail.get(key)
+    if tail is not None and tail[0] > 0 and tail[0] < current_size:
+        last_offset, existing_entries = tail
+        try:
+            with audit_path.open("rb") as fh:
+                fh.seek(last_offset)
+                new_bytes = fh.read()
+        except OSError:
+            return existing_entries
+        new_entries = list(existing_entries)
+        for raw_line in new_bytes.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                new_entries.append(json.loads(line))
+            except (json.JSONDecodeError, ValueError):
+                continue
+        _audit_tail[key] = (current_size, new_entries)
+        _audit_cache[key] = (current_size, stat.st_mtime_ns, new_entries)
+        return new_entries
+
+    # Full parse: first read or file was truncated/replaced
     try:
         text = audit_path.read_text()
     except OSError:
@@ -97,7 +138,8 @@ def read_audit_entries(audit_path: Optional[Path] = None) -> list[dict]:
             entries.append(json.loads(line))
         except json.JSONDecodeError:
             continue
-    _audit_cache[key] = (stat.st_size, stat.st_mtime_ns, entries)
+    _audit_cache[key] = (current_size, stat.st_mtime_ns, entries)
+    _audit_tail[key] = (current_size, entries)
     return entries
 
 
@@ -1824,22 +1866,10 @@ class OstkService:
         # so a downstream mutation does not bleed across coalesced callers.
         return {**shared, "agents": list(shared.get("agents", []))}
 
-    async def audit_agents(self) -> list[dict]:
-        """Read .ostk/audit.jsonl and return agent lifecycle events.
-
-        Builds a picture of agents that have been spawned (and optionally
-        completed/failed) so the UI can show them even without the daemon.
-
-        Agents that were spawned before a session.shutdown event and never
-        received an agent.completed or agent.failed event are marked as
-        "stopped" rather than "spawned", since the session that ran them
-        has ended.
-        """
+    def _sync_audit_agents(self) -> list[dict]:
+        """Sync body of audit_agents — safe to run in a thread pool."""
         audit_path = OSTK_DIR / "audit.jsonl"
         agents_by_name: dict[str, dict] = {}
-        # Shared parse cache: the 400 KB audit.jsonl only reparses when
-        # its size or mtime changes, so rapid /api/agents polls do not
-        # re-scan the file on every hit.
         for entry in read_audit_entries(audit_path):
             event = entry.get("event", "")
             name = entry.get("name", "")
@@ -1874,6 +1904,16 @@ class OstkService:
                         agent["status"] = "stopped"
 
         return list(agents_by_name.values())
+
+    async def audit_agents(self) -> list[dict]:
+        """Read .ostk/audit.jsonl and return agent lifecycle events.
+
+        Delegates to _sync_audit_agents via asyncio.to_thread so the
+        file I/O and JSON parsing happen off the event loop. The
+        incremental tail cache in read_audit_entries means each call
+        only parses new bytes appended since the last read.
+        """
+        return await asyncio.to_thread(self._sync_audit_agents)
 
     async def kernel_spawn(self, name: str, prompt: str = "", model: str = "sonnet", budget: float = 2.0) -> asyncio.subprocess.Process:
         # Pass prompt via stdin, never as a CLI argument, so it does not
