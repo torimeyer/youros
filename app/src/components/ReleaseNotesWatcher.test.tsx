@@ -454,6 +454,52 @@ describe('ReleaseNotesWatcher', () => {
     expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
   })
 
+  it('does NOT re-show an acknowledged spec in the same session after onboarded resets to false', async () => {
+    // Regression: when onboarded flips to false the old code wiped celebratedRef
+    // in-memory, so the 2s poller immediately re-fired the modal for a recently-
+    // completed spec. The fix only clears localStorage (for future sessions) and
+    // leaves the in-memory dedup set intact.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    const recentMs = Date.now() - 5_000 // inside the 60s grace window
+
+    // Spec previously acknowledged — in localStorage.
+    window.localStorage.setItem(
+      'myos-ephemeral-celebrated-spec-paths',
+      JSON.stringify(['docs/spec/auto-close.md'])
+    )
+    seedStore(true)
+
+    mockedApiGet.mockResolvedValue({
+      docs: [
+        {
+          path: 'docs/spec/auto-close.md',
+          title: 'auto close',
+          status: 'complete',
+          updated_at_ms: recentMs,
+          acceptance_criteria: [],
+        },
+      ],
+    })
+
+    render(<ReleaseNotesWatcher />)
+    // Initial poll: spec already in dedup set — no modal.
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled())
+    expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
+
+    // Simulate demo reset: flip onboarded to false.
+    act(() => seedStore(false))
+
+    // Advance past the 2s poll to trigger the next fetch.
+    await vi.advanceTimersByTimeAsync(2200)
+
+    // Modal must NOT re-appear. The in-memory celebratedRef was preserved.
+    expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
+
+    // localStorage is cleared (future hard-refresh starts clean).
+    expect(window.localStorage.getItem('myos-ephemeral-celebrated-spec-paths')).toBeNull()
+  })
+
   it('closes the release-notes modal when Escape is pressed', async () => {
     // Muscle-memory UX: users hit Esc to dismiss any modal.
     mockedApiGet.mockResolvedValue(specsResponse([]))

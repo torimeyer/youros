@@ -117,7 +117,10 @@ export default function ReleaseNotesWatcher() {
   const onboarded = useAppStore((s) => s.onboarded)
   useEffect(() => {
     if (!onboarded) {
-      celebratedRef.current = new Set<string>()
+      // Clear persisted storage so the next hard-refresh (new demo run) starts
+      // with a clean celebrated set. Do NOT wipe the in-memory ref — that would
+      // allow already-dismissed modals to re-fire in the current session
+      // because the 2s poller finds the spec still complete and still recent.
       try { window.localStorage.removeItem(CELEBRATED_STORAGE_KEY) } catch {
         // ignore
       }
