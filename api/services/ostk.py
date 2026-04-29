@@ -2813,7 +2813,7 @@ class OstkService:
 
     # --- Decisions ---
 
-    async def log_decision(self, key: str, value: str, reason: str = "") -> str:
+    async def log_decision(self, key: str, value: str, reason: str = "", visibility: str = None) -> str:
         """Log a decision via ``ostk decide <key> <value> --reason <reason>``.
 
         Appends an entry to .ostk/decisions.jsonl with the key, value,
@@ -2822,7 +2822,22 @@ class OstkService:
         args = ["decide", key, value]
         if reason:
             args += ["--reason", reason]
-        return await self._run(*args)
+        result = await self._run(*args)
+        if visibility is not None:
+            import json as _json
+            from pathlib import Path as _Path
+            decisions_path = _Path(self.cwd) / ".ostk" / "decisions.jsonl"
+            if decisions_path.exists():
+                lines = decisions_path.read_text().splitlines()
+                if lines:
+                    try:
+                        last = _json.loads(lines[-1])
+                        last["visibility"] = visibility
+                        lines[-1] = _json.dumps(last)
+                        decisions_path.write_text("\n".join(lines) + "\n")
+                    except (_json.JSONDecodeError, OSError):
+                        pass
+        return result
 
     def list_decisions(self) -> list[dict]:
         """Read .ostk/decisions.jsonl and return entries as a list of dicts.

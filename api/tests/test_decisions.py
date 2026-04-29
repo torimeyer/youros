@@ -40,7 +40,7 @@ def test_list_decisions_handles_empty(monkeypatch):
 def test_create_decision_calls_ostk(monkeypatch):
     called = {}
 
-    async def fake_log(key, value, reason):
+    async def fake_log(key, value, reason, visibility=None):
         called["args"] = (key, value, reason)
         return {"logged": True}
 
@@ -60,7 +60,7 @@ def test_create_decision_calls_ostk(monkeypatch):
 def test_create_decision_reason_defaults_to_empty(monkeypatch):
     captured = {}
 
-    async def fake_log(key, value, reason):
+    async def fake_log(key, value, reason, visibility=None):
         captured["reason"] = reason
         return {}
 
