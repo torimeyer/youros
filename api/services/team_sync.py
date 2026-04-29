@@ -78,7 +78,8 @@ def _local_knowledge() -> list:
     if not path.exists():
         return []
     try:
-        return json.loads(path.read_text())
+        data = json.loads(path.read_text())
+        return data if isinstance(data, list) else []
     except Exception:
         return []
 
@@ -101,9 +102,10 @@ def sync_outbound(cfg: TeamConfig) -> dict:
         "needles": _local_needles(),
     }
 
-    pushed = False
+    pushed_count = 0
     for category, items in categories.items():
         shared = [i for i in items if resolve_visibility(i, category, cfg) == "shared"]
+        pushed_count += len(shared)
         out_path = member_dir / f"{category}.jsonl"
         out_path.write_text("\n".join(json.dumps(i) for i in shared) + ("\n" if shared else ""))
 
@@ -118,14 +120,13 @@ def sync_outbound(cfg: TeamConfig) -> dict:
             cwd=cfg.team_repo, capture_output=True, timeout=10
         )
         if result.returncode == 0:
-            push_result = subprocess.run(
+            subprocess.run(
                 ["git", "push"], cwd=cfg.team_repo, capture_output=True, timeout=30
             )
-            pushed = push_result.returncode == 0
     except Exception:
         pass
 
-    return {"pushed": pushed}
+    return {"pushed": pushed_count}
 
 
 def sync_inbound(cfg: TeamConfig) -> dict:
@@ -141,6 +142,7 @@ def sync_inbound(cfg: TeamConfig) -> dict:
 
     cache: dict = {}
     team_repo = Path(cfg.team_repo)
+    pulled_count = 0
 
     for member_dir in team_repo.iterdir():
         if not member_dir.is_dir():
@@ -162,14 +164,16 @@ def sync_inbound(cfg: TeamConfig) -> dict:
 
         member_data: dict = {"display_name": display_name}
         for category in ("decisions", "knowledge", "needles"):
-            member_data[category] = _load_jsonl(member_dir / f"{category}.jsonl")
+            items = _load_jsonl(member_dir / f"{category}.jsonl")
+            member_data[category] = items
+            pulled_count += len(items)
 
         cache[member_id] = member_data
 
     MYOS_DIR.mkdir(parents=True, exist_ok=True)
     TEAM_CACHE_PATH.write_text(json.dumps(cache, indent=2))
 
-    return {"pulled": pulled}
+    return {"pulled": pulled_count}
 
 
 def _load_cache() -> dict:
