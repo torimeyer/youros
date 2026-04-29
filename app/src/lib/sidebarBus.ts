@@ -185,6 +185,7 @@ export function bumpAll(): void {
   bumpTasks()
   bumpSpecs()
   bumpCalendar()
+  notifyInboxChange()
 }
 
 // Test-only helper.
