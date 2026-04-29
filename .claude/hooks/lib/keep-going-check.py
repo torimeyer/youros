@@ -24,7 +24,7 @@ for a in agents_data.get("agents", []) or []:
     if a.get("status") != "running":
         continue
     src = a.get("source")
-    if src != "claude-code" or src in EXCLUDE_SOURCES:
+    if src not in ("claude-code", "task-bridge") or src in EXCLUDE_SOURCES:
         continue
     name = a.get("name") or ""
     if not name or name.startswith("claude-code-"):
