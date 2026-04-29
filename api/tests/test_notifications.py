@@ -487,6 +487,89 @@ async def test_infra_agent_complete_no_notification(tmp_path, infra_name):
     )
 
 
+def test_notifications_store_isolated_from_real_home(tmp_path):
+    """Regression: test runs were leaking roadmap_ready notifications into
+    ~/.myos/notifications.json because the conftest did not redirect
+    NOTIFICATIONS_FILE. After the fix, the module-level constant must point
+    to a tmp path, never to the real user store."""
+    import services.notifications as mod
+    real_file = Path.home() / ".myos" / "notifications.json"
+    assert mod.NOTIFICATIONS_FILE != real_file, (
+        "NOTIFICATIONS_FILE still points at the real user store; "
+        "the conftest autouse fixture failed to redirect it. "
+        "Every roadmap test run would pollute ~/.myos/notifications.json."
+    )
+
+
+@pytest.mark.asyncio
+async def test_roadmap_complete_notification_goes_to_isolated_store(tmp_path):
+    """Roadmap agent /complete must write its roadmap_ready notification to
+    the isolated store (the path NOTIFICATIONS_FILE currently points to),
+    not hardcoded to ~/.myos/notifications.json."""
+    from unittest.mock import AsyncMock
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+    import services.notifications as notif_mod
+
+    agent_name = "roadmap-isolation-test-agent"
+    agent_metadata[agent_name] = {
+        "spawned_at": "2026-04-15T10:00:00+00:00",
+        "template": "Roadmap",
+        "status": "running",
+    }
+
+    fake_files = tmp_path / "files"
+    fake_files.mkdir()
+    real_file = Path.home() / ".myos" / "notifications.json"
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        try:
+            with patch.object(agents_module, "MYOS_FILES_DIR", fake_files), \
+                 patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents.ostk") as mock_ostk, \
+                 patch("config.PROJECT_ROOT", tmp_path):
+                mock_ostk._run = AsyncMock(return_value="")
+                mock_ostk.kernel_ps = AsyncMock(return_value={
+                    "raw": "", "daemon_running": False, "agents": [],
+                })
+                mock_ostk.audit_agents = AsyncMock(return_value=[])
+                mock_ostk.append_nudge_reply = AsyncMock(
+                    return_value={"message": "ok", "timestamp": "2026-04-15T10:01:00+00:00"}
+                )
+
+                resp = await client.post(
+                    f"/api/agents/{agent_name}/complete",
+                    json={"summary": "Q1 goals: build amazing things. Ship fast. Learn. Grow."},
+                )
+            assert resp.status_code == 200
+        finally:
+            agent_metadata.pop(agent_name, None)
+
+    # Notification must be in the isolated store
+    all_notifs = notif_mod.notifications_service.list_all()
+    roadmap_notifs = [n for n in all_notifs if n.type == "roadmap_ready"]
+    assert len(roadmap_notifs) == 1, (
+        f"Expected exactly 1 roadmap_ready notification in the isolated store, got {len(roadmap_notifs)}"
+    )
+
+    # Real file must not have been created or modified by this test
+    if real_file.exists():
+        import json as _json
+        real_data = _json.loads(real_file.read_text())
+        paths_in_real = [
+            n.get("metadata", {}).get("roadmap_path", "")
+            for n in real_data
+            if n.get("type") == "roadmap_ready"
+        ]
+        assert not any(str(tmp_path) in p for p in paths_in_real), (
+            "A roadmap_ready notification pointing at the test tmp_path was "
+            "found in the real ~/.myos/notifications.json — the isolation fix failed."
+        )
+
+
 @pytest.mark.asyncio
 async def test_normal_user_agent_complete_fires_notification(tmp_path):
     """A normal user-spawned agent must still produce a completion notification

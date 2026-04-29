@@ -489,3 +489,110 @@ async def test_lock_released_on_subprocess_error(monkeypatch):
             agent_metadata.pop(n, None)
             active_agents.pop(n, None)
         _reset_registry()
+
+
+# ---------------------------------------------------------------------------
+# 7. Regression: task-specific locks let two comprehensive-build spawns
+#    run in parallel without 409 conflicts.
+#
+# Before the fix, Tasks.tsx used BUILD_LOCKS = ["app/**", "api/**", ...]
+# for every build spawn. Two spawns for different tasks both tried to
+# acquire the same broad locks, so the second got 409 while the first
+# agent was still running. The fix uses task-specific locks
+# ("tasks/{taskId}") so different tasks never conflict.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_task_specific_locks_allow_parallel_comprehensive_builds(monkeypatch):
+    """Two comprehensive-build spawns for different tasks must succeed in
+    parallel. Task-specific locks like 'tasks/task-123' and 'tasks/task-456'
+    never overlap, so neither spawn gets 409."""
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+
+    _install_spawn_doubles(monkeypatch)
+    _reset_registry()
+
+    task_a_name = "implement-task123abc"
+    task_b_name = "implement-task456def"
+    for n in (task_a_name, task_b_name):
+        agent_metadata.pop(n, None)
+        active_agents.pop(n, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp_a = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": task_a_name,
+                    "prompt": "Implement this task: 'Add dark mode'. Follow the comprehensive build pattern.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "locks": ["tasks/task-123"],
+                },
+            )
+            assert resp_a.status_code == 200, resp_a.text
+
+            # Different task-specific lock — must NOT get 409
+            resp_b = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": task_b_name,
+                    "prompt": "Implement this task: 'Fix login bug'. Follow the comprehensive build pattern.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "locks": ["tasks/task-456"],
+                },
+            )
+            assert resp_b.status_code == 200, (
+                f"Second comprehensive-build spawn got 409 (broad BUILD_LOCKS regression): {resp_b.text}"
+            )
+    finally:
+        for n in (task_a_name, task_b_name):
+            agent_metadata.pop(n, None)
+            active_agents.pop(n, None)
+        _reset_registry()
+
+
+@pytest.mark.asyncio
+async def test_same_task_lock_prevents_duplicate_spawn(monkeypatch):
+    """Spawning the same task twice (same task-specific lock) must return
+    409, preventing duplicate comprehensive-build runs for one task."""
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+    from services.spawn_isolation import acquire_spawn_locks
+
+    _install_spawn_doubles(monkeypatch)
+    _reset_registry()
+
+    # Pre-acquire the lock as if a first spawn is already running.
+    holder_id = "implement-task789-first"
+    ok, _, _ = acquire_spawn_locks(spawn_id=holder_id, locks=["tasks/task-789"])
+    assert ok, "seed lock must acquire"
+
+    second_name = "implement-task789-second"
+    agent_metadata.pop(second_name, None)
+    active_agents.pop(second_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": second_name,
+                    "prompt": "Implement this task: 'Add dark mode' (retry).",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "locks": ["tasks/task-789"],
+                },
+            )
+        assert resp.status_code == 409, resp.text
+        detail = resp.json().get("detail") or {}
+        assert holder_id in str(detail), "409 body must name the holder"
+    finally:
+        agent_metadata.pop(second_name, None)
+        active_agents.pop(second_name, None)
+        _reset_registry()

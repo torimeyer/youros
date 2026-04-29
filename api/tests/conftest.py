@@ -346,6 +346,27 @@ def _pin_myos_files_dir_to_tmp(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_notifications_store(tmp_path, monkeypatch):
+    """Redirect NOTIFICATIONS_FILE to a tmp path for every test.
+
+    Without this, any code path that calls notifications_service.add()
+    (e.g. _save_agent_output_to_files for roadmap completions) writes a
+    real entry to ~/.myos/notifications.json. That causes stale
+    'Roadmap ready' toasts to appear in the app after every test run,
+    even though the user never created a roadmap.
+    """
+    try:
+        import services.notifications as _notif_mod
+    except Exception:
+        yield
+        return
+    fake_notifications = tmp_path / "notifications.json"
+    monkeypatch.setattr(_notif_mod, "NOTIFICATIONS_FILE", fake_notifications)
+    monkeypatch.setattr(_notif_mod, "MYOS_DIR", tmp_path)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _isolate_external_data_sources():
     """Prevent tests from reading real Claude Code transcripts or live agent state.
 

@@ -21,11 +21,13 @@ def clear_savings_caches():
     token_metrics.invalidate_conv_totals_cache()
     from routers import costs as costs_router
     costs_router._savings_cache.clear()
+    costs_router._savings_refresh_in_flight.clear()
     costs_router.invalidate_metrics_parse_cache()
     yield
     token_metrics.invalidate_savings_cache()
     token_metrics.invalidate_conv_totals_cache()
     costs_router._savings_cache.clear()
+    costs_router._savings_refresh_in_flight.clear()
     costs_router.invalidate_metrics_parse_cache()
 
 

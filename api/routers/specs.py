@@ -1629,6 +1629,10 @@ async def build_spec(spec_path: str):
         # Claude model regardless of chat preference.
         cfg_model = cfg.get("model")
         chosen_model = cfg_model or "sonnet"
+        # Use a task-specific lock so parallel builder spawns for different
+        # tasks never conflict with each other, while preventing the same
+        # task from being spawned twice (same lock key → 409 if still held).
+        spawn_lock = [f"tasks/{task_id}"] if task_id else [f"specs/{spec_path}"]
         body = AgentSpawn(
             name=name,
             prompt=prompt_with_close,
@@ -1637,6 +1641,7 @@ async def build_spec(spec_path: str):
             template="builder",
             source="spec-build",
             task=friendly_task,
+            locks=spawn_lock,
         )
         # Record assignment up front so the first poll after the HTTP
         # return already shows the agent-to-task mapping. Also record the
