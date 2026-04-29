@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from services import inbox as inbox_service
+from services import recent_deletes
 
 router = APIRouter(tags=["inbox"])
 
@@ -25,4 +26,5 @@ async def dismiss_item(item_id: str):
     found = inbox_service.dismiss(item_id)
     if not found:
         raise HTTPException(status_code=404, detail="Item not found.")
+    recent_deletes.record_id(item_id)
     return {"ok": True}
