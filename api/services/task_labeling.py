@@ -21,6 +21,7 @@ from services.label_suggester import suggest_labels
 from services.labels_store import labels_store
 from services.settings_store import settings_store
 from services.task_labels_store import task_labels_store
+from services.task_priority_suggester import suggest_priority, decay_priority, days_since
 
 logger = logging.getLogger(__name__)
 
@@ -80,3 +81,21 @@ def schedule_auto_labels(task_id: Optional[str], title: str, description: str = 
         asyncio.create_task(apply_auto_labels(task_id, title, description or ""))
     except Exception as exc:
         logger.warning("could not schedule auto-label for %s: %s", task_id, exc)
+
+
+def get_priority_suggestion(title: str, description: str = "") -> dict:
+    """Return a priority suggestion for a task without side effects.
+
+    Wraps ``suggest_priority`` so callers can import from a single module.
+    """
+    return suggest_priority(title, description)
+
+
+def get_decayed_priority(priority: str, last_updated_at: str, decay_days: int = 14) -> str:
+    """Return the effective priority after applying stale-decay rules.
+
+    ``last_updated_at`` is an ISO-8601 timestamp. ``decay_days`` is the
+    configurable window; tasks untouched longer than this are demoted.
+    """
+    staleness = days_since(last_updated_at)
+    return decay_priority(priority, staleness, decay_days)
