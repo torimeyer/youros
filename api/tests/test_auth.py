@@ -381,3 +381,227 @@ def test_google_client_secret_returns_empty_when_unset():
     finally:
         if orig is not None:
             os.environ["GOOGLE_CLIENT_SECRET"] = orig
+
+
+# --- /api/auth/slack/login ---
+
+
+@pytest.mark.asyncio
+async def test_slack_login_redirects_to_slack(client):
+    """When SLACK_CLIENT_ID is configured, /api/auth/slack/login should redirect to Slack."""
+    with patch("routers.auth._slack_client_id", return_value="test-slack-client-id"):
+        resp = await client.get("/api/auth/slack/login", follow_redirects=False)
+
+    assert resp.status_code == 307
+    location = resp.headers["location"]
+    assert "slack.com/oauth/v2/authorize" in location
+
+
+@pytest.mark.asyncio
+async def test_slack_login_includes_client_id(client):
+    """The Slack login redirect URL must include the client_id."""
+    with patch("routers.auth._slack_client_id", return_value="my-slack-client-id"):
+        resp = await client.get("/api/auth/slack/login", follow_redirects=False)
+
+    location = resp.headers["location"]
+    assert "client_id=my-slack-client-id" in location
+
+
+@pytest.mark.asyncio
+async def test_slack_login_includes_required_bot_scopes(client):
+    """The login redirect must include all required bot scopes."""
+    with patch("routers.auth._slack_client_id", return_value="cid"):
+        resp = await client.get("/api/auth/slack/login", follow_redirects=False)
+
+    location = resp.headers["location"]
+    assert "channels%3Aread" in location or "channels:read" in location
+    assert "channels%3Ahistory" in location or "channels:history" in location
+    assert "chat%3Awrite" in location or "chat:write" in location
+    assert "users%3Aread" in location or "users:read" in location
+
+
+@pytest.mark.asyncio
+async def test_slack_login_includes_state_for_csrf(client):
+    """The login redirect must include a state parameter for CSRF protection."""
+    with patch("routers.auth._slack_client_id", return_value="cid"):
+        resp = await client.get("/api/auth/slack/login", follow_redirects=False)
+
+    assert "state=" in resp.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_slack_login_error_when_not_configured(client):
+    """When Slack is not configured, redirect with an error instead of crashing."""
+    with patch("routers.auth._slack_client_id", return_value=""):
+        resp = await client.get("/api/auth/slack/login", follow_redirects=False)
+
+    assert resp.status_code == 307
+    assert "auth_error=slack_not_configured" in resp.headers["location"]
+
+
+# --- /api/auth/slack/callback ---
+
+
+@pytest.mark.asyncio
+async def test_slack_callback_error_param_redirects(client):
+    """If Slack returns an error, redirect with that error."""
+    resp = await client.get(
+        "/api/auth/slack/callback?error=access_denied",
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 307
+    assert "auth_error=access_denied" in resp.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_slack_callback_invalid_state_redirects(client):
+    """Reject callbacks with an unrecognised state value."""
+    resp = await client.get(
+        "/api/auth/slack/callback?code=abc&state=bogus-state",
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 307
+    assert "auth_error=invalid_state" in resp.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_slack_callback_stores_workspace_id_and_access_token(client, tmp_path):
+    """A successful callback must persist workspace_id and access_token."""
+    from routers.auth import _oauth_states
+
+    _oauth_states["slack-good-state"] = True
+
+    slack_response = {
+        "ok": True,
+        "access_token": "xoxb-test-bot-token",
+        "team": {"id": "T12345", "name": "Acme Corp"},
+        "authed_user": {"id": "U99"},
+    }
+
+    token_path = tmp_path / "slack_token.json"
+
+    with (
+        patch("routers.auth._slack_client_id", return_value="cid"),
+        patch("routers.auth._slack_client_secret", return_value="secret"),
+        patch("services.slack.exchange_code", new_callable=AsyncMock) as mock_exchange,
+    ):
+        mock_exchange.return_value = {
+            **slack_response,
+            "workspace_id": "T12345",
+            "workspace_name": "Acme Corp",
+        }
+        resp = await client.get(
+            "/api/auth/slack/callback?code=slack-code&state=slack-good-state",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 307
+    assert "/slack?connected=true" in resp.headers["location"]
+    mock_exchange.assert_called_once()
+    call_kwargs = mock_exchange.call_args.kwargs
+    assert call_kwargs["code"] == "slack-code"
+    assert call_kwargs["client_id"] == "cid"
+    assert call_kwargs["client_secret"] == "secret"
+
+
+@pytest.mark.asyncio
+async def test_slack_callback_token_exchange_failure(client):
+    """If the token exchange fails, redirect with an error."""
+    from routers.auth import _oauth_states
+
+    _oauth_states["slack-fail-state"] = True
+
+    with (
+        patch("routers.auth._slack_client_id", return_value="cid"),
+        patch("routers.auth._slack_client_secret", return_value="secret"),
+        patch("services.slack.exchange_code", new_callable=AsyncMock, side_effect=RuntimeError("bad")),
+    ):
+        resp = await client.get(
+            "/api/auth/slack/callback?code=bad&state=slack-fail-state",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 307
+    assert "auth_error=token_exchange_failed" in resp.headers["location"]
+
+
+# --- services/slack.py workspace field tests ---
+
+
+class TestSlackWorkspaceFields:
+    def test_exchange_code_saves_flat_workspace_fields(self, tmp_path):
+        """exchange_code must store workspace_id and workspace_name at the top level."""
+        import json as _json
+        from unittest.mock import AsyncMock, patch, MagicMock
+
+        slack_data = {
+            "ok": True,
+            "access_token": "xoxb-abc",
+            "team": {"id": "T99", "name": "Test Workspace"},
+        }
+
+        token_path = tmp_path / "slack_token.json"
+        saved = {}
+
+        def fake_write(path, data):
+            saved.update(data)
+            path.write_text(_json.dumps(data))
+
+        import asyncio
+
+        async def run():
+            with (
+                patch("services.slack.TOKEN_PATH", token_path),
+                patch("services.slack.MYOS_DIR", tmp_path),
+                patch("services.slack.atomic_write_json", side_effect=fake_write),
+                patch("services.slack.httpx.AsyncClient") as MockClient,
+            ):
+                mock_resp = MagicMock()
+                mock_resp.json.return_value = slack_data
+                mock_inst = AsyncMock()
+                mock_inst.post = AsyncMock(return_value=mock_resp)
+                mock_inst.__aenter__ = AsyncMock(return_value=mock_inst)
+                mock_inst.__aexit__ = AsyncMock(return_value=None)
+                MockClient.return_value = mock_inst
+
+                from services.slack import exchange_code
+                result = await exchange_code("code", "cid", "secret", "https://example.com/cb")
+
+        asyncio.get_event_loop().run_until_complete(run())
+        assert saved.get("workspace_id") == "T99"
+        assert saved.get("workspace_name") == "Test Workspace"
+
+    def test_get_team_info_reads_flat_fields(self, tmp_path):
+        """get_team_info must read flat workspace_id/workspace_name first."""
+        import json as _json
+        token_path = tmp_path / "slack_token.json"
+        token_path.write_text(_json.dumps({
+            "access_token": "xoxb-abc",
+            "workspace_id": "T42",
+            "workspace_name": "Flat Workspace",
+        }))
+
+        with __import__("unittest.mock", fromlist=["patch"]).patch("services.slack.TOKEN_PATH", token_path):
+            from services.slack import get_team_info
+            info = get_team_info()
+
+        assert info["team_id"] == "T42"
+        assert info["team_name"] == "Flat Workspace"
+
+    def test_get_team_info_falls_back_to_nested_team(self, tmp_path):
+        """get_team_info must fall back to nested team object for older token files."""
+        import json as _json
+        token_path = tmp_path / "slack_token.json"
+        token_path.write_text(_json.dumps({
+            "access_token": "xoxb-old",
+            "team": {"id": "T-old", "name": "Old Workspace"},
+        }))
+
+        with __import__("unittest.mock", fromlist=["patch"]).patch("services.slack.TOKEN_PATH", token_path):
+            from services.slack import get_team_info
+            info = get_team_info()
+
+        assert info["team_id"] == "T-old"
+        assert info["team_name"] == "Old Workspace"

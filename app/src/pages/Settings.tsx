@@ -8,6 +8,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
+import SlackConnect from '../components/SlackConnect';
 
 interface MCPServer {
   name: string;
@@ -1844,6 +1845,15 @@ export default function Settings() {
                 </div>
               );
             })}
+          </div>
+
+          {/* Slack one-click connect */}
+          <div className={cardClass} data-testid="slack-connect-section">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="forum" size={18} className="text-purple-400" />
+              <h2 className="text-base font-semibold">Slack</h2>
+            </div>
+            <SlackConnect />
           </div>
           </div>
 

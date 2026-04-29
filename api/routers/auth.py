@@ -1,7 +1,8 @@
-"""OAuth routes for Google Gemini sign-in."""
+"""OAuth routes for Google Gemini and Slack sign-in."""
 
 import os
 import secrets
+import urllib.parse
 
 import httpx
 from fastapi import APIRouter, Request
@@ -12,6 +13,9 @@ from services.settings_store import settings_store
 router = APIRouter(tags=["auth"])
 
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/cloud-platform"
+
+SLACK_BOT_SCOPES = "channels:read,channels:history,chat:write,groups:read,groups:history,users:read"
+SLACK_USER_SCOPES = "search:read"
 
 # In-memory state for CSRF protection during OAuth
 _oauth_states: dict[str, bool] = {}
@@ -102,3 +106,76 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
     # In dev mode, redirect to the Vite dev server instead of the backend
     frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
     return RedirectResponse(f"{frontend_url}/?auth_success=google")
+
+
+def _slack_client_id() -> str:
+    return str(settings_store.get("slack_client_id", "") or os.environ.get("SLACK_CLIENT_ID", ""))
+
+
+def _slack_client_secret() -> str:
+    return str(settings_store.get("slack_client_secret", "") or os.environ.get("SLACK_CLIENT_SECRET", ""))
+
+
+def _slack_redirect_uri(request: Request) -> str:
+    stored = str(settings_store.get("slack_redirect_uri", "") or os.environ.get("SLACK_REDIRECT_URI", ""))
+    if stored:
+        return stored
+    base_url = str(request.base_url).rstrip("/")
+    return f"{base_url}/api/auth/slack/callback"
+
+
+@router.get("/api/auth/slack/login")
+async def slack_login(request: Request):
+    """Redirect the user to Slack's OAuth consent screen."""
+    client_id = _slack_client_id()
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    if not client_id:
+        return RedirectResponse(f"{frontend_url}/?auth_error=slack_not_configured")
+
+    state = secrets.token_urlsafe(32)
+    _oauth_states[state] = True
+
+    params = {
+        "client_id": client_id,
+        "scope": SLACK_BOT_SCOPES,
+        "user_scope": SLACK_USER_SCOPES,
+        "redirect_uri": _slack_redirect_uri(request),
+        "state": state,
+    }
+    auth_url = "https://slack.com/oauth/v2/authorize?" + urllib.parse.urlencode(params)
+    return RedirectResponse(auth_url)
+
+
+@router.get("/api/auth/slack/callback")
+async def slack_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    """Handle the OAuth callback from Slack."""
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+
+    if error:
+        return RedirectResponse(f"{frontend_url}/?auth_error=" + error)
+
+    if state and state not in _oauth_states:
+        return RedirectResponse(f"{frontend_url}/?auth_error=invalid_state")
+    if state:
+        del _oauth_states[state]
+
+    if not code:
+        return RedirectResponse(f"{frontend_url}/?auth_error=no_code")
+
+    client_id = _slack_client_id()
+    client_secret = _slack_client_secret()
+    if not client_id or not client_secret:
+        return RedirectResponse(f"{frontend_url}/?auth_error=slack_not_configured")
+
+    from services import slack as slack_service
+    try:
+        await slack_service.exchange_code(
+            code=code,
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=_slack_redirect_uri(request),
+        )
+    except RuntimeError:
+        return RedirectResponse(f"{frontend_url}/?auth_error=token_exchange_failed")
+
+    return RedirectResponse(f"{frontend_url}/slack?connected=true")

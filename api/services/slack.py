@@ -100,9 +100,12 @@ def get_team_info() -> Optional[dict]:
         return None
     try:
         tokens = json.loads(TOKEN_PATH.read_text())
+        # Flat fields (written by exchange_code) take priority; fall back to
+        # nested team object from the raw Slack OAuth response.
+        team_obj = tokens.get("team") or {}
         return {
-            "team_name": tokens.get("team_name", ""),
-            "team_id": tokens.get("team_id", ""),
+            "team_name": tokens.get("workspace_name") or team_obj.get("name", ""),
+            "team_id": tokens.get("workspace_id") or team_obj.get("id", ""),
         }
     except Exception:
         return None
@@ -288,6 +291,13 @@ async def exchange_code(
         data = resp.json()
         if not data.get("ok"):
             raise RuntimeError(f"Slack OAuth failed: {data.get('error', 'unknown')}")
-        # Persist all token data
-        save_tokens(data)
-        return data
+        # Extract workspace fields from the nested team object and save them
+        # flat so get_team_info() can read them without parsing the raw Slack shape.
+        team_obj = data.get("team") or {}
+        enriched = {
+            **data,
+            "workspace_id": team_obj.get("id", ""),
+            "workspace_name": team_obj.get("name", ""),
+        }
+        save_tokens(enriched)
+        return enriched
