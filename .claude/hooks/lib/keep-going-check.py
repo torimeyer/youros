@@ -6,8 +6,22 @@ if open tasks exist and no user-spawned agents are running.
 """
 import json, os, sys
 
-tasks_raw  = os.environ.get("TASKS_JSON", "")
-agents_raw = os.environ.get("AGENTS_JSON", "")
+# Prefer file-based input (large agent payloads overflow env-var arglist).
+# Fall back to env vars for fixture/test compatibility.
+tasks_path  = os.environ.get("KGO_TASKS_FILE")
+agents_path = os.environ.get("KGO_AGENTS_FILE")
+
+def _load(path, env_key):
+    if path and os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                return f.read()
+        except Exception:
+            return ""
+    return os.environ.get(env_key, "")
+
+tasks_raw  = _load(tasks_path, "TASKS_JSON")
+agents_raw = _load(agents_path, "AGENTS_JSON")
 
 if not tasks_raw or not agents_raw:
     sys.exit(0)

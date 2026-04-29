@@ -20,6 +20,15 @@ fi
 [ -z "$TASKS_JSON" ] && exit 0
 [ -z "$AGENTS_JSON" ] && exit 0
 
-TASKS_JSON="$TASKS_JSON" AGENTS_JSON="$AGENTS_JSON"   python3 "${SCRIPT_DIR}/lib/keep-going-check.py"
+# Pipe via temp files so 500KB+ agent payloads do not overflow the env-var
+# argument list (caused "Argument list too long" with 950+ agents in the system).
+TMP_T="$(mktemp -t kgo-tasks-XXXXXX)"
+TMP_A="$(mktemp -t kgo-agents-XXXXXX)"
+trap 'rm -f "$TMP_T" "$TMP_A"' EXIT
+printf '%s' "$TASKS_JSON" > "$TMP_T"
+printf '%s' "$AGENTS_JSON" > "$TMP_A"
+
+KGO_TASKS_FILE="$TMP_T" KGO_AGENTS_FILE="$TMP_A" \
+  python3 "${SCRIPT_DIR}/lib/keep-going-check.py"
 
 exit 0
