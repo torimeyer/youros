@@ -1798,7 +1798,63 @@ _RESOLVE_TTL_SECONDS = 30.0
 # can amplify the cold pass from ~5s to >120s. With the lock, only one
 # pass runs at a time; once it warms the caches, every queued poller gets
 # a near-zero pass.
-_enrich_lock = asyncio.Lock()
+import threading as _threading
+_enrich_thread_lock = _threading.Lock()
+
+
+def _run_enrich_pipeline(
+    all_agents: list,
+    deleted_names: set,
+    now_for_sweep: "datetime",
+    user_spawned_filter: "Optional[Any]",
+    filter_status: "Optional[str]",
+    filter_source: "Optional[str]",
+    limit: "Optional[int]",
+) -> list:
+    """Run the status-flip, filter, and enrich passes in a thread.
+
+    Holds _enrich_thread_lock so concurrent /api/agents callers don't
+    duplicate the cold filesystem scan. Once the first pass warms the
+    resolve and metrics caches every queued caller runs in milliseconds.
+    All I/O here is synchronous and belongs in a thread (not in the
+    event loop) so TLS handshakes for other endpoints are never blocked.
+    """
+    with _enrich_thread_lock:
+        # 1. Status flip for terminated_stale rows still active on disk.
+        for agent in all_agents:
+            if agent.get("status") == "terminated_stale" and _transcript_recently_active(
+                agent["name"], now_for_sweep
+            ):
+                agent["status"] = "running"
+        # 2. Apply filters.
+        filtered: list = [a for a in all_agents if a.get("name") not in deleted_names]
+        if user_spawned_filter is not None:
+            filtered = [a for a in filtered if user_spawned_filter(a)]
+        if filter_status:
+            filtered = [a for a in filtered if a.get("status") == filter_status]
+        if filter_source:
+            filtered = [a for a in filtered if a.get("source") == filter_source]
+        if limit is not None and limit >= 0:
+            filtered = sorted(filtered, key=lambda a: a.get("spawned_at") or "")[:limit]
+        # 3. Enrich the filtered subset with transcript metrics and cost.
+        for agent in filtered:
+            metrics = _get_transcript_metrics(agent["name"])
+            agent.update(metrics)
+            meta = agent_metadata.get(agent["name"], {})
+            tokens_used = meta.get("tokens_used", 0)
+            token_limit = meta.get("token_limit")
+            agent["tokens_used"] = tokens_used
+            agent["token_limit"] = token_limit
+            if token_limit and token_limit > 0:
+                agent["token_usage_pct"] = round(tokens_used / token_limit * 100, 1)
+            else:
+                agent["token_usage_pct"] = None
+            agent["cost_estimate"] = _estimate_cost(
+                meta.get("model", ""), tokens_used
+            )
+            agent["recovery_count"] = meta.get("recovery_count", 0)
+            agent["max_recoveries"] = MAX_RECOVERY_ATTEMPTS
+    return filtered
 
 
 def _reset_transcript_resolver_cache() -> None:
@@ -2671,7 +2727,11 @@ async def list_agents(
 
     # 1. Audit log agents (lowest priority, background context)
     from config import PROJECT_ROOT
+    _audit_i = 0
     for agent in audit_agents_list:
+        _audit_i += 1
+        if _audit_i % 10 == 0:
+            await asyncio.sleep(0)
         # If no daemon is running and audit says "spawned", the agent is dead.
         # Also if daemon IS running but this agent isn't in the daemon's list.
         if agent.get("status") in ("spawned", "running"):
@@ -2743,7 +2803,11 @@ async def list_agents(
     # requests in the asyncio loop long enough for the SSL handshake
     # timeout to trip on queued requests.
     persisted_pass_changed = False
+    _meta_i = 0
     for name, meta in agent_metadata.items():
+        _meta_i += 1
+        if _meta_i % 10 == 0:
+            await asyncio.sleep(0)
         if name in active_agents:
             continue  # in-memory process, step 2 already handled it
         # If this agent is already in agents_map from the audit log (step 1)
@@ -2984,7 +3048,11 @@ async def list_agents(
     # becomes eligible for the fast 10-minute sweep.
     sweep_changed = False
     now_for_sweep = datetime.now(timezone.utc)
+    _sweep_i = 0
     for name, agent in agents_map.items():
+        _sweep_i += 1
+        if _sweep_i % 10 == 0:
+            await asyncio.sleep(0)
         if agent.get("status") != "running":
             continue
         last_heartbeat_raw = agent.get("last_heartbeat_at")
@@ -3142,69 +3210,27 @@ async def list_agents(
     all_agents = list(agents_map.values())
 
     # Status flip + filter + enrich, all in one thread.
-    # The status flip calls _transcript_recently_active, which resolves
-    # transcript paths on the filesystem. With ~850 rows and many in
-    # terminated_stale status, this loop alone takes 5-25s of cold work.
-    # Filtering first then enriching the subset keeps the standing-rules
-    # hook (status=running&limit=20) cheap by enriching only a few rows.
-    # Whole pipeline runs in to_thread so the event loop accepts incoming
-    # TLS handshakes during the work; _enrich_lock serializes concurrent
-    # pollers onto a single cold pass.
+    # _transcript_recently_active and _get_transcript_metrics both do
+    # synchronous filesystem I/O. Running them in the event loop with
+    # sleep(0) yields still blocks TLS handshakes between yields. Moving
+    # the whole pipeline into asyncio.to_thread keeps the loop free.
+    # _run_enrich_pipeline holds _enrich_thread_lock so concurrent pollers
+    # don't duplicate the cold scan; once warm the queued callers run fast.
     if user_spawned_only:
         from services.agent_filters import is_user_spawned_agent
     else:
         is_user_spawned_agent = None  # type: ignore[assignment]
 
-    # Serialize the heavy enrich pipeline. Concurrent unfiltered requests
-    # otherwise multiply their O(N) filesystem work into O(N^2) wall time
-    # via sleep(0) yields ping-ponging between them. With the lock, the
-    # first request warms the resolve and metrics caches in ~5-10s; every
-    # queued waiter then runs in milliseconds because the cache is hot.
-    async with _enrich_lock:
-        # 1. Pre-filter status flip for terminated_stale rows still active.
-        # _transcript_recently_active hits the filesystem; yield every 10
-        # iterations so the event loop can accept incoming TLS handshakes
-        # while we work through the fleet.
-        for i, agent in enumerate(all_agents):
-            if i % 10 == 0:
-                await asyncio.sleep(0)
-            if agent.get("status") == "terminated_stale" and _transcript_recently_active(
-                agent["name"], now_for_sweep
-            ):
-                agent["status"] = "running"
-        # 2. Apply filters (cheap, no yields needed).
-        filtered_agents = [a for a in all_agents if a.get("name") not in deleted_names]
-        if is_user_spawned_agent is not None:
-            filtered_agents = [a for a in filtered_agents if is_user_spawned_agent(a)]
-        if filter_status:
-            filtered_agents = [a for a in filtered_agents if a.get("status") == filter_status]
-        if filter_source:
-            filtered_agents = [a for a in filtered_agents if a.get("source") == filter_source]
-        if limit is not None and limit >= 0:
-            filtered_agents = sorted(
-                filtered_agents, key=lambda a: a.get("spawned_at") or ""
-            )[:limit]
-        # 3. Enrich the filtered subset, yielding every 10 to keep the loop
-        # responsive on cold caches.
-        for i, agent in enumerate(filtered_agents):
-            if i % 10 == 0:
-                await asyncio.sleep(0)
-            metrics = _get_transcript_metrics(agent["name"])
-            agent.update(metrics)
-            meta = agent_metadata.get(agent["name"], {})
-            tokens_used = meta.get("tokens_used", 0)
-            token_limit = meta.get("token_limit")
-            agent["tokens_used"] = tokens_used
-            agent["token_limit"] = token_limit
-            if token_limit and token_limit > 0:
-                agent["token_usage_pct"] = round(tokens_used / token_limit * 100, 1)
-            else:
-                agent["token_usage_pct"] = None
-            agent["cost_estimate"] = _estimate_cost(
-                meta.get("model", ""), tokens_used
-            )
-            agent["recovery_count"] = meta.get("recovery_count", 0)
-            agent["max_recoveries"] = MAX_RECOVERY_ATTEMPTS
+    filtered_agents = await asyncio.to_thread(
+        _run_enrich_pipeline,
+        all_agents,
+        deleted_names,
+        now_for_sweep,
+        is_user_spawned_agent,
+        filter_status,
+        filter_source,
+        limit,
+    )
 
     if summary:
         # description + model are required by the frontend's
