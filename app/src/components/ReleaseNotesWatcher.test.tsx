@@ -351,6 +351,59 @@ describe('ReleaseNotesWatcher', () => {
     expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
   })
 
+  it('does not re-fire a previously-acknowledged notification after onboarded flips to false', async () => {
+    // Regression: PATCH /api/settings {onboarded:false} (demo reset) clears
+    // the ephemeral spec-path dedup (celebratedRef + localStorage). The old
+    // code used seenFeatureLiveIdRef which was in-memory only and reset to
+    // null on every page load (component remount). So:
+    //   1. User sees "auto close is live" notification → dismisses it
+    //   2. Demo reset sets onboarded=false → celebratedRef cleared
+    //   3. Page reload → seenFeatureLiveIdRef = null, celebratedRef empty
+    //   4. lastFeatureLive still in store → modal re-fires
+    //
+    // Fix: notification IDs are now stored in myos-permanent-seen-notification-ids
+    // which is NOT cleared by the onboarded=false handler.
+    mockedApiGet.mockResolvedValue(specsResponse([]))
+    seedStore(true)
+
+    const { unmount } = render(<ReleaseNotesWatcher />)
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalled()
+    })
+
+    act(() => {
+      useNotificationStore.getState().addPersistentToast({
+        id: 'notif-persist-reset',
+        type: 'spec_complete',
+        title: 'Your feature is live',
+        body: 'auto close is built and ready to try.',
+        action_url: '/specs?expand=docs/spec/auto-close.md',
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('release-notes-modal')).toBeInTheDocument()
+    })
+
+    // User dismisses the modal (component unmounts).
+    unmount()
+
+    // Demo reset: onboarded flips to false. This clears the ephemeral
+    // spec-path dedup but must NOT re-expose the already-acknowledged
+    // notification ID.
+    seedStore(false)
+
+    // Simulate page reload: fresh mount, seenNotificationIdsRef loads
+    // from the permanent localStorage key.
+    render(<ReleaseNotesWatcher />)
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalled()
+    })
+
+    // The modal must NOT appear — the permanent dedup key still has
+    // 'notif-persist-reset' even though the ephemeral set was cleared.
+    expect(screen.queryByTestId('release-notes-modal')).not.toBeInTheDocument()
+  })
+
   it('closes the release-notes modal when Escape is pressed', async () => {
     // Muscle-memory UX: users hit Esc to dismiss any modal.
     mockedApiGet.mockResolvedValue(specsResponse([]))

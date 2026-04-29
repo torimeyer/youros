@@ -76,6 +76,34 @@ function saveCelebratedToStorage(set: Set<string>): void {
   }
 }
 
+// Permanent (never cleared) dedup key for notification IDs the user has
+// already seen. The ephemeral CELEBRATED_STORAGE_KEY is wiped on every
+// onboarded=false reset so demos can re-celebrate the same spec, but
+// notification IDs must survive that reset — otherwise the toast that
+// was already dismissed comes back on the next page load.
+const SEEN_NOTIFICATION_IDS_KEY = 'myos-permanent-seen-notification-ids'
+
+function loadSeenNotificationIds(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(SEEN_NOTIFICATION_IDS_KEY)
+    if (raw) return new Set<string>(JSON.parse(raw))
+  } catch {
+    // Malformed — start empty.
+  }
+  return new Set<string>()
+}
+
+function saveSeenNotificationIds(ids: Set<string>): void {
+  try {
+    window.localStorage.setItem(
+      SEEN_NOTIFICATION_IDS_KEY,
+      JSON.stringify(Array.from(ids))
+    )
+  } catch {
+    // Quota or disabled localStorage — in-memory still dedups.
+  }
+}
+
 export default function ReleaseNotesWatcher() {
   const [current, setCurrent] = useState<Spec | null>(null)
   const celebratedRef = useRef<Set<string>>(loadCelebratedFromStorage())
@@ -194,11 +222,16 @@ export default function ReleaseNotesWatcher() {
   // guarantees the modal fires on every Build-it landing, no matter
   // whether the spec file survives the build.
   const lastFeatureLive = useNotificationStore((s) => s.lastFeatureLive)
-  const seenFeatureLiveIdRef = useRef<string | null>(null)
+  // Persisted across page loads and onboarded=false resets. The ephemeral
+  // celebratedRef is wiped on demo reset so the same spec can re-celebrate,
+  // but a notification the user already dismissed must never re-appear —
+  // that requires a key that outlives the reset.
+  const seenNotificationIdsRef = useRef<Set<string>>(loadSeenNotificationIds())
   useEffect(() => {
     if (!lastFeatureLive) return
-    if (seenFeatureLiveIdRef.current === lastFeatureLive.id) return
-    seenFeatureLiveIdRef.current = lastFeatureLive.id
+    if (seenNotificationIdsRef.current.has(lastFeatureLive.id)) return
+    seenNotificationIdsRef.current.add(lastFeatureLive.id)
+    saveSeenNotificationIds(seenNotificationIdsRef.current)
     // Synthesize a Spec-shaped object so the existing render path
     // works unchanged. The notification body goes into a single
     // acceptance-criteria-like bullet so the modal shows "why this
