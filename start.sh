@@ -136,12 +136,6 @@ echo "Keep this window open while using myOS. Press Ctrl+C to stop."
 # Open the browser after a brief delay
 if [[ "$(uname)" == "Darwin" ]]; then
     (sleep 2 && open http://localhost:8000) &
-elif [[ -n "${WSL_DISTRO_NAME:-}" ]] || grep -qi 'microsoft' /proc/sys/kernel/osrelease 2>/dev/null; then
-    if command -v wslview &>/dev/null; then
-        (sleep 2 && wslview http://localhost:8000) &
-    else
-        (sleep 2 && powershell.exe /c start http://localhost:8000) &
-    fi
 else
     (sleep 2 && xdg-open http://localhost:8000 2>/dev/null) &
 fi
