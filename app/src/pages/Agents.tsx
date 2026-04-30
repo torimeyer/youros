@@ -1828,6 +1828,11 @@ interface AgentMemoryResponse {
   summaries: AgentMemorySummary[];
 }
 
+interface AgentNoteRecord {
+  content: string;
+  ts: string;
+}
+
 interface WorkspaceMessage {
   id: string;
   agent_name: string;
@@ -2184,6 +2189,7 @@ export default function Agents() {
 
   // Memory state: per-agent memory facts and summaries
   const [agentMemory, setAgentMemory] = useState<Record<string, AgentMemoryResponse>>({});
+  const [agentNotes, setAgentNotes] = useState<Record<string, AgentNoteRecord[]>>({});
   const [memoryClearing, setMemoryClearing] = useState<Record<string, boolean>>({});
 
   // Workspace state
@@ -2276,6 +2282,7 @@ export default function Agents() {
       // first long-poll iteration.
       await fetchNudges(agent);
       fetchMemory(agent);
+      fetchNotes(agent);
       while (!cancelled) {
         await fetchNudges(agent, { longPoll: true });
         // Yield to the event loop between iterations. In production
@@ -2314,6 +2321,7 @@ export default function Agents() {
       if (!name) continue;
       fetchNudges(name);
       fetchMemory(name);
+      fetchNotes(name);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedActiveNames]);
@@ -2723,6 +2731,15 @@ export default function Agents() {
     try {
       const data = await api.get<AgentMemoryResponse>(`/agents/${agentName}/memory`);
       setAgentMemory((prev) => ({ ...prev, [agentName]: data }));
+    } catch {
+      // keep existing
+    }
+  };
+
+  const fetchNotes = async (agentName: string) => {
+    try {
+      const data = await api.get<{ notes: AgentNoteRecord[] }>(`/agents/${agentName}/notes`);
+      setAgentNotes((prev) => ({ ...prev, [agentName]: data.notes || [] }));
     } catch {
       // keep existing
     }
@@ -3873,6 +3890,23 @@ export default function Agents() {
                             clearing={memoryClearing[agent.name] || false}
                             onClear={() => handleClearMemory(agent.name)}
                           />
+                          {(agentNotes[agent.name] ?? []).length > 0 && (
+                            <div className="mt-2">
+                              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                Notes
+                              </span>
+                              <div className="mt-2 bg-slate-950 rounded-lg p-3 text-xs space-y-2">
+                                {(agentNotes[agent.name] ?? []).map((note, i) => (
+                                  <div key={i} className="flex gap-2">
+                                    <span className="text-slate-600 shrink-0 tabular-nums">
+                                      {note.ts ? new Date(note.ts).toLocaleString() : ""}
+                                    </span>
+                                    <span className="text-slate-300">{note.content}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex items-center justify-between mt-4">
@@ -4311,7 +4345,10 @@ export default function Agents() {
                             </button>
                             <button
                               onClick={() => {
-                                if (!isRecentExpanded) fetchMemory(agent.name);
+                                if (!isRecentExpanded) {
+                                  fetchMemory(agent.name);
+                                  fetchNotes(agent.name);
+                                }
                                 setExpandedAgent(isRecentExpanded ? null : agent.name);
                               }}
                               className="text-slate-500 hover:text-slate-300 transition-colors text-xs flex items-center gap-1"
@@ -4329,6 +4366,23 @@ export default function Agents() {
                               clearing={memoryClearing[agent.name] || false}
                               onClear={() => handleClearMemory(agent.name)}
                             />
+                            {(agentNotes[agent.name] ?? []).length > 0 && (
+                              <div className="mt-2">
+                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                  Notes
+                                </span>
+                                <div className="mt-2 bg-slate-950 rounded-lg p-3 text-xs space-y-2">
+                                  {(agentNotes[agent.name] ?? []).map((note, i) => (
+                                    <div key={i} className="flex gap-2">
+                                      <span className="text-slate-600 shrink-0 tabular-nums">
+                                        {note.ts ? new Date(note.ts).toLocaleString() : ""}
+                                      </span>
+                                      <span className="text-slate-300">{note.content}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
