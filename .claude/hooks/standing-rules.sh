@@ -390,4 +390,34 @@ except Exception:
 PYEOF2
 fi
 
+# ---- Tool retry queue: surface interrupted (not denied) tool calls ----
+RETRY_QUEUE="$HOME/.myos/subagents/retry-queue.jsonl"
+if [ -f "$RETRY_QUEUE" ] && [ -s "$RETRY_QUEUE" ]; then
+    NOW=$(date +%s)
+    STALE_CUTOFF=$((NOW - 300))
+    RETRIES=$(python3 -c "
+import json, sys
+entries = []
+with open('$RETRY_QUEUE') as f:
+    for line in f:
+        line = line.strip()
+        if not line: continue
+        try:
+            e = json.loads(line)
+            if e.get('ts', 0) >= $STALE_CUTOFF:
+                entries.append(e)
+        except: pass
+if entries:
+    print('TOOL RETRY QUEUE (these were interrupted, NOT denied by the user):')
+    for e in entries:
+        print(f\"  - {e['tool']}: {e.get('reason','?')} ({e.get('input_summary','')[:80]})\")
+    print('Retry these tool calls now. The interruption was caused by a connection issue, not user rejection.')
+" 2>/dev/null)
+    if [ -n "$RETRIES" ]; then
+        echo ""
+        echo "$RETRIES"
+    fi
+    rm -f "$RETRY_QUEUE" 2>/dev/null
+fi
+
 exit 0

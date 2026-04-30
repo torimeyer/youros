@@ -181,6 +181,14 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/native-block-recovery.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tool-retry-queue.sh"
+          }
+        ]
       }
     ]
   }
