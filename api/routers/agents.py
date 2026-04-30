@@ -5505,6 +5505,37 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             "status": "deleted",
         }
 
+    # Guard: refuse idle-sweep auto-complete when the backend-spawned subprocess
+    # (PID recorded at spawn time) is still alive. Without this, the idle sweep
+    # fires after IDLE_COMPLETE_SECONDS of 0-byte transcript while the subprocess
+    # is busy with internal tool calls that produce no stdout. mark_agent_complete
+    # then writes the "registered externally" stub; the subprocess appends its real
+    # output afterward; and _drain_stderr cleanup removes the worktree (0 commits
+    # ahead of main) before the parent can merge — silently discarding all work.
+    # os.kill(pid, 0) is a POSIX existence check: succeeds if the process is alive,
+    # raises ProcessLookupError if it is dead.
+    _spawn_pid = existing_meta.get("pid")
+    if _spawn_pid is not None:
+        try:
+            os.kill(int(_spawn_pid), 0)
+            # Subprocess is still running. Defer this /complete so the agent
+            # keeps working. Return 200 so the caller (idle sweep) does not retry.
+            logger.info(
+                "mark_agent_complete.deferred_live_pid name=%s pid=%s",
+                name, _spawn_pid,
+            )
+            return {
+                "result": (
+                    f"Agent '{name}' subprocess (pid={_spawn_pid}) is still running "
+                    "— complete deferred until subprocess exits"
+                ),
+                "status": "running",
+            }
+        except (ProcessLookupError, PermissionError, OSError):
+            pass  # Process is dead or not ours — proceed with completion
+        except (ValueError, TypeError):
+            pass  # Malformed PID in metadata — ignore safeguard
+
     # Set a "completing" sentinel status BEFORE any awaits so concurrent
     # requests see a non-None status and are turned away by the guard above.
     # This closes the race window where two simultaneous /complete calls

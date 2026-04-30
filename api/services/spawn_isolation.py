@@ -590,6 +590,28 @@ async def remove_worktree(
         )
         return False
 
+    # Safety: refuse to delete a worktree that has uncommitted changes (staged
+    # or unstaged). Agents that write files but delegate committing to the parent
+    # (e.g. a "ready for parent to commit" pattern) would lose all their work
+    # silently without this guard. The worktree-reaper.sh shell script performs
+    # the same wt_dirty check; mirror it here so the Python cleanup path is
+    # equally safe. Only meaningful when the directory exists.
+    if wt.exists():
+        rc_unstaged, _, _ = await _run_git(
+            "diff", "--quiet",
+            cwd=str(wt), timeout=5.0,
+        )
+        rc_staged, _, _ = await _run_git(
+            "diff", "--cached", "--quiet",
+            cwd=str(wt), timeout=5.0,
+        )
+        if rc_unstaged != 0 or rc_staged != 0:
+            logger.warning(
+                "spawn.worktree.dirty_safety branch=%s -- refusing removal (uncommitted changes)",
+                branch,
+            )
+            return False
+
     if wt.exists() or True:  # attempt even if dir is gone (unregister stale entry)
         # Unlock first; worktrees are created with --lock so a plain remove
         # --force will be refused without the prior unlock.
