@@ -77,6 +77,16 @@ const mockNotifications = [
   },
 ]
 
+const mockJiraNotification = {
+  id: 'notif-jira-1',
+  type: 'jira_update',
+  title: 'PROJ-42: Fix login bug',
+  body: 'Issue was updated.',
+  action_url: 'https://jira.example.com/browse/PROJ-42',
+  read: false,
+  created_at: new Date().toISOString(),
+}
+
 function renderInbox() {
   return render(
     <MemoryRouter>
@@ -288,6 +298,36 @@ describe('Inbox page', () => {
     await waitFor(() => {
       expect(screen.queryByText('Your inbox is clear.')).not.toBeInTheDocument()
       expect(screen.getByTestId('notification-item-notif-1')).toBeInTheDocument()
+    })
+  })
+
+  it('jira_update notification renders Comment button', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/notifications') return Promise.resolve([mockJiraNotification])
+      return Promise.resolve({ items: [] })
+    })
+    renderInbox()
+    await waitFor(() => {
+      expect(
+        screen.getByTestId(`jira-comment-button-${mockJiraNotification.id}`)
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('clicking Comment on jira_update shows JiraCommentComposer inline', async () => {
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url === '/notifications') return Promise.resolve([mockJiraNotification])
+      return Promise.resolve({ items: [] })
+    })
+    renderInbox()
+    await waitFor(() =>
+      screen.getByTestId(`jira-comment-button-${mockJiraNotification.id}`)
+    )
+    fireEvent.click(
+      screen.getByTestId(`jira-comment-button-${mockJiraNotification.id}`)
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('jira-comment-composer')).toBeInTheDocument()
     })
   })
 })
