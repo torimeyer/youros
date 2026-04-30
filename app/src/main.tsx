@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 // Reveal icon font glyphs only after Material Symbols has loaded,
 // preventing a flash of icon-name text (e.g. "home", "search") on refresh.
@@ -16,7 +17,9 @@ if (document.fonts?.ready) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )
 

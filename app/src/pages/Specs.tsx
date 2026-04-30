@@ -769,12 +769,11 @@ export default function Specs() {
 
   const fetchLinkedTasks = async (path: string) => {
     try {
-      // TODO: wire to GET /api/specs/{path}/tasks when backend is ready
       const encodedPath = encodeURIComponent(path);
       const res = await api.get<SpecTasksResponse>(`/specs/${encodedPath}/tasks`);
       setLinkedTasks((prev) => ({ ...prev, [path]: res.tasks || [] }));
     } catch {
-      // Endpoint may not be available yet
+      // Non-fatal: linked tasks are supplemental progress info.
     }
   };
 
