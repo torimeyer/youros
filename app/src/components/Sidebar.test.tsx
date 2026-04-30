@@ -30,6 +30,8 @@ const DEFAULT_FEATURES = [
   { label: 'iMessage', enabled: true },
   { label: 'Slack', enabled: true },
   { label: 'GitHub', enabled: true },
+  { label: 'Jira', enabled: true },
+  { label: 'Confluence', enabled: true },
   { label: 'Cost Tracking', enabled: true },
   { label: 'Specs', enabled: true },
   { label: 'Automations', enabled: true },
@@ -819,7 +821,7 @@ describe('Sidebar grouped nav', () => {
     expect(screen.queryByText('Gmail')).not.toBeInTheDocument()
   })
 
-  it('expanded Comms group shows all 5 sub-items', () => {
+  it('expanded Comms group shows all 7 sub-items including Jira and Confluence', () => {
     renderSidebar()
     // Ensure comms is expanded (click header to expand if collapsed)
     const header = screen.getByTestId('group-header-comms')
@@ -834,6 +836,8 @@ describe('Sidebar grouped nav', () => {
     expect(screen.getByText('iMessage')).toBeInTheDocument()
     expect(screen.getByText('Slack')).toBeInTheDocument()
     expect(screen.getByText('GitHub')).toBeInTheDocument()
+    expect(screen.getByText('Jira')).toBeInTheDocument()
+    expect(screen.getByText('Confluence')).toBeInTheDocument()
   })
 
   it('clicking a collapsed group header expands it and shows sub-items', () => {
@@ -1262,6 +1266,47 @@ describe('Sidebar status panel never shows a sessions count (regression)', () =>
       expect(screen.getByText('Backend')).toBeTruthy()
     })
     expect(screen.queryByText(/session/i)).toBeNull()
+  })
+})
+
+describe('Jira and Confluence sidebar entries', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    _resetSidebarBus()
+    useAppStore.setState({ osName: 'myOS', features: DEFAULT_FEATURES })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+  })
+
+  it('Jira link renders in Comms group', () => {
+    renderSidebar()
+    expandAllGroups()
+    expect(screen.getByText('Jira')).toBeInTheDocument()
+  })
+
+  it('Confluence link renders in Comms group', () => {
+    renderSidebar()
+    expandAllGroups()
+    expect(screen.getByText('Confluence')).toBeInTheDocument()
+  })
+
+  it('Jira link points to /jira', () => {
+    renderSidebar()
+    expandAllGroups()
+    const link = screen.getByText('Jira').closest('a')
+    expect(link).toHaveAttribute('href', '/jira')
+  })
+
+  it('Confluence link points to /confluence', () => {
+    renderSidebar()
+    expandAllGroups()
+    const link = screen.getByText('Confluence').closest('a')
+    expect(link).toHaveAttribute('href', '/confluence')
   })
 })
 

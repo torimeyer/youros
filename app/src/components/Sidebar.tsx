@@ -74,6 +74,8 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/imessage', icon: 'chat_bubble', label: 'iMessage', featureLabel: 'iMessage' },
       { to: '/slack', icon: 'chat', label: 'Slack', featureLabel: 'Slack' },
       { to: '/github', icon: 'code', label: 'GitHub', featureLabel: 'GitHub' },
+      { to: '/jira', icon: 'bug_report', label: 'Jira', featureLabel: 'Jira' },
+      { to: '/confluence', icon: 'menu_book', label: 'Confluence', featureLabel: 'Confluence' },
     ],
   },
 ]

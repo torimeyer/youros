@@ -18,6 +18,8 @@ import Gmail from './pages/Gmail'
 import IMessage from './pages/IMessage'
 import Slack from './pages/Slack'
 import GitHub from './pages/GitHub'
+import Jira from './pages/Jira'
+import Confluence from './pages/Confluence'
 import Upgrade from './pages/Upgrade'
 import Releases from './pages/Releases'
 import Adoption from './pages/Adoption'
@@ -131,6 +133,10 @@ export default function App() {
           <Route path="imessage" element={<IMessage />} />
           <Route path="slack" element={<Slack />} />
           <Route path="github" element={<GitHub />} />
+          <Route path="jira" element={<Jira />} />
+          <Route path="jira/:key" element={<Jira />} />
+          <Route path="confluence" element={<Confluence />} />
+          <Route path="confluence/:pageId" element={<Confluence />} />
           <Route path="costs" element={<CostTracking />} />
           <Route path="releases" element={<Releases />} />
           <Route path="workflows" element={<Workflows />} />
