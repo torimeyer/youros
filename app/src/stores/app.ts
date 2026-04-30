@@ -243,7 +243,7 @@ function lsSet(key: string, value: string): void {
 
 // Fire and forget server patch. We never want to throw from a setter.
 function patchServer(body: Record<string, unknown>): void {
-  api.patch('/settings', body)?.catch(() => {})
+  api.patch('/settings', body)?.catch((e) => console.error('settings patch failed:', e))
 }
 
 // Translate between UI model key ("claude") and server model string ("@claude").

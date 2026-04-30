@@ -74,7 +74,7 @@ export default function OnboardingWizard() {
         else if (data.vertex_ai) setDetectedProvider('Vertex AI')
         else if (data.bedrock) setDetectedProvider('AWS Bedrock')
       })
-      .catch(() => {})
+      .catch((e) => console.error('provider detection failed:', e))
   }, [])
 
   // Profile (HUMANFILE) step state
@@ -115,7 +115,7 @@ export default function OnboardingWizard() {
     // /agents/persona-templates so we do NOT seed customAgentTemplates here.
     // customAgentTemplates is reserved for user-created templates only, so
     // marketplace picks never show up with a "custom" badge.
-    api.post('/agents/pm-templates/install-persona', { persona_id: category.id }).catch(() => {})
+    api.post('/agents/pm-templates/install-persona', { persona_id: category.id }).catch((e) => console.error('persona install failed:', e))
     // Clear any leftover marketplace entries that older builds saved into
     // customAgentTemplates so existing users stop seeing duplicate cards.
     setCustomAgentTemplates([])
@@ -161,7 +161,7 @@ export default function OnboardingWizard() {
       }
       // Sync the store with what the user picked in the wizard
       if (pickedDarkRef.current !== darkMode) toggleDarkMode()
-      api.patch('/settings', settings).catch(() => {})
+      api.patch('/settings', settings).catch((e) => console.error('settings patch failed:', e))
       // Reset the "Finished" baseline so agents from before onboarding
       // do not immediately show a stale count in the sidebar.
       setAgentsLastViewed(new Date().toISOString())
@@ -185,7 +185,7 @@ export default function OnboardingWizard() {
     if (profileStyle) settings.communication_style = profileStyle
     // Sync the store with what the user picked in the wizard
     if (pickedDarkRef.current !== darkMode) toggleDarkMode()
-    api.patch('/settings', settings).catch(() => {})
+    api.patch('/settings', settings).catch((e) => console.error('settings patch failed:', e))
     // Reset the "Finished" baseline so agents from before onboarding
     // do not immediately show a stale count in the sidebar.
     setAgentsLastViewed(new Date().toISOString())

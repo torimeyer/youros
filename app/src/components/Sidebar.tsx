@@ -764,6 +764,7 @@ export function Sidebar() {
               <>
                 <Icon name="groups" filled={iconStyle === 'filled' ? true : isActive} className="text-xl" />
                 <span className="text-sm font-medium">Team</span>
+                <span className="ml-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400">Beta</span>
               </>
             )}
           </NavLink>

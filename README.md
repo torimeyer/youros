@@ -2,6 +2,10 @@
 
 Your personal AI operating system. A local web app that gives you a workspace with AI chat, background agents, task management, and more. Built on [ostk](https://ostk.ai).
 
+## How it works
+
+myOS runs entirely on your computer. You open it in your browser at localhost, no account or login needed. All your data lives in `~/.myos/` and never leaves your machine unless you connect an integration like Gmail or Slack, in which case those requests go directly from your machine to the provider. myOS is not a cloud service.
+
 ## Install
 
 You need Python 3.9 or newer, Node 18 or newer, and git. Installing myOS does not require Homebrew. myOS runs on macOS and Linux.
