@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI):
     await schedule_recurring_task_spawner()
     await schedule_test_artifact_sweep()
     await schedule_test_artifact_spec_sweep()
+    await schedule_atlassian_sync()
     await install_signal_shutdown_hook()
     yield
     await notify_chat_clients_on_shutdown()
@@ -818,6 +819,20 @@ async def schedule_test_artifact_spec_sweep():
             await asyncio.sleep(300)
 
     _keep(asyncio.create_task(_loop()))
+
+
+async def schedule_atlassian_sync():
+    """Start the Atlassian background poller if the user has connected Atlassian.
+
+    The poller checks is_connected() on every tick, so it is safe to start
+    unconditionally -- it simply returns early each cycle until the user
+    connects. Starting it always means the poller activates automatically
+    when credentials are added without needing a restart.
+    """
+    import asyncio
+    from services import atlassian_sync as _atlassian_sync
+
+    _keep(asyncio.create_task(_atlassian_sync.start_loop()))
 
 
 async def install_signal_shutdown_hook():
