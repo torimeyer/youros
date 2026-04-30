@@ -23,6 +23,9 @@ interface TopBarProps {
   title: string
 }
 
+const isMac = () => navigator.platform.toUpperCase().includes('MAC') || navigator.userAgent.toUpperCase().includes('MAC OS')
+const modKey = isMac() ? '⌘' : 'Ctrl+'
+
 // Persistent notifications whose type should pop a toast as soon as the
 // TopBar poll discovers them. Anything outside this set still lands in
 // the bell drawer but does not interrupt the user. Kept broad enough to
@@ -334,7 +337,7 @@ export default function TopBar({ title }: TopBarProps) {
           <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-hover:text-blue-500" />
           <span>Search {displayOsName}</span>
           <kbd className="ml-auto text-[10px] font-mono text-slate-600 bg-slate-800 rounded px-1.5 py-0.5 border border-slate-700">
-            ⌘K
+            {`${modKey}K`}
           </kbd>
         </button>
       </div>
@@ -361,7 +364,7 @@ export default function TopBar({ title }: TopBarProps) {
         <button
           onClick={toggleChat}
           className="p-2.5 sm:p-2 text-slate-400 hover:text-blue-400 transition-all"
-          title="Toggle Chat (⌘L)"
+          title={`Toggle Chat (${modKey}L)`}
         >
           <Icon name="chat" />
         </button>

@@ -74,6 +74,20 @@ def test_open_path_returns_false_when_xdg_open_missing():
         assert platform_helpers.open_path("/tmp/hello.txt") is False
 
 
+def test_open_path_uses_startfile_on_windows():
+    import os as _os
+    with patch("services.platform_helpers.platform.system", return_value="Windows"), \
+         patch.object(_os, "startfile", create=True) as mock_start:
+        result = platform_helpers.open_path("/tmp/hello.txt")
+        assert result is True
+        mock_start.assert_called_once_with("/tmp/hello.txt")
+
+
+def test_open_path_returns_false_on_unknown_platform():
+    with patch("services.platform_helpers.platform.system", return_value="FreeBSD"):
+        assert platform_helpers.open_path("/tmp/hello.txt") is False
+
+
 # --- clipboard_copy ---
 
 

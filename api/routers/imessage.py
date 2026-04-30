@@ -8,6 +8,7 @@ via AppleScript.
 from __future__ import annotations
 
 import asyncio
+import platform as _platform
 
 from pathlib import Path
 
@@ -18,6 +19,14 @@ from pydantic import BaseModel
 from services import imessage as imessage_service
 
 router = APIRouter(tags=["imessage"])
+
+
+def _require_macos():
+    if _platform.system().lower() != "darwin":
+        raise HTTPException(
+            status_code=503,
+            detail="iMessage is only available on macOS.",
+        )
 
 
 class SendMessageRequest(BaseModel):
@@ -36,6 +45,7 @@ async def imessage_status():
     - available: True if the iMessage database exists and is readable
     - reason: explanation if not available (e.g., need Full Disk Access)
     """
+    _require_macos()
     return imessage_service.is_available()
 
 
@@ -46,6 +56,7 @@ async def imessage_conversations(limit: int = Query(50, ge=1, le=200)):
     Each conversation includes the contact name (or phone number),
     a preview of the last message, the message count, and the unread count.
     """
+    _require_macos()
     status = imessage_service.is_available()
     if not status["available"]:
         raise HTTPException(status_code=503, detail=status["reason"])
@@ -72,6 +83,7 @@ async def imessage_messages(chat_id: int, limit: int = Query(100, ge=1, le=500))
 
     Messages are sorted oldest first (natural reading order).
     """
+    _require_macos()
     status = imessage_service.is_available()
     if not status["available"]:
         raise HTTPException(status_code=503, detail=status["reason"])
@@ -99,6 +111,7 @@ async def imessage_attachment(path: str = Query(...)):
     Only serves files from the ~/Library/Messages/Attachments directory
     to prevent path traversal outside the iMessage store.
     """
+    _require_macos()
     resolved = Path(path).resolve()
     allowed = Path.home() / "Library" / "Messages" / "Attachments"
     if not str(resolved).startswith(str(allowed)):
@@ -115,6 +128,7 @@ async def imessage_send(body: SendMessageRequest):
     Uses AppleScript to send through the Messages app. The Messages app
     must be running (it will be launched automatically if not).
     """
+    _require_macos()
     status = imessage_service.is_available()
     if not status["available"]:
         raise HTTPException(status_code=503, detail=status["reason"])
@@ -155,6 +169,7 @@ async def imessage_reply(chat_id: int, body: ReplyRequest):
     Works for both direct messages (phone/email) and group chats (UUID).
     Looks up the conversation in chat.db and sends using the appropriate method.
     """
+    _require_macos()
     status = imessage_service.is_available()
     if not status["available"]:
         raise HTTPException(status_code=503, detail=status["reason"])

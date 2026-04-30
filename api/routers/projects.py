@@ -1,13 +1,12 @@
 import base64
 import os
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from services import recent_deletes
+from services import platform_helpers, recent_deletes
 
 router = APIRouter(tags=["projects"])
 
@@ -262,10 +261,8 @@ async def open_file(request: OpenFileRequest):
     if not resolved.is_file():
         raise HTTPException(status_code=400, detail="Path is not a file.")
 
-    try:
-        subprocess.Popen(["open", str(resolved)])
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Could not open file: {exc}")
+    if not platform_helpers.open_path(resolved):
+        raise HTTPException(status_code=500, detail="Could not open file on this platform.")
 
     return {"status": "ok", "path": str(resolved)}
 

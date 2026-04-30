@@ -215,22 +215,18 @@ async def test_open_file_rejects_path_traversal(client):
 
 @pytest.mark.asyncio
 async def test_open_file_success(client):
-    """A valid file path should trigger the open command and return ok."""
+    """A valid file path should trigger open_path and return ok."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
         (tmppath / "test.txt").write_text("hello")
 
         with patch("routers.projects.TORIOS_DIR", tmppath), \
-             patch("routers.projects.subprocess.Popen") as mock_popen:
+             patch("services.platform_helpers.open_path", return_value=True) as mock_open:
             resp = await client.post("/api/projects/open-file", json={"path": "test.txt"})
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
-    mock_popen.assert_called_once()
-    # Verify the open command was called with the correct path
-    call_args = mock_popen.call_args[0][0]
-    assert call_args[0] == "open"
-    assert call_args[1].endswith("test.txt")
+    mock_open.assert_called_once()
 
 
 # --- _format_size helper ---

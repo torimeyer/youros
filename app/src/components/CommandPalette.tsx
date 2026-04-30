@@ -29,6 +29,9 @@ interface CommandPaletteProps {
   onClose: () => void
 }
 
+const isMac = () => navigator.platform.toUpperCase().includes('MAC') || navigator.userAgent.toUpperCase().includes('MAC OS')
+const modKey = isMac() ? '⌘' : 'Ctrl+'
+
 const priorityColor = (p: string) => {
   if (p === 'P0') return 'text-pink-400'
   if (p === 'P1') return 'text-orange-400'
@@ -57,8 +60,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     { id: 'nav-drive', label: 'Go to Drive', icon: 'cloud', section: 'Navigate', action: () => { navigate('/drive'); onClose() } },
     { id: 'nav-adoption', label: 'Go to Adoption', icon: 'trending_up', section: 'Navigate', action: () => { navigate('/adoption'); onClose() } },
     { id: 'nav-settings', label: 'Go to Settings', icon: 'settings', section: 'Navigate', action: () => { navigate('/settings'); onClose() } },
-    { id: 'action-chat', label: 'Toggle Chat', icon: 'chat', shortcut: '⌘L', section: 'Actions', action: () => { toggleChat(); onClose() } },
-    { id: 'action-new-task', label: 'Create New Task', icon: 'add_task', shortcut: '⌘N', section: 'Actions', action: () => { navigate('/tasks?new=1'); onClose() } },
+    { id: 'action-chat', label: 'Toggle Chat', icon: 'chat', shortcut: `${modKey}L`, section: 'Actions', action: () => { toggleChat(); onClose() } },
+    { id: 'action-new-task', label: 'Create New Task', icon: 'add_task', shortcut: `${modKey}N`, section: 'Actions', action: () => { navigate('/tasks?new=1'); onClose() } },
   ], [navigate, onClose, toggleChat])
 
   const filtered = useMemo(() => {

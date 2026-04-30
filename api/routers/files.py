@@ -414,18 +414,14 @@ async def open_file_native(path: str = Query(..., description="Relative or absol
 
     Uses the same safe-path resolution as other file endpoints.
     """
-    import subprocess
-    import sys
+    from services import platform_helpers
 
     resolved = _resolve_readable_path(path)
     if not resolved.is_file():
         raise HTTPException(status_code=400, detail="Path is not a file.")
 
-    cmd = ["open", str(resolved)] if sys.platform == "darwin" else ["xdg-open", str(resolved)]
-    try:
-        subprocess.Popen(cmd)
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Could not open file: {exc}")
+    if not platform_helpers.open_path(resolved):
+        raise HTTPException(status_code=500, detail="Could not open file on this platform.")
 
     return {"ok": True, "path": str(resolved)}
 

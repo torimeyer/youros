@@ -1759,8 +1759,9 @@ def _claude_code_tasks_root() -> Path:
     <task-id>.output``. Wrapped so tests can patch it.
     """
     import os
+    import tempfile
     uid = os.getuid() if hasattr(os, "getuid") else 0
-    return Path(f"/private/tmp/claude-{uid}")
+    return Path(tempfile.gettempdir()) / f"claude-{uid}"
 
 
 # Completion stubs look like this: "Agent 'X' completed (registered externally).".

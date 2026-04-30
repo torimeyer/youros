@@ -861,3 +861,24 @@ def test_circuit_breaker_resets_on_success():
     imessage._breaker_record_success()
     assert not imessage._breaker_is_open()
     assert imessage._breaker_failures == 0
+
+
+# ---------------------------------------------------------------------------
+# macOS guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_imessage_status_returns_503_on_non_macos(client):
+    """All iMessage endpoints must return 503 on non-macOS."""
+    with patch("platform.system", return_value="Windows"):
+        resp = await client.get("/api/imessage/status")
+    assert resp.status_code == 503
+    assert "macOS" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_imessage_conversations_returns_503_on_non_macos(client):
+    with patch("platform.system", return_value="Windows"):
+        resp = await client.get("/api/imessage/conversations")
+    assert resp.status_code == 503
