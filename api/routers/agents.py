@@ -3861,6 +3861,27 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     # .claude/worktrees/, where git writes land on parent main
                     # instead of the worktree branch. (→932)
                     (_wt_path / ".ostk").mkdir(parents=True, exist_ok=True)
+                    # Symlink the main daemon socket into the worktree's .ostk/
+                    # so ostk kernel serve bridges to the running daemon instead
+                    # of spawning a new one. Without this symlink the worktree
+                    # kernel starts in standalone mode, fails to initialize, and
+                    # only registers static tools (context/search/nudge) while
+                    # fs/shell/bash stay missing — leaving the subagent with no
+                    # way to write files when the hook blocks native fallbacks.
+                    _main_sock = PROJECT_ROOT / ".ostk" / "ostk.sock"
+                    _wt_sock = _wt_path / ".ostk" / "ostk.sock"
+                    if _main_sock.exists() and not _wt_sock.exists():
+                        try:
+                            os.symlink(str(_main_sock), str(_wt_sock))
+                            logger.info(
+                                "spawn.ostk_sock_symlink.created name=%s target=%s",
+                                body.name, _main_sock,
+                            )
+                        except Exception as _sym_exc:
+                            logger.warning(
+                                "spawn.ostk_sock_symlink.failed name=%s err=%s",
+                                body.name, _sym_exc,
+                            )
                 else:
                     logger.warning(
                         "spawn.worktree.fork_failed name=%s err=%s",
