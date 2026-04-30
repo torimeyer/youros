@@ -401,6 +401,51 @@ def _save_deleted_agents(names: set[str]) -> None:
     except OSError:
         pass
 
+
+_PRUNE_TTL_DAYS = 7
+_TERMINAL_STATUSES = frozenset({
+    "completed", "failed", "cancelled", "terminated_stale",
+    "killed", "stopped", "abandoned", "completed_timeout",
+})
+_last_prune_time: float = -999999.0
+_PRUNE_INTERVAL_SECONDS = 300
+
+
+def _prune_stale_completed_agents() -> int:
+    """Soft-delete completed agents older than _PRUNE_TTL_DAYS days.
+
+    Runs at most once per _PRUNE_INTERVAL_SECONDS to avoid slowing
+    down every GET /agents poll.
+    """
+    global _last_prune_time
+    import time as _time
+    now_mono = _time.monotonic()
+    if now_mono - _last_prune_time < _PRUNE_INTERVAL_SECONDS:
+        return 0
+    _last_prune_time = now_mono
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_PRUNE_TTL_DAYS)
+    deleted = _load_deleted_agents()
+    pruned = 0
+    for name, meta in list(agent_metadata.items()):
+        if meta.get("status") not in _TERMINAL_STATUSES:
+            continue
+        ts_str = meta.get("completed_at") or meta.get("spawned_at") or ""
+        if not ts_str:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if ts < cutoff:
+            deleted.add(name)
+            pruned += 1
+    if pruned:
+        _save_deleted_agents(deleted)
+        logger.info("prune.stale_agents count=%d ttl_days=%d", pruned, _PRUNE_TTL_DAYS)
+    return pruned
+
+
 # How long a running agent can go without a heartbeat before the list
 # endpoint marks it ``terminated_stale``. Fifteen minutes is long enough
 # to cover a slow pytest run, a tsc build, or a large write where the
@@ -2742,6 +2787,7 @@ async def list_agents(
       - ``limit=<n>``: cap the returned agent list at N rows (applied last,
         after filters and sort-by-spawned_at so the oldest rows win).
     """
+    _prune_stale_completed_agents()
     ps_result = await ostk.kernel_ps()
     audit_agents_list = await ostk.audit_agents()
     daemon_running = ps_result.get("daemon_running", False)
@@ -3476,6 +3522,30 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     from services.rate_limit import rate_limit_check
     if request is not None:
         rate_limit_check(request, "agents.spawn")
+
+    import time as _time
+    _loop_t0 = _time.monotonic()
+    await asyncio.sleep(0)
+    _loop_latency = _time.monotonic() - _loop_t0
+    if _loop_latency > 2.0:
+        logger.warning(
+            "spawn.health_gate.reject name=%s latency=%.2fs",
+            body.name, _loop_latency,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Backend is overloaded (event loop latency: "
+                f"{_loop_latency:.1f}s). Try again in a moment or "
+                f"reduce the number of running agents."
+            ),
+        )
+    elif _loop_latency > 0.5:
+        logger.warning(
+            "spawn.health_gate.slow name=%s latency=%.2fs",
+            body.name, _loop_latency,
+        )
+
     # Decide isolation BEFORE any I/O so a later worktree fork can honor
     # the result. decide_isolation respects an explicit caller value and
     # otherwise picks "worktree" for code-edit verbs, "none" for

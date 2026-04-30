@@ -12838,3 +12838,183 @@ async def test_heartbeat_does_not_block_on_enrich_lock():
         lock_release.set()
         t.join(timeout=2.0)
         agent_metadata.pop("hb-lock-test-agent", None)
+
+
+# ── Auto-prune stale completed agents ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_prune_deletes_old_completed_agents(tmp_path, monkeypatch):
+    """Completed agents older than 7 days are soft-deleted by the prune pass."""
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    monkeypatch.setattr(agents_module, "DELETED_AGENTS_PATH", tmp_path / "deleted.json")
+    monkeypatch.setattr(agents_module, "_last_prune_time", -999999.0)
+
+    old_iso = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    agent_metadata["prune-old-test"] = {
+        "status": "completed",
+        "completed_at": old_iso,
+        "spawned_at": old_iso,
+    }
+    try:
+        count = agents_module._prune_stale_completed_agents()
+        assert count >= 1
+        deleted = agents_module._load_deleted_agents()
+        assert "prune-old-test" in deleted
+    finally:
+        agent_metadata.pop("prune-old-test", None)
+
+
+@pytest.mark.asyncio
+async def test_prune_keeps_recent_completed_agents(tmp_path, monkeypatch):
+    """Completed agents younger than 7 days are NOT pruned."""
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    monkeypatch.setattr(agents_module, "DELETED_AGENTS_PATH", tmp_path / "deleted.json")
+    monkeypatch.setattr(agents_module, "_last_prune_time", -999999.0)
+
+    recent_iso = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    agent_metadata["prune-recent-test"] = {
+        "status": "completed",
+        "completed_at": recent_iso,
+        "spawned_at": recent_iso,
+    }
+    try:
+        agents_module._prune_stale_completed_agents()
+        deleted = agents_module._load_deleted_agents()
+        assert "prune-recent-test" not in deleted
+    finally:
+        agent_metadata.pop("prune-recent-test", None)
+
+
+@pytest.mark.asyncio
+async def test_prune_ignores_running_agents(tmp_path, monkeypatch):
+    """Running agents are never pruned regardless of age."""
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    monkeypatch.setattr(agents_module, "DELETED_AGENTS_PATH", tmp_path / "deleted.json")
+    monkeypatch.setattr(agents_module, "_last_prune_time", -999999.0)
+
+    old_iso = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    agent_metadata["prune-running-test"] = {
+        "status": "running",
+        "spawned_at": old_iso,
+    }
+    try:
+        agents_module._prune_stale_completed_agents()
+        deleted = agents_module._load_deleted_agents()
+        assert "prune-running-test" not in deleted
+    finally:
+        agent_metadata.pop("prune-running-test", None)
+
+
+@pytest.mark.asyncio
+async def test_prune_throttled_within_interval(tmp_path, monkeypatch):
+    """Second prune call within the interval is a no-op."""
+    import time
+    from routers import agents as agents_module
+    from routers.agents import agent_metadata
+
+    monkeypatch.setattr(agents_module, "DELETED_AGENTS_PATH", tmp_path / "deleted.json")
+    monkeypatch.setattr(agents_module, "_last_prune_time", time.monotonic())
+
+    old_iso = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    agent_metadata["prune-throttle-test"] = {
+        "status": "completed",
+        "completed_at": old_iso,
+    }
+    try:
+        count = agents_module._prune_stale_completed_agents()
+        assert count == 0
+        deleted = agents_module._load_deleted_agents()
+        assert "prune-throttle-test" not in deleted
+    finally:
+        agent_metadata.pop("prune-throttle-test", None)
+
+
+# ── Health gate before spawn ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_spawn_health_gate_rejects_overloaded_loop(monkeypatch):
+    """Spawn returns 503 when event loop latency exceeds 2 seconds."""
+    from routers import agents as agents_module
+
+    original_sleep = asyncio.sleep
+
+    async def _slow_sleep(n):
+        if n == 0:
+            import time
+            time.sleep(2.1)
+        else:
+            await original_sleep(n)
+
+    monkeypatch.setattr(asyncio, "sleep", _slow_sleep)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/agents/spawn",
+            json={
+                "name": "health-gate-test",
+                "prompt": "test",
+                "model": "sonnet",
+                "budget": 1.0,
+            },
+        )
+    assert resp.status_code == 503
+    assert "overloaded" in resp.json()["detail"].lower()
+    assert "latency" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_spawn_health_gate_passes_healthy_loop(tmp_path, monkeypatch):
+    """Spawn proceeds normally when loop latency is within bounds."""
+    from routers import agents as agents_module
+    from routers.agents import active_agents, agent_metadata
+
+    captured = {"prompt": ""}
+
+    class _FakeProc:
+        pid = 999999
+        returncode = None
+        stdin = None
+
+    async def _fake_exec(*args, **kwargs):
+        stdin_fh = kwargs.get("stdin")
+        if stdin_fh is not None and hasattr(stdin_fh, "read"):
+            captured["prompt"] = stdin_fh.read().decode("utf-8")
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio, "create_subprocess_exec", _fake_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "health-gate-pass-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "hello",
+                    "model": "sonnet",
+                    "budget": 1.0,
+                },
+            )
+        assert resp.status_code == 200, resp.text
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
