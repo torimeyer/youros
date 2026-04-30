@@ -106,9 +106,33 @@ if [ -f "$PENDING_QUEUE" ] && [ -s "$PENDING_QUEUE" ]; then
     fi
 fi
 
-# ---- 3. (DISABLED) Session needle auto-creation. ----
-# This block was disabled because the dedup logic silently failed,
-# causing duplicate "Session in X" needles to accumulate (9 in one day).
-# Steps 1 and 2 above are sufficient for session tracking.
+# ---- 3. Worktree hygiene: auto-reap absorbed worktrees. ----
+REAPER="$CWD/scripts/worktree-reaper.sh"
+if [ -n "$CWD" ] && [ -x "$REAPER" ]; then
+    REAPER_OUT=$("$REAPER" --apply 2>&1) || true
+
+    ABSORBED=$(echo "$REAPER_OUT" | grep -oP 'absorbed=\K[0-9]+' 2>/dev/null || echo 0)
+    UNIQUE=$(echo "$REAPER_OUT" | grep -oP 'unique=\K[0-9]+' 2>/dev/null || echo 0)
+
+    if [ "${ABSORBED:-0}" -gt 0 ] || [ "${UNIQUE:-0}" -gt 0 ]; then
+        echo "[worktree-hygiene] Reaped $ABSORBED absorbed worktrees. $UNIQUE unique worktrees remain." >&2
+    fi
+
+    if [ "${UNIQUE:-0}" -gt 0 ]; then
+        STALE_UNIQUE=0
+        SEVEN_DAYS_AGO=$(date -v-7d +%s 2>/dev/null || date -d '7 days ago' +%s 2>/dev/null || echo 0)
+        WORKTREE_BASE="$CWD/.claude/worktrees"
+        for d in "$WORKTREE_BASE"/agent-*/; do
+            [ -d "$d" ] || continue
+            DIR_MTIME=$(stat -f %m "$d" 2>/dev/null || stat -c %Y "$d" 2>/dev/null || echo 0)
+            if [ "$DIR_MTIME" -gt 0 ] && [ "$SEVEN_DAYS_AGO" -gt 0 ] && [ "$DIR_MTIME" -lt "$SEVEN_DAYS_AGO" ]; then
+                STALE_UNIQUE=$((STALE_UNIQUE + 1))
+            fi
+        done
+        if [ "$STALE_UNIQUE" -gt 0 ]; then
+            echo "[worktree-hygiene] WARNING: $STALE_UNIQUE unique worktrees are older than 7 days. Run 'scripts/worktree-reaper.sh' to review." >&2
+        fi
+    fi
+fi
 
 exit 0
