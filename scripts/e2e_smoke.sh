@@ -177,12 +177,12 @@ except Exception:
     # docs/draft/ and docs/spec/ in case the API was down or a prior
     # delete failed. This is the last line of defense so no demo spec
     # ever survives. Mirrors the backend regex.
-    python3 - "${REPO_DIR}" <<'PY' 2>/dev/null || true
+    python3 -c "
 import os, re, sys
 root = sys.argv[1]
 patterns = [
     re.compile(r'^(?:demo[-_ ]smoke[-_ ]?|smoke[-_ ]|e2e[-_ ]|test[-_ ]|v\d+[-_ ]verify[-_ ]?|morning[-_ ]verify[-_ ]?)', re.IGNORECASE),
-    re.compile(r'[-_ ]\d{4,}(?:\.md)?$', re.IGNORECASE),
+    re.compile(r'[-_ ]\d{4,}(?:\.md)?\$', re.IGNORECASE),
 ]
 for sub in ('docs/draft', 'docs/spec'):
     d = os.path.join(root, sub)
@@ -196,7 +196,7 @@ for sub in ('docs/draft', 'docs/spec'):
                 except OSError:
                     pass
                 break
-PY
+" "${REPO_DIR}" 2>/dev/null || true
 
     # Delete any shared links whose title starts with "e2e"
     python3 -c "
@@ -230,10 +230,10 @@ except Exception:
     # above. Conservative: never touches files that do not match the
     # smoke pattern, so user-generated docs and baseline ia-review
     # outputs stay put.
-    python3 - <<'PY' 2>/dev/null || true
+    python3 -c "
 import os, re
 from pathlib import Path
-root = Path(os.path.expanduser("~/.myos/files"))
+root = Path(os.path.expanduser('~/.myos/files'))
 if not root.is_dir():
     raise SystemExit(0)
 patterns = [
@@ -247,7 +247,7 @@ for name in os.listdir(root):
             except OSError:
                 pass
             break
-PY
+" 2>/dev/null || true
 
     # ------------------------------------------------------------------
     # Extended teardown (diagnosis 2026-04-18).
@@ -388,10 +388,10 @@ except Exception:
     # exercises, and also by any live agent the smoke registers. They
     # are not always removed by DELETE /memory because the smoke can
     # race the backend under --reload. This catches any stragglers.
-    python3 - <<'PY' 2>/dev/null || true
+    python3 -c "
 import os, re
 from pathlib import Path
-root = Path(os.path.expanduser("~/.myos/agent_memory"))
+root = Path(os.path.expanduser('~/.myos/agent_memory'))
 if not root.is_dir():
     raise SystemExit(0)
 pat = re.compile(r'^e2e[-_]', re.IGNORECASE)
@@ -401,16 +401,16 @@ for name in os.listdir(root):
             (root / name).unlink()
         except OSError:
             pass
-PY
+" 2>/dev/null || true
 
     # Disk sweep: <repo>/transcripts/e2e-*. Transcripts accumulate when
     # agents register + complete inside the smoke (nudge, memory, spawn,
     # lifecycle, etc.). The transcripts router only reads the directory
     # so there is no API delete; remove files directly.
-    python3 - "${REPO_DIR}" <<'PY' 2>/dev/null || true
+    python3 -c "
 import os, re, sys
 from pathlib import Path
-root = Path(sys.argv[1]) / "transcripts"
+root = Path(sys.argv[1]) / 'transcripts'
 if not root.is_dir():
     raise SystemExit(0)
 pat = re.compile(r'^e2e[-_]', re.IGNORECASE)
@@ -420,7 +420,7 @@ for name in os.listdir(root):
             (root / name).unlink()
         except OSError:
             pass
-PY
+" "${REPO_DIR}" 2>/dev/null || true
 }
 
 _e2e_cleanup() {
@@ -487,7 +487,7 @@ fi
 if [ "$SKIP_UNIT" != "1" ]; then
     header "Backend unit tests"
     if [ -d "$REPO_DIR/api/.venv" ]; then
-        if (cd "$REPO_DIR/api" && . .venv/bin/activate && python -m pytest -q --tb=short); then
+        if (cd "$REPO_DIR/api" && . .venv/bin/activate && python -m pytest -q --tb=short) < /dev/null; then
             phase_pass "pytest suite"
         else
             phase_fail "pytest suite"
@@ -502,7 +502,7 @@ fi
 if [ "$SKIP_UNIT" != "1" ]; then
     header "Frontend unit tests"
     if command -v pnpm > /dev/null 2>&1; then
-        if (cd "$REPO_DIR/app" && pnpm test --run); then
+        if (cd "$REPO_DIR/app" && pnpm test --run) < /dev/null; then
             phase_pass "vitest suite"
         else
             phase_fail "vitest suite"
@@ -517,7 +517,7 @@ fi
 if [ "$SKIP_UNIT" != "1" ]; then
     header "TypeScript project build"
     if command -v pnpm > /dev/null 2>&1; then
-        if (cd "$REPO_DIR/app" && pnpm exec tsc -b); then
+        if (cd "$REPO_DIR/app" && pnpm exec tsc -b) < /dev/null; then
             phase_pass "tsc -b"
         else
             phase_fail "tsc -b"
@@ -1660,77 +1660,7 @@ _ws_chat_test() {
     PYTHONPATH="$REPO_DIR/api" API_PORT="$API_PORT" \
         _WS_MODEL="$_model" _WS_MESSAGE="$_message" \
         _WS_USE_TLS="$([ -f "$HOME/.myos/localhost.key" ] && echo 1 || echo 0)" \
-        python3 - <<'PY'
-import asyncio
-import json
-import os
-import sys
-
-try:
-    import websockets
-except ImportError:
-    print("NO_WS_LIB")
-    sys.exit(0)
-
-import ssl as _ssl
-API_PORT = os.environ.get("API_PORT", "8000")
-USE_TLS = os.environ.get("_WS_USE_TLS", "0") == "1"
-if USE_TLS:
-    URL = f"wss://127.0.0.1:{API_PORT}/ws/chat"
-    _ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
-    _ssl_ctx.check_hostname = False
-    _ssl_ctx.verify_mode = _ssl.CERT_NONE
-else:
-    URL = f"ws://localhost:{API_PORT}/ws/chat"
-    _ssl_ctx = None
-MODEL = os.environ.get("_WS_MODEL", "@claude")
-MESSAGE = os.environ.get("_WS_MESSAGE", "say hi")
-
-async def main():
-    try:
-        connect_kwargs = {"open_timeout": 5}
-        if _ssl_ctx is not None:
-            connect_kwargs["ssl"] = _ssl_ctx
-        async with websockets.connect(URL, **connect_kwargs) as ws:
-            await ws.send(json.dumps({
-                "messages": [{"role": "user", "content": MESSAGE}],
-                "model": MODEL,
-            }))
-            got_token = False
-            got_done = False
-            try:
-                while True:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=45)
-                    try:
-                        event = json.loads(raw)
-                    except Exception:
-                        continue
-                    et = event.get("type")
-                    if et == "token" and event.get("data"):
-                        got_token = True
-                    if et in ("text",) and event.get("data"):
-                        # Multi-AI sends "text" events instead of "token"
-                        got_token = True
-                    if et == "done":
-                        got_done = True
-                        break
-                    if et == "error":
-                        print(f"ERROR:{event.get('data','')[:200]}")
-                        return
-            except asyncio.TimeoutError:
-                print("TIMEOUT")
-                return
-            if got_token and got_done:
-                print("OK")
-            elif got_done and not got_token:
-                print("EMPTY_RESPONSE")
-            else:
-                print("NO_DONE")
-    except Exception as exc:
-        print(f"CONNECT_FAIL:{exc}")
-
-asyncio.run(main())
-PY
+        python3 "$REPO_DIR/scripts/lib/e2e_ws_chat.py"
 }
 
 _ws_check() {
@@ -1829,53 +1759,7 @@ fi
 # fixed (either by updating the phase or removing the stale reference)
 # instead of rotting the gate.
 header "Orphan reference sweep"
-_orphan_list=$(python3 - "${REPO_DIR}" "${REPO_DIR}/scripts/e2e_smoke.sh" <<'PY' 2>/dev/null
-import os, re, sys
-repo = sys.argv[1]
-script = sys.argv[2]
-# Match repo-relative paths the smoke script uses: scripts/*.sh,
-# app/**, api/**, docs/**, start.sh, README.md, .ostk/**.
-# Anchor on either $REPO_DIR/ or a bare token so we catch both shapes.
-pat = re.compile(
-    r'(?:\$REPO_DIR/|\$\{REPO_DIR\}/|(?<=[\s"\x27`(]))'
-    r'(scripts/[A-Za-z0-9_.\-/]+\.sh'
-    r'|app/[A-Za-z0-9_.\-/]+\.(?:ts|tsx|js|jsx|json|cjs|mjs)'
-    r'|api/routers/[A-Za-z0-9_.\-/]+\.py'
-    r'|api/\.venv'
-    r'|api/routers'
-    r'|start\.sh'
-    r'|README\.md'
-    r')'
-)
-seen = set()
-try:
-    with open(script, 'r', encoding='utf-8') as fh:
-        text = fh.read()
-except OSError:
-    sys.exit(0)
-for m in pat.finditer(text):
-    rel = m.group(1)
-    # Skip comment-only mentions (usage docs, not real path guards).
-    # A simple heuristic: ignore if the line starts with '#'.
-    line_start = text.rfind('\n', 0, m.start()) + 1
-    line_end = text.find('\n', m.end())
-    if line_end == -1:
-        line_end = len(text)
-    line = text[line_start:line_end]
-    stripped = line.lstrip()
-    if stripped.startswith('#'):
-        continue
-    seen.add(rel)
-missing = []
-for rel in sorted(seen):
-    full = os.path.join(repo, rel)
-    if not os.path.exists(full):
-        missing.append(rel)
-if missing:
-    for m in missing:
-        print(m)
-PY
-)
+_orphan_list=$(python3 "$REPO_DIR/scripts/lib/e2e_orphan_sweep.py" "${REPO_DIR}" "${REPO_DIR}/scripts/e2e_smoke.sh" 2>/dev/null)
 if [ -z "$_orphan_list" ]; then
     phase_pass "orphan-reference-sweep: every path referenced in e2e_smoke.sh exists on disk"
 else
