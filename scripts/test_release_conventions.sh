@@ -187,7 +187,8 @@ else
     for PLATFORM in "darwin-universal" "x86_64-unknown-linux-musl"; do
         TARBALL="ostk-${VERSION_NUMBER}-${PLATFORM}.tar.gz"
         URL="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL}"
-        HTTP_CODE=$(curl --connect-timeout 3 -m 10 -fsSL -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
+        HTTP_CODE=$(curl --connect-timeout 5 -m 15 -sIL -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null)
+        [ -z "$HTTP_CODE" ] && HTTP_CODE="000"
         if [ "$HTTP_CODE" = "200" ]; then
             assert "ostk ${PLATFORM} tarball HTTP 200" 0
         else

@@ -457,7 +457,8 @@ if [ -n "$VERSION" ]; then
     # Check that the Mac universal binary actually exists (darwin-universal replaces separate ARM/Intel tarballs)
     TARBALL_MAC="ostk-${VERSION_NUMBER}-darwin-universal.tar.gz"
     URL_MAC="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL_MAC}"
-    HTTP_CODE_MAC=$(curl -fsSL -o /dev/null -w "%{http_code}" "$URL_MAC" 2>/dev/null || echo "000")
+    HTTP_CODE_MAC=$(curl -sIL --connect-timeout 5 -m 15 -o /dev/null -w "%{http_code}" "$URL_MAC" 2>/dev/null)
+    [ -z "$HTTP_CODE_MAC" ] && HTTP_CODE_MAC="000"
     if [ "$HTTP_CODE_MAC" = "200" ]; then
         assert "ostk Mac universal tarball downloads (HTTP 200)" 0
     else
@@ -467,7 +468,8 @@ if [ -n "$VERSION" ]; then
     # Check Linux binary
     TARBALL_LINUX="ostk-${VERSION_NUMBER}-x86_64-unknown-linux-musl.tar.gz"
     URL_LINUX="https://github.com/${OSTK_REPO}/releases/download/${VERSION}/${TARBALL_LINUX}"
-    HTTP_CODE_LINUX=$(curl -fsSL -o /dev/null -w "%{http_code}" "$URL_LINUX" 2>/dev/null || echo "000")
+    HTTP_CODE_LINUX=$(curl -sIL --connect-timeout 5 -m 15 -o /dev/null -w "%{http_code}" "$URL_LINUX" 2>/dev/null)
+    [ -z "$HTTP_CODE_LINUX" ] && HTTP_CODE_LINUX="000"
     if [ "$HTTP_CODE_LINUX" = "200" ]; then
         assert "ostk Linux x86_64 tarball downloads (HTTP 200)" 0
     else
