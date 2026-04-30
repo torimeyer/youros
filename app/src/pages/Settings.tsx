@@ -9,6 +9,7 @@ import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
+import CustomVerbs from '../components/CustomVerbs';
 
 interface MCPServer {
   name: string;
@@ -1854,6 +1855,11 @@ export default function Settings() {
               <h2 className="text-base font-semibold">Slack</h2>
             </div>
             <SlackConnect />
+          </div>
+
+          {/* Custom tack commands */}
+          <div className={cardClass} data-testid="custom-verbs-section">
+            <CustomVerbs />
           </div>
           </div>
 
