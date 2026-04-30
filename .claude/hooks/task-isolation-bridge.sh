@@ -118,6 +118,12 @@ if [ "$ISOLATION" = "none" ]; then
     exit 0
 fi
 
+# Read-only agent types. These have no Edit/Write tools so the bridge's
+# edit-capable premise does not apply regardless of prompt content.
+case "$SUBAGENT" in
+    Explore|Plan|claude-code-guide) exit 0 ;;
+esac
+
 # Edit-verb detection. Whole-word, case-insensitive. We check prompt
 # AND description because real Task calls often put the verb in the
 # description while the prompt is a long paragraph.
@@ -146,7 +152,7 @@ fi
 HAS_EXPLICIT_LOCKS=$(PROMPT="$PROMPT" DESCRIPTION="$DESCRIPTION" python3 -c "
 import os, re
 hay = os.environ.get('PROMPT','') + '\n' + os.environ.get('DESCRIPTION','')
-print('1' if re.search(r'[Ll]ocks\s*:\s*\[([^\]]+)\]', hay) else '0')
+print('1' if re.search(r'[Ll]ocks\s*:\s*\[([^\]]*)\]', hay) else '0')
 " 2>/dev/null)
 if [ "${HAS_EXPLICIT_LOCKS:-0}" != "1" ]; then
     printf '%s\n' 'Blocked: edit-capable spawn did not declare Locks. Add a header like `Locks: [path/one.py, path/two.tsx]` at the top of the prompt naming only files this agent will write. Reads do not need locks.' >&2
