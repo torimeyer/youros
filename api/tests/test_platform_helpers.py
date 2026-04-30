@@ -177,3 +177,16 @@ def test_escape_handles_quotes_and_backslashes():
     out = platform_helpers._escape('say "hi" \\n')
     assert '\\"hi\\"' in out
     assert "\\\\n" in out
+
+
+# --- Windows branch coverage ---
+
+
+def test_clipboard_copy_returns_false_on_windows():
+    with patch("services.platform_helpers.platform.system", return_value="Windows"):
+        assert platform_helpers.clipboard_copy("hello") is False
+
+
+def test_notify_returns_false_on_windows():
+    with patch("services.platform_helpers.platform.system", return_value="Windows"):
+        assert platform_helpers.notify("Title", "Body") is False

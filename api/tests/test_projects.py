@@ -229,6 +229,21 @@ async def test_open_file_success(client):
     mock_open.assert_called_once()
 
 
+@pytest.mark.asyncio
+async def test_open_file_open_path_fails(client):
+    """When platform_helpers.open_path returns False the endpoint returns 500."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        (tmppath / "test.txt").write_text("hello")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("services.platform_helpers.open_path", return_value=False):
+            resp = await client.post("/api/projects/open-file", json={"path": "test.txt"})
+
+    assert resp.status_code == 500
+    assert "Could not open file on this platform." in resp.json()["detail"]
+
+
 # --- _format_size helper ---
 
 

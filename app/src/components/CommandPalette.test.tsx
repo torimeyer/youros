@@ -369,3 +369,63 @@ describe('CommandPalette search', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/adoption')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Platform-specific modifier key display
+// ---------------------------------------------------------------------------
+
+describe('CommandPalette keyboard modifier key by platform', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows Ctrl+ on a non-Mac platform (Win32)', () => {
+    // jsdom sets navigator.platform to '' by default (non-Mac).
+    // Explicitly simulate Win32 to document the branch.
+    Object.defineProperty(navigator, 'platform', {
+      value: 'Win32',
+      configurable: true,
+      writable: true,
+    })
+    renderPalette()
+    const chatItem = screen.getByTestId('command-item-action-chat')
+    expect(chatItem.textContent).toContain('Ctrl+L')
+    expect(chatItem.textContent).not.toContain('⌘L')
+    // Restore
+    Object.defineProperty(navigator, 'platform', { value: '', configurable: true, writable: true })
+  })
+
+  it('shows ⌘ on macOS (MacIntel)', async () => {
+    // modKey is computed once at module load. We reset the module registry
+    // so CommandPalette re-evaluates isMac() with the new navigator.platform.
+    Object.defineProperty(navigator, 'platform', {
+      value: 'MacIntel',
+      configurable: true,
+      writable: true,
+    })
+    vi.resetModules()
+
+    // Bring in fresh copies of React and render utilities so they share the
+    // same React instance as the freshly-loaded CommandPalette.
+    const { createElement } = await import('react')
+    const { render: r, screen: s, cleanup } = await import('@testing-library/react')
+    const { MemoryRouter: MR } = await import('react-router-dom')
+    const { CommandPalette: MacPalette } = await import('./CommandPalette')
+
+    const { unmount } = r(
+      createElement(MR as any, null,
+        createElement(MacPalette as any, { open: true, onClose: vi.fn() })
+      )
+    )
+
+    const chatItem = s.getByTestId('command-item-action-chat')
+    expect(chatItem.textContent).toContain('⌘L')
+    expect(chatItem.textContent).not.toContain('Ctrl+L')
+
+    unmount()
+    cleanup()
+    // Restore platform and module registry for subsequent tests.
+    Object.defineProperty(navigator, 'platform', { value: '', configurable: true, writable: true })
+    vi.resetModules()
+  })
+})

@@ -672,6 +672,65 @@ describe('TopBar What\'s New button', () => {
 })
 
 
+// ---------------------------------------------------------------------------
+// Platform-specific modifier key display
+// ---------------------------------------------------------------------------
+
+describe('TopBar keyboard modifier key by platform', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useNotificationStore.setState({ notifications: [], toastIds: [] })
+    useAppStore.setState({ osName: 'myOS', chatOpen: false, chatWidth: 400 })
+    mockedApiGet.mockImplementation(async (url: string) => {
+      if (url === '/notifications/unread/count') return { count: 0 }
+      if (url === '/notifications') return []
+      return {}
+    })
+  })
+
+  it('shows Ctrl+ on a non-Mac platform (Win32)', async () => {
+    Object.defineProperty(navigator, 'platform', {
+      value: 'Win32',
+      configurable: true,
+      writable: true,
+    })
+    renderTopBar()
+    // Wait for effects to settle then check that Ctrl+ appears
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/notifications')
+    })
+    // modKey+K shortcut hint should use Ctrl+ prefix on non-Mac
+    expect(document.body.textContent).toContain('Ctrl+')
+    expect(document.body.textContent).not.toContain('⌘')
+    Object.defineProperty(navigator, 'platform', { value: '', configurable: true, writable: true })
+  })
+
+  it('shows ⌘ on macOS (MacIntel)', async () => {
+    // modKey is a module-level constant — reload TopBar with Mac platform
+    Object.defineProperty(navigator, 'platform', {
+      value: 'MacIntel',
+      configurable: true,
+      writable: true,
+    })
+    vi.resetModules()
+
+    const { createElement } = await import('react')
+    const { render: r, screen: s, cleanup, waitFor: wf } = await import('@testing-library/react')
+    const { BrowserRouter: BR } = await import('react-router-dom')
+    const { default: FreshTopBar } = await import('./TopBar')
+
+    r(createElement(BR as any, null, createElement(FreshTopBar as any, { title: 'Home' })))
+
+    // modKey+K shortcut hint should use ⌘ prefix on Mac
+    await wf(() => expect(document.body.textContent).toContain('⌘'))
+    expect(document.body.textContent).not.toContain('Ctrl+')
+
+    cleanup()
+    Object.defineProperty(navigator, 'platform', { value: '', configurable: true, writable: true })
+    vi.resetModules()
+  })
+})
+
 describe('TopBar persistent-notification toast', () => {
   beforeEach(() => {
     vi.clearAllMocks()

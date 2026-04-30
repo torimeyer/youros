@@ -1,4 +1,4 @@
-"""Tests for the /files/delete endpoint."""
+"""Tests for the /files/* endpoints."""
 
 from __future__ import annotations
 
@@ -70,6 +70,57 @@ async def test_delete_rejects_directory(client):
 
 # ---------------------------------------------------------------------------
 # GET /docs/recent including ~/.myos/files local sources
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# POST /files/open — open file in native app
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_open_file_native_success(client):
+    """open_path returning True yields 200 with ok=True."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        (tmppath / "note.txt").write_text("hi")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("services.platform_helpers.open_path", return_value=True) as mock_open:
+            resp = await client.post("/api/files/open?path=note.txt")
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    mock_open.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_open_file_native_platform_fails(client):
+    """open_path returning False yields 500 with the platform error detail."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        (tmppath / "note.txt").write_text("hi")
+
+        with patch("routers.projects.TORIOS_DIR", tmppath), \
+             patch("services.platform_helpers.open_path", return_value=False):
+            resp = await client.post("/api/files/open?path=note.txt")
+
+    assert resp.status_code == 500
+    assert "Could not open file on this platform." in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_open_file_native_nonexistent_path(client):
+    """A path that does not exist on disk returns 404."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+
+        with patch("routers.projects.TORIOS_DIR", tmppath):
+            resp = await client.post("/api/files/open?path=no-such-file-xyz.txt")
+
+    assert resp.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 
 

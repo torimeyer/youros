@@ -882,3 +882,33 @@ async def test_imessage_conversations_returns_503_on_non_macos(client):
     with patch("platform.system", return_value="Windows"):
         resp = await client.get("/api/imessage/conversations")
     assert resp.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_imessage_status_darwin_passes_guard(client):
+    """On Darwin the macOS guard passes; status endpoint returns 200, not 503.
+
+    The availability check may report unavailable (if chat.db is absent on this
+    machine), but the response code must be 200 — 503 is only for non-macOS.
+    """
+    with patch("platform.system", return_value="Darwin"):
+        resp = await client.get("/api/imessage/status")
+    assert resp.status_code == 200
+    assert resp.status_code != 503
+
+
+@pytest.mark.asyncio
+async def test_imessage_conversations_darwin_passes_guard(client):
+    """On Darwin the macOS guard passes; conversations endpoint is not 503.
+
+    If chat.db is missing the endpoint may return 503 from is_available, but
+    the top-level platform guard must not fire.  We mock is_available to avoid
+    a filesystem dependency and confirm the guard itself is satisfied.
+    """
+    with patch("platform.system", return_value="Darwin"), \
+         patch("services.imessage.is_available",
+               return_value={"available": True, "reason": None}), \
+         patch("services.imessage.get_conversations",
+               new=AsyncMock(return_value=[])):
+        resp = await client.get("/api/imessage/conversations")
+    assert resp.status_code != 503
