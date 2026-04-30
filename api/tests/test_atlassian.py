@@ -298,3 +298,264 @@ class TestAtlassianService:
         with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
             with pytest.raises(RuntimeError, match="Site not found"):
                 await verify_creds("u@e.com", "tok", "notexist.atlassian.net")
+
+
+# --- 2-way actions: comment, transitions, transition, assign ---
+
+@pytest.mark.asyncio
+async def test_add_comment_success(client):
+    comment_result = {
+        "id": "10001",
+        "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Looks good"}]}],
+        },
+        "author": {"displayName": "Tori Meyer"},
+    }
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.add_comment = AsyncMock(return_value=comment_result)
+        resp = await client.post(
+            "/api/atlassian/jira/issue/JIRA-1/comment",
+            json={"body": "Looks good"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["comment"]["id"] == "10001"
+    body = data["comment"]["body"]
+    assert body["type"] == "doc"
+    assert body["version"] == 1
+
+
+@pytest.mark.asyncio
+async def test_add_comment_empty_body(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        resp = await client.post(
+            "/api/atlassian/jira/issue/JIRA-1/comment",
+            json={"body": "   "},
+        )
+
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_add_comment_not_connected(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = False
+        resp = await client.post(
+            "/api/atlassian/jira/issue/JIRA-1/comment",
+            json={"body": "hello"},
+        )
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_transitions_success(client):
+    transitions = [
+        {"id": "11", "name": "To Do", "to_status": "To Do"},
+        {"id": "21", "name": "In Progress", "to_status": "In Progress"},
+        {"id": "31", "name": "Done", "to_status": "Done"},
+    ]
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.list_transitions = AsyncMock(return_value=transitions)
+        resp = await client.get("/api/atlassian/jira/issue/JIRA-1/transitions")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["transitions"]) == 3
+    assert data["transitions"][0]["id"] == "11"
+    assert data["transitions"][2]["to_status"] == "Done"
+
+
+@pytest.mark.asyncio
+async def test_transition_issue_success(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.transition_issue = AsyncMock(return_value=None)
+        resp = await client.post(
+            "/api/atlassian/jira/issue/JIRA-1/transition",
+            json={"transition_id": "31"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    mock_svc.transition_issue.assert_awaited_once_with("JIRA-1", "31")
+
+
+@pytest.mark.asyncio
+async def test_assign_issue_success(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.assign_issue = AsyncMock(return_value=None)
+        resp = await client.post(
+            "/api/atlassian/jira/issue/JIRA-1/assign",
+            json={"account_id": "abc123"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    mock_svc.assign_issue.assert_awaited_once_with("JIRA-1", "abc123")
+
+
+@pytest.mark.asyncio
+async def test_assign_issue_unassign(client):
+    with patch("routers.atlassian.atlassian_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.assign_issue = AsyncMock(return_value=None)
+        resp = await client.post(
+            "/api/atlassian/jira/issue/JIRA-1/assign",
+            json={"account_id": None},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    mock_svc.assign_issue.assert_awaited_once_with("JIRA-1", None)
+
+
+# --- Service unit tests for 2-way actions ---
+
+class TestAtlassianServiceActions:
+    @pytest.mark.asyncio
+    async def test_add_comment_adf_shape(self):
+        """add_comment sends correct Atlassian Document Format body."""
+        from services.atlassian import add_comment
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 201
+        mock_resp.json.return_value = {"id": "10001"}
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_resp)
+
+        with patch("services.atlassian._get_auth_and_base", AsyncMock(
+            return_value=(MagicMock(), "https://example.atlassian.net")
+        )):
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                result = await add_comment("JIRA-1", "Hello world")
+
+        call_kwargs = mock_client.post.call_args
+        sent_json = call_kwargs.kwargs["json"]
+        assert sent_json["body"]["type"] == "doc"
+        assert sent_json["body"]["version"] == 1
+        content = sent_json["body"]["content"]
+        assert content[0]["type"] == "paragraph"
+        assert content[0]["content"][0]["text"] == "Hello world"
+        assert result == {"id": "10001"}
+
+    @pytest.mark.asyncio
+    async def test_add_comment_4xx_raises(self):
+        from services.atlassian import add_comment
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 403
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_resp)
+
+        with patch("services.atlassian._get_auth_and_base", AsyncMock(
+            return_value=(MagicMock(), "https://example.atlassian.net")
+        )):
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                with pytest.raises(RuntimeError, match="Jira API error"):
+                    await add_comment("JIRA-1", "oops")
+
+    @pytest.mark.asyncio
+    async def test_list_transitions_success(self):
+        from services.atlassian import list_transitions
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "transitions": [
+                {"id": "11", "name": "To Do", "to": {"name": "To Do"}},
+                {"id": "21", "name": "Done", "to": {"name": "Done"}},
+            ]
+        }
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_resp)
+
+        with patch("services.atlassian._get_auth_and_base", AsyncMock(
+            return_value=(MagicMock(), "https://example.atlassian.net")
+        )):
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                result = await list_transitions("JIRA-1")
+
+        assert len(result) == 2
+        assert result[0] == {"id": "11", "name": "To Do", "to_status": "To Do"}
+        assert result[1] == {"id": "21", "name": "Done", "to_status": "Done"}
+
+    @pytest.mark.asyncio
+    async def test_transition_issue_204(self):
+        from services.atlassian import transition_issue
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 204
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_resp)
+
+        with patch("services.atlassian._get_auth_and_base", AsyncMock(
+            return_value=(MagicMock(), "https://example.atlassian.net")
+        )):
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                await transition_issue("JIRA-1", "31")
+
+        sent_json = mock_client.post.call_args.kwargs["json"]
+        assert sent_json == {"transition": {"id": "31"}}
+
+    @pytest.mark.asyncio
+    async def test_assign_issue_success(self):
+        from services.atlassian import assign_issue
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 204
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.put = AsyncMock(return_value=mock_resp)
+
+        with patch("services.atlassian._get_auth_and_base", AsyncMock(
+            return_value=(MagicMock(), "https://example.atlassian.net")
+        )):
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                await assign_issue("JIRA-1", "user123")
+
+        sent_json = mock_client.put.call_args.kwargs["json"]
+        assert sent_json == {"accountId": "user123"}
+
+    @pytest.mark.asyncio
+    async def test_assign_issue_unassign(self):
+        from services.atlassian import assign_issue
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 204
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.put = AsyncMock(return_value=mock_resp)
+
+        with patch("services.atlassian._get_auth_and_base", AsyncMock(
+            return_value=(MagicMock(), "https://example.atlassian.net")
+        )):
+            with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
+                await assign_issue("JIRA-1", None)
+
+        sent_json = mock_client.put.call_args.kwargs["json"]
+        assert sent_json == {"accountId": None}

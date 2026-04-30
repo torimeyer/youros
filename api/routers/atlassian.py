@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -119,3 +121,73 @@ async def confluence_get_page(page_id: str):
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
     return page
+
+
+class CommentRequest(BaseModel):
+    body: str
+
+
+class TransitionRequest(BaseModel):
+    transition_id: str
+
+
+class AssignRequest(BaseModel):
+    account_id: Optional[str] = None
+
+
+@router.post("/atlassian/jira/issue/{key}/comment")
+async def jira_add_comment(key: str, req: CommentRequest):
+    """Post a comment on a Jira issue."""
+    if not atlassian_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Atlassian.")
+    if not req.body.strip():
+        raise HTTPException(status_code=400, detail="Comment body cannot be empty.")
+
+    try:
+        comment = await atlassian_service.add_comment(key, req.body.strip())
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"ok": True, "comment": comment}
+
+
+@router.get("/atlassian/jira/issue/{key}/transitions")
+async def jira_list_transitions(key: str):
+    """Return available transitions for a Jira issue."""
+    if not atlassian_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Atlassian.")
+
+    try:
+        transitions = await atlassian_service.list_transitions(key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"transitions": transitions}
+
+
+@router.post("/atlassian/jira/issue/{key}/transition")
+async def jira_transition_issue(key: str, req: TransitionRequest):
+    """Move a Jira issue to a new status."""
+    if not atlassian_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Atlassian.")
+
+    try:
+        await atlassian_service.transition_issue(key, req.transition_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"ok": True}
+
+
+@router.post("/atlassian/jira/issue/{key}/assign")
+async def jira_assign_issue(key: str, req: AssignRequest):
+    """Assign or unassign a Jira issue."""
+    if not atlassian_service.is_connected():
+        raise HTTPException(status_code=401, detail="Not connected to Atlassian.")
+
+    try:
+        await atlassian_service.assign_issue(key, req.account_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"ok": True}

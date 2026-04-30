@@ -726,7 +726,15 @@ def agent_mailbox_instruction(agent_name: str) -> str:
         "   `curl --connect-timeout 3 -m 5 -sSk -X POST "
         "https://127.0.0.1:8000/api/tasks/pull`\n"
         "If the response has `claimed: true`, work on that task next. "
-        f"If `claimed: false`, no tasks are available. POST /api/agents/{agent_name}/complete and exit."
+        f"If `claimed: false`, no tasks are available. POST /api/agents/{agent_name}/complete and exit.\n\n"
+        "Atlassian (Jira and Confluence) is connected through myOS. "
+        "Server endpoints are available at /api/atlassian/jira/issue/{key} "
+        "(GET for ticket detail), /api/atlassian/jira/issue/{key}/comment "
+        "(POST {body}), /api/atlassian/jira/issue/{key}/transitions (GET) "
+        "and /api/atlassian/jira/issue/{key}/transition (POST {transition_id}), "
+        "and /api/atlassian/confluence/page/{id} (GET). Use these to read "
+        "tickets, comment, or move work without bouncing the user out of myOS. "
+        "Skip if /api/atlassian/status returns connected=false."
     )
 
 

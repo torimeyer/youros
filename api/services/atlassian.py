@@ -331,3 +331,107 @@ async def get_page(page_id: str) -> dict:
         "updated": data.get("version", {}).get("createdAt", ""),
         "url": f"https://{site}/wiki/spaces/{space_id}/pages/{page_id_str}",
     }
+
+
+async def add_comment(issue_key: str, body: str) -> dict:
+    """Post a comment on a Jira issue. Returns the created comment dict."""
+    auth, base_url = await _get_auth_and_base()
+    payload = {
+        "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": body}],
+                }
+            ],
+        }
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{base_url}/rest/api/3/issue/{issue_key}/comment",
+                auth=auth,
+                json=payload,
+            )
+            if resp.status_code == 401:
+                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+            if resp.status_code == 404:
+                raise RuntimeError(f"Issue {issue_key} not found.")
+            if resp.status_code >= 400:
+                raise RuntimeError(f"Jira API error ({resp.status_code}).")
+            return resp.json()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+
+
+async def list_transitions(issue_key: str) -> list[dict]:
+    """Return available transitions for a Jira issue."""
+    auth, base_url = await _get_auth_and_base()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{base_url}/rest/api/3/issue/{issue_key}/transitions",
+                auth=auth,
+            )
+            if resp.status_code == 401:
+                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+            if resp.status_code == 404:
+                raise RuntimeError(f"Issue {issue_key} not found.")
+            if resp.status_code >= 400:
+                raise RuntimeError(f"Jira API error ({resp.status_code}).")
+            data = resp.json()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+
+    return [
+        {
+            "id": t.get("id", ""),
+            "name": t.get("name", ""),
+            "to_status": (t.get("to") or {}).get("name", ""),
+        }
+        for t in data.get("transitions", [])
+    ]
+
+
+async def transition_issue(issue_key: str, transition_id: str) -> None:
+    """Move a Jira issue to a new status via a transition ID."""
+    auth, base_url = await _get_auth_and_base()
+    payload = {"transition": {"id": transition_id}}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{base_url}/rest/api/3/issue/{issue_key}/transitions",
+                auth=auth,
+                json=payload,
+            )
+            if resp.status_code == 401:
+                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+            if resp.status_code == 404:
+                raise RuntimeError(f"Issue {issue_key} not found.")
+            if resp.status_code not in (200, 204):
+                raise RuntimeError(f"Jira API error ({resp.status_code}).")
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
+
+
+async def assign_issue(issue_key: str, account_id: Optional[str]) -> None:
+    """Assign a Jira issue to a user by account ID. Pass None to unassign."""
+    auth, base_url = await _get_auth_and_base()
+    payload = {"accountId": account_id}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.put(
+                f"{base_url}/rest/api/3/issue/{issue_key}/assignee",
+                auth=auth,
+                json=payload,
+            )
+            if resp.status_code == 401:
+                raise RuntimeError("Atlassian credentials expired. Please reconnect.")
+            if resp.status_code == 404:
+                raise RuntimeError(f"Issue {issue_key} not found.")
+            if resp.status_code not in (200, 204):
+                raise RuntimeError(f"Jira API error ({resp.status_code}).")
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
