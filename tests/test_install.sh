@@ -505,6 +505,19 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# --- WSL compatibility check ---
+
+if [ -x "$DIR/scripts/test_wsl_compat.sh" ]; then
+    if "$DIR/scripts/test_wsl_compat.sh"; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo -e "  ${RED}FAIL${NC}  scripts/test_wsl_compat.sh is missing or not executable"
+    FAIL=$((FAIL + 1))
+fi
+
 # --- Summary ---
 
 echo ""

@@ -57,6 +57,10 @@ nvm install 20
 
 If you have SSH keys set up, you can also use `git clone git@github.com:torimeyer/myos.git ~/myos`.
 
+### On Windows (WSL)
+
+myOS runs on Windows via WSL (Windows Subsystem for Linux). Follow the Linux steps above inside your WSL terminal. Everything works the same, and myOS will open in your Windows browser automatically. For the best experience, install [wslu](https://wslutiliti.es/wslu/) first (`sudo apt-get install -y wslu` on Ubuntu), which provides the `wslview` command used for browser launching.
+
 ## Updating
 
 ```bash
