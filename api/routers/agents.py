@@ -37,6 +37,19 @@ class AgentCancel(BaseModel):
 class AgentHeartbeat(BaseModel):
     step: Optional[str] = None
 
+
+class AgentHandoff(BaseModel):
+    summary: str
+
+
+class AgentArrive(BaseModel):
+    milestone: Optional[str] = None
+
+
+class AgentNote(BaseModel):
+    content: str
+
+
 router = APIRouter(tags=["agents"])
 
 # In-memory registry of active agent processes
@@ -634,6 +647,24 @@ def agent_mailbox_instruction(agent_name: str) -> str:
         "confirming what you will do differently.\n\n"
         "This loop lives alongside your heartbeats. Do not skip it. "
         "Tori is waiting on the other end.\n\n"
+        "### Coordination primitives\n\n"
+        "Use these primitives to share state, signal progress, and leave a trail.\n\n"
+        "**Handoff summary** (write before /complete so a recovery agent can pick up):\n"
+        f"   `curl --connect-timeout 3 -m 5 -sSk -X POST "
+        f"https://127.0.0.1:8000/api/agents/{agent_name}/handoff "
+        "-H 'Content-Type: application/json' -d '{\"summary\": \"<one paragraph of context>\"}'`\n\n"
+        "**Context pages** (share large data between agents):\n"
+        "- Store: `mcp__ostk__context_store(name='<page>', content='...')`\n"
+        "- Load: `mcp__ostk__context_load(name='<page>')`\n"
+        "- Pin (keep in context): `mcp__ostk__context_pin(name='<page>')`\n\n"
+        "**Arrive** (signal a meaningful milestone to the orchestrator):\n"
+        f"   `curl --connect-timeout 3 -m 5 -sSk -X POST "
+        f"https://127.0.0.1:8000/api/agents/{agent_name}/arrive "
+        "-H 'Content-Type: application/json' -d '{\"milestone\": \"<what you just finished>\"}'`\n\n"
+        "**Note** (record a key decision or finding):\n"
+        f"   `curl --connect-timeout 3 -m 5 -sSk -X POST "
+        f"https://127.0.0.1:8000/api/agents/{agent_name}/note "
+        "-H 'Content-Type: application/json' -d '{\"content\": \"<your note>\"}'`\n\n"
         "### Finishing your work (mandatory)\n\n"
         "When you finish the work you were asked to do, you MUST mark "
         "yourself complete so the Agents page stops showing you as "
@@ -7606,6 +7637,79 @@ async def agent_status_feedback(name: str):
         "last_heartbeat_at": meta.get("last_heartbeat_at"),
         "feedback": _plain_language_feedback(name, {**meta, "status": display_status}),
     }
+
+
+@router.post("/agents/{name}/handoff")
+async def agent_handoff(name: str, body: AgentHandoff):
+    """Save a handoff summary so a recovery agent can pick up where this one left off."""
+    handoff_dir = OSTK_DIR / "handoffs"
+    handoff_dir.mkdir(parents=True, exist_ok=True)
+    handoff_path = handoff_dir / f"{name}.md"
+    handoff_path.write_text(body.summary, encoding="utf-8")
+    return {"result": "handoff saved"}
+
+
+@router.get("/context-pages")
+async def list_context_pages():
+    """List context pages stored in .ostk/memory/ for sharing between agents."""
+    memory_dir = OSTK_DIR / "memory"
+    if not memory_dir.exists():
+        return {"pages": []}
+    pages = []
+    for p in sorted(memory_dir.glob("*.page")):
+        try:
+            size = p.stat().st_size
+        except OSError:
+            size = 0
+        pages.append({"name": p.stem, "size_bytes": size})
+    return {"pages": pages}
+
+
+@router.post("/agents/{name}/arrive")
+async def agent_arrive(name: str, body: AgentArrive):
+    """Record a milestone arrival so the orchestrator can detect it without polling."""
+    agent_dir = OSTK_DIR / "agents" / name
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    arrive_path = agent_dir / "arrive.json"
+    record = {
+        "agent": name,
+        "milestone": body.milestone or "",
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    arrive_path.write_text(json.dumps(record), encoding="utf-8")
+    return {"result": "arrive recorded"}
+
+
+@router.post("/agents/{name}/note")
+async def agent_note_post(name: str, body: AgentNote):
+    """Append a structured note about a decision or finding."""
+    agent_dir = OSTK_DIR / "agents" / name
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    notes_path = agent_dir / "notes.jsonl"
+    record = {
+        "content": body.content,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    with notes_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+    return {"result": "note saved"}
+
+
+@router.get("/agents/{name}/notes")
+async def agent_notes_get(name: str):
+    """Return all notes recorded by an agent."""
+    notes_path = OSTK_DIR / "agents" / name / "notes.jsonl"
+    if not notes_path.exists():
+        return {"notes": []}
+    notes = []
+    for line in notes_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            try:
+                notes.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return {"notes": notes}
 
 
 @router.websocket("/ws/agent/{name}")
