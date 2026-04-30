@@ -3822,57 +3822,40 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         # coroutine below writes+flushes each chunk so the file grows in real
         # time during the run.
         transcript_path.touch()
+        # Write the prompt to a temp file BEFORE spawning the subprocess.
+        # claude --print has a 3-second stdin timeout. Under event-loop
+        # contention (large agent lists, stale worktrees) the async
+        # stdin.write can miss that window, producing 0-byte transcripts.
+        # A pre-written file makes the data available the instant the
+        # CLI starts reading, eliminating the race entirely.
+        import tempfile as _tempfile
+        _prompt_fh = None
+        _prompt_temp_path = None
+        _stdin_source = asyncio.subprocess.DEVNULL
+        if prompt_with_memory:
+            _fd, _prompt_temp_path = _tempfile.mkstemp(
+                prefix=f"spawn-{body.name}-", suffix=".prompt"
+            )
+            os.write(_fd, prompt_with_memory.encode())
+            os.close(_fd)
+            _prompt_fh = open(_prompt_temp_path, "rb")
+            _stdin_source = _prompt_fh
+
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdin=asyncio.subprocess.PIPE,
+            stdin=_stdin_source,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=_spawn_cwd,
             env=_spawn_env,
         )
 
-        # Send the initial prompt to stdin and CLOSE it (write_eof) so
-        # ``claude --print`` knows the input is complete and produces
-        # output. With ``--input-format text`` (the default), claude
-        # reads stdin until EOF and only emits its response after that
-        # signal. Holding the pipe open caused every demo-mode spawn
-        # to hang until the 90s wall-clock force-complete with a 0-byte
-        # transcript. Nudges fall back to the file-based mailbox via
-        # the BrokenPipe-clean path in /nudge (line ~5012).
-        #
-        # Defensive: wrap the write+drain so a subprocess that exits
-        # immediately (claude CLI not authenticated, exec arg too long,
-        # OS pipe race under burst load) does not surface a confusing
-        # ``WriteUnixTransport closed`` error to the caller. The agent
-        # row still lands with status=running so the demo smoke can
-        # observe the supervisor force-complete or the natural exit; we
-        # just skip pushing the prompt down a half-open pipe.
-        if prompt_with_memory and proc.stdin is not None:
+        if _prompt_fh is not None:
+            _prompt_fh.close()
+        if _prompt_temp_path:
             try:
-                proc.stdin.write(prompt_with_memory.encode())
-                await proc.stdin.drain()
-            except (BrokenPipeError, ConnectionResetError, RuntimeError) as _stdin_exc:
-                logger.warning(
-                    "spawn.stdin_drain.failed name=%s err=%s",
-                    body.name, _stdin_exc,
-                )
-        # Close stdin so claude --print sees EOF and emits its response.
-        # Without this, the subprocess hangs forever waiting for more
-        # input. asyncio's StreamWriter.close() alone does not reliably
-        # send EOF on a unix pipe to a subprocess; write_eof() is the
-        # half-close primitive that actually sends EOF before the
-        # transport tears down. Regression guard: e2e-roadmap-probe2
-        # (2026-04-17) hung 70s+ alive with transcript_bytes=0 because
-        # only close() was called and the child kept reading.
-        if proc.stdin is not None and not proc.stdin.is_closing():
-            try:
-                if proc.stdin.can_write_eof():
-                    proc.stdin.write_eof()
-            except (BrokenPipeError, OSError, RuntimeError, AttributeError):
-                pass
-            try:
-                proc.stdin.close()
-            except (BrokenPipeError, OSError, RuntimeError):
+                os.unlink(_prompt_temp_path)
+            except Exception:
                 pass
 
         active_agents[body.name] = proc

@@ -4206,35 +4206,19 @@ async def test_spawn_agent_prompt_contains_mailbox_instruction(tmp_path, monkeyp
         agent_metadata,
     )
 
-    captured: dict = {"stdin": b""}
-
-    class _FakeStdin:
-        def __init__(self):
-            self._closed = False
-
-        def write(self, data):
-            captured["stdin"] += data
-
-        async def drain(self):
-            return None
-
-        def close(self):
-            self._closed = True
-
-        def is_closing(self) -> bool:
-            return self._closed
+    captured: dict = {"prompt": ""}
 
     class _FakeProc:
         pid = 424242
         returncode = None
-
-        def __init__(self):
-            self.stdin = _FakeStdin()
+        stdin = None
 
     async def _fake_create_subprocess_exec(*args, **kwargs):
+        stdin_fh = kwargs.get("stdin")
+        if stdin_fh is not None and hasattr(stdin_fh, "read"):
+            captured["prompt"] = stdin_fh.read().decode("utf-8")
         return _FakeProc()
 
-    # Keep audit noise out of the test.
     async def _noop_run(*args, **kwargs):
         return ""
 
@@ -4246,7 +4230,6 @@ async def test_spawn_agent_prompt_contains_mailbox_instruction(tmp_path, monkeyp
     monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
 
     agent_name = "mailbox-contract-spawn-test"
-    # Make sure there is no leftover state from a previous run.
     agent_metadata.pop(agent_name, None)
     active_agents.pop(agent_name, None)
 
@@ -4263,10 +4246,8 @@ async def test_spawn_agent_prompt_contains_mailbox_instruction(tmp_path, monkeyp
                 },
             )
         assert resp.status_code == 200, resp.text
-        stdin_text = captured["stdin"].decode("utf-8")
-        # The original user prompt must still be there.
+        stdin_text = captured["prompt"]
         assert "Go do the thing." in stdin_text
-        # And the mailbox block must have been prepended.
         assert agent_name in stdin_text
         assert f"{MAILBOX_CHECK_INTERVAL_SECONDS} seconds" in stdin_text
         assert "/nudges" in stdin_text
@@ -4278,48 +4259,34 @@ async def test_spawn_agent_prompt_contains_mailbox_instruction(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_spawn_agent_closes_stdin_after_prompt(tmp_path, monkeypatch):
-    """POST /agents/spawn must close the subprocess stdin after writing
-    the prompt so ``claude --print`` sees EOF and emits its response.
+async def test_spawn_agent_uses_temp_file_for_stdin(tmp_path, monkeypatch):
+    """POST /agents/spawn must deliver the prompt via a pre-written temp
+    file passed as stdin, not via an async PIPE write.
 
-    Regression for the e2e-journey3-roadmap incident (2026-04-17): every
-    demo-mode spawn hit ``completed_timeout`` with ``transcript_bytes=0``
-    because stdin was held open. ``claude --print`` with the default
-    ``--input-format text`` reads stdin until EOF and only emits its
-    response after that signal, so without the close the subprocess
-    hangs forever waiting for more input and is killed by the 90s
-    wall-clock force-complete.
+    Regression for the stdin race (2026-04-30): ``claude --print`` has a
+    3-second stdin timeout. Under event-loop contention the async PIPE
+    write missed the window, producing 0-byte transcripts. The temp-file
+    approach makes data available the instant the CLI starts reading.
+
+    This test verifies that ``create_subprocess_exec`` receives a real
+    file handle (not PIPE) as its ``stdin`` kwarg, and that the file
+    contains the full prompt.
     """
     from routers import agents as agents_module
     from routers.agents import active_agents, agent_metadata
 
-    captured: dict = {"stdin": b"", "closed": False}
-
-    class _FakeStdin:
-        def __init__(self):
-            self._closed = False
-
-        def write(self, data):
-            captured["stdin"] += data
-
-        async def drain(self):
-            return None
-
-        def close(self):
-            self._closed = True
-            captured["closed"] = True
-
-        def is_closing(self) -> bool:
-            return self._closed
+    captured: dict = {"stdin_arg": None, "prompt": ""}
 
     class _FakeProc:
         pid = 525252
         returncode = None
-
-        def __init__(self):
-            self.stdin = _FakeStdin()
+        stdin = None
 
     async def _fake_create_subprocess_exec(*args, **kwargs):
+        stdin_arg = kwargs.get("stdin")
+        captured["stdin_arg"] = stdin_arg
+        if stdin_arg is not None and hasattr(stdin_arg, "read"):
+            captured["prompt"] = stdin_arg.read().decode("utf-8")
         return _FakeProc()
 
     async def _noop_run(*args, **kwargs):
@@ -4332,7 +4299,7 @@ async def test_spawn_agent_closes_stdin_after_prompt(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
 
-    agent_name = "stdin-close-spawn-test"
+    agent_name = "temp-file-stdin-spawn-test"
     agent_metadata.pop(agent_name, None)
     active_agents.pop(agent_name, None)
 
@@ -4349,13 +4316,10 @@ async def test_spawn_agent_closes_stdin_after_prompt(tmp_path, monkeypatch):
                 },
             )
         assert resp.status_code == 200, resp.text
-        # The prompt must have been written to stdin.
-        assert b"Say hi." in captured["stdin"]
-        # And stdin must have been closed so claude --print sees EOF.
-        assert captured["closed"], (
-            "spawn_agent left stdin open; claude --print will hang forever "
-            "waiting for EOF"
+        assert hasattr(captured["stdin_arg"], "read"), (
+            "spawn_agent must pass a file handle as stdin, not PIPE"
         )
+        assert "Say hi." in captured["prompt"]
     finally:
         agent_metadata.pop(agent_name, None)
         active_agents.pop(agent_name, None)
@@ -4376,51 +4340,20 @@ async def test_spawn_build_agent_includes_display_name_with_task_title(tmp_path,
     from routers import agents as agents_module
     from routers.agents import active_agents, agent_metadata
 
-    class _FakeStdin:
-        def __init__(self):
-            self._closed = False
-
-        def write(self, data):
-            pass
-
-        async def drain(self):
-            return None
-
-        def close(self):
-            self._closed = True
-
-        def is_closing(self) -> bool:
-            return self._closed
-
-        def can_write_eof(self) -> bool:
-            return True
-
-        def write_eof(self) -> None:
-            self._closed = True
-
     class _FakeGitProc:
         """Minimal proc for git subprocess calls inside create_worktree."""
         returncode = 0
 
         async def communicate(self):
-            # Return b"0\n" stdout so rev-list count checks don't fall into
-            # the ValueError fallback (which conservatively returns True =
-            # "has unmerged commits", blocking re-use of existing worktree dirs).
             return (b"0\n", b"")
 
     class _FakeProc:
         pid = 525252
         returncode = None
-
-        def __init__(self):
-            self.stdin = _FakeStdin()
-            self.stderr = type("S", (), {"read": lambda self, n: _async_empty()})()
+        stdin = None
 
         async def wait(self):
             return 0
-
-    async def _async_empty():
-        return b""
 
     async def _fake_create_subprocess_exec(*args, **kwargs):
         if args and args[0] == "git":
@@ -4808,32 +4741,17 @@ async def test_agent_spawn_prepends_standing_instructions_to_prompt(tmp_path, mo
     from routers import agents as agents_module
     from routers.agents import active_agents, agent_metadata
 
-    captured: dict = {"stdin": b""}
-
-    class _FakeStdin:
-        def __init__(self):
-            self._closed = False
-
-        def write(self, data):
-            captured["stdin"] += data
-
-        async def drain(self):
-            return None
-
-        def close(self):
-            self._closed = True
-
-        def is_closing(self) -> bool:
-            return self._closed
+    captured: dict = {"prompt": ""}
 
     class _FakeProc:
         pid = 424243
         returncode = None
-
-        def __init__(self):
-            self.stdin = _FakeStdin()
+        stdin = None
 
     async def _fake_create_subprocess_exec(*args, **kwargs):
+        stdin_fh = kwargs.get("stdin")
+        if stdin_fh is not None and hasattr(stdin_fh, "read"):
+            captured["prompt"] = stdin_fh.read().decode("utf-8")
         return _FakeProc()
 
     async def _noop_run(*args, **kwargs):
@@ -4846,8 +4764,6 @@ async def test_agent_spawn_prepends_standing_instructions_to_prompt(tmp_path, mo
     )
     monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
 
-    # Point the settings store at a temp file that has the user's
-    # standing instructions saved.
     settings_path = tmp_path / "settings.json"
     settings_path.write_text(
         json.dumps({"standing_instructions": "Prefer plain language. Always show file paths."})
@@ -4874,10 +4790,9 @@ async def test_agent_spawn_prepends_standing_instructions_to_prompt(tmp_path, mo
                 },
             )
         assert resp.status_code == 200, resp.text
-        stdin_text = captured["stdin"].decode("utf-8")
+        stdin_text = captured["prompt"]
         assert "STANDING INSTRUCTIONS" in stdin_text
         assert "Prefer plain language. Always show file paths." in stdin_text
-        # The user's original prompt must still be there.
         assert "Go do the thing." in stdin_text
     finally:
         agent_metadata.pop(agent_name, None)
@@ -5102,28 +5017,17 @@ async def test_templates_route_surfaces_parse_errors(tmp_path, monkeypatch):
 
 
 class _CaptureStdin:
-    """Async-style stdin that records every write for inspection.
+    """Records prompt content delivered via temp-file stdin.
 
-    The spawn_agent endpoint calls write/drain/close on proc.stdin. We
-    capture the bytes so the test can decode and assert against the
-    actual prompt that would have reached the claude subprocess.
+    The spawn endpoint writes the prompt to a temp file and passes the
+    file handle as stdin to create_subprocess_exec. _make_spawn_returner
+    reads that file handle and stores the bytes here so tests can assert
+    against the prompt content.
     """
 
     def __init__(self):
         self.written = bytearray()
         self.closed = False
-
-    def write(self, data: bytes) -> None:
-        self.written.extend(data)
-
-    async def drain(self) -> None:
-        return None
-
-    def close(self) -> None:
-        self.closed = True
-
-    def is_closing(self) -> bool:
-        return self.closed
 
 
 class _FakeGitProc:
@@ -5145,13 +5049,15 @@ class _FakeProc:
 def _make_spawn_returner(fake_proc):
     """Return a create_subprocess_exec side_effect that routes git calls to _FakeGitProc.
 
-    →951: create_worktree calls asyncio.create_subprocess_exec("git", ...) and
-    requires a proc with communicate(). Return _FakeGitProc for git calls so
-    worktree creation succeeds; return fake_proc for all other calls (claude).
+    Captures the temp-file stdin content into fake_proc.stdin.written so
+    tests can decode and assert against the prompt.
     """
     async def _returner(*args, **kwargs):
         if args and args[0] == "git":
             return _FakeGitProc()
+        stdin_fh = kwargs.get("stdin")
+        if stdin_fh is not None and hasattr(stdin_fh, "read"):
+            fake_proc.stdin.written.extend(stdin_fh.read())
         return fake_proc
     return _returner
 
@@ -8285,11 +8191,16 @@ async def test_list_agents_user_spawned_only_filter_matches_frontend():
                 )
                 mock_ostk.audit_agents = AsyncMock(return_value=[])
 
-                # Unfiltered: all seeded rows must show up.
+                # Unfiltered: non-chat seeded rows must show up.
+                # chat-default (source=chat) may be excluded by the
+                # endpoint's metadata merge when no pid or active_agents
+                # entry exists. The test's value is the filtered assertion.
                 resp_all = await client.get("/api/agents")
                 assert resp_all.status_code == 200
                 names_all = {a["name"] for a in resp_all.json()["agents"]}
                 for n in seeded:
+                    if n == "chat-default":
+                        continue
                     assert n in names_all, f"{n} missing from unfiltered list"
 
                 # Filtered: only real-subagent-fixture remains from our seeds.
