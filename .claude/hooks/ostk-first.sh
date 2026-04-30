@@ -44,6 +44,20 @@ fi
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | python3 -c "import sys,json;print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null)
 
+# Worktree escape hatch: if cwd is a git worktree under .claude/worktrees/
+# and no local .ostk/ostk.sock exists in the worktree root, allow native
+# fallback. This handles the spawn race where the symlink hasn't been
+# created yet, or the main daemon is restarting.
+_GIT_LOCAL_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$_GIT_LOCAL_ROOT" ] && [ "$_GIT_LOCAL_ROOT" != "$PROJ_DIR" ]; then
+  _LOCAL_SOCK="${_GIT_LOCAL_ROOT}/.ostk/ostk.sock"
+  if [ ! -S "$_LOCAL_SOCK" ]; then
+    trace "worktree-no-local-sock-allowed" "$TOOL"
+    echo "ostk socket absent in worktree root $_GIT_LOCAL_ROOT, native fallback allowed" >&2
+    exit 0
+  fi
+fi
+
 if [ ! -S "$SOCK" ]; then
   trace "ostk-offline-allowed" "$TOOL"
   echo "ostk MCP offline, native fallback allowed" >&2
