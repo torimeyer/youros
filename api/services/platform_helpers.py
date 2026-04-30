@@ -57,6 +57,13 @@ def open_path(path: Union[str, Path]) -> bool:
         if not shutil.which("xdg-open"):
             return False
         cmd = ["xdg-open", target]
+    elif kind == "windows":
+        try:
+            import os as _os
+            _os.startfile(target)
+            return True
+        except (OSError, AttributeError):
+            return False
     else:
         return False
 

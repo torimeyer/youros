@@ -221,9 +221,9 @@ describe('CommandPalette', () => {
 
   it('displays keyboard shortcuts for action commands', () => {
     renderPalette()
-    // The Toggle Chat command has shortcut key label
+    // The Toggle Chat command has shortcut key label (⌘L on Mac, Ctrl+L elsewhere)
     const chatItem = screen.getByTestId('command-item-action-chat')
-    expect(chatItem.textContent).toContain('⌘L')
+    expect(chatItem.textContent).toMatch(/⌘L|Ctrl\+L/)
   })
 
   it('filters by section name', async () => {

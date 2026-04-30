@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional
@@ -44,7 +45,7 @@ def _claude_projects_dir() -> Path:
 
 def _tasks_root() -> Path:
     uid = os.getuid() if hasattr(os, "getuid") else 0
-    return Path(f"/private/tmp/claude-{uid}")
+    return Path(tempfile.gettempdir()) / f"claude-{uid}"
 
 
 def _name_appears(name: str, text: str) -> bool:
