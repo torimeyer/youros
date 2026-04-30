@@ -569,7 +569,7 @@ class TestSlackWorkspaceFields:
                 from services.slack import exchange_code
                 result = await exchange_code("code", "cid", "secret", "https://example.com/cb")
 
-        asyncio.get_event_loop().run_until_complete(run())
+        asyncio.run(run())
         assert saved.get("workspace_id") == "T99"
         assert saved.get("workspace_name") == "Test Workspace"
 

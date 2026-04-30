@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
+from services import recent_deletes
 
 router = APIRouter(tags=["ostk"])
 
@@ -64,4 +65,5 @@ def delete_verb(name: str):
     if len(filtered) == len(verbs):
         raise HTTPException(status_code=404, detail=f"verb '{name}' not found")
     _write_verbs(filtered)
+    recent_deletes.record_id(f"verb:{name}")
     return {"verb": name, "status": "removed"}

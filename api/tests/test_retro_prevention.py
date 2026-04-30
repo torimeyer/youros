@@ -51,6 +51,7 @@ def _script_files() -> list[Path]:
 # file name is acceptable while the rename settles.
 ROUTER_TEST_ALIASES = {
     "specs": ("test_specs.py", "test_docs.py"),
+    "ostk": ("test_ostk_language.py",),
 }
 
 # Routers that are tiny pass-throughs or covered by integration tests only.
