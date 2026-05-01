@@ -3949,6 +3949,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             stderr=asyncio.subprocess.PIPE,
             cwd=_spawn_cwd,
             env=_spawn_env,
+            start_new_session=True,
         )
 
         if _prompt_fh is not None:
@@ -4015,6 +4016,14 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         "spawn.fast_exit name=%s rc=%s stderr=%r",
                         name, rc, bytes(buffered)[:400],
                     )
+                if rc not in (None, 0):
+                    _fail_meta = agent_metadata.get(name)
+                    if _fail_meta and _fail_meta.get("status") == "running":
+                        _fail_meta["status"] = "failed"
+                        _fail_meta["completed_at"] = datetime.now(timezone.utc).isoformat()
+                        _fail_meta["error"] = f"subprocess exited {rc}"
+                        _save_agent_state()
+                        logger.info("spawn.marked_failed name=%s rc=%s", name, rc)
                 # Quick-mode roadmap agents write JSON to stdout (transcript)
                 # and exit without calling /complete, so _save_agent_output_to_files
                 # is never triggered by the normal /complete path. Fire it here
