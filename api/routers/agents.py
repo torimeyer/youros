@@ -1709,6 +1709,14 @@ MYOS_LOCK_SWEEP_INTERVAL_S = int(
     _os.environ.get("MYOS_LOCK_SWEEP_INTERVAL_S", "300")
 )
 
+# Locks held by an agent whose status looks alive (running/pending/spawned)
+# but whose last heartbeat is older than this threshold are treated as orphaned
+# and released by the sweep. Default 600 s (10 min): a healthy agent heartbeats
+# every 60 s so 600 s means 10 missed beats.
+MYOS_ORPHAN_LOCK_NO_HEARTBEAT_SECONDS = int(
+    _os.environ.get("MYOS_ORPHAN_LOCK_NO_HEARTBEAT_SECONDS", "600")
+)
+
 
 def _sweep_stale_locks_once() -> int:
     """Release spawn locks whose owning agent has reached a terminal status or gone missing.
@@ -1732,16 +1740,38 @@ def _sweep_stale_locks_once() -> int:
         meta = agent_metadata.get(spawn_id)
         status = meta.get("status") if meta else None
 
-        if status in ("running", "pending", "spawned"):
-            continue
-
         age = now - acquired_epoch
+
+        if status in ("running", "pending", "spawned"):
+            # Protect agents that have sent a heartbeat recently.
+            # If heartbeat is stale (or absent and lock is old), fall through
+            # to the should_release logic below so the lock can be swept.
+            if meta is not None:
+                last_hb_str = meta.get("last_heartbeat_at")
+                if last_hb_str:
+                    try:
+                        last_hb_ts = datetime.fromisoformat(last_hb_str).timestamp()
+                        if now - last_hb_ts < MYOS_ORPHAN_LOCK_NO_HEARTBEAT_SECONDS:
+                            continue  # heartbeat is fresh; agent is alive
+                    except Exception:
+                        continue  # parse error: be conservative, protect the lock
+                else:
+                    # No heartbeat field yet; protect young locks.
+                    if age < MYOS_ORPHAN_LOCK_NO_HEARTBEAT_SECONDS:
+                        continue
+                # Fall through: heartbeat is stale or lock is old with no heartbeat.
+            # meta is None: fall through to the should_release checks below.
+
         should_release = False
 
         if meta is None:
             should_release = True
         elif status in _LOCK_SWEEP_TERMINAL_STATUSES:
             should_release = True
+        elif status in ("running", "pending", "spawned"):
+            # Reached only when heartbeat check fell through above (stale/absent HB).
+            if age >= MYOS_ORPHAN_LOCK_NO_HEARTBEAT_SECONDS:
+                should_release = True
         else:
             budget = float(meta.get("budget", "2.0") or "2.0")
             ttl = max(budget * 3600, 1800.0)
@@ -3618,13 +3648,25 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     )
 
     # Enterprise policy checks: budget limit and approval threshold
+    # NOTE: _release_spawn_locks is called before every raise here because these
+    # checks run OUTSIDE the inner try/except that would otherwise release the
+    # locks we just acquired. Without the explicit release the locks are orphaned
+    # until the TTL sweep fires (8–15 min for a typical $2 budget).
     allowed, reason = check_budget(body.budget)
     if not allowed:
+        try:
+            _release_spawn_locks(spawn_id=body.name)
+        except Exception:
+            pass
         raise HTTPException(status_code=403, detail=reason)
 
     if check_approval_required(body.budget):
         from services import enterprise_store as _es
         _threshold = _es.get_policies().get("require_approval_above", 5.0)
+        try:
+            _release_spawn_locks(spawn_id=body.name)
+        except Exception:
+            pass
         raise HTTPException(
             status_code=403,
             detail=(
@@ -3767,6 +3809,10 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         if template_config is None:
             available = list_available_templates()
             available_str = ", ".join(available) if available else "none found"
+            try:
+                _release_spawn_locks(spawn_id=body.name)
+            except Exception:
+                pass
             raise HTTPException(
                 status_code=400,
                 detail=(

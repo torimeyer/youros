@@ -88,6 +88,8 @@ def test_release_for_terminal_agent():
 
 
 def test_running_agent_lock_not_released():
+    """Running agent with a recent heartbeat must not be swept, even with an old lock epoch."""
+    from datetime import datetime, timezone
     from services.spawn_isolation import (
         acquire_spawn_locks,
         _spawn_lock_holders,
@@ -97,7 +99,12 @@ def test_running_agent_lock_not_released():
 
     _reset()
     agent_name = "ttl-running-agent"
-    agent_metadata[agent_name] = {"status": "running"}
+    # A running agent that has sent a heartbeat within the last 30 seconds
+    # must be protected by the sweep regardless of lock age.
+    agent_metadata[agent_name] = {
+        "status": "running",
+        "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+    }
 
     try:
         ok, acquired, _ = acquire_spawn_locks(
@@ -114,7 +121,7 @@ def test_running_agent_lock_not_released():
 
         released = _sweep_stale_locks_once()
 
-        assert released == 0, "running agent lock must not be swept"
+        assert released == 0, "running agent with recent heartbeat must not be swept"
         assert any(v[0] == agent_name for v in _spawn_lock_holders.values())
     finally:
         agent_metadata.pop(agent_name, None)
