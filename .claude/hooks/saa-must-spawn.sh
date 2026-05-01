@@ -9,6 +9,13 @@ TORI_CONFIG="${MYOS_CONFIG_PATH:-$HOME/.myos/config.json}"
 if [ ! -f "$TORI_CONFIG" ] || ! grep -q '"enable_tori_rules"[[:space:]]*:[[:space:]]*true' "$TORI_CONFIG" 2>/dev/null; then
     exit 0
 fi
+# Subagent skip: subagent Claude Code processes inherit $HOME so they read
+# tori's config and see the flag. Without this skip, the hook tells the
+# subagent it must spawn ANOTHER agent — wasted session, cascade. Detect
+# subagent context via CLAUDE_PROJECT_DIR pointing inside .claude/worktrees/.
+case "${CLAUDE_PROJECT_DIR:-}" in
+    */.claude/worktrees/*) exit 0 ;;
+esac
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | python3 -c "import sys,json;print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null)
 case "$TOOL" in
