@@ -64,6 +64,26 @@ if [ ! -S "$SOCK" ]; then
   exit 0
 fi
 
+# Liveness probe: socket file may exist but the daemon behind it can be dead
+# (process killed, kernel restarted, stale socket from a previous run). Try
+# a fast unix-socket connect; if it fails, treat as offline and fall through
+# to native tools. ~30-80ms on macOS via python; cheaper than blocking the
+# subagent on a dead daemon.
+if ! python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(0.3)
+try:
+    s.connect('$SOCK')
+    s.close()
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+  trace "ostk-socket-dead-allowed" "$TOOL"
+  echo "ostk MCP socket present but daemon not responding, native fallback allowed" >&2
+  exit 0
+fi
+
 case "$TOOL" in
   Bash) EQ="mcp__ostk__bash" ;;
   Read) EQ="mcp__ostk__read" ;;
