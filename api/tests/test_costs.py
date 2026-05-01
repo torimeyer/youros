@@ -1436,17 +1436,19 @@ async def test_explain_all_supported_metrics_return_200(client):
     with tempfile.TemporaryDirectory() as tmpdir:
         audit_path = _write_audit(EXPLAIN_SAMPLE_AUDIT, Path(tmpdir))
         with patch("routers.costs.AUDIT_PATH", audit_path):
-            for metric in SUPPORTED_EXPLAIN_METRICS:
-                resp = await client.get(f"/api/costs/explain/{metric}")
-                assert resp.status_code == 200, f"{metric} failed"
-                body = resp.json()
-                # Every payload must have the same shape
-                assert body["metric"] == metric
-                assert "formula" in body
-                assert "numerator" in body
-                assert "result" in body
-                assert "result_label" in body
-                assert "window" in body
+            with patch("routers.costs._read_savings_snapshot", return_value=None):
+                with patch("routers.costs._read_metrics_events_cached", return_value=[]):
+                    with patch("services.token_metrics.get_ostk_savings", return_value=None):
+                        for metric in SUPPORTED_EXPLAIN_METRICS:
+                            resp = await client.get(f"/api/costs/explain/{metric}")
+                            assert resp.status_code == 200, f"{metric} failed"
+                            body = resp.json()
+                            assert body["metric"] == metric
+                            assert "formula" in body
+                            assert "numerator" in body
+                            assert "result" in body
+                            assert "result_label" in body
+                            assert "window" in body
 
 
 @pytest.mark.asyncio
