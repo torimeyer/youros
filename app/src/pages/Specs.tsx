@@ -10,6 +10,7 @@ import { onSpecsChange, bumpAgents, bumpTasks } from "../lib/sidebarBus";
 import { useAppStore } from "../stores/app";
 import { Button, EmptyState, ErrorBanner } from "../components/ui";
 import { SpecDriveSync } from "../components/SpecDriveSync";
+import SpecWizard from "../components/SpecWizard";
 
 // --- Data types ---
 
@@ -438,6 +439,7 @@ export default function Specs() {
   // the full ~5s window before the real DELETE finally removes it.
   const pendingDeleteSpecPathsRef = useRef<Set<string>>(new Set());
   const [openMenuPath, setOpenMenuPath] = useState<string | null>(null);
+  const [showWizard, setShowWizard] = useState(false);
 
   // Release-notes modal moved to a global watcher in Layout
   // (ReleaseNotesWatcher). Keeping the detection in this page meant
@@ -958,11 +960,29 @@ export default function Specs() {
           <Button
             variant="secondary"
             size="md"
+            onClick={() => setShowWizard(true)}
+          >
+            Spec Wizard
+          </Button>
+          <Button
+            variant="secondary"
+            size="md"
             onClick={() => navigate("/specs/import")}
           >
-            Import from spec-kit
+            Import
           </Button>
         </div>
+
+        {showWizard && (
+          <SpecWizard
+            onComplete={(_path) => {
+              setShowWizard(false);
+              showMessage("Spec created from wizard!");
+              fetchDocs();
+            }}
+            onCancel={() => setShowWizard(false)}
+          />
+        )}
 
         {/* Status message */}
         {message && (

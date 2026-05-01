@@ -15,6 +15,7 @@ import { type AgentInfo, agentTitleParts, isAgentActive, isUserSpawnedAgent } fr
 import { renderMarkdown } from "../lib/markdown";
 import { hasSpeakerPrefixes, parseTranscript } from "../lib/transcript";
 import { Button, EmptyState, Card } from "../components/ui";
+import AgentInsights from "../components/AgentInsights";
 import { formatTokenBudget, formatTokenBudgetApprox } from "../lib/budgetDisplay";
 
 
@@ -420,7 +421,7 @@ function AgentfilesTab({ onLaunch }: { onLaunch: () => void }) {
   );
 }
 
-const POWER_USER_TABS = ["Delegate", "Workspace"];
+const POWER_USER_TABS = ["Delegate", "Workspace", "Insights"];
 
 type CustomTemplate = CustomAgentTemplate;
 
@@ -4480,6 +4481,8 @@ export default function Agents() {
             })()}
           </>
         )}
+
+        {activeTab === "Insights" && <AgentInsights />}
 
         {activeTab === "Templates" && <div className="mt-8 border-t border-slate-800 pt-8">
         <div className="flex items-center justify-between mb-4">

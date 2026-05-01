@@ -1825,6 +1825,214 @@ async def cleanup_test_artifact_specs():
     return {"deleted": len(deleted), "deleted_paths": deleted}
 
 
+# --- SDD Wizard ---
+
+
+class WizardSuggestRequest(BaseModel):
+    problem: str
+    in_scope: Optional[list[str]] = None
+
+
+class WizardCreateRequest(BaseModel):
+    title: str
+    problem: str
+    in_scope: list[str] = []
+    out_of_scope: list[str] = []
+    non_goals: list[str] = []
+    criteria: list[str] = []
+    technical_context: Optional[str] = None
+    api_contract: Optional[str] = None
+    ui_requirements: Optional[str] = None
+
+
+def _wizard_system_prompt() -> str:
+    return (
+        "You are helping a product manager write a spec for a feature in myOS, "
+        "a personal productivity OS.\n\n"
+        f"myOS ALREADY SHIPS these features:\n{_MYOS_ALREADY_SHIPS}\n\n"
+        "Do NOT propose criteria that duplicate existing features. "
+        "Each criterion must be testable by a single builder agent. "
+        "Plain language, no jargon."
+    )
+
+
+@router.post("/specs/wizard/suggest")
+async def wizard_suggest(body: WizardSuggestRequest):
+    """Given a problem statement, suggest success criteria and non-goals."""
+    if not body.problem.strip():
+        raise HTTPException(status_code=400, detail="Problem statement is required")
+
+    scope_hint = ""
+    if body.in_scope:
+        scope_hint = "\nIn scope: " + "; ".join(body.in_scope)
+
+    try:
+        from services.chat_providers import _resolve_api_key
+        import anthropic
+
+        api_key = await _resolve_api_key("anthropic_api_key")
+        if not api_key:
+            return {"criteria": [], "non_goals": [], "after_statement": ""}
+
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        response = await client.messages.create(
+            model=AC_DRAFT_MODEL,
+            max_tokens=400,
+            system=[{
+                "type": "text",
+                "text": _wizard_system_prompt(),
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Problem: {body.problem}{scope_hint}\n\n"
+                    "Respond with EXACTLY this format, no extra text:\n\n"
+                    "AFTER: (one sentence: 'After this ships, [who] can [what] "
+                    "instead of [workaround].')\n\n"
+                    "CRITERIA:\n"
+                    "- (criterion 1, starts with a verb)\n"
+                    "- (criterion 2)\n"
+                    "- (criterion 3)\n"
+                    "- (criterion 4)\n\n"
+                    "NON_GOALS:\n"
+                    "- (thing this does NOT do 1)\n"
+                    "- (thing this does NOT do 2)"
+                ),
+            }],
+        )
+        text = response.content[0].text.strip()
+
+        criteria = []
+        non_goals = []
+        after_statement = ""
+        section = None
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("AFTER:"):
+                after_statement = stripped[6:].strip()
+                section = None
+            elif stripped == "CRITERIA:":
+                section = "criteria"
+            elif stripped == "NON_GOALS:":
+                section = "non_goals"
+            elif stripped.startswith("- ") and section == "criteria":
+                criteria.append(stripped[2:].strip())
+            elif stripped.startswith("- ") and section == "non_goals":
+                non_goals.append(stripped[2:].strip())
+
+        return {
+            "criteria": criteria[:5],
+            "non_goals": non_goals[:3],
+            "after_statement": after_statement,
+        }
+    except Exception as exc:
+        logger.warning("wizard_suggest AI call failed: %s", exc)
+        return {"criteria": [], "non_goals": [], "after_statement": ""}
+
+
+@router.post("/specs/wizard/create")
+async def wizard_create(body: WizardCreateRequest):
+    """Create a rich SDD spec from wizard inputs.
+
+    Assembles a structured markdown spec from the wizard fields,
+    creates a draft via ostk, writes the body, and auto-promotes.
+    """
+    if not body.title.strip():
+        raise HTTPException(status_code=400, detail="Title is required")
+    if not body.problem.strip():
+        raise HTTPException(status_code=400, detail="Problem statement is required")
+
+    try:
+        result = await ostk.doc_draft(body.title.strip())
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    draft_path = result.strip()
+
+    sections: list[str] = []
+
+    sections.append("## Problem")
+    sections.append(body.problem.strip())
+    sections.append("")
+
+    if body.in_scope:
+        sections.append("## Scope")
+        for item in body.in_scope:
+            sections.append(f"- {item}")
+        sections.append("")
+
+    if body.out_of_scope:
+        sections.append("## Out of scope")
+        for item in body.out_of_scope:
+            sections.append(f"- {item}")
+        sections.append("")
+
+    if body.non_goals:
+        sections.append("## Non-goals")
+        for item in body.non_goals:
+            sections.append(f"- {item}")
+        sections.append("")
+
+    if body.criteria:
+        sections.append("## Acceptance criteria")
+        for item in body.criteria:
+            sections.append(f"- [ ] {item}")
+        sections.append("")
+
+    if body.technical_context:
+        sections.append("## Technical context")
+        sections.append(body.technical_context.strip())
+        sections.append("")
+
+    if body.api_contract:
+        sections.append("## API contract")
+        sections.append(body.api_contract.strip())
+        sections.append("")
+
+    if body.ui_requirements:
+        sections.append("## UI requirements")
+        sections.append(body.ui_requirements.strip())
+        sections.append("")
+
+    body_text = "\n".join(sections)
+
+    docs_root = (Path(PROJECT_ROOT) / "docs").resolve()
+    full_path = (Path(PROJECT_ROOT) / draft_path).resolve()
+    ac_written = False
+    if full_path.exists() and full_path.is_relative_to(docs_root):
+        content = full_path.read_text()
+        if content.endswith("\n"):
+            content += "\n" + body_text
+        else:
+            content += "\n\n" + body_text
+        full_path.write_text(content)
+        ac_written = bool(body.criteria)
+
+    status = "draft"
+    promoted_path: str | None = None
+    if ac_written:
+        try:
+            promoted_path = await ostk.doc_promote(draft_path)
+            status = "ready"
+        except OstkError:
+            pass
+
+    trace_event(
+        "spec_created",
+        path=draft_path,
+        source="wizard",
+        status=status,
+        sections=len(sections),
+    )
+    return {
+        "result": result,
+        "status": status,
+        "promoted_path": promoted_path,
+        "path": promoted_path or draft_path,
+    }
+
+
 # --- Backward-compatible aliases for /api/docs/* ---
 # These mirror every /api/specs/* route so existing bookmarks, external
 # callers, and in-flight frontend builds keep working during migration.
