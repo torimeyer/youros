@@ -460,10 +460,12 @@ async def test_savings_cache_returns_fast_on_second_call(client):
 
     with _patch("services.token_metrics.get_ostk_savings", side_effect=fake_get_ostk_savings):
         with _patch("routers.costs.AUDIT_PATH", Path("/nonexistent/audit.jsonl")):
-            resp1 = await client.get("/api/costs/savings")
-            t0 = time.monotonic()
-            resp2 = await client.get("/api/costs/savings")
-            elapsed_ms = (time.monotonic() - t0) * 1000
+            with _patch("routers.costs._read_savings_snapshot", return_value=None):
+                with _patch("routers.costs._read_metrics_events_cached", return_value=[]):
+                    resp1 = await client.get("/api/costs/savings")
+                    t0 = time.monotonic()
+                    resp2 = await client.get("/api/costs/savings")
+                    elapsed_ms = (time.monotonic() - t0) * 1000
 
     assert resp1.status_code == 200
     assert resp2.status_code == 200
