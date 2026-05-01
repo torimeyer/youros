@@ -294,4 +294,46 @@ fi
 : > "$NAME_FILE" 2>/dev/null || true
 : > "$HOME/.myos/subagents/last.bg" 2>/dev/null || true
 
+# ── Auto-merge agent worktree branch onto main ────────────────────────────
+# When a subagent commits on worktree-agent-<name>, fast-forward that
+# branch onto main so commits are not orphaned before the reaper runs.
+# Skip conditions (never destructive): running inside a worktree, session
+# row (claude-code-*), branch not found, not ahead of main, or diverged.
+
+_AM_PROJ="${CLAUDE_PROJECT_DIR:-}"
+if [ -z "$_AM_PROJ" ]; then
+    _AM_PROJ=$(git rev-parse --show-toplevel 2>/dev/null || true)
+fi
+
+_AM_SKIP=0
+case "$_AM_PROJ" in
+    */.claude/worktrees/*)
+        echo "complete-agent: skip auto-merge (running inside worktree)" >&2
+        _AM_SKIP=1 ;;
+esac
+case "$AGENT_NAME" in
+    claude-code-*)
+        echo "complete-agent: skip auto-merge (session row: $AGENT_NAME)" >&2
+        _AM_SKIP=1 ;;
+esac
+
+if [ "$_AM_SKIP" -eq 0 ] && [ -n "$_AM_PROJ" ]; then
+    _AM_BRANCH="worktree-agent-${AGENT_NAME}"
+    if ! git -C "$_AM_PROJ" rev-parse --verify "refs/heads/$_AM_BRANCH" >/dev/null 2>&1; then
+        echo "complete-agent: skip auto-merge (branch $_AM_BRANCH not found)" >&2
+    else
+        _AM_OUT=$(git -C "$_AM_PROJ" merge --ff-only "$_AM_BRANCH" 2>&1) && _AM_RC=0 || _AM_RC=$?
+        if [ "$_AM_RC" -eq 0 ]; then
+            if echo "$_AM_OUT" | grep -qi "already up.to.date"; then
+                echo "complete-agent: skip auto-merge (branch $_AM_BRANCH already merged)" >&2
+            else
+                _AM_TIP=$(git -C "$_AM_PROJ" rev-parse --short HEAD 2>/dev/null || true)
+                echo "complete-agent: auto-merged $_AM_BRANCH onto main (HEAD $_AM_TIP)" >&2
+            fi
+        else
+            echo "complete-agent: skip auto-merge (not fast-forward: $_AM_BRANCH)" >&2
+        fi
+    fi
+fi
+
 exit 0
