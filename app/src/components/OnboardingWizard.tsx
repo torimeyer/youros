@@ -261,7 +261,7 @@ export default function OnboardingWizard() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-8"
       style={{
         backgroundColor: effectiveDark ? '#020617' : '#f9fafb',
         color: effectiveDark ? '#ffffff' : '#0f172a',
@@ -307,7 +307,7 @@ export default function OnboardingWizard() {
             />
           )}
           {step === 'Profile' && (
-            <div>
+            <div data-testid="step-profile">
               <h2 className="text-2xl font-bold mb-2">Tell {osName} about you</h2>
               <p className={`mb-2 ${subtextCls}`}>
                 This creates your profile so {osName} knows how to help you. Think of it as a quick intro so your AI knows who it's working for.
