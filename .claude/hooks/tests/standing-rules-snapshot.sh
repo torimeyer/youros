@@ -144,7 +144,13 @@ echo "test 1: running snapshot with canned backend"
 # overridden HOME and points at the empty stamp directory.
 STAMP_HOME=$(mktemp -d -t standing-rules-stamp.XXXXXX)
 REAL_HUMANFILE="${HOME}/.ostk/HUMANFILE"
-OUT_HAPPY=$(HOME="$STAMP_HOME" MYOS_HUMANFILE_PATH="$REAL_HUMANFILE" MYOS_BACKEND_URL="$BACKEND_URL" bash "$HOOK" 2>&1)
+# Wave-2 gating: HUMANFILE block now requires enable_tori_rules:true.
+# Snapshot tests assume tori-flag is set (their whole point is to verify
+# the personal HUMANFILE rendering pipeline).
+TORI_FLAG_CFG="$STAMP_HOME/.myos/config.json"
+mkdir -p "$STAMP_HOME/.myos"
+echo '{"enable_tori_rules": true}' > "$TORI_FLAG_CFG"
+OUT_HAPPY=$(HOME="$STAMP_HOME" MYOS_CONFIG_PATH="$TORI_FLAG_CFG" MYOS_HUMANFILE_PATH="$REAL_HUMANFILE" MYOS_BACKEND_URL="$BACKEND_URL" bash "$HOOK" 2>&1)
 
 # STANDING RULES block preserved.
 if echo "$OUT_HAPPY" | grep -q "STANDING RULES (non-negotiable this turn):"; then
@@ -252,7 +258,7 @@ else
 fi
 
 # Second run with the same stamp must NOT re-surface the block.
-OUT_SECOND=$(HOME="$STAMP_HOME" MYOS_HUMANFILE_PATH="$REAL_HUMANFILE" MYOS_BACKEND_URL="$BACKEND_URL" bash "$HOOK" 2>&1)
+OUT_SECOND=$(HOME="$STAMP_HOME" MYOS_CONFIG_PATH="$TORI_FLAG_CFG" MYOS_HUMANFILE_PATH="$REAL_HUMANFILE" MYOS_BACKEND_URL="$BACKEND_URL" bash "$HOOK" 2>&1)
 if echo "$OUT_SECOND" | grep -q "AGENTS THAT FINISHED SINCE YOUR LAST TURN"; then
   fail "completions block re-surfaced after highwater bump (would spam every turn)"
 else

@@ -68,40 +68,11 @@
         ]
       },
       {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/curl-timeouts.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/no-npm-dev.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/no-open-source.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/safe-vitest.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/skip-hook-audit.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/stash-label-audit.sh"
-          }
-        ]
-      },
-      {
         "matcher": "Bash|Monitor|mcp__ostk__bash",
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/zsh-reserved-var-guard.sh"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/bash-guards.sh"
           }
         ]
       },
@@ -143,11 +114,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-tsx.sh"
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/saa-after-3-hypotheses.sh"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/edit-postwatch.sh"
           }
         ]
       },
@@ -165,28 +132,11 @@
         ]
       },
       {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/api-probe-hint.sh"
-          }
-        ]
-      },
-      {
         "matcher": "Bash|Read|Edit|Write|Grep|Glob",
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/native-block-recovery.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tool-retry-queue.sh"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/bash-postwatch.sh"
           }
         ]
       }

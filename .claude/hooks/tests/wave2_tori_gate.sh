@@ -70,23 +70,8 @@ RC=$(printf '%s' "$INPUT" | MYOS_CONFIG_PATH="$WITH_FLAG_CFG" bash "$HOOKS_DIR/s
 assert_eq "config with flag, non-Agent tool, no transcript -> exit 0" "0" "$RC"
 
 echo
-echo "=== saa-after-3-hypotheses ==="
-INPUT='{"tool_name":"Edit","tool_input":{"file_path":"/tmp/foo.py"}}'
-OUT=$(printf '%s' "$INPUT" | MYOS_CONFIG_PATH="$ABSENT_CFG" bash "$HOOKS_DIR/saa-after-3-hypotheses.sh" 2>&1)
-assert_not_contains "no config -> no SAA REMINDER" "SAA REMINDER" "$OUT"
-OUT=$(printf '%s' "$INPUT" | MYOS_CONFIG_PATH="$NO_FLAG_CFG" bash "$HOOKS_DIR/saa-after-3-hypotheses.sh" 2>&1)
-assert_not_contains "no flag -> no SAA REMINDER" "SAA REMINDER" "$OUT"
-# With flag set, run 3 times against a unique file to trip the threshold.
-STATE_FILE="$SCRATCH/edit-cycles.json"
-TARGET_FILE="$SCRATCH/edit_target_$RANDOM.py"
-INPUT_FLAG_ON="{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$TARGET_FILE\"}}"
-for i in 1 2 3; do
-  OUT=$(printf '%s' "$INPUT_FLAG_ON" | \
-    MYOS_CONFIG_PATH="$WITH_FLAG_CFG" \
-    MYOS_EDIT_CYCLES_STATE="$STATE_FILE" \
-    bash "$HOOKS_DIR/saa-after-3-hypotheses.sh" 2>&1)
-done
-assert_contains "flag set, 3 edits to same file -> SAA REMINDER" "SAA REMINDER" "$OUT"
+# NOTE: saa-after-3-hypotheses behavior is now covered by wave3_combined.sh
+# (the rule lives inside edit-postwatch.sh).
 
 echo
 echo "=== data-shape-question ==="
@@ -98,14 +83,8 @@ OUT=$(MYOS_CONFIG_PATH="$WITH_FLAG_CFG" bash "$HOOKS_DIR/data-shape-question.sh"
 assert_contains "flag set -> DATA-SHAPE meta-rule emitted" "DATA-SHAPE META-RULE" "$OUT"
 
 echo
-echo "=== stash-label-audit ==="
-INPUT='{"tool_name":"Bash","tool_input":{"command":"git stash"}}'
-RC=$(printf '%s' "$INPUT" | MYOS_CONFIG_PATH="$ABSENT_CFG" bash "$HOOKS_DIR/stash-label-audit.sh" >/dev/null 2>&1; echo $?)
-assert_eq "no config -> exit 0 (allow bare git stash)" "0" "$RC"
-RC=$(printf '%s' "$INPUT" | MYOS_CONFIG_PATH="$NO_FLAG_CFG" bash "$HOOKS_DIR/stash-label-audit.sh" >/dev/null 2>&1; echo $?)
-assert_eq "no flag -> exit 0" "0" "$RC"
-RC=$(printf '%s' "$INPUT" | MYOS_CONFIG_PATH="$WITH_FLAG_CFG" bash "$HOOKS_DIR/stash-label-audit.sh" >/dev/null 2>&1; echo $?)
-assert_eq "flag set, bare stash -> exit 2 (block)" "2" "$RC"
+# NOTE: stash-label-audit behavior is now covered by wave3_combined.sh
+# (the rule lives inside bash-guards.sh).
 
 echo
 echo "=== standing-rules HUMANFILE block ==="

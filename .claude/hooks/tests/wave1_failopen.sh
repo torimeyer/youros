@@ -83,39 +83,9 @@ ERR=$(printf '%s' "$INPUT" | TORIOS_API_BASE="http://127.0.0.1:${PORT}" bash "$H
 assert_not_contains "no 'could not build spawn body'" "could not build spawn body" "$ERR"
 
 echo
-echo "=== check-tsx: tsc missing -> exit 0 ==="
-SCRATCH=$(mktemp -d)
-mkdir -p "$SCRATCH/app/src"
-echo '{}' > "$SCRATCH/app/tsconfig.json"
-INPUT="{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$SCRATCH/app/src/Foo.tsx\"}}"
-RC=$(printf '%s' "$INPUT" | bash "$HOOKS_DIR/check-tsx.sh" >/dev/null 2>&1; echo $?)
-assert_eq "check-tsx skips when tsc missing" "0" "$RC"
-rm -rf "$SCRATCH"
-
-echo
-echo "=== no-npm-dev: scripts missing -> allow npm run dev ==="
-SCRATCH=$(mktemp -d)
-INPUT='{"tool_name":"Bash","tool_input":{"command":"npm run dev"}}'
-RC=$(printf '%s' "$INPUT" | CLAUDE_PROJECT_DIR="$SCRATCH" bash "$HOOKS_DIR/no-npm-dev.sh" >/dev/null 2>&1; echo $?)
-assert_eq "no-npm-dev fail-open without scripts/dev-backend.sh" "0" "$RC"
-# And ensure it still blocks when the script DOES exist
-mkdir -p "$SCRATCH/scripts"
-echo '#!/bin/sh' > "$SCRATCH/scripts/dev-backend.sh"
-RC=$(printf '%s' "$INPUT" | CLAUDE_PROJECT_DIR="$SCRATCH" bash "$HOOKS_DIR/no-npm-dev.sh" >/dev/null 2>&1; echo $?)
-assert_eq "no-npm-dev still blocks when scripts/dev-backend.sh exists" "2" "$RC"
-rm -rf "$SCRATCH"
-
-echo
-echo "=== safe-vitest: scripts missing -> allow bare vitest ==="
-SCRATCH=$(mktemp -d)
-INPUT='{"tool_name":"Bash","tool_input":{"command":"npx vitest run"}}'
-RC=$(printf '%s' "$INPUT" | CLAUDE_PROJECT_DIR="$SCRATCH" bash "$HOOKS_DIR/safe-vitest.sh" >/dev/null 2>&1; echo $?)
-assert_eq "safe-vitest fail-open without scripts/run-vitest.sh" "0" "$RC"
-mkdir -p "$SCRATCH/scripts"
-echo '#!/bin/sh' > "$SCRATCH/scripts/run-vitest.sh"
-RC=$(printf '%s' "$INPUT" | CLAUDE_PROJECT_DIR="$SCRATCH" bash "$HOOKS_DIR/safe-vitest.sh" >/dev/null 2>&1; echo $?)
-assert_eq "safe-vitest still blocks when scripts/run-vitest.sh exists" "2" "$RC"
-rm -rf "$SCRATCH"
+# NOTE: check-tsx, no-npm-dev, safe-vitest behaviors are now covered by
+# wave3_combined.sh (they live inside edit-postwatch.sh and bash-guards.sh).
+# Keeping just the bridge + keep-going tests here.
 
 echo
 echo "=== keep-going-on-pending-tasks: idle prompt -> no FIRE-NOW ==="
