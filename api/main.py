@@ -14,7 +14,7 @@ from services.request_trace import TraceMiddleware
 from services.loopback_guard import LoopbackGuardMiddleware
 from services.security_headers import SecurityHeadersMiddleware
 
-from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, onboarding_pack, search, threads, secrets, activity, specs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, gmail_triage, meeting_prep, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, providers, adoption, since_you_last_looked, agent_undo, mcp_catalog, team_catalog, org_settings, team_home, my_setup, gemini as gemini_router, inbox as inbox_router, team as team_router, atlassian, spec_drive
+from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, onboarding_pack, search, threads, secrets, activity, specs, adventures, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, gmail_triage, meeting_prep, meeting_tasks as meeting_tasks_router, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, providers, adoption, since_you_last_looked, agent_undo, mcp_catalog, team_catalog, org_settings, team_home, my_setup, gemini as gemini_router, inbox as inbox_router, team as team_router, atlassian, spec_drive, meeting_tasks
 from routers import memory as memory_router
 from routers import ostk as ostk_router
 
@@ -131,6 +131,8 @@ app.include_router(gmail.router, prefix="/api")
 app.include_router(gmail_reply.router, prefix="/api")
 app.include_router(gmail_triage.router, prefix="/api")
 app.include_router(meeting_prep.router, prefix="/api")
+app.include_router(meeting_tasks_router.router, prefix="/api")
+app.include_router(meeting_tasks.router, prefix="/api")
 app.include_router(workspace.router, prefix="/api")
 app.include_router(briefing.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
