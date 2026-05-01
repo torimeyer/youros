@@ -71,22 +71,22 @@ for m in strict.finditer(cmd):
 PY
 )
     if [ -n "$OFFENDER" ]; then
-        echo "Blocked: \`${OFFENDER}=\` assigns to a zsh read-only variable."
-        echo ""
-        echo "zsh declares \`${OFFENDER}\` read-only at startup. Assigning to it"
-        echo "crashes the script immediately with \"read-only variable: ${OFFENDER}\""
-        echo "before any output is produced."
-        echo ""
+        echo "Blocked: \`${OFFENDER}=\` assigns to a zsh read-only variable." >&2
+        echo "" >&2
+        echo "zsh declares \`${OFFENDER}\` read-only at startup. Assigning to it" >&2
+        echo "crashes the script immediately with \"read-only variable: ${OFFENDER}\"" >&2
+        echo "before any output is produced." >&2
+        echo "" >&2
         case "$OFFENDER" in
-          status)     echo "  Replace: status=\$(...)   with: exit_status=\$(...) or result=\$(...)" ;;
-          path)       echo "  Replace: path=...         with: dir_path=... or target_path=..." ;;
-          pipestatus) echo "  Replace: pipestatus=...   with: pipe_rc=... or pipe_codes=..." ;;
-          prompt)     echo "  Replace: prompt=...       with: user_prompt=... or input_prompt=..." ;;
-          argv)       echo "  Replace: argv=...         with: cli_args=... or args_arr=..." ;;
-          *)          echo "  Replace: ${OFFENDER}=...  with: my_${OFFENDER}=... or ${OFFENDER}_val=..." ;;
+          status)     echo "  Replace: status=\$(...)   with: exit_status=\$(...) or result=\$(...)" >&2 ;;
+          path)       echo "  Replace: path=...         with: dir_path=... or target_path=..." >&2 ;;
+          pipestatus) echo "  Replace: pipestatus=...   with: pipe_rc=... or pipe_codes=..." >&2 ;;
+          prompt)     echo "  Replace: prompt=...       with: user_prompt=... or input_prompt=..." >&2 ;;
+          argv)       echo "  Replace: argv=...         with: cli_args=... or args_arr=..." >&2 ;;
+          *)          echo "  Replace: ${OFFENDER}=...  with: my_${OFFENDER}=... or ${OFFENDER}_val=..." >&2 ;;
         esac
-        echo ""
-        echo "zsh reserved names: status pipestatus path cdpath fpath manpath prompt psvar argv signals options"
+        echo "" >&2
+        echo "zsh reserved names: status pipestatus path cdpath fpath manpath prompt psvar argv signals options" >&2
         exit 2
     fi
     ;;
@@ -110,9 +110,9 @@ if echo "$CMD" | grep -q curl; then
         *scripts/*|*bash\ *scripts*|*\.sh*) : ;;
         *)
             if ! echo "$CMD" | grep -qE '\-\-connect-timeout|\-m [0-9]|--max-time'; then
-                echo "Blocked: curl without --connect-timeout."
-                echo "Add --connect-timeout 3 -m 5 (or shorter) to prevent hangs."
-                echo "Command: $CMD"
+                echo "Blocked: curl without --connect-timeout." >&2
+                echo "Add --connect-timeout 3 -m 5 (or shorter) to prevent hangs." >&2
+                echo "Command: $CMD" >&2
                 exit 2
             fi
             ;;
@@ -126,10 +126,10 @@ fi
 if [ -n "$PROJ_DIR" ] && [ -f "$PROJ_DIR/scripts/dev-backend.sh" ]; then
     case "$CMD" in
         *npm\ run\ dev*|*pnpm\ run\ dev*|*yarn\ dev*)
-            echo "Blocked: do not use npm/pnpm/yarn run dev."
-            echo "Use scripts/dev-backend.sh and scripts/dev-frontend.sh instead."
-            echo "npm run dev forks a child process that survives kill signals,"
-            echo "leaving zombie listeners on port 3010."
+            echo "Blocked: do not use npm/pnpm/yarn run dev." >&2
+            echo "Use scripts/dev-backend.sh and scripts/dev-frontend.sh instead." >&2
+            echo "npm run dev forks a child process that survives kill signals," >&2
+            echo "leaving zombie listeners on port 3010." >&2
             exit 2
             ;;
     esac
@@ -146,8 +146,8 @@ if [ -n "$PROJ_DIR" ] && [ -f "$PROJ_DIR/scripts/run-vitest.sh" ]; then
             if [[ "$CMD" =~ ^[[:space:]]*(pgrep|ps|lsof|kill[[:space:]]+-0)[[:space:]] ]]; then
                 : # process probes are safe
             elif [[ "$CMD" =~ (^|[[:space:]\|\;\&\(])(vitest|npx[[:space:]]+vitest|pnpm[[:space:]]+(test|vitest)|npm[[:space:]]+(test|run[[:space:]]+vitest)|yarn[[:space:]]+(test|vitest))([[:space:]]|$) ]]; then
-                echo "Blocked: use scripts/run-vitest.sh instead of bare vitest."
-                echo "Bare vitest commands can spawn orphan worker storms."
+                echo "Blocked: use scripts/run-vitest.sh instead of bare vitest." >&2
+                echo "Bare vitest commands can spawn orphan worker storms." >&2
                 exit 2
             fi
             ;;
@@ -165,8 +165,8 @@ case "$CMD" in
             /tmp/*|/private/tmp/*) : ;;
             http://*|https://*) : ;;
             *.py|*.ts|*.tsx|*.js|*.jsx|*.sh|*.json|*.yaml|*.yml|*.toml|*.css|*.scss|*.cfg|*.ini|*.env)
-                echo "Blocked: do not auto-open source files ($FILE)."
-                echo "Only open generated reports, PDFs, images, or HTML output."
+                echo "Blocked: do not auto-open source files ($FILE)." >&2
+                echo "Only open generated reports, PDFs, images, or HTML output." >&2
                 exit 2
                 ;;
         esac

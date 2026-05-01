@@ -21,7 +21,7 @@ import pytest
 
 def test_get_effective_root_default():
     """Without OSTK_PROJECT_ROOT set, returns the compiled PROJECT_ROOT."""
-    env = {k: v for k, v in os.environ.items() if k != "OSTK_PROJECT_ROOT"}
+    env = {k: v for k, v in os.environ.items() if k not in ("OSTK_PROJECT_ROOT", "OSTK_ROOT")}
     with patch.dict(os.environ, env, clear=True):
         from config import PROJECT_ROOT
         from services.ostk import get_effective_root
@@ -49,7 +49,7 @@ def test_get_effective_root_nonexistent_falls_back(tmp_path):
 
 def test_ostk_service_default_cwd_is_main_repo():
     """Without OSTK_PROJECT_ROOT, OstkService.cwd equals the main repo root."""
-    env = {k: v for k, v in os.environ.items() if k != "OSTK_PROJECT_ROOT"}
+    env = {k: v for k, v in os.environ.items() if k not in ("OSTK_PROJECT_ROOT", "OSTK_ROOT")}
     with patch.dict(os.environ, env, clear=True):
         from config import PROJECT_ROOT
         from services.ostk import OstkService
