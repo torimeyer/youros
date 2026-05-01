@@ -160,6 +160,7 @@ class AgentfileConfig:
     model: str = "auto"
     prompt: str = ""
     tools: list[str] = field(default_factory=list)
+    mcp_servers: list[str] = field(default_factory=list)
     token_limit: int = 200000
     boot: str = ""
     pin: str = ""  # legacy flat form, mirrors pin_policy.name
@@ -418,6 +419,14 @@ def parse_agentfile(path: Path) -> AgentfileConfig:
                     path,
                 )
             config.tools.append(value)
+        elif directive == "MCP":
+            if not value:
+                raise AgentfileParseError(
+                    "MCP expects a server name (e.g. 'MCP ostk')",
+                    raw_line_number,
+                    path,
+                )
+            config.mcp_servers.append(value)
         elif directive == "SKILL":
             if not value:
                 raise AgentfileParseError(
@@ -675,6 +684,13 @@ def build_template_instructions(config: AgentfileConfig) -> str:
             f"{tool_list}"
         )
 
+    if config.mcp_servers:
+        mcp_list = "\n".join(f"  - {s}" for s in config.mcp_servers)
+        parts.append(
+            "### MCP servers\n\n"
+            f"{mcp_list}"
+        )
+
     limit_lines: list[str] = []
     if config.limits.tokens is not None:
         limit_lines.append(f"  - Token budget: {config.limits.tokens}")
@@ -765,6 +781,9 @@ def serialize_agentfile(config: AgentfileConfig) -> str:
 
     for tool in config.tools:
         lines.append(f"TOOL {tool}")
+
+    for server in config.mcp_servers:
+        lines.append(f"MCP {server}")
 
     for skill in config.skills:
         lines.append(f"SKILL {skill}")
@@ -872,6 +891,7 @@ def agentfile_to_form(text: str) -> dict:
         "description": config.description or "",
         "model": config.model or "auto",
         "tools": config.tools,
+        "mcp_servers": config.mcp_servers,
         "instructions": config.prompt or "",
         "tags": config.beta,
     }
@@ -887,6 +907,7 @@ def form_to_agentfile(form_data: dict) -> str:
     config.description = (form_data.get("description") or "").strip()
     config.model = (form_data.get("model") or "auto").strip()
     config.tools = [t for t in (form_data.get("tools") or []) if t]
+    config.mcp_servers = [s for s in (form_data.get("mcp_servers") or []) if s]
     config.prompt = (form_data.get("instructions") or "").strip()
     config.beta = [t for t in (form_data.get("tags") or []) if t]
     return serialize_agentfile(config)

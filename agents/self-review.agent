@@ -32,6 +32,7 @@ Banned moves: do not say 'pre-existing, out of scope'. Do not stop at 'I will tr
 TOOL shell
 TOOL file:read
 TOOL file:write
+MCP ostk
 LIMIT tokens 120000
 LIMIT quick_mode false
 # AC test -d ~/.claude/projects/-Users-torimeyer-claude-torios/memory

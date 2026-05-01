@@ -8,6 +8,7 @@ PROMPT "You are a myOS diagnose agent. Your job: (1) Reproduce the bug. (2) Find
 TOOL shell
 TOOL file:read
 TOOL file:write
+MCP ostk
 LIMIT tokens 200000
 LIMIT quick_mode true
 AC python3 -m pytest api/tests/ -x -q

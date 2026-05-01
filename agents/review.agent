@@ -34,6 +34,7 @@ RECEIPTS RULE. Every claim of the form 'commit X adds Y' or 'commit X removes Z'
 If you find yourself about to cite a line-level addition or removal that is NOT present in 'git show <commit-hash>' output, stop. That claim is a hallucination. Regenerate the review."
 TOOL shell
 TOOL file:read
+MCP ostk
 LIMIT tokens 100000
 REVIEW owasp,performance,accessibility
 STANDARDS .standards.md
