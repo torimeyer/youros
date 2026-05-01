@@ -297,4 +297,49 @@ if m2:
     esac
 fi
 
+# ---------------------------------------------------------------------
+# 8. long-run-cache: Bash.
+#    If a known-long script is being re-run with a grep/head/tail/awk/sed
+#    filter pipe, and a fresh cache at /tmp/last-<key>.log (< 600s old)
+#    exists, emit a non-blocking hint. Never blocks (exit 0).
+# ---------------------------------------------------------------------
+if [ "$TOOL" = "Bash" ]; then
+    CACHE_INFO=$(HOOK_CMD="$CMD" python3 <<'PY' 2>/dev/null
+import os, re, sys, time
+cmd = os.environ.get("HOOK_CMD", "")
+LONG_SCRIPTS = [
+    (r'scripts/e2e_smoke\.sh', 'e2e_smoke'),
+    (r'\bpytest\b', 'pytest'),
+    (r'npm\s+run\s+build\b', 'npm_build'),
+    (r'npx\s+playwright\s+test\b', 'playwright'),
+    (r'pnpm\s+test\b', 'pnpm_test'),
+    (r'pnpm\s+vitest\b', 'pnpm_vitest'),
+]
+FILTER_PAT = re.compile(r'\|\s*(grep|head|tail|awk|sed)\b', re.IGNORECASE)
+matched_key = None
+for pat, key in LONG_SCRIPTS:
+    if re.search(pat, cmd):
+        if key == 'pytest' and re.search(r'(-k\s|\S+\.py\b)', cmd):
+            continue
+        matched_key = key
+        break
+if not matched_key:
+    sys.exit(0)
+if not FILTER_PAT.search(cmd):
+    sys.exit(0)
+cache_path = f"/tmp/last-{matched_key}.log"
+try:
+    age = int(time.time()) - int(os.path.getmtime(cache_path))
+    if 0 <= age < 600:
+        print(f"{matched_key}\x1f{cache_path}\x1f{age}")
+except Exception:
+    pass
+PY
+    )
+    if [ -n "$CACHE_INFO" ]; then
+        IFS=$'\x1f' read -r CACHE_KEY CACHE_PATH CACHE_AGE <<<"$CACHE_INFO"
+        echo "Hint: this command (or one matching its key) ran ${CACHE_AGE}s ago. Cached output at ${CACHE_PATH}. Grep that file instead of re-running." >&2
+    fi
+fi
+
 exit 0

@@ -197,4 +197,65 @@ with open(os.environ['QF'], 'a') as f:
     fi
 fi
 
+# ---------------------------------------------------------------------
+# 4. long-run-cache-write: Bash.
+#    When a known-long script completes, write its full response to
+#    /tmp/last-<key>.log. Parses $INPUT directly to get the full
+#    (multi-line) response text; $RESP is truncated by read at newline.
+# ---------------------------------------------------------------------
+if [ "$TOOL" = "Bash" ] && [ -n "$CMD" ]; then
+    INPUT_JSON="$INPUT" HOOK_CMD="$CMD" python3 <<'PY' 2>/dev/null
+import os, re, sys, json
+cmd = os.environ.get("HOOK_CMD", "")
+inp = os.environ.get("INPUT_JSON", "")
+LONG_SCRIPTS = [
+    (r'scripts/e2e_smoke\.sh', 'e2e_smoke'),
+    (r'\bpytest\b', 'pytest'),
+    (r'npm\s+run\s+build\b', 'npm_build'),
+    (r'npx\s+playwright\s+test\b', 'playwright'),
+    (r'pnpm\s+test\b', 'pnpm_test'),
+    (r'pnpm\s+vitest\b', 'pnpm_vitest'),
+]
+matched_key = None
+for pat, key in LONG_SCRIPTS:
+    if re.search(pat, cmd):
+        if key == 'pytest' and re.search(r'(-k\s|\S+\.py\b)', cmd):
+            continue
+        matched_key = key
+        break
+if not matched_key:
+    sys.exit(0)
+try:
+    d = json.loads(inp, strict=False)
+except Exception:
+    sys.exit(0)
+tr = d.get("tool_response") or {}
+parts = []
+if isinstance(tr, str):
+    parts.append(tr)
+elif isinstance(tr, dict):
+    for k in ("stderr", "error", "output", "content", "message", "text"):
+        v = tr.get(k)
+        if isinstance(v, str) and v:
+            parts.append(v)
+        elif isinstance(v, list):
+            for item in v:
+                if isinstance(item, dict):
+                    t = item.get("text") or ""
+                    if t:
+                        parts.append(t)
+                elif isinstance(item, str) and item:
+                    parts.append(item)
+full_resp = "\n".join(parts)
+if not full_resp:
+    sys.exit(0)
+cache_path = f"/tmp/last-{matched_key}.log"
+try:
+    with open(cache_path, 'w') as f:
+        f.write(full_resp + '\n')
+except Exception:
+    pass
+PY
+fi
+
 exit 0
