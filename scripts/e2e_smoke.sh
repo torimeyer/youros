@@ -1499,6 +1499,19 @@ for a in d.get('spawned', d.get('agents', d.get('members', []))):
             phase_pass "enterprise: org already exists (skipping create)"
         fi
 
+        # pre-clear enterprise member (idempotent setup)
+        echo "pre-clearing enterprise member (idempotent setup)"
+        existing_member=$(curl -sS $CURL_OPTS "${API_BASE}/api/enterprise/members" 2>/dev/null | python3 -c "
+import sys,json
+try:
+    members=json.load(sys.stdin).get('members',[])
+    hit=[x for x in members if x.get('email')=='e2e-member@test.com']
+    print(hit[0].get('id','') if hit else '')
+except: pass
+" 2>/dev/null || true)
+        if [ -n "$existing_member" ] && [ "$existing_member" != "None" ] && [ "$existing_member" != "" ]; then
+            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/enterprise/members/${existing_member}" > /dev/null 2>&1
+        fi
         # Add a member
         member_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/enterprise/members" \
             -H 'content-type: application/json' \
