@@ -557,6 +557,12 @@ async def create_worktree(
         )
         return False, f"git worktree add exited {rc}: {err_msg}"
 
+    # Ensure the new worktree is never sparse. git worktree add can inherit
+    # sparse-checkout state from system or global git config even when the
+    # local repo has no sparse config. Disabling it is a no-op when sparse
+    # mode is inactive and guarantees a full source tree when it is.
+    await _run_git("sparse-checkout", "disable", cwd=str(wt), timeout=5.0)
+
     logger.info(
         "spawn.worktree.created name=%s path=%s branch=%s",
         agent_name, wt, branch,
