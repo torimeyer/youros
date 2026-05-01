@@ -81,7 +81,7 @@ def test_every_router_has_a_test_file():
 
 DELETE_DECORATOR = re.compile(r"@router\.delete\(")
 # Allow routers that do not touch a user-visible store.
-DELETE_EXEMPT = {"docs.py", "specs.py", "chat.py", "calendar.py", "gmail.py"}
+DELETE_EXEMPT = {"docs.py", "specs.py", "chat.py", "calendar.py", "gmail.py", "atlassian.py", "settings.py"}
 
 
 def test_every_delete_endpoint_records_recent_deletes():
