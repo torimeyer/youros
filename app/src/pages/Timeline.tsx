@@ -95,7 +95,7 @@ export default function Timeline() {
     <div className="min-h-dvh bg-slate-950 text-white flex flex-col">
       <TopBar title="Timeline" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 flex-1 flex flex-col">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 flex-1 flex flex-col">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">

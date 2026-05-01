@@ -335,7 +335,7 @@ function ConnectScreen({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
-      <div data-testid="connect-card" className="max-w-md mx-auto bg-slate-900/40 border border-slate-800 p-5 sm:p-8 rounded-2xl w-full">
+      <div data-testid="connect-card" className="max-w-md mx-auto bg-slate-900/40 border border-slate-800 p-5 sm:px-8 sm:pb-8 rounded-2xl w-full">
         <div className="p-4 rounded-2xl mb-4 inline-block" style={{ backgroundColor: '#3b82f61a' }}>
           <span className="material-symbols-outlined" style={{ fontSize: '32px', color: '#3b82f6' }}>cloud</span>
         </div>
@@ -687,7 +687,7 @@ export default function Drive() {
     <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="Drive" />
 
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-6xl mx-auto">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl sm:text-2xl font-bold">Google Drive</h1>
         </div>

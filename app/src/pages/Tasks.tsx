@@ -1664,7 +1664,7 @@ export default function Tasks() {
     <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="Tasks" />
 
-      <div data-tour="tasks" className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8 max-w-6xl mx-auto">
+      <div data-tour="tasks" className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8 max-w-6xl mx-auto">
         {/* Banner */}
         {banner && banner.trim() && (
           <div className="mb-4 px-4 py-3 bg-purple-500/20 border border-purple-500/40 rounded-lg text-sm text-purple-200 flex items-center justify-between">

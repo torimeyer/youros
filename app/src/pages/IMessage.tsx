@@ -278,7 +278,7 @@ export default function IMessage() {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="iMessage" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
         </div>
       </div>
@@ -289,7 +289,7 @@ export default function IMessage() {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="iMessage" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="chat_bubble"
             accentColor="#22c55e"
@@ -319,7 +319,7 @@ export default function IMessage() {
   return (
     <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title="iMessage" />
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>

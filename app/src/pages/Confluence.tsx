@@ -142,7 +142,7 @@ export default function Confluence() {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="Confluence" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
           <LoadingState variant="spinner" />
         </div>
       </div>
@@ -153,7 +153,7 @@ export default function Confluence() {
     return (
       <div className="min-h-dvh bg-slate-950 text-white" data-testid="confluence-page">
         <TopBar title="Confluence" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
           <ConnectCard
             icon="menu_book"
             accentColor="#94a3b8"
@@ -223,7 +223,7 @@ export default function Confluence() {
     return (
       <div className="min-h-dvh bg-slate-950 text-white" data-testid="confluence-page">
         <TopBar title="Confluence" />
-        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
           <button
             onClick={() => navigate('/confluence')}
             className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm mb-4 transition-colors"
@@ -278,7 +278,7 @@ export default function Confluence() {
   return (
     <div className="min-h-dvh bg-slate-950 text-white" data-testid="confluence-page">
       <TopBar title="Confluence" />
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
             <h1 className="text-xl sm:text-2xl font-bold">Confluence</h1>

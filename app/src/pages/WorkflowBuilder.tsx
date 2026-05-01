@@ -502,7 +502,7 @@ export default function WorkflowBuilder() {
   return (
     <div className="min-h-dvh bg-slate-950 text-white">
       <TopBar title={id ? "Edit automation" : "New automation"} />
-      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:p-8">
+      <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
         <div className="max-w-2xl mx-auto">
           {/* Header */}
           <div className="flex items-start justify-between gap-4 mb-6">
