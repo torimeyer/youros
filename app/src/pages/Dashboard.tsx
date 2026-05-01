@@ -1102,9 +1102,9 @@ export default function Dashboard() {
         </div>
 
         {/* Widget Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 auto-rows-min">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {visibleGridCards.map((id) => (
-            <div key={`wrap-${id}`} className="relative group/widget">
+            <div key={`wrap-${id}`} className="relative group/widget [&>*:first-child]:h-full [&>*:first-child>*:first-child]:h-full">
               {widgetRenderers[id]?.()}
               <div className="absolute top-3 right-3 opacity-0 group-hover/widget:opacity-100 transition-opacity">
                 <button

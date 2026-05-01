@@ -1130,6 +1130,7 @@ export default function Settings() {
             </button>
           </div>
           </div>
+          </div>
 
           {/* ── 2. Appearance ───────────────────────── */}
           <div id="section-appearance" className={`grid grid-cols-1 md:grid-cols-2 gap-6 items-start${activeSection !== 'section-appearance' ? ' hidden' : ''}`}>
@@ -1496,6 +1497,7 @@ export default function Settings() {
             )}
 
           </div>
+          </div>
 
           {/* ── 5. Notifications ────────────────────── */}
           <div id="section-notifications" className={activeSection !== 'section-notifications' ? 'hidden' : ''}>
@@ -1635,8 +1637,8 @@ export default function Settings() {
             </div>
           </div>
           </div>
-          </div>
 
+          <div className={activeSection !== 'section-ai-chat' ? 'hidden' : 'space-y-6'}>
           <div className={cardClass} data-testid="chat-backend-section">
           <h2 className="text-lg font-semibold mb-1">Chat backend</h2>
           <p className="text-sm text-slate-400 mb-4">
@@ -1709,6 +1711,7 @@ export default function Settings() {
                 <p className="mt-2 text-slate-400 text-xs">Then click Re-check above to confirm it worked.</p>
               </div>
             )}
+          </div>
           </div>
           </div>
 
@@ -2358,7 +2361,6 @@ export default function Settings() {
               ))}
             </div>
           )}
-          </div>
           </div>
           </div>
         </div>
