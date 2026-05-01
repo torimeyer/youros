@@ -9,6 +9,7 @@ import { api } from "../lib/api";
 import { onSpecsChange, bumpAgents, bumpTasks } from "../lib/sidebarBus";
 import { useAppStore } from "../stores/app";
 import { Button, EmptyState, ErrorBanner } from "../components/ui";
+import { SpecDriveSync } from "../components/SpecDriveSync";
 
 // --- Data types ---
 
@@ -1321,6 +1322,8 @@ export default function Specs() {
                             </div>
                           );
                         })()}
+                        <SpecDriveSync specPath={doc.path} />
+
                         {buildResult[doc.path] && buildResult[doc.path].agents.length > 0 && (
                           <div
                             className="mt-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-slate-200"
