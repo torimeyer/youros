@@ -334,3 +334,54 @@ describe('Slack ConnectCard (chunk-d migration)', () => {
     })
   })
 })
+
+describe('Slack configure form', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.slackChannels.v1')
+  })
+
+  it('renders configure form when configured is false', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: false, team_name: '', team_id: '', configured: false })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Client ID')).toBeInTheDocument()
+      expect(screen.getByLabelText('Client Secret')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Save/i })).toBeInTheDocument()
+    })
+  })
+
+  it('submitting the form calls /slack/configure with entered credentials', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: false, team_name: '', team_id: '', configured: false })
+      }
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true, configured: true })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Client ID')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText('Client ID'), { target: { value: 'my-client-id' } })
+    fireEvent.change(screen.getByLabelText('Client Secret'), { target: { value: 'my-client-secret' } })
+    fireEvent.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/slack/configure', {
+        client_id: 'my-client-id',
+        client_secret: 'my-client-secret',
+      })
+    })
+  })
+})

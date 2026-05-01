@@ -70,6 +70,10 @@ export default function Slack() {
   const [connectError, setConnectError] = useState<string | null>(null)
   const [flaggedTs, setFlaggedTs] = useState<Set<string>>(new Set())
   const [replyOpenTs, setReplyOpenTs] = useState<string | null>(null)
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [configuring, setConfiguring] = useState(false)
+  const [configureError, setConfigureError] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -136,6 +140,21 @@ export default function Slack() {
       window.location.href = res.url
     } catch {
       setConnectError('Could not start the Slack connection. Make sure Slack is configured in your .env file (SLACK_CLIENT_ID and SLACK_CLIENT_SECRET).')
+    }
+  }
+
+  const handleConfigure = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!clientId.trim() || !clientSecret.trim()) return
+    setConfiguring(true)
+    setConfigureError(null)
+    try {
+      await api.post('/slack/configure', { client_id: clientId.trim(), client_secret: clientSecret.trim() })
+      await fetchStatus()
+    } catch {
+      setConfigureError('Could not save Slack credentials. Check that they are correct and try again.')
+    } finally {
+      setConfiguring(false)
     }
   }
 
@@ -235,14 +254,46 @@ export default function Slack() {
                   Connect Slack workspace
                 </button>
               ) : (
-                <div className="text-sm text-slate-400 text-left">
-                  <p className="mb-2">Slack is not configured yet. Add these to your <code className="text-slate-300">.env</code> file:</p>
-                  <div className="bg-slate-800 rounded-lg p-3 font-mono text-xs">
-                    <p>SLACK_CLIENT_ID=your_client_id</p>
-                    <p>SLACK_CLIENT_SECRET=your_secret</p>
+                <form onSubmit={handleConfigure} className="text-sm text-left space-y-3">
+                  <div>
+                    <label htmlFor="slack-client-id" className="block text-slate-400 mb-1">Client ID</label>
+                    <input
+                      id="slack-client-id"
+                      type="text"
+                      value={clientId}
+                      onChange={(e) => setClientId(e.target.value)}
+                      placeholder="Your Slack app client ID"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                    />
                   </div>
-                  <p className="mt-2">Create a Slack app at <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer" className="text-purple-400 hover:text-purple-300">api.slack.com/apps</a></p>
-                </div>
+                  <div>
+                    <label htmlFor="slack-client-secret" className="block text-slate-400 mb-1">Client Secret</label>
+                    <input
+                      id="slack-client-secret"
+                      type="password"
+                      value={clientSecret}
+                      onChange={(e) => setClientSecret(e.target.value)}
+                      placeholder="Your Slack app client secret"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
+                    />
+                  </div>
+                  {configureError && (
+                    <p className="text-red-400 text-xs">{configureError}</p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={configuring || !clientId.trim() || !clientSecret.trim()}
+                    className="w-full py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium transition-colors disabled:opacity-50"
+                  >
+                    {configuring ? 'Saving...' : 'Save'}
+                  </button>
+                  <p className="text-slate-500 text-xs">
+                    Create a Slack app at{' '}
+                    <a href="https://api.slack.com/apps" target="_blank" rel="noreferrer" className="text-purple-400 hover:text-purple-300">
+                      api.slack.com/apps
+                    </a>
+                  </p>
+                </form>
               )
             }
             error={connectError ?? undefined}

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import SlackConnect from './SlackConnect'
 
 vi.mock('../lib/api', async () => {
@@ -48,7 +49,7 @@ describe('SlackConnect — disconnected state', () => {
   it('renders "Connect your Slack workspace" button when not connected', async () => {
     mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: true })
 
-    render(<SlackConnect />)
+    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByTestId('slack-connect-btn')).toBeInTheDocument()
@@ -59,7 +60,7 @@ describe('SlackConnect — disconnected state', () => {
   it('navigates to /api/auth/slack/login when button is clicked', async () => {
     mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: true })
 
-    render(<SlackConnect />)
+    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
 
     await waitFor(() => screen.getByTestId('slack-connect-btn'))
     fireEvent.click(screen.getByTestId('slack-connect-btn'))
@@ -67,10 +68,20 @@ describe('SlackConnect — disconnected state', () => {
     expect(locationHrefSetter).toHaveBeenCalledWith('/api/auth/slack/login')
   })
 
-  it('shows "One-click sign in via Slack OAuth" hint text', async () => {
+  it('shows setup prompt when configured is false', async () => {
     mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: false })
 
-    render(<SlackConnect />)
+    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Set up Slack credentials first/i)).toBeInTheDocument()
+    })
+  })
+
+  it('shows "One-click sign in" when configured is true', async () => {
+    mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: true })
+
+    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByText(/One-click sign in via Slack OAuth/i)).toBeInTheDocument()
@@ -82,7 +93,7 @@ describe('SlackConnect — connected state', () => {
   it('shows workspace name when connected', async () => {
     mockedApiGet.mockResolvedValue({ connected: true, team_name: 'Acme Corp', team_id: 'T1', configured: true })
 
-    render(<SlackConnect />)
+    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByTestId('slack-connect-connected')).toBeInTheDocument()
@@ -93,7 +104,7 @@ describe('SlackConnect — connected state', () => {
   it('renders Disconnect button when connected', async () => {
     mockedApiGet.mockResolvedValue({ connected: true, team_name: 'Acme', team_id: 'T2', configured: true })
 
-    render(<SlackConnect />)
+    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
 
     await waitFor(() => screen.getByTestId('slack-disconnect-btn'))
     expect(screen.getByTestId('slack-disconnect-btn')).toBeInTheDocument()
@@ -103,7 +114,7 @@ describe('SlackConnect — connected state', () => {
     mockedApiGet.mockResolvedValue({ connected: true, team_name: 'Acme', team_id: 'T2', configured: true })
     mockedApiDelete.mockResolvedValue({})
 
-    render(<SlackConnect />)
+    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
 
     await waitFor(() => screen.getByTestId('slack-disconnect-btn'))
     fireEvent.click(screen.getByTestId('slack-disconnect-btn'))
@@ -116,7 +127,7 @@ describe('SlackConnect — connected state', () => {
   it('shows fallback workspace label when team_name is empty', async () => {
     mockedApiGet.mockResolvedValue({ connected: true, team_name: '', team_id: 'T3', configured: true })
 
-    render(<SlackConnect />)
+    render(<MemoryRouter><SlackConnect /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByText(/Connected to your workspace/i)).toBeInTheDocument()
