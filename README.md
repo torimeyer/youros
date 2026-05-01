@@ -22,6 +22,8 @@ cd ~/myos
 
 Python and Node come pre-installed on recent macOS, or you can download them from [python.org](https://python.org/downloads) and [nodejs.org](https://nodejs.org).
 
+By default `install.sh` only sets up this project. If you also want every Claude Code session on your machine (regardless of project) to register its subagents with the local myOS backend, run `./install.sh --with-claude-hooks` instead. This is opt-in because it installs a user-global hook at `~/.claude/hooks/register-agent.sh`; `./uninstall.sh` removes it.
+
 ### On Linux
 
 First install the basic tools with your system package manager. Pick the line for your Linux.

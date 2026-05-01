@@ -36,7 +36,10 @@ Default:
   Stops running myOS processes, removes the Python venv (api/.venv),
   npm packages (app/node_modules), built bundle (app/dist), and
   the generated .mcp.json. Removes the 'myos' and 'myos-update'
-  aliases from ~/.zshrc (or ~/.bashrc). Keeps:
+  aliases from ~/.zshrc (or ~/.bashrc). Also removes the global
+  Claude Code hook at ~/.claude/hooks/register-agent.sh and its
+  entry in ~/.claude/settings.json, if install.sh wired them.
+  Keeps:
     - ~/.myos/ (your tasks, chats, labels, cert, settings)
     - ostk (binary, cache, daemon)
     - localhost cert trust in the Keychain
@@ -98,6 +101,52 @@ if [ -f "$SHELL_RC" ] && grep -qE "alias myos=|alias myos-update=" "$SHELL_RC"; 
     rm -f "$SHELL_RC.tmp"
     echo "-> Removed myos aliases from $SHELL_RC"
     echo "   (backup at $SHELL_RC.bak.myos-uninstall)"
+fi
+
+# 4. Remove the global Claude Code hook, if install.sh wired it.
+# The global hook is opt-in (install.sh --with-claude-hooks), so this
+# is a no-op unless it was actually installed. Removes the hook
+# script, its lib/, and the matching PreToolUse.Agent entry from
+# ~/.claude/settings.json.
+GLOBAL_HOOK="$HOME/.claude/hooks/register-agent.sh"
+GLOBAL_HOOK_LIB="$HOME/.claude/hooks/lib/drain-pending.sh"
+GLOBAL_SETTINGS="$HOME/.claude/settings.json"
+if [ -f "$GLOBAL_HOOK" ] || [ -f "$GLOBAL_HOOK_LIB" ]; then
+    echo "-> Removing global Claude Code hook..."
+    rm -f "$GLOBAL_HOOK" "$GLOBAL_HOOK_LIB"
+    # Clean up lib/ if it's now empty.
+    rmdir "$HOME/.claude/hooks/lib" 2>/dev/null || true
+    echo "   removed $GLOBAL_HOOK"
+fi
+if [ -f "$GLOBAL_SETTINGS" ]; then
+    python3 - "$GLOBAL_SETTINGS" <<'PYEOF' || echo "   (couldn't edit $HOME/.claude/settings.json; remove the register-agent entry manually)"
+import json, sys
+p = sys.argv[1]
+with open(p) as f:
+    d = json.load(f)
+changed = False
+pre = d.get("hooks", {}).get("PreToolUse", [])
+filtered = []
+for e in pre:
+    hooks_list = e.get("hooks", []) if isinstance(e, dict) else []
+    keep_hooks = [h for h in hooks_list if "register-agent.sh" not in str(h.get("command", ""))]
+    if len(keep_hooks) != len(hooks_list):
+        changed = True
+    if keep_hooks:
+        e2 = dict(e)
+        e2["hooks"] = keep_hooks
+        filtered.append(e2)
+    else:
+        # The whole matcher entry was just register-agent; drop it.
+        if not hooks_list:
+            filtered.append(e)
+if changed:
+    d.setdefault("hooks", {})["PreToolUse"] = filtered
+    with open(p, "w") as f:
+        json.dump(d, f, indent=2)
+        f.write("\n")
+    print(f"   cleaned register-agent entry from {p}")
+PYEOF
 fi
 
 if [ "$PURGE" -eq 0 ]; then

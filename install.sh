@@ -1,6 +1,6 @@
 #!/bin/bash
 # myOS installer
-# Usage: ./install.sh (from inside the repo)
+# Usage: ./install.sh [--with-claude-hooks] [--help]
 
 set -e
 
@@ -10,6 +10,51 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
+
+# --- Flag parsing ---
+#
+# --with-claude-hooks wires a user-global Claude Code hook at
+# ~/.claude/hooks/register-agent.sh that fires on EVERY Claude Code
+# session on this machine (regardless of project) and POSTs to the
+# local myOS backend so Task-tool subagents show up on the Agents
+# page. Off by default because it has machine-wide scope and most
+# users never open Claude Code in a non-myOS project anyway.
+# Also honours MYOS_INSTALL_CLAUDE_HOOKS=1 for scripted installs.
+WITH_CLAUDE_HOOKS="${MYOS_INSTALL_CLAUDE_HOOKS:-0}"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --with-claude-hooks) WITH_CLAUDE_HOOKS=1; shift ;;
+        --without-claude-hooks) WITH_CLAUDE_HOOKS=0; shift ;;
+        --help|-h)
+            cat <<'EOF'
+Usage: ./install.sh [--with-claude-hooks] [--help]
+
+Installs ostk (if absent), sets up the Python backend in api/.venv,
+installs and builds the frontend in app/, seeds ~/.myos/settings.json,
+and adds `myos` / `myos-update` aliases to your shell rc.
+
+Flags:
+  --with-claude-hooks     Also install a user-global Claude Code hook
+                          at ~/.claude/hooks/register-agent.sh. Fires
+                          on every Claude Code session on this machine
+                          (not just myOS projects) and registers
+                          Task-tool subagents with the local myOS
+                          backend. Machine-wide. Off by default.
+                          Equivalent env var: MYOS_INSTALL_CLAUDE_HOOKS=1
+
+  --without-claude-hooks  Explicitly skip the hook install (the default;
+                          use this if MYOS_INSTALL_CLAUDE_HOOKS=1 is
+                          set in your environment and you want to
+                          override it for one run).
+
+  --help, -h              Print this message and exit.
+EOF
+            exit 0
+            ;;
+        *) echo "Unknown flag: $1" >&2; echo "Try --help." >&2; exit 2 ;;
+    esac
+done
 
 INSTALL_DIR="${MYOS_DIR:-$HOME/myos}"
 
@@ -220,15 +265,25 @@ if command -v ostk &> /dev/null; then
     echo ""
 fi
 
-# --- Install Claude Code hooks into ~/.claude/ -----------------------
+# --- Install Claude Code hooks into ~/.claude/ (opt-in) --------------
 # Wires the Agent PreToolUse register hook globally so every Claude
-# Code session on this machine registers its subagents with torios,
-# not just sessions inside this repo. Idempotent: safe to run on
-# every update.
-if [ -x "$INSTALL_DIR/scripts/install-claude-hooks.sh" ]; then
-    echo "Wiring Claude Code hooks into ~/.claude/..."
-    bash "$INSTALL_DIR/scripts/install-claude-hooks.sh" --from "$INSTALL_DIR" \
-        || echo -e "${YELLOW}Claude Code hook install skipped (non-fatal).${NC}"
+# Code session on this machine registers its subagents with myOS,
+# not just sessions inside this repo. Scoped off by default because
+# the scope is machine-wide, not per-project. Enable with
+# --with-claude-hooks or MYOS_INSTALL_CLAUDE_HOOKS=1. Idempotent.
+if [ "$WITH_CLAUDE_HOOKS" = "1" ]; then
+    if [ -x "$INSTALL_DIR/scripts/install-claude-hooks.sh" ]; then
+        echo "Wiring global Claude Code hooks into ~/.claude/..."
+        bash "$INSTALL_DIR/scripts/install-claude-hooks.sh" --from "$INSTALL_DIR" \
+            || echo -e "${YELLOW}Claude Code hook install skipped (non-fatal).${NC}"
+        echo ""
+    fi
+else
+    echo "Skipping global Claude Code hook install."
+    echo "Project-local hooks under .claude/hooks/ still activate when Claude"
+    echo "Code is opened in this repo. To also register subagents with myOS"
+    echo "from every Claude Code session on this machine (any project), rerun"
+    echo "with --with-claude-hooks."
     echo ""
 fi
 
