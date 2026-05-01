@@ -3845,6 +3845,8 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                 )
                 if _wt_ok:
                     _spawn_cwd = str(_wt_path)
+                    _spawn_env["OSTK_PROJECT_ROOT"] = str(_wt_path)
+                    _spawn_env["OSTK_ROOT"] = str(_wt_path)
                     _worktree_path = str(_wt_path)
                     _worktree_branch = _wt_branch
                     # L2.3 (→902): sync .claude/ into the new worktree so hook
@@ -3870,7 +3872,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     # way to write files when the hook blocks native fallbacks.
                     _main_sock = PROJECT_ROOT / ".ostk" / "ostk.sock"
                     _wt_sock = _wt_path / ".ostk" / "ostk.sock"
-                    if _main_sock.exists() and not _wt_sock.exists():
+                    if not _wt_sock.exists():  # always symlink, even if daemon not yet running
                         try:
                             os.symlink(str(_main_sock), str(_wt_sock))
                             logger.info(

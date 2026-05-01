@@ -137,6 +137,13 @@ while IFS= read -r line; do
                   echo "  [reaper] $wt_branch has uncommitted work, skipping" >&2
                   unique_count=$((unique_count + 1))
                 else
+                  # Check if main repo has tracked-file modifications that might belong to this worktree.
+                  # We ignore untracked files (??) — those are state/log files, not agent work.
+                  if git -C "$PRIMARY" status --porcelain 2>/dev/null | grep -v '^??' | grep -q .; then
+                    echo "WARN: worktree $wt_path absorbed (0 commits) but main repo is dirty — skipping deletion to avoid data loss"
+                    unique_count=$((unique_count + 1))
+                    continue
+                  fi
                   printf '%-48s %-10s %s\n' "$wt_branch" "absorbed" "0"
                   absorbed_branches+=("$wt_branch")
                   absorbed_paths+=("$wt_path")
@@ -223,6 +230,17 @@ except Exception as exc:
       exit 1
       ;;
   esac
+fi
+
+# Fail safe: if we could not load active agent names from any source,
+# skip all removals. Removing a running agent's worktree corrupts in-flight
+# work; it is safer to do nothing and let the operator re-run with
+# MYOS_ACTIVE_AGENTS set (see needle →947, →1051).
+if [ "$_ACTIVE_NAMES_LOADED" -eq 0 ]; then
+  echo "  warning: could not load active agent names from MYOS_ACTIVE_AGENTS or agent_state.json" >&2
+  echo "  skipping all removals to avoid deleting a running agent's worktree" >&2
+  echo "  re-run with MYOS_ACTIVE_AGENTS='' (empty, not unset) to force removal" >&2
+  exit 1
 fi
 
 i=0

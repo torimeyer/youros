@@ -12,13 +12,29 @@ from typing import Optional, Union
 from config import PROJECT_ROOT, OSTK_DIR as _OSTK_DIR
 from services.atomic_io import atomic_write_text
 
-PROJECT_DIR = str(PROJECT_ROOT)
+PROJECT_DIR = os.environ.get("OSTK_PROJECT_ROOT", str(PROJECT_ROOT))
 OSTK_DIR = _OSTK_DIR
 NUDGES_DIR = OSTK_DIR / "nudges"
 
 
 class OstkError(Exception):
     pass
+
+
+def get_effective_root() -> Path:
+    """Return the effective project root for the current execution context.
+
+    Worktree agents have OSTK_PROJECT_ROOT injected into their environment by
+    the spawn endpoint before launching the claude-code subprocess.  Using
+    this function (rather than PROJECT_ROOT directly) ensures path resolution
+    in OstkService operates against the worktree, not the main repo.
+    """
+    root = os.environ.get("OSTK_PROJECT_ROOT") or os.environ.get("OSTK_ROOT")
+    if root:
+        p = Path(root)
+        if p.exists():
+            return p
+    return PROJECT_ROOT
 
 
 # Shared parse cache for .ostk/audit.jsonl. The file is ~400 KB and was
@@ -210,8 +226,8 @@ async def _coalesce_call(key: tuple, coro_factory):
 
 
 class OstkService:
-    def __init__(self, cwd: str = PROJECT_DIR):
-        self.cwd = cwd
+    def __init__(self, cwd: str = None):
+        self.cwd = cwd if cwd is not None else str(get_effective_root())
         # Tri-state: None = unknown, True = working, False = unavailable
         self._socket_available: Optional[bool] = None
 
