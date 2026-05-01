@@ -1,6 +1,14 @@
 #!/bin/bash
 # If the most recent user message started with saa/diagnose/fix,
 # the only acceptable next tool is Agent (or Task). Block anything else.
+#
+# Tori-personal gate: vocabulary is specific to tori's workflow. NR users
+# saying "fix this bug" should not be silently rejected. Hook is a no-op
+# unless ~/.myos/config.json has "enable_tori_rules": true.
+TORI_CONFIG="${MYOS_CONFIG_PATH:-$HOME/.myos/config.json}"
+if [ ! -f "$TORI_CONFIG" ] || ! grep -q '"enable_tori_rules"[[:space:]]*:[[:space:]]*true' "$TORI_CONFIG" 2>/dev/null; then
+    exit 0
+fi
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | python3 -c "import sys,json;print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null)
 case "$TOOL" in

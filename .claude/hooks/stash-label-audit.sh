@@ -1,6 +1,13 @@
 #!/bin/bash
 # PreToolUse Bash hook: require -m "<label>" (>=6 chars, not "WIP on ...")
 # on git stash push or bare git stash. Other stash subcommands pass through.
+#
+# Tori-personal gate: stash-label hygiene is tori's personal preference.
+# No-op unless ~/.myos/config.json has "enable_tori_rules": true.
+TORI_CONFIG="${MYOS_CONFIG_PATH:-$HOME/.myos/config.json}"
+if [ ! -f "$TORI_CONFIG" ] || ! grep -q '"enable_tori_rules"[[:space:]]*:[[:space:]]*true' "$TORI_CONFIG" 2>/dev/null; then
+    exit 0
+fi
 
 INPUT=$(cat)
 

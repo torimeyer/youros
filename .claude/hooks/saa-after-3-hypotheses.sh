@@ -2,6 +2,13 @@
 # PostToolUse Edit|Write: track edit cycles per file within a 30-minute window.
 # After 3 edits to the same file, surface an saa reminder (non-blocking).
 # Rule 2 from 2026-04-27 retro.
+#
+# Tori-personal gate: uses "saa" vocabulary. No-op unless
+# ~/.myos/config.json has "enable_tori_rules": true.
+TORI_CONFIG="${MYOS_CONFIG_PATH:-$HOME/.myos/config.json}"
+if [ ! -f "$TORI_CONFIG" ] || ! grep -q '"enable_tori_rules"[[:space:]]*:[[:space:]]*true' "$TORI_CONFIG" 2>/dev/null; then
+    exit 0
+fi
 
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | python3 -c "import sys,json;print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null)

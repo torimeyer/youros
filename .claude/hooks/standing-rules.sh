@@ -49,8 +49,15 @@ EOF
 # re-emit the curated subset on every UserPromptSubmit so the rules stay in the
 # model's active decision context, not just its session-start memory.
 # Skips: vault, long standing-instructions catalog, technical probes, memory-layer infra.
+#
+# Tori-personal gate: HUMANFILE rules are specific to tori's communication
+# style, vocabulary, and slow-down signals. Other users get nothing here
+# unless ~/.myos/config.json has "enable_tori_rules": true.
+TORI_CONFIG="${MYOS_CONFIG_PATH:-$HOME/.myos/config.json}"
 HUMANFILE_PATH="${MYOS_HUMANFILE_PATH:-${HOME}/.ostk/HUMANFILE}"
-if [ -f "$HUMANFILE_PATH" ]; then
+if [ -f "$TORI_CONFIG" ] \
+   && grep -q '"enable_tori_rules"[[:space:]]*:[[:space:]]*true' "$TORI_CONFIG" 2>/dev/null \
+   && [ -f "$HUMANFILE_PATH" ]; then
   cat <<'EOF'
 
 ACTIVE HUMANFILE RULES (read every turn):
@@ -107,10 +114,13 @@ ACTIVE HUMANFILE RULES (read every turn):
 - NOT "we call Claude too." Lead with coordination demos.
 - ostk should make model choice mostly irrelevant for routine work. Opus on a normal task means ostk is underperforming.
 EOF
-else
+elif [ -f "$TORI_CONFIG" ] \
+     && grep -q '"enable_tori_rules"[[:space:]]*:[[:space:]]*true' "$TORI_CONFIG" 2>/dev/null; then
+  # Flag is set but HUMANFILE missing — warn that session-start rules may be stale.
   echo ""
   echo "ACTIVE HUMANFILE RULES: ~/.ostk/HUMANFILE not found. Session-start rules may be stale."
 fi
+# else: flag absent, emit nothing (default for non-tori users).
 
 # Live agent snapshot. Backed by /api/agents on the myOS backend.
 # Override via MYOS_BACKEND_URL for tests or alternate hosts.
