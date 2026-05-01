@@ -216,6 +216,11 @@ export default function Settings() {
   const [sharesLoading, setSharesLoading] = useState(false);
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
 
+  // ADHD mode
+  const [adhdEnabled, setAdhdEnabled] = useState(false);
+  const [adhdCheckInSeconds, setAdhdCheckInSeconds] = useState(30);
+  const [adhdFocusMode, setAdhdFocusMode] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSection, setActiveSection] = useState('section-instructions');
 
@@ -294,6 +299,13 @@ export default function Settings() {
         const providerRaw = (data as any).default_provider;
         if (providerRaw === 'claude' || providerRaw === 'gemini') {
           setDefaultProvider(providerRaw);
+        }
+        // ADHD mode
+        const adhd = (data as any).adhd_mode;
+        if (adhd) {
+          if (adhd.enabled !== undefined) setAdhdEnabled(adhd.enabled);
+          if (adhd.check_in_seconds !== undefined) setAdhdCheckInSeconds(adhd.check_in_seconds);
+          if (adhd.focus_mode !== undefined) setAdhdFocusMode(adhd.focus_mode);
         }
       } catch {
         // API not available, use defaults
@@ -625,6 +637,24 @@ export default function Settings() {
     api.patch('/settings', { chat_memory_enabled: next }).catch(() => {});
   };
 
+  const handleAdhdToggle = () => {
+    const next = !adhdEnabled;
+    setAdhdEnabled(next);
+    api.patch('/adhd/config', { enabled: next }).catch(() => {});
+  };
+
+  const handleAdhdIntervalChange = (seconds: number) => {
+    const clamped = Math.max(10, Math.min(120, seconds));
+    setAdhdCheckInSeconds(clamped);
+    api.patch('/adhd/config', { check_in_seconds: clamped }).catch(() => {});
+  };
+
+  const handleAdhdFocusModeToggle = () => {
+    const next = !adhdFocusMode;
+    setAdhdFocusMode(next);
+    api.patch('/adhd/config', { focus_mode: next }).catch(() => {});
+  };
+
   const handleSaveStandingInstructions = async () => {
     try {
       await api.patch('/settings', { standing_instructions: standingInstructions });
@@ -803,6 +833,7 @@ export default function Settings() {
     { id: 'section-ai-chat', label: 'AI & Chat', icon: 'smart_toy' },
     { id: 'section-connections', label: 'Connections', icon: 'hub' },
     { id: 'section-notifications', label: 'Notifications', icon: 'notifications' },
+    { id: 'section-adhd', label: 'ADHD Mode', icon: 'psychology' },
     { id: 'section-privacy', label: 'Privacy & Data', icon: 'lock' },
     { id: 'section-developer', label: 'Developer', icon: 'code' },
     { id: 'section-shortcuts', label: 'Shortcuts', icon: 'keyboard' },
@@ -985,6 +1016,94 @@ export default function Settings() {
           </div>
 
           {/* ── 6. Privacy & Data ───────────────────── */}
+          <div id="section-adhd" className={activeSection !== 'section-adhd' ? 'hidden' : ''}>
+          <div className={cardClass}>
+            <div className="flex items-center gap-3 mb-2">
+              <h2 className="text-lg font-semibold">ADHD Mode</h2>
+              <button
+                data-testid="adhd-toggle"
+                onClick={handleAdhdToggle}
+                className={`w-10 h-6 rounded-full relative transition-colors ${
+                  adhdEnabled ? 'accent-bg' : 'bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                    adhdEnabled ? 'left-5' : 'left-1'
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-sm text-slate-400 mb-5">
+              Designed to keep you in flow. Get regular check-ins while agents work, see where you left off when you come back, and get one clear recommendation instead of a list of choices.
+            </p>
+
+            <div className={`space-y-5 ${adhdEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-sm text-slate-300">Check-in notifications</p>
+                    <p className="text-xs text-slate-500">
+                      How often to show you what your agents are doing
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="range"
+                    min={10}
+                    max={120}
+                    step={5}
+                    value={adhdCheckInSeconds}
+                    onChange={(e) => handleAdhdIntervalChange(Number(e.target.value))}
+                    className="flex-1 accent-blue-500"
+                    data-testid="adhd-interval-slider"
+                  />
+                  <span className="text-sm text-slate-300 w-16 text-right font-mono">
+                    {adhdCheckInSeconds}s
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Welcome back summary</p>
+                    <p className="text-xs text-slate-500">
+                      When you return after being away for 5+ minutes, show you exactly where you left off
+                    </p>
+                  </div>
+                  <div className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="Always on when ADHD mode is active" />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Reduce choices</p>
+                    <p className="text-xs text-slate-500">
+                      Show one recommendation instead of a list of options. Less deciding, more doing.
+                    </p>
+                  </div>
+                  <button
+                    data-testid="adhd-focus-toggle"
+                    onClick={handleAdhdFocusModeToggle}
+                    className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
+                      adhdFocusMode ? 'accent-bg' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                        adhdFocusMode ? 'left-5' : 'left-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+
           <div id="section-privacy" className={`space-y-6${activeSection !== 'section-privacy' ? ' hidden' : ''}`}>
           <div className={cardClass} data-testid="files-location-section">
           <h2 className="text-lg font-semibold mb-2">Files location</h2>

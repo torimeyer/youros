@@ -83,6 +83,21 @@ body {
   animation: fade-in-fast 0.2s ease-out forwards;
 }
 
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.25s ease-out;
+}
+
 /* Light mode overrides for Tailwind slate-* classes used in the app */
 [data-theme="light"] .bg-slate-950 { background-color: #f8fafc; }
 [data-theme="light"] .bg-slate-900 { background-color: #f1f5f9; }

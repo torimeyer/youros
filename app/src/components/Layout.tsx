@@ -7,7 +7,10 @@ import GuidedTour from './GuidedTour'
 import NotificationToasts from './NotificationToast'
 import ReleaseNotesWatcher from './ReleaseNotesWatcher'
 import { useUserActivity } from '../hooks/useUserActivity'
+import { useAdhdMode } from '../hooks/useAdhdMode'
 import { useAppStore } from '../stores/app'
+import AdhdCheckin from './AdhdCheckin'
+import WelcomeBack from './WelcomeBack'
 
 // Sidebar page order for Cmd+1 through Cmd+8
 const NAV_ROUTES = [
@@ -54,12 +57,8 @@ export function Layout() {
   const tourComplete = useAppStore((s) => s.tourComplete)
   const navigate = useNavigate()
 
-  // Refresh sidebar buses on any user activity (keystroke, mouse
-  // move, focus, tab return). Throttled inside the hook to <=1/s
-  // so rapid typing does not spam subscribers. Makes every part of
-  // the app feel responsive the moment the user interacts, instead
-  // of waiting for the next 2s poll tick.
   useUserActivity()
+  const { config: adhdConfig, checkIn, showWelcomeBack, contextRebuild, dismissWelcomeBack } = useAdhdMode()
 
   // Track whether the viewport is at desktop width so we can decide
   // whether the chat panel should push main content or overlay it.
@@ -183,6 +182,16 @@ export function Layout() {
       {showTour && <GuidedTour onComplete={() => setShowTour(false)} />}
       <NotificationToasts />
       <ReleaseNotesWatcher />
+      {adhdConfig.enabled && checkIn && (
+        <AdhdCheckin
+          running_count={checkIn.running_count}
+          agents={checkIn.agents}
+          intervalSeconds={adhdConfig.check_in_seconds}
+        />
+      )}
+      {showWelcomeBack && contextRebuild && (
+        <WelcomeBack context={contextRebuild} onDismiss={dismissWelcomeBack} />
+      )}
       <main
         data-testid="main-content"
         className={`min-h-dvh min-w-0 overflow-x-hidden ${isResizing ? '' : 'transition-[margin] duration-200'} ${
