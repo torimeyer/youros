@@ -5,7 +5,7 @@ don't exist on disk (one per line). Exit 0 always.
 
 Usage: python3 scripts/lib/e2e_orphan_sweep.py <repo_dir> <script_path>
 """
-import os, re, sys
+import os, re, subprocess, sys
 
 repo = sys.argv[1]
 script = sys.argv[2]
@@ -41,6 +41,12 @@ missing = []
 for rel in sorted(seen):
     full = os.path.join(repo, rel)
     if not os.path.exists(full):
+        r = subprocess.run(
+            ['git', 'check-ignore', '--quiet', '--no-index', rel + '/'],
+            cwd=repo, capture_output=True
+        )
+        if r.returncode == 0:
+            continue
         missing.append(rel)
 if missing:
     for m in missing:
