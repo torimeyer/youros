@@ -1,164 +1,150 @@
-"""Tests for GET /api/since-you-last-looked."""
-import sys
-import os
-from pathlib import Path
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, patch, MagicMock
+"""Tests for the since-you-last-looked endpoint with Google signals."""
 
 import pytest
-import pytest_asyncio
-import httpx
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-os.environ.setdefault("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
-os.environ.setdefault("MYOS_SKIP_AUTOMATION_FILES_SAVE", "1")
-os.environ.setdefault("MYOS_SKIP_CHAT_NOTIFICATIONS", "1")
-os.environ.setdefault("MYOS_DISABLE_RATE_LIMIT", "1")
-
+from datetime import datetime, timezone, timedelta
+from unittest.mock import AsyncMock, patch, MagicMock
+from fastapi.testclient import TestClient
 from main import app
 
-
-@pytest_asyncio.fixture
-async def client():
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
+client = TestClient(app)
 
 
-# Fixtures for agent_metadata
-NOW = datetime(2026, 4, 27, 12, 0, 0, tzinfo=timezone.utc)
-BEFORE = (NOW - timedelta(hours=2)).isoformat()
-AFTER = (NOW + timedelta(hours=1)).isoformat()
-SINCE = NOW.isoformat()
+def _iso(dt: datetime) -> str:
+    return dt.isoformat()
 
 
-SAMPLE_METADATA = {
-    "agent-old": {
-        "status": "completed",
-        "completed_at": BEFORE,
-        "task": "old task",
-        "summary": "did something earlier",
-    },
-    "agent-new": {
-        "status": "completed",
-        "completed_at": AFTER,
-        "task": "new task",
-        "summary": "finished after you left",
-    },
-    "agent-failed": {
-        "status": "failed",
-        "completed_at": AFTER,
-        "task": "broken task",
-        "summary": "",
-    },
-    "agent-running": {
-        "status": "running",
-        "task": "still going",
-    },
-}
+def _since(minutes_ago: int = 60) -> str:
+    return _iso(datetime.now(timezone.utc) - timedelta(minutes=minutes_ago))
 
 
-@pytest.mark.asyncio
-async def test_returns_200(client):
-    with patch("routers.since_you_last_looked.agent_metadata", SAMPLE_METADATA, create=True):
-        with patch("routers.agents.agent_metadata", SAMPLE_METADATA):
-            with patch("routers.since_you_last_looked._get_awaiting_input", AsyncMock(return_value=[])):
-                with patch("routers.since_you_last_looked._get_artifacts", return_value=[]):
-                    resp = await client.get("/api/since-you-last-looked")
-    assert resp.status_code == 200
+# --------------- endpoint shape ---------------
+
+def test_response_includes_google_buckets():
+    with patch("services.google_auth.is_authenticated", return_value=False):
+        resp = client.get(f"/api/since-you-last-looked?since={_since()}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "new_emails" in body
+        assert "calendar_events_happened" in body
+        assert "drive_files_changed" in body
+        assert isinstance(body["new_emails"], list)
+        assert isinstance(body["calendar_events_happened"], list)
+        assert isinstance(body["drive_files_changed"], list)
 
 
-@pytest.mark.asyncio
-async def test_filters_completed_agents_after_since(client):
-    """Only agents that completed after `since` are returned."""
-    with patch("routers.agents.agent_metadata", SAMPLE_METADATA):
-        with patch("routers.since_you_last_looked._get_awaiting_input", AsyncMock(return_value=[])):
-            with patch("routers.since_you_last_looked._get_artifacts", return_value=[]):
-                # Use params= so httpx URL-encodes the '+' in the timezone offset.
-                resp = await client.get("/api/since-you-last-looked", params={"since": SINCE})
+# --------------- email bucket ---------------
 
-    assert resp.status_code == 200
-    data = resp.json()
-    names = [a["name"] for a in data["completed_agents"]]
-    assert "agent-new" in names
-    assert "agent-failed" in names
-    assert "agent-old" not in names
-    assert "agent-running" not in names
+def test_new_emails_when_not_authed():
+    with patch("services.google_auth.is_authenticated", return_value=False):
+        resp = client.get(f"/api/since-you-last-looked?since={_since()}")
+        assert resp.json()["new_emails"] == []
 
 
-@pytest.mark.asyncio
-async def test_no_since_returns_all_terminal(client):
-    """Without `since`, all terminal agents are returned."""
-    with patch("routers.agents.agent_metadata", SAMPLE_METADATA):
-        with patch("routers.since_you_last_looked._get_awaiting_input", AsyncMock(return_value=[])):
-            with patch("routers.since_you_last_looked._get_artifacts", return_value=[]):
-                resp = await client.get("/api/since-you-last-looked")
-
-    assert resp.status_code == 200
-    data = resp.json()
-    names = [a["name"] for a in data["completed_agents"]]
-    assert "agent-new" in names
-    assert "agent-old" in names
-    assert "agent-running" not in names
-
-
-@pytest.mark.asyncio
-async def test_artifacts_returned(client):
-    fake_artifacts = [
-        {"name": "report.md", "path": "/tmp/report.md", "created_at": AFTER},
+def test_new_emails_filters_by_since():
+    recent_date = _iso(datetime.now(timezone.utc) - timedelta(minutes=10))
+    old_date = _iso(datetime.now(timezone.utc) - timedelta(hours=3))
+    mock_messages = [
+        {"subject": "Recent", "from_name": "Alice", "snippet": "hi", "date": recent_date,
+         "thread_id": "t1", "is_unread": True},
+        {"subject": "Old", "from_name": "Bob", "snippet": "hey", "date": old_date,
+         "thread_id": "t2", "is_unread": True},
+        {"subject": "Read", "from_name": "Carol", "snippet": "ok", "date": recent_date,
+         "thread_id": "t3", "is_unread": False},
     ]
-    with patch("routers.agents.agent_metadata", {}):
-        with patch("routers.since_you_last_looked._get_awaiting_input", AsyncMock(return_value=[])):
-            with patch("routers.since_you_last_looked._get_artifacts", return_value=fake_artifacts):
-                resp = await client.get("/api/since-you-last-looked", params={"since": SINCE})
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["artifacts_created"]) == 1
-    assert data["artifacts_created"][0]["name"] == "report.md"
-
-
-@pytest.mark.asyncio
-async def test_awaiting_input_returned(client):
-    fake_tasks = [{"id": "t1", "title": "Review PR", "status": "in_progress"}]
-    with patch("routers.agents.agent_metadata", {}):
-        with patch("routers.since_you_last_looked._get_awaiting_input", AsyncMock(return_value=fake_tasks)):
-            with patch("routers.since_you_last_looked._get_artifacts", return_value=[]):
-                resp = await client.get("/api/since-you-last-looked")
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["awaiting_input"]) == 1
-    assert data["awaiting_input"][0]["id"] == "t1"
+    with patch("services.google_auth.is_authenticated", return_value=True), \
+         patch("services.gmail.get_inbox_messages", new_callable=AsyncMock, return_value=mock_messages):
+        resp = client.get(f"/api/since-you-last-looked?since={_since(60)}")
+        emails = resp.json()["new_emails"]
+        subjects = [e["subject"] for e in emails]
+        assert "Recent" in subjects
+        assert "Old" not in subjects
+        assert "Read" not in subjects
 
 
-@pytest.mark.asyncio
-async def test_response_shape(client):
-    """Response always has all four top-level keys."""
-    with patch("routers.agents.agent_metadata", {}):
-        with patch("routers.since_you_last_looked._get_awaiting_input", AsyncMock(return_value=[])):
-            with patch("routers.since_you_last_looked._get_artifacts", return_value=[]):
-                resp = await client.get("/api/since-you-last-looked")
+# --------------- calendar bucket ---------------
 
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "completed_agents" in data
-    assert "artifacts_created" in data
-    assert "awaiting_input" in data
-    assert "since" in data
+def test_calendar_events_when_not_authed():
+    with patch("services.google_auth.is_authenticated", return_value=False):
+        resp = client.get(f"/api/since-you-last-looked?since={_since()}")
+        assert resp.json()["calendar_events_happened"] == []
 
 
-@pytest.mark.asyncio
-async def test_invalid_since_returns_all(client):
-    """Malformed `since` is treated as no filter (no crash)."""
-    with patch("routers.agents.agent_metadata", SAMPLE_METADATA):
-        with patch("routers.since_you_last_looked._get_awaiting_input", AsyncMock(return_value=[])):
-            with patch("routers.since_you_last_looked._get_artifacts", return_value=[]):
-                resp = await client.get("/api/since-you-last-looked?since=not-a-date")
+def test_calendar_events_filters_past_events():
+    past_start = _iso(datetime.now(timezone.utc) - timedelta(minutes=30))
+    future_start = _iso(datetime.now(timezone.utc) + timedelta(hours=2))
+    mock_events = [
+        {"id": "e1", "summary": "Past Standup", "start": {"dateTime": past_start},
+         "end": {"dateTime": past_start}, "htmlLink": "", "hangoutLink": ""},
+        {"id": "e2", "summary": "Future Meeting", "start": {"dateTime": future_start},
+         "end": {"dateTime": future_start}, "htmlLink": "", "hangoutLink": ""},
+    ]
+    with patch("services.google_auth.is_authenticated", return_value=True), \
+         patch("services.calendar.get_today_events", new_callable=AsyncMock, return_value=mock_events):
+        resp = client.get(f"/api/since-you-last-looked?since={_since(60)}")
+        events = resp.json()["calendar_events_happened"]
+        summaries = [e["summary"] for e in events]
+        assert "Past Standup" in summaries
+        assert "Future Meeting" not in summaries
 
-    assert resp.status_code == 200
-    data = resp.json()
-    # With invalid since, all terminal agents returned (since_dt is None)
-    names = [a["name"] for a in data["completed_agents"]]
-    assert "agent-new" in names
-    assert "agent-old" in names
+
+# --------------- drive bucket ---------------
+
+def test_drive_changes_when_not_authed():
+    with patch("services.google_auth.is_authenticated", return_value=False):
+        resp = client.get(f"/api/since-you-last-looked?since={_since()}")
+        assert resp.json()["drive_files_changed"] == []
+
+
+def test_drive_changes_filters_own_edits():
+    with patch("services.google_auth.is_authenticated", return_value=True), \
+         patch("services.google_auth.has_full_drive_scope", return_value=True), \
+         patch("services.google_auth.get_credentials", return_value={"access_token": "t", "refresh_token": "r"}), \
+         patch("services.google_auth._load_client_config", return_value={"client_id": "c", "client_secret": "s"}), \
+         patch("googleapiclient.discovery.build") as mock_build:
+        mock_service = MagicMock()
+        mock_build.return_value = mock_service
+        mock_service.files().list().execute.return_value = {
+            "files": [
+                {"name": "shared.doc", "mimeType": "text/plain", "modifiedTime": "2026-04-30T10:00:00Z",
+                 "webViewLink": "https://...", "lastModifyingUser": {"me": False}},
+                {"name": "my-edit.doc", "mimeType": "text/plain", "modifiedTime": "2026-04-30T10:00:00Z",
+                 "webViewLink": "https://...", "lastModifyingUser": {"me": True}},
+            ]
+        }
+        resp = client.get(f"/api/since-you-last-looked?since={_since()}")
+        files = resp.json()["drive_files_changed"]
+        names = [f["name"] for f in files]
+        assert "shared.doc" in names
+        assert "my-edit.doc" not in names
+
+
+# --------------- no since param ---------------
+
+def test_no_since_returns_all_unread():
+    mock_messages = [
+        {"subject": "Any", "from_name": "X", "snippet": "", "date": "2026-01-01T00:00:00Z",
+         "thread_id": "t1", "is_unread": True},
+    ]
+    with patch("services.google_auth.is_authenticated", return_value=True), \
+         patch("services.gmail.get_inbox_messages", new_callable=AsyncMock, return_value=mock_messages):
+        resp = client.get("/api/since-you-last-looked")
+        emails = resp.json()["new_emails"]
+        assert len(emails) == 1
+
+
+# --------------- exception safety ---------------
+
+def test_gmail_exception_returns_empty():
+    with patch("services.google_auth.is_authenticated", return_value=True), \
+         patch("services.gmail.get_inbox_messages", new_callable=AsyncMock, side_effect=Exception("boom")):
+        resp = client.get(f"/api/since-you-last-looked?since={_since()}")
+        assert resp.status_code == 200
+        assert resp.json()["new_emails"] == []
+
+
+def test_calendar_exception_returns_empty():
+    with patch("services.google_auth.is_authenticated", return_value=True), \
+         patch("services.calendar.get_today_events", new_callable=AsyncMock, side_effect=Exception("boom")):
+        resp = client.get(f"/api/since-you-last-looked?since={_since()}")
+        assert resp.status_code == 200
+        assert resp.json()["calendar_events_happened"] == []
