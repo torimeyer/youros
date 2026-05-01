@@ -72,6 +72,24 @@ cd ~/myos
 
 Your settings, chats, tasks, and labels live in `~/.myos/` (separate from the repo) and are never touched by updates. You can also verify this by running `ls -la ~/.myos/` before and after.
 
+## Uninstall
+
+```bash
+./uninstall.sh
+```
+
+Stops running myOS processes and removes what `install.sh` put in the repo: `api/.venv`, `app/node_modules`, `app/dist`, `.mcp.json`, and the `myos` / `myos-update` shell aliases. Keeps `~/.myos/` (your tasks, chats, settings), ostk, and the localhost cert trust — so re-running `./install.sh` brings you right back.
+
+To truly reset to a clean slate (useful when testing a fresh install):
+
+```bash
+./uninstall.sh --purge
+```
+
+Also removes `~/.myos/` (DESTROYS ALL USER DATA), stops the ostk daemon, removes `~/.local/bin/ostk` and `~/.cache/ostk`, and removes the localhost cert from the macOS login Keychain. Prompts before each destructive step — add `--yes` to skip prompts.
+
+The repo directory is never deleted. Remove it yourself with `rm -rf <path>` when you're done.
+
 ## Start
 
 ```bash
