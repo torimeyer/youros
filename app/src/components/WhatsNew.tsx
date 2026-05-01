@@ -47,12 +47,12 @@ export default function WhatsNew() {
   return (
     <button
       onClick={handleClick}
-      className="group relative flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-slate-800/50"
+      className="group relative flex items-center gap-3 w-full px-4 py-1.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-500 hover:text-slate-300 hover:bg-slate-800/30"
       title="What's New"
       data-testid="whats-new-button"
     >
-      <Icon name="auto_awesome" className="text-xl" />
-      <span className="text-sm font-medium">What&apos;s New</span>
+      <Icon name="auto_awesome" className="text-lg" />
+      <span className="text-xs font-medium">What&apos;s New</span>
       {unseenCount > 0 && (
         <span
           className="ml-auto min-w-[16px] h-4 bg-blue-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1"

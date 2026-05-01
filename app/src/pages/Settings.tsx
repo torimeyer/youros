@@ -95,7 +95,7 @@ const featureDisplayNames: Record<string, string> = {
 export default function Settings() {
   const {
     osName, setOsName,
-    darkMode, toggleDarkMode,
+    darkMode,
     accentColor, setAccentColor,
     features, setFeatures,
     setDefaultChatModel,
@@ -103,9 +103,6 @@ export default function Settings() {
     powerUserMode, setPowerUserMode,
     instanceMode,
     compactMode, setCompactMode,
-    fontSize, setFontSize,
-    iconStyle, setIconStyle,
-    dashboardLayout, setDashboardLayout,
     greetingStyle, setGreetingStyle,
     showBudgetCaps, setShowBudgetCaps,
   } = useAppStore();
@@ -518,13 +515,6 @@ export default function Settings() {
     }
   };
 
-  const handleDarkModeToggle = (wantDark: boolean) => {
-    if (wantDark !== darkMode) {
-      toggleDarkMode();
-    }
-    api.patch('/settings', { dark_mode: wantDark }).catch(() => {});
-  };
-
   const handleAccentColor = (name: string) => {
     setAccentColor(name as AccentColor);
     api.patch('/settings', { accent_color: name }).catch(() => {});
@@ -694,34 +684,15 @@ export default function Settings() {
     }
   };
 
-  const scrollToElement = (el: Element | null | undefined) => {
-    if (!el) return;
-    const y = el.getBoundingClientRect().top + window.scrollY - 80;
-    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
-  };
-
-  const scrollToId = (id: string) => scrollToElement(document.getElementById(id));
-
-  // Scroll to the standing instructions section when the page loads
-  // with ``#standing-instructions`` in the URL. The Usage page uses this
-  // anchor so the cache-reuse hint deep-links straight to the feature.
-  // When the hash is ``#standing-instructions-suggest`` we also kick
-  // off the suggest flow so the Usage page's "Save standing instructions
-  // to raise this" link is a true one-click path.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const hash = window.location.hash;
-    if (hash !== '#standing-instructions' && hash !== '#standing-instructions-suggest') {
-      return;
-    }
-    // Defer a tick so the section has mounted before we try to scroll.
-    const handle = window.setTimeout(() => {
-      scrollToElement(standingSectionRef.current);
+    if (hash === '#standing-instructions' || hash === '#standing-instructions-suggest') {
+      setActiveSection('section-instructions');
       if (hash === '#standing-instructions-suggest') {
-        handleSuggestStandingInstructions();
+        window.setTimeout(() => handleSuggestStandingInstructions(), 0);
       }
-    }, 0);
-    return () => window.clearTimeout(handle);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -838,23 +809,7 @@ export default function Settings() {
     ...(instanceMode === 'team' ? [{ id: 'section-team-admin', label: 'Team Admin', icon: 'admin_panel_settings' }] : []),
   ];
 
-  useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') return;
-    const sectionIds = navItems.map((n) => n.id);
-    const observers: IntersectionObserver[] = [];
-    sectionIds.forEach((id) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      const obs = new IntersectionObserver(
-        ([entry]) => { if (entry.isIntersecting) setActiveSection(id); },
-        { rootMargin: '-20% 0px -70% 0px' }
-      );
-      obs.observe(el);
-      observers.push(obs);
-    });
-    return () => observers.forEach((o) => o.disconnect());
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instanceMode]);
+  // No IntersectionObserver needed: tabs show one section at a time.
 
   return (
     <div className="min-h-dvh bg-slate-950 text-white">
@@ -865,7 +820,7 @@ export default function Settings() {
         {navItems.map((item) => (
           <button
             key={item.id}
-            onClick={() => scrollToId(item.id)}
+            onClick={() => setActiveSection(item.id)}
             className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium flex-shrink-0 transition-colors ${
               activeSection === item.id ? 'bg-slate-700 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'
             }`}
@@ -881,7 +836,7 @@ export default function Settings() {
           {navItems.map((item) => (
             <button
               key={item.id}
-              onClick={() => scrollToId(item.id)}
+              onClick={() => setActiveSection(item.id)}
               className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-left transition-colors ${
                 activeSection === item.id
                   ? 'bg-slate-800 text-white font-medium'
@@ -908,7 +863,7 @@ export default function Settings() {
           </div>
 
           {/* ── 1. Instructions ─────────────────────── */}
-          <div id="section-instructions">
+          <div id="section-instructions" className={activeSection !== 'section-instructions' ? 'hidden' : ''}>
           <div
             ref={standingSectionRef}
             id="standing-instructions"
@@ -1030,7 +985,7 @@ export default function Settings() {
           </div>
 
           {/* ── 6. Privacy & Data ───────────────────── */}
-          <div id="section-privacy" className="space-y-6">
+          <div id="section-privacy" className={`space-y-6${activeSection !== 'section-privacy' ? ' hidden' : ''}`}>
           <div className={cardClass} data-testid="files-location-section">
           <h2 className="text-lg font-semibold mb-2">Files location</h2>
           <p className="text-sm text-slate-400 mb-3">
@@ -1058,36 +1013,9 @@ export default function Settings() {
           </div>
 
           {/* ── 2. Appearance ───────────────────────── */}
-          <div id="section-appearance" className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          <div id="section-appearance" className={`grid grid-cols-1 md:grid-cols-2 gap-6 items-start${activeSection !== 'section-appearance' ? ' hidden' : ''}`}>
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">Appearance</h2>
-
-            {/* Color Mode */}
-            <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">Color Mode</label>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleDarkModeToggle(false)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    !darkMode
-                      ? 'accent-bg !text-white'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Light
-                </button>
-                <button
-                  onClick={() => handleDarkModeToggle(true)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    darkMode
-                      ? 'accent-bg !text-white'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Dark
-                </button>
-              </div>
-            </div>
 
             {/* Accent Color */}
             <div className="mb-5">
@@ -1145,67 +1073,6 @@ export default function Settings() {
                 >
                   Compact
                 </button>
-              </div>
-            </div>
-
-            {/* Font Size */}
-            <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">Font Size</label>
-              <div className="flex gap-2">
-                {(['small', 'medium', 'large'] as const).map((size) => (
-                  <button
-                    key={size}
-                    onClick={() => setFontSize(size)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      fontSize === size
-                        ? 'accent-bg !text-white'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {size === 'small' ? 'Small' : size === 'medium' ? 'Medium' : 'Large'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Icon Style */}
-            <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">Icon Style</label>
-              <div className="flex gap-2">
-                {(['filled', 'outlined'] as const).map((style) => (
-                  <button
-                    key={style}
-                    onClick={() => setIconStyle(style)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      iconStyle === style
-                        ? 'accent-bg !text-white'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {style === 'filled' ? 'Filled' : 'Outlined'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Dashboard Layout */}
-            <div className="mb-5">
-              <label className="text-sm text-slate-400 mb-2 block">Dashboard Layout</label>
-              <p className="text-xs text-slate-500 mb-2">Focus mode shows only your top priorities.</p>
-              <div className="flex gap-2">
-                {(['full', 'focus'] as const).map((layout) => (
-                  <button
-                    key={layout}
-                    onClick={() => setDashboardLayout(layout)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      dashboardLayout === layout
-                        ? 'accent-bg !text-white'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {layout === 'full' ? 'Full' : 'Focus'}
-                  </button>
-                ))}
               </div>
             </div>
 
@@ -1304,7 +1171,7 @@ export default function Settings() {
           </div>
 
           {/* ── 3. AI & Chat ────────────────────────── */}
-          <div id="section-ai-chat" className="space-y-6">
+          <div id="section-ai-chat" className={`space-y-6${activeSection !== 'section-ai-chat' ? ' hidden' : ''}`}>
           <div className={cardClass} data-testid="api-key-setup-section">
             <h2 className="text-lg font-semibold mb-5">AI Provider</h2>
 
@@ -1512,7 +1379,7 @@ export default function Settings() {
           </div>
 
           {/* ── 5. Notifications ────────────────────── */}
-          <div id="section-notifications">
+          <div id="section-notifications" className={activeSection !== 'section-notifications' ? 'hidden' : ''}>
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">Notifications</h2>
             <div className="space-y-3">
@@ -1726,8 +1593,8 @@ export default function Settings() {
           </div>
           </div>
 
-          {/* ── 4. AI Provider ──────────────────────── */}
-          <div id="section-ai-provider" className="space-y-6">
+          {/* ── 4. AI Provider (shown with AI & Chat tab) ── */}
+          <div id="section-ai-provider" className={`space-y-6${activeSection !== 'section-ai-chat' ? ' hidden' : ''}`}>
           <div className={cardClass} data-testid="ai-provider-section">
             <h2 className="text-lg font-semibold mb-1">AI Provider</h2>
             <p className="text-sm text-slate-400 mb-4">
@@ -1803,7 +1670,7 @@ export default function Settings() {
           </div>
 
           {/* ── 5. Connections ──────────────────────── */}
-          <div id="section-connections" className="space-y-6">
+          <div id="section-connections" className={`space-y-6${activeSection !== 'section-connections' ? ' hidden' : ''}`}>
           <div className={cardClass} data-testid="connections-section">
           <div className="flex items-center gap-2 mb-4">
             <h2 className="text-lg font-semibold">Connections</h2>
@@ -2177,7 +2044,7 @@ export default function Settings() {
 
           {/* ── Team Admin (gated) ──────────────────── */}
           {instanceMode === 'team' && (
-          <div id="section-team-admin">
+          <div id="section-team-admin" className={activeSection !== 'section-team-admin' ? 'hidden' : ''}>
           <div className={cardClass}>
             <div className="flex items-center gap-2 mb-3">
               <Icon name="admin_panel_settings" size={22} className="text-indigo-400" />
@@ -2308,7 +2175,7 @@ export default function Settings() {
           </div>
 
           {/* ── 7. Developer ────────────────────────── */}
-          <div id="section-developer">
+          <div id="section-developer" className={activeSection !== 'section-developer' ? 'hidden' : ''}>
           <div className={cardClass} data-testid="developer-section">
             <h2 className="text-lg font-semibold mb-2">Developer</h2>
           <p className="text-sm text-slate-400 mb-4">
@@ -2341,7 +2208,7 @@ export default function Settings() {
           </div>
 
           {/* ── 8. Shortcuts ────────────────────────── */}
-          <div id="section-shortcuts">
+          <div id="section-shortcuts" className={activeSection !== 'section-shortcuts' ? 'hidden' : ''}>
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
           <div className="space-y-3">

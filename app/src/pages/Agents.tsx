@@ -16,7 +16,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { hasSpeakerPrefixes, parseTranscript } from "../lib/transcript";
 import { Button, EmptyState, Card } from "../components/ui";
 import { formatTokenBudget, formatTokenBudgetApprox } from "../lib/budgetDisplay";
-import { CapabilitiesSection } from "./AgentDetail";
+
 
 // Re-export so tests can still import these from './Agents'
 export { friendlyAgentName, isMainSession, isUserSpawnedAgent } from "../lib/agentUtils";
@@ -523,7 +523,6 @@ function TemplateEditorModal({
   templateId,
   source,
   aliases,
-  capabilities,
   userInputs,
   onSpawn,
   onSave,
@@ -536,7 +535,6 @@ function TemplateEditorModal({
   templateId?: string;
   source?: string;
   aliases?: string[];
-  capabilities?: { writes_to: string; cannot_touch: string; budget: string; time_limit: string; sandbox: string } | null;
   userInputs?: UserInput[];
   onSpawn: (t: CustomTemplate, userMessage: string) => void;
   onSave: (t: CustomTemplate) => void;
@@ -753,31 +751,23 @@ function TemplateEditorModal({
               </div>
             )}
 
-            {/* Prompt section */}
-            <div data-testid="template-prompt-section">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Prompt</p>
-              <div className="bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-xs text-slate-300 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap">
-                {promptPreview}
+            {/* Prompt section — hidden when identical to description */}
+            {promptTemplate.trim() !== description.trim() && (
+              <div data-testid="template-prompt-section">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Prompt</p>
+                <div className="bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-xs text-slate-300 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap">
+                  {promptPreview}
+                </div>
+                {promptTemplate.length > 500 && (
+                  <button
+                    onClick={() => setPromptExpanded(!promptExpanded)}
+                    className="text-[10px] text-blue-400 hover:text-blue-300 mt-1 transition-colors"
+                    data-testid="template-prompt-expand"
+                  >
+                    {promptExpanded ? "Show less" : "Show full prompt"}
+                  </button>
+                )}
               </div>
-              {promptTemplate.length > 500 && (
-                <button
-                  onClick={() => setPromptExpanded(!promptExpanded)}
-                  className="text-[10px] text-blue-400 hover:text-blue-300 mt-1 transition-colors"
-                  data-testid="template-prompt-expand"
-                >
-                  {promptExpanded ? "Show less" : "Show full prompt"}
-                </button>
-              )}
-            </div>
-
-            {/* Capabilities section */}
-            {capabilities && (
-              <CapabilitiesSection
-                writesTo={capabilities.writes_to}
-                budget={budget}
-                model={model}
-                timeLimit={capabilities.time_limit}
-              />
             )}
 
             {/* Alias section */}
@@ -2380,7 +2370,6 @@ export default function Agents() {
   const [editorTemplateId, setEditorTemplateId] = useState<string | undefined>(undefined);
   const [editorSource, setEditorSource] = useState<string | undefined>(undefined);
   const [editorAliases, setEditorAliases] = useState<string[] | undefined>(undefined);
-  const [editorCapabilities, setEditorCapabilities] = useState<{ writes_to: string; cannot_touch: string; budget: string; time_limit: string; sandbox: string } | null>(null);
   const [editorUserInputs, setEditorUserInputs] = useState<UserInput[] | undefined>(undefined);
 
   // Custom templates live on the server via the app store. localStorage
@@ -2607,7 +2596,6 @@ export default function Agents() {
     setEditorTemplateId(tpl.id);
     setEditorSource(tpl.source ?? (tpl.builtin ? "builtin" : "marketplace"));
     setEditorAliases(undefined);
-    setEditorCapabilities(null);
     setEditorUserInputs(tpl.user_inputs);
     setEditorOpen(true);
   };
@@ -4507,7 +4495,6 @@ export default function Agents() {
               setEditorTemplateId(undefined);
               setEditorSource(undefined);
               setEditorAliases(undefined);
-              setEditorCapabilities(null);
               setEditorUserInputs(undefined);
               setEditorOpen(true);
             }}
@@ -4555,7 +4542,6 @@ export default function Agents() {
                   setEditorTemplateId(tpl.templateId);
                   setEditorSource(tpl.isBuiltIn ? "builtin" : "custom");
                   setEditorAliases(tpl.aliases);
-                  setEditorCapabilities(tpl.capabilities ?? null);
                   setEditorUserInputs(undefined);
                   setEditorOpen(true);
                 } : undefined}
@@ -4686,7 +4672,6 @@ export default function Agents() {
             templateId={editorTemplateId}
             source={editorSource}
             aliases={editorAliases}
-            capabilities={editorCapabilities}
             userInputs={editorUserInputs}
             onSpawn={(t, userMessage) => {
               // If the user typed a message, use it as the prompt. Otherwise

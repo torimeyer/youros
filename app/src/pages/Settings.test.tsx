@@ -102,38 +102,6 @@ describe('Settings', () => {
     })
   })
 
-  describe('Dark/Light mode toggle', () => {
-    it('toggles darkMode in the store when Light is clicked', () => {
-      renderSettings()
-      const lightBtn = screen.getByText('Light')
-      fireEvent.click(lightBtn)
-      expect(useAppStore.getState().darkMode).toBe(false)
-    })
-
-    it('toggles darkMode in the store when Dark is clicked after setting to light', () => {
-      useAppStore.setState({ darkMode: false })
-      renderSettings()
-      const darkBtn = screen.getByText('Dark')
-      fireEvent.click(darkBtn)
-      expect(useAppStore.getState().darkMode).toBe(true)
-    })
-
-    it('persists dark mode change to API', () => {
-      renderSettings()
-      const lightBtn = screen.getByText('Light')
-      fireEvent.click(lightBtn)
-      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { dark_mode: false })
-    })
-
-    it('does not toggle when clicking already-active mode', () => {
-      renderSettings()
-      // darkMode is true, clicking Dark should not toggle
-      const darkBtn = screen.getByText('Dark')
-      fireEvent.click(darkBtn)
-      expect(useAppStore.getState().darkMode).toBe(true)
-    })
-  })
-
   describe('Accent color picker', () => {
     it('updates accentColor in the store when a color is clicked', () => {
       renderSettings()

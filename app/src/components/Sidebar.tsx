@@ -626,6 +626,13 @@ export function Sidebar() {
         : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50'
     }`
 
+  const utilLinkClass = (isActive: boolean) =>
+    `group flex items-center gap-3 w-full px-4 py-1.5 rounded-lg transition-colors duration-200 cursor-pointer ${
+      isActive
+        ? 'text-slate-200 bg-slate-800/40'
+        : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'
+    }`
+
   return (
     <>
       {/* Mobile hamburger button */}
@@ -739,15 +746,15 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="px-3 flex flex-col gap-1">
+      <div className="px-3 pt-3 mt-1 border-t border-slate-800/60 flex flex-col gap-0.5">
         <WhatsNew />
         <button
           data-testid="tour-button"
           onClick={() => { useAppStore.getState().setShowTour(true); setMobileOpen(false); }}
-          className="group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-400 hover:text-slate-100 hover:bg-slate-800/50"
+          className="group flex items-center gap-3 w-full px-4 py-1.5 rounded-lg transition-colors duration-200 cursor-pointer text-slate-500 hover:text-slate-300 hover:bg-slate-800/30"
         >
-          <Icon name="explore" filled={iconStyle === 'filled'} className="text-xl" />
-          <span className="text-sm font-medium">Tour</span>
+          <Icon name="explore" filled={iconStyle === 'filled'} className="text-lg" />
+          <span className="text-xs font-medium">Tour</span>
         </button>
         {TEAM_MODE_VISIBLE && instanceMode === 'team' && enterpriseUser?.role === 'admin' && (
           <AdminSection
@@ -786,12 +793,12 @@ export function Sidebar() {
             data-testid="usage-nav-link"
             to={USAGE_NAV_ITEM.to}
             onClick={() => setMobileOpen(false)}
-            className={({ isActive }) => linkClass(isActive)}
+            className={({ isActive }) => utilLinkClass(isActive)}
           >
             {({ isActive }) => (
               <>
-                <Icon name={USAGE_NAV_ITEM.icon} filled={iconStyle === 'filled' ? true : isActive} className="text-xl" />
-                <span className="text-sm font-medium">{USAGE_NAV_ITEM.label}</span>
+                <Icon name={USAGE_NAV_ITEM.icon} filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
+                <span className="text-xs font-medium">{USAGE_NAV_ITEM.label}</span>
               </>
             )}
           </NavLink>
@@ -799,12 +806,12 @@ export function Sidebar() {
         <NavLink
           to="/settings"
           onClick={() => setMobileOpen(false)}
-          className={({ isActive }) => linkClass(isActive)}
+          className={({ isActive }) => utilLinkClass(isActive)}
         >
           {({ isActive }) => (
             <>
-              <Icon name="settings" filled={iconStyle === 'filled' ? true : isActive} className="text-xl" />
-              <span className="text-sm font-medium">Settings</span>
+              <Icon name="settings" filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
+              <span className="text-xs font-medium">Settings</span>
             </>
           )}
         </NavLink>
