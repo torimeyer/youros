@@ -26,7 +26,17 @@ TOOL=$(echo "$INPUT" | python3 -c "import sys,json;print(json.load(sys.stdin).ge
 case "$TOOL" in
   Agent|Task) exit 0 ;;
 esac
-LAST=$(ls -t "$HOME/.claude/projects/-Users-torimeyer-claude-torios/"*.jsonl 2>/dev/null | head -1)
+
+# Locate this session's transcript directory. Claude Code stores each
+# project's session logs under ~/.claude/projects/<slug>/ where <slug>
+# is the absolute project path with '/' replaced by '-'. Derive the
+# slug from $CLAUDE_PROJECT_DIR (set by the harness) or fall back to
+# the git toplevel so the hook works for any user, not just the one
+# it was originally written for.
+PROJ_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+[ -z "$PROJ_DIR" ] && exit 0
+SLUG=$(echo "$PROJ_DIR" | sed 's|/|-|g')
+LAST=$(ls -t "$HOME/.claude/projects/$SLUG/"*.jsonl 2>/dev/null | head -1)
 [ -z "$LAST" ] && exit 0
 MSG=$(grep '"type":"user"' "$LAST" | tail -1 | python3 -c "import sys,json;d=json.loads(sys.stdin.read());c=d.get('message',{}).get('content');print((c if isinstance(c,str) else '').lower())" 2>/dev/null)
 case "$MSG" in
