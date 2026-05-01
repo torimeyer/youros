@@ -5,6 +5,15 @@
 
 INPUT=$(cat)
 
+# Skip when scripts/dev-backend.sh doesn't exist. The block reason
+# (zombie workers on port 3010) only applies to the torios repo.
+# Other repos that use this hook globally would have npm run dev as
+# their actual entry point.
+PROJ_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+if [ -z "$PROJ_DIR" ] || [ ! -f "$PROJ_DIR/scripts/dev-backend.sh" ]; then
+  exit 0
+fi
+
 CMD=$(echo "$INPUT" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)

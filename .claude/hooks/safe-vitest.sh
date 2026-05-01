@@ -5,6 +5,14 @@
 
 INPUT=$(cat)
 
+# Skip when scripts/run-vitest.sh doesn't exist. The block reason
+# (orphan worker storms) only applies in repos that have the
+# lock-protected wrapper. Other repos run bare vitest directly.
+PROJ_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+if [ -z "$PROJ_DIR" ] || [ ! -f "$PROJ_DIR/scripts/run-vitest.sh" ]; then
+  exit 0
+fi
+
 CMD=$(echo "$INPUT" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)

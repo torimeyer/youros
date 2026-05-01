@@ -188,10 +188,11 @@ hay = prompt + "\n" + desc
 
 # Explicit locks hint takes priority over heuristic extraction.
 # Matches: locks: [path1, path2] or locks: ["path1", "path2"] anywhere in hay.
-EXPLICIT_RE = re.compile(r"[Ll]ocks\s*:\s*\[([^\]]+)\]")
+# Empty list (Locks: []) is valid and means "this spawn writes nothing."
+locks = set()
+EXPLICIT_RE = re.compile(r"[Ll]ocks\s*:\s*\[([^\]]*)\]")
 em = EXPLICIT_RE.search(hay)
 if em:
-    locks = set()
     for part in re.split(r"[,\s]+", em.group(1)):
         part = part.strip().strip("\"'")
         if part:
@@ -247,20 +248,23 @@ import os, json
 from datetime import datetime, timezone
 print(json.dumps({"name": os.environ["SPAWN_NAME"], "ts": datetime.now(timezone.utc).isoformat(), "source": "task-isolation-bridge"}))
 ' 2>/dev/null >> "$PENDING_FILE" 2>/dev/null || true
-        echo "Redirected to /api/agents/spawn for worktree isolation (this is expected, not an error)." >&2
-        echo "Agent name: ${SPAWN_NAME}" >&2
+        echo "redirected through /api/agents/spawn for worktree isolation (this is expected, not an error)." >&2
+        echo "Spawned REST agent name: ${SPAWN_NAME}" >&2
         echo "Status: curl -sSk ${API_BASE}/api/agents | jq '.agents[] | select(.name==\"${SPAWN_NAME}\")'" >&2
         exit 2
         ;;
     ""|"000")
         # curl prints 000 on connect-refused and leaves it empty only
         # on some platforms. Both mean "no HTTP response at all", i.e.
-        # backend unreachable.
+        # backend unreachable. Fail-open: a fresh user without the myOS
+        # backend running should not be blocked from using Task. The
+        # original "block to prevent silent fallthrough" rule only made
+        # sense when the backend was assumed up; for non-torios users
+        # there is no isolation guarantee to protect, just one checkout.
         rm -f "$RESP_BODY"
-        echo "Blocked: torios backend unreachable at ${API_BASE}/api/agents/spawn (connect-timeout or refused)." >&2
-        echo "Native Task tool would silently write to the parent checkout, breaking isolation." >&2
-        echo "Start the backend with scripts/dev-backend.sh and retry." >&2
-        exit 2
+        echo "task-isolation-bridge: myOS backend unreachable at ${API_BASE} (connect-timeout/refused)." >&2
+        echo "Allowing native Task tool. Worktree isolation skipped — sequential edits only." >&2
+        exit 0
         ;;
     *)
         echo "Blocked: /api/agents/spawn returned HTTP ${HTTP_CODE}." >&2

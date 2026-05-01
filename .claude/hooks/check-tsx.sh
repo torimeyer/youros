@@ -35,14 +35,20 @@ if [ ! -f "${APP_DIR}tsconfig.json" ]; then
   exit 0
 fi
 
-# Run tsc --noEmit. Capture output but only show errors.
+# Skip if tsc isn't installed yet (fresh checkout, npm install hasn't run).
+# Block-on-tsc-missing was breaking install-time edits where the very point
+# of the edit is to get to a state where npm install can run.
+if [ ! -x "${APP_DIR}node_modules/.bin/tsc" ]; then
+  exit 0
+fi
+
+# Run tsc --noEmit. Capture output and warn (do not block) on errors.
+# Blocking on type errors after every edit makes incremental refactors
+# painful and forces Claude to fix downstream type errors before it can
+# even save an interim state. Warn instead so the user sees the issue.
 TSC_OUTPUT=$(cd "$APP_DIR" && npx tsc --noEmit 2>&1) || {
-  # tsc failed. Show the errors and exit 2 to block.
-  echo "TypeScript errors found after edit:"
-  echo "$TSC_OUTPUT" | grep -E "error TS" | head -10
-  echo ""
-  echo "Fix these before the edit can proceed."
-  exit 2
+  echo "TypeScript warnings after edit (non-blocking):" >&2
+  echo "$TSC_OUTPUT" | grep -E "error TS" | head -10 >&2
 }
 
 exit 0
