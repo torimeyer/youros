@@ -88,6 +88,15 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/saa-must-spawn.sh"
           }
         ]
+      },
+      {
+        "matcher": "Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/monitor-misuse-guard.sh"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
