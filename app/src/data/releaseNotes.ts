@@ -11,6 +11,32 @@ export interface ReleaseGroup {
 
 const releaseNotes: ReleaseGroup[] = [
   {
+    date: '2026-04-30',
+    label: 'April 30, 2026',
+    entries: [
+      {
+        title: 'Jira and Confluence',
+        description: 'Connect your Atlassian account. Jira tickets show up in your Inbox, you can comment and change status without leaving the app, and a background poller keeps everything in sync.',
+      },
+      {
+        title: 'Slack setup in the app',
+        description: 'Configure your Slack connection from a form in the app instead of editing a config file. The Connect button stays disabled until the setup is valid.',
+      },
+      {
+        title: 'Settings tabs',
+        description: 'Settings sections are now tabs instead of one long scrolling page. Click a section and only that section shows.',
+      },
+      {
+        title: 'Cleaner agent templates',
+        description: 'Agent template details no longer show the description and prompt twice. Less clutter, same information.',
+      },
+      {
+        title: 'Lighter sidebar',
+        description: 'Utility links (What\'s New, Tour, Usage, Settings) sit below a separator with smaller text so they stay out of the way.',
+      },
+    ],
+  },
+  {
     date: '2026-04-29',
     label: 'April 29, 2026',
     entries: [
