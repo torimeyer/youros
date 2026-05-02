@@ -13,9 +13,17 @@ Stuck criteria (ALL must be true):
   4. now - max(last_heartbeat_at, spawned_at) > STUCK_THRESHOLD_SECONDS (180 s)
   5. transcript_bytes < TRANSCRIPT_STUCK_BYTES (1024)
 
+Stalled criteria (live-PID variant, 2026-05-02):
+  1. status == "running"
+  2. source == "claude-code"
+  3. PID alive or unknown (NOT handled by the stuck/dead-PID path above)
+  4. transcript_bytes has not grown AND current_step has not changed for
+     STALL_THRESHOLD_SECONDS (default 120 s, env-configurable)
+  5. transcript_bytes < TRANSCRIPT_STUCK_BYTES
+
 The ghost_reaper's subsequent delete pass will not touch rows in status=failed
-(it only targets "running" and "completed_timeout"), so the failed row stays
-visible in the Agents page for diagnosis until manually dismissed.
+or status=stalled (it only targets "running" and "completed_timeout"), so the
+row stays visible in the Agents page for diagnosis until manually dismissed.
 """
 from __future__ import annotations
 
@@ -30,6 +38,11 @@ logger = logging.getLogger(__name__)
 STUCK_THRESHOLD_SECONDS = 180    # 3 min without progress → declare stuck
 TRANSCRIPT_STUCK_BYTES = 1024    # < 1 KB means essentially nothing written
 SWEEP_INTERVAL_SECONDS = 30      # check every 30 s
+STALL_THRESHOLD_SECONDS = int(os.environ.get("STALL_THRESHOLD_SECONDS", "120"))
+
+# Module-level progress snapshots for stall detection.
+# {agent_name: (last_seen_transcript_bytes, last_progress_iso)}
+_stall_snapshots: Dict[str, Tuple[int, str]] = {}
 
 
 def _parse_iso(value: object) -> Optional[datetime]:
@@ -148,8 +161,94 @@ def find_stuck_agents(
     return victims
 
 
+def detect_stalled_agents(
+    registry: Dict[str, dict],
+    now: datetime,
+    *,
+    get_transcript_bytes: Callable[[str], int],
+    stall_threshold_seconds: int = STALL_THRESHOLD_SECONDS,
+) -> List[str]:
+    """Return names of alive-PID agents with no transcript or step progress.
+
+    Complements find_stuck_agents(), which requires a dead PID. This catches
+    the incident pattern: PID alive, transcript_bytes=0 for > stall_threshold,
+    no current_step change — agent is running but completely flatlined.
+
+    First time an agent is observed it is seeded into _stall_snapshots and
+    skipped (grace cycle). Subsequent sweeps compare against the snapshot.
+
+    Args:
+        registry: snapshot of agent_metadata dict.
+        now: current UTC datetime (injectable for tests).
+        get_transcript_bytes: callable(name) -> int byte count.
+        stall_threshold_seconds: seconds of no progress before declaring stalled.
+
+    Returns:
+        List of agent names to flip to status="stalled".
+    """
+    cutoff = now - timedelta(seconds=stall_threshold_seconds)
+    stalled: List[str] = []
+
+    for name, meta in registry.items():
+        if not isinstance(meta, dict):
+            continue
+        if meta.get("status") != "running":
+            continue
+        if meta.get("source") != "claude-code":
+            continue
+
+        # Only fire when PID is alive or unknown; dead PIDs are find_stuck_agents territory.
+        alive = _pid_alive(meta.get("pid"))
+        if alive is False:
+            continue
+
+        try:
+            t_bytes = get_transcript_bytes(name)
+        except Exception:
+            t_bytes = 0
+
+        prev = _stall_snapshots.get(name)
+        if prev is None:
+            # First observation: seed snapshot from spawned_at (or now) and skip.
+            seed = _parse_iso(meta.get("spawned_at")) or now
+            _stall_snapshots[name] = (t_bytes, seed.isoformat())
+            continue
+
+        prev_bytes, last_progress_iso = prev
+
+        if t_bytes > prev_bytes:
+            # Transcript grew — progress.
+            _stall_snapshots[name] = (t_bytes, now.isoformat())
+            continue
+
+        # Check current_step_updated_at as a secondary progress signal.
+        step_ts = _parse_iso(meta.get("current_step_updated_at"))
+        stored_ts = _parse_iso(last_progress_iso)
+        if step_ts is not None and stored_ts is not None and step_ts > stored_ts:
+            _stall_snapshots[name] = (t_bytes, step_ts.isoformat())
+            continue
+
+        # No growth and no step advance — update byte count but keep old time.
+        _stall_snapshots[name] = (t_bytes, last_progress_iso)
+
+        last_progress = _parse_iso(last_progress_iso)
+        if last_progress is None or last_progress >= cutoff:
+            continue
+
+        if t_bytes >= TRANSCRIPT_STUCK_BYTES:
+            continue  # meaningful content — not stalled
+
+        stalled.append(name)
+        logger.info(
+            "agent_reaper: stalled agent name=%s bytes=%d last_progress=%s",
+            name, t_bytes, last_progress_iso,
+        )
+
+    return stalled
+
+
 async def _do_sweep() -> int:
-    """Find stuck agents and mark them status=failed. Returns count updated."""
+    """Find stuck/stalled agents and update their status. Returns count updated."""
     from routers.agents import agent_metadata, _save_agent_state, _get_transcript_metrics
 
     now = datetime.now(timezone.utc)
@@ -158,7 +257,9 @@ async def _do_sweep() -> int:
         return _get_transcript_metrics(name).get("transcript_bytes", 0)
 
     victims = find_stuck_agents(agent_metadata, now, get_transcript_bytes=_get_bytes)
-    if not victims:
+    stalled = detect_stalled_agents(agent_metadata, now, get_transcript_bytes=_get_bytes)
+
+    if not victims and not stalled:
         return 0
 
     now_iso = now.isoformat()
@@ -171,8 +272,21 @@ async def _do_sweep() -> int:
         meta["failed_at"] = now_iso
         logger.warning("agent_reaper: marked failed name=%s error=%s", name, error_msg)
 
+    for name in stalled:
+        meta = agent_metadata.get(name)
+        if meta is None or meta.get("status") != "running":
+            continue
+        pid_desc = f"PID {meta.get('pid')} alive" if meta.get("pid") else "PID unknown"
+        meta["status"] = "stalled"
+        meta["stalled_at"] = now_iso
+        meta["last_error"] = (
+            f"stalled: transcript empty for >{STALL_THRESHOLD_SECONDS}s "
+            f"with no step progress ({pid_desc})"
+        )
+        logger.warning("agent_reaper: marked stalled name=%s pid=%s", name, meta.get("pid"))
+
     _save_agent_state()
-    return len(victims)
+    return len(victims) + len(stalled)
 
 
 async def run_forever() -> None:
