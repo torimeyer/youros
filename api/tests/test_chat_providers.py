@@ -793,24 +793,10 @@ class _FakeGeminiResponse:
         self.candidates = [_FakeGeminiCandidate(finish_reason_name)]
 
     def __iter__(self):
-        if self._raise_blocked_prompt:
-            import google.generativeai as genai
-            raise genai.types.BlockedPromptException(
-                "prompt blocked for test"
-            )
         for chunk in self._chunks:
             yield chunk
 
     def __aiter__(self):
-        # Production uses ``async for chunk in response`` now that
-        # stream_gemini awaits ``send_message_async``. Support both so
-        # test fixtures keep working.
-        if self._raise_blocked_prompt:
-            import google.generativeai as genai
-            raise genai.types.BlockedPromptException(
-                "prompt blocked for test"
-            )
-
         async def _agen():
             for chunk in self._chunks:
                 yield chunk
@@ -825,13 +811,25 @@ class _FakeGeminiChat:
     def send_message(self, content, stream=False):
         return self._response
 
+    def send_message_stream(self, content):
+        return self._response
+
     async def send_message_async(self, content, stream=False):
         return self._response
+
+
+class _FakeGeminiChats:
+    def __init__(self, response: _FakeGeminiResponse):
+        self._response = response
+
+    def create(self, model, history=None):
+        return _FakeGeminiChat(self._response)
 
 
 class _FakeGeminiModel:
     def __init__(self, response: _FakeGeminiResponse):
         self._response = response
+        self.chats = _FakeGeminiChats(response)
 
     def start_chat(self, history=None):
         return _FakeGeminiChat(self._response)
@@ -874,17 +872,16 @@ async def _run_gemini_stream(websocket, fake_response: _FakeGeminiResponse):
 
     import google
     import google.generativeai as real_genai
+    from google import genai as real_new_genai
 
     fake_genai_module = MagicMock()
     fake_genai_module.configure = fake_configure
     fake_genai_module.GenerativeModel = fake_model_factory
     # Client() must return the same _FakeGeminiModel as GenerativeModel() so
-    # that streaming call sites which call model.start_chat() keep working.
+    # that streaming call sites which call model.chats.create() keep working.
     fake_genai_module.Client = fake_model_factory
-    # The production code references ``genai.types.BlockedPromptException``
-    # when catching prompt-level blocks. Pass the real class through so
-    # ``isinstance``/``raise`` both behave exactly like live code.
-    fake_genai_module.types = real_genai.types
+    # Use the new SDK types for Part/Blob; keep old protos for compat.
+    fake_genai_module.types = real_new_genai.types
     fake_genai_module.protos = real_genai.protos
 
     import sys
@@ -1047,14 +1044,14 @@ class TestGeminiFinishReasonHandling:
     async def test_gemini_prompt_feedback_blocked_surfaces_friendly_error(
         self, gemini_websocket
     ):
-        """When the SDK raises BlockedPromptException the prompt itself
-        was blocked and zero tokens were emitted. The panel must see a
-        friendly error and no empty done event."""
+        """When the prompt is blocked the panel must see a friendly error
+        and no empty done event. The new SDK surfaces this via prompt_feedback
+        rather than raising an exception, so we test the post-stream path."""
         response = _FakeGeminiResponse(
             chunks=[],
             finish_reason_name="FINISH_REASON_UNSPECIFIED",
             prompt_block_reason="SAFETY",
-            raise_blocked_prompt=True,
+            raise_blocked_prompt=False,
         )
 
         await _run_gemini_stream(gemini_websocket, response)
@@ -1189,18 +1186,27 @@ class TestGeminiFinishReasonHandling:
             def send_message(self, content, stream=False):
                 raise quota_exc
 
+            def send_message_stream(self, content):
+                raise quota_exc
+
             async def send_message_async(self, content, stream=False):
                 raise quota_exc
 
         class _QuotaErrorModel:
+            def __init__(self):
+                chat = _QuotaErrorChat()
+                self.chats = MagicMock()
+                self.chats.create.return_value = chat
+
             def start_chat(self, history=None):
                 return _QuotaErrorChat()
 
+        from google import genai as real_new_genai
         fake_genai_module = MagicMock()
         fake_genai_module.configure = fake_configure
         fake_genai_module.GenerativeModel = MagicMock(return_value=_QuotaErrorModel())
-        fake_genai_module.Client = fake_genai_module.GenerativeModel  # wave 2
-        fake_genai_module.types = genai.types
+        fake_genai_module.Client = fake_genai_module.GenerativeModel
+        fake_genai_module.types = real_new_genai.types
         fake_genai_module.protos = genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
@@ -1322,21 +1328,27 @@ class TestGeminiStallTimeouts:
 
         class _HangingChat:
             def send_message(self, content, stream=False):
-                # Block the worker thread past the budget. The wait_for
-                # wrapper in production cancels and the function emits
-                # a friendly timeout error.
+                time.sleep(5)
+                raise AssertionError("unreachable: wait_for should have cancelled")
+
+            def send_message_stream(self, content):
                 time.sleep(5)
                 raise AssertionError("unreachable: wait_for should have cancelled")
 
         class _HangingModel:
+            def __init__(self):
+                self.chats = MagicMock()
+                self.chats.create.return_value = _HangingChat()
+
             def start_chat(self, history=None):
                 return _HangingChat()
 
+        from google import genai as real_new_genai
         fake_genai_module = MagicMock()
         fake_genai_module.configure = MagicMock()
         fake_genai_module.GenerativeModel = MagicMock(return_value=_HangingModel())
-        fake_genai_module.Client = fake_genai_module.GenerativeModel  # wave 2
-        fake_genai_module.types = real_genai.types
+        fake_genai_module.Client = fake_genai_module.GenerativeModel
+        fake_genai_module.types = real_new_genai.types
         fake_genai_module.protos = real_genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
@@ -1423,15 +1435,23 @@ class TestGeminiStallTimeouts:
             def send_message(self, content, stream=False):
                 return _SilentResponse()
 
+            def send_message_stream(self, content):
+                return _SilentResponse()
+
         class _SilentModel:
+            def __init__(self):
+                self.chats = MagicMock()
+                self.chats.create.return_value = _SilentChat()
+
             def start_chat(self, history=None):
                 return _SilentChat()
 
+        from google import genai as real_new_genai
         fake_genai_module = MagicMock()
         fake_genai_module.configure = MagicMock()
         fake_genai_module.GenerativeModel = MagicMock(return_value=_SilentModel())
-        fake_genai_module.Client = fake_genai_module.GenerativeModel  # wave 2
-        fake_genai_module.types = real_genai.types
+        fake_genai_module.Client = fake_genai_module.GenerativeModel
+        fake_genai_module.types = real_new_genai.types
         fake_genai_module.protos = real_genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
@@ -1504,20 +1524,33 @@ class TestGeminiReturnsProviderErrorSurfacesToUser:
             def send_message(self, content, stream=False):
                 raise RuntimeError("simulated upstream failure")
 
+            def send_message_stream(self, content):
+                raise RuntimeError("simulated upstream failure")
+
         class _ErroringModel:
+            def __init__(self):
+                self.chats = MagicMock()
+                self.chats.create.return_value = _ErroringChat()
+
             def start_chat(self, history=None):
                 return _ErroringChat()
 
+        from google import genai as real_new_genai
         fake_genai_module = MagicMock()
         fake_genai_module.configure = MagicMock()
         fake_genai_module.GenerativeModel = MagicMock(return_value=_ErroringModel())
-        fake_genai_module.types = real_genai.types
+        fake_genai_module.Client = fake_genai_module.GenerativeModel
+        fake_genai_module.types = real_new_genai.types
         fake_genai_module.protos = real_genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
+        original_genai_sys_module = sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
         sys.modules["google.generativeai"] = fake_genai_module
         google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        sys.modules["google.genai"] = fake_genai_module
+        google.genai = fake_genai_module  # type: ignore[attr-defined]
         try:
             with patch(
                 "services.chat_providers._resolve_api_key",
@@ -1535,6 +1568,14 @@ class TestGeminiReturnsProviderErrorSurfacesToUser:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
         errors = gemini_websocket.get_messages_of_type("error")
@@ -1931,9 +1972,24 @@ class _RecordingFakeGeminiChat:
         self._log.append(content)
         return self._response
 
+    def send_message_stream(self, content):
+        self._log.append(content)
+        return self._response
+
     async def send_message_async(self, content, stream=False):
         self._log.append(content)
         return self._response
+
+
+class _RecordingFakeGeminiChats:
+    def __init__(self, response: "_FakeGeminiResponse", send_log: list, history_log: list):
+        self._response = response
+        self._send_log = send_log
+        self._history_log = history_log
+
+    def create(self, model, history=None):
+        self._history_log.append(history)
+        return _RecordingFakeGeminiChat(self._response, self._send_log)
 
 
 class _RecordingFakeGeminiModel:
@@ -1941,6 +1997,7 @@ class _RecordingFakeGeminiModel:
         self._response = response
         self._send_log = send_log
         self._history_log = history_log
+        self.chats = _RecordingFakeGeminiChats(response, send_log, history_log)
 
     def start_chat(self, history=None):
         self._history_log.append(history)
@@ -1986,7 +2043,8 @@ async def _run_gemini_with_recorder(
     # Client() must return the same recording model as GenerativeModel() so
     # that streaming call sites which call model.start_chat() keep working.
     fake_genai_module.Client = fake_model_factory
-    fake_genai_module.types = real_genai.types
+    from google import genai as real_new_genai
+    fake_genai_module.types = real_new_genai.types
     fake_genai_module.protos = real_genai.protos
 
     import sys
@@ -2044,7 +2102,7 @@ class TestGeminiContentBlobRegression:
         of dicts (which trips the SDK's 'Could not create Blob' error).
         History entries must still use string parts only (as before).
         """
-        import google.generativeai as real_genai
+        from google import genai as real_new_genai
 
         websocket = FakeWebSocket()
         messages = [
@@ -2068,8 +2126,8 @@ class TestGeminiContentBlobRegression:
                 f"send_message payload must be str or list, got {type(payload).__name__}"
             )
             for p in payload:
-                assert isinstance(p, real_genai.protos.Part), (
-                    f"list elements must be protos.Part, got {type(p).__name__}: {p!r}"
+                assert isinstance(p, real_new_genai.types.Part), (
+                    f"list elements must be types.Part, got {type(p).__name__}: {p!r}"
                 )
             # The text content must be preserved.
             text = "".join(p.text for p in payload if p.text)
@@ -2141,14 +2199,14 @@ class TestGeminiContentBlobRegression:
         # send_message gets either a plain string or a list of Parts for
         # the final text-only turn. Both are valid; the contract is that the
         # text content is preserved and no raw dict/Content proto leaks through.
-        import google.generativeai as real_genai
+        from google import genai as real_new_genai
         payload = send_log[0]
         if isinstance(payload, str):
             assert payload == "thanks"
         else:
             assert isinstance(payload, list)
             for p in payload:
-                assert isinstance(p, real_genai.protos.Part)
+                assert isinstance(p, real_new_genai.types.Part)
             text = "".join(p.text for p in payload if p.text)
             assert "thanks" in text
 
@@ -2219,39 +2277,50 @@ class TestGeminiContentBlobRegression:
         import google
         import google.generativeai as real_genai
 
+        _blob_exc = TypeError(
+            "Could not create `Blob`, expected `Blob`, `dict` or an `Image`"
+            " type.\nGot a: <class 'google.ai.generativelanguage_v1beta"
+            ".types.content.Content'>"
+        )
+
         class _BlobRaisingChat:
             history: list = []
 
             def send_message(self, content, stream=False):
-                raise TypeError(
-                    "Could not create `Blob`, expected `Blob`, `dict` or an `Image`"
-                    " type.\nGot a: <class 'google.ai.generativelanguage_v1beta"
-                    ".types.content.Content'>"
-                )
+                raise _blob_exc
+
+            def send_message_stream(self, content):
+                raise _blob_exc
 
             async def send_message_async(self, content, stream=False):
-                raise TypeError(
-                    "Could not create `Blob`, expected `Blob`, `dict` or an `Image`"
-                    " type.\nGot a: <class 'google.ai.generativelanguage_v1beta"
-                    ".types.content.Content'>"
-                )
+                raise _blob_exc
 
         class _BlobRaisingModel:
+            def __init__(self):
+                self.chats = MagicMock()
+                self.chats.create.return_value = _BlobRaisingChat()
+
             def start_chat(self, history=None):
                 return _BlobRaisingChat()
 
+        from google import genai as real_new_genai
         fake_genai_module = MagicMock()
         fake_genai_module.configure = MagicMock()
         fake_genai_module.GenerativeModel = MagicMock(return_value=_BlobRaisingModel())
-        fake_genai_module.types = real_genai.types
+        fake_genai_module.Client = fake_genai_module.GenerativeModel
+        fake_genai_module.types = real_new_genai.types
         fake_genai_module.protos = real_genai.protos
 
         import sys
 
         original_sys_module = sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
+        original_genai_sys_module = sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
         sys.modules["google.generativeai"] = fake_genai_module
         google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        sys.modules["google.genai"] = fake_genai_module
+        google.genai = fake_genai_module  # type: ignore[attr-defined]
         try:
             with patch(
                 "services.chat_providers._resolve_api_key",
@@ -2268,6 +2337,14 @@ class TestGeminiContentBlobRegression:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
         errors = websocket.get_messages_of_type("error")
@@ -2344,15 +2421,23 @@ class TestGeminiDoesNotBlockEventLoop:
             def send_message(self, content, stream=False):
                 return _BlockingResponse()
 
+            def send_message_stream(self, content):
+                return _BlockingResponse()
+
         class _BlockingModel:
+            def __init__(self):
+                self.chats = MagicMock()
+                self.chats.create.return_value = _BlockingChat()
+
             def start_chat(self, history=None):
                 return _BlockingChat()
 
+        from google import genai as real_new_genai
         fake_genai_module = MagicMock()
         fake_genai_module.configure = MagicMock()
         fake_genai_module.GenerativeModel = MagicMock(return_value=_BlockingModel())
-        fake_genai_module.Client = fake_genai_module.GenerativeModel  # wave 2
-        fake_genai_module.types = real_genai.types
+        fake_genai_module.Client = fake_genai_module.GenerativeModel
+        fake_genai_module.types = real_new_genai.types
         fake_genai_module.protos = real_genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
@@ -2581,9 +2666,10 @@ class TestGeminiClientCache:
     ):
         """Return a fake genai module that records configure/GenerativeModel/Client calls."""
         import google.generativeai as real_genai
+        from google import genai as real_new_genai
 
         fake_module = MagicMock()
-        fake_module.types = real_genai.types
+        fake_module.types = real_new_genai.types
         fake_module.protos = real_genai.protos
 
         def _configure(**kwargs):
@@ -2908,11 +2994,11 @@ class TestGeminiContentToPartsHelper:
 
     def test_plain_string_returns_single_text_part(self):
         from services.chat_providers import _gemini_content_to_parts
-        import google.generativeai as genai
+        from google import genai
 
         parts = _gemini_content_to_parts("hello world")
         assert len(parts) == 1
-        assert isinstance(parts[0], genai.protos.Part)
+        assert isinstance(parts[0], genai.types.Part)
         assert parts[0].text == "hello world"
 
     def test_empty_string_returns_empty_list(self):
@@ -2923,17 +3009,17 @@ class TestGeminiContentToPartsHelper:
 
     def test_none_returns_list_with_empty_text_part(self):
         from services.chat_providers import _gemini_content_to_parts
-        import google.generativeai as genai
+        from google import genai
 
         parts = _gemini_content_to_parts(None)
         assert len(parts) == 1
-        assert isinstance(parts[0], genai.protos.Part)
+        assert isinstance(parts[0], genai.types.Part)
 
     def test_gif_block_becomes_inline_data_part(self):
         """Core bug fix: a base64 GIF block must produce an inline_data Part."""
         import base64
         from services.chat_providers import _gemini_content_to_parts
-        import google.generativeai as genai
+        from google import genai
 
         fake_gif = b"GIF89a" + b"\x00" * 10
         b64 = base64.b64encode(fake_gif).decode()
@@ -2953,14 +3039,14 @@ class TestGeminiContentToPartsHelper:
 
         # First part: inline_data blob with GIF bytes.
         image_part = parts[0]
-        assert isinstance(image_part, genai.protos.Part)
+        assert isinstance(image_part, genai.types.Part)
         assert image_part.inline_data is not None
         assert image_part.inline_data.mime_type == "image/gif"
         assert image_part.inline_data.data == fake_gif
 
         # Second part: text.
         text_part = parts[1]
-        assert isinstance(text_part, genai.protos.Part)
+        assert isinstance(text_part, genai.types.Part)
         assert text_part.text == "what is this GIF?"
 
     def test_pasted_png_block_becomes_inline_data_part(self):
@@ -3010,7 +3096,7 @@ class TestGeminiContentToPartsHelper:
         must produce a text placeholder, not raise or crash."""
         import base64
         from services.chat_providers import _gemini_content_to_parts
-        import google.generativeai as genai
+        from google import genai
 
         content = [
             {
@@ -3022,7 +3108,7 @@ class TestGeminiContentToPartsHelper:
 
         parts = _gemini_content_to_parts(content)
         assert len(parts) == 1
-        assert isinstance(parts[0], genai.protos.Part)
+        assert isinstance(parts[0], genai.types.Part)
         assert parts[0].text == "[image attached]"
 
     def test_url_source_image_falls_back_to_placeholder(self):
@@ -3065,7 +3151,7 @@ class TestGeminiStreamReceivesInlineDataForImages:
         """When the last message has a base64 GIF image block, stream_gemini
         must call send_message with a list that includes an inline_data Part."""
         import base64
-        import google.generativeai as real_genai
+        from google import genai as real_new_genai
 
         fake_gif = b"GIF89a" + b"\x00" * 10
         b64 = base64.b64encode(fake_gif).decode()
@@ -3102,7 +3188,7 @@ class TestGeminiStreamReceivesInlineDataForImages:
         # There must be at least one inline_data Part carrying GIF bytes.
         image_parts = [
             p for p in payload
-            if isinstance(p, real_genai.protos.Part) and p.inline_data
+            if isinstance(p, real_new_genai.types.Part) and p.inline_data
         ]
         assert len(image_parts) >= 1, (
             "No inline_data Part found in send_message payload. "
@@ -3114,7 +3200,7 @@ class TestGeminiStreamReceivesInlineDataForImages:
         # There must also be a text Part.
         text_parts = [
             p for p in payload
-            if isinstance(p, real_genai.protos.Part) and p.text
+            if isinstance(p, real_new_genai.types.Part) and p.text
         ]
         assert len(text_parts) >= 1
         assert text_parts[0].text == "what is this GIF?"
@@ -3125,7 +3211,7 @@ class TestGeminiStreamReceivesInlineDataForImages:
         existing plain-string path must not be broken by the image fix.
         After the fix, _gemini_content_to_parts returns a list even for
         strings, but a single-text-Part list is functionally equivalent."""
-        import google.generativeai as real_genai
+        from google import genai as real_new_genai
 
         websocket = FakeWebSocket()
         messages = [{"role": "user", "content": "hello gemini"}]
@@ -3141,7 +3227,7 @@ class TestGeminiStreamReceivesInlineDataForImages:
         else:
             assert isinstance(payload, list)
             assert len(payload) == 1
-            assert isinstance(payload[0], real_genai.protos.Part)
+            assert isinstance(payload[0], real_new_genai.types.Part)
             assert payload[0].text == "hello gemini"
 
 
@@ -3180,6 +3266,7 @@ class TestGeminiMidStreamDisconnect:
 
         import google
         import google.generativeai as real_genai
+        from google import genai as real_new_genai
         import sys
 
         fake_genai_module = MagicMock()
@@ -3187,8 +3274,8 @@ class TestGeminiMidStreamDisconnect:
         fake_genai_module.GenerativeModel = MagicMock(
             return_value=_FakeGeminiModel(response)
         )
-        fake_genai_module.Client = fake_genai_module.GenerativeModel  # wave 2
-        fake_genai_module.types = real_genai.types
+        fake_genai_module.Client = fake_genai_module.GenerativeModel
+        fake_genai_module.types = real_new_genai.types
         fake_genai_module.protos = real_genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
@@ -3251,6 +3338,7 @@ class TestGeminiMidStreamDisconnect:
 
         import google
         import google.generativeai as real_genai
+        from google import genai as real_new_genai
         import sys
 
         fake_genai_module = MagicMock()
@@ -3258,13 +3346,18 @@ class TestGeminiMidStreamDisconnect:
         fake_genai_module.GenerativeModel = MagicMock(
             return_value=_FakeGeminiModel(response)
         )
-        fake_genai_module.types = real_genai.types
+        fake_genai_module.Client = fake_genai_module.GenerativeModel
+        fake_genai_module.types = real_new_genai.types
         fake_genai_module.protos = real_genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
+        original_genai_sys_module = sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
         sys.modules["google.generativeai"] = fake_genai_module
         google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        sys.modules["google.genai"] = fake_genai_module
+        google.genai = fake_genai_module  # type: ignore[attr-defined]
         try:
             with patch(
                 "services.chat_providers._resolve_api_key",
@@ -3283,6 +3376,14 @@ class TestGeminiMidStreamDisconnect:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
         error_msgs = [m for m in ws.messages if m.get("type") == "error"]

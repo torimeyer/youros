@@ -606,8 +606,8 @@ def _gemini_content_to_parts(content: Any) -> list[Any]:
     """
     try:
         import base64 as _b64
-        import google.generativeai as _genai
-        _protos = _genai.protos
+        from google import genai as _genai
+        _protos = _genai.types
     except Exception:
         # SDK not installed; return a best-effort text-only list.
         return [_gemini_content_to_text(content)]
@@ -681,8 +681,8 @@ def _gemini_finish_reason_name(finish_reason: Any) -> str:
     # the integer values. Anything unknown becomes OTHER so the friendly
     # message is still a useful, plain-language sentence.
     try:
-        import google.generativeai as genai  # local import: optional dep
-        fr_enum = genai.protos.Candidate.FinishReason(int(finish_reason))
+        from google import genai  # local import: optional dep
+        fr_enum = genai.types.FinishReason(int(finish_reason))
         return fr_enum.name
     except Exception:
         return "OTHER"
@@ -2626,7 +2626,7 @@ class ChatService:
                 return full_text
             # Fetch the current genai module after the thread returns so
             # tests that swap sys.modules still see the right module.
-            import google.generativeai as genai
+            from google import genai
             _t_client_ready = _time.monotonic()
             _gemini_log.info(
                 "gemini_phase=client_ready ms=%.0f cache_hit=%s model=%s",
@@ -2702,8 +2702,8 @@ class ChatService:
                     "role": "model",
                     "parts": ["Got it. What would you like to know?"],
                 })
-            chat = model.start_chat(history=merged_history)
-            # The google.generativeai SDK's streaming ``send_message(stream=True)``
+            chat = model.chats.create(model=model_name, history=merged_history)
+            # The google.genai SDK's streaming ``send_message_stream()``
             # returns a SYNCHRONOUS generator. Calling ``next()`` on it blocks
             # the current thread on each network read, and because this runs
             # inside an async websocket handler on the uvicorn event loop,
@@ -2725,7 +2725,7 @@ class ChatService:
             try:
                 response = await _asyncio.wait_for(
                     _asyncio.to_thread(
-                        chat.send_message, last_content, stream=True
+                        chat.send_message_stream, last_content
                     ),
                     timeout=_GEMINI_SEND_MESSAGE_TIMEOUT_S,
                 )
@@ -2826,18 +2826,6 @@ class ChatService:
                         await websocket.send_json({"type": "token", "data": text})
             except WebSocketDisconnect:
                 # Client disconnected mid-stream. Nothing to send.
-                return full_text
-            except genai.types.BlockedPromptException:
-                # The PROMPT itself was blocked before any tokens were
-                # emitted. The model never produced a response at all,
-                # so there is no partial text to salvage. Send a
-                # friendly error and do NOT send a done event, otherwise
-                # the chat panel would render a blank bubble.
-                await _send_friendly_gemini_error(
-                    websocket,
-                    _GEMINI_PROMPT_BLOCKED_MESSAGE,
-                    reason_name="PROMPT_BLOCKED",
-                )
                 return full_text
 
             # After the stream has drained, inspect the accumulated
