@@ -1135,6 +1135,15 @@ async def delete_all_tasks(body: TaskDeleteAll = TaskDeleteAll()):
     return {"deleted": len(deleted_names), "names": deleted_names}
 
 
+async def _has_labeling_auth() -> bool:
+    from services.chat_providers import _resolve_api_key
+    from services.claude_code_provider import is_claude_code_available
+    api_key = await _resolve_api_key("anthropic_api_key")
+    if api_key:
+        return True
+    return await is_claude_code_available()
+
+
 @router.post("/tasks/backfill-labels")
 async def backfill_labels():
     """Run auto-labeling on every active task that has no labels yet.
@@ -1171,12 +1180,10 @@ async def backfill_labels():
     ]
 
     if unlabeled:
-        from services.chat_providers import _resolve_api_key
-        api_key = await _resolve_api_key("anthropic_api_key")
-        if not api_key:
+        if not await _has_labeling_auth():
             raise HTTPException(
                 status_code=400,
-                detail="No API key configured. Add an Anthropic API key in Settings to use smart labeling.",
+                detail="No API key configured. Add an Anthropic API key in Settings, or sign in to Claude Code, to use smart labeling.",
             )
 
     # Concurrency cap. 6 parallel Claude calls is well under Anthropic
@@ -1239,13 +1246,10 @@ async def auto_label_task(task_id: str):
 
     label_ids = task_labels_store.get_labels_for_task(task_id)
     if not label_ids:
-        # Check if the reason is a missing API key
-        from services.chat_providers import _resolve_api_key
-        api_key = await _resolve_api_key("anthropic_api_key")
-        if not api_key:
+        if not await _has_labeling_auth():
             raise HTTPException(
                 status_code=400,
-                detail="No API key configured. Add an Anthropic API key in Settings to use smart labeling.",
+                detail="No API key configured. Add an Anthropic API key in Settings, or sign in to Claude Code, to use smart labeling.",
             )
     return {"label_ids": label_ids}
 

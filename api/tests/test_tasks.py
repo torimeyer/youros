@@ -2499,6 +2499,7 @@ async def test_auto_label_task_no_labels_assigned(client):
         patch("routers.tasks.ostk") as mock_ostk,
         patch("routers.tasks.apply_auto_labels", new_callable=AsyncMock),
         patch("routers.tasks.task_labels_store") as mock_tls,
+        patch("routers.tasks._has_labeling_auth", new_callable=AsyncMock, return_value=True),
     ):
         mock_ostk.list_tasks = AsyncMock(return_value=[task])
         mock_tls.get_labels_for_task = MagicMock(return_value=[])

@@ -19,7 +19,8 @@ async def test_backfill_labels_labels_unlabeled_tasks(client):
 
     with patch("routers.tasks.ostk") as mock_ostk, \
          patch("routers.tasks.task_labels_store") as mock_tls, \
-         patch("routers.tasks.apply_auto_labels", new_callable=AsyncMock) as mock_apply:
+         patch("routers.tasks.apply_auto_labels", new_callable=AsyncMock) as mock_apply, \
+         patch("routers.tasks._has_labeling_auth", new_callable=AsyncMock, return_value=True):
 
         mock_ostk.list_tasks = AsyncMock(return_value=tasks)
         mock_tls.get_all_assignments = MagicMock(return_value={})
@@ -47,7 +48,8 @@ async def test_backfill_labels_skips_already_labeled(client):
 
     with patch("routers.tasks.ostk") as mock_ostk, \
          patch("routers.tasks.task_labels_store") as mock_tls, \
-         patch("routers.tasks.apply_auto_labels", new_callable=AsyncMock) as mock_apply:
+         patch("routers.tasks.apply_auto_labels", new_callable=AsyncMock) as mock_apply, \
+         patch("routers.tasks._has_labeling_auth", new_callable=AsyncMock, return_value=True):
 
         mock_ostk.list_tasks = AsyncMock(return_value=tasks)
         mock_tls.get_all_assignments = MagicMock(return_value=existing)
@@ -96,7 +98,8 @@ async def test_backfill_labels_skips_tasks_with_no_title(client):
 
     with patch("routers.tasks.ostk") as mock_ostk, \
          patch("routers.tasks.task_labels_store") as mock_tls, \
-         patch("routers.tasks.apply_auto_labels", new_callable=AsyncMock) as mock_apply:
+         patch("routers.tasks.apply_auto_labels", new_callable=AsyncMock) as mock_apply, \
+         patch("routers.tasks._has_labeling_auth", new_callable=AsyncMock, return_value=True):
 
         mock_ostk.list_tasks = AsyncMock(return_value=tasks)
         mock_tls.get_all_assignments = MagicMock(return_value={})
@@ -129,7 +132,8 @@ async def test_backfill_labels_continues_after_single_failure(client):
 
     with patch("routers.tasks.ostk") as mock_ostk, \
          patch("routers.tasks.task_labels_store") as mock_tls, \
-         patch("routers.tasks.apply_auto_labels", side_effect=_flaky):
+         patch("routers.tasks.apply_auto_labels", side_effect=_flaky), \
+         patch("routers.tasks._has_labeling_auth", new_callable=AsyncMock, return_value=True):
 
         mock_ostk.list_tasks = AsyncMock(return_value=tasks)
         mock_tls.get_all_assignments = MagicMock(return_value={})
@@ -166,7 +170,8 @@ async def test_backfill_labels_runs_claude_calls_in_parallel(client):
 
     with patch("routers.tasks.ostk") as mock_ostk, \
          patch("routers.tasks.task_labels_store") as mock_tls, \
-         patch("routers.tasks.apply_auto_labels", side_effect=slow_label):
+         patch("routers.tasks.apply_auto_labels", side_effect=slow_label), \
+         patch("routers.tasks._has_labeling_auth", new_callable=AsyncMock, return_value=True):
 
         mock_ostk.list_tasks = AsyncMock(return_value=tasks)
         mock_tls.get_all_assignments = MagicMock(return_value={})
@@ -213,7 +218,8 @@ async def test_backfill_labels_includes_in_progress_tasks(client):
 
     with patch("routers.tasks.ostk") as mock_ostk, \
          patch("routers.tasks.task_labels_store") as mock_tls, \
-         patch("routers.tasks.apply_auto_labels", side_effect=_label):
+         patch("routers.tasks.apply_auto_labels", side_effect=_label), \
+         patch("routers.tasks._has_labeling_auth", new_callable=AsyncMock, return_value=True):
 
         async def fake_list_tasks(status=None, priority=None):
             # Any status filter at all would indicate the backend is
