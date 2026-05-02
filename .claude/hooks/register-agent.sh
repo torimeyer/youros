@@ -251,7 +251,6 @@ import os, json
 body = {
     "name": os.environ["AGENT_NAME"],
     "model": os.environ["MODEL"],
-    "budget": 5,
     "status": "running",
     "source": "claude-code",
     "description": os.environ.get("DESCRIPTION") or "claude-code subagent",
