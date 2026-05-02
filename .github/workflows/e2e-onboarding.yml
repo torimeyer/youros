@@ -4,6 +4,13 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'api/**'
+      - 'scripts/**'
+      - '.github/workflows/e2e-onboarding.yml'
 
 jobs:
   e2e-onboarding:
