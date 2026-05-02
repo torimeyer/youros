@@ -28,8 +28,8 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'python -m uvicorn api.main:app --host 127.0.0.1 --port 8000',
-      cwd: '..',
+      command: 'python -m uvicorn main:app --host 127.0.0.1 --port 8000',
+      cwd: '../api',
       port: 8000,
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
