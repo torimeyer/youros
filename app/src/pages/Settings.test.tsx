@@ -261,10 +261,33 @@ describe('Settings', () => {
   })
 
   describe('Data management', () => {
-    it('renders import and export buttons', () => {
+    it('renders import and export buttons on the Privacy & Data tab', () => {
       renderSettings()
+      const privacyButtons = screen.getAllByRole('button', { name: 'Privacy & Data' })
+      fireEvent.click(privacyButtons[0])
       expect(screen.getByText('Import Config')).toBeInTheDocument()
       expect(screen.getByText('Export Config')).toBeInTheDocument()
+    })
+  })
+
+  describe('Data Management and Shared Links tab scoping', () => {
+    it('Data Management heading is not in the DOM on non-Privacy tabs', () => {
+      renderSettings()
+      // Default tab is Instructions — Data Management must not render at all
+      expect(screen.queryByRole('heading', { name: 'Data Management' })).not.toBeInTheDocument()
+    })
+
+    it('Shared links heading is not in the DOM on non-Privacy tabs', () => {
+      renderSettings()
+      expect(screen.queryByRole('heading', { name: 'Shared links' })).not.toBeInTheDocument()
+    })
+
+    it('Data Management and Shared links render when Privacy & Data tab is active', () => {
+      renderSettings()
+      const privacyButtons = screen.getAllByRole('button', { name: 'Privacy & Data' })
+      fireEvent.click(privacyButtons[0])
+      expect(screen.getByRole('heading', { name: 'Data Management' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Shared links' })).toBeInTheDocument()
     })
   })
 

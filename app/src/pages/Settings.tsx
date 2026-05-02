@@ -1131,6 +1131,7 @@ export default function Settings() {
           </div>
           </div>
 
+          {activeSection === 'section-privacy' && (
           <div className={cardClass}>
           <div className="flex items-center gap-2 mb-2">
             <h2 className="text-lg font-semibold">Data Management</h2>
@@ -1189,7 +1190,9 @@ export default function Settings() {
             </button>
           </div>
           </div>
+          )}
 
+          {activeSection === 'section-privacy' && (
           <div className={cardClass}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">Shared links</h2>
@@ -1240,6 +1243,7 @@ export default function Settings() {
             </div>
           )}
           </div>
+          )}
           </div>
 
           {/* ── 2. Appearance ───────────────────────── */}
