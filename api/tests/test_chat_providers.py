@@ -857,6 +857,12 @@ async def _run_gemini_stream(websocket, fake_response: _FakeGeminiResponse):
     The Gemini client cache is cleared before each run so each test gets
     a fresh ``GenerativeModel`` with its own fake response, not the
     model instance cached by a previous test.
+
+    Wave 2 note: ``_prepare_gemini_client`` now imports ``google.genai``
+    (new SDK) and calls ``Client(api_key=...)``. We patch both import paths
+    to the same fake module and alias ``Client`` to the same factory as
+    ``GenerativeModel`` so the streaming call sites still receive a
+    ``_FakeGeminiModel`` with the correct response.
     """
     from services.chat_providers import _clear_gemini_client_cache
     _clear_gemini_client_cache()
@@ -872,6 +878,9 @@ async def _run_gemini_stream(websocket, fake_response: _FakeGeminiResponse):
     fake_genai_module = MagicMock()
     fake_genai_module.configure = fake_configure
     fake_genai_module.GenerativeModel = fake_model_factory
+    # Client() must return the same _FakeGeminiModel as GenerativeModel() so
+    # that streaming call sites which call model.start_chat() keep working.
+    fake_genai_module.Client = fake_model_factory
     # The production code references ``genai.types.BlockedPromptException``
     # when catching prompt-level blocks. Pass the real class through so
     # ``isinstance``/``raise`` both behave exactly like live code.
@@ -882,8 +891,13 @@ async def _run_gemini_stream(websocket, fake_response: _FakeGeminiResponse):
 
     original_sys_module = sys.modules.get("google.generativeai")
     original_attr = getattr(google, "generativeai", None)
+    original_genai_sys_module = sys.modules.get("google.genai")
+    original_genai_attr = getattr(google, "genai", None)
+
     sys.modules["google.generativeai"] = fake_genai_module
     google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+    sys.modules["google.genai"] = fake_genai_module
+    google.genai = fake_genai_module  # type: ignore[attr-defined]
     try:
         with patch(
             "services.chat_providers._resolve_api_key",
@@ -902,6 +916,16 @@ async def _run_gemini_stream(websocket, fake_response: _FakeGeminiResponse):
             google.generativeai = original_attr  # type: ignore[attr-defined]
         elif hasattr(google, "generativeai"):
             delattr(google, "generativeai")
+
+        if original_genai_sys_module is not None:
+            sys.modules["google.genai"] = original_genai_sys_module
+        else:
+            sys.modules.pop("google.genai", None)
+        if original_genai_attr is not None:
+            google.genai = original_genai_attr  # type: ignore[attr-defined]
+        elif hasattr(google, "genai"):
+            delattr(google, "genai")
+
         _clear_gemini_client_cache()
 
 
@@ -1175,13 +1199,18 @@ class TestGeminiFinishReasonHandling:
         fake_genai_module = MagicMock()
         fake_genai_module.configure = fake_configure
         fake_genai_module.GenerativeModel = MagicMock(return_value=_QuotaErrorModel())
+        fake_genai_module.Client = fake_genai_module.GenerativeModel  # wave 2
         fake_genai_module.types = genai.types
         fake_genai_module.protos = genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
+        original_genai_sys_module = sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
         sys.modules["google.generativeai"] = fake_genai_module
         google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        sys.modules["google.genai"] = fake_genai_module
+        google.genai = fake_genai_module  # type: ignore[attr-defined]
         try:
             with patch(
                 "services.chat_providers._resolve_api_key",
@@ -1198,6 +1227,14 @@ class TestGeminiFinishReasonHandling:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
         errors = gemini_websocket.get_messages_of_type("error")
@@ -1298,13 +1335,18 @@ class TestGeminiStallTimeouts:
         fake_genai_module = MagicMock()
         fake_genai_module.configure = MagicMock()
         fake_genai_module.GenerativeModel = MagicMock(return_value=_HangingModel())
+        fake_genai_module.Client = fake_genai_module.GenerativeModel  # wave 2
         fake_genai_module.types = real_genai.types
         fake_genai_module.protos = real_genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
+        original_genai_sys_module = sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
         sys.modules["google.generativeai"] = fake_genai_module
         google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        sys.modules["google.genai"] = fake_genai_module
+        google.genai = fake_genai_module  # type: ignore[attr-defined]
         try:
             with patch(
                 "services.chat_providers._resolve_api_key",
@@ -1322,6 +1364,14 @@ class TestGeminiStallTimeouts:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
         errors = gemini_websocket.get_messages_of_type("error")
@@ -1380,13 +1430,18 @@ class TestGeminiStallTimeouts:
         fake_genai_module = MagicMock()
         fake_genai_module.configure = MagicMock()
         fake_genai_module.GenerativeModel = MagicMock(return_value=_SilentModel())
+        fake_genai_module.Client = fake_genai_module.GenerativeModel  # wave 2
         fake_genai_module.types = real_genai.types
         fake_genai_module.protos = real_genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
+        original_genai_sys_module = sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
         sys.modules["google.generativeai"] = fake_genai_module
         google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        sys.modules["google.genai"] = fake_genai_module
+        google.genai = fake_genai_module  # type: ignore[attr-defined]
         try:
             with patch(
                 "services.chat_providers._resolve_api_key",
@@ -1404,6 +1459,14 @@ class TestGeminiStallTimeouts:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
         errors = gemini_websocket.get_messages_of_type("error")
@@ -1920,6 +1983,9 @@ async def _run_gemini_with_recorder(
     fake_genai_module = MagicMock()
     fake_genai_module.configure = fake_configure
     fake_genai_module.GenerativeModel = fake_model_factory
+    # Client() must return the same recording model as GenerativeModel() so
+    # that streaming call sites which call model.start_chat() keep working.
+    fake_genai_module.Client = fake_model_factory
     fake_genai_module.types = real_genai.types
     fake_genai_module.protos = real_genai.protos
 
@@ -1927,8 +1993,12 @@ async def _run_gemini_with_recorder(
 
     original_sys_module = sys.modules.get("google.generativeai")
     original_attr = getattr(google, "generativeai", None)
+    original_genai_sys_module = sys.modules.get("google.genai")
+    original_genai_attr = getattr(google, "genai", None)
     sys.modules["google.generativeai"] = fake_genai_module
     google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+    sys.modules["google.genai"] = fake_genai_module
+    google.genai = fake_genai_module  # type: ignore[attr-defined]
     try:
         with patch(
             "services.chat_providers._resolve_api_key",
@@ -1944,6 +2014,14 @@ async def _run_gemini_with_recorder(
             google.generativeai = original_attr  # type: ignore[attr-defined]
         elif hasattr(google, "generativeai"):
             delattr(google, "generativeai")
+        if original_genai_sys_module is not None:
+            sys.modules["google.genai"] = original_genai_sys_module
+        else:
+            sys.modules.pop("google.genai", None)
+        if original_genai_attr is not None:
+            google.genai = original_genai_attr  # type: ignore[attr-defined]
+        elif hasattr(google, "genai"):
+            delattr(google, "genai")
         _clear_gemini_client_cache()
 
     return send_log, history_log
@@ -2273,13 +2351,18 @@ class TestGeminiDoesNotBlockEventLoop:
         fake_genai_module = MagicMock()
         fake_genai_module.configure = MagicMock()
         fake_genai_module.GenerativeModel = MagicMock(return_value=_BlockingModel())
+        fake_genai_module.Client = fake_genai_module.GenerativeModel  # wave 2
         fake_genai_module.types = real_genai.types
         fake_genai_module.protos = real_genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
+        original_genai_sys_module = sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
         sys.modules["google.generativeai"] = fake_genai_module
         google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        sys.modules["google.genai"] = fake_genai_module
+        google.genai = fake_genai_module  # type: ignore[attr-defined]
 
         async def release_after_delay():
             # Short async sleep. If the loop is blocked by the sync
@@ -2317,6 +2400,14 @@ class TestGeminiDoesNotBlockEventLoop:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
         # The stream completed and we got our token.
@@ -2482,8 +2573,13 @@ class TestGeminiClientCache:
     """
 
     @staticmethod
-    def _make_fake_genai(response, configure_calls: list, model_factory_calls: list):
-        """Return a fake genai module that records configure/GenerativeModel calls."""
+    def _make_fake_genai(
+        response,
+        configure_calls: list,
+        model_factory_calls: list,
+        client_calls: "list | None" = None,
+    ):
+        """Return a fake genai module that records configure/GenerativeModel/Client calls."""
         import google.generativeai as real_genai
 
         fake_module = MagicMock()
@@ -2500,18 +2596,28 @@ class TestGeminiClientCache:
             return _FakeGeminiModel(response)
 
         fake_module.GenerativeModel.side_effect = _model_factory
+
+        # Wave 2: track Client() calls separately (api_key=... kwarg, no model_name)
+        _client_calls = client_calls if client_calls is not None else []
+
+        def _client_factory(api_key=None, **kwargs):
+            _client_calls.append(api_key)
+            return _FakeGeminiModel(response)
+
+        fake_module.Client.side_effect = _client_factory
         return fake_module
 
     @pytest.mark.asyncio
     async def test_second_gemini_call_skips_configure_and_model_init(self):
-        """configure() and GenerativeModel() must be called exactly once
-        across two consecutive stream_gemini calls with the same key."""
+        """Client() must be called exactly once across two consecutive
+        stream_gemini calls with the same key (cache hit on second call)."""
         from services.chat_providers import ChatService, _clear_gemini_client_cache
 
         _clear_gemini_client_cache()
 
         configure_calls: list = []
         model_factory_calls: list = []
+        client_calls: list = []
 
         import google
 
@@ -2519,12 +2625,19 @@ class TestGeminiClientCache:
             chunks=[_FakeGeminiChunk("hello")],
             finish_reason_name="STOP",
         )
-        fake_module = self._make_fake_genai(response, configure_calls, model_factory_calls)
+        fake_module = self._make_fake_genai(
+            response, configure_calls, model_factory_calls, client_calls
+        )
 
-        original_sys_module = __import__("sys").modules.get("google.generativeai")
+        import sys as _sys
+        original_sys_module = _sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
-        __import__("sys").modules["google.generativeai"] = fake_module
+        original_genai_sys_module = _sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
+        _sys.modules["google.generativeai"] = fake_module
         google.generativeai = fake_module  # type: ignore[attr-defined]
+        _sys.modules["google.genai"] = fake_module
+        google.genai = fake_module  # type: ignore[attr-defined]
         try:
             with patch(
                 "services.chat_providers._resolve_api_key",
@@ -2538,21 +2651,26 @@ class TestGeminiClientCache:
                 await service.stream_gemini(messages, ws2)
         finally:
             if original_sys_module is not None:
-                __import__("sys").modules["google.generativeai"] = original_sys_module
+                _sys.modules["google.generativeai"] = original_sys_module
             else:
-                __import__("sys").modules.pop("google.generativeai", None)
+                _sys.modules.pop("google.generativeai", None)
             if original_attr is not None:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                _sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                _sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
-        assert len(configure_calls) == 1, (
-            f"configure() must be called exactly once (got {len(configure_calls)}) "
+        assert len(client_calls) == 1, (
+            f"Client() must be called exactly once (got {len(client_calls)}) "
             "to avoid per-message gRPC transport re-init latency"
-        )
-        assert len(model_factory_calls) == 1, (
-            f"GenerativeModel() must be called exactly once (got {len(model_factory_calls)})"
         )
         # Both websockets must receive a token and done event.
         for ws in (ws1, ws2):
@@ -2561,13 +2679,14 @@ class TestGeminiClientCache:
 
     @pytest.mark.asyncio
     async def test_different_api_key_gets_separate_cache_entry(self):
-        """When the API key changes, configure() must fire again."""
+        """When the API key changes, Client() must fire again (no cache reuse)."""
         from services.chat_providers import ChatService, _clear_gemini_client_cache
 
         _clear_gemini_client_cache()
 
         configure_calls: list = []
         model_factory_calls: list = []
+        client_calls: list = []
 
         import google
 
@@ -2575,12 +2694,19 @@ class TestGeminiClientCache:
             chunks=[_FakeGeminiChunk("ok")],
             finish_reason_name="STOP",
         )
-        fake_module = self._make_fake_genai(response, configure_calls, model_factory_calls)
+        fake_module = self._make_fake_genai(
+            response, configure_calls, model_factory_calls, client_calls
+        )
 
-        original_sys_module = __import__("sys").modules.get("google.generativeai")
+        import sys as _sys
+        original_sys_module = _sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
-        __import__("sys").modules["google.generativeai"] = fake_module
+        original_genai_sys_module = _sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
+        _sys.modules["google.generativeai"] = fake_module
         google.generativeai = fake_module  # type: ignore[attr-defined]
+        _sys.modules["google.genai"] = fake_module
+        google.genai = fake_module  # type: ignore[attr-defined]
 
         keys = ["key-alpha", "key-beta"]
         try:
@@ -2595,29 +2721,37 @@ class TestGeminiClientCache:
                     await service.stream_gemini(messages, ws)
         finally:
             if original_sys_module is not None:
-                __import__("sys").modules["google.generativeai"] = original_sys_module
+                _sys.modules["google.generativeai"] = original_sys_module
             else:
-                __import__("sys").modules.pop("google.generativeai", None)
+                _sys.modules.pop("google.generativeai", None)
             if original_attr is not None:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                _sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                _sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
-        assert len(configure_calls) == 2, (
-            f"configure() must be called once per unique API key (got {len(configure_calls)})"
+        assert len(client_calls) == 2, (
+            f"Client() must be called once per unique API key (got {len(client_calls)})"
         )
-        assert len(model_factory_calls) == 2
 
     @pytest.mark.asyncio
     async def test_clear_cache_forces_reinit(self):
-        """After _clear_gemini_client_cache(), next call must reinitialize."""
+        """After _clear_gemini_client_cache(), next call must reinitialize Client()."""
         from services.chat_providers import ChatService, _clear_gemini_client_cache
 
         _clear_gemini_client_cache()
 
         configure_calls: list = []
         model_factory_calls: list = []
+        client_calls: list = []
 
         import google
 
@@ -2625,12 +2759,19 @@ class TestGeminiClientCache:
             chunks=[_FakeGeminiChunk("hello")],
             finish_reason_name="STOP",
         )
-        fake_module = self._make_fake_genai(response, configure_calls, model_factory_calls)
+        fake_module = self._make_fake_genai(
+            response, configure_calls, model_factory_calls, client_calls
+        )
 
-        original_sys_module = __import__("sys").modules.get("google.generativeai")
+        import sys as _sys
+        original_sys_module = _sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
-        __import__("sys").modules["google.generativeai"] = fake_module
+        original_genai_sys_module = _sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
+        _sys.modules["google.generativeai"] = fake_module
         google.generativeai = fake_module  # type: ignore[attr-defined]
+        _sys.modules["google.genai"] = fake_module
+        google.genai = fake_module  # type: ignore[attr-defined]
         try:
             service = ChatService()
             messages = [{"role": "user", "content": "hi"}]
@@ -2645,19 +2786,26 @@ class TestGeminiClientCache:
                 await service.stream_gemini(messages, ws2)
         finally:
             if original_sys_module is not None:
-                __import__("sys").modules["google.generativeai"] = original_sys_module
+                _sys.modules["google.generativeai"] = original_sys_module
             else:
-                __import__("sys").modules.pop("google.generativeai", None)
+                _sys.modules.pop("google.generativeai", None)
             if original_attr is not None:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                _sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                _sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
-        assert len(configure_calls) == 2, (
-            "After cache clear, configure() must fire again on the next call"
+        assert len(client_calls) == 2, (
+            "After cache clear, Client() must fire again on the next call"
         )
-        assert len(model_factory_calls) == 2
 
 
 class TestAgentAnthropicStripsModelField:
@@ -3039,13 +3187,18 @@ class TestGeminiMidStreamDisconnect:
         fake_genai_module.GenerativeModel = MagicMock(
             return_value=_FakeGeminiModel(response)
         )
+        fake_genai_module.Client = fake_genai_module.GenerativeModel  # wave 2
         fake_genai_module.types = real_genai.types
         fake_genai_module.protos = real_genai.protos
 
         original_sys_module = sys.modules.get("google.generativeai")
         original_attr = getattr(google, "generativeai", None)
+        original_genai_sys_module = sys.modules.get("google.genai")
+        original_genai_attr = getattr(google, "genai", None)
         sys.modules["google.generativeai"] = fake_genai_module
         google.generativeai = fake_genai_module  # type: ignore[attr-defined]
+        sys.modules["google.genai"] = fake_genai_module
+        google.genai = fake_genai_module  # type: ignore[attr-defined]
         try:
             with patch(
                 "services.chat_providers._resolve_api_key",
@@ -3065,6 +3218,14 @@ class TestGeminiMidStreamDisconnect:
                 google.generativeai = original_attr  # type: ignore[attr-defined]
             elif hasattr(google, "generativeai"):
                 delattr(google, "generativeai")
+            if original_genai_sys_module is not None:
+                sys.modules["google.genai"] = original_genai_sys_module
+            else:
+                sys.modules.pop("google.genai", None)
+            if original_genai_attr is not None:
+                google.genai = original_genai_attr  # type: ignore[attr-defined]
+            elif hasattr(google, "genai"):
+                delattr(google, "genai")
             _clear_gemini_client_cache()
 
         # No error event should have been sent (the socket is closed).

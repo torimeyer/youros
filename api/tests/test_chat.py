@@ -133,7 +133,8 @@ def websocket():
 
 
 class _PatchGenai:
-    """Context manager that fully redirects ``google.generativeai`` to a mock.
+    """Context manager that fully redirects ``google.generativeai`` and
+    ``google.genai`` to a mock.
 
     ``patch.dict(sys.modules, ...)`` alone is NOT enough once any other
     test has done ``import google.generativeai`` in the same process.
@@ -147,6 +148,13 @@ class _PatchGenai:
     ``generativeai`` attribute on the ``google`` package. This helper
     keeps the plumbing in one place so every Gemini test uses the same
     robust technique. Restores original state on exit.
+
+    Wave 2 note: ``_prepare_gemini_client`` now imports ``google.genai``
+    (the new SDK) instead of ``google.generativeai``. This helper patches
+    both import paths to the same mock so tests are unaffected. It also
+    aliases ``Client.return_value`` to ``GenerativeModel.return_value`` so
+    that test chains wired through ``GenerativeModel`` keep working without
+    changes to individual test cases.
     """
 
     def __init__(self, mock_module):
@@ -154,18 +162,35 @@ class _PatchGenai:
         self._orig_sys_module = None
         self._orig_attr = None
         self._had_attr = False
+        self._orig_genai_sys_module = None
+        self._orig_genai_attr = None
+        self._had_genai_attr = False
 
     def __enter__(self):
         import sys
         import google  # noqa: F401 - ensure the parent package is loaded
 
+        # Patch google.generativeai (old import path, still used at call sites)
         self._orig_sys_module = sys.modules.get("google.generativeai")
         self._had_attr = hasattr(google, "generativeai")
         if self._had_attr:
             self._orig_attr = getattr(google, "generativeai")
-
         sys.modules["google.generativeai"] = self._mock
         google.generativeai = self._mock  # type: ignore[attr-defined]
+
+        # Patch google.genai (new import path used by _prepare_gemini_client)
+        self._orig_genai_sys_module = sys.modules.get("google.genai")
+        self._had_genai_attr = hasattr(google, "genai")
+        if self._had_genai_attr:
+            self._orig_genai_attr = getattr(google, "genai")
+        sys.modules["google.genai"] = self._mock
+        google.genai = self._mock  # type: ignore[attr-defined]
+
+        # Make Client() return the same object as GenerativeModel() so that
+        # test chains like ``mock_genai.GenerativeModel.return_value.start_chat``
+        # still resolve correctly when production code calls ``Client()``.
+        self._mock.Client.return_value = self._mock.GenerativeModel.return_value
+
         return self._mock
 
     def __exit__(self, exc_type, exc, tb):
@@ -184,6 +209,20 @@ class _PatchGenai:
                 delattr(google, "generativeai")
             except AttributeError:
                 pass
+
+        if self._orig_genai_sys_module is not None:
+            sys.modules["google.genai"] = self._orig_genai_sys_module
+        else:
+            sys.modules.pop("google.genai", None)
+
+        if self._had_genai_attr:
+            google.genai = self._orig_genai_attr  # type: ignore[attr-defined]
+        else:
+            try:
+                delattr(google, "genai")
+            except AttributeError:
+                pass
+
         return False
 
 
@@ -305,8 +344,8 @@ class TestGeminiCredentialErrors:
     @pytest.mark.asyncio
     async def test_api_key_is_passed_to_configure(self, websocket):
         """When the API key is present, ``stream_gemini`` must pass it
-        explicitly to ``genai.configure(api_key=...)``. It must NOT use
-        ``configure(credentials=...)`` and must NOT call configure with no
+        explicitly to ``genai.Client(api_key=...)``. It must NOT use
+        ``Client(credentials=...)`` and must NOT call Client with no
         arguments (which would fall back to ambient ADC and could pick up
         the Drive OAuth token).
         """
@@ -336,9 +375,9 @@ class TestGeminiCredentialErrors:
 
         assert result == "Hi from Gemini"
 
-        # Must have called configure with api_key, not credentials.
-        mock_genai.configure.assert_called_once_with(api_key="AIza-fake-key")
-        kwargs = mock_genai.configure.call_args.kwargs
+        # Must have called Client with api_key (wave 2: configure() is gone).
+        mock_genai.Client.assert_called_once_with(api_key="AIza-fake-key")
+        kwargs = mock_genai.Client.call_args.kwargs
         assert "credentials" not in kwargs
 
         errors = websocket.get_messages_of_type("error")
@@ -458,7 +497,8 @@ class TestGeminiCredentialErrors:
         service = ChatService()
 
         mock_genai = MagicMock()
-        mock_genai.GenerativeModel.side_effect = RuntimeError(
+        # Wave 2: production code calls Client(), not GenerativeModel()
+        mock_genai.Client.side_effect = RuntimeError(
             "Connection reset by peer"
         )
 
@@ -519,13 +559,17 @@ class TestGeminiModelSelection:
 
     @pytest.mark.asyncio
     async def test_stream_gemini_uses_default_model_by_default(self, websocket):
-        """Without an env override, ``stream_gemini`` instantiates the
-        default model name.
+        """Without an env override, ``stream_gemini`` resolves the
+        default model name and caches it under the correct key.
         """
         import sys
         from unittest.mock import MagicMock
-        from services.chat_providers import ChatService, DEFAULT_GEMINI_MODEL
+        from services.chat_providers import (
+            ChatService, DEFAULT_GEMINI_MODEL,
+            _clear_gemini_client_cache, _GEMINI_CLIENT_CACHE,
+        )
 
+        _clear_gemini_client_cache()
         service = ChatService()
 
         mock_genai = MagicMock()
@@ -549,22 +593,27 @@ class TestGeminiModelSelection:
                 websocket,
             )
 
-        # stream_gemini now passes a system_instruction kwarg so Gemini
-        # stops prefixing its replies with "@Gemini:". Assert the call
-        # was made with the right model and a non-empty instruction.
-        mock_genai.GenerativeModel.assert_called_once()
-        call = mock_genai.GenerativeModel.call_args
-        assert call.args == (DEFAULT_GEMINI_MODEL,)
-        assert isinstance(call.kwargs.get("system_instruction"), str)
-        assert len(call.kwargs["system_instruction"]) > 0
+        # Wave 2: Client(api_key=...) replaces configure()+GenerativeModel().
+        # Model name is no longer in the constructor — it moves to the cache
+        # key and will be passed at generate time in wave 3.
+        mock_genai.Client.assert_called_once()
+        assert mock_genai.Client.call_args.kwargs.get("api_key") == "AIza-fake"
+        cache_keys = list(_GEMINI_CLIENT_CACHE.keys())
+        assert any(k[1] == DEFAULT_GEMINI_MODEL for k in cache_keys), (
+            f"Expected cache key with model={DEFAULT_GEMINI_MODEL!r}, got {cache_keys}"
+        )
+        _clear_gemini_client_cache()
 
     @pytest.mark.asyncio
     async def test_stream_gemini_respects_env_override(self, websocket):
         """When ``MYOS_GEMINI_MODEL`` is set, ``stream_gemini`` uses it."""
         import sys
         from unittest.mock import MagicMock
-        from services.chat_providers import ChatService
+        from services.chat_providers import (
+            ChatService, _clear_gemini_client_cache, _GEMINI_CLIENT_CACHE,
+        )
 
+        _clear_gemini_client_cache()
         service = ChatService()
 
         mock_genai = MagicMock()
@@ -587,10 +636,14 @@ class TestGeminiModelSelection:
                 websocket,
             )
 
-        mock_genai.GenerativeModel.assert_called_once()
-        call = mock_genai.GenerativeModel.call_args
-        assert call.args == ("gemini-custom-test",)
-        assert isinstance(call.kwargs.get("system_instruction"), str)
+        # Wave 2: model name lives in the cache key, not the Client() args.
+        mock_genai.Client.assert_called_once()
+        assert mock_genai.Client.call_args.kwargs.get("api_key") == "AIza-fake"
+        cache_keys = list(_GEMINI_CLIENT_CACHE.keys())
+        assert any(k[1] == "gemini-custom-test" for k in cache_keys), (
+            f"Expected cache key with model='gemini-custom-test', got {cache_keys}"
+        )
+        _clear_gemini_client_cache()
 
     @pytest.mark.asyncio
     async def test_stream_gemini_labels_claude_history(self, websocket):

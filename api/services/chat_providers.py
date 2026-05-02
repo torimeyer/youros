@@ -282,26 +282,24 @@ def _gemini_model_name() -> str:
 
 # Module-level cache for the Gemini SDK client.
 #
-# ``genai.configure()`` and ``genai.GenerativeModel()`` re-initialize the
-# underlying gRPC/HTTP transport on every call. For inline replies this means
-# Tori pays a 2-8s cold-start penalty on the *second* and every subsequent
-# Gemini message in the same backend process, even though the SDK is already
-# imported. Caching keyed on ``(api_key, model_name)`` removes that cost.
-# The tuple is intentionally small: if the API key rotates or the model
-# override changes, the old entry is evicted naturally on the next miss
-# (the dict never grows beyond a handful of entries since model names and
-# keys rarely change at runtime).
+# ``genai.Client(api_key=...)`` re-initializes the underlying gRPC/HTTP
+# transport on every call. For inline replies this means Tori pays a 2-8s
+# cold-start penalty on the *second* and every subsequent Gemini message in
+# the same backend process, even though the SDK is already imported. Caching
+# keyed on ``(api_key, model_name)`` removes that cost. The tuple is
+# intentionally small: if the API key rotates or the model override changes,
+# the old entry is evicted naturally on the next miss (the dict never grows
+# beyond a handful of entries since model names and keys rarely change at
+# runtime).
 #
 # Thread safety: ``_prepare_gemini_client`` runs on a worker thread via
 # ``asyncio.to_thread``.  Python's GIL protects simple dict reads and writes,
 # so no explicit lock is required here.
 #
-# NOTE: we cache only ``(model_name, model_instance)`` and NOT the genai
-# module reference itself.  The caller always does a fresh
-# ``import google.generativeai`` after the cache lookup so that tests
-# that swap ``sys.modules['google.generativeai']`` with a fake still get
-# the currently-active module for ``genai.types.BlockedPromptException``
-# and similar attribute accesses.
+# NOTE: we cache only ``(model_name, client)`` and NOT the genai module
+# reference itself.  The caller always does a fresh ``from google import genai``
+# after the cache lookup so that tests that swap ``sys.modules`` with a fake
+# still get the currently-active module for exception types and protos.
 _GEMINI_CLIENT_CACHE: dict[tuple[str, str], tuple[str, Any]] = {}
 
 
@@ -2592,30 +2590,20 @@ class ChatService:
             # thread so the event loop stays responsive. Any exception
             # surfaces the same way through the outer except.
             def _prepare_gemini_client():
-                import google.generativeai as _genai
+                from google import genai as _genai_mod
                 _model_name = _gemini_model_name()
                 cache_key = (api_key, _model_name)
                 cached = _GEMINI_CLIENT_CACHE.get(cache_key)
                 if cached is not None:
-                    # Return the cached model instance. configure() and
-                    # GenerativeModel() are skipped, saving 2-8s of
-                    # gRPC/HTTP transport re-initialization on every
-                    # message after the first in a session.
+                    # Return the cached client. Client(api_key=...) is skipped,
+                    # saving 2-8s of gRPC/HTTP transport re-initialization on
+                    # every message after the first in a session.
                     return cached
-                _genai.configure(api_key=api_key)
-                try:
-                    _m = _genai.GenerativeModel(
-                        _model_name,
-                        system_instruction=_gemini_system_instruction(),
-                    )
-                except TypeError:
-                    # Older SDK builds do not accept system_instruction.
-                    _m = _genai.GenerativeModel(_model_name)
-                # Store only (model_name, model_instance). The genai module
-                # reference is NOT cached so that tests which swap
-                # sys.modules['google.generativeai'] still see the
+                _client = _genai_mod.Client(api_key=api_key)
+                # Store (model_name, client). The genai module reference is NOT
+                # cached so that tests which swap sys.modules still see the
                 # currently-active module for exception types and protos.
-                result = (_model_name, _m)
+                result = (_model_name, _client)
                 _GEMINI_CLIENT_CACHE[cache_key] = result
                 return result
 
