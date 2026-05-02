@@ -357,9 +357,9 @@ class TestGeminiCredentialErrors:
 
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
-        mock_chat = mock_model.start_chat.return_value
+        mock_chat = mock_model.chats.create.return_value
         mock_chunk = type("Chunk", (), {"text": "Hi from Gemini"})()
-        mock_chat.send_message.return_value = [mock_chunk]
+        mock_chat.send_message_stream.return_value = [mock_chunk]
 
         async def fake_resolve(key):
             return "AIza-fake-key" if key == "gemini_api_key" else ""
@@ -405,8 +405,8 @@ class TestGeminiCredentialErrors:
 
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
-        mock_chat = mock_model.start_chat.return_value
-        mock_chat.send_message.side_effect = RuntimeError(cryptic_error)
+        mock_chat = mock_model.chats.create.return_value
+        mock_chat.send_message_stream.side_effect = RuntimeError(cryptic_error)
 
         async def fake_resolve(key):
             return "AIza-stale-key" if key == "gemini_api_key" else ""
@@ -452,8 +452,8 @@ class TestGeminiCredentialErrors:
 
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
-        mock_chat = mock_model.start_chat.return_value
-        mock_chat.send_message.side_effect = RuntimeError(
+        mock_chat = mock_model.chats.create.return_value
+        mock_chat.send_message_stream.side_effect = RuntimeError(
             "400 API key not valid. Please pass a valid API key. "
             "[reason: \"API_KEY_INVALID\"]"
         )
@@ -574,9 +574,9 @@ class TestGeminiModelSelection:
 
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
-        mock_chat = mock_model.start_chat.return_value
+        mock_chat = mock_model.chats.create.return_value
         mock_chunk = type("Chunk", (), {"text": "ok"})()
-        mock_chat.send_message.return_value = [mock_chunk]
+        mock_chat.send_message_stream.return_value = [mock_chunk]
 
         async def fake_resolve(key):
             return "AIza-fake" if key == "gemini_api_key" else ""
@@ -618,9 +618,9 @@ class TestGeminiModelSelection:
 
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
-        mock_chat = mock_model.start_chat.return_value
+        mock_chat = mock_model.chats.create.return_value
         mock_chunk = type("Chunk", (), {"text": "ok"})()
-        mock_chat.send_message.return_value = [mock_chunk]
+        mock_chat.send_message_stream.return_value = [mock_chunk]
 
         async def fake_resolve(key):
             return "AIza-fake" if key == "gemini_api_key" else ""
@@ -664,9 +664,9 @@ class TestGeminiModelSelection:
 
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
-        mock_chat = mock_model.start_chat.return_value
+        mock_chat = mock_model.chats.create.return_value
         mock_chunk = type("Chunk", (), {"text": "ok"})()
-        mock_chat.send_message.return_value = [mock_chunk]
+        mock_chat.send_message_stream.return_value = [mock_chunk]
 
         async def fake_resolve(key):
             return "AIza-fake" if key == "gemini_api_key" else ""
@@ -687,12 +687,12 @@ class TestGeminiModelSelection:
         ), _PatchGenai(mock_genai):
             await service.stream_gemini(messages, websocket)
 
-        # start_chat must have been called with a history containing the
+        # chats.create must have been called with a history containing the
         # Claude-labeled assistant turn so Gemini can see cross-model
         # context.
-        mock_model.start_chat.assert_called_once()
-        history = mock_model.start_chat.call_args.kwargs.get("history")
-        assert history is not None, "stream_gemini must pass history=... to start_chat"
+        mock_model.chats.create.assert_called_once()
+        history = mock_model.chats.create.call_args.kwargs.get("history")
+        assert history is not None, "stream_gemini must pass history=... to chats.create"
         # The assistant entry (role="model") must carry the Claude prefix.
         model_entries = [h for h in history if h.get("role") == "model"]
         assert len(model_entries) == 1
@@ -723,12 +723,12 @@ class TestGeminiModelSelection:
 
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
-        mock_chat = mock_model.start_chat.return_value
+        mock_chat = mock_model.chats.create.return_value
         # Three chunks so we exercise the real streaming loop.
         chunk_a = type("Chunk", (), {"text": "Hello "})()
         chunk_b = type("Chunk", (), {"text": "there"})()
         chunk_c = type("Chunk", (), {"text": "."})()
-        mock_chat.send_message.return_value = [chunk_a, chunk_b, chunk_c]
+        mock_chat.send_message_stream.return_value = [chunk_a, chunk_b, chunk_c]
 
         async def fake_resolve(key):
             return "AIza-fake" if key == "gemini_api_key" else ""
@@ -754,8 +754,8 @@ class TestGeminiModelSelection:
             await service.stream_gemini(messages, websocket)
 
         # History must have alternating roles and must end with model
-        # so the next send_message (user) continues the pattern.
-        history = mock_model.start_chat.call_args.kwargs.get("history")
+        # so the next send_message_stream (user) continues the pattern.
+        history = mock_model.chats.create.call_args.kwargs.get("history")
         assert history is not None
         roles = [h["role"] for h in history]
         for i in range(1, len(roles)):
@@ -798,9 +798,9 @@ class TestGeminiModelSelection:
 
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
-        mock_chat = mock_model.start_chat.return_value
+        mock_chat = mock_model.chats.create.return_value
         chunk = type("Chunk", (), {"text": "ok"})()
-        mock_chat.send_message.return_value = [chunk]
+        mock_chat.send_message_stream.return_value = [chunk]
 
         async def fake_resolve(key):
             return "AIza-fake" if key == "gemini_api_key" else ""
@@ -818,9 +818,9 @@ class TestGeminiModelSelection:
         ), _PatchGenai(mock_genai):
             await service.stream_gemini(messages, websocket)
 
-        history = mock_model.start_chat.call_args.kwargs.get("history")
+        history = mock_model.chats.create.call_args.kwargs.get("history")
         assert history is not None and len(history) > 0, (
-            "history must be non-empty; empty history hangs the deprecated SDK"
+            "history must be non-empty; empty history causes issues with the SDK"
         )
         roles = [h["role"] for h in history]
         for i in range(1, len(roles)):
@@ -859,8 +859,8 @@ class TestGeminiModelSelection:
 
         mock_genai = MagicMock()
         mock_model = mock_genai.GenerativeModel.return_value
-        mock_chat = mock_model.start_chat.return_value
-        mock_chat.send_message.side_effect = RuntimeError(real_google_error)
+        mock_chat = mock_model.chats.create.return_value
+        mock_chat.send_message_stream.side_effect = RuntimeError(real_google_error)
 
         async def fake_resolve(key):
             return "AIza-fake" if key == "gemini_api_key" else ""
