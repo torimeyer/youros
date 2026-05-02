@@ -3893,6 +3893,12 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     _spawn_cwd = str(_wt_path)
                     _spawn_env["OSTK_PROJECT_ROOT"] = str(_wt_path)
                     _spawn_env["OSTK_ROOT"] = str(_wt_path)
+                    # heartbeat-agent.sh reads MYOS_AGENT_NAME to route its
+                    # hook-fired heartbeats to the correct registered row.
+                    # Without this the hook derives a session_id-based name
+                    # that never matches the custom-named agent row, leaving
+                    # last_heartbeat_at null for the entire run.
+                    _spawn_env["MYOS_AGENT_NAME"] = body.name
                     _worktree_path = str(_wt_path)
                     _worktree_branch = _wt_branch
                     # L2.3 (→902): sync .claude/ into the new worktree so hook

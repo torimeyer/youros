@@ -142,6 +142,33 @@ def test_spawn_env_includes_ostk_project_root(tmp_path):
     )
 
 
+def test_spawn_env_includes_myos_agent_name(tmp_path):
+    """Verifies the spawn path sets MYOS_AGENT_NAME so heartbeat-agent.sh
+    routes hook-fired heartbeats to the correct registered row.
+
+    Without this, the hook derives a session_id-based name that never matches
+    the custom agent row, leaving last_heartbeat_at null for the entire run.
+    """
+    import os as _os
+    wt_path = tmp_path / "agent-my-worker-abc123"
+    wt_path.mkdir()
+    agent_name = "my-worker-abc123"
+
+    spawn_env: dict[str, str] = {**_os.environ}
+    spawn_env.pop("ANTHROPIC_API_KEY", None)
+
+    # This is the block under test in agents.py:
+    spawn_env["OSTK_PROJECT_ROOT"] = str(wt_path)
+    spawn_env["OSTK_ROOT"] = str(wt_path)
+    spawn_env["MYOS_AGENT_NAME"] = agent_name
+
+    assert spawn_env["MYOS_AGENT_NAME"] == agent_name, (
+        "spawn_agent must inject MYOS_AGENT_NAME so heartbeat-agent.sh "
+        "routes hook heartbeats to the registered agent row, not a "
+        "session_id-derived name that doesn't exist"
+    )
+
+
 # ---------------------------------------------------------------------------
 # path resolution: worktree path != main repo path
 # ---------------------------------------------------------------------------

@@ -57,12 +57,19 @@ case "$TOOL_NAME" in
   Agent) exit 0 ;;
 esac
 
-SESSION_ID=$(extract session_id)
-
-if [ -n "$SESSION_ID" ]; then
-    AGENT_NAME="claude-code-${SESSION_ID:0:10}"
+# Worktree subagents are registered under a custom name (e.g.
+# "settings-nav-dcdbdb"), not a session_id-derived one. spawn_agent
+# writes MYOS_AGENT_NAME into the subprocess env so we can route
+# heartbeats to the correct row without a session_id lookup.
+if [ -n "${MYOS_AGENT_NAME:-}" ]; then
+    AGENT_NAME="${MYOS_AGENT_NAME}"
 else
-    AGENT_NAME="claude-code-$(hostname -s)-$$"
+    SESSION_ID=$(extract session_id)
+    if [ -n "$SESSION_ID" ]; then
+        AGENT_NAME="claude-code-${SESSION_ID:0:10}"
+    else
+        AGENT_NAME="claude-code-$(hostname -s)-$$"
+    fi
 fi
 AGENT_NAME=$(echo "$AGENT_NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
 
