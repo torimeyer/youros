@@ -11,6 +11,32 @@ export interface ReleaseGroup {
 
 const releaseNotes: ReleaseGroup[] = [
   {
+    date: '2026-05-01',
+    label: 'May 1, 2026',
+    entries: [
+      {
+        title: 'ADHD Mode',
+        description: 'Turn it on in Settings and myOS checks in when you\'ve been away, welcomes you back with a summary of where things stand, and offers a focus mode that dims distractions while you\'re heads-down.',
+      },
+      {
+        title: 'SDD Wizard',
+        description: 'A step-by-step wizard that drafts a Software Design Doc for any feature. Answer a few questions and myOS fills in context it already knows (open tasks, linked files, recent agents) and saves the spec to your library.',
+      },
+      {
+        title: 'Agents Insights Tab',
+        description: 'Each agent now has an Insights tab showing what it did, which files it touched, and how long it ran. No more digging through transcripts.',
+      },
+      {
+        title: 'Editable Agent Template Aliases',
+        description: 'Rename any agent template to something that fits your workflow. The new name shows in the picker, the Agents list, and the command bar.',
+      },
+      {
+        title: 'Settings Nav Cleanup',
+        description: 'Data Management and Shared Links now live only under Privacy & Data, so the Settings sidebar is shorter and easier to scan.',
+      },
+    ],
+  },
+  {
     date: '2026-04-30',
     label: 'April 30, 2026',
     entries: [
