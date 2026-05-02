@@ -19,7 +19,7 @@ from starlette.websockets import WebSocketDisconnect
 # import cost, so stream_gemini reaches start_chat and send_message
 # immediately after the user hits Send.
 try:
-    import google.generativeai as _genai_preload  # noqa: F401
+    from google import genai as _genai_preload  # noqa: F401
 except Exception:
     # If google.generativeai is missing (e.g. install did not include
     # the optional Gemini extras), fall through and let the later
