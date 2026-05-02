@@ -205,7 +205,6 @@ body = {
     "description": desc or "task-tool bridge spawn",
     "source": "task-bridge",
     "status": "running",
-    "budget": 5,
     "isolation": "worktree",
     "locks": sorted(locks),
 }

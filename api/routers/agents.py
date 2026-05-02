@@ -3848,7 +3848,6 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         CLAUDE_BIN, "--print",
         "--model", model,
         "--output-format", "text",
-        "--max-budget-usd", str(body.budget),
         "--permission-mode", _perm_mode,
     ]
 
