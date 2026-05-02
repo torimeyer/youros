@@ -434,8 +434,22 @@ def _reset_spawn_lock_registry_for_tests() -> None:
 
 
 async def _has_unmerged_commits(cwd: str, branch: str) -> bool:
-    """Return True if branch has commits ahead of main (safe default: True on error)."""
+    """Return True if branch has commits ahead of main (safe default: True on error).
+
+    Returns False when the branch does not exist (no commits can be ahead of
+    main for a non-existent ref).  This allows create_worktree() to proceed
+    normally on first spawn without tripping the conservative error path that
+    fires when rev-list returns rc=128 (bad revision) for an unknown branch.
+    """
     try:
+        # If the branch doesn't exist, there are zero unmerged commits.
+        rc_exists, _, _ = await _run_git(
+            "rev-parse", "--verify", branch,
+            cwd=cwd, timeout=5.0,
+        )
+        if rc_exists != 0:
+            return False
+
         rc, out, _ = await _run_git(
             "rev-list", "--count", f"main..{branch}",
             cwd=cwd, timeout=5.0,
@@ -449,6 +463,20 @@ async def _has_unmerged_commits(cwd: str, branch: str) -> bool:
         return int(stripped) > 0
     except Exception:
         return True  # conservative: assume unmerged on any error
+
+
+async def _unmerged_onelines(cwd: str, branch: str, max_commits: int = 3) -> str:
+    """Return a short log of commits ahead of main, for human-readable log messages."""
+    try:
+        rc, out, _ = await _run_git(
+            "log", "--oneline", f"main..{branch}", f"-{max_commits}",
+            cwd=cwd, timeout=5.0,
+        )
+        if rc != 0 or not out.strip():
+            return "(could not fetch commit list)"
+        return out.decode(errors="replace").strip()
+    except Exception:
+        return "(error fetching commits)"
 
 
 async def _run_git(
@@ -495,18 +523,26 @@ async def create_worktree(
     cwd = str(project_root)
     wt = _P(wt_path)
 
+    # Safety: refuse if branch has unmerged commits, regardless of whether
+    # the worktree directory exists. The directory may have been removed already
+    # (by a prior partial cleanup, manual rm, or the bash reaper racing with a
+    # commit) while the branch still holds commits not on main. The unconditional
+    # `git branch -D` at step 2 below would orphan those commits without this
+    # gate. This is the fix for the "second deletion path" (see CLAUDE.md
+    # "Worktree hygiene": unique worktrees are always parked, never deleted).
+    if await _has_unmerged_commits(cwd, branch):
+        _onelines = await _unmerged_onelines(cwd, branch)
+        logger.warning(
+            "spawn.worktree.unmerged_safety name=%s branch=%s -- refusing pre-clean; "
+            "cherry-pick before re-spawning. unmerged commits:\n%s",
+            agent_name, branch, _onelines,
+        )
+        return False, f"safety: branch {branch} has unmerged commits; cherry-pick before re-spawning"
+
     # 1. Remove any existing registered worktree at this path.
     #    Worktrees are created with --lock, so a plain `git worktree remove
     #    --force` will be refused ("locked") unless we unlock first.
     if wt.exists():
-        # Safety: refuse to destroy a worktree that has unmerged commits.
-        if await _has_unmerged_commits(cwd, branch):
-            logger.warning(
-                "spawn.worktree.unmerged_safety name=%s branch=%s -- refusing pre-clean",
-                agent_name, branch,
-            )
-            return False, f"safety: branch {branch} has unmerged commits; cherry-pick before re-spawning"
-
         # Unlock (no-op if not locked; never fatal).
         await _run_git("worktree", "unlock", str(wt), cwd=cwd, timeout=5.0)
         # Now remove the worktree registration and its directory.
@@ -590,9 +626,11 @@ async def remove_worktree(
 
     # Safety: refuse to delete a worktree that has unmerged commits.
     if await _has_unmerged_commits(cwd, branch):
+        _onelines = await _unmerged_onelines(cwd, branch)
         logger.warning(
-            "spawn.worktree.remove_unmerged_safety branch=%s -- refusing removal",
-            branch,
+            "spawn.worktree.remove_unmerged_safety branch=%s -- refusing removal; "
+            "cherry-pick before removing. unmerged commits:\n%s",
+            branch, _onelines,
         )
         return False
 

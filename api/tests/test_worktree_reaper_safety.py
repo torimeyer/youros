@@ -204,6 +204,93 @@ async def test_create_worktree_pre_clean_refuses_when_branch_has_unmerged_commit
 
 
 # ---------------------------------------------------------------------------
+# Tests: create_worktree() refuses when dir is GONE but branch has commits
+# (the "second deletion path" bug fixed in spawn_isolation.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_worktree_refuses_when_dir_gone_but_branch_has_unmerged_commits(tmp_path):
+    """create_worktree() must refuse even when the worktree directory no longer
+    exists but the branch is ahead of main.
+
+    The prior bug: the safety check was inside `if wt.exists():`, so if the
+    directory was already removed (partial cleanup, manual rm, or the bash
+    reaper racing with a commit), `git branch -D` ran unconditionally and
+    orphaned the commit. The fix moves the check before any cleanup.
+    """
+    import shutil
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    branch = "worktree-agent-dir-gone-test"
+    wt_path = repo / ".claude" / "worktrees" / "agent-dir-gone-test"
+
+    # First spawn: create the worktree.
+    ok, err = await create_worktree(
+        project_root=repo,
+        agent_name="dir-gone-test",
+        branch=branch,
+        wt_path=wt_path,
+    )
+    assert ok, f"first create_worktree failed: {err}"
+
+    # Add a commit so the branch is 1 ahead of main.
+    _add_commit_to_worktree(repo, wt_path, "important.txt")
+
+    count = subprocess.run(
+        ["git", "rev-list", "--count", f"main..{branch}"],
+        cwd=str(repo), capture_output=True, text=True, check=False,
+    )
+    assert count.stdout.strip() == "1", (
+        f"setup: expected 1 commit ahead of main, got: {count.stdout.strip()!r}"
+    )
+
+    # Simulate partial cleanup: remove the worktree directory and git
+    # registration, but leave the branch ref intact (this is the failure
+    # mode from the "second deletion path" -- the directory is gone but
+    # the commit lives on the branch).
+    subprocess.run(
+        ["git", "worktree", "remove", "--force", str(wt_path)],
+        cwd=str(repo), capture_output=True, check=False,
+    )
+    if wt_path.exists():
+        shutil.rmtree(str(wt_path))
+
+    assert not wt_path.exists(), "test setup: worktree dir should be gone"
+    assert _branch_exists(repo, branch), "test setup: branch should still exist with its commit"
+
+    # Re-spawn attempt: create_worktree must REFUSE because the branch has
+    # an unmerged commit, even though the directory no longer exists.
+    ok2, err2 = await create_worktree(
+        project_root=repo,
+        agent_name="dir-gone-test",
+        branch=branch,
+        wt_path=wt_path,
+    )
+    assert ok2 is False, (
+        "create_worktree must refuse when dir is gone but branch has unmerged commits; "
+        f"got ok={ok2}, err={err2!r}"
+    )
+    assert "safety" in err2.lower() or "unmerged" in err2.lower(), (
+        f"error message should mention safety/unmerged, got: {err2!r}"
+    )
+
+    # Branch must still exist with its commit -- the orphan was NOT created.
+    assert _branch_exists(repo, branch), f"branch {branch} was deleted despite unmerged commits"
+    count2 = subprocess.run(
+        ["git", "rev-list", "--count", f"main..{branch}"],
+        cwd=str(repo), capture_output=True, text=True, check=False,
+    )
+    assert count2.stdout.strip() == "1", (
+        f"commit on branch was lost after create_worktree refused; "
+        f"rev-list returned: {count2.stdout.strip()!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Tests: safe path still works (no unmerged commits → removal succeeds)
 # ---------------------------------------------------------------------------
 

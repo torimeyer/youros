@@ -119,7 +119,10 @@ while IFS= read -r line; do
                 error_count=$((error_count + 1))
               elif [ "$ahead" -gt 0 ]; then
                 printf '%-48s %-10s %s\n' "$wt_branch" "unique" "$ahead"
-                echo "  [reaper] $wt_branch has $ahead unmerged commits ahead of main, skipping -- cherry-pick before removing" >&2
+                echo "  [reaper] REFUSING to delete $wt_branch: $ahead unmerged commit(s) ahead of main -- cherry-pick before removing" >&2
+                git log --oneline "main..$wt_branch" 2>/dev/null | head -5 | while IFS= read -r oneline; do
+                  echo "    commit: $oneline" >&2
+                done
                 unique_count=$((unique_count + 1))
               else
                 # No commits ahead of main. Also guard against uncommitted
