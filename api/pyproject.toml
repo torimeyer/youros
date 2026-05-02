@@ -1,2 +1,5 @@
 [tool.pytest.ini_options]
 timeout = 30
+markers = [
+    "integration: tests that hit external services or full stack",
+]
