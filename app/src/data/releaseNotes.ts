@@ -11,6 +11,20 @@ export interface ReleaseGroup {
 
 const releaseNotes: ReleaseGroup[] = [
   {
+    date: '2026-05-02',
+    label: 'May 2, 2026',
+    entries: [
+      {
+        title: 'ADHD mode sticks across devices',
+        description: 'Turning ADHD mode on in one browser used to reset when you opened myOS on another device. The setting now lives on the server, so it follows you everywhere.',
+      },
+      {
+        title: 'Settings sections stay in the right place',
+        description: 'Data Management and Shared Links were showing up on every Settings tab, not just Privacy & Data. They now appear only where they belong.',
+      },
+    ],
+  },
+  {
     date: '2026-05-01',
     label: 'May 1, 2026',
     entries: [
