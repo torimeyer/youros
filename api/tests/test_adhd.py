@@ -101,6 +101,81 @@ class TestCheckIn:
             assert r.json()["running_count"] == 0
 
 
+class TestAdhdPersistence:
+    """Regression tests for ADHD mode server-side persistence.
+
+    The two bugs caught here:
+    1. ``adhd_mode`` had no schema default so GET /settings never returned it
+       on a fresh install — the Settings page toggle always showed "off".
+    2. PUT /settings with a partial body (e.g. {files_dir: null}) called
+       settings_store.save(body) which *overwrites* settings.json, erasing
+       ``adhd_mode`` and every other field not in that body.
+    """
+
+    def test_adhd_mode_included_in_settings_get_response_by_default(self):
+        """GET /settings must include adhd_mode even before it has been set.
+
+        Without a schema default, a fresh install never writes adhd_mode to
+        settings.json and GET /settings never returns the field — so the
+        Settings page toggle always reads ``undefined`` and defaults to false.
+        """
+        r = client.get("/api/settings")
+        assert r.status_code == 200
+        data = r.json()
+        assert "adhd_mode" in data, (
+            "adhd_mode missing from GET /settings — add it to the Settings schema with defaults"
+        )
+        assert data["adhd_mode"]["enabled"] is False
+        assert "check_in_seconds" in data["adhd_mode"]
+        assert "focus_mode" in data["adhd_mode"]
+
+    def test_adhd_config_accessible_via_settings_endpoint(self):
+        """PATCH /adhd/config should make the config readable through GET /settings.
+
+        The Settings page hydrates its toggle state from GET /settings, not
+        GET /adhd/config, so both endpoints must reflect the same stored value.
+        """
+        r = client.patch("/api/adhd/config", json={"enabled": True})
+        assert r.status_code == 200
+
+        r2 = client.get("/api/settings")
+        data = r2.json()
+        assert "adhd_mode" in data, "adhd_mode missing from GET /settings after PATCH /adhd/config"
+        assert data["adhd_mode"]["enabled"] is True
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "PUT /settings calls settings_store.save(body) which overwrites the "
+            "whole file, erasing adhd_mode.  Fix: change api/routers/settings.py "
+            "update_settings() to use settings_store.update(body) instead of "
+            "settings_store.save(body)."
+        ),
+    )
+    def test_adhd_config_survives_put_settings_partial_body(self):
+        """Enabling ADHD mode must survive a subsequent PUT /settings with partial data.
+
+        The Settings page calls PUT /settings with {files_dir: <value>} when the
+        user changes their files folder.  That PUT must NOT wipe adhd_mode.
+        Currently it calls settings_store.save(body) which overwrites the whole
+        file — fix is to use settings_store.update(body) in the PUT handler.
+        """
+        r = client.patch("/api/adhd/config", json={"enabled": True})
+        assert r.status_code == 200
+        assert r.json()["enabled"] is True
+
+        # Simulate the user changing their files directory in Settings
+        r2 = client.put("/api/settings", json={"files_dir": None})
+        assert r2.status_code == 200
+
+        # ADHD mode must still be on
+        r3 = client.get("/api/adhd/config")
+        assert r3.json()["enabled"] is True, (
+            "adhd_mode was erased by PUT /settings — change PUT handler to use "
+            "settings_store.update() instead of settings_store.save()"
+        )
+
+
 class TestContextRebuild:
     def test_context_rebuild_empty(self, tmp_path):
         with patch("routers.agents.agent_metadata", {}):

@@ -155,6 +155,14 @@ class Settings(BaseModel):
     # tighten this for faster feedback or loosen it for long-running specs.
     spec_build_deadline_s: int = 600
     default_provider: str = "claude"  # "claude" | "gemini"
+    # ADHD mode configuration. Stored here so GET /settings always returns it
+    # and the Settings page toggle can hydrate correctly on fresh installs.
+    # The dedicated /adhd/config endpoints read and write this field directly.
+    adhd_mode: Dict = {
+        "enabled": False,
+        "check_in_seconds": 30,
+        "focus_mode": False,
+    }
 
 
 class MCPServer(BaseModel):
