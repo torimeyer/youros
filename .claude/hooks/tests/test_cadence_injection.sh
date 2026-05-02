@@ -142,10 +142,10 @@ if echo "$OUT" | grep -q "ADHD mode"; then
 else
     fail "ADHD mode label missing"
 fi
-if echo "$OUT" | grep -qE "target: 30s"; then
-    pass "target is 30s in ADHD mode"
+if echo "$OUT" | grep -qE "target: 35s"; then
+    pass "target is 35s in ADHD mode (settings fallback)"
 else
-    fail "target is not 30s in ADHD mode"
+    fail "target is not 35s in ADHD mode (got: $(echo "$OUT" | grep target))"
 fi
 if echo "$OUT" | grep -q "OVERDUE"; then
     pass "OVERDUE emitted when elapsed > target"
@@ -234,6 +234,52 @@ if echo "$OUT" | grep -qE "\[CADENCE: [0-9]+s since last reply"; then
     pass "CADENCE tag contains integer seconds"
 else
     fail "CADENCE tag format wrong: $(echo "$OUT" | grep CADENCE)"
+fi
+
+# ---- Test 7: ADHD mode + settings.json check_in_seconds=35 → target 35s + depth-probe rule ----
+echo "test 7: ADHD mode + settings.json check_in_seconds=35 → target 35s and depth-probe rule"
+FAKE_SETTINGS="${FAKE_MYOS}/settings.json"
+printf '{"adhd_mode": {"enabled": true, "check_in_seconds": 35, "focus_mode": true}}\n' > "$FAKE_SETTINGS"
+touch "${FAKE_MYOS}/.adhd_mode"
+write_jsonl_with_last_assistant 45
+OUT=$(HOME="$FAKE_HOME" \
+      MYOS_CONFIG_PATH="$FAKE_CONFIG" \
+      MYOS_HUMANFILE_PATH="$REAL_HUMANFILE" \
+      MYOS_ADHD_MODE_FILE="${FAKE_MYOS}/.adhd_mode" \
+      MYOS_SETTINGS_PATH="$FAKE_SETTINGS" \
+      CLAUDE_SESSION_ID="$FAKE_SESSION_ID" \
+      CLAUDE_PROJECT_DIR="$FAKE_PROJECT_DIR" \
+      MYOS_BACKEND_URL="$BACKEND_URL" \
+      bash "$HOOK" 2>&1)
+
+if echo "$OUT" | grep -qE "target: 35s"; then
+    pass "target is 35s from settings.json"
+else
+    fail "target is not 35s (got: $(echo "$OUT" | grep target))"
+fi
+if echo "$OUT" | grep -q "ADHD DEPTH-PROBE RULE"; then
+    pass "depth-probe rule injected when ADHD mode is on"
+else
+    fail "depth-probe rule missing when ADHD mode is on"
+fi
+rm -f "${FAKE_MYOS}/.adhd_mode" "$FAKE_SETTINGS"
+
+# ---- Test 8: no ADHD mode → depth-probe rule NOT injected ----
+echo "test 8: no ADHD mode → depth-probe rule absent"
+write_jsonl_with_last_assistant 45
+OUT=$(HOME="$FAKE_HOME" \
+      MYOS_CONFIG_PATH="$FAKE_CONFIG" \
+      MYOS_HUMANFILE_PATH="$REAL_HUMANFILE" \
+      MYOS_ADHD_MODE_FILE="${FAKE_MYOS}/.adhd_mode_absent" \
+      CLAUDE_SESSION_ID="$FAKE_SESSION_ID" \
+      CLAUDE_PROJECT_DIR="$FAKE_PROJECT_DIR" \
+      MYOS_BACKEND_URL="$BACKEND_URL" \
+      bash "$HOOK" 2>&1)
+
+if echo "$OUT" | grep -q "ADHD DEPTH-PROBE RULE"; then
+    fail "depth-probe rule present when ADHD mode is off"
+else
+    pass "depth-probe rule absent when ADHD mode is off"
 fi
 
 stop_server
