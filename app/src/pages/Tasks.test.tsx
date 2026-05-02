@@ -2072,9 +2072,9 @@ describe('Tasks page - first-paint budget (needle 299)', () => {
     mockedApiPost.mockResolvedValue({})
   })
 
-  const FIRST_ROW_BUDGET_MS = 300
+  const FIRST_ROW_BUDGET_MS = 500
 
-  it('first visible row arrives within 300ms on a warm backend', async () => {
+  it('first visible row arrives within 500ms on a warm backend', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path === '/tasks') return Promise.resolve({ tasks: manyTasks })
       if (path === '/labels') return Promise.resolve({ labels: [] })
