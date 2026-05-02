@@ -22,15 +22,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 STALE_HEARTBEAT_SECONDS = 300   # 5 minutes
 SWEEP_INTERVAL_SECONDS = 60     # run loop every 60 s
 GHOST_STATUSES = frozenset({"running", "completed_timeout"})
+
+MAX_AGENT_WALLCLOCK_HOURS = 6    # kill agents alive longer than this
+TRANSCRIPT_STALE_SECONDS = 1800  # 30 min of no transcript growth
+SIGTERM_GRACE_SECONDS = 5        # wait before escalating to SIGKILL
 
 
 def _parse_iso(value: str) -> datetime | None:
@@ -136,10 +141,125 @@ def reap_ghost_agents(
     return victims
 
 
-async def _do_sweep(transcripts_dir: Path) -> int:
-    """Run one sweep: identify ghosts and delete them from the live registry.
+def _transcript_mtime(
+    name: str,
+    meta: dict,
+    transcripts_dir: Path,
+) -> Optional[float]:
+    """Return the mtime of the agent's transcript file, or None if absent."""
+    raw_tp = meta.get("transcript_path")
+    if raw_tp:
+        try:
+            tp = Path(raw_tp)
+            if tp.exists():
+                return tp.stat().st_mtime
+        except OSError:
+            pass
+    t_path = transcripts_dir / f"{name}.md"
+    try:
+        if t_path.exists():
+            return t_path.stat().st_mtime
+    except OSError:
+        pass
+    return None
 
-    Returns the count of entries deleted.
+
+def find_wallclock_exceeded(
+    registry: Dict[str, dict],
+    transcripts_dir: Path,
+    now: datetime,
+    *,
+    max_wallclock_hours: int = MAX_AGENT_WALLCLOCK_HOURS,
+    transcript_stale_seconds: int = TRANSCRIPT_STALE_SECONDS,
+) -> List[Tuple[str, int]]:
+    """Return (name, pid) pairs for agents past the absolute wallclock ceiling.
+
+    Pure function: reads registry and filesystem, mutates nothing.
+    Criteria (all must match):
+      1. source == "claude-code"
+      2. status == "running"
+      3. pid recorded and process is alive
+      4. spawned_at older than max_wallclock_hours
+      5. transcript mtime absent or older than transcript_stale_seconds
+    """
+    spawn_cutoff = now - timedelta(hours=max_wallclock_hours)
+    now_ts = now.timestamp()
+    results: List[Tuple[str, int]] = []
+
+    for name, meta in registry.items():
+        if not isinstance(meta, dict):
+            continue
+        if meta.get("source") != "claude-code":
+            continue
+        if (meta.get("status") or "").strip().lower() != "running":
+            continue
+        pid_raw = meta.get("pid")
+        if pid_raw is None:
+            continue
+        try:
+            pid = int(pid_raw)
+        except (ValueError, TypeError):
+            continue
+        spawn_dt = _parse_iso(meta.get("spawned_at"))
+        if spawn_dt is None or spawn_dt > spawn_cutoff:
+            continue
+        mtime = _transcript_mtime(name, meta, transcripts_dir)
+        if mtime is not None and (now_ts - mtime) < transcript_stale_seconds:
+            continue
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue  # already dead — ghost_reaper handles this row
+        except (PermissionError, OSError):
+            pass  # alive but no permission — include
+        results.append((name, pid))
+        logger.info(
+            "wallclock_reaper: candidate name=%s pid=%d spawned=%s",
+            name, pid, meta.get("spawned_at"),
+        )
+    return results
+
+
+async def _sweep_wallclock_exceeded(transcripts_dir: Path) -> int:
+    """SIGTERM then SIGKILL each agent past the wallclock ceiling; update rows."""
+    from routers.agents import agent_metadata, _save_agent_state
+
+    now = datetime.now(timezone.utc)
+    victims = find_wallclock_exceeded(agent_metadata, transcripts_dir, now)
+    if not victims:
+        return 0
+
+    for name, pid in victims:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            logger.info("wallclock_reaper: SIGTERM name=%s pid=%d", name, pid)
+        except (ProcessLookupError, OSError):
+            pass
+
+    await asyncio.sleep(SIGTERM_GRACE_SECONDS)
+
+    killed = 0
+    for name, pid in victims:
+        try:
+            os.kill(pid, 0)
+            os.kill(pid, signal.SIGKILL)
+            logger.info("wallclock_reaper: SIGKILL name=%s pid=%d", name, pid)
+        except (ProcessLookupError, OSError):
+            pass
+        if name in agent_metadata:
+            agent_metadata[name]["status"] = "killed"
+            agent_metadata[name]["killed_reason"] = "exceeded max wallclock"
+            killed += 1
+
+    if killed:
+        _save_agent_state()
+    return killed
+
+
+async def _do_sweep(transcripts_dir: Path) -> int:
+    """Run one sweep: delete ghost rows and kill wallclock-exceeded agents.
+
+    Returns the total count of entries deleted plus agents killed.
     """
     from routers.agents import (
         agent_metadata,
@@ -150,21 +270,20 @@ async def _do_sweep(transcripts_dir: Path) -> int:
 
     now = datetime.now(timezone.utc)
     victims = reap_ghost_agents(agent_metadata, transcripts_dir, now)
-    if not victims:
-        return 0
+    n_ghosts = 0
+    if victims:
+        for name in victims:
+            if name in agent_metadata:
+                del agent_metadata[name]
+                logger.info("ghost_reaper: deleted ghost name=%s", name)
+        _save_agent_state()
+        deleted_set = _load_deleted_agents()
+        deleted_set.update(victims)
+        _save_deleted_agents(deleted_set)
+        n_ghosts = len(victims)
 
-    for name in victims:
-        if name in agent_metadata:
-            del agent_metadata[name]
-            logger.info("ghost_reaper: deleted ghost name=%s", name)
-
-    _save_agent_state()
-
-    deleted_set = _load_deleted_agents()
-    deleted_set.update(victims)
-    _save_deleted_agents(deleted_set)
-
-    return len(victims)
+    n_wallclock = await _sweep_wallclock_exceeded(transcripts_dir)
+    return n_ghosts + n_wallclock
 
 
 async def run_forever() -> None:

@@ -1,19 +1,20 @@
-"""Tests for services.ghost_reaper.reap_ghost_agents (→922).
+"""Tests for services.ghost_reaper: reap_ghost_agents and wallclock guard.
 
-All six tests exercise the pure reap_ghost_agents() function only —
-no FastAPI app, no filesystem writes beyond tmp_path, no event loop
-required. The _do_sweep / run_forever integration is covered by the
-main-startup smoke test in test_main.py.
+The existing tests exercise the pure reap_ghost_agents() function.
+The new wallclock-guard tests cover find_wallclock_exceeded() (pure)
+and the kill+update flow in _sweep_wallclock_exceeded() (async).
 """
 from __future__ import annotations
 
+import signal
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from services.ghost_reaper import reap_ghost_agents
+from services.ghost_reaper import find_wallclock_exceeded, reap_ghost_agents
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -184,3 +185,150 @@ def test_concurrent_reap_safe(tmp_path):
     assert not errors, f"concurrent call raised: {errors}"
     assert results[0] == ["ghost-a"]
     assert results[1] == ["ghost-a"]
+
+
+# ---------------------------------------------------------------------------
+# Wallclock guard — find_wallclock_exceeded (pure function)
+# ---------------------------------------------------------------------------
+
+_WC_NOW = datetime(2026, 5, 2, 12, 0, 0, tzinfo=timezone.utc)
+_OLD_SPAWN = (_WC_NOW - timedelta(hours=7)).isoformat()   # 7 h ago — over threshold
+_NEW_SPAWN = (_WC_NOW - timedelta(hours=1)).isoformat()   # 1 h ago — under threshold
+
+
+def _wc_meta(*, pid: int = 12345, spawn: str = _OLD_SPAWN, status: str = "running") -> dict:
+    return {"source": "claude-code", "status": status, "spawned_at": spawn, "pid": pid}
+
+
+def test_wallclock_finds_old_agent(tmp_path, monkeypatch):
+    """Agent 7 h old with stale transcript appears in find_wallclock_exceeded."""
+    import os as _os
+
+    monkeypatch.setattr(_os, "kill", lambda pid, sig: None)  # pretend alive
+    reg = {"old-agent": _wc_meta()}
+    result = find_wallclock_exceeded(reg, tmp_path, _WC_NOW)
+    assert ("old-agent", 12345) in result
+
+
+def test_wallclock_skips_young_agent(tmp_path, monkeypatch):
+    """Agent only 1 h old must not appear even when transcript is absent."""
+    import os as _os
+
+    monkeypatch.setattr(_os, "kill", lambda pid, sig: None)
+    reg = {"new-agent": _wc_meta(spawn=_NEW_SPAWN)}
+    result = find_wallclock_exceeded(reg, tmp_path, _WC_NOW)
+    assert result == []
+
+
+def test_wallclock_skips_agent_with_fresh_transcript(tmp_path, monkeypatch):
+    """Old agent whose transcript was written recently is not a candidate."""
+    import os as _os
+    import time
+
+    monkeypatch.setattr(_os, "kill", lambda pid, sig: None)
+    t_path = tmp_path / "old-agent.md"
+    t_path.write_text("still active")
+    # mtime is now (within threshold), so agent should be skipped
+    result = find_wallclock_exceeded(
+        {"old-agent": _wc_meta()},
+        tmp_path,
+        _WC_NOW,
+        transcript_stale_seconds=int(time.time() - t_path.stat().st_mtime) + 3600,
+    )
+    assert result == []
+
+
+def test_wallclock_skips_dead_pid(tmp_path, monkeypatch):
+    """If PID is already dead, find_wallclock_exceeded skips it (ghost_reaper's job)."""
+    import os as _os
+
+    def fake_kill(pid, sig):
+        raise ProcessLookupError()
+
+    monkeypatch.setattr(_os, "kill", fake_kill)
+    reg = {"dead-agent": _wc_meta()}
+    result = find_wallclock_exceeded(reg, tmp_path, _WC_NOW)
+    assert result == []
+
+
+def test_wallclock_skips_non_claude_code_source(tmp_path, monkeypatch):
+    """Daemon/system entries are never touched by the wallclock guard."""
+    import os as _os
+
+    monkeypatch.setattr(_os, "kill", lambda pid, sig: None)
+    reg = {"daemon": {**_wc_meta(), "source": "daemon"}}
+    result = find_wallclock_exceeded(reg, tmp_path, _WC_NOW)
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Wallclock guard — _sweep_wallclock_exceeded (async kill + row update)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_wallclock_sweep_sigterms_and_marks_row(tmp_path, monkeypatch):
+    """Sweep sends SIGTERM, waits, then marks row status=killed."""
+    import os as _os
+    import signal as _sig
+    import routers.agents as agents_mod
+    from services.ghost_reaper import _sweep_wallclock_exceeded
+
+    fake_registry = {
+        "old-agent": {
+            "source": "claude-code",
+            "status": "running",
+            "spawned_at": _OLD_SPAWN,
+            "pid": 12345,
+        }
+    }
+
+    kills = []
+
+    def fake_kill(pid, sig):
+        kills.append((pid, sig))
+        # For signal 0 (liveness check): return normally (pretend alive).
+        # For SIGKILL: raise ProcessLookupError (died after SIGTERM).
+        if sig == _sig.SIGKILL:
+            raise ProcessLookupError()
+
+    monkeypatch.setattr(_os, "kill", fake_kill)
+    monkeypatch.setattr(agents_mod, "agent_metadata", fake_registry)
+    monkeypatch.setattr(agents_mod, "_save_agent_state", lambda: None)
+
+    with patch("services.ghost_reaper.asyncio.sleep", new_callable=AsyncMock):
+        count = await _sweep_wallclock_exceeded(tmp_path)
+
+    assert count == 1
+    assert any(sig == _sig.SIGTERM for _, sig in kills), "SIGTERM must be sent"
+    assert fake_registry["old-agent"]["status"] == "killed"
+    assert fake_registry["old-agent"]["killed_reason"] == "exceeded max wallclock"
+
+
+@pytest.mark.asyncio
+async def test_wallclock_sweep_skips_young_agent(tmp_path, monkeypatch):
+    """Sweep does not kill a 1-hour-old agent."""
+    import os as _os
+    import routers.agents as agents_mod
+    from services.ghost_reaper import _sweep_wallclock_exceeded
+
+    fake_registry = {
+        "new-agent": {
+            "source": "claude-code",
+            "status": "running",
+            "spawned_at": _NEW_SPAWN,
+            "pid": 99999,
+        }
+    }
+
+    kills = []
+    monkeypatch.setattr(_os, "kill", lambda pid, sig: kills.append((pid, sig)))
+    monkeypatch.setattr(agents_mod, "agent_metadata", fake_registry)
+    monkeypatch.setattr(agents_mod, "_save_agent_state", lambda: None)
+
+    with patch("services.ghost_reaper.asyncio.sleep", new_callable=AsyncMock):
+        count = await _sweep_wallclock_exceeded(tmp_path)
+
+    assert count == 0
+    assert not kills, "No signals sent for young agent"
+    assert fake_registry["new-agent"]["status"] == "running"
