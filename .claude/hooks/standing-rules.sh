@@ -430,4 +430,73 @@ if entries:
     rm -f "$RETRY_QUEUE" 2>/dev/null
 fi
 
+# --- Cadence injection ---
+# Computes seconds since the last assistant reply and emits a CADENCE tag
+# so the model self-corrects if it has been quiet too long. Skips silently
+# when the session JSONL cannot be located (e.g. tests, fresh sessions).
+#
+# Toggle ADHD mode (30s target): touch ~/.myos/.adhd_mode
+# Default cadence target: 60s (matching HUMANFILE rule).
+ADHD_MODE_FILE="${MYOS_ADHD_MODE_FILE:-${HOME}/.myos/.adhd_mode}"
+CADENCE_TARGET=60
+if [ -f "$ADHD_MODE_FILE" ]; then
+    CADENCE_TARGET=30
+fi
+
+SID="${CLAUDE_SESSION_ID:-}"
+PROJDIR="${CLAUDE_PROJECT_DIR:-}"
+if [ -n "$SID" ] && [ -n "$PROJDIR" ]; then
+    PROJ_KEY=$(printf '%s' "$PROJDIR" | tr '/' '-')
+    JSONL_PATH="${HOME}/.claude/projects/${PROJ_KEY}/${SID}.jsonl"
+    if [ -f "$JSONL_PATH" ]; then
+        CADENCE_OUTPUT=$(JSONL_PATH="$JSONL_PATH" CADENCE_TARGET="$CADENCE_TARGET" python3 - <<'PYEOF_CADENCE'
+import os, sys, json
+from datetime import datetime, timezone
+
+jsonl_path = os.environ.get("JSONL_PATH", "")
+cadence_target = int(os.environ.get("CADENCE_TARGET", "60"))
+
+last_ts = None
+try:
+    with open(jsonl_path, "rb") as f:
+        f.seek(0, 2)
+        file_size = f.tell()
+        read_size = min(50 * 1024, file_size)
+        f.seek(-read_size, 2)
+        tail = f.read().decode("utf-8", errors="replace")
+    for line in reversed(tail.split("\n")):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+            if d.get("type") == "assistant" and d.get("timestamp"):
+                last_ts = d["timestamp"]
+                break
+        except Exception:
+            continue
+except Exception:
+    pass
+
+if not last_ts:
+    sys.exit(0)
+
+try:
+    last_dt = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
+    now = datetime.now(timezone.utc)
+    elapsed = max(0, int((now - last_dt).total_seconds()))
+except Exception:
+    sys.exit(0)
+
+adhd_label = " (ADHD mode)" if cadence_target == 30 else ""
+warn = f" — OVERDUE by {elapsed - cadence_target}s, emit a status update NOW" if elapsed > cadence_target else ""
+print(f"\n[CADENCE: {elapsed}s since last reply, target: {cadence_target}s{adhd_label}{warn}]")
+PYEOF_CADENCE
+)
+        if [ -n "$CADENCE_OUTPUT" ]; then
+            printf '%s\n' "$CADENCE_OUTPUT"
+        fi
+    fi
+fi
+
 exit 0
