@@ -11,24 +11,6 @@ export interface ReleaseGroup {
 
 const releaseNotes: ReleaseGroup[] = [
   {
-    date: '2026-05-03',
-    label: 'May 3, 2026',
-    entries: [
-      {
-        title: '"Your feature is live" only fires once',
-        description: 'The modal that announces a finished spec used to pop twice for the same feature, and could re-appear after a demo reset. Now each completed spec shows the modal exactly once.',
-      },
-      {
-        title: 'Personal mode badge color in light theme',
-        description: 'The "Personal" pill in the sidebar was rendering as a harsh medium gray on the light-theme background. It now uses a soft slate that matches the rest of the sidebar.',
-      },
-      {
-        title: 'Auto-labeling works without an API key in Settings',
-        description: 'The smart-labeling endpoints used to refuse if no Anthropic API key was saved in Settings. Now they accept a Claude Code login as well, so anyone signed in to Claude works.',
-      },
-    ],
-  },
-  {
     date: '2026-05-02',
     label: 'May 2, 2026',
     entries: [
