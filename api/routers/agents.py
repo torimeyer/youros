@@ -4316,6 +4316,17 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             spawn_meta["prompt"] = body.prompt[:4000]
         if body.locks:
             spawn_meta["locks"] = list(body.locks)
+        # Spawn provenance: persist the three fields so GET /agents
+        # exposes them and the cancel-all guard can read user_authored.
+        if body.originating_session_id:
+            spawn_meta["originating_session_id"] = body.originating_session_id
+        if body.originating_user_message_id:
+            spawn_meta["originating_user_message_id"] = body.originating_user_message_id
+        spawn_meta["user_authored"] = (
+            bool(body.user_authored)
+            if body.user_authored is not None
+            else bool(body.originating_session_id and body.originating_user_message_id)
+        )
         agent_metadata[body.name] = spawn_meta
         _save_agent_state()
 
@@ -6199,6 +6210,16 @@ async def cancel_all_agents():
 
         # Safety gate: never cancel chat sessions.
         if source not in _BACKGROUND_SOURCES:
+            continue
+
+        # Provenance guard: never bulk-cancel an agent the user explicitly
+        # requested. user_authored=True means a human typed saa/spawned
+        # this agent; a peer session has no business killing it.
+        if meta.get("user_authored"):
+            logger.info(
+                "cancel_all.skip_user_authored name=%s originating_session=%s",
+                name, meta.get("originating_session_id", ""),
+            )
             continue
 
         # Grace period: skip agents spawned or registered within the last

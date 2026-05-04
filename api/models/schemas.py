@@ -234,6 +234,19 @@ class AgentSpawn(BaseModel):
     # to "worktree") MUST pass a non-empty, non-wildcard list or the
     # server returns HTTP 400. See services.spawn_isolation.
     locks: Optional[List[str]] = None
+    # Spawn provenance: identifies the user session and message that
+    # triggered this spawn so peer sessions can distinguish
+    # user-authored requests from autonomous hook auto-fires.
+    # Set by task-isolation-bridge.sh from CLAUDE_SESSION_ID and
+    # the tool_use_id in the hook payload. Both are nullable so
+    # existing callers that omit them keep working unchanged.
+    originating_session_id: Optional[str] = None
+    originating_user_message_id: Optional[str] = None
+    # True when the spawn was explicitly requested by a human (both
+    # originating_session_id and originating_user_message_id are
+    # present). Peer cancel-all guards check this field before
+    # cancelling an agent they did not spawn themselves.
+    user_authored: Optional[bool] = None
 
 
 class AgentNudge(BaseModel):
