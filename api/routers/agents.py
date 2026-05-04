@@ -5043,15 +5043,32 @@ async def register_agent(body: AgentSpawn, request: Request = None):
 # Directory where user-facing generated files (like roadmap.md from the
 # Roadmap template) are written. Scanned by /docs/recent so these files
 # show up on the Files page without needing to live inside the repo.
-# Dynamically resolve via services.files_dir.get_files_dir() so
-# Settings page changes take effect without a restart. Tests patch
-# this name via ``patch.object(module, "MYOS_FILES_DIR", ...)`` which
-# sets a real attribute and shadows ``__getattr__`` below.
-def __getattr__(name):  # PEP 562
-    if name == "MYOS_FILES_DIR":
+#
+# The default is ``~/.myos/files``, but the user can point this at any
+# absolute path from the Settings page. Code should call ``_files_dir()``
+# (below) rather than reading ``MYOS_FILES_DIR`` directly so that the
+# configured value wins. ``MYOS_FILES_DIR`` is kept as a module-level
+# sentinel so test suites that monkeypatch the attribute keep working.
+_DEFAULT_MYOS_FILES_DIR = Path.home() / ".myos" / "files"
+MYOS_FILES_DIR = _DEFAULT_MYOS_FILES_DIR
+
+
+def _files_dir() -> Path:
+    """Return the files directory, honoring test monkeypatches first.
+
+    Tests (conftest ``_pin_myos_files_dir_to_tmp`` and the per-test
+    ``patch.object(agents_module, "MYOS_FILES_DIR", ...)``) replace the
+    module attribute with a tmp path. When that happens we return it
+    directly. Otherwise we resolve from the user's settings via
+    :func:`services.files_dir.get_files_dir`.
+    """
+    if MYOS_FILES_DIR is not _DEFAULT_MYOS_FILES_DIR:
+        return MYOS_FILES_DIR
+    try:
         from services.files_dir import get_files_dir
         return get_files_dir()
-    raise AttributeError(name)
+    except Exception:
+        return MYOS_FILES_DIR
 
 # Minimum summary length (characters, after strip) that qualifies as a
 # real artifact. Short summaries like "Done" or "ok" would clutter the
@@ -5230,19 +5247,20 @@ def _save_agent_output_to_files(
 
     written: list[Path] = []
     try:
-        MYOS_FILES_DIR.mkdir(parents=True, exist_ok=True)
+        files_dir = _files_dir()
+        files_dir.mkdir(parents=True, exist_ok=True)
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
         slug = _slugify_agent_name(agent_name)
         timestamp = _artifact_timestamp(now)
-        target = MYOS_FILES_DIR / f"{slug}-{timestamp}.md"
+        target = files_dir / f"{slug}-{timestamp}.md"
 
         # Same-minute reruns of the same agent must not collide. Append
         # a numeric suffix until we land on a free filename. Keeps both
         # runs visible on the Files tab.
         if target.exists():
             for i in range(2, 100):
-                candidate = MYOS_FILES_DIR / f"{slug}-{timestamp}-{i}.md"
+                candidate = files_dir / f"{slug}-{timestamp}-{i}.md"
                 if not candidate.exists():
                     target = candidate
                     break
@@ -5335,7 +5353,7 @@ def _save_agent_output_to_files(
         # stable path so chat can reference "the roadmap.md" by name.
         # Keep that shortcut working alongside the timestamped copy.
         if is_roadmap:
-            roadmap_target = MYOS_FILES_DIR / "roadmap.md"
+            roadmap_target = _files_dir() / "roadmap.md"
             roadmap_front_matter = (
                 "---\n"
                 f"source: {agent_name}\n"
@@ -5433,13 +5451,13 @@ def _retroactively_save_agent_summaries(limit: int = 50) -> int:
         return 0
 
     try:
-        MYOS_FILES_DIR.mkdir(parents=True, exist_ok=True)
+        _files_dir().mkdir(parents=True, exist_ok=True)
     except Exception:
         return 0
 
     existing_slugs: set[str] = set()
     try:
-        for p in MYOS_FILES_DIR.glob("*.md"):
+        for p in _files_dir().glob("*.md"):
             existing_slugs.add(p.stem)
     except Exception:
         pass
@@ -5486,7 +5504,7 @@ def _retroactively_save_agent_summaries(limit: int = 50) -> int:
         target_stem = f"{slug}-{timestamp}"
         if target_stem in existing_slugs:
             continue
-        target = MYOS_FILES_DIR / f"{target_stem}.md"
+        target = _files_dir() / f"{target_stem}.md"
         if target.exists():
             continue
 

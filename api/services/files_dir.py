@@ -1,29 +1,63 @@
-"""Resolve the user-facing files directory.
+"""Resolve the user-configured "files" directory.
 
-A single source of truth so callers do not hard-code
-``Path.home() / ".myos" / "files"``. If the user has set
-``settings.files_dir`` via the Settings page, that wins; otherwise we
-fall back to the default under the user's home directory.
+User-facing artifacts (roadmap.md, automation outputs, fleet output .md
+files) live in a single directory that the Files tab scans. Historically
+this was hardcoded to ``~/.myos/files``. The ``files_dir`` setting on
+the Settings page now lets the user point this at any absolute path.
+
+Callers use :func:`get_files_dir`. It reads the configured value from
+the settings store (falling back to the default) and caches the result
+for the process lifetime until :func:`invalidate_files_dir_cache` is
+called. The settings router invalidates on every PUT so a change takes
+effect immediately without a server restart.
 """
+from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
-from services.settings_store import settings_store
+_DEFAULT_FILES_DIR = Path.home() / ".myos" / "files"
+
+# Cached resolved path so repeated calls in a single request are cheap.
+# ``None`` means "not cached yet".
+_cached: Optional[Path] = None
 
 
-DEFAULT_FILES_DIR = Path.home() / ".myos" / "files"
+def _resolve_from_settings() -> Path:
+    """Read ``files_dir`` from the settings store, falling back to default."""
+    try:
+        from services.settings_store import settings_store
+        value = settings_store.get("files_dir")
+    except Exception:
+        value = None
+    if isinstance(value, str) and value.strip():
+        return Path(value).expanduser()
+    return _DEFAULT_FILES_DIR
 
 
 def get_files_dir() -> Path:
-    """Return the directory where user-visible files live.
+    """Return the directory where user-facing files live.
 
-    Reads ``settings.files_dir`` at call-time so changes via the
-    Settings page take effect without a restart.
+    Resolves from the settings store once per process (or until
+    :func:`invalidate_files_dir_cache` is called) and falls back to
+    ``~/.myos/files`` when the setting is unset.
     """
-    configured = settings_store.get("files_dir")
-    if configured:
-        try:
-            return Path(str(configured)).expanduser()
-        except Exception:
-            return DEFAULT_FILES_DIR
-    return DEFAULT_FILES_DIR
+    global _cached
+    if _cached is None:
+        _cached = _resolve_from_settings()
+    return _cached
+
+
+def invalidate_files_dir_cache() -> None:
+    """Drop the cached value so the next ``get_files_dir`` re-reads settings.
+
+    The settings router calls this after every successful PUT so a user
+    change to ``files_dir`` is picked up immediately.
+    """
+    global _cached
+    _cached = None
+
+
+def default_files_dir() -> Path:
+    """The hardcoded default, for callers that need to show it in the UI."""
+    return _DEFAULT_FILES_DIR

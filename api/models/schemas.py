@@ -149,6 +149,11 @@ class Settings(BaseModel):
     # every chat, agent spawn, and task follows. Prepended to the system
     # prompt in chat and to the agent prompt at spawn time. Empty by default.
     standing_instructions: str = ""
+    # Absolute path to the directory where user-facing files (roadmap.md,
+    # automation outputs, etc.) live. When None/empty, the backend uses
+    # the default ``~/.myos/files``. Users can point this at another
+    # folder (e.g. a Dropbox-synced location) from the Settings page.
+    files_dir: Optional[str] = None
     # Wall-clock cap (in seconds) applied to each builder subagent spawned
     # when the user presses Build it on a spec. Default of 600 (10 minutes)
     # gives a normal run enough headroom for real work. Power users can

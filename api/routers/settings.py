@@ -73,6 +73,14 @@ async def update_settings(body: dict):
     if "mcp_servers" in body:
         _validate_mcp_servers(body["mcp_servers"])
     settings_store.save(body)
+    # Drop any cached files_dir so a change to the user's files
+    # location takes effect on the very next request without needing
+    # a server restart.
+    try:
+        from services.files_dir import invalidate_files_dir_cache
+        invalidate_files_dir_cache()
+    except Exception:
+        pass
     return {"result": "saved"}
 
 
@@ -102,6 +110,11 @@ async def patch_settings(body: dict, request: Request = None):
             ua[:80],
         )
     settings_store.update(body)
+    try:
+        from services.files_dir import invalidate_files_dir_cache
+        invalidate_files_dir_cache()
+    except Exception:
+        pass
     try:
         from services.tracing import trace_event as _trace_event
         _trace_event("settings_patch", keys=list(body.keys()))
