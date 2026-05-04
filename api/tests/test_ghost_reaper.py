@@ -297,7 +297,7 @@ async def test_wallclock_sweep_sigterms_and_marks_row(tmp_path, monkeypatch):
     monkeypatch.setattr(agents_mod, "_save_agent_state", lambda: None)
 
     with patch("services.ghost_reaper.asyncio.sleep", new_callable=AsyncMock):
-        count = await _sweep_wallclock_exceeded(tmp_path)
+        count = await _sweep_wallclock_exceeded(tmp_path, _now=_WC_NOW)
 
     assert count == 1
     assert any(sig == _sig.SIGTERM for _, sig in kills), "SIGTERM must be sent"
@@ -327,7 +327,7 @@ async def test_wallclock_sweep_skips_young_agent(tmp_path, monkeypatch):
     monkeypatch.setattr(agents_mod, "_save_agent_state", lambda: None)
 
     with patch("services.ghost_reaper.asyncio.sleep", new_callable=AsyncMock):
-        count = await _sweep_wallclock_exceeded(tmp_path)
+        count = await _sweep_wallclock_exceeded(tmp_path, _now=_WC_NOW)
 
     assert count == 0
     assert not kills, "No signals sent for young agent"

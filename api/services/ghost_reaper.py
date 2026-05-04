@@ -220,11 +220,14 @@ def find_wallclock_exceeded(
     return results
 
 
-async def _sweep_wallclock_exceeded(transcripts_dir: Path) -> int:
+async def _sweep_wallclock_exceeded(
+    transcripts_dir: Path,
+    _now: Optional[datetime] = None,
+) -> int:
     """SIGTERM then SIGKILL each agent past the wallclock ceiling; update rows."""
     from routers.agents import agent_metadata, _save_agent_state
 
-    now = datetime.now(timezone.utc)
+    now = _now if _now is not None else datetime.now(timezone.utc)
     victims = find_wallclock_exceeded(agent_metadata, transcripts_dir, now)
     if not victims:
         return 0

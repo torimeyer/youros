@@ -113,6 +113,30 @@ def find_transcript(name: str, repo_root: Optional[Path] = None) -> Optional[Pat
         except OSError:
             pass
 
+    # 1b. Worktree-project top-level JSONL (bridge-spawned agents).
+    # Bridge-spawned agents run as independent claude-code sessions inside
+    # their worktree. Their transcript lives at
+    #   ~/.claude/projects/<worktree-label>/<session>.jsonl
+    # — NOT in the parent session's subagents/ dir. The project dir name
+    # is derived from the worktree path, which always contains the agent
+    # name (e.g. "-Users-...-agent-port-release-notes-...-to-9962ff").
+    # Scan all project dirs that contain the agent name to find these.
+    # Root cause: port-release-notes-ux-bundle-to-9962ff (2026-05-04) —
+    # find_transcript returned None for a worktree agent that was actively
+    # writing to its transcript, so only the 900s spawn-age ceiling fired.
+    try:
+        claude_projects = _claude_projects_dir()
+        if claude_projects.exists():
+            for proj_dir in claude_projects.iterdir():
+                if not proj_dir.is_dir():
+                    continue
+                if name not in proj_dir.name:
+                    continue
+                for f in proj_dir.glob("*.jsonl"):
+                    _check_newer(f)
+    except OSError:
+        pass
+
     # 2. Tasks output files.
     tasks_project_dir = _tasks_root() / label
     if tasks_project_dir.exists():
