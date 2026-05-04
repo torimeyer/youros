@@ -83,27 +83,12 @@ async def notify_active_websockets_of_shutdown(
             pass
 
 # Where roadmap .md files land. Same directory the Files tab scans. Kept
-# as a module-level constant so tests can monkeypatch it onto a tmp_path;
-# production code should call ``_files_dir()`` so the user-configured
-# Files location (from Settings) wins over the default.
-_DEFAULT_MYOS_FILES_DIR = Path.home() / ".myos" / "files"
-MYOS_FILES_DIR = _DEFAULT_MYOS_FILES_DIR
-
-
-def _files_dir() -> Path:
-    """Return the configured files directory.
-
-    When tests monkeypatch the module-level ``MYOS_FILES_DIR`` to a tmp
-    path we honor that override. Otherwise we resolve from the user's
-    Settings via :func:`services.files_dir.get_files_dir`.
-    """
-    if MYOS_FILES_DIR is not _DEFAULT_MYOS_FILES_DIR:
-        return MYOS_FILES_DIR
-    try:
+# as a module-level constant so tests can monkeypatch it onto a tmp_path.
+def __getattr__(name):  # PEP 562: resolve MYOS_FILES_DIR at call-time
+    if name == "MYOS_FILES_DIR":
         from services.files_dir import get_files_dir
         return get_files_dir()
-    except Exception:
-        return MYOS_FILES_DIR
+    raise AttributeError(name)
 
 # Phrases that route to the "create tasks from this roadmap" handler.
 # Matched case-insensitively against the full user message (after strip).
@@ -147,7 +132,7 @@ def _latest_roadmap_path() -> Optional[Path]:
     ``roadmap-*.md`` or any file whose front matter declares
     ``kind: roadmap``.
     """
-    base = _files_dir()
+    base = MYOS_FILES_DIR
     if not base.exists():
         return None
 

@@ -36,23 +36,11 @@ logger = logging.getLogger(__name__)
 # Where user-facing automation outputs land. The Files tab's
 # ``/docs/recent`` endpoint already scans this directory, so anything
 # written here shows up automatically.
-#
-# Production code should call :func:`_files_dir` so the user-configured
-# Files location from Settings wins over the default. The module-level
-# constant is kept so tests that monkeypatch it keep working.
-_DEFAULT_MYOS_FILES_DIR = Path.home() / ".myos" / "files"
-MYOS_FILES_DIR = _DEFAULT_MYOS_FILES_DIR
-
-
-def _files_dir() -> Path:
-    """Return the configured files directory (user setting or default)."""
-    if MYOS_FILES_DIR is not _DEFAULT_MYOS_FILES_DIR:
-        return MYOS_FILES_DIR
-    try:
+def __getattr__(name):  # PEP 562: resolve MYOS_FILES_DIR at call-time
+    if name == "MYOS_FILES_DIR":
         from services.files_dir import get_files_dir
         return get_files_dir()
-    except Exception:
-        return MYOS_FILES_DIR
+    raise AttributeError(name)
 
 # Minimum characters (after strip) that qualify as a real output. Under
 # this bar we treat the run as an acknowledgment, not an artifact.
@@ -327,7 +315,7 @@ def write_output(
     if _is_infra_noise(name) and not is_fleet_member:
         return None
 
-    target_dir = Path(files_dir) if files_dir is not None else _files_dir()
+    target_dir = Path(files_dir) if files_dir is not None else MYOS_FILES_DIR
 
     if next_steps is None:
         next_steps = parse_next_steps(body)
