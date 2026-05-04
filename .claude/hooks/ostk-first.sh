@@ -1,4 +1,6 @@
 #!/bin/bash
+HOOK_NAME=$(basename "$0")
+trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # Block native file/shell tools whenever ostk is up.
 # Exit 2 returns the message to Claude, who must retry with ostk.
 #

@@ -1,4 +1,6 @@
 #!/bin/bash
+HOOK_NAME=$(basename "$0")
+trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # Hook: PreToolUse on mcp__ostk__needle
 #
 # Blocks needle creation when the title is garbage, the priority is

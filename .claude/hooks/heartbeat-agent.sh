@@ -1,4 +1,6 @@
 #!/bin/bash
+HOOK_NAME=$(basename "$0")
+trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL_NAME:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # Hook: send a heartbeat for this Claude Code session whenever a tool
 # runs. Keeps the session's agent record "running" across backend
 # restarts (within the 15 minute stale window).

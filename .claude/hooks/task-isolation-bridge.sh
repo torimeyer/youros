@@ -1,4 +1,6 @@
 #!/bin/bash
+HOOK_NAME=$(basename "$0")
+trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # Hook: Task-tool isolation bridge.
 #
 # Closes needles →915 and →916. Claude Code's native Task/Agent tool

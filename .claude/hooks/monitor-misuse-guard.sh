@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+HOOK_NAME=$(basename "$0")
+trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # PreToolUse hook: blocks Monitor misuse as a file-read substitute.
 # Streaming commands (tail -f, inotifywait -m, while-true loops) pass through.
 # One-shot file I/O (open/read heredocs, bare cat/head/tail) is blocked.

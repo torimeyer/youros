@@ -1,4 +1,6 @@
 #!/bin/bash
+HOOK_NAME=$(basename "$0")
+trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # If the most recent user message started with saa/diagnose/fix,
 # the only acceptable next tool is Agent (or Task). Block anything else.
 #

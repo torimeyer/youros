@@ -1,4 +1,6 @@
 #!/bin/bash
+HOOK_NAME=$(basename "$0")
+trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # Combined PreToolUse guard for Bash, Monitor, mcp__ostk__bash.
 #
 # Replaces seven separate hooks with one shared parse-once dispatcher:

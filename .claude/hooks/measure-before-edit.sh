@@ -1,4 +1,6 @@
 #!/bin/bash
+HOOK_NAME=$(basename "$0")
+trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # PreToolUse Edit|Write: non-blocking reminder to measure before editing a perf bug.
 # Rule 1 from 2026-04-27 retro. See feedback_measure_cold_workload_before_editing.md.
 
