@@ -178,11 +178,29 @@ if [ -z "$SPAWN_NAME" ]; then
     SPAWN_NAME="task-bridge-$$"
 fi
 
+# Provenance: CLAUDE_SESSION_ID is injected by the harness into every
+# hook's environment. tool_use_id in the payload identifies the specific
+# user turn that triggered this Agent call. Together they let the backend
+# tag the row as user_authored so peer cancel-all calls skip it.
+ORIG_SESSION_ID="${CLAUDE_SESSION_ID:-}"
+ORIG_MSG_ID=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
+import os, json, sys
+raw = os.environ.get("INPUT_JSON", "")
+try:
+    d = json.loads(raw or "{}")
+except Exception:
+    sys.exit(0)
+print((d.get("tool_use_id") or "").strip())
+PY
+)
+
 # Build the spawn body. We pin isolation:"worktree" and source tag so
 # downstream agent-list filters can distinguish bridge spawns from
 # direct REST spawns.
 BODY=$(SPAWN_NAME="$SPAWN_NAME" DESCRIPTION="$DESCRIPTION" PROMPT="$PROMPT" \
-        SUBAGENT="$SUBAGENT" python3 <<'PY' 2>/dev/null
+        SUBAGENT="$SUBAGENT" \
+        ORIG_SESSION_ID="$ORIG_SESSION_ID" ORIG_MSG_ID="${ORIG_MSG_ID:-}" \
+        python3 <<'PY' 2>/dev/null
 import os, json, re
 prompt = os.environ.get("PROMPT") or ""
 desc = os.environ.get("DESCRIPTION") or ""
@@ -201,6 +219,8 @@ if em:
             locks.add(part)
 
 
+orig_session = os.environ.get("ORIG_SESSION_ID") or ""
+orig_msg = os.environ.get("ORIG_MSG_ID") or ""
 body = {
     "name": os.environ["SPAWN_NAME"],
     "prompt": prompt or desc,
@@ -209,7 +229,12 @@ body = {
     "status": "running",
     "isolation": "worktree",
     "locks": sorted(locks),
+    "user_authored": bool(orig_session and orig_msg),
 }
+if orig_session:
+    body["originating_session_id"] = orig_session
+if orig_msg:
+    body["originating_user_message_id"] = orig_msg
 sub = os.environ.get("SUBAGENT") or ""
 if sub:
     body["subagent_type"] = sub
