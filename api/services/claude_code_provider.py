@@ -272,12 +272,22 @@ async def is_claude_code_available(force: bool = False) -> bool:
                 result = False
             else:
                 api_provider = str(status.get("apiProvider", "")).lower()
-                subscription = str(status.get("subscriptionType", "")).lower()
+                subscription_raw = status.get("subscriptionType")
+                subscription = str(subscription_raw or "").lower()
                 logged_in = bool(status.get("loggedIn", False))
+                # A null subscriptionType is returned by some CLI versions when
+                # the user is logged in via claude.ai. First-party auth and
+                # loggedIn is sufficient evidence of subscription access; we do
+                # not require a specific non-null tier so we never accidentally
+                # fall through to API-key billing for a signed-in user.
+                subscription_ok = (
+                    subscription in ALLOWED_SUBSCRIPTION_TYPES
+                    or not subscription  # null / empty → OK when first-party
+                )
                 result = (
                     logged_in
                     and api_provider == "firstparty"
-                    and subscription in ALLOWED_SUBSCRIPTION_TYPES
+                    and subscription_ok
                 )
     except Exception:
         # Never let detection throw. A bad detection just means we fall

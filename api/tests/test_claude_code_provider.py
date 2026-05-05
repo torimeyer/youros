@@ -251,6 +251,67 @@ class TestDetector:
 
         assert call_count["n"] == 2
 
+    @pytest.mark.asyncio
+    async def test_returns_true_for_null_subscription_type_firstparty(self):
+        """A claude.ai sign-in often returns subscriptionType: null.
+
+        Being first-party + logged in is sufficient evidence of subscription
+        access. We must not fall through to API-key billing in this case.
+        """
+        payload = {
+            "loggedIn": True,
+            "authMethod": "claude.ai",
+            "apiProvider": "firstParty",
+            "subscriptionType": None,
+        }
+        with patch(
+            "services.claude_code_provider._find_claude_binary",
+            return_value="/usr/local/bin/claude",
+        ), patch(
+            "services.claude_code_provider._run_auth_status",
+            new=AsyncMock(return_value=payload),
+        ):
+            clear_detection_cache()
+            assert await is_claude_code_available() is True
+
+    @pytest.mark.asyncio
+    async def test_returns_true_for_empty_string_subscription_type_firstparty(self):
+        """Empty-string subscriptionType (another edge case from some CLI builds)
+        must also be treated as subscription-present when first-party + logged in."""
+        payload = {
+            "loggedIn": True,
+            "apiProvider": "firstParty",
+            "subscriptionType": "",
+        }
+        with patch(
+            "services.claude_code_provider._find_claude_binary",
+            return_value="/usr/local/bin/claude",
+        ), patch(
+            "services.claude_code_provider._run_auth_status",
+            new=AsyncMock(return_value=payload),
+        ):
+            clear_detection_cache()
+            assert await is_claude_code_available() is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_for_null_subscription_type_non_firstparty(self):
+        """Null subscriptionType with a non-firstParty apiProvider must NOT be
+        treated as subscription-present — the user might only have an API key."""
+        payload = {
+            "loggedIn": True,
+            "apiProvider": "anthropic",
+            "subscriptionType": None,
+        }
+        with patch(
+            "services.claude_code_provider._find_claude_binary",
+            return_value="/usr/local/bin/claude",
+        ), patch(
+            "services.claude_code_provider._run_auth_status",
+            new=AsyncMock(return_value=payload),
+        ):
+            clear_detection_cache()
+            assert await is_claude_code_available() is False
+
 
 # --- critical env-stripping tests ---
 
