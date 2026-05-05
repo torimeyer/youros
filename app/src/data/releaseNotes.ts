@@ -10,6 +10,21 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v3.11.1
+  {
+    date: '2026-05-04',
+    label: 'May 4, 2026',
+    entries: [
+      {
+        title: 'Gemini answers as Gemini',
+        description: 'Stronger system prompt for the Gemini chat path. Gemini now opens with "I am Gemini, Google\'s AI model" when asked which AI it is, and is forbidden from describing itself as local or embedded.',
+      },
+      {
+        title: 'Cleaner public install',
+        description: 'Removed internal-only documents from the install. Strategy notes, internal diagnoses, and agent backup files no longer ship to colleagues.',
+      },
+    ],
+  },
   // v3.11.0
   {
     date: '2026-05-04',
