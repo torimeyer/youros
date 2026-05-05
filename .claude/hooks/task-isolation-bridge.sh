@@ -152,16 +152,48 @@ if ! printf '%s' "$HAY_CHECK" | grep -qE "$VERB_RE"; then
     exit 0
 fi
 
-# Require explicit Locks: header. Edit-capable spawns that omit it are
-# blocked outright so greedy path-extraction heuristics cannot fire.
-HAS_EXPLICIT_LOCKS=$(PROMPT="$PROMPT" DESCRIPTION="$DESCRIPTION" python3 -c "
+# Locks: header handling.
+# - Missing → auto-inject /tmp/auto-<task>.log and warn. Forgetfulness, not a footgun.
+# - Locks: [] or Locks: [*] → deny. Explicit footguns: they tell the bridge
+#   "I thought about it and this spawn writes nothing / everything," which is
+#   almost certainly wrong and breaks isolation accounting either way.
+# - Locks: [real paths] → proceed normally.
+LOCKS_STATUS=$(PROMPT="$PROMPT" DESCRIPTION="$DESCRIPTION" python3 -c "
 import os, re
 hay = os.environ.get('PROMPT','') + '\n' + os.environ.get('DESCRIPTION','')
-print('1' if re.search(r'[Ll]ocks\s*:\s*\[([^\]]*)\]', hay) else '0')
+m = re.search(r'[Ll]ocks\s*:\s*\[([^\]]*)\]', hay)
+if not m:
+    print('missing')
+else:
+    content = m.group(1).strip()
+    if not content:
+        print('empty')
+    elif content.strip() == '*':
+        print('wildcard')
+    else:
+        print('ok')
 " 2>/dev/null)
-if [ "${HAS_EXPLICIT_LOCKS:-0}" != "1" ]; then
-    deny "edit-capable spawn did not declare Locks. Add a header like \`Locks: [path/one.py, path/two.tsx]\` at the top of the prompt naming only files this agent will write. Reads do not need locks."
-fi
+
+case "${LOCKS_STATUS:-missing}" in
+    empty|wildcard)
+        deny "edit-capable spawn declared \`Locks: []\` or \`Locks: [*]\`. Name only the specific files this agent will write, e.g. \`Locks: [/tmp/my-task.log]\`."
+        ;;
+    missing)
+        AUTO_LOCK=$(DESCRIPTION="$DESCRIPTION" PROMPT="$PROMPT" python3 -c "
+import os, re
+desc = os.environ.get('DESCRIPTION','') or os.environ.get('PROMPT','')[:40]
+base = re.sub(r'[^a-z0-9-]', '-', desc.lower().replace(' ','-'))[:32]
+base = re.sub(r'-+', '-', base).strip('-') or 'task'
+print(f'/tmp/auto-{base}.log')
+" 2>/dev/null)
+        AUTO_LOCK="${AUTO_LOCK:-/tmp/auto-task.log}"
+        echo "task-isolation-bridge: no Locks header found -- auto-injecting \`Locks: [${AUTO_LOCK}]\`. Add a Locks header to your spawn prompt to silence this warning." >&2
+        PROMPT="Locks: [${AUTO_LOCK}]
+${PROMPT}"
+        ;;
+    ok)
+        : ;;
+esac
 
 # At this point we know the prompt looks edit-capable. Route it
 # through the REST spawn path. Generate a stable-ish name from the
