@@ -1,5 +1,8 @@
 #!/bin/bash
 HOOK_NAME=$(basename "$0")
+_DENY_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+source "${_DENY_DIR}/.claude/hooks/lib/deny.sh"
+init_deny_traps
 trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # Combined PreToolUse guard for Bash, Monitor, mcp__ostk__bash.
 #
@@ -73,23 +76,15 @@ for m in strict.finditer(cmd):
 PY
 )
     if [ -n "$OFFENDER" ]; then
-        echo "Blocked: \`${OFFENDER}=\` assigns to a zsh read-only variable." >&2
-        echo "" >&2
-        echo "zsh declares \`${OFFENDER}\` read-only at startup. Assigning to it" >&2
-        echo "crashes the script immediately with \"read-only variable: ${OFFENDER}\"" >&2
-        echo "before any output is produced." >&2
-        echo "" >&2
         case "$OFFENDER" in
-          status)     echo "  Replace: status=\$(...)   with: exit_status=\$(...) or result=\$(...)" >&2 ;;
-          path)       echo "  Replace: path=...         with: dir_path=... or target_path=..." >&2 ;;
-          pipestatus) echo "  Replace: pipestatus=...   with: pipe_rc=... or pipe_codes=..." >&2 ;;
-          prompt)     echo "  Replace: prompt=...       with: user_prompt=... or input_prompt=..." >&2 ;;
-          argv)       echo "  Replace: argv=...         with: cli_args=... or args_arr=..." >&2 ;;
-          *)          echo "  Replace: ${OFFENDER}=...  with: my_${OFFENDER}=... or ${OFFENDER}_val=..." >&2 ;;
+          status)     _HINT="Replace: status=\$(...) with: exit_status=\$(...) or result=\$(...)" ;;
+          path)       _HINT="Replace: path=... with: dir_path=... or target_path=..." ;;
+          pipestatus) _HINT="Replace: pipestatus=... with: pipe_rc=... or pipe_codes=..." ;;
+          prompt)     _HINT="Replace: prompt=... with: user_prompt=... or input_prompt=..." ;;
+          argv)       _HINT="Replace: argv=... with: cli_args=... or args_arr=..." ;;
+          *)          _HINT="Replace: ${OFFENDER}=... with: my_${OFFENDER}=... or ${OFFENDER}_val=..." ;;
         esac
-        echo "" >&2
-        echo "zsh reserved names: status pipestatus path cdpath fpath manpath prompt psvar argv signals options" >&2
-        exit 2
+        deny "\`${OFFENDER}=\` assigns to a zsh read-only variable. zsh declares \`${OFFENDER}\` read-only at startup; assigning crashes with 'read-only variable: ${OFFENDER}' before any output. $_HINT (reserved: status pipestatus path cdpath fpath manpath prompt psvar argv signals options)"
     fi
     ;;
 esac
@@ -112,10 +107,7 @@ if echo "$CMD" | grep -q curl; then
         *scripts/*|*bash\ *scripts*|*\.sh*) : ;;
         *)
             if ! echo "$CMD" | grep -qE '\-\-connect-timeout|\-m [0-9]|--max-time'; then
-                echo "Blocked: curl without --connect-timeout." >&2
-                echo "Add --connect-timeout 3 -m 5 (or shorter) to prevent hangs." >&2
-                echo "Command: $CMD" >&2
-                exit 2
+                deny "curl without --connect-timeout. Add --connect-timeout 3 -m 5 (or shorter) to prevent hangs. Command: $CMD"
             fi
             ;;
     esac
@@ -128,11 +120,7 @@ fi
 if [ -n "$PROJ_DIR" ] && [ -f "$PROJ_DIR/scripts/dev-backend.sh" ]; then
     case "$CMD" in
         *npm\ run\ dev*|*pnpm\ run\ dev*|*yarn\ dev*)
-            echo "Blocked: do not use npm/pnpm/yarn run dev." >&2
-            echo "Use scripts/dev-backend.sh and scripts/dev-frontend.sh instead." >&2
-            echo "npm run dev forks a child process that survives kill signals," >&2
-            echo "leaving zombie listeners on port 3010." >&2
-            exit 2
+            deny "do not use npm/pnpm/yarn run dev. Use scripts/dev-backend.sh and scripts/dev-frontend.sh instead. npm run dev forks a child process that survives kill signals, leaving zombie listeners on port 3010."
             ;;
     esac
 fi
@@ -148,9 +136,7 @@ if [ -n "$PROJ_DIR" ] && [ -f "$PROJ_DIR/scripts/run-vitest.sh" ]; then
             if [[ "$CMD" =~ ^[[:space:]]*(pgrep|ps|lsof|kill[[:space:]]+-0)[[:space:]] ]]; then
                 : # process probes are safe
             elif [[ "$CMD" =~ (^|[[:space:]\|\;\&\(])(vitest|npx[[:space:]]+vitest|pnpm[[:space:]]+(test|vitest)|npm[[:space:]]+(test|run[[:space:]]+vitest)|yarn[[:space:]]+(test|vitest))([[:space:]]|$) ]]; then
-                echo "Blocked: use scripts/run-vitest.sh instead of bare vitest." >&2
-                echo "Bare vitest commands can spawn orphan worker storms." >&2
-                exit 2
+                deny "use scripts/run-vitest.sh instead of bare vitest. Bare vitest commands can spawn orphan worker storms."
             fi
             ;;
     esac
@@ -167,9 +153,7 @@ case "$CMD" in
             /tmp/*|/private/tmp/*) : ;;
             http://*|https://*) : ;;
             *.py|*.ts|*.tsx|*.js|*.jsx|*.sh|*.json|*.yaml|*.yml|*.toml|*.css|*.scss|*.cfg|*.ini|*.env)
-                echo "Blocked: do not auto-open source files ($FILE)." >&2
-                echo "Only open generated reports, PDFs, images, or HTML output." >&2
-                exit 2
+                deny "do not auto-open source files ($FILE). Only open generated reports, PDFs, images, or HTML output."
                 ;;
         esac
         ;;
@@ -186,11 +170,7 @@ case "$CMD" in
             *git\ commit*)
                 DECISIONS="${DECISIONS_PATH:-.ostk/decisions.jsonl}"
                 if [ ! -f "$DECISIONS" ]; then
-                    echo "MYOS_SKIP_HOOK=1 requires a recent \`ostk decide\` entry tagged skip-hook explaining why." >&2
-                    echo "No decisions file found at: $DECISIONS" >&2
-                    echo "Run: ostk decide key=skip-hook-<short-reason> value=skip reason=\"...why...\"" >&2
-                    echo "Then retry." >&2
-                    exit 2
+                    deny "MYOS_SKIP_HOOK=1 requires a recent \`ostk decide\` entry tagged skip-hook. No decisions file found at: $DECISIONS. Run: ostk decide key=skip-hook-<short-reason> value=skip reason=\"...why...\""
                 fi
                 NOW=$(date +%s)
                 CUTOFF=$((NOW - 600))
@@ -234,10 +214,7 @@ print("no")
 PY
 )
                 if [ "$FOUND" != "yes" ]; then
-                    echo "MYOS_SKIP_HOOK=1 requires a recent \`ostk decide\` entry tagged skip-hook explaining why." >&2
-                    echo "Run: ostk decide key=skip-hook-<short-reason> value=skip reason=\"...why...\"" >&2
-                    echo "Then retry within 10 minutes." >&2
-                    exit 2
+                    deny "MYOS_SKIP_HOOK=1 requires a recent \`ostk decide\` entry tagged skip-hook. No matching entry found within 10 minutes. Run: ostk decide key=skip-hook-<short-reason> value=skip reason=\"...why...\""
                 fi
                 ;;
         esac
@@ -268,30 +245,21 @@ if m2:
     print(m2.group(1))
 ' 2>/dev/null)
                 if [ -z "$LABEL" ]; then
-                    echo "Blocked: git stash without a label." >&2
-                    echo "Bare \`git stash\` uses the HEAD commit subject, making stashes impossible to identify later." >&2
-                    echo "Use: git stash push -m \"<descriptive-label>\"  (at least 6 characters, not starting with \"WIP on \")" >&2
-                    exit 2
+                    deny "git stash without a label. Bare \`git stash\` uses the HEAD commit subject, making stashes impossible to identify. Use: git stash push -m \"<descriptive-label>\" (at least 6 characters, not starting with \"WIP on \")"
                 fi
                 LABEL_LEN=${#LABEL}
                 if [ "$LABEL_LEN" -lt 6 ]; then
-                    echo "Blocked: stash label \"$LABEL\" is too short ($LABEL_LEN chars, need >=6)." >&2
-                    echo "Use: git stash push -m \"<descriptive-label>\"  (at least 6 characters)" >&2
-                    exit 2
+                    deny "stash label \"$LABEL\" is too short ($LABEL_LEN chars, need >=6). Use: git stash push -m \"<descriptive-label>\" (at least 6 characters)"
                 fi
                 case "$LABEL" in
                     "WIP on "*)
-                        echo "Blocked: stash label starts with \"WIP on \", which is what bare git stash generates automatically." >&2
-                        echo "Use a descriptive label instead: git stash push -m \"<what you are stashing and why>\"" >&2
-                        exit 2
+                        deny "stash label starts with \"WIP on \", which is what bare git stash generates automatically. Use a descriptive label: git stash push -m \"<what you are stashing and why>\""
                         ;;
                 esac
                 FIRST_WORD=$(echo "$LABEL" | awk '{print tolower($1)}')
                 case "$FIRST_WORD" in
                     temp|tmp|baseline|wip|scratch|test|misc|stuff|x|fix)
-                        echo "Blocked: stash label \"$LABEL\" starts with a generic filler word (\"$FIRST_WORD\")." >&2
-                        echo "Use a descriptive label instead, e.g. \"drive-preview-overlay-rework\"." >&2
-                        exit 2
+                        deny "stash label \"$LABEL\" starts with a generic filler word (\"$FIRST_WORD\"). Use a descriptive label, e.g. \"drive-preview-overlay-rework\"."
                         ;;
                 esac
             fi

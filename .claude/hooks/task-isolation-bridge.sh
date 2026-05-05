@@ -1,5 +1,8 @@
 #!/bin/bash
 HOOK_NAME=$(basename "$0")
+_DENY_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+source "${_DENY_DIR}/.claude/hooks/lib/deny.sh"
+init_deny_traps
 trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # Hook: Task-tool isolation bridge.
 #
@@ -157,8 +160,7 @@ hay = os.environ.get('PROMPT','') + '\n' + os.environ.get('DESCRIPTION','')
 print('1' if re.search(r'[Ll]ocks\s*:\s*\[([^\]]*)\]', hay) else '0')
 " 2>/dev/null)
 if [ "${HAS_EXPLICIT_LOCKS:-0}" != "1" ]; then
-    printf '%s\n' 'Blocked: edit-capable spawn did not declare Locks. Add a header like `Locks: [path/one.py, path/two.tsx]` at the top of the prompt naming only files this agent will write. Reads do not need locks.' >&2
-    exit 2
+    deny "edit-capable spawn did not declare Locks. Add a header like \`Locks: [path/one.py, path/two.tsx]\` at the top of the prompt naming only files this agent will write. Reads do not need locks."
 fi
 
 # At this point we know the prompt looks edit-capable. Route it
@@ -243,8 +245,7 @@ PY
 )
 
 if [ -z "$BODY" ]; then
-    echo "Blocked: task-isolation-bridge could not build spawn body." >&2
-    exit 2
+    deny "task-isolation-bridge could not build spawn body."
 fi
 
 # Reachability probe. Short connect-timeout so a hung backend does
@@ -293,7 +294,6 @@ print(json.dumps({"name": os.environ["SPAWN_NAME"], "ts": datetime.now(timezone.
         exit 0
         ;;
     *)
-        echo "Blocked: /api/agents/spawn returned HTTP ${HTTP_CODE}." >&2
         if [ -s "$RESP_BODY" ]; then
             RESP_BODY="$RESP_BODY" python3 -c '
 import os, sys, json
@@ -309,7 +309,6 @@ except Exception:
 ' >&2 2>/dev/null
         fi
         rm -f "$RESP_BODY"
-        echo "Native Task tool would silently write to the parent checkout. Fix the backend error and retry." >&2
-        exit 2
+        deny "/api/agents/spawn returned HTTP ${HTTP_CODE}. Native Task tool would silently write to the parent checkout. Fix the backend error and retry."
         ;;
 esac

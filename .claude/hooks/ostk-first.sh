@@ -1,5 +1,8 @@
 #!/bin/bash
 HOOK_NAME=$(basename "$0")
+_DENY_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+source "${_DENY_DIR}/.claude/hooks/lib/deny.sh"
+init_deny_traps
 trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # Block native file/shell tools whenever ostk is up.
 # Exit 2 returns the message to Claude, who must retry with ostk.
@@ -105,6 +108,4 @@ case "$CMD" in
 esac
 
 trace "blocked" "$TOOL"
-echo "Blocked: use $EQ instead of $TOOL. Standing rule: ostk first." >&2
-echo "If the ostk tool is deferred, load it via ToolSearch('select:$EQ') then retry." >&2
-exit 2
+deny "use $EQ instead of $TOOL. Standing rule: ostk first. If the ostk tool is deferred, load it via ToolSearch('select:$EQ') then retry."

@@ -1,5 +1,8 @@
 #!/bin/bash
 HOOK_NAME=$(basename "$0")
+_DENY_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+source "${_DENY_DIR}/.claude/hooks/lib/deny.sh"
+init_deny_traps
 trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # If the most recent user message started with saa/diagnose/fix,
 # the only acceptable next tool is Agent (or Task). Block anything else.
@@ -29,7 +32,6 @@ MSG=$(grep '"type":"user"' "$LAST" | tail -1 | python3 -c "import sys,json;d=jso
 case "$MSG" in
   "saa "*|"diagnose "*|"fix "*)
     VERB="${MSG%% *}"
-    echo "Blocked: the user said '$VERB'. Rule: spawn a subagent via Agent, no inline work." >&2
-    exit 2 ;;
+    deny "the user said '$VERB'. Rule: spawn a subagent via Agent, no inline work." ;;
 esac
 exit 0
