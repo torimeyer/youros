@@ -769,3 +769,123 @@ def test_serialize_all_builtin_agents_round_trip():
         assert config2.tools == config.tools, f"{path.name}: tools mismatch after round-trip"
 
 
+# ---- ALIASES directive (file-level alias registration) ---------------------
+
+
+def test_aliases_empty_by_default(tmp_path):
+    """AgentfileConfig.aliases is an empty list when ALIASES is absent."""
+    af = tmp_path / "noalias.agent"
+    af.write_text("FROM auto\nPROMPT x\n")
+    config = parse_agentfile(af)
+    assert config.aliases == []
+
+
+def test_aliases_single(tmp_path):
+    """ALIASES with a single name populates the list."""
+    af = tmp_path / "agent.agent"
+    af.write_text("FROM auto\nPROMPT x\nALIASES saa\n")
+    config = parse_agentfile(af)
+    assert config.aliases == ["saa"]
+
+
+def test_aliases_comma_separated(tmp_path):
+    """ALIASES parses a comma-separated list into individual entries."""
+    af = tmp_path / "agent.agent"
+    af.write_text("FROM auto\nPROMPT x\nALIASES foo, bar, baz\n")
+    config = parse_agentfile(af)
+    assert config.aliases == ["foo", "bar", "baz"]
+
+
+def test_aliases_space_separated(tmp_path):
+    """ALIASES parses a space-separated list as well."""
+    af = tmp_path / "agent.agent"
+    af.write_text("FROM auto\nPROMPT x\nALIASES foo bar\n")
+    config = parse_agentfile(af)
+    assert config.aliases == ["foo", "bar"]
+
+
+def test_aliases_mixed_separators(tmp_path):
+    """ALIASES handles mixed comma-and-space separators."""
+    af = tmp_path / "agent.agent"
+    af.write_text("FROM auto\nPROMPT x\nALIASES foo, bar baz\n")
+    config = parse_agentfile(af)
+    assert config.aliases == ["foo", "bar", "baz"]
+
+
+def test_aliases_serialize_round_trip(tmp_path):
+    """ALIASES survives a parse -> serialize -> parse round-trip."""
+    af = tmp_path / "agent.agent"
+    af.write_text("FROM auto\nPROMPT x\nALIASES saa, sa\n")
+    config = parse_agentfile(af)
+
+    serialized = serialize_agentfile(config)
+    assert "ALIASES saa, sa" in serialized
+
+    af2 = tmp_path / "agent2.agent"
+    af2.write_text(serialized)
+    config2 = parse_agentfile(af2)
+    assert config2.aliases == ["saa", "sa"]
+
+
+def test_old_alias_pointer_still_works(tmp_path):
+    """Single-line ALIAS <name> (pointer-stub form) still parses correctly."""
+    af = tmp_path / "stub.agent"
+    af.write_text("FROM auto\nALIAS builder\n")
+    config = parse_agentfile(af)
+    assert config.alias == "builder"
+    assert config.aliases == []  # ALIAS != ALIASES
+
+
+def test_lookup_by_alias_resolves_canonical(tmp_path):
+    """get_agent_config_by_template resolves an alias to the canonical agent."""
+    from services.agentfile_parser import get_agent_config_by_template, AGENTS_DIR
+
+    # builder.agent should carry ALIASES saa and resolve to its full config.
+    config = get_agent_config_by_template("saa")
+    assert config is not None, "saa must resolve via ALIASES on builder.agent"
+    assert config.name == "builder"
+    assert len(config.acceptance_criteria) >= 1, "builder config must carry AC gates"
+    assert config.standards_path is not None, "builder config must carry standards ref"
+
+
+def test_lookup_elit_resolves_explain_plain():
+    """elit resolves to explain-plain via ALIASES on explain-plain.agent."""
+    from services.agentfile_parser import get_agent_config_by_template
+
+    config = get_agent_config_by_template("elit")
+    assert config is not None, "elit must resolve via ALIASES on explain-plain.agent"
+    assert config.name == "explain-plain"
+
+
+def test_builder_agent_has_aliases_saa():
+    """builder.agent declares ALIASES saa so personal shortcuts ship on the canonical file."""
+    from config import PROJECT_ROOT
+
+    path = PROJECT_ROOT / "agents" / "builder.agent"
+    if not path.exists():
+        pytest.skip("builder.agent not present")
+    config = parse_agentfile(path)
+    assert "saa" in config.aliases, "builder.agent must declare ALIASES saa"
+
+
+def test_explain_plain_agent_has_aliases_elit():
+    """explain-plain.agent declares ALIASES elit."""
+    from config import PROJECT_ROOT
+
+    path = PROJECT_ROOT / "agents" / "explain-plain.agent"
+    if not path.exists():
+        pytest.skip("explain-plain.agent not present")
+    config = parse_agentfile(path)
+    assert "elit" in config.aliases, "explain-plain.agent must declare ALIASES elit"
+
+
+def test_stub_files_deleted():
+    """saa.agent and elit.agent must not exist; their aliases live on canonical files."""
+    from config import PROJECT_ROOT
+
+    assert not (PROJECT_ROOT / "agents" / "saa.agent").exists(), \
+        "saa.agent should be deleted; alias is declared on builder.agent"
+    assert not (PROJECT_ROOT / "agents" / "elit.agent").exists(), \
+        "elit.agent should be deleted; alias is declared on explain-plain.agent"
+
+
