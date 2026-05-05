@@ -37,6 +37,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adhd-mode-monitor-enforcer.sh"
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/task-isolation-bridge.sh"
           }
         ]
@@ -92,6 +96,10 @@
       {
         "matcher": "Monitor",
         "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/adhd-mode-monitor-enforcer.sh"
+          },
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/monitor-misuse-guard.sh"
