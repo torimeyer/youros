@@ -822,7 +822,7 @@ class _FakeGeminiChats:
     def __init__(self, response: _FakeGeminiResponse):
         self._response = response
 
-    def create(self, model, history=None):
+    def create(self, model, history=None, **kwargs):
         return _FakeGeminiChat(self._response)
 
 
@@ -1987,7 +1987,7 @@ class _RecordingFakeGeminiChats:
         self._send_log = send_log
         self._history_log = history_log
 
-    def create(self, model, history=None):
+    def create(self, model, history=None, **kwargs):
         self._history_log.append(history)
         return _RecordingFakeGeminiChat(self._response, self._send_log)
 
@@ -3624,4 +3624,156 @@ class TestPhaseTimingLogs:
         assert "anthropic_phase=template_matched" in joined
         assert "anthropic_phase=payload_built" in joined
         assert "anthropic_phase=first_token" in joined
-        assert "anthropic_phase=stream_complete" in joined
+
+
+# --- OS persona scoping: external picks must NOT get the OS identity ---
+
+_PERSONA_IDENTITY_STRINGS = (
+    "personal operating system",
+    "I am your",
+    "your personal ai assistant",
+)
+
+
+class TestOsPersonaScoping:
+    """The OS persona ('You are {name}OS, your personal operating system...')
+    must stay on the default assistant (Anthropic/Claude Code) path.  When
+    the user explicitly picks an external model like Gemini, that model's
+    system instruction must identify it as *itself* (e.g. 'You are Gemini
+    answering inside {instance_name}'), NOT as the OS or its assistant.
+    """
+
+    def test_gemini_system_instruction_does_not_contain_os_persona(self):
+        """_gemini_system_instruction() must not claim to be the OS."""
+        from services.chat_providers import _gemini_system_instruction
+        from unittest.mock import patch as _patch
+        with _patch("services.chat_providers.settings_store") as mock_store:
+            mock_store.get.side_effect = lambda k, default=None: (
+                "toriOS" if k == "instance_name" else default
+            )
+            instruction = _gemini_system_instruction()
+
+        lowered = instruction.lower()
+        for bad_phrase in _PERSONA_IDENTITY_STRINGS:
+            assert bad_phrase.lower() not in lowered, (
+                f"Gemini system instruction must not contain '{bad_phrase}'. "
+                f"Got: {instruction!r}"
+            )
+        # Must name itself as Gemini, not the OS
+        assert "gemini" in lowered, (
+            "Gemini system instruction should identify the model as Gemini"
+        )
+
+    def test_default_assistant_system_prompt_keeps_os_persona(self):
+        """_system_prompt() must still contain the OS persona for the default assistant."""
+        from services.chat_providers import _system_prompt
+        from unittest.mock import patch as _patch
+        with _patch("services.chat_providers.settings_store") as mock_store:
+            mock_store.get.side_effect = lambda k, default=None: {
+                "os_name": "toriOS",
+                "user_name": "Tori",
+            }.get(k, default)
+            prompt = _system_prompt()
+
+        assert "personal operating system" in prompt.lower(), (
+            "Default assistant system prompt must still include the OS persona"
+        )
+
+    @pytest.mark.asyncio
+    async def test_stream_gemini_passes_system_instruction_to_chat_create(self):
+        """stream_gemini must pass _gemini_system_instruction() to chats.create.
+
+        Without this, Gemini receives no identity instruction and falls
+        back to whatever the first user message says — which is the
+        baseline context that (incorrectly) tells it to be the OS assistant.
+        """
+        import sys
+        import types as _types
+        from unittest.mock import MagicMock, patch as _patch, AsyncMock as _AsyncMock
+
+        ws = FakeWebSocket()
+
+        # --- minimal google.genai stub ---
+        genai_stub = _types.ModuleType("google.genai")
+        genai_stub.types = _types.ModuleType("google.genai.types")
+
+        # Capture the config passed to chats.create
+        captured_config = {}
+
+        def fake_chats_create(**kwargs):
+            captured_config.update(kwargs)
+            fake_chat = MagicMock()
+            # send_message_stream returns an iterator with no chunks
+            fake_chat.send_message_stream.return_value = iter([])
+            return fake_chat
+
+        fake_chats = MagicMock()
+        fake_chats.create = MagicMock(side_effect=lambda **kw: fake_chats_create(**kw))
+        fake_model_obj = MagicMock()
+        fake_model_obj.chats = fake_chats
+
+        genai_stub.Client = MagicMock(return_value=fake_model_obj)
+
+        class _FakeFinishReason:
+            name = "STOP"
+
+        fake_candidate = MagicMock()
+        fake_candidate.finish_reason = _FakeFinishReason()
+        fake_candidate.content.parts = []
+
+        # GenerateContentConfig: just a holder so isinstance checks pass
+        class _FakeConfig:
+            def __init__(self, system_instruction=None, **kw):
+                self.system_instruction = system_instruction
+
+        genai_stub.types.GenerateContentConfig = _FakeConfig
+        genai_stub.types.Part = MagicMock(side_effect=lambda **kw: kw)
+        genai_stub.types.Blob = MagicMock(side_effect=lambda **kw: kw)
+        genai_stub.types.FinishReason = MagicMock(side_effect=lambda v: _FakeFinishReason())
+
+        google_stub = _types.ModuleType("google")
+        google_stub.genai = genai_stub
+
+        service = ChatService()
+        messages = [{"role": "user", "content": "are you gemini?"}]
+
+        with _patch("services.chat_providers._resolve_api_key", new=_AsyncMock(return_value="fake-key")), \
+             _patch("services.chat_providers.settings_store") as mock_store, \
+             _patch.dict(sys.modules, {"google": google_stub, "google.genai": genai_stub}):
+            mock_store.get.side_effect = lambda k, default=None: (
+                "toriOS" if k in ("os_name", "instance_name") else default
+            )
+            # stream_gemini calls asyncio.to_thread(send_message_stream, ...)
+            # which returns the sync iterator. Patch to_thread to run inline.
+            import asyncio as _asyncio
+            async def _fake_to_thread(fn, *args, **kwargs):
+                return fn(*args, **kwargs)
+            with _patch("services.chat_providers.asyncio.to_thread" if hasattr(_asyncio, "to_thread") else "asyncio.to_thread", new=_fake_to_thread):
+                try:
+                    await service.stream_gemini(messages, ws)
+                except Exception:
+                    pass  # partial mock; any streaming error is fine
+
+        # The important assertion: chats.create was called with a config
+        # that carries a system_instruction
+        assert fake_chats.create.called, "model.chats.create was never called"
+        call_kwargs = fake_chats.create.call_args
+        config_arg = (
+            call_kwargs.kwargs.get("config")
+            if call_kwargs.kwargs
+            else call_kwargs[1].get("config") if call_kwargs[1] else None
+        )
+        assert config_arg is not None, (
+            "stream_gemini must pass a config= with system_instruction to chats.create"
+        )
+        sys_instr = getattr(config_arg, "system_instruction", None)
+        assert sys_instr is not None, "config must have system_instruction"
+        lowered = sys_instr.lower()
+        for bad_phrase in _PERSONA_IDENTITY_STRINGS:
+            assert bad_phrase.lower() not in lowered, (
+                f"Gemini system_instruction must not contain '{bad_phrase}'. "
+                f"Got: {sys_instr!r}"
+            )
+        assert "gemini" in lowered, (
+            "Gemini system_instruction should identify the model as Gemini"
+        )

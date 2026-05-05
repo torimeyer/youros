@@ -2705,7 +2705,13 @@ class ChatService:
                     "role": "model",
                     "parts": ["Got it. What would you like to know?"],
                 })
-            chat = model.chats.create(model=model_name, history=merged_history)
+            chat = model.chats.create(
+                model=model_name,
+                history=merged_history,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=_gemini_system_instruction()
+                ),
+            )
             # The google.genai SDK's streaming ``send_message_stream()``
             # returns a SYNCHRONOUS generator. Calling ``next()`` on it blocks
             # the current thread on each network read, and because this runs
