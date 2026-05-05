@@ -1,9 +1,0 @@
-# Agentfile alias. "elit" is Tori's muscle-memory name for the
-# plain-language explainer. The generic template is "explain-plain".
-# Keep this file so scripts, memory notes, and chat messages that
-# still say "elit" keep working.
-#
-# ALIAS redirects the resolver to explain-plain.agent so updates to
-# the canonical explainer flow through automatically.
-
-ALIAS explain-plain
