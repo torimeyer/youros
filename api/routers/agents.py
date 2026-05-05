@@ -6123,19 +6123,49 @@ async def recover_agent(name: str):
 
 
 @router.post("/agents/{name}/cancel")
-async def cancel_agent(name: str, body: Optional[AgentCancel] = None):
+async def cancel_agent(
+    name: str,
+    request: Request,
+    body: Optional[AgentCancel] = None,
+    force: bool = Query(False, description="Pass ?force=1 to override cross-session cancel guard"),
+):
     """Mark an agent as cancelled and terminate its subprocess if one exists.
 
     Unlike the old behaviour that only flipped metadata, this now also
     sends SIGTERM to the in-process subprocess (if any) and follows up
     with SIGKILL after a 5-second grace period so resilient processes
     do not survive a user cancel.
+
+    Cross-session guard: if the agent row carries an originating_session_id
+    that differs from the caller's X-Claude-Session-Id header, the request
+    is rejected with 403 unless ?force=1 is passed.
     """
     if name not in agent_metadata:
         raise HTTPException(
             status_code=404,
             detail=f"Agent '{name}' not found.",
         )
+
+    # Cross-session cancel guard (→959).
+    # Only fires when BOTH sides are known; legacy rows and non-Claude callers
+    # pass through unchanged for back-compat.
+    spawning_session = agent_metadata[name].get("originating_session_id")
+    caller_session = request.headers.get("X-Claude-Session-Id") if request is not None else None
+    if spawning_session and caller_session and spawning_session != caller_session:
+        if not force:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "cross-session cancel refused; pass ?force=1 to override",
+                    "spawning_session_id": spawning_session,
+                    "caller_session_id": caller_session,
+                },
+            )
+        logger.warning(
+            "cross-session cancel forced: name=%s spawning_session=%s caller_session=%s",
+            name, spawning_session, caller_session,
+        )
+
     reason = body.reason if body and body.reason else "user cancelled"
     now_iso = _now_iso()
     meta = agent_metadata[name]
