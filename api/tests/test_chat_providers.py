@@ -21,6 +21,7 @@ from services.chat_providers import (
     _ANTHROPIC_MAX_ATTEMPTS,
     _ANTHROPIC_UNAVAILABLE_MESSAGE,
     _messages_contain_images,
+    _resolve_chat_backend,
 )
 
 
@@ -3802,3 +3803,105 @@ class TestOsPersonaScoping:
         assert "gemini" in lowered, (
             "Gemini system_instruction should identify the model as Gemini"
         )
+
+
+# ---------------------------------------------------------------------------
+# _resolve_chat_backend — subscription-first default selection
+# ---------------------------------------------------------------------------
+
+
+class TestResolveDefaultBackend:
+    """Verify that subscription always wins over API-key as the default backend.
+
+    Three required behaviors:
+    1. Subscription detected + preference unset (auto) → claude_code.
+    2. No subscription + preference unset (auto) → anthropic_api fallback.
+    3. Explicit user preference always wins over detection.
+    """
+
+    @pytest.mark.asyncio
+    async def test_subscription_detected_auto_picks_claude_code(self):
+        """When subscription is available and preference is 'auto', the
+        default must be claude_code, not the API-key billing path."""
+        with patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings, patch(
+            "services.claude_code_provider.is_claude_code_available",
+            new=AsyncMock(return_value=True),
+        ):
+            mock_settings.get.side_effect = lambda key, default=None: (
+                "auto" if key == "chat_backend_preference" else default
+            )
+            result = await _resolve_chat_backend()
+        assert result == "claude_code", (
+            "Subscription detected but auto default picked API-key path. "
+            "Expected claude_code."
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_subscription_auto_falls_back_to_api_key(self):
+        """When subscription is not available and preference is 'auto', the
+        default must fall back to anthropic_api."""
+        with patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings, patch(
+            "services.claude_code_provider.is_claude_code_available",
+            new=AsyncMock(return_value=False),
+        ):
+            mock_settings.get.side_effect = lambda key, default=None: (
+                "auto" if key == "chat_backend_preference" else default
+            )
+            result = await _resolve_chat_backend()
+        assert result == "anthropic_api"
+
+    @pytest.mark.asyncio
+    async def test_explicit_claude_code_preference_wins_without_calling_detect(self):
+        """An explicit 'claude_code' preference must be honoured and detection
+        must not be called (no unnecessary subprocess cost)."""
+        detect_mock = AsyncMock(return_value=False)
+        with patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings, patch(
+            "services.claude_code_provider.is_claude_code_available",
+            new=detect_mock,
+        ):
+            mock_settings.get.side_effect = lambda key, default=None: (
+                "claude_code" if key == "chat_backend_preference" else default
+            )
+            result = await _resolve_chat_backend()
+        assert result == "claude_code"
+        detect_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_explicit_anthropic_api_preference_wins_over_subscription(self):
+        """An explicit 'anthropic_api' preference must be honoured even when
+        subscription IS available — this is the user's deliberate override."""
+        detect_mock = AsyncMock(return_value=True)
+        with patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings, patch(
+            "services.claude_code_provider.is_claude_code_available",
+            new=detect_mock,
+        ):
+            mock_settings.get.side_effect = lambda key, default=None: (
+                "anthropic_api" if key == "chat_backend_preference" else default
+            )
+            result = await _resolve_chat_backend()
+        assert result == "anthropic_api"
+        detect_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_missing_preference_treated_as_auto(self):
+        """A missing or None chat_backend_preference must behave the same as
+        'auto': prefer subscription when available."""
+        with patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings, patch(
+            "services.claude_code_provider.is_claude_code_available",
+            new=AsyncMock(return_value=True),
+        ):
+            mock_settings.get.side_effect = lambda key, default=None: (
+                None if key == "chat_backend_preference" else default
+            )
+            result = await _resolve_chat_backend()
+        assert result == "claude_code"
