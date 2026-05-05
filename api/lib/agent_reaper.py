@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -41,8 +42,9 @@ SWEEP_INTERVAL_SECONDS = 30      # check every 30 s
 STALL_THRESHOLD_SECONDS = int(os.environ.get("STALL_THRESHOLD_SECONDS", "120"))
 
 # Module-level progress snapshots for stall detection.
-# {agent_name: (last_seen_transcript_bytes, last_progress_iso)}
-_stall_snapshots: Dict[str, Tuple[int, str]] = {}
+# {agent_name: (last_seen_transcript_bytes, last_progress_iso, worktree_head_hash)}
+# worktree_head_hash is None for non-worktree agents.
+_stall_snapshots: Dict[str, Tuple[int, str, Optional[str]]] = {}
 
 
 def _parse_iso(value: object) -> Optional[datetime]:
@@ -167,6 +169,7 @@ def detect_stalled_agents(
     *,
     get_transcript_bytes: Callable[[str], int],
     stall_threshold_seconds: int = STALL_THRESHOLD_SECONDS,
+    get_worktree_head: Optional[Callable[[str, str], Optional[str]]] = None,
 ) -> List[str]:
     """Return names of alive-PID agents with no transcript or step progress.
 
@@ -182,6 +185,10 @@ def detect_stalled_agents(
         now: current UTC datetime (injectable for tests).
         get_transcript_bytes: callable(name) -> int byte count.
         stall_threshold_seconds: seconds of no progress before declaring stalled.
+        get_worktree_head: optional callable(name, worktree_path) -> HEAD hash.
+            When provided, worktree agents with a new commit since last snapshot
+            are treated as making progress and skipped. Injected for testability;
+            _do_sweep uses a subprocess-based implementation.
 
     Returns:
         List of agent names to flip to status="stalled".
@@ -207,29 +214,57 @@ def detect_stalled_agents(
         except Exception:
             t_bytes = 0
 
+        # Resolve worktree path (only for worktree-isolated agents).
+        is_worktree = meta.get("isolation") == "worktree"
+        wt_path: Optional[str] = meta.get("worktree_path") if is_worktree else None
+
         prev = _stall_snapshots.get(name)
         if prev is None:
-            # First observation: seed snapshot from spawned_at (or now) and skip.
-            seed = _parse_iso(meta.get("spawned_at")) or now
-            _stall_snapshots[name] = (t_bytes, seed.isoformat())
+            # First observation: seed from NOW (not spawned_at) so every agent
+            # gets a clean STALL_THRESHOLD_SECONDS grace window from first-seen,
+            # regardless of how long the backend took to start the sweep.
+            wt_hash: Optional[str] = None
+            if wt_path and get_worktree_head is not None:
+                try:
+                    wt_hash = get_worktree_head(name, wt_path)
+                except Exception:
+                    pass
+            _stall_snapshots[name] = (t_bytes, now.isoformat(), wt_hash)
             continue
 
-        prev_bytes, last_progress_iso = prev
+        prev_bytes, last_progress_iso, prev_wt_hash = prev
 
         if t_bytes > prev_bytes:
             # Transcript grew — progress.
-            _stall_snapshots[name] = (t_bytes, now.isoformat())
+            _stall_snapshots[name] = (t_bytes, now.isoformat(), prev_wt_hash)
             continue
 
         # Check current_step_updated_at as a secondary progress signal.
         step_ts = _parse_iso(meta.get("current_step_updated_at"))
         stored_ts = _parse_iso(last_progress_iso)
         if step_ts is not None and stored_ts is not None and step_ts > stored_ts:
-            _stall_snapshots[name] = (t_bytes, step_ts.isoformat())
+            _stall_snapshots[name] = (t_bytes, step_ts.isoformat(), prev_wt_hash)
             continue
 
-        # No growth and no step advance — update byte count but keep old time.
-        _stall_snapshots[name] = (t_bytes, last_progress_iso)
+        # Worktree commit check (tertiary progress signal for worktree agents).
+        # The claude --print subprocess produces no stdout until it finishes all
+        # tool calls, so transcript_bytes stays 0 the entire run. A new commit
+        # in the worktree proves the agent is actively working even with an empty
+        # transcript. This prevents the stall detector from firing on agents that
+        # are doing git operations (build → test → commit cycles).
+        curr_wt_hash: Optional[str] = None
+        if wt_path and get_worktree_head is not None:
+            try:
+                curr_wt_hash = get_worktree_head(name, wt_path)
+            except Exception:
+                pass
+            if curr_wt_hash and curr_wt_hash != prev_wt_hash:
+                # Worktree HEAD advanced — agent committed something.
+                _stall_snapshots[name] = (t_bytes, now.isoformat(), curr_wt_hash)
+                continue
+
+        # No growth and no step or commit advance — update byte count but keep old time.
+        _stall_snapshots[name] = (t_bytes, last_progress_iso, curr_wt_hash or prev_wt_hash)
 
         last_progress = _parse_iso(last_progress_iso)
         if last_progress is None or last_progress >= cutoff:
@@ -247,6 +282,21 @@ def detect_stalled_agents(
     return stalled
 
 
+def _worktree_head_hash(name: str, worktree_path: str) -> Optional[str]:
+    """Return the current HEAD commit hash in a worktree, or None on failure."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+    except Exception:
+        return None
+
+
 async def _do_sweep() -> int:
     """Find stuck/stalled agents and update their status. Returns count updated."""
     from routers.agents import agent_metadata, _save_agent_state, _get_transcript_metrics
@@ -257,7 +307,12 @@ async def _do_sweep() -> int:
         return _get_transcript_metrics(name).get("transcript_bytes", 0)
 
     victims = find_stuck_agents(agent_metadata, now, get_transcript_bytes=_get_bytes)
-    stalled = detect_stalled_agents(agent_metadata, now, get_transcript_bytes=_get_bytes)
+    stalled = detect_stalled_agents(
+        agent_metadata,
+        now,
+        get_transcript_bytes=_get_bytes,
+        get_worktree_head=_worktree_head_hash,
+    )
 
     if not victims and not stalled:
         return 0

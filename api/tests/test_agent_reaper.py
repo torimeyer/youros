@@ -11,7 +11,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from lib.agent_reaper import find_stuck_agents, STUCK_THRESHOLD_SECONDS, TRANSCRIPT_STUCK_BYTES
+from lib.agent_reaper import (
+    find_stuck_agents,
+    detect_stalled_agents,
+    STUCK_THRESHOLD_SECONDS,
+    STALL_THRESHOLD_SECONDS,
+    TRANSCRIPT_STUCK_BYTES,
+    _stall_snapshots,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -323,3 +330,120 @@ def test_falls_back_to_spawned_at_when_no_heartbeat():
     assert len(result) == 1
     _, error = result[0]
     assert "stuck:" in error
+
+
+# ---------------------------------------------------------------------------
+# detect_stalled_agents — worktree commit check + seed-from-now tests
+# (regression for needle-969: comprehensive build marked stalled while agent
+#  was actively doing git operations with 0-byte transcript)
+# ---------------------------------------------------------------------------
+
+_STALL_NOW = datetime(2026, 5, 5, 20, 31, 0, tzinfo=timezone.utc)
+_STALL_PAST = (_STALL_NOW - timedelta(seconds=STALL_THRESHOLD_SECONDS + 60)).isoformat()
+
+
+def _stall_meta(*, spawned_offset_s: int = 300, isolation: str = "none", worktree_path: str = "") -> dict:
+    spawned = (_STALL_NOW - timedelta(seconds=spawned_offset_s)).isoformat()
+    m: dict = {
+        "status": "running",
+        "source": "claude-code",
+        "spawned_at": spawned,
+    }
+    if isolation == "worktree":
+        m["isolation"] = "worktree"
+        m["worktree_path"] = worktree_path
+    return m
+
+
+def _run_detect(registry: dict, now: datetime, *, wt_head=None) -> list:
+    """Helper that calls detect_stalled_agents with a clean snapshot slate."""
+    _stall_snapshots.clear()
+    # Seed pass (first observation — always skips)
+    detect_stalled_agents(registry, now, get_transcript_bytes=_no_bytes, get_worktree_head=wt_head)
+    # Advance time past threshold so stall can fire on second pass
+    later = now + timedelta(seconds=STALL_THRESHOLD_SECONDS + 10)
+    return detect_stalled_agents(registry, later, get_transcript_bytes=_no_bytes, get_worktree_head=wt_head)
+
+
+class TestDetectStalledAgentsWorktreeCommit:
+    """Worktree commit progress prevents false stall (needle-969 regression)."""
+
+    def setup_method(self):
+        _stall_snapshots.clear()
+
+    def test_seeds_from_now_not_spawned_at(self):
+        """First observation seeds from `now`, giving a fresh grace window regardless of spawned_at."""
+        # Agent spawned 300s ago — if seed were spawned_at, stall would fire immediately.
+        reg = {"agent": _stall_meta(spawned_offset_s=300)}
+        _stall_snapshots.clear()
+        # First call: seeds from now, skips
+        detect_stalled_agents(reg, _STALL_NOW, get_transcript_bytes=_no_bytes)
+        # Second call immediately after: last_progress = _STALL_NOW, cutoff = _STALL_NOW - 120s
+        # → last_progress (now) >= cutoff → NOT stalled
+        result = detect_stalled_agents(reg, _STALL_NOW, get_transcript_bytes=_no_bytes)
+        assert result == [], "seed from now must give a full grace window on second pass"
+
+    def test_stalls_after_threshold_with_no_commits(self):
+        """No-worktree agent stalls after STALL_THRESHOLD_SECONDS with empty transcript."""
+        reg = {"agent": _stall_meta(spawned_offset_s=300)}
+        result = _run_detect(reg, _STALL_NOW)
+        assert "agent" in result
+
+    def test_worktree_new_commit_prevents_stall(self):
+        """A new commit in the worktree resets the stall clock."""
+        reg = {"wt-agent": _stall_meta(spawned_offset_s=300, isolation="worktree", worktree_path="/tmp/fake")}
+        _stall_snapshots.clear()
+
+        commit_counter = {"n": 0}
+
+        def get_head(name: str, path: str) -> str:
+            commit_counter["n"] += 1
+            # Return a different hash on the second call (new commit landed)
+            return "abc123" if commit_counter["n"] == 1 else "def456"
+
+        # Seed pass
+        detect_stalled_agents(reg, _STALL_NOW, get_transcript_bytes=_no_bytes, get_worktree_head=get_head)
+        # Second pass past threshold: new commit detected → should NOT stall
+        later = _STALL_NOW + timedelta(seconds=STALL_THRESHOLD_SECONDS + 10)
+        result = detect_stalled_agents(reg, later, get_transcript_bytes=_no_bytes, get_worktree_head=get_head)
+        assert result == [], "new commit in worktree must prevent stall"
+
+    def test_worktree_same_commit_stalls_after_threshold(self):
+        """No new commit AND no transcript → worktree agent still stalls eventually."""
+        reg = {"wt-agent": _stall_meta(spawned_offset_s=300, isolation="worktree", worktree_path="/tmp/fake")}
+
+        fixed_hash = {"h": "abc123"}
+
+        def get_head(name: str, path: str) -> str:
+            return fixed_hash["h"]
+
+        result = _run_detect(reg, _STALL_NOW, wt_head=get_head)
+        assert "wt-agent" in result, "unchanged worktree with empty transcript must still stall"
+
+    def test_worktree_head_getter_not_called_for_non_worktree_agents(self):
+        """get_worktree_head is not invoked for agents without isolation=worktree."""
+        reg = {"agent": _stall_meta(spawned_offset_s=300, isolation="none")}
+        calls = []
+
+        def get_head(name: str, path: str) -> str:
+            calls.append(name)
+            return "abc123"
+
+        _run_detect(reg, _STALL_NOW, wt_head=get_head)
+        assert calls == [], "get_worktree_head must not be called for non-worktree agents"
+
+    def test_transcript_growth_still_resets_clock(self):
+        """Existing transcript growth behavior is preserved alongside worktree check."""
+        call_n = {"n": 0}
+
+        def growing_bytes(name: str) -> int:
+            call_n["n"] += 1
+            return call_n["n"] * 100
+
+        reg = {"agent": _stall_meta(spawned_offset_s=300)}
+        _stall_snapshots.clear()
+        # Seed
+        detect_stalled_agents(reg, _STALL_NOW, get_transcript_bytes=growing_bytes)
+        later = _STALL_NOW + timedelta(seconds=STALL_THRESHOLD_SECONDS + 10)
+        result = detect_stalled_agents(reg, later, get_transcript_bytes=growing_bytes)
+        assert result == [], "growing transcript must prevent stall"
