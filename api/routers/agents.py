@@ -491,6 +491,15 @@ STALE_AGENT_AUTOCOMPLETE_SECONDS = 300
 # still writing output and must not be auto-completed yet.
 STALE_AGENT_TRANSCRIPT_GRACE_SECONDS = 120
 
+# How often (seconds) to write a progress marker to the transcript file while
+# a subagent process is alive but has not produced any stdout yet.  The
+# subprocess (claude-code) uses full libc buffering on non-TTY pipes, so its
+# output can stay in user-space buffers for the entire run.  The periodic
+# marker ensures transcript_bytes grows on every 30-second tick so the Agents
+# page shows a live agent instead of a stalled one.  Override in tests via
+# monkeypatch to keep suites fast.
+_TRANSCRIPT_FLUSH_INTERVAL: float = 30.0
+
 # Adaptive poll constants: agents start polling fast right after a
 # nudge (when Tori is most likely to iterate) and back off toward the
 # slow cap during quiet stretches. This gives sub-15-second latency
@@ -4157,7 +4166,28 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             at 0 bytes until the process exits (which happened with the previous
             stdout=open(file) redirect, where the subprocess's internal buffer was
             only flushed on buffer-full or process exit).
+
+            A background heartbeat task also wakes every _TRANSCRIPT_FLUSH_INTERVAL
+            seconds while the subprocess is alive and writes a progress marker to
+            tpath so transcript_bytes grows on every tick even when the subprocess
+            buffers output internally (libc full buffering on non-TTY pipes).
             """
+            _had_real_content = False
+
+            async def _heartbeat_loop() -> None:
+                while True:
+                    await asyncio.sleep(_TRANSCRIPT_FLUSH_INTERVAL)
+                    if p.returncode is not None:
+                        break
+                    try:
+                        ts = datetime.now(timezone.utc).isoformat()
+                        with open(str(tpath), "ab") as _fh:
+                            _fh.write(f"\n[heartbeat ts={ts}]\n".encode())
+                            _fh.flush()
+                    except Exception:
+                        pass
+
+            _hb_task = asyncio.create_task(_heartbeat_loop())
             try:
                 with open(str(tpath), "ab") as tfh:
                     while True:
@@ -4166,22 +4196,27 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         chunk = await p.stdout.read(4096)
                         if not chunk:
                             break
+                        _had_real_content = True
                         try:
                             tfh.write(chunk)
                             tfh.flush()
                         except Exception:
                             pass
-                # All stdout consumed. If transcript is still empty the subprocess
+                # All stdout consumed. If no real content arrived the subprocess
                 # produced no final text response. Write a diagnostic note so:
                 #   1. transcript_bytes > 0 → ghost-detection check won't fire a
                 #      false positive and mark the agent "failed" while it's alive.
                 #   2. The user sees a useful message instead of the opaque
                 #      "registered externally" stub from mark_agent_complete.
+                # Skip when heartbeat markers already grew the file — they are not
+                # "real" output and the diagnostic note still applies.
                 # This is the correct place (not _drain_stderr) because we know
                 # stdout is fully drained before checking — no race with the
                 # concurrent stderr drain task.
                 try:
-                    if not tpath.exists() or tpath.stat().st_size == 0:
+                    if not _had_real_content and (
+                        not tpath.exists() or tpath.stat().st_size == 0
+                    ):
                         _rc = getattr(p, "returncode", None)
                         _rc_str = str(_rc) if _rc is not None else "unknown"
                         with open(str(tpath), "a") as fh:
@@ -4197,6 +4232,12 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     pass
             except Exception as exc:
                 logger.warning("spawn.stdout_drain name=%s err=%s", name, exc)
+            finally:
+                _hb_task.cancel()
+                try:
+                    await asyncio.wait_for(_hb_task, timeout=1.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
 
         try:
             asyncio.create_task(
