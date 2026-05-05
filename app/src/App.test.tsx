@@ -34,8 +34,10 @@ vi.mock('./pages/Releases', () => ({ default: () => <div /> }))
 vi.mock('./pages/Adoption', () => ({ default: () => <div /> }))
 vi.mock('./pages/Workflows', () => ({ default: () => <div /> }))
 vi.mock('./pages/WorkflowBuilder', () => ({ default: () => <div /> }))
-vi.mock('./pages/ShareView', () => ({ default: () => <div /> }))
-vi.mock('./pages/InviteAccept', () => ({ default: () => <div /> }))
+vi.mock('./pages/ShareView', () => ({ default: () => <div data-testid="page-share" /> }))
+vi.mock('./pages/InviteAccept', () => ({ default: () => <div data-testid="page-invite" /> }))
+vi.mock('./pages/PrivacyPolicy', () => ({ default: () => <div /> }))
+vi.mock('./pages/AboutMyOS', () => ({ default: () => <div /> }))
 vi.mock('./pages/admin/Overview', () => ({ default: () => <div /> }))
 vi.mock('./pages/admin/Members', () => ({ default: () => <div /> }))
 vi.mock('./pages/admin/Policies', () => ({ default: () => <div /> }))
@@ -44,7 +46,8 @@ vi.mock('./pages/admin/Security', () => ({ default: () => <div /> }))
 vi.mock('./components/OnboardingWizard', () => ({ default: () => <div data-testid="onboarding" /> }))
 vi.mock('./components/Layout', async () => {
   const { Outlet } = await import('react-router-dom')
-  return { Layout: () => <Outlet /> }
+  const { Footer } = await import('./components/Footer')
+  return { Layout: () => <><Outlet /><Footer /></> }
 })
 vi.mock('./components/AdminLayout', async () => {
   const { Outlet } = await import('react-router-dom')
@@ -73,5 +76,29 @@ describe('App routing', () => {
     window.history.pushState({}, '', '/drive')
     render(<App />)
     expect(screen.getByTestId('page-drive')).toBeInTheDocument()
+  })
+
+  it('Footer is visible on an authenticated route', () => {
+    window.history.pushState({}, '', '/')
+    render(<App />)
+    expect(screen.getByTestId('footer')).toBeInTheDocument()
+  })
+
+  it('Footer is not visible on /share/:token (pre-auth, outside Layout)', () => {
+    window.history.pushState({}, '', '/share/abc123')
+    render(<App />)
+    expect(screen.queryByTestId('footer')).not.toBeInTheDocument()
+  })
+
+  it('Footer is not visible on /invite/:token (pre-auth, outside Layout)', () => {
+    window.history.pushState({}, '', '/invite/abc123')
+    render(<App />)
+    expect(screen.queryByTestId('footer')).not.toBeInTheDocument()
+  })
+
+  it('Footer is not visible on onboarding (OnboardingWizard pre-auth screen)', () => {
+    useAppStore.setState({ hydrated: true, onboarded: false })
+    render(<App />)
+    expect(screen.queryByTestId('footer')).not.toBeInTheDocument()
   })
 })
