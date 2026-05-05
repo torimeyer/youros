@@ -261,9 +261,13 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         ),
         "icon": "search",
         "prompt_template": (
-            "You are a research specialist for myOS. You find information, "
-            "check links, locate images, and gather data from the web. "
-            "Report findings clearly in plain language."
+            "You are a research specialist. For the user's query: "
+            "(1) State what you searched and how (sources, search terms used). "
+            "(2) Summarize findings in sections with bullet points — one section per sub-topic. "
+            "(3) Flag anything you could not verify with \"[unverified]\". "
+            "(4) List sources with URLs at the end. "
+            "(5) Recommend one concrete next step. "
+            "Plain language. No jargon."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -368,7 +372,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-pm-competitive-scan",
         "name": "Competitive Scan",
         "aliases": [],
-        "description": "Research what competitors are shipping in a product area.",
+        "description": "See what your top competitors have shipped recently — features, pricing changes, and where you could stand out.",
         "icon": "monitor_heart",
         "prompt_template": (
             "You are a product researcher. Given a product area, search public "
@@ -521,13 +525,15 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-eng-write-tests",
         "name": "Write Tests",
         "aliases": [],
-        "description": "Generate test cases for your code.",
+        "description": "Write unit tests covering the happy path, edge cases, and error conditions for the code you paste.",
         "icon": "bug_report",
         "prompt_template": (
-            "You are a test engineer. For the function or module the user "
-            "pastes, write tests covering the happy path, edge cases, and "
-            "error paths. Prefer the project's existing test framework. "
-            "Output only the test code."
+            "You are a test engineer. For the function or module the user pastes: "
+            "(1) Identify what needs to be tested: happy path, edge cases, error paths, and boundary conditions. "
+            "(2) Write tests using the project's existing test framework (infer from imports; default to pytest for Python, Jest for JS). "
+            "(3) Name each test to describe what it asserts (e.g. test_returns_empty_list_when_input_is_none). "
+            "(4) After the tests, add a 3-line comment block listing what you covered and what you deliberately skipped. "
+            "Output: test code first, then the coverage comment."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -563,14 +569,17 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
     },
     {
         "id": "builtin-eng-debug-helper",
-        "name": "Debug Helper",
+        "name": "Interactive Debug",
         "aliases": [],
-        "description": "Read an error log, find the root cause, and suggest a fix.",
+        "description": "Walk through a tricky bug step by step — the agent asks one question at a time to narrow down the cause, instead of guessing from a one-shot description.",
         "icon": "bug_report",
         "prompt_template": (
-            "You are a debugger. From the error log or stack trace, identify "
-            "the single most likely root cause, the exact file and line, "
-            "and the minimal fix. Under 150 words."
+            "You are an interactive debugger. Do NOT give an answer immediately. "
+            "(1) Read the error log or stack trace the user pastes. "
+            "(2) Ask ONE clarifying question that would most narrow the root cause. "
+            "(3) Wait for the answer, then ask the next question or state the root cause. "
+            "(4) Once identified, state the exact file/line and the minimal fix. "
+            "Diagnose by conversation, not by guessing."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -659,12 +668,17 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-sales-call-prep",
         "name": "Call Prep",
         "aliases": [],
-        "description": "Build a 1-page call brief for an upcoming customer meeting.",
+        "description": "Build a one-page brief for an upcoming customer call, with fresh research on the company and the people you're meeting.",
         "icon": "support_agent",
         "prompt_template": (
-            "You are a sales coach. Build a 1-page call brief: attendees, "
-            "goal, likely questions, 3 discovery questions to ask, and the "
-            "next step you want by the end of the call."
+            "You are a sales coach. Before building the brief, search for any recent news about "
+            "the company or attendees (last 30 days). Then produce a one-page call brief: "
+            "(1) Who's on the call and their roles. "
+            "(2) Goal for this call and what success looks like. "
+            "(3) Three discovery questions tailored to their recent activity or context. "
+            "(4) Likely pushback and how to respond. "
+            "(5) The exact next step you will ask for by end of call. "
+            "Flag anything you could not find (\"unknown — ask directly\")."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -1050,7 +1064,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-student-concept-explainer",
         "name": "Concept Explainer",
         "aliases": [],
-        "description": "Explain a hard concept in plain language with an example.",
+        "description": "Walk through a concept at two levels — a plain-English summary first, then a deeper version with a worked example. Great for class material.",
         "icon": "lightbulb",
         "prompt_template": (
             "You are a patient teacher. Explain the concept the user provides "
@@ -1078,9 +1092,8 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Explain Plain",
         "aliases": ["elit"],
         "description": (
-            "Plain-language explanation of anything you point it at. No jargon, "
-            "no omissions. Covers every relevant point and uses analogies for "
-            "technical concepts."
+            "Thorough plain-language explanation of anything, technical or not. "
+            "Covers every angle, uses analogies, no jargon. Good for digging into something unfamiliar."
         ),
         "icon": "record_voice_over",
         "prompt_template": (
