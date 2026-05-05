@@ -10,6 +10,33 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v3.11.0
+  {
+    date: '2026-05-04',
+    label: 'May 4, 2026',
+    entries: [
+      {
+        title: '5 new agent templates',
+        description: 'Campaign Brief, Budget Builder, Investor Update, Customer Reply, and Design Critique are now built in. Pick one from the template picker and it drops in ready to run.',
+      },
+      {
+        title: 'Sharper built-in templates',
+        description: 'Six existing templates (across research, build, and analysis categories) got rewritten descriptions and tighter prompts so they do a better job explaining what they are and produce more useful results.',
+      },
+      {
+        title: 'New Spec skips straight to the wizard',
+        description: 'You no longer name a spec before opening it. Click New Spec and the step-by-step wizard opens immediately.',
+      },
+      {
+        title: 'Gemini has its own identity',
+        description: 'When you switch to Gemini, it introduces itself as Gemini rather than taking on the myOS persona. Each AI now speaks as itself.',
+      },
+      {
+        title: 'Agent template aliases',
+        description: 'Agent files now support an ALIASES directive, so a template can be found under any of its alternate names in the picker and command bar.',
+      },
+    ],
+  },
   {
     date: '2026-05-02',
     label: 'May 2, 2026',
