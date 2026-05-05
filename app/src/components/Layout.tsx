@@ -195,12 +195,14 @@ export function Layout() {
       )}
       <main
         data-testid="main-content"
-        className={`min-h-dvh min-w-0 overflow-x-hidden ${isResizing ? '' : 'transition-[margin] duration-200'} ${
+        className={`min-h-dvh min-w-0 overflow-x-hidden flex flex-col ${isResizing ? '' : 'transition-[margin] duration-200'} ${
           sidebarPosition === 'right' ? 'ml-0 lg:mr-56' : 'ml-0 lg:ml-56'
         }`}
         style={chatOpen && isDesktop ? (sidebarPosition === 'right' ? { marginLeft: chatWidth } : { marginRight: chatWidth }) : undefined}
       >
-        <Outlet />
+        <div className="flex-1">
+          <Outlet />
+        </div>
         <Footer />
       </main>
     </div>

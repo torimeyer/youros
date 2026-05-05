@@ -62,6 +62,35 @@ describe('Layout', () => {
     document.documentElement.style.removeProperty('--color-accent')
   })
 
+  describe('footer positioning', () => {
+    it('main has flex flex-col classes for sticky-footer layout', () => {
+      renderLayout()
+      const main = document.querySelector('main')
+      expect(main?.className).toContain('flex')
+      expect(main?.className).toContain('flex-col')
+    })
+
+    it('outlet is wrapped in flex-1 container so content expands before footer', () => {
+      renderLayout()
+      const main = document.querySelector('main')
+      const flexChild = main?.querySelector('.flex-1')
+      expect(flexChild).toBeTruthy()
+    })
+
+    it('footer is the last child of main so it always appears at the bottom', () => {
+      renderLayout()
+      const main = document.querySelector('main')
+      const lastChild = main?.lastElementChild
+      expect(lastChild?.getAttribute('data-testid')).toBe('footer')
+    })
+
+    it('main retains min-h-dvh so the flex column spans the full viewport height', () => {
+      renderLayout()
+      const main = document.querySelector('main')
+      expect(main?.className).toContain('min-h-dvh')
+    })
+  })
+
   it('applies margin transition when not resizing', () => {
     renderLayout()
     const main = document.querySelector('main')
