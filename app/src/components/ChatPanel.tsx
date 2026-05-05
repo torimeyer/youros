@@ -605,6 +605,7 @@ export function ChatPanel() {
   // feedback regression Tori saw on optimize-inline-chat-speed.
   type TrackedAgent = { name: string }
   const [trackedAgents, setTrackedAgents] = useState<TrackedAgent[]>([])
+  const [stepProgress, setStepProgress] = useState<{ step: number; maxSteps: number } | null>(null)
 
   const { connect, disconnect, send, lastMessage, isConnected } = useWebSocket('/ws/chat')
   const { confirm, confirmProps } = useConfirm()
@@ -678,6 +679,11 @@ export function ChatPanel() {
     } else if (lastMessage.type === 'thinking') {
       // Ensure streaming state is active so ThinkingDots shows
       setIsStreaming(true)
+    } else if (lastMessage.type === 'step_progress') {
+      const data = lastMessage.data as { step: number; max_steps: number }
+      if (data?.step && data?.max_steps) {
+        setStepProgress({ step: data.step, maxSteps: data.max_steps })
+      }
     } else if (lastMessage.type === 'token') {
       // Model-tagged tokens (sent by parallel broadcast) must route to
       // the bubble for that specific model, not the most recently
@@ -1076,6 +1082,7 @@ export function ChatPanel() {
       })
       setIsStreaming(false)
       setCurrentModel(null)
+      setStepProgress(null)
       // Defensive cleanup. The complete phase usually arrives just
       // before done, but if the backend ever drops it the pill must
       // still go away when the stream ends.
@@ -2170,6 +2177,11 @@ export function ChatPanel() {
                         )}
                         {isStreaming && globalIdx === messages.length - 1 && (msg.toolCalls?.some(tc => tc.result === undefined)) && (
                           <ThinkingDots />
+                        )}
+                        {isStreaming && globalIdx === messages.length - 1 && stepProgress && (
+                          <div className="text-xs text-slate-400 mt-1">
+                            Step {stepProgress.step} of {stepProgress.maxSteps}...
+                          </div>
                         )}
                         {/* Fallback: stream is confirmed done and the bubble has no visible text.
                             Three sub-cases:

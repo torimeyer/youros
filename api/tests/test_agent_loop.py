@@ -569,3 +569,51 @@ class TestAgentLoop:
         assert tool_contents[0]["content"] == "file result"
         assert tool_contents[1]["tool_use_id"] == "toolu_2"
         assert tool_contents[1]["content"] == "task result"
+
+    @pytest.mark.asyncio
+    async def test_no_contradictory_step_messages(self, websocket):
+        """'Still working' must not appear as a token when the loop also hits the step cap.
+
+        Before the fix: both '(Still working. N steps so far.)' (type:token at
+        turn WARN_AT) and 'Stopped after 25 steps.' (type:token at turn >MAX)
+        landed in the same bubble, creating a contradictory pair.
+        After the fix: the progress update is a type:step_progress event (not a
+        token), so only 'Stopped after' appears as bubble text.
+        """
+        from services.chat_providers import ChatService, MAX_AGENT_TURNS
+
+        service = ChatService()
+        mock_client = MagicMock()
+
+        tool_response = _make_response(
+            [_make_tool_use_block("toolu_loop", "list_directory", {})],
+            stop_reason="tool_use",
+        )
+        mock_client.messages.create = AsyncMock(return_value=tool_response)
+
+        with patch("services.chat_providers.settings_store") as mock_settings:
+            mock_settings.get.return_value = "fake-api-key"
+            with patch("services.chat_providers.anthropic.AsyncAnthropic", return_value=mock_client):
+                with patch("services.chat_providers.execute_tool", new_callable=AsyncMock) as mock_exec:
+                    mock_exec.return_value = "dir listing"
+                    await service.agent_anthropic(
+                        [{"role": "user", "content": "loop forever"}],
+                        websocket,
+                    )
+
+        token_text = "".join(m["data"] for m in websocket.get_messages_of_type("token"))
+        progress_msgs = websocket.get_messages_of_type("step_progress")
+
+        # The cap message must be visible as bubble text.
+        assert "Stopped after" in token_text
+
+        # The progress update must NOT be in the token stream — it's a
+        # step_progress event so it won't pollute the final bubble text.
+        assert "Still working" not in token_text, (
+            "'Still working' appeared as a token alongside 'Stopped after' — "
+            "contradictory pair in the same response bubble"
+        )
+
+        # A step_progress event should have fired at WARN_AT.
+        assert len(progress_msgs) == 1
+        assert progress_msgs[0]["data"]["step"] == 15  # WARN_AT
