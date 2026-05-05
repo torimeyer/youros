@@ -10,6 +10,17 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v3.11.2
+  {
+    date: '2026-05-04',
+    label: 'May 4, 2026',
+    entries: [
+      {
+        title: 'Onboarding no longer stuck on Loading',
+        description: 'The "Your starter agents" step could hang on "Loading..." forever. It now times out after 10 seconds and shows an actionable error with a "Try again" button.',
+      },
+    ],
+  },
   // v3.11.1
   {
     date: '2026-05-04',
