@@ -199,6 +199,14 @@ if ! free_port_or_die; then
 fi
 
 cd "$API_DIR"
+
+# Load local env overrides (e.g. GOOGLE_CLIENT_ID for OAuth) if present.
+if [ -f "$HOME/.myos/.env" ]; then
+    set -a
+    source "$HOME/.myos/.env"
+    set +a
+fi
+
 # shellcheck source=/dev/null
 source .venv/bin/activate
 
