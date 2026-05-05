@@ -78,6 +78,52 @@ else
     ok "with-locks: no missing-locks error"
 fi
 
+# ---- Test 5: session_id + tool_use_id forwarded in POST body (→961) ----
+# Spin up a one-shot mock HTTP server to capture the body the bridge POSTs.
+MOCK_PORT=$(python3 -c "
+import socket
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', 0))
+print(s.getsockname()[1])
+s.close()
+")
+CAPTURED_BODY=$(mktemp)
+python3 - "$MOCK_PORT" "$CAPTURED_BODY" <<'PYSERVER' &
+import http.server, sys
+port, out = int(sys.argv[1]), sys.argv[2]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        n = int(self.headers.get('Content-Length', 0))
+        open(out, 'wb').write(self.rfile.read(n))
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(b'{"ok":true}')
+    def log_message(self, *a): pass
+http.server.HTTPServer(('127.0.0.1', port), H).handle_request()
+PYSERVER
+MOCK_PID=$!
+sleep 0.4   # let the mock server bind
+
+JSON5='{"session_id":"test-session-abc","tool_use_id":"msg-xyz-789","tool_name":"Agent","tool_input":{"prompt":"Locks: [/tmp/needle961.log] fix the bridge","description":"fix the bridge"}}'
+export TORIOS_API_BASE="http://127.0.0.1:${MOCK_PORT}"
+run_hook "$JSON5"
+unset TORIOS_API_BASE
+wait "$MOCK_PID" 2>/dev/null || true
+
+if [ -s "$CAPTURED_BODY" ]; then
+    SID=$(python3 -c "import json; d=json.load(open('$CAPTURED_BODY')); print(d.get('originating_session_id','MISSING'))" 2>/dev/null)
+    MID=$(python3 -c "import json; d=json.load(open('$CAPTURED_BODY')); print(d.get('originating_user_message_id','MISSING'))" 2>/dev/null)
+    UA=$(python3  -c "import json; d=json.load(open('$CAPTURED_BODY')); print(d.get('user_authored','MISSING'))" 2>/dev/null)
+    chk "session-id: originating_session_id forwarded" [ "$SID" = "test-session-abc" ]
+    chk "session-id: originating_user_message_id forwarded" [ "$MID" = "msg-xyz-789" ]
+    chk "session-id: user_authored is True" [ "$UA" = "True" ]
+else
+    ko "session-id: POST body not captured (mock server may not have received the request; hook_rc=$HOOK_RC)"
+fi
+rm -f "$CAPTURED_BODY"
+
 echo ""
 echo "task-isolation-bridge.sh: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

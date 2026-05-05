@@ -180,21 +180,26 @@ if [ -z "$SPAWN_NAME" ]; then
     SPAWN_NAME="task-bridge-$$"
 fi
 
-# Provenance: CLAUDE_SESSION_ID is injected by the harness into every
-# hook's environment. tool_use_id in the payload identifies the specific
-# user turn that triggered this Agent call. Together they let the backend
-# tag the row as user_authored so peer cancel-all calls skip it.
-ORIG_SESSION_ID="${CLAUDE_SESSION_ID:-}"
-ORIG_MSG_ID=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
+# Provenance: extract session_id and tool_use_id from the stdin JSON payload.
+# Claude Code passes session_id at the top level of the PreToolUse payload on
+# stdin; it does NOT populate CLAUDE_SESSION_ID in hook env. Fall back to
+# CLAUDE_SESSION_ID for back-compat if stdin parse fails (e.g. old harness).
+_SID_MID=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
 import os, json, sys
+US = "\x1f"
 raw = os.environ.get("INPUT_JSON", "")
 try:
     d = json.loads(raw or "{}")
 except Exception:
+    sys.stdout.write(US)
     sys.exit(0)
-print((d.get("tool_use_id") or "").strip())
+session_id = (d.get("session_id") or "").strip()
+tool_use_id = (d.get("tool_use_id") or "").strip()
+sys.stdout.write(f"{session_id}{US}{tool_use_id}")
 PY
 )
+IFS=$'\x1f' read -r _STDIN_SID ORIG_MSG_ID <<<"$_SID_MID"
+ORIG_SESSION_ID="${_STDIN_SID:-${CLAUDE_SESSION_ID:-}}"
 
 # Build the spawn body. We pin isolation:"worktree" and source tag so
 # downstream agent-list filters can distinguish bridge spawns from
