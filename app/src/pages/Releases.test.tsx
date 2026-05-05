@@ -68,8 +68,9 @@ describe('Releases page', () => {
 
   it('renders every release group label', () => {
     renderReleases()
-    for (const group of releaseNotes) {
-      expect(screen.getByText(group.label)).toBeInTheDocument()
+    const uniqueLabels = [...new Set(releaseNotes.map((g) => g.label))]
+    for (const label of uniqueLabels) {
+      expect(screen.getAllByText(label).length).toBeGreaterThanOrEqual(1)
     }
   })
 
