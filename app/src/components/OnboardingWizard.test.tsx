@@ -1112,3 +1112,143 @@ describe('OnboardingWizard — Google Workspace OAuth button on Connect step', (
     expect(screen.getByTestId('connect-google-workspace')).toBeInTheDocument()
   })
 })
+
+
+describe('OnboardingWizard — Atlassian and GitHub setup cards', () => {
+  function navigateToConnect() {
+    fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
+    for (let i = 0; i < 5; i++) {
+      fireEvent.click(screen.getByTestId('skip-button')) // You/Name/Profile/Customize/Theme → Connect
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ onboarded: false, osName: '', darkMode: false })
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      return Promise.resolve({})
+    })
+    vi.mocked(api.post).mockResolvedValue({})
+  })
+
+  it('Atlassian card renders in Connect step when not connected', async () => {
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-atlassian-card')).toBeInTheDocument()
+    })
+  })
+
+  it('GitHub card renders in Connect step when not connected', async () => {
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-github-card')).toBeInTheDocument()
+    })
+  })
+
+  it('cards visible but Next still advances to Ready step', async () => {
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('onboarding-atlassian-card')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('next-button'))
+    expect(screen.getByTestId('step-ready')).toBeInTheDocument()
+  })
+
+  it('Atlassian card calls /atlassian/defaults on expand and pre-fills site', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      if (path === '/atlassian/defaults') return Promise.resolve({ site: 'https://myco.atlassian.net', email: '' })
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      return Promise.resolve({})
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('onboarding-atlassian-card')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('onboarding-atlassian-setup'))
+
+    await waitFor(() => {
+      expect(vi.mocked(api.get)).toHaveBeenCalledWith('/atlassian/defaults')
+    })
+    await waitFor(() => {
+      const siteInput = screen.getByTestId('onboarding-atlassian-site') as HTMLInputElement
+      expect(siteInput.value).toBe('https://myco.atlassian.net')
+    })
+  })
+
+  it('Atlassian connect button posts to /atlassian/connect with correct fields', async () => {
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('onboarding-atlassian-card')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('onboarding-atlassian-setup'))
+
+    await waitFor(() => expect(screen.getByTestId('onboarding-atlassian-site')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('onboarding-atlassian-site'), { target: { value: 'https://acme.atlassian.net' } })
+    fireEvent.change(screen.getByTestId('onboarding-atlassian-email'), { target: { value: 'user@acme.com' } })
+    fireEvent.change(screen.getByTestId('onboarding-atlassian-token'), { target: { value: 'mytoken' } })
+
+    fireEvent.click(screen.getByTestId('onboarding-atlassian-connect'))
+
+    await waitFor(() => {
+      expect(vi.mocked(api.post)).toHaveBeenCalledWith('/atlassian/connect', {
+        site: 'https://acme.atlassian.net',
+        email: 'user@acme.com',
+        api_token: 'mytoken',
+      })
+    })
+  })
+
+  it('GitHub connect button posts to /github/connect with correct fields', async () => {
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('onboarding-github-card')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('onboarding-github-setup'))
+
+    await waitFor(() => expect(screen.getByTestId('onboarding-github-repo')).toBeInTheDocument())
+    fireEvent.change(screen.getByTestId('onboarding-github-repo'), { target: { value: 'acme/website' } })
+    fireEvent.change(screen.getByTestId('onboarding-github-token'), { target: { value: 'ghp_mytoken' } })
+
+    fireEvent.click(screen.getByTestId('onboarding-github-connect'))
+
+    await waitFor(() => {
+      expect(vi.mocked(api.post)).toHaveBeenCalledWith('/github/connect', {
+        repo: 'acme/website',
+        token: 'ghp_mytoken',
+      })
+    })
+  })
+
+  it('Atlassian card is hidden when already connected', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/atlassian/status') return Promise.resolve({ connected: true })
+      if (path === '/github/status') return Promise.resolve({ connected: false })
+      return Promise.resolve({})
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('step-connect')).toBeInTheDocument())
+    // Give the status check time to resolve
+    await waitFor(() => expect(screen.queryByTestId('onboarding-atlassian-card')).not.toBeInTheDocument())
+  })
+
+  it('GitHub card is hidden when already connected', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      if (path === '/github/status') return Promise.resolve({ connected: true })
+      return Promise.resolve({})
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => expect(screen.getByTestId('step-connect')).toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByTestId('onboarding-github-card')).not.toBeInTheDocument())
+  })
+})

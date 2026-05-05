@@ -65,6 +65,16 @@ async def atlassian_status():
     return {"connected": connected, "email": email, "site": site}
 
 
+@router.get("/atlassian/defaults")
+async def atlassian_defaults():
+    """Return saved Atlassian config values for pre-filling the connect form."""
+    try:
+        config = atlassian_service.get_config()
+        return {"site": config.get("site", ""), "email": config.get("email", "")}
+    except Exception:
+        return {"site": "", "email": ""}
+
+
 @router.delete("/atlassian/disconnect")
 async def atlassian_disconnect():
     """Remove Atlassian credentials and disconnect."""
