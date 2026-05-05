@@ -961,6 +961,24 @@ function ConnectStep({
         })}
       </div>
 
+      {/* Google Workspace OAuth — secondary, only when server-side OAuth is configured */}
+      {googleOAuthAvailable && (
+        <div className={`mb-4 pb-4 border-b ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}>
+          <button
+            onClick={() => { window.location.href = '/api/auth/google' }}
+            className={`w-full px-4 py-2.5 border rounded-lg text-sm transition-colors flex items-center gap-2 ${
+              darkMode
+                ? 'bg-slate-800/50 border-slate-700 text-slate-300 hover:border-blue-500'
+                : 'bg-gray-50 border-gray-200 text-slate-600 hover:border-blue-500'
+            }`}
+            data-testid="connect-google-workspace"
+          >
+            <Icon name="folder_shared" size={18} />
+            Connect Google Workspace (Drive, Calendar, Gmail) — one click sign-in.
+          </button>
+        </div>
+      )}
+
       {/* Connect option */}
       {selectedProvider === 'Google Gemini' ? (
         googleOAuthAvailable ? (

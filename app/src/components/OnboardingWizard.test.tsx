@@ -1059,3 +1059,56 @@ describe('OnboardingWizard — Customize agents step', () => {
 })
 
 
+describe('OnboardingWizard — Google Workspace OAuth button on Connect step', () => {
+  function navigateToConnect() {
+    fireEvent.click(screen.getByTestId('next-button')) // Welcome → You
+    for (let i = 0; i < 5; i++) {
+      fireEvent.click(screen.getByTestId('skip-button')) // You/Name/Profile/Customize/Theme → Connect
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ onboarded: false, osName: '', darkMode: false })
+  })
+
+  it('shows connect-google-workspace button when google_oauth_available is true', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      return Promise.resolve({ google_oauth_available: true })
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-google-workspace')).toBeInTheDocument()
+    })
+  })
+
+  it('does not show connect-google-workspace button when google_oauth_available is false', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      return Promise.resolve({ google_oauth_available: false })
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => {
+      expect(screen.getByTestId('step-connect')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('connect-google-workspace')).not.toBeInTheDocument()
+  })
+
+  it('connect-google-workspace button is visible regardless of which AI provider is selected', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/providers/detect') return Promise.resolve({})
+      return Promise.resolve({ google_oauth_available: true })
+    })
+    render(<OnboardingWizard />)
+    navigateToConnect()
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-google-workspace')).toBeInTheDocument()
+    })
+    // Switch to Gemini — button should still be present
+    fireEvent.click(screen.getByTestId('provider-Google Gemini'))
+    expect(screen.getByTestId('connect-google-workspace')).toBeInTheDocument()
+  })
+})

@@ -677,3 +677,37 @@ describe('Drive localStorage cache (faster return visits)', () => {
     expect(parsed[0].id).toBe('file-1')
   })
 })
+
+describe('Drive — Google OAuth connect button', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.driveCache.v1')
+  })
+
+  it('shows the OAuth button and hides credentials flow when google_oauth_available is true', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(NOT_AUTHENTICATED)
+      if (path.includes('/secrets/key-status')) return Promise.resolve({ google_oauth_available: true })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-google-button-drive')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Step 1: Upload your credentials file')).not.toBeInTheDocument()
+  })
+
+  it('hides the OAuth button and shows credentials flow when google_oauth_available is false', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(NOT_AUTHENTICATED)
+      if (path.includes('/secrets/key-status')) return Promise.resolve({ google_oauth_available: false })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => {
+      expect(screen.getByText('Connect Google Drive')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('connect-google-button-drive')).not.toBeInTheDocument()
+    expect(screen.getByText('Step 1: Upload your credentials file')).toBeInTheDocument()
+  })
+})
