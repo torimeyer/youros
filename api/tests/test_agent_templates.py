@@ -828,18 +828,19 @@ def test_explain_plain_agentfile_exists():
 
 
 def test_elit_agentfile_alias_exists():
-    """agents/elit.agent must exist as an ALIAS stub pointing at explain-plain.
+    """explain-plain.agent must declare ALIASES elit.
 
-    This keeps scripts, memory notes, and older chat handlers working when
-    they reference the elit agentfile directly.
+    The ALIASES directive on the canonical file replaces the old stub-file
+    approach. This keeps scripts, memory notes, and older chat handlers
+    working when they reference 'elit' directly.
     """
     from config import PROJECT_ROOT
 
-    path = PROJECT_ROOT / "agents" / "elit.agent"
-    assert path.exists(), f"Expected alias agentfile at {path}"
+    path = PROJECT_ROOT / "agents" / "explain-plain.agent"
+    assert path.exists(), f"Expected agentfile at {path}"
     text = path.read_text()
-    assert "ALIAS explain-plain" in text, (
-        f"elit.agent must contain 'ALIAS explain-plain'. Got: {text!r}"
+    assert "ALIASES elit" in text, (
+        f"explain-plain.agent must declare 'ALIASES elit'. Got: {text!r}"
     )
 
 
