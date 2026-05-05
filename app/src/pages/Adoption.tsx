@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import Icon from '../components/Icon'
+import TopBar from '../components/TopBar'
 
 interface Skill {
   id: string
@@ -53,16 +54,15 @@ export default function Adoption() {
       .catch(() => { setError(true); setLoading(false) })
   }, [])
 
-  if (loading) {
+  if (loading || error || !data) {
     return (
-      <div className="p-6 text-slate-400 text-sm">Loading...</div>
-    )
-  }
-
-  if (error || !data) {
-    return (
-      <div className="p-6 text-slate-400 text-sm">
-        Couldn't load your activity right now. Try refreshing.
+      <div className="min-h-dvh bg-slate-950 text-white">
+        <TopBar title="What's working" />
+        <div className="pt-16 px-6 pb-6 sm:pt-20 max-w-2xl mx-auto">
+          <p className="text-slate-400 text-sm py-8">
+            {loading ? 'Loading...' : "Couldn't load your activity right now. Try refreshing."}
+          </p>
+        </div>
       </div>
     )
   }
@@ -70,7 +70,9 @@ export default function Adoption() {
   const hasActivity = data.top_skills.length > 0
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-8">
+    <div className="min-h-dvh bg-slate-950 text-white">
+      <TopBar title="What's working" />
+      <div className="pt-16 px-6 pb-6 sm:pt-20 max-w-2xl mx-auto space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-slate-100">What's working</h1>
         <p className="text-slate-400 text-sm mt-1">
@@ -200,6 +202,7 @@ export default function Adoption() {
           )}
         </div>
       </section>
+    </div>
     </div>
   )
 }

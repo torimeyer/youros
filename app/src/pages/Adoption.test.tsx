@@ -9,6 +9,22 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+// jsdom does not provide window.matchMedia. Provide a minimal stub
+// so TopBar (which uses a matchMedia breakpoint listener) does not crash.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
 const mockNavigate = vi.fn()
 vi.mock('react-router-dom', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router-dom')>()
@@ -17,6 +33,18 @@ vi.mock('react-router-dom', async (importOriginal) => {
 
 import { api } from '../lib/api'
 const mockedGet = vi.mocked(api.get)
+
+// Route api.get calls by URL so TopBar's /notifications fetch doesn't
+// consume the one-time adoption mock value (children effects fire first).
+function mockAdoptionGet(adoptionData: typeof mockData | null, { fail = false } = {}) {
+  mockedGet.mockImplementation((url: string) => {
+    if (url === '/adoption/whats-working') {
+      if (fail) return Promise.reject(new Error('network'))
+      return Promise.resolve(adoptionData)
+    }
+    return Promise.resolve([]) // TopBar's /notifications and any other calls
+  })
+}
 
 const mockData = {
   top_skills: [
@@ -46,7 +74,7 @@ function renderPage() {
 
 describe('Adoption page', () => {
   it('renders skill cards with use counts', async () => {
-    mockedGet.mockResolvedValueOnce(mockData)
+    mockAdoptionGet(mockData)
     renderPage()
     await waitFor(() => expect(screen.getAllByTestId('skill-card')).toHaveLength(2))
 
@@ -58,7 +86,7 @@ describe('Adoption page', () => {
   })
 
   it('renders recommendation cards with the why line', async () => {
-    mockedGet.mockResolvedValueOnce(mockData)
+    mockAdoptionGet(mockData)
     renderPage()
     await waitFor(() => expect(screen.getByTestId('recommendation-card')).toBeTruthy())
 
@@ -68,29 +96,21 @@ describe('Adoption page', () => {
   })
 
   it('shows friendly empty state when there is no activity', async () => {
-    mockedGet.mockResolvedValueOnce({
-      top_skills: [],
-      recommendations: [],
-      this_week: { agent_runs_completed: 0, top_spec_or_task: null },
-    })
+    mockAdoptionGet({ top_skills: [], recommendations: [], this_week: { agent_runs_completed: 0, top_spec_or_task: null } })
     renderPage()
     await waitFor(() => expect(screen.getByTestId('empty-state')).toBeTruthy())
     expect(screen.queryByTestId('skill-card')).toBeNull()
   })
 
   it('shows agent run count and top task in the summary strip', async () => {
-    mockedGet.mockResolvedValueOnce(mockData)
+    mockAdoptionGet(mockData)
     renderPage()
     await waitFor(() => expect(screen.getByText(/7 agent runs finished/)).toBeTruthy())
     expect(screen.getByText(/Ship the adoption page/)).toBeTruthy()
   })
 
   it('empty state shows three starter cards with correct names', async () => {
-    mockedGet.mockResolvedValueOnce({
-      top_skills: [],
-      recommendations: [],
-      this_week: { agent_runs_completed: 0, top_spec_or_task: null },
-    })
+    mockAdoptionGet({ top_skills: [], recommendations: [], this_week: { agent_runs_completed: 0, top_spec_or_task: null } })
     renderPage()
     await waitFor(() => expect(screen.getAllByTestId('starter-card')).toHaveLength(3))
 
@@ -102,11 +122,7 @@ describe('Adoption page', () => {
   })
 
   it('clicking a starter card navigates to /agents?template=builtin-<id>', async () => {
-    mockedGet.mockResolvedValueOnce({
-      top_skills: [],
-      recommendations: [],
-      this_week: { agent_runs_completed: 0, top_spec_or_task: null },
-    })
+    mockAdoptionGet({ top_skills: [], recommendations: [], this_week: { agent_runs_completed: 0, top_spec_or_task: null } })
     renderPage()
     await waitFor(() => expect(screen.getAllByTestId('starter-card')).toHaveLength(3))
 
@@ -123,7 +139,7 @@ describe('Adoption page', () => {
   })
 
   it('skill-delta shows "new" when prev_week_uses is 0', async () => {
-    mockedGet.mockResolvedValueOnce(mockData)
+    mockAdoptionGet(mockData)
     renderPage()
     await waitFor(() => expect(screen.getAllByTestId('skill-card')).toHaveLength(2))
 
@@ -134,7 +150,7 @@ describe('Adoption page', () => {
   })
 
   it('skill-delta shows positive percent when uses_this_week > prev_week_uses', async () => {
-    mockedGet.mockResolvedValueOnce(mockData)
+    mockAdoptionGet(mockData)
     renderPage()
     await waitFor(() => expect(screen.getAllByTestId('skill-card')).toHaveLength(2))
 
@@ -145,12 +161,7 @@ describe('Adoption page', () => {
   })
 
   it('skill-delta shows negative percent when uses_this_week < prev_week_uses', async () => {
-    mockedGet.mockResolvedValueOnce({
-      ...mockData,
-      top_skills: [
-        { id: 'builtin-builder', name: 'Builder', uses_this_week: 3, prev_week_uses: 5 },
-      ],
-    })
+    mockAdoptionGet({ ...mockData, top_skills: [{ id: 'builtin-builder', name: 'Builder', uses_this_week: 3, prev_week_uses: 5 }] })
     renderPage()
     await waitFor(() => expect(screen.getAllByTestId('skill-card')).toHaveLength(1))
 
@@ -160,7 +171,7 @@ describe('Adoption page', () => {
   })
 
   it('recommendation card is a button that navigates to agents with the template pre-selected', async () => {
-    mockedGet.mockResolvedValueOnce(mockData)
+    mockAdoptionGet(mockData)
     renderPage()
     await waitFor(() => expect(screen.getByTestId('recommendation-card')).toBeTruthy())
 
@@ -171,5 +182,31 @@ describe('Adoption page', () => {
 
     expect(screen.getByText('Review')).toBeTruthy()
     expect(screen.getByTestId('rec-why').textContent).toContain("you've been using Builder")
+  })
+
+  it('shows the page header while loading', () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url === '/adoption/whats-working') return new Promise(() => {})
+      return Promise.resolve([])
+    })
+    renderPage()
+    expect(screen.getByRole('banner')).toBeTruthy()
+    expect(screen.getByText("What's working")).toBeTruthy()
+  })
+
+  it('shows the page header on error', async () => {
+    mockAdoptionGet(null, { fail: true })
+    renderPage()
+    await waitFor(() => expect(screen.getByText(/Couldn't load/)).toBeTruthy())
+    expect(screen.getByRole('banner')).toBeTruthy()
+    expect(screen.getByText("What's working")).toBeTruthy()
+  })
+
+  it('shows the page header with data', async () => {
+    mockAdoptionGet(mockData)
+    renderPage()
+    await waitFor(() => expect(screen.getAllByTestId('skill-card')).toHaveLength(2))
+    expect(screen.getByRole('banner')).toBeTruthy()
+    expect(screen.getAllByText("What's working").length).toBeGreaterThan(0)
   })
 })
