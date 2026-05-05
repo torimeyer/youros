@@ -268,7 +268,7 @@ mkdir -p "$HOME/.myos/subagents" 2>/dev/null || true
 PENDING_QUEUE="$HOME/.myos/subagents/pending-register.jsonl"
 REGISTER_OK=0
 for delay in 1 2 4 8 16; do
-    if curl -sSk --connect-timeout 2 -m 4 \
+    if curl -sSk --connect-timeout 3 -m 5 \
             -X POST "${API_BASE}/api/agents/register" \
             -H 'Content-Type: application/json' \
             -d "$BODY" > /dev/null 2>&1; then
@@ -330,7 +330,7 @@ printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AGENT_NAME" \
             python3 "$TORIOS_REPO_DIR/api/services/heartbeat_idle.py" \
                 "$AGENT_NAME" "$TRANSCRIPT_IDLE_SECONDS" "$REGISTERED_AT" >/dev/null 2>&1
             if [ $? -eq 1 ]; then
-                curl -sSk --connect-timeout 2 -m 3 \
+                curl -sSk --connect-timeout 3 -m 5 \
                     -X POST "${API_BASE}/api/agents/${AGENT_NAME}/complete" \
                     -H 'Content-Type: application/json' \
                     -d '{"summary":"Subagent exited, auto-completed by heartbeat idle detector"}' \
@@ -339,11 +339,11 @@ printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$AGENT_NAME" \
             fi
         fi
 
-        curl -sSk --connect-timeout 2 -m 4 \
+        curl -sSk --connect-timeout 3 -m 5 \
             -X POST "${API_BASE}/api/agents/${AGENT_NAME}/heartbeat" \
             > /dev/null 2>&1 || true
 
-        status=$(AGENT_NAME="$AGENT_NAME" curl -sSk --connect-timeout 2 -m 4 \
+        status=$(AGENT_NAME="$AGENT_NAME" curl -sSk --connect-timeout 3 -m 5 \
             "${API_BASE}/api/agents" 2>/dev/null \
             | python3 -c "
 import os, sys, json
