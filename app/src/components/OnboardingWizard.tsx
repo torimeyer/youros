@@ -1092,6 +1092,243 @@ function ConnectStep({
       <p className={`text-xs mt-3 ${subtextCls}`}>
         You can skip this step and connect later in Settings.
       </p>
+
+      <AtlassianSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} />
+      <GithubSetupCard darkMode={darkMode} inputCls={inputCls} subtextCls={subtextCls} />
+    </div>
+  )
+}
+
+function AtlassianSetupCard({
+  darkMode,
+  inputCls,
+  subtextCls,
+}: {
+  darkMode: boolean
+  inputCls: string
+  subtextCls: string
+}) {
+  const [connected, setConnected] = useState<boolean | null>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [site, setSite] = useState('')
+  const [email, setEmail] = useState('')
+  const [token, setToken] = useState('')
+  const [status, setStatus] = useState<'idle' | 'connecting' | 'done' | 'error'>('idle')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.get<{ connected: boolean }>('/atlassian/status')
+      .then((data) => setConnected(data.connected))
+      .catch(() => setConnected(false))
+  }, [])
+
+  const handleExpand = () => {
+    setExpanded(true)
+    api.get<{ site?: string; email?: string }>('/atlassian/defaults')
+      .then((data) => {
+        if (data.site) setSite(data.site)
+      })
+      .catch(() => {})
+  }
+
+  const handleConnect = () => {
+    setStatus('connecting')
+    setError(null)
+    api.post('/atlassian/connect', { site, email, api_token: token })
+      .then(() => setStatus('done'))
+      .catch((e: Error) => {
+        setStatus('error')
+        setError(e?.message ?? 'Connection failed')
+      })
+  }
+
+  if (connected === null || connected === true) return null
+
+  const cardBase = `mt-4 p-3 rounded-lg border ${darkMode ? 'border-slate-700' : 'border-gray-200'}`
+
+  if (!expanded) {
+    return (
+      <div data-testid="onboarding-atlassian-card" className={cardBase}>
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">Connect Jira & Confluence (optional)</p>
+          <button
+            onClick={handleExpand}
+            className="text-xs text-blue-500 hover:text-blue-400"
+            data-testid="onboarding-atlassian-setup"
+          >
+            Set up
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div data-testid="onboarding-atlassian-card" className={cardBase}>
+      <p className="text-sm font-semibold mb-3">Connect Jira & Confluence (optional)</p>
+      <div className="space-y-2">
+        <input
+          type="text"
+          value={site}
+          onChange={(e) => setSite(e.target.value)}
+          placeholder="https://company.atlassian.net"
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+          data-testid="onboarding-atlassian-site"
+        />
+        <input
+          type="text"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email"
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+          data-testid="onboarding-atlassian-email"
+        />
+        <div>
+          <input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="API token"
+            className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+            data-testid="onboarding-atlassian-token"
+          />
+          <p className={`text-xs mt-1 ${subtextCls}`}>
+            <a
+              href="https://id.atlassian.com/manage-profile/security/api-tokens"
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              Get a token at id.atlassian.com
+            </a>
+          </p>
+        </div>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            onClick={handleConnect}
+            disabled={status === 'connecting' || status === 'done'}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition-colors"
+            data-testid="onboarding-atlassian-connect"
+          >
+            {status === 'done' ? 'Connected!' : status === 'connecting' ? 'Connecting...' : 'Connect Jira & Confluence'}
+          </button>
+          <button
+            onClick={() => setExpanded(false)}
+            className={`text-sm ${subtextCls} hover:opacity-80`}
+            data-testid="onboarding-atlassian-skip"
+          >
+            Skip for now
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function GithubSetupCard({
+  darkMode,
+  inputCls,
+  subtextCls,
+}: {
+  darkMode: boolean
+  inputCls: string
+  subtextCls: string
+}) {
+  const [connected, setConnected] = useState<boolean | null>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [ownerRepo, setOwnerRepo] = useState('')
+  const [token, setToken] = useState('')
+  const [status, setStatus] = useState<'idle' | 'connecting' | 'done' | 'error'>('idle')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.get<{ connected: boolean }>('/github/status')
+      .then((data) => setConnected(data.connected))
+      .catch(() => setConnected(false))
+  }, [])
+
+  const handleConnect = () => {
+    setStatus('connecting')
+    setError(null)
+    api.post('/github/connect', { repo: ownerRepo, token })
+      .then(() => setStatus('done'))
+      .catch((e: Error) => {
+        setStatus('error')
+        setError(e?.message ?? 'Connection failed')
+      })
+  }
+
+  if (connected === null || connected === true) return null
+
+  const cardBase = `mt-4 p-3 rounded-lg border ${darkMode ? 'border-slate-700' : 'border-gray-200'}`
+
+  if (!expanded) {
+    return (
+      <div data-testid="onboarding-github-card" className={cardBase}>
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">Connect GitHub (optional)</p>
+          <button
+            onClick={() => setExpanded(true)}
+            className="text-xs text-blue-500 hover:text-blue-400"
+            data-testid="onboarding-github-setup"
+          >
+            Set up
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div data-testid="onboarding-github-card" className={cardBase}>
+      <p className="text-sm font-semibold mb-3">Connect GitHub (optional)</p>
+      <div className="space-y-2">
+        <p className={`text-xs ${subtextCls}`}>
+          <a
+            href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=myOS"
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+          >
+            Create a GitHub token
+          </a>
+        </p>
+        <input
+          type="text"
+          value={ownerRepo}
+          onChange={(e) => setOwnerRepo(e.target.value)}
+          placeholder="owner/repo (e.g. acme/website)"
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+          data-testid="onboarding-github-repo"
+        />
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="Personal access token"
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+          data-testid="onboarding-github-token"
+        />
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            onClick={handleConnect}
+            disabled={status === 'connecting' || status === 'done'}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition-colors"
+            data-testid="onboarding-github-connect"
+          >
+            {status === 'done' ? 'Connected!' : status === 'connecting' ? 'Connecting...' : 'Connect GitHub'}
+          </button>
+          <button
+            onClick={() => setExpanded(false)}
+            className={`text-sm ${subtextCls} hover:opacity-80`}
+            data-testid="onboarding-github-skip"
+          >
+            Skip for now
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
