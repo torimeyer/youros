@@ -140,6 +140,13 @@ else
     (sleep 2 && xdg-open http://localhost:8000 2>/dev/null) &
 fi
 
+# Load local env overrides (e.g. GOOGLE_CLIENT_ID for OAuth) if present.
+if [ -f "$HOME/.myos/.env" ]; then
+    set -a
+    source "$HOME/.myos/.env"
+    set +a
+fi
+
 # Reload watch is scoped to the api/ runtime code only.
 # Test files, pytest cache, and pyc files must NOT trigger a reload, because
 # background agents edit them frequently and a reload mid-stream kills any
