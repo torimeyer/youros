@@ -1,6 +1,10 @@
 #!/bin/bash
 HOOK_NAME=$(basename "$0")
 trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
+_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/deny.sh
+source "$_HOOKS_DIR/lib/deny.sh"
+init_deny_traps
 # Hook: PreToolUse on mcp__ostk__needle
 #
 # Blocks needle creation when the title is garbage, the priority is
@@ -43,14 +47,12 @@ except Exception:
 
 # ---- 1. Garbage title check ----
 if [ -z "$TITLE" ]; then
-    echo "Needle blocked: title is empty. Every needle needs a clear, specific title that describes the work."
-    exit 2
+    deny "title is empty. Every needle needs a clear, specific title that describes the work."
 fi
 
 TITLE_LEN=${#TITLE}
 if [ "$TITLE_LEN" -lt 5 ]; then
-    echo "Needle blocked: title \"$TITLE\" is too short (fewer than 5 characters). Write a title that actually describes the work."
-    exit 2
+    deny "title '$TITLE' is too short (fewer than 5 characters). Write a title that actually describes the work."
 fi
 
 # Check for garbage patterns (case-insensitive).
@@ -58,8 +60,7 @@ fi
 TITLE_LOWER=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]')
 for pattern in "session in" "untitled" "fix it" "todo" "test"; do
     if echo "$TITLE_LOWER" | grep -qi "^${pattern}"; then
-        echo "Needle blocked: title \"$TITLE\" looks like a placeholder or auto-generated name. Write a specific title that describes what needs to be done."
-        exit 2
+        deny "title '$TITLE' looks like a placeholder or auto-generated name. Write a specific title that describes what needs to be done."
     fi
 done
 
@@ -68,8 +69,7 @@ WORD_COUNT=$(echo "$TITLE" | wc -w | tr -d ' ')
 if [ "$WORD_COUNT" -le 1 ]; then
     for word in "sort" "fix" "update" "test" "todo" "done" "work" "task" "thing" "stuff" "misc" "other" "temp" "wip"; do
         if [ "$TITLE_LOWER" = "$word" ]; then
-            echo "Needle blocked: title \"$TITLE\" is a single generic word with no real meaning. Write a title that explains what specifically needs to be done."
-            exit 2
+            deny "title '$TITLE' is a single generic word with no real meaning. Write a title that explains what specifically needs to be done."
         fi
     done
 fi
@@ -79,8 +79,7 @@ if [ -n "$PRIORITY" ]; then
     case "$PRIORITY" in
         p0|p1|p2|p3)
             PRIORITY_UP=$(echo "$PRIORITY" | tr '[:lower:]' '[:upper:]')
-            echo "Needle blocked: priority \"$PRIORITY\" must be uppercase. Use ${PRIORITY_UP} instead of ${PRIORITY}."
-            exit 2
+            deny "priority '$PRIORITY' must be uppercase. Use ${PRIORITY_UP} instead."
             ;;
     esac
 fi
@@ -88,8 +87,7 @@ fi
 # ---- 3. Missing AC on P0 / P1 ----
 if [ "$PRIORITY" = "P0" ] || [ "$PRIORITY" = "P1" ]; then
     if [ -z "$AC" ]; then
-        echo "Needle blocked: P0 and P1 needles require acceptance criteria (ac field) so we know exactly when the work is done. Add a clear description of what \"done\" looks like before filing."
-        exit 2
+        deny "P0 and P1 needles require acceptance criteria (ac field). Add a clear description of what 'done' looks like before filing."
     fi
 fi
 

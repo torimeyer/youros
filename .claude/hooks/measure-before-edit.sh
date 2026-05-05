@@ -1,6 +1,10 @@
 #!/bin/bash
 HOOK_NAME=$(basename "$0")
 trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
+_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/deny.sh
+source "$_HOOKS_DIR/lib/deny.sh"
+init_deny_traps
 # PreToolUse Edit|Write: non-blocking reminder to measure before editing a perf bug.
 # Rule 1 from 2026-04-27 retro. See feedback_measure_cold_workload_before_editing.md.
 

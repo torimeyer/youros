@@ -523,4 +523,62 @@ if entries:
     rm -f "$RETRY_QUEUE" 2>/dev/null
 fi
 
+# --- Recent hook denies ---
+# Surface the last 5 deny entries from the past 5 minutes so the model
+# knows exactly which hook blocked each recent tool call.
+DENY_LOG="${MYOS_DENY_LOG:-${HOME}/.claude/logs/hook-denies.log}"
+if [ -f "$DENY_LOG" ] && [ -s "$DENY_LOG" ]; then
+    DENY_LOG_FILE="$DENY_LOG" python3 - <<'PYEOF_DENIES'
+import json, os, sys
+from datetime import datetime, timezone
+
+log_path = os.environ.get("DENY_LOG_FILE", "")
+if not log_path:
+    sys.exit(0)
+
+now = datetime.now(timezone.utc)
+cutoff_secs = 300  # 5 minutes
+recent = []
+try:
+    with open(log_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except Exception:
+                continue
+            ts_str = entry.get("ts", "")
+            if not ts_str:
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if 0 <= (now - ts).total_seconds() <= cutoff_secs:
+                recent.append((ts, entry))
+except Exception:
+    sys.exit(0)
+
+if not recent:
+    sys.exit(0)
+
+# Cap at 5 most recent
+shown = sorted(recent, key=lambda x: x[0])[-5:]
+print()
+print("RECENT HOOK DENIES (last 5 min):")
+for ts, entry in shown:
+    hms = ts.strftime("%H:%M:%S")
+    hook = entry.get("hook", "?")
+    tool = entry.get("tool", "?")
+    if entry.get("mode") == "crash":
+        last_cmd = entry.get("last_cmd", "?")
+        print(f"- {hms} hook={hook} tool={tool} [CRASH] last_cmd={last_cmd}")
+    else:
+        reason = entry.get("reason", "?")
+        print(f'- {hms} hook={hook} tool={tool} reason="{reason}"')
+PYEOF_DENIES
+fi
+
 exit 0

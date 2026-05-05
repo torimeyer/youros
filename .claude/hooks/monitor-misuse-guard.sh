@@ -10,15 +10,37 @@ trap 'rm -f "$TMP"' EXIT
 cat > "$TMP"
 
 python3 << GUARD_PY
-import json, re, sys
+import datetime, json, os, re, sys
 
-BLOCK_MSG = (
-    "Blocked: Monitor is for streaming events, not file reads. "
+_HOOK_NAME = "monitor-misuse-guard.sh"
+_LOG_PATH = os.path.expanduser("~/.claude/logs/hook-denies.log")
+
+BLOCK_REASON = (
+    "Monitor is for streaming events, not file reads. "
     "Use mcp__ostk__read for files (or native Read if mcp__ostk__read is not "
     "loaded; load it via ToolSearch(query='select:mcp__ostk__read')). "
     "Monitor commands should use tail -f, inotifywait -m, or while-true "
     "polling loops, not one-shot file I/O."
 )
+
+def deny_tool(reason):
+    """Emit JSON deny to stdout and write log line, then exit 2."""
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }))
+    try:
+        os.makedirs(os.path.dirname(_LOG_PATH), exist_ok=True)
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        entry = json.dumps({"ts": ts, "hook": _HOOK_NAME, "tool": "Monitor", "reason": reason})
+        with open(_LOG_PATH, "a") as _lf:
+            _lf.write(entry + "\n")
+    except Exception:
+        pass
+    sys.exit(2)
 
 try:
     with open("$TMP") as _f:
@@ -45,28 +67,23 @@ for pat in streaming:
 if re.search(r"python3", cmd, re.IGNORECASE):
     if re.search(r"open\s*\(", cmd, re.DOTALL):
         if re.search(r"\.(read|readlines)\s*\(\)|open\s*\([^)]*['\"]w['\"]", cmd, re.DOTALL):
-            print(BLOCK_MSG, file=sys.stderr)
-            sys.exit(2)
+            deny_tool(BLOCK_REASON)
 
 # BLOCK: one-shot cat
 if re.match(r"\s*cat\s+\S", cmd):
-    print(BLOCK_MSG, file=sys.stderr)
-    sys.exit(2)
+    deny_tool(BLOCK_REASON)
 
 # BLOCK: one-shot head
 if re.match(r"\s*head\s+", cmd):
-    print(BLOCK_MSG, file=sys.stderr)
-    sys.exit(2)
+    deny_tool(BLOCK_REASON)
 
 # BLOCK: bare tail without -f
 if re.match(r"\s*tail\s+", cmd) and not re.search(r"-[a-zA-Z]*f\s|--follow", cmd):
-    print(BLOCK_MSG, file=sys.stderr)
-    sys.exit(2)
+    deny_tool(BLOCK_REASON)
 
 # BLOCK: wc -l (one-shot file size)
 if re.match(r"\s*wc\s+-l", cmd):
-    print(BLOCK_MSG, file=sys.stderr)
-    sys.exit(2)
+    deny_tool(BLOCK_REASON)
 
 sys.exit(0)
 GUARD_PY

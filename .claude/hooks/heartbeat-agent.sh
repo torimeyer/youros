@@ -1,6 +1,10 @@
 #!/bin/bash
 HOOK_NAME=$(basename "$0")
 trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL_NAME:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
+_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/deny.sh
+source "$_HOOKS_DIR/lib/deny.sh"
+init_deny_traps
 # Hook: send a heartbeat for this Claude Code session whenever a tool
 # runs. Keeps the session's agent record "running" across backend
 # restarts (within the 15 minute stale window).
