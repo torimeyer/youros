@@ -165,6 +165,25 @@ describe('Jira page', () => {
     expect(screen.getByTestId('jira-page')).toBeInTheDocument()
   })
 
+  it('pre-fills site URL input from /atlassian/defaults', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/atlassian/status')) {
+        return Promise.resolve({ connected: false, email: '', site: '' })
+      }
+      if (path.includes('/atlassian/defaults')) {
+        return Promise.resolve({ site: 'https://company.atlassian.net' })
+      }
+      return Promise.resolve({})
+    })
+
+    renderJira()
+
+    await waitFor(() => {
+      const siteInput = screen.getByPlaceholderText('yourco.atlassian.net') as HTMLInputElement
+      expect(siteInput.value).toBe('https://company.atlassian.net')
+    })
+  })
+
   it('renders empty state when no issues assigned', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/atlassian/status')) {
