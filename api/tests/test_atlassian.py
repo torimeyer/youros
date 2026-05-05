@@ -14,7 +14,7 @@ async def test_atlassian_defaults_no_env(client):
         os.environ.pop("ATLASSIAN_SITE", None)
         resp = await client.get("/api/atlassian/defaults")
     assert resp.status_code == 200
-    assert resp.json() == {"site": ""}
+    assert resp.json() == {"site": "", "email": ""}
 
 
 @pytest.mark.asyncio
@@ -22,7 +22,7 @@ async def test_atlassian_defaults_with_env(client):
     with patch.dict("os.environ", {"ATLASSIAN_SITE": "https://company.atlassian.net"}):
         resp = await client.get("/api/atlassian/defaults")
     assert resp.status_code == 200
-    assert resp.json() == {"site": "https://company.atlassian.net"}
+    assert resp.json() == {"site": "https://company.atlassian.net", "email": ""}
 
 
 # --- GET /api/atlassian/status ---

@@ -20,9 +20,18 @@ class AtlassianConnectRequest(BaseModel):
 
 
 @router.get("/atlassian/defaults")
-def atlassian_defaults():
-    """Return env-driven defaults for the connect form."""
-    return {"site": os.environ.get("ATLASSIAN_SITE", "")}
+async def atlassian_defaults():
+    """Return defaults for the connect form: env-driven site if set, otherwise saved config."""
+    env_site = os.environ.get("ATLASSIAN_SITE", "")
+    saved_site = ""
+    saved_email = ""
+    try:
+        config = atlassian_service.get_config()
+        saved_site = config.get("site", "")
+        saved_email = config.get("email", "")
+    except Exception:
+        pass
+    return {"site": env_site or saved_site, "email": saved_email}
 
 
 @router.post("/atlassian/connect")
@@ -63,16 +72,6 @@ async def atlassian_status():
         except Exception:
             pass
     return {"connected": connected, "email": email, "site": site}
-
-
-@router.get("/atlassian/defaults")
-async def atlassian_defaults():
-    """Return saved Atlassian config values for pre-filling the connect form."""
-    try:
-        config = atlassian_service.get_config()
-        return {"site": config.get("site", ""), "email": config.get("email", "")}
-    except Exception:
-        return {"site": "", "email": ""}
 
 
 @router.delete("/atlassian/disconnect")
