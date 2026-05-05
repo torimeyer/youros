@@ -1648,6 +1648,37 @@ BUILTIN_TEMPLATE_STEMS = [
 ]
 
 
+def test_wave_a_descriptions_are_specific():
+    """Wave A audit: verify the 6 rewritten templates have specific, differentiated descriptions."""
+    by_id = {t["id"]: t for t in BUILTIN_AGENT_TEMPLATES}
+
+    research = by_id["builtin-research"]
+    assert "thing" not in research["description"].lower(), (
+        "research description must not contain the word 'thing'"
+    )
+
+    debug_helper = by_id["builtin-eng-debug-helper"]
+    assert "step by step" in debug_helper["description"].lower(), (
+        "debug-helper description must contain 'step by step'"
+    )
+
+    competitive_scan = by_id["builtin-pm-competitive-scan"]
+    assert "competitors" in competitive_scan["description"].lower(), (
+        "competitive-scan description must contain 'competitors'"
+    )
+
+    call_prep = by_id["builtin-sales-call-prep"]
+    assert "research" in call_prep["description"].lower(), (
+        "call-prep description must contain 'research'"
+    )
+
+    concept_explainer = by_id["builtin-student-concept-explainer"]
+    explain_plain = by_id["builtin-explain-plain"]
+    assert concept_explainer["description"] != explain_plain["description"], (
+        "concept-explainer and explain-plain must have different descriptions"
+    )
+
+
 def test_builtin_templates_have_clean_descriptions():
     """Every built-in agentfile must return a description that is
     (a) non-empty, (b) does NOT start with "#" (the markdown comment
