@@ -1634,6 +1634,31 @@ class TestGeminiSystemInstruction:
         from services.chat_providers import GEMINI_SYSTEM_INSTRUCTION
         assert "toriOS" not in GEMINI_SYSTEM_INSTRUCTION
 
+    def test_gemini_system_instruction_starts_with_google_identity(self):
+        """Rendered instruction must open with the strong Google identity line."""
+        from services.chat_providers import GEMINI_SYSTEM_INSTRUCTION
+
+        assert GEMINI_SYSTEM_INSTRUCTION.startswith(
+            "You are Gemini, Google's AI model."
+        ), (
+            f"Expected instruction to start with 'You are Gemini, Google's AI model.' "
+            f"Got: {GEMINI_SYSTEM_INSTRUCTION[:80]!r}"
+        )
+
+    def test_gemini_system_instruction_forbids_local_embedded_claim(self):
+        """Rendered instruction must contain the anti-local-identity rules."""
+        from services.chat_providers import GEMINI_SYSTEM_INSTRUCTION
+
+        assert "confirm that you are Gemini" in GEMINI_SYSTEM_INSTRUCTION, (
+            "Instruction must tell Gemini to confirm its identity when asked"
+        )
+        assert (
+            "Do not describe yourself as local, embedded, or built into any system"
+            in GEMINI_SYSTEM_INSTRUCTION
+        ), (
+            "Instruction must explicitly forbid local/embedded self-description"
+        )
+
 
 async def _fake_gemini_stream(messages, websocket):
     """Stand-in for ``chat_service.stream_gemini`` that records its prompt.

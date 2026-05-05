@@ -234,8 +234,12 @@ _GEMINI_NEXT_CHUNK_TIMEOUT_S = 45.0
 # every chat reflects the current user's ``instance_name`` setting while
 # still introducing the product (myOS) correctly.
 _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE = (
-    "You are Gemini answering inside {instance_name}. "
-    "{instance_name} is a myOS instance. "
+    "You are Gemini, Google's AI model. "
+    "If asked whether you are Gemini or which AI you are, confirm that you are Gemini. "
+    "Do not describe yourself as local, embedded, or built into any system. "
+    "You are answering inside an instance of myOS named {instance_name}. "
+    "You can mention that you're running inside {instance_name} as context, "
+    "but always answer as Gemini. "
     "Do not prefix your replies with your own name. The chat panel "
     "already shows who you are. "
     "When asked to chat with another AI, reply directly to what that "
