@@ -261,33 +261,85 @@ describe('Settings', () => {
   })
 
   describe('Data management', () => {
-    it('renders import and export buttons on the Privacy & Data tab', () => {
+    it('renders import and export buttons on the Connections tab', () => {
       renderSettings()
-      const privacyButtons = screen.getAllByRole('button', { name: 'Privacy & Data' })
-      fireEvent.click(privacyButtons[0])
+      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
+      fireEvent.click(connectionsButtons[0])
       expect(screen.getByText('Import Config')).toBeInTheDocument()
       expect(screen.getByText('Export Config')).toBeInTheDocument()
     })
   })
 
   describe('Data Management and Shared Links tab scoping', () => {
-    it('Data Management heading is not in the DOM on non-Privacy tabs', () => {
+    it('Data Management heading is not in the DOM on non-Connections tabs', () => {
       renderSettings()
-      // Default tab is Instructions — Data Management must not render at all
+      // Default tab is AI & Chat — Data Management must not render at all
       expect(screen.queryByRole('heading', { name: 'Data Management' })).not.toBeInTheDocument()
     })
 
-    it('Shared links heading is not in the DOM on non-Privacy tabs', () => {
+    it('Shared links heading is not in the DOM on non-Connections tabs', () => {
       renderSettings()
       expect(screen.queryByRole('heading', { name: 'Shared links' })).not.toBeInTheDocument()
     })
 
-    it('Data Management and Shared links render when Privacy & Data tab is active', () => {
+    it('Data Management and Shared links render when Connections tab is active', () => {
       renderSettings()
-      const privacyButtons = screen.getAllByRole('button', { name: 'Privacy & Data' })
-      fireEvent.click(privacyButtons[0])
+      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
+      fireEvent.click(connectionsButtons[0])
       expect(screen.getByRole('heading', { name: 'Data Management' })).toBeInTheDocument()
       expect(screen.getByRole('heading', { name: 'Shared links' })).toBeInTheDocument()
+    })
+  })
+
+  describe('Tab order', () => {
+    it('nav shows AI & Chat first, Connections second, Notifications & Focus third', () => {
+      renderSettings()
+      const navButtons = screen.getAllByRole('button').filter(
+        (btn) =>
+          btn.textContent === 'AI & Chat' ||
+          btn.textContent === 'Connections' ||
+          btn.textContent === 'Notifications & Focus'
+      )
+      const labels = navButtons.map((btn) => btn.textContent)
+      const aiIdx = labels.indexOf('AI & Chat')
+      const connIdx = labels.indexOf('Connections')
+      const notifIdx = labels.indexOf('Notifications & Focus')
+      expect(aiIdx).toBeLessThan(connIdx)
+      expect(connIdx).toBeLessThan(notifIdx)
+    })
+
+    it('Privacy & Data tab no longer exists in nav', () => {
+      renderSettings()
+      expect(screen.queryByRole('button', { name: 'Privacy & Data' })).not.toBeInTheDocument()
+    })
+
+    it('ADHD Mode tab no longer exists standalone in nav', () => {
+      renderSettings()
+      expect(screen.queryByRole('button', { name: 'ADHD Mode' })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Combined Notifications & Focus section', () => {
+    it('renders ADHD toggle inside Notifications & Focus section', () => {
+      renderSettings()
+      const focusButtons = screen.getAllByRole('button', { name: 'Notifications & Focus' })
+      fireEvent.click(focusButtons[0])
+      expect(screen.getByTestId('adhd-toggle')).toBeInTheDocument()
+    })
+
+    it('renders notifications toggle inside Notifications & Focus section', () => {
+      renderSettings()
+      const focusButtons = screen.getAllByRole('button', { name: 'Notifications & Focus' })
+      fireEvent.click(focusButtons[0])
+      expect(screen.getByText('Agent Complete')).toBeInTheDocument()
+    })
+
+    it('section-notifications-focus contains both notification and ADHD content', () => {
+      renderSettings()
+      const focusButtons = screen.getAllByRole('button', { name: 'Notifications & Focus' })
+      fireEvent.click(focusButtons[0])
+      expect(screen.getByTestId('adhd-interval-slider')).toBeInTheDocument()
+      expect(screen.getByTestId('adhd-focus-toggle')).toBeInTheDocument()
     })
   })
 
@@ -1010,6 +1062,9 @@ describe('Settings page — Files location', () => {
 
   it('renders a Files location field and submits a new path via PUT', async () => {
     renderIt()
+    // Files location lives in the Connections tab (Data subheader)
+    const connectionsButtons = await screen.findAllByRole('button', { name: 'Connections' })
+    fireEvent.click(connectionsButtons[0])
     const input = await screen.findByTestId('files-dir-input') as HTMLInputElement
     await waitFor(() => expect(input.value).toBe('/Users/me/.myos/files'))
 

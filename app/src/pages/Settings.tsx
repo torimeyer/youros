@@ -222,7 +222,7 @@ export default function Settings() {
   const [adhdFocusMode, setAdhdFocusMode] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeSection, setActiveSection] = useState('section-instructions');
+  const [activeSection, setActiveSection] = useState('section-ai-chat');
 
 
   useEffect(() => {
@@ -828,13 +828,11 @@ export default function Settings() {
     'bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-700 transition-colors';
 
   const navItems = [
-    { id: 'section-instructions', label: 'Instructions', icon: 'edit_note' },
-    { id: 'section-appearance', label: 'Appearance', icon: 'palette' },
     { id: 'section-ai-chat', label: 'AI & Chat', icon: 'smart_toy' },
     { id: 'section-connections', label: 'Connections', icon: 'hub' },
-    { id: 'section-notifications', label: 'Notifications', icon: 'notifications' },
-    { id: 'section-adhd', label: 'ADHD Mode', icon: 'psychology' },
-    { id: 'section-privacy', label: 'Privacy & Data', icon: 'lock' },
+    { id: 'section-notifications-focus', label: 'Notifications & Focus', icon: 'notifications' },
+    { id: 'section-instructions', label: 'Instructions', icon: 'edit_note' },
+    { id: 'section-appearance', label: 'Appearance', icon: 'palette' },
     { id: 'section-developer', label: 'Developer', icon: 'code' },
     { id: 'section-shortcuts', label: 'Shortcuts', icon: 'keyboard' },
     ...(instanceMode === 'team' ? [{ id: 'section-team-admin', label: 'Team Admin', icon: 'admin_panel_settings' }] : []),
@@ -1015,236 +1013,7 @@ export default function Settings() {
           </div>
           </div>
 
-          {/* ── 6. Privacy & Data ───────────────────── */}
-          <div id="section-adhd" className={activeSection !== 'section-adhd' ? 'hidden' : ''}>
-          <div className={cardClass}>
-            <div className="flex items-center gap-3 mb-2">
-              <h2 className="text-lg font-semibold">ADHD Mode</h2>
-              <button
-                data-testid="adhd-toggle"
-                onClick={handleAdhdToggle}
-                className={`w-10 h-6 rounded-full relative transition-colors ${
-                  adhdEnabled ? 'accent-bg' : 'bg-slate-700'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                    adhdEnabled ? 'left-5' : 'left-1'
-                  }`}
-                />
-              </button>
-            </div>
-            <p className="text-sm text-slate-400 mb-5">
-              Designed to keep you in flow. Get regular check-ins while agents work, see where you left off when you come back, and get one clear recommendation instead of a list of choices.
-            </p>
 
-            <div className={`space-y-5 ${adhdEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <p className="text-sm text-slate-300">Check-in notifications</p>
-                    <p className="text-xs text-slate-500">
-                      How often to show you what your agents are doing
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <input
-                    type="range"
-                    min={10}
-                    max={120}
-                    step={5}
-                    value={adhdCheckInSeconds}
-                    onChange={(e) => handleAdhdIntervalChange(Number(e.target.value))}
-                    className="flex-1 accent-blue-500"
-                    data-testid="adhd-interval-slider"
-                  />
-                  <span className="text-sm text-slate-300 w-16 text-right font-mono">
-                    {adhdCheckInSeconds}s
-                  </span>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-slate-800">
-                <div className="flex items-center justify-between">
-                  <div className="pr-3">
-                    <p className="text-sm text-slate-300">Welcome back summary</p>
-                    <p className="text-xs text-slate-500">
-                      When you return after being away for 5+ minutes, show you exactly where you left off
-                    </p>
-                  </div>
-                  <div className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="Always on when ADHD mode is active" />
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-slate-800">
-                <div className="flex items-center justify-between">
-                  <div className="pr-3">
-                    <p className="text-sm text-slate-300">Reduce choices</p>
-                    <p className="text-xs text-slate-500">
-                      Show one recommendation instead of a list of options. Less deciding, more doing.
-                    </p>
-                  </div>
-                  <button
-                    data-testid="adhd-focus-toggle"
-                    onClick={handleAdhdFocusModeToggle}
-                    className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
-                      adhdFocusMode ? 'accent-bg' : 'bg-slate-700'
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                        adhdFocusMode ? 'left-5' : 'left-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-          </div>
-
-          <div id="section-privacy" className={`space-y-6${activeSection !== 'section-privacy' ? ' hidden' : ''}`}>
-          <div className={cardClass} data-testid="files-location-section">
-          <h2 className="text-lg font-semibold mb-2">Files location</h2>
-          <p className="text-sm text-slate-400 mb-3">
-            This is the folder on your computer where torios saves your
-            files, like briefs and roadmaps. The default is a hidden
-            folder in your home directory.
-          </p>
-          <div className="flex gap-2 items-center">
-            <input
-              type="text"
-              value={filesDirInput}
-              onChange={(e) => setFilesDirInput(e.target.value)}
-              placeholder={DEFAULT_FILES_DIR_HINT}
-              data-testid="files-dir-input"
-              className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-            />
-            <button
-              onClick={handleChangeFilesDir}
-              data-testid="files-dir-change"
-              className="accent-bg !text-white px-4 py-2 rounded-lg text-sm font-medium"
-            >
-              Change
-            </button>
-          </div>
-          </div>
-
-          {activeSection === 'section-privacy' && (
-          <div className={cardClass}>
-          <div className="flex items-center gap-2 mb-2">
-            <h2 className="text-lg font-semibold">Data Management</h2>
-            <div className="group relative">
-              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
-                Export saves your preferences (theme, features, notifications) to a JSON file. API keys are stored separately in the system keychain and are not exported. Import loads a previously exported file to restore your preferences.
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            <button
-              onClick={handleImport}
-              className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
-            >
-              <Icon name="upload" size={18} />
-              Import Config
-            </button>
-            <button
-              onClick={handleExport}
-              className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
-            >
-              <Icon name="download" size={18} />
-              Export Config
-            </button>
-            <button
-              onClick={async () => {
-                // Clear both the localStorage cache and the server side
-                // onboarded flag so the user can run setup again. The
-                // server is the source of truth, so the patch must
-                // succeed before we navigate.
-                try {
-                  await api.patch('/settings', { onboarded: false });
-                } catch {
-                  // best effort, still let the user reset locally
-                }
-                try {
-                  localStorage.removeItem('myos-onboarded');
-                } catch {
-                  /* ignore */
-                }
-                useAppStore.setState({ onboarded: false });
-                window.location.href = '/';
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
-            >
-              <Icon name="restart_alt" size={18} />
-              Restart Setup
-            </button>
-          </div>
-          </div>
-          )}
-
-          {activeSection === 'section-privacy' && (
-          <div className={cardClass}>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Shared links</h2>
-            <button
-              onClick={fetchShares}
-              disabled={sharesLoading}
-              className="text-xs text-slate-400 hover:text-white disabled:opacity-50 transition-colors"
-            >
-              {sharesLoading ? 'Loading...' : 'Refresh'}
-            </button>
-          </div>
-          {shares.length === 0 && !sharesLoading && (
-            <p className="text-sm text-slate-500">No active shared links. Use the Share button on tasks, transcripts, or labels to create one.</p>
-          )}
-          {shares.length > 0 && (
-            <div className="flex flex-col gap-2">
-              {shares.map((share) => (
-                <div
-                  key={share.token}
-                  className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${share.expired ? 'border-slate-800 opacity-50' : 'border-slate-700 bg-slate-800/40'}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-200 truncate">{share.title}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {share.share_type === 'task_list' ? 'Task list' : share.share_type === 'agent_output' ? 'Agent output' : 'Label view'}
-                      {' '}&middot; Expires {new Date(share.expires_at).toLocaleDateString()}
-                      {share.expired && ' (expired)'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => navigator.clipboard.writeText(`${window.location.origin}/share/${share.token}`)}
-                      className="text-xs text-slate-400 hover:text-blue-400 transition-colors px-2 py-1 rounded"
-                      title="Copy link"
-                    >
-                      Copy link
-                    </button>
-                    <button
-                      onClick={() => revokeShare(share.token)}
-                      disabled={revokingToken === share.token}
-                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors px-2 py-1 rounded"
-                    >
-                      {revokingToken === share.token ? 'Revoking...' : 'Revoke'}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          </div>
-          )}
-          </div>
 
           {/* ── 2. Appearance ───────────────────────── */}
           <div id="section-appearance" className={`grid grid-cols-1 md:grid-cols-2 gap-6 items-start${activeSection !== 'section-appearance' ? ' hidden' : ''}`}>
@@ -1613,8 +1382,9 @@ export default function Settings() {
           </div>
           </div>
 
-          {/* ── 5. Notifications ────────────────────── */}
-          <div id="section-notifications" className={activeSection !== 'section-notifications' ? 'hidden' : ''}>
+          {/* ── 3. Notifications & Focus ────────────────────── */}
+          <div id="section-notifications-focus" className={activeSection !== 'section-notifications-focus' ? 'hidden' : 'space-y-6'}>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Notifications</p>
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">Notifications</h2>
             <div className="space-y-3">
@@ -1747,6 +1517,92 @@ export default function Settings() {
                     }`}
                   />
                 </button>
+              </div>
+            </div>
+          </div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Focus mode</p>
+          <div className={cardClass}>
+            <div className="flex items-center gap-3 mb-2">
+              <h2 className="text-lg font-semibold">ADHD Mode</h2>
+              <button
+                data-testid="adhd-toggle"
+                onClick={handleAdhdToggle}
+                className={`w-10 h-6 rounded-full relative transition-colors ${
+                  adhdEnabled ? 'accent-bg' : 'bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                    adhdEnabled ? 'left-5' : 'left-1'
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-sm text-slate-400 mb-5">
+              Designed to keep you in flow. Get regular check-ins while agents work, see where you left off when you come back, and get one clear recommendation instead of a list of choices.
+            </p>
+
+            <div className={`space-y-5 ${adhdEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-sm text-slate-300">Check-in notifications</p>
+                    <p className="text-xs text-slate-500">
+                      How often to show you what your agents are doing
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="range"
+                    min={10}
+                    max={120}
+                    step={5}
+                    value={adhdCheckInSeconds}
+                    onChange={(e) => handleAdhdIntervalChange(Number(e.target.value))}
+                    className="flex-1 accent-blue-500"
+                    data-testid="adhd-interval-slider"
+                  />
+                  <span className="text-sm text-slate-300 w-16 text-right font-mono">
+                    {adhdCheckInSeconds}s
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Welcome back summary</p>
+                    <p className="text-xs text-slate-500">
+                      When you return after being away for 5+ minutes, show you exactly where you left off
+                    </p>
+                  </div>
+                  <div className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="Always on when ADHD mode is active" />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="pr-3">
+                    <p className="text-sm text-slate-300">Reduce choices</p>
+                    <p className="text-xs text-slate-500">
+                      Show one recommendation instead of a list of options. Less deciding, more doing.
+                    </p>
+                  </div>
+                  <button
+                    data-testid="adhd-focus-toggle"
+                    onClick={handleAdhdFocusModeToggle}
+                    className={`w-10 h-6 rounded-full relative transition-colors flex-shrink-0 ${
+                      adhdFocusMode ? 'accent-bg' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                        adhdFocusMode ? 'left-5' : 'left-1'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -2276,6 +2132,142 @@ export default function Settings() {
           )}
           </div>
           </div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Data</p>
+          {activeSection === 'section-connections' && (
+          <div className={cardClass} data-testid="files-location-section">
+          <h2 className="text-lg font-semibold mb-2">Files location</h2>
+          <p className="text-sm text-slate-400 mb-3">
+            This is the folder on your computer where torios saves your
+            files, like briefs and roadmaps. The default is a hidden
+            folder in your home directory.
+          </p>
+          <div className="flex gap-2 items-center">
+            <input
+              type="text"
+              value={filesDirInput}
+              onChange={(e) => setFilesDirInput(e.target.value)}
+              placeholder={DEFAULT_FILES_DIR_HINT}
+              data-testid="files-dir-input"
+              className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+            />
+            <button
+              onClick={handleChangeFilesDir}
+              data-testid="files-dir-change"
+              className="accent-bg !text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              Change
+            </button>
+          </div>
+          </div>
+          )}
+          {activeSection === 'section-connections' && (
+          <div className={cardClass}>
+          <div className="flex items-center gap-2 mb-2">
+            <h2 className="text-lg font-semibold">Data Management</h2>
+            <div className="group relative">
+              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
+                Export saves your preferences (theme, features, notifications) to a JSON file. API keys are stored separately in the system keychain and are not exported. Import loads a previously exported file to restore your preferences.
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <button
+              onClick={handleImport}
+              className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
+            >
+              <Icon name="upload" size={18} />
+              Import Config
+            </button>
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
+            >
+              <Icon name="download" size={18} />
+              Export Config
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  await api.patch('/settings', { onboarded: false });
+                } catch {
+                  // best effort, still let the user reset locally
+                }
+                try {
+                  localStorage.removeItem('myos-onboarded');
+                } catch {
+                  /* ignore */
+                }
+                useAppStore.setState({ onboarded: false });
+                window.location.href = '/';
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 hover:text-white hover:border-slate-600 transition-colors"
+            >
+              <Icon name="restart_alt" size={18} />
+              Restart Setup
+            </button>
+          </div>
+          </div>
+          )}
+          {activeSection === 'section-connections' && (
+          <div className={cardClass}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Shared links</h2>
+            <button
+              onClick={fetchShares}
+              disabled={sharesLoading}
+              className="text-xs text-slate-400 hover:text-white disabled:opacity-50 transition-colors"
+            >
+              {sharesLoading ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+          {shares.length === 0 && !sharesLoading && (
+            <p className="text-sm text-slate-500">No active shared links. Use the Share button on tasks, transcripts, or labels to create one.</p>
+          )}
+          {shares.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {shares.map((share) => (
+                <div
+                  key={share.token}
+                  className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${share.expired ? 'border-slate-800 opacity-50' : 'border-slate-700 bg-slate-800/40'}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-200 truncate">{share.title}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {share.share_type === 'task_list' ? 'Task list' : share.share_type === 'agent_output' ? 'Agent output' : 'Label view'}
+                      {' '}&middot; Expires {new Date(share.expires_at).toLocaleDateString()}
+                      {share.expired && ' (expired)'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => navigator.clipboard.writeText(`${window.location.origin}/share/${share.token}`)}
+                      className="text-xs text-slate-400 hover:text-blue-400 transition-colors px-2 py-1 rounded"
+                      title="Copy link"
+                    >
+                      Copy link
+                    </button>
+                    <button
+                      onClick={() => revokeShare(share.token)}
+                      disabled={revokingToken === share.token}
+                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors px-2 py-1 rounded"
+                    >
+                      {revokingToken === share.token ? 'Revoking...' : 'Revoke'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          </div>
+          )}
           </div>
 
           {/* ── Team Admin (gated) ──────────────────── */}
@@ -2303,31 +2295,40 @@ export default function Settings() {
           {/* ── 7. Developer ────────────────────────── */}
           <div id="section-developer" className={activeSection !== 'section-developer' ? 'hidden' : ''}>
           <div className={cardClass} data-testid="developer-section">
-            <h2 className="text-lg font-semibold mb-2">Developer</h2>
-          <p className="text-sm text-slate-400 mb-4">
-            Behind-the-scenes views for debugging and auditing what happened.
-          </p>
-          <div className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold mb-4">Developer</h2>
+          <div className="space-y-1">
             <a
               href="/activity"
               data-testid="developer-activity-link"
-              className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-800/50 transition-colors group"
             >
-              View activity log
+              <Icon name="history" size={18} className="text-slate-400 group-hover:text-slate-200 flex-shrink-0" />
+              <div>
+                <p className="text-sm text-slate-200">View activity log</p>
+                <p className="text-xs text-slate-500">Behind-the-scenes audit of what happened</p>
+              </div>
             </a>
             <a
               href="/transcripts"
               data-testid="developer-transcripts-link"
-              className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-800/50 transition-colors group"
             >
-              View transcripts
+              <Icon name="mic" size={18} className="text-slate-400 group-hover:text-slate-200 flex-shrink-0" />
+              <div>
+                <p className="text-sm text-slate-200">View transcripts</p>
+                <p className="text-xs text-slate-500">Full text of every chat and agent session</p>
+              </div>
             </a>
             <Link
               to="/privacy"
               data-testid="developer-privacy-link"
-              className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-800/50 transition-colors group"
             >
-              Privacy policy
+              <Icon name="policy" size={18} className="text-slate-400 group-hover:text-slate-200 flex-shrink-0" />
+              <div>
+                <p className="text-sm text-slate-200">Privacy policy</p>
+                <p className="text-xs text-slate-500">How your data is used</p>
+              </div>
             </Link>
           </div>
           </div>
