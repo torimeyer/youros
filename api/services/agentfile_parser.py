@@ -188,6 +188,12 @@ class AgentfileConfig:
     # target config, not an empty shell.
     alias: str = ""
 
+    # Aliases that map onto this canonical agent. ``ALIASES saa, sa`` on
+    # builder.agent means callers who ask for "saa" or "sa" get the
+    # builder config. These are declared on the canonical file, not on
+    # separate stub files.
+    aliases: list[str] = field(default_factory=list)
+
     # Quick mode flag. When true, the spawn path uses the compact mailbox
     # block (under 800 chars) instead of the full verbose block and skips
     # any other warm up that adds first-byte latency. Parsed from
@@ -197,33 +203,56 @@ class AgentfileConfig:
 
 
 # Template alias map for the Tasks page "Comprehensive build" flow.
-# This is a plain dict today so the spawn endpoint can resolve muscle
-# memory names (e.g. Tori types "saa" but the real template is
-# "comprehensive"). Tomorrow this will be loaded from a user-editable
-# settings file so every myOS user can add their own aliases in the
-# Settings page without touching code. The Settings UI is a follow up
-# needle; do not build it here, just leave the shape stable. See
-# needle 295 for context.
+# Personal shortcuts (saa, elit) now live as ALIASES directives on the
+# canonical agentfiles so they do not ship as separate stub files. Only
+# generic, install-agnostic aliases belong here.
 _BUILTIN_TEMPLATE_ALIASES: dict[str, str] = {
-    # "saa" is Tori's muscle-memory shortcut for the Builder pattern.
-    # "comprehensive" is the old name, kept for backwards compat so
-    # scripts and memory notes that still say "comprehensive" resolve.
-    "saa": "builder",
+    # "comprehensive" is the old name for builder, kept for backwards
+    # compat so scripts and memory notes that still say "comprehensive"
+    # continue to resolve without code changes.
     "comprehensive": "builder",
-    # "elit" is Tori's muscle-memory shortcut for the plain-language
-    # explainer. "explain-plain" is the generic, user-agnostic name.
-    "elit": "explain-plain",
 }
+
+
+def _build_aliases_from_files() -> dict[str, str]:
+    """Scan all agent dirs and build an alias->stem map from ALIASES directives.
+
+    Each agentfile can declare ``ALIASES saa, sa`` to register personal
+    shortcuts without requiring separate stub files. This function collects
+    those declarations so callers can resolve any alias to its canonical stem.
+    First-seen wins on collision (built-in dir has highest priority).
+    """
+    result: dict[str, str] = {}
+    for root in (AGENTS_DIR, MARKETPLACE_DIR, CUSTOM_DIR):
+        if root is None:
+            continue
+        try:
+            if not root.exists():
+                continue
+            for path in sorted(root.glob("*.agent")):
+                try:
+                    config = parse_agentfile(path)
+                    for alias in config.aliases:
+                        if alias not in result:
+                            result[alias] = path.stem
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return result
 
 
 def get_template_aliases() -> dict[str, str]:
     """Return the current template alias map.
 
-    Merges built-in aliases with user-set aliases from the Settings
-    page. User aliases win on collision, so a user can override a
-    built-in shortcut without touching code.
+    Merges built-in aliases, file-level ALIASES directives, and user-set
+    aliases from the Settings page. Priority (highest first): user aliases,
+    file-level ALIASES, built-in map. This lets a user override any shortcut
+    without touching code.
     """
     merged = dict(_BUILTIN_TEMPLATE_ALIASES)
+    # File-level ALIASES (e.g. ALIASES saa on builder.agent).
+    merged.update(_build_aliases_from_files())
     try:
         from services.agent_templates_store import agent_templates_store
         user_aliases = agent_templates_store.get_all_user_aliases()
@@ -480,6 +509,13 @@ def parse_agentfile(path: Path) -> AgentfileConfig:
             # get_agent_config_by_template reads this field and swaps in
             # the target config so callers never see an empty shell.
             config.alias = _strip_quotes(value).strip()
+        elif directive == "ALIASES":
+            # Comma-or-space-separated list of alias names that map onto
+            # this canonical agent. ``ALIASES saa, sa`` means callers
+            # who ask for "saa" or "sa" get this agent's config.
+            config.aliases.extend(
+                a.strip() for a in re.split(r"[,\s]+", value) if a.strip()
+            )
         elif directive == "AC":
             config.acceptance_criteria.append(value)
         elif directive == "REVIEW":
@@ -568,7 +604,7 @@ def list_available_templates() -> list[str]:
             # Non-fatal: if a dir is unreadable we just omit it from the
             # suggestion set rather than failing the whole listing.
             continue
-    names.update(_BUILTIN_TEMPLATE_ALIASES.keys())
+    names.update(get_template_aliases().keys())
     return sorted(names)
 
 
@@ -588,8 +624,8 @@ def get_agent_config_by_template(template_name: str) -> Optional[AgentfileConfig
        the resolver loads that target instead. Chains are followed up
        to a small depth so a typo cycle cannot lock the resolver.
     """
-    aliases = _BUILTIN_TEMPLATE_ALIASES
-    # Step 1: built-in alias map resolution.
+    aliases = get_template_aliases()
+    # Step 1: alias map resolution (built-in + file-level ALIASES + user).
     resolved = aliases.get(template_name, template_name)
 
     # Step 2: walk file-level ALIAS directives, guarding against cycles.
@@ -853,6 +889,9 @@ def serialize_agentfile(config: AgentfileConfig) -> str:
 
     if config.alias:
         lines.append(f"ALIAS {config.alias}")
+
+    if config.aliases:
+        lines.append(f"ALIASES {', '.join(config.aliases)}")
 
     # Quality gates
     for ac in config.acceptance_criteria:
