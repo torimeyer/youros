@@ -3548,6 +3548,58 @@ def get_running_needle_ids() -> set[str]:
     return live
 
 
+import re as _needle_re
+
+# Matches →NNN needle references in text (arrow character + digits).
+_ARROW_NEEDLE_RE = _needle_re.compile(r"→(\d{1,6})")
+# Matches a trailing -NNN suffix in an agent name (2-5 digits, no hex).
+# Used as a fallback when no arrow-prefixed reference is found in text.
+_NAME_NEEDLE_SUFFIX_RE = _needle_re.compile(r"-(\d{2,5})$")
+
+
+def _infer_needle_id(
+    name: str,
+    task: str,
+    description: str,
+    prompt: str,
+    issues_path: Optional[Path] = None,
+) -> Optional[str]:
+    """Extract a needle ID from agent text fields or name, best-effort.
+
+    Priority:
+    1. Arrow-prefixed →NNN in task, description, or prompt (most reliable).
+    2. Trailing -NNN in agent name verified against issues.jsonl (fallback).
+
+    Returns a bare numeric string (e.g. "968") or None when nothing is found.
+    Closed or shelved needles are not excluded here; the overlay in tasks.py
+    respects terminal statuses at render time.
+    """
+    for text in (task, description, prompt):
+        if not text:
+            continue
+        m = _ARROW_NEEDLE_RE.search(text)
+        if m:
+            return m.group(1)
+    if name:
+        m = _NAME_NEEDLE_SUFFIX_RE.search(name)
+        if m:
+            candidate = m.group(1)
+            if issues_path is None:
+                from services.ostk import ostk as _ostk
+                issues_path = Path(_ostk.cwd) / ".ostk" / "needles" / "issues.jsonl"
+            if issues_path.exists():
+                arrow_form = f"→{candidate}"
+                try:
+                    for line in issues_path.read_text().splitlines():
+                        entry = json.loads(line)
+                        raw_id = str(entry.get("id", ""))
+                        if raw_id == arrow_form or raw_id.lstrip("→") == candidate:
+                            return candidate
+                except Exception:
+                    pass
+    return None
+
+
 def _build_spec_ac_block(task_id: str, docs: list[dict]) -> str:
     """Return an AC injection block if any doc in *docs* references *task_id*.
 
@@ -4318,6 +4370,15 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             spawn_meta["task_id"] = body.task_id
         if body.needle_id:
             spawn_meta["needle_id"] = body.needle_id
+        else:
+            _inferred_nid = _infer_needle_id(
+                body.name or "",
+                body.task or "",
+                body.description or "",
+                body.prompt or "",
+            )
+            if _inferred_nid:
+                spawn_meta["needle_id"] = _inferred_nid
         # Worktree isolation: record the fork location so /cleanup and
         # the pre-merge gate can find the branch later. Keys are only
         # set when the fork actually succeeded (body.isolation is flipped
@@ -5034,6 +5095,15 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         record["needle_id"] = body.needle_id
     elif existing.get("needle_id"):
         record["needle_id"] = existing["needle_id"]
+    else:
+        _inferred_nid = _infer_needle_id(
+            body.name or "",
+            body.task or "",
+            body.description or "",
+            body.prompt or "",
+        )
+        if _inferred_nid:
+            record["needle_id"] = _inferred_nid
     # Needle 857: stamp conversational chat mode for claude-code agents so
     # the nudge handler knows it can generate a full LLM reply instead of
     # relying on the ack bot's canned receipts. Preserved on re-register so
