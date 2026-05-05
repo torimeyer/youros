@@ -305,6 +305,7 @@ export default function Calendar() {
   // Show the shared Google setup guide modal when the user clicks the
   // secondary "Need setup help?" link on the connect panel.
   const [showSetupGuide, setShowSetupGuide] = useState(false)
+  const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
   // Ticker that forces the countdown subtitle to refresh once a minute.
   // A minute is fine grained enough for "Starts in 12 minutes" to stay
   // accurate without causing noisy re-renders.
@@ -312,6 +313,12 @@ export default function Calendar() {
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 60000)
     return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    api.get<{ google_oauth_available?: boolean }>('/secrets/key-status')
+      .then((data) => setGoogleOAuthAvailable(data.google_oauth_available ?? false))
+      .catch(() => {})
   }, [])
 
   // Purge an event id from the localStorage seed cache. Without this,
@@ -618,12 +625,22 @@ export default function Calendar() {
             }
             primaryAction={
               <div className="w-full space-y-3">
-                <button
-                  onClick={handleConnect}
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
-                >
-                  {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
-                </button>
+                {googleOAuthAvailable ? (
+                  <button
+                    onClick={() => { window.location.href = '/api/auth/google' }}
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
+                    data-testid="connect-google-button-calendar"
+                  >
+                    {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleConnect}
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium transition-colors"
+                  >
+                    {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowSetupGuide(true)}

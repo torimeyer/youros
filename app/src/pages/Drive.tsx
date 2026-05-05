@@ -305,8 +305,10 @@ function CredentialsPicker({ onSaved }: { onSaved: () => void }) {
 
 function ConnectScreen({
   hasCredentialsFile,
+  googleOAuthAvailable,
 }: {
   hasCredentialsFile: boolean;
+  googleOAuthAvailable: boolean;
 }) {
   const [credsSaved, setCredsSaved] = useState(hasCredentialsFile);
   const [loading, setLoading] = useState(false);
@@ -344,39 +346,59 @@ function ConnectScreen({
           Browse and preview your Docs, Slides, and Sheets right here in myOS.
         </p>
 
-        {!credsSaved && (
-          <CredentialsPicker onSaved={() => setCredsSaved(true)} />
-        )}
-
-        {credsSaved && (
+        {googleOAuthAvailable ? (
           <>
-            <p className="text-sm font-medium text-slate-300 mb-3 text-left">
-              Step 2: Connect your account
-            </p>
-
             {error && (
               <div className="mb-4">
                 <ErrorBanner message={error} />
               </div>
             )}
-
             <button
-              onClick={handleConnect}
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-white font-medium transition-colors"
+              onClick={() => { window.location.href = '/api/auth/google' }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-white font-medium transition-colors"
+              data-testid="connect-google-button-drive"
             >
-              {loading ? (
-                <>
-                  <Icon name="progress_activity" size={16} className="animate-spin" />
-                  Waiting for sign-in...
-                </>
-              ) : (
-                <>
-                  <Icon name="login" size={18} />
-                  Connect your Google account
-                </>
-              )}
+              <Icon name="login" size={18} />
+              Connect Google account
             </button>
+          </>
+        ) : (
+          <>
+            {!credsSaved && (
+              <CredentialsPicker onSaved={() => setCredsSaved(true)} />
+            )}
+
+            {credsSaved && (
+              <>
+                <p className="text-sm font-medium text-slate-300 mb-3 text-left">
+                  Step 2: Connect your account
+                </p>
+
+                {error && (
+                  <div className="mb-4">
+                    <ErrorBanner message={error} />
+                  </div>
+                )}
+
+                <button
+                  onClick={handleConnect}
+                  disabled={loading}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-white font-medium transition-colors"
+                >
+                  {loading ? (
+                    <>
+                      <Icon name="progress_activity" size={16} className="animate-spin" />
+                      Waiting for sign-in...
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="login" size={18} />
+                      Connect your Google account
+                    </>
+                  )}
+                </button>
+              </>
+            )}
           </>
         )}
 
@@ -444,6 +466,7 @@ export default function Drive() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [apiNotEnabled, setApiNotEnabled] = useState(false);
+  const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false);
 
   // Undo-delete state: optimistic delete with a 5s grace window.
   const [undoDelete, setUndoDelete] = useState<{
@@ -534,6 +557,13 @@ export default function Drive() {
     } finally {
       setFilesLoading(false);
     }
+  }, []);
+
+  // Check whether server-side Google OAuth credentials are configured.
+  useEffect(() => {
+    api.get<{ google_oauth_available?: boolean }>('/secrets/key-status')
+      .then((data) => setGoogleOAuthAvailable(data.google_oauth_available ?? false))
+      .catch(() => {});
   }, []);
 
   // Check for OAuth callback result in the URL on mount.
@@ -788,6 +818,7 @@ export default function Drive() {
         {authStatus !== null && !authStatus.authenticated && !apiNotEnabled && (
           <ConnectScreen
             hasCredentialsFile={authStatus.credentials_file_present}
+            googleOAuthAvailable={googleOAuthAvailable}
           />
         )}
 

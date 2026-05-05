@@ -117,6 +117,7 @@ export default function Gmail() {
   // secondary "Need setup help?" link on the connect panel. Lives at the
   // page level so it can be rendered alongside ConnectCard.
   const [showSetupGuide, setShowSetupGuide] = useState(false)
+  const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
 
   const handleCreateTask = async (e: React.MouseEvent, messageId: string) => {
     e.stopPropagation()
@@ -166,6 +167,12 @@ export default function Gmail() {
     } catch {
       setSendCapability({ has_send_scope: false, reauth_url: null })
     }
+  }, [])
+
+  useEffect(() => {
+    api.get<{ google_oauth_available?: boolean }>('/secrets/key-status')
+      .then((data) => setGoogleOAuthAvailable(data.google_oauth_available ?? false))
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -388,12 +395,22 @@ export default function Gmail() {
             }
             primaryAction={
               <div className="w-full space-y-3">
-                <button
-                  onClick={handleConnect}
-                  className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
-                >
-                  {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
-                </button>
+                {googleOAuthAvailable ? (
+                  <button
+                    onClick={() => { window.location.href = '/api/auth/google' }}
+                    className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
+                    data-testid="connect-google-button-gmail"
+                  >
+                    {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleConnect}
+                    className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
+                  >
+                    {authStatus?.needs_reauth ? 'Reconnect' : 'Connect Google account'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowSetupGuide(true)}

@@ -1169,3 +1169,39 @@ describe('Calendar delete event reliability', () => {
     expect(cachedIds).toContain('keep-me')
   })
 })
+
+describe('Calendar — Google OAuth connect button', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.calendarCache.v1')
+  })
+
+  it('shows the OAuth button when google_oauth_available is true and not authenticated', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status'))
+        return Promise.resolve({ authenticated: false, needs_reauth: false, email: null })
+      if (path.includes('/secrets/key-status'))
+        return Promise.resolve({ google_oauth_available: true })
+      return Promise.resolve({})
+    })
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-google-button-calendar')).toBeInTheDocument()
+    })
+  })
+
+  it('does not show the OAuth button when google_oauth_available is false', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/calendar/auth/status'))
+        return Promise.resolve({ authenticated: false, needs_reauth: false, email: null })
+      if (path.includes('/secrets/key-status'))
+        return Promise.resolve({ google_oauth_available: false })
+      return Promise.resolve({})
+    })
+    renderCalendar()
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('connect-google-button-calendar')).not.toBeInTheDocument()
+  })
+})

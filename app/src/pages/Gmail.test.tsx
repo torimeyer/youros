@@ -684,3 +684,38 @@ describe('Gmail delete (Trash) actions', () => {
     confirmSpy.mockRestore()
   })
 })
+
+describe('Gmail — Google OAuth connect button', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows the OAuth button when google_oauth_available is true and not authenticated', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status'))
+        return Promise.resolve({ authenticated: false, needs_reauth: false, email: null, unread_count: 0 })
+      if (path.includes('/secrets/key-status'))
+        return Promise.resolve({ google_oauth_available: true })
+      return Promise.resolve({})
+    })
+    renderGmail()
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-google-button-gmail')).toBeInTheDocument()
+    })
+  })
+
+  it('does not show the OAuth button when google_oauth_available is false', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/gmail/auth/status'))
+        return Promise.resolve({ authenticated: false, needs_reauth: false, email: null, unread_count: 0 })
+      if (path.includes('/secrets/key-status'))
+        return Promise.resolve({ google_oauth_available: false })
+      return Promise.resolve({})
+    })
+    renderGmail()
+    await waitFor(() => {
+      expect(screen.getByTestId('connect-card')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('connect-google-button-gmail')).not.toBeInTheDocument()
+  })
+})
