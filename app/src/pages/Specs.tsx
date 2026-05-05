@@ -408,7 +408,6 @@ export default function Specs() {
   // spec appears in docs.
   const pendingSpecsMap = useAppStore((s) => s.pendingSpecs);
   const removePendingSpec = useAppStore((s) => s.removePendingSpec);
-  const [titleInput, setTitleInput] = useState("");
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
   const [decomposeToast, setDecomposeToast] = useState<{ count: number } | null>(null);
@@ -607,48 +606,6 @@ export default function Specs() {
     setTimeout(() => setMessage(""), 4000);
   };
 
-  const handleCreateDraft = async () => {
-    const title = titleInput.trim();
-    if (!title) return;
-    setLoading(true);
-
-    // Optimistically insert a placeholder row so the spec appears immediately
-    // even while the server is still generating acceptance criteria.
-    const placeholderId = `__placeholder__${Date.now()}`;
-    const placeholder: Spec = {
-      path: placeholderId,
-      filename: "",
-      title,
-      status: "draft",
-      created_at: new Date().toISOString(),
-      promoted_at: "",
-      body: "",
-      acceptance_criteria: [],
-      task_ids: [],
-    };
-    setDocs((prev) => [placeholder, ...prev]);
-    setTitleInput("");
-
-    try {
-      const res = await api.post<{ result: string; status?: string; promoted_path?: string | null }>(
-        "/specs/draft",
-        { title },
-      );
-      await fetchDocs();
-      if (res.status === "ready") {
-        showMessage("Spec created. Ready to build.");
-      } else {
-        showMessage("Draft created.");
-      }
-    } catch {
-      // Remove the placeholder on failure
-      setDocs((prev) => prev.filter((d) => d.path !== placeholderId));
-      setTitleInput(title);
-      showMessage("Could not create draft. Try again.", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handlePromote = async (path: string) => {
     setLoading(true);
@@ -939,30 +896,12 @@ export default function Specs() {
 
         {/* Create new draft */}
         <div className="flex gap-3 mb-8">
-          <input
-            type="text"
-            placeholder="Name your spec..."
-            value={titleInput}
-            onChange={(e) => setTitleInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreateDraft();
-            }}
-            className="flex-1 bg-slate-900/40 border border-slate-800 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-          />
           <Button
             variant="primary"
             size="md"
-            onClick={handleCreateDraft}
-            disabled={loading || !titleInput.trim()}
-          >
-            New Spec
-          </Button>
-          <Button
-            variant="secondary"
-            size="md"
             onClick={() => setShowWizard(true)}
           >
-            Spec Wizard
+            New Spec
           </Button>
           <Button
             variant="secondary"

@@ -178,67 +178,29 @@ describe('Specs page', () => {
     expect(screen.getByRole('button', { name: /Done/ })).toBeInTheDocument()
   })
 
-  it('new draft button calls POST /specs/draft', async () => {
+  it('New Spec button is always enabled', async () => {
     renderSpecs()
 
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
-
-    const input = screen.getByPlaceholderText('Name your spec...')
-    fireEvent.change(input, { target: { value: 'My new plan' } })
 
     const button = screen.getByRole('button', { name: 'New Spec' })
-    fireEvent.click(button)
-
-    await waitFor(() => {
-      expect(mockedApiPost).toHaveBeenCalledWith('/specs/draft', { title: 'My new plan' })
-    })
+    expect(button).not.toBeDisabled()
   })
 
-  it('clears input after creating a draft', async () => {
+  it('clicking New Spec opens the SpecWizard', async () => {
     renderSpecs()
 
     await waitFor(() => {
       expect(mockedApiGet).toHaveBeenCalled()
     })
 
-    const input = screen.getByPlaceholderText('Name your spec...') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'Temp' } })
-    expect(input.value).toBe('Temp')
+    expect(screen.queryByTestId('spec-wizard')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
 
-    await waitFor(() => {
-      expect(input.value).toBe('')
-    })
-  })
-
-  it('Enter key creates a new draft', async () => {
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalled()
-    })
-
-    const input = screen.getByPlaceholderText('Name your spec...')
-    fireEvent.change(input, { target: { value: 'Enter plan' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-
-    await waitFor(() => {
-      expect(mockedApiPost).toHaveBeenCalledWith('/specs/draft', { title: 'Enter plan' })
-    })
-  })
-
-  it('does not create draft with empty input', async () => {
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalled()
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
-    expect(mockedApiPost).not.toHaveBeenCalled()
+    expect(screen.getByTestId('spec-wizard')).toBeInTheDocument()
   })
 
   it('shows status badges on spec cards', async () => {
@@ -737,39 +699,6 @@ describe('Specs page', () => {
   // Obsolete: the Verify button was removed. Previously this test
   // confirmed clicking Verify posted to /specs/{path}/verify.
 
-  it('shows success message after creating draft', async () => {
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalled()
-    })
-
-    const input = screen.getByPlaceholderText('Name your spec...')
-    fireEvent.change(input, { target: { value: 'Test plan' } })
-    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
-
-    await waitFor(() => {
-      expect(screen.getByText('Draft created.')).toBeInTheDocument()
-    })
-  })
-
-  it('shows error message on draft creation failure', async () => {
-    mockedApiPost.mockRejectedValueOnce(new Error('Server error'))
-
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalled()
-    })
-
-    const input = screen.getByPlaceholderText('Name your spec...')
-    fireEvent.change(input, { target: { value: 'Bad plan' } })
-    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
-
-    await waitFor(() => {
-      expect(screen.getByText('Could not create draft. Try again.')).toBeInTheDocument()
-    })
-  })
 
   it('shows empty state when no specs exist', async () => {
     mockedApiGet.mockResolvedValue({ docs: [] })
@@ -1028,97 +957,6 @@ describe('Specs page', () => {
     expect(btn).toHaveClass('font-medium')
   })
 
-  it('optimistically inserts placeholder row immediately when New Draft is clicked', async () => {
-    // POST resolves only after we check for the placeholder
-    let resolvePost!: (value: unknown) => void
-    mockedApiPost.mockImplementationOnce(
-      () => new Promise((res) => { resolvePost = res })
-    )
-
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/specs')
-    })
-
-    const input = screen.getByPlaceholderText('Name your spec...')
-    fireEvent.change(input, { target: { value: 'Instant plan' } })
-    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
-
-    // The placeholder row must appear BEFORE the POST resolves
-    expect(screen.getByText('Instant plan')).toBeInTheDocument()
-    // Input should already be cleared
-    expect((input as HTMLInputElement).value).toBe('')
-
-    // Let the POST finish so we don't leave a hanging promise
-    resolvePost({ result: 'docs/draft/instant-plan.md' })
-  })
-
-  it('replaces placeholder with server-returned draft after POST resolves, and does not show refresh nudge', async () => {
-    // First /specs GET returns empty, second returns the newly created draft
-    // with server-generated acceptance criteria.
-    let specsGetCount = 0
-    mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/specs') {
-        specsGetCount += 1
-        if (specsGetCount === 1) {
-          return Promise.resolve({ docs: [] })
-        }
-        return Promise.resolve({
-          docs: [
-            {
-              path: 'docs/draft/fresh-plan.md',
-              filename: 'fresh-plan.md',
-              title: 'Fresh plan',
-              status: 'draft',
-              created_at: '2026-04-17T00:00:00Z',
-              promoted_at: '',
-              body: '- [ ] the page loads\n- [ ] the button works',
-              acceptance_criteria: [
-                { text: 'the page loads', checked: false },
-                { text: 'the button works', checked: false },
-              ],
-            },
-          ],
-        })
-      }
-      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
-      return Promise.resolve({})
-    })
-    mockedApiPost.mockResolvedValueOnce({ result: 'docs/draft/fresh-plan.md' })
-
-    renderSpecs()
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/specs')
-    })
-
-    const input = screen.getByPlaceholderText('Name your spec...')
-    fireEvent.change(input, { target: { value: 'Fresh plan' } })
-    fireEvent.click(screen.getByRole('button', { name: 'New Spec' }))
-
-    // After the POST resolves, a refetch runs and the real row with
-    // acceptance criteria replaces the placeholder.
-    await waitFor(() => {
-      expect(screen.getByText('Draft created.')).toBeInTheDocument()
-    })
-
-    // Expand the card so the acceptance criteria render.
-    const cards = screen.getAllByTestId('spec-card')
-    const freshCard = cards.find(c => c.textContent?.includes('Fresh plan'))!
-    fireEvent.click(freshCard)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('acceptance-criteria')).toBeInTheDocument()
-    })
-
-    expect(screen.getByText('the page loads')).toBeInTheDocument()
-    expect(screen.getByText('the button works')).toBeInTheDocument()
-    // The old "Refresh in a moment" nudge must not be present.
-    expect(screen.queryByText(/Refresh in a moment/i)).not.toBeInTheDocument()
-    // The waiting-for-content indicator must not be present when AC has arrived.
-    expect(screen.queryByTestId('generating-criteria-indicator')).not.toBeInTheDocument()
-  })
 
   // Wave 2: decompose no longer has its own UI. The "decompose success
   // toast" path still exists internally (handleDecompose) but is never
