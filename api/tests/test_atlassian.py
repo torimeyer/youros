@@ -25,6 +25,40 @@ async def test_atlassian_defaults_with_env(client):
     assert resp.json() == {"site": "https://company.atlassian.net", "email": ""}
 
 
+@pytest.mark.asyncio
+async def test_atlassian_defaults_saved_config_provides_email(client):
+    """Saved config email is exposed by /defaults even when ATLASSIAN_SITE env is absent."""
+    import os
+    env = {k: v for k, v in os.environ.items() if k != "ATLASSIAN_SITE"}
+    with patch.dict("os.environ", env, clear=True):
+        with patch("routers.atlassian.atlassian_service") as mock_svc:
+            mock_svc.get_config.return_value = {
+                "site": "https://saved.atlassian.net",
+                "email": "saved@example.com",
+            }
+            resp = await client.get("/api/atlassian/defaults")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["site"] == "https://saved.atlassian.net"
+    assert data["email"] == "saved@example.com"
+
+
+@pytest.mark.asyncio
+async def test_atlassian_defaults_env_overrides_saved_site_but_email_preserved(client):
+    """When ATLASSIAN_SITE env is set, it wins over saved site; saved email is still returned."""
+    with patch.dict("os.environ", {"ATLASSIAN_SITE": "https://env.atlassian.net"}):
+        with patch("routers.atlassian.atlassian_service") as mock_svc:
+            mock_svc.get_config.return_value = {
+                "site": "https://saved.atlassian.net",
+                "email": "saved@example.com",
+            }
+            resp = await client.get("/api/atlassian/defaults")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["site"] == "https://env.atlassian.net"   # env wins
+    assert data["email"] == "saved@example.com"           # email from saved config
+
+
 # --- GET /api/atlassian/status ---
 
 @pytest.mark.asyncio

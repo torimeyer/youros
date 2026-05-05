@@ -220,3 +220,53 @@ test('connect step allows provider selection', async ({ page }) => {
   await page.getByTestId('provider-Google Gemini').click()
   await expect(page.getByTestId('provider-Google Gemini').getByText('Selected')).toBeVisible()
 })
+
+// ---------------------------------------------------------------------------
+// Connect step: Atlassian and GitHub setup cards appear when not connected
+// ---------------------------------------------------------------------------
+
+test('Atlassian setup card is visible in Connect step when not connected', async ({ page, request }) => {
+  await page.goto('/')
+
+  // Skip to Connect step: Welcome(next) + You/Name/Profile/Customize/Theme(skip)
+  await page.getByTestId('next-button').click()
+  for (let i = 0; i < 5; i++) {
+    await page.getByTestId('skip-button').click()
+  }
+
+  const connectVisible = await page.getByTestId('step-connect').isVisible().catch(() => false)
+  if (!connectVisible) {
+    // Already past Connect — Atlassian must already be connected (backend says so).
+    // Verify by checking the API directly.
+    const status = await request.get(`${API_BASE}/api/atlassian/status`)
+    const body = await status.json()
+    // If connected, the card is correctly hidden — test passes with no assertion needed.
+    expect(body.connected).toBe(true)
+    return
+  }
+
+  // The card should be visible; it hides only when connected === true.
+  // Backend returns connected: false in a fresh dev environment.
+  await expect(page.getByTestId('step-connect')).toBeVisible()
+  await expect(page.getByTestId('onboarding-atlassian-card')).toBeVisible()
+})
+
+test('GitHub setup card is visible in Connect step when not connected', async ({ page, request }) => {
+  await page.goto('/')
+
+  await page.getByTestId('next-button').click()
+  for (let i = 0; i < 5; i++) {
+    await page.getByTestId('skip-button').click()
+  }
+
+  const connectVisible = await page.getByTestId('step-connect').isVisible().catch(() => false)
+  if (!connectVisible) {
+    const status = await request.get(`${API_BASE}/api/github/status`)
+    const body = await status.json()
+    expect(body.connected).toBe(true)
+    return
+  }
+
+  await expect(page.getByTestId('step-connect')).toBeVisible()
+  await expect(page.getByTestId('onboarding-github-card')).toBeVisible()
+})
