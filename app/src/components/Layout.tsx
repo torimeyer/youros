@@ -11,6 +11,7 @@ import { useAdhdMode } from '../hooks/useAdhdMode'
 import { useAppStore } from '../stores/app'
 import AdhdCheckin from './AdhdCheckin'
 import WelcomeBack from './WelcomeBack'
+import { Footer } from './Footer'
 
 // Sidebar page order for Cmd+1 through Cmd+8
 const NAV_ROUTES = [
@@ -200,6 +201,7 @@ export function Layout() {
         style={chatOpen && isDesktop ? (sidebarPosition === 'right' ? { marginLeft: chatWidth } : { marginRight: chatWidth }) : undefined}
       >
         <Outlet />
+        <Footer />
       </main>
     </div>
   )
