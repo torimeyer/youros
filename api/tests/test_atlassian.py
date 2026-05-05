@@ -5,6 +5,26 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+# --- GET /api/atlassian/defaults ---
+
+@pytest.mark.asyncio
+async def test_atlassian_defaults_no_env(client):
+    with patch.dict("os.environ", {}, clear=False):
+        import os
+        os.environ.pop("ATLASSIAN_SITE", None)
+        resp = await client.get("/api/atlassian/defaults")
+    assert resp.status_code == 200
+    assert resp.json() == {"site": ""}
+
+
+@pytest.mark.asyncio
+async def test_atlassian_defaults_with_env(client):
+    with patch.dict("os.environ", {"ATLASSIAN_SITE": "https://company.atlassian.net"}):
+        resp = await client.get("/api/atlassian/defaults")
+    assert resp.status_code == 200
+    assert resp.json() == {"site": "https://company.atlassian.net"}
+
+
 # --- GET /api/atlassian/status ---
 
 @pytest.mark.asyncio
@@ -263,6 +283,17 @@ class TestAtlassianService:
             svc._config_cache_mtime = 0.0
             with pytest.raises(RuntimeError, match="Not connected"):
                 svc.get_config()
+
+    def test_get_config_env_fallback_for_missing_site(self, tmp_path):
+        config_path = tmp_path / "atlassian.json"
+        config_path.write_text('{"email": "u@e.com", "site": ""}')
+        with patch("services.atlassian.CONFIG_PATH", config_path):
+            with patch.dict("os.environ", {"ATLASSIAN_SITE": "https://company.atlassian.net"}):
+                from services import atlassian as svc
+                svc._config_cache = None
+                svc._config_cache_mtime = 0.0
+                config = svc.get_config()
+                assert config["site"] == "https://company.atlassian.net"
 
     @pytest.mark.asyncio
     async def test_verify_creds_401(self, tmp_path):

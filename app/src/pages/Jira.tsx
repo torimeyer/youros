@@ -110,6 +110,17 @@ export default function Jira() {
 
   useEffect(() => {
     ;(async () => {
+      try {
+        const defaults = await api.get<{ site: string }>('/atlassian/defaults')
+        if (defaults.site) setConnectSite(defaults.site)
+      } catch {
+        // ignore — pre-fill is best-effort
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    ;(async () => {
       setLoading(true)
       const s = await fetchStatus()
       if (s?.connected) {

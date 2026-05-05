@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -16,6 +17,12 @@ class AtlassianConnectRequest(BaseModel):
     email: str
     api_token: str
     site: str
+
+
+@router.get("/atlassian/defaults")
+def atlassian_defaults():
+    """Return env-driven defaults for the connect form."""
+    return {"site": os.environ.get("ATLASSIAN_SITE", "")}
 
 
 @router.post("/atlassian/connect")

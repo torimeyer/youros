@@ -7,6 +7,7 @@ the token lives in the system keychain via ostk secret_set.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Optional
@@ -69,7 +70,11 @@ def get_config() -> dict:
     if _config_cache is None or mtime != _config_cache_mtime:
         _config_cache = json.loads(CONFIG_PATH.read_text())
         _config_cache_mtime = mtime
-    return _config_cache
+    config = _config_cache
+    site = config.get("site") or os.environ.get("ATLASSIAN_SITE", "")
+    if site != config.get("site"):
+        return {**config, "site": site}
+    return config
 
 
 async def _get_auth_and_base() -> tuple[httpx.BasicAuth, str]:
