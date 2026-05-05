@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import OnboardingWizard from './OnboardingWizard'
 import { useAppStore } from '../stores/app'
@@ -990,7 +990,7 @@ describe('OnboardingWizard — Customize agents step', () => {
     vi.mocked(api.post).mockResolvedValue({ starter_pack: [] })
 
     render(<OnboardingWizard />)
-    
+
     fireEvent.click(screen.getByTestId('next-button'))
     for (let i = 0; i < 2; i++) fireEvent.click(screen.getByTestId('skip-button'))
 
@@ -1000,6 +1000,60 @@ describe('OnboardingWizard — Customize agents step', () => {
 
     await waitFor(() => {
       expect(vi.mocked(api.post)).toHaveBeenCalledWith('/onboarding/intent', { intent: 'coding' })
+    })
+  })
+
+  it('shows error state and hides loading after 10-second timeout when fetch hangs', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.mocked(api.post).mockReturnValue(new Promise(() => {}))
+
+      render(<OnboardingWizard />)
+
+      fireEvent.click(screen.getByTestId('next-button'))
+      for (let i = 0; i < 2; i++) fireEvent.click(screen.getByTestId('skip-button'))
+      const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
+      fireEvent.click(screen.getByText(pmCat.category))
+      fireEvent.click(screen.getByTestId('next-button'))
+
+      expect(screen.getByTestId('customize-loading')).toBeInTheDocument()
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_000)
+      })
+
+      expect(screen.queryByTestId('customize-loading')).not.toBeInTheDocument()
+      expect(screen.getByTestId('customize-load-error')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('Try again button re-fires the fetch after an error', async () => {
+    let intentCalls = 0
+    vi.mocked(api.post).mockImplementation((path: string) => {
+      if (path !== '/onboarding/intent') return Promise.resolve({})
+      return intentCalls++ === 0
+        ? Promise.reject(new Error('network error'))
+        : Promise.resolve({ starter_pack: [] })
+    })
+
+    render(<OnboardingWizard />)
+
+    fireEvent.click(screen.getByTestId('next-button'))
+    for (let i = 0; i < 2; i++) fireEvent.click(screen.getByTestId('skip-button'))
+    const pmCat = AGENT_MARKETPLACE.find((c) => c.id === 'pm')!
+    fireEvent.click(screen.getByText(pmCat.category))
+    fireEvent.click(screen.getByTestId('next-button'))
+
+    await waitFor(() => expect(screen.getByTestId('customize-load-error')).toBeInTheDocument())
+
+    const intentCallsBefore = intentCalls
+
+    fireEvent.click(screen.getByTestId('customize-load-retry'))
+
+    await waitFor(() => {
+      expect(intentCalls).toBeGreaterThan(intentCallsBefore)
     })
   })
 })

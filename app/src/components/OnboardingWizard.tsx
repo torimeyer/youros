@@ -598,19 +598,41 @@ function CustomizeStep({
   const [starterPack, setStarterPack] = useState<StarterPackItem[]>([])
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     const intentId = selectedPersonaId ? PERSONA_TO_INTENT[selectedPersonaId] : null
     if (!intentId) return
     setLoading(true)
-    api.post<{ starter_pack: StarterPackItem[] }>('/onboarding/intent', { intent: intentId })
+    setError(null)
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('timeout')), 10_000)
+    })
+    Promise.race([
+      api.post<{ starter_pack: StarterPackItem[] }>('/onboarding/intent', { intent: intentId }),
+      timeoutPromise,
+    ])
       .then((resp) => {
+        if (cancelled) return
         setStarterPack(resp.starter_pack)
         setChecked(new Set(resp.starter_pack.filter((i) => i.default_selected).map((i) => i.id)))
       })
-      .catch(() => setStarterPack([]))
-      .finally(() => setLoading(false))
-  }, [selectedPersonaId])
+      .catch(() => {
+        if (cancelled) return
+        setStarterPack([])
+        setError("Couldn't load suggestions. Skip this step or try again.")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+      clearTimeout(timeoutId)
+    }
+  }, [selectedPersonaId, retryCount])
 
   const toggleItem = (id: string) => {
     setChecked((prev) => {
@@ -630,7 +652,19 @@ function CustomizeStep({
       {loading && (
         <p className={`text-sm ${subtextCls}`} data-testid="customize-loading">Loading...</p>
       )}
-      {!loading && starterPack.length > 0 && (
+      {!loading && error && (
+        <div data-testid="customize-load-error" className={`text-sm ${subtextCls}`}>
+          <p className="mb-2">{error}</p>
+          <button
+            data-testid="customize-load-retry"
+            onClick={() => setRetryCount((c) => c + 1)}
+            className="px-3 py-1.5 text-xs rounded border border-current hover:opacity-80 transition-opacity"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+      {!loading && !error && starterPack.length > 0 && (
         <div className="space-y-1.5">
           {starterPack.map((item) => (
             <label
@@ -655,7 +689,7 @@ function CustomizeStep({
           ))}
         </div>
       )}
-      {!loading && starterPack.length === 0 && !selectedPersonaId && (
+      {!loading && !error && starterPack.length === 0 && !selectedPersonaId && (
         <p className={`text-sm ${subtextCls}`} data-testid="customize-no-persona">
           Pick a profile on the previous step to see suggested agents here.
         </p>
