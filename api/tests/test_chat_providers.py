@@ -1621,8 +1621,13 @@ class TestGeminiSystemInstruction:
         assert "\u2014" not in GEMINI_SYSTEM_INSTRUCTION
         assert "\u2013" not in GEMINI_SYSTEM_INSTRUCTION
 
-    def test_gemini_system_instruction_uses_instance_name(self):
-        """_gemini_system_instruction() should embed the live instance_name."""
+    def test_gemini_system_instruction_does_not_embed_instance_name(self):
+        """_gemini_system_instruction() must NOT embed the OS instance name.
+
+        Gemini latches onto 'answering inside an instance named X' as identity
+        material and self-identifies as X rather than as Gemini. The template
+        must be free of instance_name references entirely.
+        """
         from unittest.mock import patch
         from services.chat_providers import _gemini_system_instruction
 
@@ -1630,10 +1635,13 @@ class TestGeminiSystemInstruction:
         with patch("services.chat_providers.settings_store", fake_store):
             result = _gemini_system_instruction()
 
-        assert "toriOS" in result
-        # The frozen constant alias uses the default "myOS", not the custom name.
+        assert "toriOS" not in result
+        assert "instance" not in result.lower()
+        assert "myos" not in result.lower()
+        # The frozen constant alias should also be clean.
         from services.chat_providers import GEMINI_SYSTEM_INSTRUCTION
-        assert "toriOS" not in GEMINI_SYSTEM_INSTRUCTION
+        assert "instance" not in GEMINI_SYSTEM_INSTRUCTION.lower()
+        assert "myos" not in GEMINI_SYSTEM_INSTRUCTION.lower()
 
     def test_gemini_system_instruction_starts_with_google_identity(self):
         """Rendered instruction must open with the strong Google identity line."""
@@ -1659,6 +1667,43 @@ class TestGeminiSystemInstruction:
         ), (
             "Instruction must explicitly forbid local/embedded self-description"
         )
+
+    def test_gemini_system_instruction_contains_no_instance_name_references(self):
+        """Rendered instruction must not contain instance_name material.
+
+        Any mention of 'instance' or 'myos' gives Gemini identity material
+        that causes it to self-identify as the OS name instead of as Gemini.
+        """
+        from services.chat_providers import GEMINI_SYSTEM_INSTRUCTION, _gemini_system_instruction
+
+        rendered = _gemini_system_instruction()
+        assert "instance" not in rendered.lower(), (
+            f"Rendered Gemini instruction must not contain 'instance'. Got: {rendered!r}"
+        )
+        assert "myos" not in rendered.lower(), (
+            f"Rendered Gemini instruction must not contain 'myos'. Got: {rendered!r}"
+        )
+        assert "instance" not in GEMINI_SYSTEM_INSTRUCTION.lower()
+        assert "myos" not in GEMINI_SYSTEM_INSTRUCTION.lower()
+
+    def test_gemini_system_instruction_unaffected_by_custom_os_name(self):
+        """When settings store has a non-default OS name, instruction stays clean.
+
+        A user with OS name 'samOS' triggered the bug: Gemini said 'I'm samOS'
+        because the template embedded instance_name. Now the template has no
+        format placeholders, so no OS name can leak in regardless of settings.
+        """
+        from unittest.mock import patch
+        from services.chat_providers import _gemini_system_instruction
+
+        fake_store = {"instance_name": "samOS"}
+        with patch("services.chat_providers.settings_store", fake_store):
+            result = _gemini_system_instruction()
+
+        assert "samOS" not in result, (
+            f"Gemini instruction must not embed OS name 'samOS'. Got: {result!r}"
+        )
+        assert "instance" not in result.lower()
 
 
 async def _fake_gemini_stream(messages, websocket):

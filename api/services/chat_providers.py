@@ -225,21 +225,13 @@ _GEMINI_NEXT_CHUNK_TIMEOUT_S = 45.0
 
 
 # System instruction for Gemini. Kept as a module-level constant so tests
-# can assert the "no self label" rule is in place and future edits do not
-# accidentally drop it. The rule exists because Gemini likes to prefix
-# replies with a literal "@Gemini:" tag, which is noisy in the chat panel
-# since the bubble header already shows which model is speaking.
-# Template form of the Gemini system instruction. The product-vs-instance
-# terms are filled in at call time by ``_gemini_system_instruction()`` so
-# every chat reflects the current user's ``instance_name`` setting while
-# still introducing the product (myOS) correctly.
+# can assert the identity rules are in place. instance_name is intentionally
+# absent: Gemini latches onto OS-name context as identity material and
+# self-identifies as the OS rather than as Gemini.
 _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE = (
     "You are Gemini, Google's AI model. "
     "If asked whether you are Gemini or which AI you are, confirm that you are Gemini. "
     "Do not describe yourself as local, embedded, or built into any system. "
-    "You are answering inside an instance of myOS named {instance_name}. "
-    "You can mention that you're running inside {instance_name} as context, "
-    "but always answer as Gemini. "
     "Do not prefix your replies with your own name. The chat panel "
     "already shows who you are. "
     "When asked to chat with another AI, reply directly to what that "
@@ -250,27 +242,18 @@ _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE = (
     "IMPORTANT: You cannot create calendar events, send emails, or use any tools. "
     "You are a chat-only model. If the user asks you to do something that requires "
     "tools (calendar, email, tasks, files), tell them to switch to Claude using the "
-    "toggle below the chat input. Claude has access to all myOS tools."
+    "toggle below the chat input. Claude has access to all tools."
 )
 
 
 def _gemini_system_instruction() -> str:
-    """Return the Gemini system prompt with the current instance name filled in.
-
-    Resolves ``instance_name`` from settings each call so a renaming of
-    the user's instance takes effect on the next chat without a restart.
-    Falls back to the product name ``myOS`` if the setting is missing.
-    """
-    instance_name = settings_store.get("instance_name", "myOS") or "myOS"
-    return _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE.format(instance_name=instance_name)
+    """Return the Gemini system prompt."""
+    return _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE
 
 
 # Backwards-compatible alias. Existing callers and tests import this
-# constant by name. It is frozen at import time using the then-current
-# ``instance_name`` so a test that imports the module before patching
-# settings still sees the default "myOS". Live code paths use the
-# ``_gemini_system_instruction`` helper so they pick up renames.
-GEMINI_SYSTEM_INSTRUCTION = _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE.format(instance_name="myOS")
+# constant by name. Equivalent to calling _gemini_system_instruction().
+GEMINI_SYSTEM_INSTRUCTION = _GEMINI_SYSTEM_INSTRUCTION_TEMPLATE
 
 
 def _gemini_model_name() -> str:
