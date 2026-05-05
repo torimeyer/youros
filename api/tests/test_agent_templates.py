@@ -2068,3 +2068,31 @@ def test_create_custom_template_invalidates_user_custom_cache(store, tmp_path, m
         "create() must invalidate the user_custom cache so the new "
         "template appears on the next list call."
     )
+
+
+def test_wave_b_new_personas_exist():
+    """Wave B: 5 new builtin templates and 4 new persona groups are present."""
+    by_id = {t["id"]: t for t in BUILTIN_AGENT_TEMPLATES}
+
+    wave_b_ids = [
+        "builtin-marketing-campaign-brief",
+        "builtin-finance-budget-builder",
+        "builtin-founder-investor-update",
+        "builtin-support-customer-reply",
+        "builtin-designer-design-critique",
+    ]
+    for tid in wave_b_ids:
+        assert tid in by_id, f"Wave B template '{tid}' missing from BUILTIN_AGENT_TEMPLATES"
+        t = by_id[tid]
+        assert t.get("description", "").strip(), f"{tid}: description must be non-empty"
+        assert t.get("prompt_template", "").strip(), f"{tid}: prompt_template must be non-empty"
+
+    # Each new group appears as a valid persona in at least one template.
+    new_groups = ["marketing", "founder", "support", "designer"]
+    all_personas: set[str] = set()
+    for t in BUILTIN_AGENT_TEMPLATES:
+        all_personas.update(t.get("personas", []))
+    for group in new_groups:
+        assert group in all_personas, (
+            f"Persona group '{group}' not found in any template's personas list"
+        )

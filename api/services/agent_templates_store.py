@@ -1083,6 +1083,179 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             {"key": "subject", "label": "What class or subject is this for?", "placeholder": "e.g. AP Economics, high school biology", "type": "text", "required": False, "advanced": True},
         ],
     },
+    # --- Marketing templates ---
+    {
+        "id": "builtin-marketing-campaign-brief",
+        "name": "Campaign Brief",
+        "aliases": [],
+        "description": (
+            "Turn a product feature or launch into a campaign brief -- messaging, "
+            "target audience, channels, and call to action."
+        ),
+        "icon": "campaign",
+        "prompt_template": (
+            "You are a marketing strategist. From the user's product feature, launch, or update, "
+            "build a one-page campaign brief: "
+            "(1) The change in plain language (what's new, why now). "
+            "(2) Who this is for -- the audience persona that should care most. "
+            "(3) Three message angles, each one sentence (problem-led, outcome-led, FOMO-led). "
+            "(4) Channel mix: top 3 channels for this audience, with why. "
+            "(5) The call to action -- exactly what you want the audience to do next. "
+            "Skip jargon. Be concrete enough that a junior PMM could execute from this."
+        ),
+        "model": "sonnet",
+        "budget": 3.0,
+        "source": "marketplace",
+        "personas": ["marketing"],
+        "installed": False,
+        "builtin": True,
+        "produces_doc": True,
+        "user_inputs": [
+            {"key": "feature", "label": "What feature, launch, or update is this for?", "placeholder": "e.g. new mobile app, price change, v2 of our core product", "type": "textarea", "required": True, "advanced": False},
+            {"key": "audience", "label": "Who is the primary audience?", "placeholder": "e.g. small business owners, enterprise IT teams", "type": "text", "required": False, "advanced": False},
+        ],
+    },
+    # --- Finance / home templates ---
+    {
+        "id": "builtin-finance-budget-builder",
+        "name": "Budget Builder",
+        "aliases": [],
+        "description": (
+            "Take a list of income and expenses and show where the money goes, "
+            "what's over budget, and where to cut."
+        ),
+        "icon": "account_balance_wallet",
+        "prompt_template": (
+            "You are a personal-finance helper. From the user's income and expenses: "
+            "(1) Group expenses into categories (housing, food, transport, subscriptions, fun, other). "
+            "(2) For each category: total spend and percent of income. "
+            "(3) Flag anything over a typical benchmark (housing > 35% of income, subscriptions > 5%, etc.). "
+            "(4) Suggest the top 3 cuts to make, ranked by ease (easiest first) with the dollar impact of each. "
+            "(5) End with: \"If you want to save $X/month, do these three things.\" "
+            "Plain language. No financial jargon (say \"growth after inflation\" not \"real return\", etc.)."
+        ),
+        "model": "sonnet",
+        "budget": 2.0,
+        "source": "marketplace",
+        "personas": ["home"],
+        "installed": False,
+        "builtin": True,
+        "produces_doc": True,
+        "user_inputs": [
+            {"key": "income", "label": "What's your monthly take-home pay?", "placeholder": "e.g. $5,000/month after taxes", "type": "text", "required": True, "advanced": False},
+            {"key": "expenses", "label": "List your monthly expenses", "placeholder": "e.g. rent $1,800, groceries $400, Netflix $16, car insurance $120...", "type": "textarea", "required": True, "advanced": False},
+            {"key": "goal", "label": "What's your saving goal?", "placeholder": "e.g. save $500/month, pay off credit card", "type": "text", "required": False, "advanced": True},
+        ],
+    },
+    # --- Founder templates ---
+    {
+        "id": "builtin-founder-investor-update",
+        "name": "Investor Update",
+        "aliases": [],
+        "description": (
+            "Turn raw notes from the past month into a crisp investor update -- "
+            "metrics, progress, blockers, the one ask."
+        ),
+        "icon": "trending_up",
+        "prompt_template": (
+            "You are a founder's writing partner. From the user's monthly notes, "
+            "write the investor update in this exact format:\n\n"
+            "**TL;DR**: One sentence -- what was the headline of the month.\n\n"
+            "**Metrics**:\n"
+            "- Revenue: <number> (<delta vs prior month>)\n"
+            "- <other 2-3 KPIs the user mentioned>\n\n"
+            "**Progress**:\n"
+            "- 3 bullets, each one sentence, on what shipped or moved forward.\n\n"
+            "**Blockers**:\n"
+            "- 1-2 bullets on what's slowing you down. Be honest.\n\n"
+            "**The Ask**:\n"
+            "- ONE specific thing you need from this investor (intro, advice, hire reference). "
+            "Don't say \"any thoughts welcome.\"\n\n"
+            "Tone: confident but not bragging, specific not vague, short not exhaustive."
+        ),
+        "model": "sonnet",
+        "budget": 3.0,
+        "source": "marketplace",
+        "personas": ["founder"],
+        "installed": False,
+        "builtin": True,
+        "produces_doc": True,
+        "user_inputs": [
+            {"key": "notes", "label": "Paste your raw notes from this month", "placeholder": "Bullet points are fine -- what shipped, key numbers, what's blocked, what you need", "type": "textarea", "required": True, "advanced": False},
+            {"key": "ask", "label": "What do you need from investors this month?", "placeholder": "e.g. intro to a VP Eng candidate, advice on pricing strategy", "type": "text", "required": False, "advanced": True},
+        ],
+    },
+    # --- Support templates ---
+    {
+        "id": "builtin-support-customer-reply",
+        "name": "Customer Reply",
+        "aliases": [],
+        "description": (
+            "Draft a clear, empathetic response to a customer complaint or support ticket -- "
+            "with a resolution, an explanation, and a next step."
+        ),
+        "icon": "mark_email_read",
+        "prompt_template": (
+            "You are a customer support writer. From the user's pasted ticket or complaint: "
+            "(1) Open with one sentence acknowledging what happened, in their words. Empathy without flattery. "
+            "(2) State what you can do -- concrete resolution. If you can't fix it, say what you CAN do. "
+            "(3) Briefly explain WHY it happened (one sentence). Skip if not relevant. "
+            "(4) State the next step -- exactly what happens now, and when. "
+            "(5) End with one sentence inviting follow-up. "
+            "Tone: warm but not over-apologetic. No \"I sincerely apologize for the inconvenience.\" "
+            "Be a person. Length: 3-5 sentences total."
+        ),
+        "model": "sonnet",
+        "budget": 2.0,
+        "source": "marketplace",
+        "personas": ["support"],
+        "installed": False,
+        "builtin": True,
+        "user_inputs": [
+            {"key": "ticket", "label": "Paste the customer ticket or complaint", "placeholder": "Paste the email, chat message, or support ticket here", "type": "textarea", "required": True, "advanced": False},
+            {"key": "resolution", "label": "What can you offer as a resolution?", "placeholder": "e.g. full refund, replacement item, account credit", "type": "text", "required": False, "advanced": True},
+        ],
+    },
+    # --- Designer templates ---
+    {
+        "id": "builtin-designer-design-critique",
+        "name": "Design Critique",
+        "aliases": [],
+        "description": (
+            "Review a design for usability, clarity, and accessibility -- "
+            "with specific, prioritized feedback."
+        ),
+        "icon": "design_services",
+        "prompt_template": (
+            "You are a senior product designer giving a critique. "
+            "Before reviewing, ask the user (if not provided): "
+            "(1) What is this screen/flow's goal? "
+            "(2) Who is the user? "
+            "(3) What's the moment in the user journey?\n\n"
+            "Then, structured critique:\n\n"
+            "**Works**: 2-3 things that are clearly working -- be specific.\n\n"
+            "**Issues** (ranked by impact, highest first):\n"
+            "- Each: what's wrong, who it hurts, how to fix.\n"
+            "- Cover: clarity (does it communicate?), usability (can they do it?), "
+            "accessibility (works for everyone?), visual hierarchy.\n\n"
+            "**Quick wins**: 1-2 changes that take <30min that would meaningfully improve the design.\n\n"
+            "**Bigger questions**: 1-2 things to consider that go beyond this screen.\n\n"
+            "Avoid pedantic nitpicks. Avoid vague praise. "
+            "Be the senior designer the junior designer actually needed."
+        ),
+        "model": "sonnet",
+        "budget": 3.0,
+        "source": "marketplace",
+        "personas": ["designer"],
+        "installed": False,
+        "builtin": True,
+        "produces_doc": True,
+        "user_inputs": [
+            {"key": "design", "label": "Describe the design or paste a screenshot link", "placeholder": "e.g. checkout flow, onboarding screen 3, the new dashboard layout", "type": "textarea", "required": True, "advanced": False},
+            {"key": "goal", "label": "What is this screen or flow trying to accomplish?", "placeholder": "e.g. get users to complete signup", "type": "text", "required": False, "advanced": False},
+            {"key": "user", "label": "Who is the intended user?", "placeholder": "e.g. first-time visitor, power user, mobile-only", "type": "text", "required": False, "advanced": True},
+        ],
+    },
     # --- General utility templates (available to every persona) ---
     # "explain-plain" is the plain-language explainer. It replaces the old
     # user-specific "elit" command. The matcher and spawn endpoints accept
