@@ -100,3 +100,14 @@ curl -sSk --connect-timeout 3 -m 5 https://127.0.0.1:8000/api/agents
 ```
 
 After fix — both should execute without phantom rejection.
+
+## Two-line debug ladder
+
+When a deny happens and you don't know whether it came from a hook or a settings rule, run these two commands in order:
+
+```bash
+jq '.permissions.deny // []' ~/.claude/settings.json .claude/settings.json .claude/settings.local.json
+tail -20 ~/.claude/logs/hook-denies.log
+```
+
+The first shows every `permissions.deny` rule that could have blocked a tool outright (no hook fires in this case). The second shows structured hook-deny and crash log entries, newest last. If the deny log is empty but a permissions rule matches, that is your culprit.
