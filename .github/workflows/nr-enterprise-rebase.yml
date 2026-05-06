@@ -1,3 +1,138 @@
-# SCAFFOLD
 name: nr-enterprise rebase check
-on: {}
+
+on:
+  schedule:
+    - cron: "0 14 * * 1"  # Monday 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  rebase-check:
+    name: Check nr-enterprise rebases cleanly onto main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch nr-enterprise
+        run: git fetch origin nr-enterprise
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f api/requirements.txt ]; then pip install -r api/requirements.txt; fi
+
+      - name: Run rebase check script
+        id: rebase
+        run: |
+          chmod +x scripts/rebase-nr-enterprise.sh
+          set +e
+          bash scripts/rebase-nr-enterprise.sh 2>&1 | tee /tmp/rebase-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          echo "output<<EOF" >> "$GITHUB_OUTPUT"
+          cat /tmp/rebase-output.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Handle failure - open or update issue
+        if: steps.rebase.outputs.exit_code != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'nr-enterprise rebase needs manual attention';
+            const label = 'nr-enterprise-maintenance';
+            const output = `${{ steps.rebase.outputs.output }}`;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `## Rebase conflict detected\n\nRun: ${runUrl}\n\n\`\`\`\n${output}\n\`\`\`\n\nResolve the conflicts listed above and re-run the workflow, or merge the conflicting changes on \`nr-enterprise\` manually.`;
+
+            // Ensure label exists
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: label,
+              });
+            } catch (e) {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: label,
+                color: 'e4e669',
+                description: 'Tracks nr-enterprise overlay maintenance tasks',
+              });
+            }
+
+            // Look for an existing open issue with this title
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: label,
+            });
+            const existing = issues.data.find(i => i.title === title);
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `### Updated failure — run #${context.runId}\n\n\`\`\`\n${output}\n\`\`\``,
+              });
+              core.info(`Appended comment to existing issue #${existing.number}`);
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: [label],
+              });
+              core.info('Created new issue');
+            }
+
+      - name: Handle success - close any open issue
+        if: steps.rebase.outputs.exit_code == '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'nr-enterprise rebase needs manual attention';
+            const label = 'nr-enterprise-maintenance';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: label,
+            });
+            const existing = issues.data.find(i => i.title === title);
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Resolved by run #${context.runId} — ${runUrl}. Rebase is clean and all tests pass.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                state: 'closed',
+              });
+              core.info(`Closed issue #${existing.number}`);
+            } else {
+              core.info('No open issue to close. All good.');
+            }

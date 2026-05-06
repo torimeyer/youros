@@ -1,3 +1,116 @@
-# SCAFFOLD
 name: overlay-impact warning
-on: {}
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  overlay-warn:
+    name: Warn if PR touches delta-files
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect delta-file changes
+        id: delta
+        run: |
+          DELTA_FILES=(
+            "api/main.py"
+            "api/services/claude_code_provider.py"
+            "api/routers/settings.py"
+            "app/src/components/OnboardingWizard.tsx"
+          )
+
+          git fetch origin main --quiet
+
+          CHANGED=$(git diff --name-only "origin/main...HEAD")
+          AFFECTED=()
+          for f in "${DELTA_FILES[@]}"; do
+            if echo "$CHANGED" | grep -qF "$f"; then
+              AFFECTED+=("$f")
+            fi
+          done
+
+          if [[ ${#AFFECTED[@]} -gt 0 ]]; then
+            echo "has_delta=true" >> "$GITHUB_OUTPUT"
+            AFFECTED_LIST=$(printf '`%s`\n' "${AFFECTED[@]}")
+            echo "affected_list<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$AFFECTED_LIST" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_delta=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post or update sticky PR comment
+        if: steps.delta.outputs.has_delta == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- overlay-warn -->';
+            const affected = `${{ steps.delta.outputs.affected_list }}`;
+            const body = `${marker}\n\n### Overlay-branch impact notice\n\nThis PR touches files that are also modified on \`nr-enterprise\`. The next rebase may conflict here:\n\n${affected}\n\nSee [\`docs/nr-enterprise-overlay.md\`](docs/nr-enterprise-overlay.md) for the maintenance model.`;
+
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.data.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body,
+              });
+              core.info(`Updated existing overlay-warn comment ${existing.id}`);
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+              core.info('Created new overlay-warn comment');
+            }
+
+      - name: Add label
+        if: steps.delta.outputs.has_delta == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = 'affects-nr-enterprise';
+
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: label,
+              });
+            } catch (e) {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: label,
+                color: 'c5def5',
+                description: 'This PR touches files that conflict with the nr-enterprise overlay',
+              });
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: [label],
+            });
