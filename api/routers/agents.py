@@ -8164,6 +8164,63 @@ async def agent_notes_get(name: str):
     return {"notes": notes}
 
 
+_WS_ACTIVE_STATUSES = frozenset({"running", "spawned", "starting"})
+
+
+def _compute_running_snapshot() -> dict:
+    """Return running_count and agents list filtered to user-spawned active rows."""
+    from services.agent_filters import is_user_spawned_agent
+    running = []
+    for _name, _meta in agent_metadata.items():
+        row = {"name": _name, **_meta}
+        if is_user_spawned_agent(row) and _meta.get("status") in _WS_ACTIVE_STATUSES:
+            running.append({"name": _name, "status": _meta.get("status", "running")})
+    return {"running_count": len(running), "agents": running}
+
+
+async def _ws_keepalive(websocket: WebSocket) -> None:
+    while True:
+        await asyncio.sleep(15)
+        try:
+            await websocket.send_json({"type": "ping"})
+        except Exception:
+            break
+
+
+@router.websocket("/ws/agents/state")
+async def agents_state_ws(websocket: WebSocket):
+    """Push running-agent count to clients in real time.
+
+    On connect: sends one snapshot frame.
+    On every mutation (register, complete, cancel, stale-sweep): sends a delta
+    frame with the recomputed running_count and agents list.
+    Sends a keepalive ping every 15 seconds so proxies do not idle-drop the
+    socket.
+    """
+    await websocket.accept()
+    keepalive: asyncio.Task | None = None
+    try:
+        await websocket.send_json({"type": "snapshot", **_compute_running_snapshot()})
+        keepalive = asyncio.create_task(_ws_keepalive(websocket))
+        async with _agent_events_bus.subscribe() as q:
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                frame: dict = {"type": event.type, **_compute_running_snapshot()}
+                if event.type == "delta":
+                    frame["changed"] = event.payload
+                await websocket.send_json(frame)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        if keepalive:
+            keepalive.cancel()
+
+
 @router.websocket("/ws/agent/{name}")
 async def agent_stream(websocket: WebSocket, name: str):
     await websocket.accept()
