@@ -40,8 +40,8 @@ const releaseNotes: ReleaseGroup[] = [
         description: 'No more contradictory "Still working" / "Stopped" messages on the same turn. Claude also prefers reading the file before editing it.',
       },
       {
-        title: 'Gemini answers as Gemini',
-        description: 'Removed an old instance name from the Gemini system prompt so it no longer leaks into identity questions.',
+        title: 'Gemini no longer leaks an internal instance name',
+        description: 'Removed an old instance name from the Gemini system prompt so it no longer surfaces in identity questions.',
       },
     ],
   },
