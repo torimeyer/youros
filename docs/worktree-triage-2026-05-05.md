@@ -174,3 +174,20 @@ For each: owner should run `git -C .claude/worktrees/<name> diff` and `git -C .c
 8. **agent-implement-964** — scaffold-commit-watcher hook (2 commits) not on main
 9. **agent-needle-970-concurrent-comprehens-04751b** — dirty build_queue + Tasks.tsx (124 insertions) not committed; base →970 work is on main
 10. **agent-spawn-isolation-wire** — new spawn-isolation service (new files, 10 dirty) not on main; non-standard branch format
+
+---
+
+## Execution log — 2026-05-06
+
+*Action agent: execute-45-drop-recommendations-cd41da*
+*Started: 2026-05-06T03:16 UTC*
+*Status: IN PROGRESS*
+
+### Worktrees removed (42 planned)
+
+<!-- rows appended as each deletion completes -->
+
+### Branches deleted (3 planned)
+
+<!-- rows appended as each deletion completes -->
+
