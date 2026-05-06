@@ -10,6 +10,41 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v3.11.3
+  {
+    date: '2026-05-05',
+    label: 'May 5, 2026',
+    entries: [
+      {
+        title: 'Connect more of your work in onboarding',
+        description: 'The Connect step now offers Atlassian, GitHub, and Google Workspace setup cards so you can wire up Jira, Confluence, your repo, and Drive/Calendar/Gmail without leaving the wizard.',
+      },
+      {
+        title: 'Global footer with About and Privacy',
+        description: 'Every page now has a small footer with About and Privacy links, sticking to the bottom of the viewport.',
+      },
+      {
+        title: 'Settings reorganized',
+        description: 'The Settings tabs were reordered, Notifications and ADHD were combined into one tab, and the Privacy tab was removed (its contents moved into About).',
+      },
+      {
+        title: '"What\'s working" page now has the top bar',
+        description: 'The What\'s Working page picked up the same top navigation bar as the rest of the app.',
+      },
+      {
+        title: 'Chat picks up your Claude subscription automatically',
+        description: 'When you sign in via claude.ai, chat now uses your subscription rather than your API key. No menu toggle needed.',
+      },
+      {
+        title: 'Better chat behavior on long answers',
+        description: 'No more contradictory "Still working" / "Stopped" messages on the same turn. Claude also prefers reading the file before editing it.',
+      },
+      {
+        title: 'Gemini answers as Gemini',
+        description: 'Removed an old instance name from the Gemini system prompt so it no longer leaks into identity questions.',
+      },
+    ],
+  },
   // v3.11.2
   {
     date: '2026-05-04',
