@@ -1,7 +1,7 @@
 #!/bin/bash
 HOOK_NAME=$(basename "$0")
-_DENY_DIR="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-source "${_DENY_DIR}/.claude/hooks/lib/deny.sh"
+_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_HOOKS_DIR/lib/deny.sh"
 init_deny_traps
 trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hook-trace.log' EXIT
 # Hook: Task-tool isolation bridge.
