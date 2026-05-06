@@ -58,13 +58,20 @@ def _real_bytes(_name: str) -> int:
 
 
 def _run(registry: dict, *, now: datetime = _NOW, **kwargs) -> list:
-    """Run detect_stalled_agents, clearing relevant snapshots first."""
+    """Run detect_stalled_agents, clearing relevant snapshots first.
+
+    After →969, the reaper seeds from now() on first observation. The second
+    call therefore advances time by stall_threshold + 1 s so that the seeded
+    timestamp falls before the stall cutoff.
+    """
+    threshold = kwargs.get("stall_threshold_seconds", STALL_THRESHOLD_SECONDS)
     for name in registry:
         _stall_snapshots.pop(name, None)
     # First call seeds the snapshot (grace cycle).
     detect_stalled_agents(registry, now, get_transcript_bytes=_no_bytes, **kwargs)
-    # Second call triggers actual detection.
-    return detect_stalled_agents(registry, now, get_transcript_bytes=_no_bytes, **kwargs)
+    # Advance time past the threshold so the seeded snapshot is stale.
+    now2 = now + timedelta(seconds=threshold + 1)
+    return detect_stalled_agents(registry, now2, get_transcript_bytes=_no_bytes, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -87,9 +94,13 @@ def test_stalls_unknown_pid_with_zero_transcript():
 
 
 def test_does_not_stall_within_threshold():
-    """Fresh spawn (30s ago) must not be stalled even if transcript is empty."""
+    """Agent observed for less than the stall threshold is not stalled."""
+    _stall_snapshots.pop("agent", None)
     reg = {"agent": _meta(spawned_at=_FRESH_SPAWN)}
-    result = _run(reg)
+    detect_stalled_agents(reg, _NOW, get_transcript_bytes=_no_bytes)
+    # Advance by threshold - 1: still within the grace window from first-seen.
+    now2 = _NOW + timedelta(seconds=STALL_THRESHOLD_SECONDS - 1)
+    result = detect_stalled_agents(reg, now2, get_transcript_bytes=_no_bytes)
     assert result == []
 
 
@@ -159,10 +170,14 @@ def test_transcript_growth_clears_stall():
 
 
 def test_recent_current_step_update_prevents_stall():
-    """A step updated 30s ago is fresh and must prevent stall."""
-    recent = (_NOW - timedelta(seconds=30)).isoformat()
-    reg = {"agent": _meta(current_step_updated_at=recent)}
-    result = _run(reg)
+    """A step updated after first observation resets the stall clock."""
+    _stall_snapshots.pop("agent", None)
+    # Step must be after the first-observation seed (now()) to count as progress.
+    step_after_seed = (_NOW + timedelta(seconds=10)).isoformat()
+    reg = {"agent": _meta(current_step_updated_at=step_after_seed)}
+    detect_stalled_agents(reg, _NOW, get_transcript_bytes=_no_bytes)
+    now2 = _NOW + timedelta(seconds=STALL_THRESHOLD_SECONDS + 1)
+    result = detect_stalled_agents(reg, now2, get_transcript_bytes=_no_bytes)
     assert result == []
 
 
@@ -180,10 +195,13 @@ def test_stale_current_step_update_does_not_prevent_stall():
 
 
 def test_exactly_at_threshold_is_not_stalled():
-    """Spawned exactly at threshold — not yet stalled (strict >)."""
-    at_threshold = (_NOW - timedelta(seconds=STALL_THRESHOLD_SECONDS)).isoformat()
-    reg = {"agent": _meta(spawned_at=at_threshold)}
-    result = _run(reg)
+    """Exactly at threshold from first observation — not yet stalled (strict >)."""
+    _stall_snapshots.pop("agent", None)
+    reg = {"agent": _meta(spawned_at=_STALE_SPAWN)}
+    detect_stalled_agents(reg, _NOW, get_transcript_bytes=_no_bytes)
+    # Advance by exactly threshold: last_progress == cutoff → not stalled (strict >).
+    now2 = _NOW + timedelta(seconds=STALL_THRESHOLD_SECONDS)
+    result = detect_stalled_agents(reg, now2, get_transcript_bytes=_no_bytes)
     assert result == []
 
 
@@ -217,9 +235,10 @@ def test_first_observation_is_grace_cycle():
 
 
 def test_second_observation_can_stall():
-    """After the grace cycle, the second call may stall the agent."""
+    """After the grace cycle, a sweep past the threshold stalls the agent."""
     _stall_snapshots.pop("brand-new", None)
     reg = {"brand-new": _meta()}
     detect_stalled_agents(reg, _NOW, get_transcript_bytes=_no_bytes)
-    result = detect_stalled_agents(reg, _NOW, get_transcript_bytes=_no_bytes)
+    now2 = _NOW + timedelta(seconds=STALL_THRESHOLD_SECONDS + 1)
+    result = detect_stalled_agents(reg, now2, get_transcript_bytes=_no_bytes)
     assert "brand-new" in result
