@@ -215,6 +215,7 @@ export default function Settings() {
   const [shares, setShares] = useState<ShareRecord[]>([]);
   const [sharesLoading, setSharesLoading] = useState(false);
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
+  const [wipeDataError, setWipeDataError] = useState<string | null>(null);
 
   // ADHD mode
   const [adhdEnabled, setAdhdEnabled] = useState(false);
@@ -821,6 +822,23 @@ export default function Settings() {
       setSyncStatus('Could not disconnect.');
     } finally {
       setSyncLoading(false);
+    }
+  };
+
+  const handleDeleteAllData = async () => {
+    const ok = await confirm({
+      title: 'Delete all your data?',
+      message: 'This permanently deletes all your tasks, chats, and agent history. Your settings are kept so the app still works after.',
+      confirmLabel: 'Delete everything',
+      danger: true,
+    });
+    if (!ok) return;
+    setWipeDataError(null);
+    try {
+      await api.delete('/settings/data');
+      window.location.reload();
+    } catch {
+      setWipeDataError('Something went wrong. Please try again.');
     }
   };
 
@@ -2216,6 +2234,25 @@ export default function Settings() {
           </div>
           </div>
           )}
+
+          <div className={cardClass}>
+            <h2 className="text-lg font-semibold mb-2 text-red-400">Danger zone</h2>
+            <p className="text-sm text-slate-400 mb-4">
+              Permanently delete all your tasks, chats, and agent history. Your settings are kept so the app still works after.
+            </p>
+            {wipeDataError && (
+              <p className="text-sm text-red-400 mb-3">{wipeDataError}</p>
+            )}
+            <button
+              onClick={handleDeleteAllData}
+              data-testid="delete-all-data-button"
+              className="flex items-center gap-2 px-4 py-2.5 bg-red-900/30 border border-red-800 rounded-lg text-sm text-red-400 hover:bg-red-900/50 hover:text-red-300 transition-colors"
+            >
+              <Icon name="delete_forever" size={18} />
+              Delete all data
+            </button>
+          </div>
+
           {activeSection === 'section-connections' && (
           <div className={cardClass}>
           <div className="flex items-center justify-between mb-4">
