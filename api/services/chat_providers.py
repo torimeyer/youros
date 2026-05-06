@@ -782,7 +782,7 @@ async def _resolve_api_key(settings_key: str) -> str:
     _API_KEY_CACHE[settings_key] = (now, result)
     return result
 
-MAX_AGENT_TURNS = 25
+MAX_AGENT_TURNS = 40
 
 
 # --- Anthropic transient-error retry policy ---
@@ -1574,6 +1574,16 @@ def _system_prompt() -> str:
         "Do NOT read source code files for planning or advice questions. Do NOT browse directories exploratorily. "
         "Do NOT run multiple searches when one will do. If you can answer from context, just answer. "
         "Only use tools when the user asks for something that requires live data (tasks, calendar, emails, files). "
+        "STEP EFFICIENCY: Each tool call uses one step of your budget. "
+        "When you need to inspect a file, use read_file — it returns the full file in one step. "
+        "Do NOT use run_command with cat, head, tail, or grep to probe the same file across multiple calls. "
+        "Do NOT read the same file twice. Do NOT use list_directory when the file path is already known from the user's message or a prior read. "
+        "Prefer search_files over run_command grep for content searches. "
+        "Plan reads before acting: one read_file at the right path beats three exploratory probes.\n\n"
+        "STEP LIMIT: If you are running low on steps and the task is not yet done, stop and tell the user "
+        "what you found. Ask them to narrow the request or give you the exact file path. "
+        "Do NOT call spawn_agent to continue an investigation that ran long — spawn agents only when the user "
+        "explicitly asks you to run something in the background, not as an escape hatch for a stalled search.\n\n"
         "OSTK TOOLS REQUIRED: Never use the native Grep, Read, Edit, Write, or Bash tools. "
         "They are blocked by the ostk-first hook whenever ostk MCP is available. "
         "Use the MCP tools instead: mcp__ostk__search (replaces Grep/Glob), "
@@ -2310,7 +2320,10 @@ class ChatService:
                 # turn as the cap — prevents a contradictory "Still working" /
                 # "Stopped after" pair in the same response bubble.
                 if turn > MAX_AGENT_TURNS:
-                    msg = f"Stopped after {MAX_AGENT_TURNS} steps. If you need more, try breaking the task into smaller pieces."
+                    msg = (
+                        f"I've used {MAX_AGENT_TURNS} steps on this and haven't finished. "
+                        "To pick it up: tell me the exact file or component you want changed and I'll go straight there."
+                    )
                     await websocket.send_json({"type": "token", "data": msg})
                     await websocket.send_json({
                         "type": "done",
