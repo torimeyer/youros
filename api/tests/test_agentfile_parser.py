@@ -9,6 +9,7 @@ from services.agentfile_parser import (
     LimitPolicy,
     build_capabilities_summary,
     build_quality_gate_instructions,
+    build_template_instructions,
     parse_agentfile,
     serialize_agentfile,
 )
@@ -887,5 +888,57 @@ def test_stub_files_deleted():
         "saa.agent should be deleted; alias is declared on builder.agent"
     assert not (PROJECT_ROOT / "agents" / "elit.agent").exists(), \
         "elit.agent should be deleted; alias is declared on explain-plain.agent"
+
+
+# ---- New: MCP directive ----------------------------------------------------
+
+
+def test_mcp_directive_collects_into_mcp_servers(tmp_path):
+    """Single MCP line ends up in config.mcp_servers."""
+    af = tmp_path / "mcp.agent"
+    af.write_text('FROM auto\nPROMPT "x"\nMCP ostk\n')
+    config = parse_agentfile(af)
+    assert config.mcp_servers == ["ostk"]
+
+
+def test_multiple_mcp_directives_preserve_order(tmp_path):
+    """Multiple MCP lines both appear in mcp_servers, in declaration order."""
+    af = tmp_path / "mcp.agent"
+    af.write_text('FROM auto\nPROMPT "x"\nMCP ostk\nMCP stitch\n')
+    config = parse_agentfile(af)
+    assert config.mcp_servers == ["ostk", "stitch"]
+
+
+def test_no_mcp_directive_leaves_empty_list(tmp_path):
+    """Agentfile with no MCP line has mcp_servers == []."""
+    af = tmp_path / "nomcp.agent"
+    af.write_text('FROM auto\nPROMPT "x"\n')
+    config = parse_agentfile(af)
+    assert config.mcp_servers == []
+
+
+def test_mcp_without_server_name_is_parse_error(tmp_path):
+    """MCP with no server name raises AgentfileParseError mentioning 'MCP'."""
+    af = tmp_path / "bad.agent"
+    af.write_text('FROM auto\nPROMPT "x"\nMCP\n')
+    with pytest.raises(AgentfileParseError) as excinfo:
+        parse_agentfile(af)
+    assert excinfo.value.line_number == 3
+    assert "MCP" in str(excinfo.value)
+
+
+def test_build_template_instructions_includes_mcp_section_when_present():
+    """When mcp_servers is non-empty, build_template_instructions includes 'MCP servers'."""
+    config = AgentfileConfig()
+    config.mcp_servers = ["ostk"]
+    instructions = build_template_instructions(config)
+    assert "MCP servers" in instructions
+
+
+def test_build_template_instructions_omits_mcp_section_when_empty():
+    """When mcp_servers is empty, build_template_instructions omits 'MCP servers'."""
+    config = AgentfileConfig()
+    instructions = build_template_instructions(config)
+    assert "MCP servers" not in instructions
 
 
