@@ -169,3 +169,81 @@ async def github_disconnect():
     github_service.disconnect()
     recent_deletes.record_id("github-connection")
     return {"ok": True}
+
+
+def _frontend_url() -> str:
+    return os.environ.get("FRONTEND_URL", "https://localhost:3010")
+
+
+@router.get("/github/auth")
+async def github_auth(request: Request):
+    """Redirect the user to GitHub's OAuth consent screen."""
+    client_id = os.environ.get("GITHUB_CLIENT_ID", "")
+    if not client_id:
+        return RedirectResponse(f"{_frontend_url()}/?auth_error=github_not_configured")
+
+    state = secrets.token_urlsafe(32)
+    oauth_states[state] = True
+
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/github/callback"
+
+    auth_url = (
+        "https://github.com/login/oauth/authorize"
+        f"?client_id={client_id}"
+        f"&redirect_uri={redirect_uri}"
+        f"&scope=repo+read:user"
+        f"&state={state}"
+    )
+    return RedirectResponse(auth_url)
+
+
+@router.get("/github/callback")
+async def github_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    """Handle the OAuth callback from GitHub."""
+    frontend_url = _frontend_url()
+
+    if error:
+        return RedirectResponse(f"{frontend_url}/?auth_error={error}")
+
+    if state not in oauth_states:
+        return RedirectResponse(f"{frontend_url}/?auth_error=invalid_state")
+    del oauth_states[state]
+
+    if not code:
+        return RedirectResponse(f"{frontend_url}/?auth_error=no_code")
+
+    client_id = os.environ.get("GITHUB_CLIENT_ID", "")
+    client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "")
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/github/callback"
+
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            "https://github.com/login/oauth/access_token",
+            json={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "redirect_uri": redirect_uri,
+            },
+            headers={"Accept": "application/json"},
+        )
+
+    if resp.status_code != 200:
+        return RedirectResponse(f"{frontend_url}/?auth_error=token_exchange_failed")
+
+    tokens = resp.json()
+    access_token = tokens.get("access_token", "")
+    if not access_token:
+        return RedirectResponse(f"{frontend_url}/?auth_error=token_exchange_failed")
+
+    github_service.save_config(token=access_token, repo="")
+
+    return RedirectResponse(f"{frontend_url}/github?oauth_connected=true")
+
+
+@router.get("/github/defaults")
+def github_defaults():
+    """Return whether GitHub OAuth is configured on this server."""
+    return {"oauth_available": bool(os.environ.get("GITHUB_CLIENT_ID", ""))}
