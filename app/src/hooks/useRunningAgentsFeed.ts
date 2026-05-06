@@ -14,7 +14,7 @@ interface AgentStateFrame {
 }
 
 export function useRunningAgentsFeed() {
-  const { lastMessage, isConnected } = useWebSocket('/ws/agents/state', true)
+  const { lastMessage, isConnected } = useWebSocket('/api/ws/agents/state', true)
   const setSnapshot = useRunningAgentsStore((s) => s.setSnapshot)
   const setConnected = useRunningAgentsStore((s) => s.setConnected)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
