@@ -17,8 +17,20 @@ from services import chat_ack_bot
 from services import recent_deletes
 from services import agent_chat_responder
 from services.tracing import trace_event
+from services.agent_events import bus as _agent_events_bus
 
 logger = logging.getLogger(__name__)
+
+
+def _fire_delta(name: str, status: str) -> None:
+    """Schedule a delta publish on the agent event bus without blocking the caller."""
+    try:
+        asyncio.get_running_loop().create_task(
+            _agent_events_bus.publish("delta", {"name": name, "status": status})
+        )
+    except RuntimeError:
+        pass  # no running loop (startup / test context)
+
 
 
 class AgentMemorySave(BaseModel):
@@ -3272,6 +3284,7 @@ async def list_agents(
     ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
     if ac_changed:
         _save_agent_state()
+        await _agent_events_bus.publish("sweep", {})
         # Reflect the completed status into agents_map for this response.
         for name, meta in agent_metadata.items():
             if meta.get("status") == "completed" and name in agents_map:
@@ -5016,6 +5029,7 @@ async def register_agent(body: AgentSpawn, request: Request = None):
                 agent_metadata[existing_name] = existing_meta
                 canonical_name = existing_name
             _save_agent_state()
+            _fire_delta(canonical_name, existing_meta.get("status", "running"))
             return {
                 "result": (
                     f"Agent '{body.name}' merged into existing hook "
@@ -5196,6 +5210,7 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         record["chat_mode"] = existing["chat_mode"]
     agent_metadata[body.name] = record
     _save_agent_state()
+    _fire_delta(body.name, status)
 
     # Start the ack bot on first registration so Tori's inline chat
     # gets a warm acknowledgment within two seconds even when the
@@ -6000,6 +6015,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             "source": "claude-code",
         }
     _save_agent_state()
+    _fire_delta(name, "completed")
 
     # Auto-close the spec builder task if this agent was spawned from a
     # Build it click. The spec_build prompt tells the agent to edit
@@ -6366,6 +6382,7 @@ async def cancel_agent(
     meta["terminated_at"] = now_iso
     meta["terminated_reason"] = reason
     _save_agent_state()
+    _fire_delta(name, "cancelled")
 
     # Terminate the subprocess if we hold one.
     proc = active_agents.pop(name, None)
@@ -6611,6 +6628,7 @@ async def _reconcile_loop():
             ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
             if stale_changed or ac_changed:
                 _save_agent_state()
+                await _agent_events_bus.publish("sweep", {})
             # Drain ghost retry queue populated by _autocomplete_exited_subagents.
             retries = _pending_ghost_retries[:]
             _pending_ghost_retries.clear()
