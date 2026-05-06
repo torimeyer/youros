@@ -3399,6 +3399,18 @@ async def list_agents(
     # Other user-spawned-filter exclusions (chat/audit/hook/subscription)
     # are applied too for consistency with the Agents page count.
     from services.agent_filters import is_user_spawned_agent as _is_user_spawned
+    # Overlay build_state ("running" | "queued") on each agent row so the
+    # Agents page can show queue position for comprehensive builds.
+    try:
+        from services.build_queue import all_build_states as _all_build_states
+        _bstates = _all_build_states()
+        if _bstates:
+            for _agent_row in filtered_agents:
+                _bs = _bstates.get(_agent_row.get("name", ""))
+                if _bs:
+                    _agent_row["build_state"] = _bs
+    except Exception:
+        pass
     return {
         "daemon_running": daemon_running,
         "status": ps_result.get("raw", "unknown"),
@@ -3585,8 +3597,7 @@ def _infer_needle_id(
         if m:
             candidate = m.group(1)
             if issues_path is None:
-                from services.ostk import ostk as _ostk
-                issues_path = Path(_ostk.cwd) / ".ostk" / "needles" / "issues.jsonl"
+                issues_path = Path(ostk.cwd) / ".ostk" / "needles" / "issues.jsonl"
             if issues_path.exists():
                 arrow_form = f"→{candidate}"
                 try:
@@ -3792,6 +3803,48 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     if body.name in _del_names:
         _del_names.discard(body.name)
         _save_deleted_agents(_del_names)
+
+    # Build queue gate: comprehensive builds are limited to BUILD_CONCURRENCY
+    # simultaneous runs. Excess arrivals are queued FIFO and promoted when a
+    # running build finishes. The spawn lock is already acquired so queued
+    # builds hold their task-specific lock until they eventually start.
+    _build_state: Optional[str] = None  # set to "running"/"queued" for comprehensive builds
+    _is_comprehensive = str(body.template or "").lower() in ("comprehensive", "saa")
+    if _is_comprehensive:
+        try:
+            from services.build_queue import try_start_build as _try_start_build
+            _build_state = _try_start_build(
+                spawn_id=body.name,
+                task_id=body.task_id or "",
+                spawn_kwargs=body.model_dump(),
+            )
+            if _build_state == "queued":
+                # Register a placeholder row so the agent is visible in the UI
+                # with status "queued" before the subprocess starts.
+                _now_q = datetime.now(timezone.utc).isoformat()
+                agent_metadata[body.name] = {
+                    "spawned_at": _now_q,
+                    "status": "queued",
+                    "source": body.source or "api",
+                    "model": body.model,
+                    "budget": body.budget,
+                    "task_id": body.task_id,
+                    "template": body.template,
+                    "build_state": "queued",
+                    "label": f"comprehensive/{body.task_id}" if body.task_id else body.name,
+                }
+                _save_agent_state()
+                logger.info("spawn.build_queue.queued name=%s", body.name)
+                return {
+                    "result": "queued",
+                    "agent_name": body.name,
+                    "build_state": "queued",
+                    "status": "queued",
+                    "message": "Build is waiting for a slot. It will start automatically.",
+                }
+        except Exception as _bq_exc:
+            logger.warning("spawn.build_queue_check_failed name=%s err=%s", body.name, _bq_exc)
+            # Fail-open: on queue error, proceed with normal spawn.
 
     transcript_path = PROJECT_ROOT / "transcripts" / f"{body.name}.md"
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
@@ -4208,6 +4261,34 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     "spawn.worktree.cleanup_failed name=%s err=%s",
                     name, _cleanup_exc,
                 )
+            # Build queue: free this build's slot and promote the next queued
+            # build if one is waiting. Only runs for comprehensive/saa builds.
+            try:
+                if (template or "").lower() in ("comprehensive", "saa"):
+                    from services.build_queue import finish_build as _finish_build
+                    _next_bq = _finish_build(spawn_id=name)
+                    if _next_bq is not None:
+                        logger.info(
+                            "spawn.build_queue.promoting spawn_id=%s task_id=%s",
+                            _next_bq.spawn_id, _next_bq.task_id,
+                        )
+                        from models.schemas import AgentSpawn as _AgentSpawnCls
+
+                        async def _spawn_queued_next(_entry=_next_bq) -> None:
+                            try:
+                                _nb = _AgentSpawnCls(**_entry.spawn_kwargs)
+                                await spawn_agent(_nb, request=None)
+                            except Exception as _sq_exc:
+                                logger.error(
+                                    "spawn.build_queue.promote_failed spawn_id=%s err=%s",
+                                    _entry.spawn_id, _sq_exc,
+                                )
+                        asyncio.create_task(_spawn_queued_next())
+            except Exception as _bq_finish_exc:
+                logger.warning(
+                    "spawn.build_queue.finish_failed name=%s err=%s",
+                    name, _bq_finish_exc,
+                )
 
         async def _drain_stdout(p, name: str, tpath: Path) -> None:
             """Drain subprocess stdout to the transcript file, flushing after each chunk.
@@ -4464,6 +4545,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             "name": body.name,
             "pid": proc.pid,
             "transcript": str(transcript_path),
+            "build_state": _build_state,
         }
     except HTTPException:
         # Preserve explicit HTTPException codes raised inside the try

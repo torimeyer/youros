@@ -41,6 +41,7 @@ type StatusFilter = StatusPill | "all" | "shelved" | "week" | "recurring";
 export const USER_SELECTABLE_STATUSES = ["open", "closed"] as const;
 
 import ConfirmModal from "../components/ConfirmModal";
+import { ComprehensiveBuildPill } from "../components/ComprehensiveBuild";
 
 interface Task {
   id: string;
@@ -289,11 +290,15 @@ export default function Tasks() {
   const [selectedStatus, setSelectedStatus] = useState<StatusPill>("all");
   const [closedSortOrder] = useState<ClosedSortOrder>("newest");
   const [sortBy, setSortBy] = useState<SortBy>("date-desc");
-  // Agents currently running. Keyed by task_id. A task row shows the
-  // in-progress indicator iff it appears in this set.
+  // Agents currently running or queued. Keyed by task_id.
   const [runningAgentTaskIds, setRunningAgentTaskIds] = useState<Set<string>>(
     () => new Set()
   );
+  // Build state per task_id: "running" | "queued" — only set for tasks that
+  // have a comprehensive build agent tracked in the build queue.
+  const [buildStateByTaskId, setBuildStateByTaskId] = useState<
+    Map<string, "running" | "queued">
+  >(() => new Map());
   const [banner, setBanner] = useState<string | null>(null);
   const [openPriorityDropdown, setOpenPriorityDropdown] = useState<string | null>(null);
   const [openLabelDropdown, setOpenLabelDropdown] = useState<string | null>(null);
@@ -534,10 +539,12 @@ export default function Tasks() {
             status?: string;
             task_id?: string | null;
             label?: string | null;
+            build_state?: "running" | "queued" | null;
           }>;
         };
         if (cancelled) return;
         const next = new Set<string>();
+        const nextBuildStates = new Map<string, "running" | "queued">();
         const terminal = new Set([
           "completed",
           "succeeded",
@@ -560,8 +567,14 @@ export default function Tasks() {
               if (tok) next.add(tok);
             }
           }
+          // Track build_state for comprehensive builds so we can show
+          // "Building" vs "Queued" pills instead of the generic "In progress".
+          if (a.build_state && a.task_id) {
+            nextBuildStates.set(a.task_id, a.build_state);
+          }
         }
         setRunningAgentTaskIds(next);
+        setBuildStateByTaskId(nextBuildStates);
       } catch {
         // silent; /agents may not exist in some test harnesses.
       }
@@ -2101,15 +2114,26 @@ export default function Tasks() {
                             Paused
                           </span>
                         )}
-                        {runningAgentTaskIds.has(task.id) && (
-                          <span
-                            data-testid={`in-progress-badge-${task.id}`}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30"
-                          >
-                            <Icon name="play_arrow" className="text-[10px]" />
-                            In progress
-                          </span>
-                        )}
+                        {runningAgentTaskIds.has(task.id) && (() => {
+                          const buildState = buildStateByTaskId.get(task.id);
+                          if (buildState) {
+                            return (
+                              <ComprehensiveBuildPill
+                                taskId={task.id}
+                                buildState={buildState}
+                              />
+                            );
+                          }
+                          return (
+                            <span
+                              data-testid={`in-progress-badge-${task.id}`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30"
+                            >
+                              <Icon name="play_arrow" className="text-[10px]" />
+                              In progress
+                            </span>
+                          );
+                        })()}
                         {task.status === "closed" && task.closed_reason === "completed" && (
                           <span
                             data-testid={`closed-badge-${task.id}`}
