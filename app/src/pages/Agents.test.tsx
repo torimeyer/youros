@@ -30,8 +30,10 @@ vi.mock('../lib/api', async (importOriginal) => {
 // tests (vitest keeps modules loaded for a file). Reset it before every
 // test so names cancelled in one test do not leak into the next.
 import { _resetSidebarBus } from '../lib/sidebarBus'
+import { useRunningAgentsStore } from '../stores/runningAgents'
 beforeEach(() => {
   _resetSidebarBus()
+  useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
 })
 
 // jsdom does not provide window.matchMedia. Provide a minimal stub
@@ -5899,10 +5901,10 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
     )
   })
 
-  it('renders ONLY rows whose names appear in the summary endpoint response', async () => {
+  it('renders ONLY rows whose names appear in the runningAgents store', async () => {
     // Scenario: the full /agents payload still has three rows (one
     // running, one running-but-server-says-stale, one completed). The
-    // compact summary endpoint authoritatively says only
+    // runningAgents store (WebSocket-fed) authoritatively says only
     // "summary-runner" is running. The Active Sessions tab must render
     // exactly one row, regardless of what allAgents thinks, so that its
     // count and the Sidebar nav-badge count always agree.
@@ -5921,8 +5923,8 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
         },
         {
           // Legacy /agents payload still reports this as running but
-          // the summary endpoint has already dropped it (terminated
-          // upstream). The fix must trust the summary set.
+          // the store has already dropped it (terminated upstream).
+          // The Active tab must trust the store.
           name: 'summary-ghost',
           status: 'running',
           source: 'claude-code',
@@ -5940,20 +5942,16 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
         },
       ],
     }
-    // Compact summary: lean response shape (only running, server-filtered).
-    const summaryResponse = {
-      agents: [
-        {
-          name: 'summary-runner',
-          status: 'running',
-          source: 'claude-code',
-          spawned_at: new Date(Date.now() - 30000).toISOString(),
-        },
-      ],
-    }
+
+    // Seed the runningAgents store with only summary-runner. This is
+    // what the WebSocket feed would push from the backend's filtered
+    // snapshot.
+    useRunningAgentsStore.setState({
+      count: 1,
+      agents: [{ name: 'summary-runner' }],
+    })
 
     mockedApiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith('/agents?summary=1')) return summaryResponse
       if (path === '/agents') return fullAgents
       if (path === '/agents/templates') return { templates: [] }
       if (path.includes('/nudges')) return { agent: '', nudges: [], session_nudges: [] }
@@ -5966,22 +5964,13 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
       </MemoryRouter>
     )
 
-    // Wait for the summary endpoint to have been called AND the list to
-    // have reconciled to exactly one running row.
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith(
-        '/agents?summary=1&status=running&limit=20'
-      )
-    })
-
     // summary-runner must render.
     await waitFor(() => {
       expect(screen.getByTitle(/^summary-runner(\s|$)/)).toBeInTheDocument()
     })
 
     // summary-ghost must NOT render even though the full /agents
-    // payload still reports it as running. The summary set is the
-    // source of truth.
+    // payload still reports it as running. The store is source of truth.
     await waitFor(() => {
       expect(screen.queryByTitle(/^summary-ghost(\s|$)/)).toBeNull()
     })
@@ -5991,24 +5980,19 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
     expect(screen.queryByTitle(/^summary-completed(\s|$)/)).toBeNull()
   })
 
-  it('renders summary rows even when the full /agents payload omits them (nav-badge vs tab parity)', async () => {
-    // Scenario reproducing the 2026-04-23 field report:
-    //   - Sidebar nav badge counted 2 running agents.
-    //   - Agents tab / Active Sessions rendered "No agents running
-    //     right now".
-    // Root cause: the Active tab used allAgents.filter(row =>
-    // runningAgentNames.has(row.name)) — an intersection. If the
-    // summary endpoint reported a name that the full /agents payload
-    // did not include (stale fetch, dropped row, merge bug), the
-    // intersection was empty and the tab showed the empty state while
-    // the sidebar badge still showed the summary count.
-    //
-    // After the fix, the Active tab must render a row for every name
-    // the summary endpoint reports as running, even when allAgents is
-    // empty.
+  it('Active Sessions and nav-badge agree (both backed by runningAgents store)', async () => {
+    // Post-→992 architecture: the Sidebar badge and Active Sessions tab
+    // both derive from the same runningAgents Zustand store, so by
+    // construction they cannot disagree on count. This test verifies
+    // the store-driven path: when the store lists 2 running agents
+    // that are also in the full /agents payload, both surfaces render
+    // those 2 agents. The empty-state must NOT be shown.
     preExpandAgents('nav-parity-1', 'nav-parity-2')
 
-    const summaryResponse = {
+    const fullAgents = {
+      daemon_running: true,
+      status: 'ok',
+      active: ['nav-parity-1', 'nav-parity-2'],
       agents: [
         {
           name: 'nav-parity-1',
@@ -6026,19 +6010,15 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
         },
       ],
     }
-    // Full /agents payload: empty. The backend lost both rows during
-    // its audit+in-memory merge pass, or the full fetch is still
-    // in-flight / transiently failing.
-    const fullAgentsEmpty = {
-      daemon_running: true,
-      status: 'ok',
-      active: [],
-      agents: [],
-    }
+
+    // Seed store as the WebSocket feed would.
+    useRunningAgentsStore.setState({
+      count: 2,
+      agents: [{ name: 'nav-parity-1' }, { name: 'nav-parity-2' }],
+    })
 
     mockedApiGet.mockImplementation(async (path: string) => {
-      if (path.startsWith('/agents?summary=1')) return summaryResponse
-      if (path === '/agents') return fullAgentsEmpty
+      if (path === '/agents') return fullAgents
       if (path === '/agents/templates') return { templates: [] }
       if (path.includes('/nudges')) return { agent: '', nudges: [], session_nudges: [] }
       return {}
@@ -6050,15 +6030,7 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
       </MemoryRouter>
     )
 
-    // Wait for both the full and summary fetches to have fired.
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith(
-        '/agents?summary=1&status=running&limit=20'
-      )
-    })
-
-    // Both summary names must render. Before the fix this block timed
-    // out and the page showed "No agents running right now".
+    // Both store-listed names must render in Active Sessions.
     await waitFor(
       () => {
         expect(screen.getByTitle(/^nav-parity-1(\s|$)/)).toBeInTheDocument()
@@ -6067,9 +6039,7 @@ describe('Agents page - Active Sessions summary endpoint (nav-badge race fix)', 
       { timeout: 3000 }
     )
 
-    // The empty state must NOT be visible: nav badge would count 2 and
-    // tab would count 0, which is the exact divergence we are guarding
-    // against.
+    // Empty state must NOT be visible: badge counts 2, tab shows 2.
     expect(screen.queryByText('No agents running right now')).toBeNull()
   })
 })

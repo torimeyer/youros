@@ -15,6 +15,7 @@ vi.mock('../lib/api', () => ({
 
 import { api } from '../lib/api'
 import { _resetSidebarBus } from '../lib/sidebarBus'
+import { useRunningAgentsStore } from '../stores/runningAgents'
 
 const mockedApiGet = vi.mocked(api.get)
 
@@ -62,6 +63,7 @@ describe('Sidebar', () => {
     vi.clearAllMocks()
     localStorage.clear()
     _resetSidebarBus()
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
     useAppStore.setState({
       osName: 'myOS',
       features: DEFAULT_FEATURES,
@@ -200,32 +202,19 @@ describe('Sidebar', () => {
     expect(tasksLink?.className).not.toContain('accent-highlight')
   })
 
-  it('does not show agent badge when activeAgents is 0', async () => {
-    mockedApiGet.mockResolvedValue({ agents: [] })
+  it('does not show agent badge when activeAgents is 0', () => {
+    // Sidebar reads count from useRunningAgentsStore (WebSocket-fed).
+    // Store starts at count=0 (reset in beforeEach).
     renderSidebar()
-
-    // Sidebar badge now hits the compact summary endpoint so it can
-    // share a server-filtered set with the Agents page.
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith(
-        '/agents?summary=1&status=running&limit=20'
-      )
-    })
-
     const agentsLink = screen.getByText('Agents').closest('a')
     expect(agentsLink?.querySelector('.animate-pulse')).toBeNull()
   })
 
   it('shows agent badge when activeAgents > 0 (only user-spawned running agents)', async () => {
-    // Summary endpoint is already filtered server-side to running +
-    // source=claude-code, so the sidebar just has to count the rows it
-    // gets back (minus locally dismissed and non-user-spawned rows).
-    mockedApiGet.mockResolvedValue({
-      agents: [
-        { name: 'agent-1', status: 'running', source: 'claude-code' },
-        { name: 'agent-2', status: 'running', source: 'claude-code' },
-      ],
-    })
+    useRunningAgentsStore.setState({ count: 2, agents: [
+      { name: 'agent-1' },
+      { name: 'agent-2' },
+    ] })
     renderSidebar()
 
     await waitFor(() => {
@@ -234,17 +223,9 @@ describe('Sidebar', () => {
   })
 
   it('shows correct count for multiple active agents', async () => {
-    // Summary endpoint returns only running + source=claude-code rows
-    // so the sidebar badge is the length of the server response.
-    mockedApiGet.mockResolvedValue({
-      agents: [
-        { name: 'a1', status: 'running', source: 'claude-code' },
-        { name: 'a2', status: 'running', source: 'claude-code' },
-        { name: 'a3', status: 'running', source: 'claude-code' },
-        { name: 'a4', status: 'running', source: 'claude-code' },
-        { name: 'a5', status: 'running', source: 'claude-code' },
-      ],
-    })
+    useRunningAgentsStore.setState({ count: 5, agents: [
+      { name: 'a1' }, { name: 'a2' }, { name: 'a3' }, { name: 'a4' }, { name: 'a5' },
+    ] })
     renderSidebar()
 
     await waitFor(() => {
@@ -252,30 +233,21 @@ describe('Sidebar', () => {
     })
   })
 
-  it('excludes locally dismissed agents from the badge count', async () => {
-    // Start with three running agents. The Agents page dismisses one of
-    // them (for example the user cancelled it), so the sidebar badge
-    // should drop to 2 on the next refetch even though the backend still
-    // returns all three.
-    mockedApiGet.mockResolvedValue({
-      agents: [
-        { name: 'a1', status: 'running', source: 'claude-code' },
-        { name: 'a2', status: 'running', source: 'claude-code' },
-        { name: 'a3', status: 'running', source: 'claude-code' },
-      ],
-    })
-    const { addDismissed, bumpAgents } = await import('../lib/sidebarBus')
+  it('badge updates when store count drops (agent cancelled)', async () => {
+    useRunningAgentsStore.setState({ count: 3, agents: [
+      { name: 'a1' }, { name: 'a2' }, { name: 'a3' },
+    ] })
     renderSidebar()
     await waitFor(() => {
       expect(screen.getByText('3')).toBeInTheDocument()
     })
-    // Simulate the Agents page cancelling a1. Nudge the bus so the sidebar
-    // refetches right away instead of waiting for its 2s poll tick.
-    addDismissed('a1')
-    bumpAgents()
+    // Backend pushes a delta after cancellation: count drops to 2.
+    useRunningAgentsStore.setState({ count: 2, agents: [
+      { name: 'a2' }, { name: 'a3' },
+    ] })
     await waitFor(() => {
       expect(screen.getByText('2')).toBeInTheDocument()
-    }, { timeout: 3000 })
+    })
   })
 
   it('Sidebar renders a count badge on the Tasks nav when there are open tasks', async () => {
@@ -353,47 +325,41 @@ describe('Sidebar', () => {
     expect(mockedApiGet).not.toHaveBeenCalledWith('/tasks')
   })
 
-  it('handles API error for agents gracefully', async () => {
+  it('renders Agents nav item even when API calls fail', async () => {
     mockedApiGet.mockRejectedValue(new Error('Network error'))
     renderSidebar()
 
+    // Tasks/specs/etc. polls may fail; sidebar must still render Agents nav.
     await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringMatching(/^\/agents/))
+      expect(screen.getByText('Agents')).toBeInTheDocument()
     })
-
-    expect(screen.getByText('Agents')).toBeInTheDocument()
+    // No badge: store count is 0 (default).
+    const agentsLink = screen.getByText('Agents').closest('a')
+    expect(agentsLink?.querySelector('.animate-pulse')).toBeNull()
   })
 
-  it('fetches agents on mount', async () => {
-    mockedApiGet.mockResolvedValue({ active: [] })
+  it('shows store count immediately on mount (no fetch needed)', () => {
+    useRunningAgentsStore.setState({ count: 1, agents: [{ name: 'my-agent' }] })
     renderSidebar()
-
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringMatching(/^\/agents/))
-    })
+    const agentsLink = screen.getByText('Agents').closest('a')
+    expect(agentsLink?.textContent).toContain('1')
   })
 
-  it('polls agents every 2 seconds so the badge stays up to date', async () => {
-    vi.useFakeTimers()
-    mockedApiGet.mockImplementation((url: string) => {
-      if (url.startsWith('/agents')) return Promise.resolve({ active: [] })
-      return Promise.resolve({ authenticated: false, unread_count: 0 })
-    })
+  it('badge updates reactively when store count changes', async () => {
+    useRunningAgentsStore.setState({ count: 0, agents: [] })
     renderSidebar()
 
-    const agentCalls = () => mockedApiGet.mock.calls.filter(c => typeof c[0] === 'string' && c[0].startsWith('/agents')).length
+    const agentsLink = () => screen.getByText('Agents').closest('a')
+    expect(agentsLink()?.querySelector('.animate-pulse')).toBeNull()
 
-    await vi.advanceTimersByTimeAsync(0)
-    expect(agentCalls()).toBe(1)
+    // Store receives a push from the WebSocket feed.
+    useRunningAgentsStore.setState({ count: 3, agents: [
+      { name: 'x1' }, { name: 'x2' }, { name: 'x3' },
+    ] })
 
-    // Background poll runs at 2 s.
-    await vi.advanceTimersByTimeAsync(2000)
-    expect(agentCalls()).toBe(2)
-
-    await vi.advanceTimersByTimeAsync(2000)
-    expect(agentCalls()).toBe(3)
-
-    vi.useRealTimers()
+    await waitFor(() => {
+      expect(agentsLink()?.textContent).toContain('3')
+    })
   })
 
   it('polls tasks every 2 seconds so the badge stays up to date', async () => {
@@ -419,29 +385,22 @@ describe('Sidebar', () => {
     vi.useRealTimers()
   })
 
-  it('bumpAgents triggers an immediate agents refetch without waiting for the poll', async () => {
-    vi.useFakeTimers()
-    mockedApiGet.mockImplementation((url: string) => {
-      if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
-      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
-      return Promise.resolve({ authenticated: false, unread_count: 0 })
-    })
-    const { bumpAgents } = await import('../lib/sidebarBus')
-
+  it('badge hides immediately when store count drops to zero', async () => {
+    useRunningAgentsStore.setState({ count: 2, agents: [
+      { name: 'x1' }, { name: 'x2' },
+    ] })
     renderSidebar()
-    const agentCalls = () => mockedApiGet.mock.calls.filter(c => typeof c[0] === 'string' && c[0].startsWith('/agents')).length
 
-    await vi.advanceTimersByTimeAsync(0)
-    expect(agentCalls()).toBe(1)
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument()
+    })
 
-    // Only advance 100 ms, well under the 2 s poll. A bump should refetch
-    // anyway.
-    await vi.advanceTimersByTimeAsync(100)
-    bumpAgents()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(agentCalls()).toBe(2)
+    useRunningAgentsStore.setState({ count: 0, agents: [] })
 
-    vi.useRealTimers()
+    await waitFor(() => {
+      const agentsLink = screen.getByText('Agents').closest('a')
+      expect(agentsLink?.querySelector('.animate-pulse')).toBeNull()
+    })
   })
 
   it('bumpTasks triggers an immediate tasks refetch without waiting for the poll', async () => {
@@ -468,18 +427,12 @@ describe('Sidebar', () => {
   })
 
   it('sidebar badge counts only user-spawned running agents, not main session', async () => {
-    mockedApiGet.mockImplementation((url: string) => {
-      if (url.startsWith('/agents')) return Promise.resolve({
-        active: ['claude-code-31808c4b-5', 'tasks-health-autofix', 'fix-agents-parse-error'],
-        agents: [
-          { name: 'claude-code-31808c4b-5', status: 'running', source: 'claude-code', description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)' },
-          { name: 'tasks-health-autofix', status: 'running', source: 'claude-code' },
-          { name: 'fix-agents-parse-error', status: 'running', source: 'claude-code' },
-        ],
-      })
-      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
-      return Promise.resolve({ authenticated: false, unread_count: 0 })
-    })
+    // Backend's _compute_running_snapshot already filters out the main session
+    // before pushing to the store. Sidebar just renders store.count.
+    useRunningAgentsStore.setState({ count: 2, agents: [
+      { name: 'tasks-health-autofix' },
+      { name: 'fix-agents-parse-error' },
+    ] })
     renderSidebar()
     await waitFor(() => {
       expect(screen.getByText('2')).toBeInTheDocument()
@@ -507,21 +460,10 @@ describe('Sidebar', () => {
     })
   })
 
-  it('sidebar badge is hidden when only main session is running', async () => {
-    mockedApiGet.mockImplementation((url: string) => {
-      if (url.startsWith('/agents')) return Promise.resolve({
-        active: ['claude-code-31808c4b-5'],
-        agents: [
-          { name: 'claude-code-31808c4b-5', status: 'running', source: 'claude-code', description: 'Claude Code session (cwd: /Users/torimeyer/claude/torios)' },
-        ],
-      })
-      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
-      return Promise.resolve({ authenticated: false, unread_count: 0 })
-    })
+  it('sidebar badge is hidden when only main session is running', () => {
+    // Backend sends count=0 when only the main Claude Code session is running.
+    // Store stays at 0 (reset in beforeEach).
     renderSidebar()
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith(expect.stringMatching(/^\/agents/))
-    })
     const agentsLink = screen.getByText('Agents').closest('a')
     expect(agentsLink?.querySelector('.animate-pulse')).toBeNull()
   })
@@ -727,14 +669,12 @@ describe('Sidebar', () => {
     vi.useRealTimers()
   })
 
-  it('three badges (Agents, Tasks, Specs) all render correct counts from their own endpoints', async () => {
-    // This is the deep-dive check: all three badges wired up, counts from
-    // three separate endpoints, no crosstalk. If one endpoint fails or is
-    // miswired, only that badge is affected.
+  it('three badges (Agents, Tasks, Specs) all render correct counts from their own sources', async () => {
+    // Agents badge reads from Zustand store (WebSocket-fed). Tasks and Specs
+    // still poll their own REST endpoints.
+    useRunningAgentsStore.setState({ count: 1, agents: [{ name: 'a1' }] })
     mockedApiGet.mockImplementation((url: string) => {
-      if (url.startsWith('/agents')) return Promise.resolve({
-        agents: [{ name: 'a1', status: 'running', source: 'claude-code' }],
-      })
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 2 })
       if (url === '/specs/counts') return Promise.resolve({ unfinished: 3, total: 3 })
       return Promise.resolve({ authenticated: false, unread_count: 0 })
@@ -752,35 +692,20 @@ describe('Sidebar', () => {
     })
   })
 
-    it('updates badge count when API response changes between polls', async () => {
-    let agentCallCount = 0
-    mockedApiGet.mockImplementation(async (url: string) => {
-      if (url.startsWith('/agents')) {
-        agentCallCount++
-        if (agentCallCount === 1) return { active: [], agents: [] }
-        return {
-          active: ['a1', 'a2', 'a3'],
-          agents: [
-            { name: 'a1', status: 'running', source: 'claude-code' },
-            { name: 'a2', status: 'running', source: 'claude-code' },
-            { name: 'a3', status: 'running', source: 'api' },
-          ],
-        }
-      }
-      return { authenticated: false, unread_count: 0 }
-    })
-
+  it('badge count updates when store.count changes', async () => {
+    useRunningAgentsStore.setState({ count: 0, agents: [] })
     renderSidebar()
 
-    await waitFor(() => {
-      expect(agentCallCount).toBeGreaterThanOrEqual(1)
-    })
     expect(screen.queryByText('3')).not.toBeInTheDocument()
+
+    useRunningAgentsStore.setState({ count: 3, agents: [
+      { name: 'a1' }, { name: 'a2' }, { name: 'a3' },
+    ] })
 
     await waitFor(() => {
       expect(screen.getByText('3')).toBeInTheDocument()
-    }, { timeout: 10000 })
-  }, 15000)
+    })
+  })
 })
 
 // ------------- Grouped nav tests -------------

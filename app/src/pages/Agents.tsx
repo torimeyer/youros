@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import TopBar from "../components/TopBar";
 import Icon from "../components/Icon";
@@ -8,6 +8,7 @@ import ConfirmModal from "../components/ConfirmModal";
 import { useConfirm } from "../hooks/useConfirm";
 import { api, ApiError, ApiTimeoutError } from "../lib/api";
 import { onAgentsChange, addDismissed, isDismissed, clearDismissed } from "../lib/sidebarBus";
+import { useRunningAgentsStore } from "../stores/runningAgents";
 import { useNotificationStore } from "../stores/notifications";
 import { useAppStore, type CustomAgentTemplate } from "../stores/app";
 import { AGENT_MARKETPLACE } from "../data/agentMarketplace";
@@ -2037,7 +2038,8 @@ export default function Agents() {
   // /agents fetch still populates allAgents for rich row details
   // (model, budget, cost, transcript bytes) and for the Recent tab,
   // which needs terminal-status rows.
-  const [runningAgentNames, setRunningAgentNames] = useState<Set<string>>(() => new Set());
+  const _storeAgents = useRunningAgentsStore((s) => s.agents)
+  const runningAgentNames = useMemo(() => new Set(_storeAgents.map((a) => a.name)), [_storeAgents])
   const [, setConnectionStatus] = useState("Connecting...");
   const [, setDaemonRunning] = useState(false);
   // Rolling median of recent agent durations, used by AgentStatusBar
@@ -3022,86 +3024,6 @@ export default function Agents() {
     return () => clearInterval(interval);
   }, []);
 
-  // Authoritative "is running?" poll. Hits the compact summary endpoint
-  // so the payload is ~430 bytes instead of the full ~337KB /agents
-  // response. Runs in parallel with fetchAgents so both the Active
-  // Sessions list and the Sidebar nav badge converge on the same
-  // server-filtered set within one poll tick, eliminating the 0-vs-1
-  // render race the two surfaces used to show.
-  useEffect(() => {
-    let cancelled = false;
-    const fetchRunningSummary = async () => {
-      try {
-        interface SummaryAgent { name: string; status: string; source?: string; model?: string; description?: string; spawned_at?: string; last_heartbeat_at?: string }
-        // No ``source=`` filter: spec-build prewarm replays register
-        // with source="spec-build", and the roadmap prewarm registers
-        // with source="api". Filtering server-side on claude-code only
-        // made Build-it agents invisible in the Active tab for the full
-        // 30s replay window even though they were running. The client-
-        // side isUserSpawnedAgent check below still excludes chat,
-        // audit, and hook rows, so the set stays clean.
-        const res = await api.get<{ agents: SummaryAgent[] }>(
-          "/agents?summary=1&status=running&limit=20"
-        );
-        if (cancelled) return;
-        const names = new Set<string>();
-        const summaryAgentsKept: SummaryAgent[] = [];
-        for (const a of res.agents || []) {
-          if (isUserSpawnedAgent(a)) {
-            names.add(a.name);
-            summaryAgentsKept.push(a);
-          }
-        }
-        setRunningAgentNames(names);
-        // Backfill allAgents with rows the summary says are running but
-        // the full /agents fetch has not yet delivered (or will never
-        // deliver because the full payload was dropped, the /agents
-        // response was stale, or the backend silently dropped the row
-        // during audit+in-memory merge). Without this, the Active
-        // Sessions list computes an EMPTY intersection between
-        // allAgents and runningAgentNames, which is how the sidebar
-        // badge could show 2 while the tab rendered the "No agents
-        // running right now" empty state. The summary endpoint is the
-        // single source of truth: if it says an agent is running, the
-        // Active tab must show a row for it.
-        if (summaryAgentsKept.length > 0) {
-          setAllAgents((prev) => {
-            const have = new Set(prev.map((a) => a.name));
-            const missing: AgentInfo[] = [];
-            for (const s of summaryAgentsKept) {
-              if (have.has(s.name)) continue;
-              if (isDismissed(s.name)) continue;
-              // Synthesize a minimal AgentInfo stub from the summary
-              // row. agentTitleParts and the Active card renderer both
-              // tolerate undefined fields. The next /agents fetch will
-              // overwrite this stub with the richer row.
-              missing.push({
-                name: s.name,
-                status: s.status,
-                source: s.source || "claude-code",
-                model: s.model,
-                description: s.description,
-                spawned_at: s.spawned_at,
-                last_heartbeat_at: s.last_heartbeat_at,
-              });
-            }
-            return missing.length > 0 ? [...prev, ...missing] : prev;
-          });
-        }
-      } catch {
-        // Swallow. The fallback path in isVisibleActive uses the
-        // legacy isAgentActive heuristic until the next successful
-        // fetch lands, so a single transient failure does not wipe
-        // the Active Sessions list.
-      }
-    };
-    fetchRunningSummary();
-    const interval = setInterval(fetchRunningSummary, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
 
   // Clean up stale customAgentTemplates entries. Older onboarding builds
   // stuffed persona marketplace templates into this list, which made the

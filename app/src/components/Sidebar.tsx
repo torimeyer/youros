@@ -21,8 +21,8 @@ import ConfirmModal from './ConfirmModal'
 import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import AdminSection from './AdminSection'
 import { api } from '../lib/api'
-import { onAgentsChange, onTasksChange, onSpecsChange, onInboxChange, isDismissed } from '../lib/sidebarBus'
-import { isUserSpawnedAgent } from '../lib/agentUtils'
+import { onTasksChange, onSpecsChange, onInboxChange } from '../lib/sidebarBus'
+import { useRunningAgentsStore } from '../stores/runningAgents'
 
 // ------------- types -------------
 
@@ -332,7 +332,7 @@ export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
 
-  const [activeAgents, setActiveAgents] = useState(0)
+  const activeAgents = useRunningAgentsStore((s) => s.count)
   const [openTasksCount, setOpenTasksCount] = useState(0)
   const [unfinishedSpecs, setUnfinishedSpecs] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
@@ -376,49 +376,6 @@ export function Sidebar() {
     })
   }
 
-  useEffect(() => {
-    const fetchAgents = async () => {
-      try {
-        // Compact server-side summary endpoint: already filters to
-        // status=running, source=claude-code, limit=20. Avoids pulling
-        // the full ~337KB /agents payload just to compute a count, and
-        // eliminates the 0-vs-1 render race between sidebar and the
-        // Active Sessions page by making both read from the same
-        // server-filtered set. Keeps isUserSpawnedAgent + isDismissed
-        // client-side because the server does not know about
-        // locally-dismissed agents and the server filter does not
-        // re-check isMainSession.
-        interface SummaryAgent { name: string; status: string; source?: string; model?: string; description?: string; spawned_at?: string; last_heartbeat_at?: string }
-        // No ``source=`` filter: spec-build prewarm replays register
-        // with source="spec-build", and the roadmap prewarm registers
-        // with source="api". A source=claude-code filter makes those
-        // running agents invisible in the nav badge. The client-side
-        // isUserSpawnedAgent check below still excludes chat/audit/
-        // hook rows, so the count stays clean.
-        const res = await api.get<{ agents: SummaryAgent[] }>(
-          '/agents?summary=1&status=running&limit=20'
-        )
-        const userSpawnedRunning = (res.agents || []).filter(
-          (a) => isUserSpawnedAgent(a) && !isDismissed(a.name)
-        )
-        setActiveAgents(userSpawnedRunning.length)
-      } catch {
-        // ignore
-      }
-    }
-    fetchAgents()
-    // Poll every 2 seconds as a safety net so background changes (another
-    // tab, a subagent completing on its own) are still reflected within
-    // two seconds even when nothing in this tab triggered a bump.
-    const interval = setInterval(fetchAgents, 2000)
-    // Any write to /agents/* from this tab refetches immediately so the
-    // badge updates within milliseconds of the user's action.
-    const unsubscribe = onAgentsChange(() => { fetchAgents() })
-    return () => {
-      clearInterval(interval)
-      unsubscribe()
-    }
-  }, [])
 
   useEffect(() => {
     const fetchTaskCounts = async () => {

@@ -29,6 +29,7 @@ import Drive from './pages/Drive'
 import Files from './pages/Files'
 import Sessions from './pages/Sessions'
 import { useAppStore } from './stores/app'
+import { useRunningAgentsFeed } from './hooks/useRunningAgentsFeed'
 import ShareView from './pages/ShareView'
 import AdminLayout from './components/AdminLayout'
 import AdminOverview from './pages/admin/Overview'
@@ -47,6 +48,7 @@ import Team from './pages/Team'
 import TeamSettings from './pages/TeamSettings'
 
 export default function App() {
+  useRunningAgentsFeed()
   const hydrated = useAppStore((s) => s.hydrated)
   const onboarded = useAppStore((s) => s.onboarded)
   const hydrateFromServer = useAppStore((s) => s.hydrateFromServer)
