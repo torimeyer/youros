@@ -4,6 +4,7 @@ import ConfirmModal from './ConfirmModal'
 import { useConfirm } from '../hooks/useConfirm'
 import { useAppStore } from '../stores/app'
 import { useNotificationStore } from '../stores/notifications'
+import { useRunningAgentsStore } from '../stores/runningAgents'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { renderMarkdown, renderTextWithMarkdown } from '../lib/markdown'
 import { api } from '../lib/api'
@@ -606,6 +607,17 @@ export function ChatPanel() {
   type TrackedAgent = { name: string }
   const [trackedAgents, setTrackedAgents] = useState<TrackedAgent[]>([])
   const [stepProgress, setStepProgress] = useState<{ step: number; maxSteps: number } | null>(null)
+
+  // Push-fed running set from useRunningAgentsStore. When a tracked
+  // agent disappears from this set, the banner hides instantly instead
+  // of waiting up to 30s for the status-feedback poll. The poll still
+  // runs to fetch the completion-bubble feedback text.
+  const runningAgentsList = useRunningAgentsStore(s => s.agents)
+  const runningAgentsConnected = useRunningAgentsStore(s => s.connected)
+  // Names we've confirmed in a running snapshot at least once. Without
+  // this gate, an agent spawned right after a snapshot would be dropped
+  // before it ever appeared in the next push.
+  const seenRunningRef = useRef<Set<string>>(new Set())
 
   const { connect, disconnect, send, lastMessage, isConnected } = useWebSocket('/ws/chat')
   const { confirm, confirmProps } = useConfirm()
@@ -1312,6 +1324,32 @@ export function ChatPanel() {
   useEffect(() => {
     if (replyingTo) inputRef.current?.focus()
   }, [replyingTo])
+
+  // Push-driven banner cleanup: when a tracked agent disappears from the
+  // global running set (delivered by the WebSocket feed via
+  // useRunningAgentsStore), drop it from trackedAgents so the
+  // "agents running" banner hides instantly. Without this, the banner
+  // could linger for up to 30s waiting on the status-feedback poll.
+  // The poll effect below still runs and remains responsible for
+  // appending the completion-feedback bubble.
+  //
+  // The seenRunningRef gate prevents a freshly spawned agent from being
+  // dropped before it has appeared in any snapshot. We only drop names
+  // we have observed running at least once.
+  useEffect(() => {
+    if (!runningAgentsConnected) return
+    if (trackedAgents.length === 0) return
+    const runningNames = new Set(runningAgentsList.map(a => a.name))
+    trackedAgents.forEach(a => {
+      if (runningNames.has(a.name)) seenRunningRef.current.add(a.name)
+    })
+    const next = trackedAgents.filter(
+      a => !seenRunningRef.current.has(a.name) || runningNames.has(a.name)
+    )
+    if (next.length !== trackedAgents.length) {
+      setTrackedAgents(next)
+    }
+  }, [runningAgentsList, runningAgentsConnected, trackedAgents])
 
   // Spawn-agent follow-up feedback.
   // Before this effect, the chat would show one "Spawn agent" card when

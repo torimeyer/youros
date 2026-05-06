@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { ChatPanel } from './ChatPanel'
 import { useAppStore } from '../stores/app'
+import { useRunningAgentsStore } from '../stores/runningAgents'
 
 // Mock the api module so chat history hydration does not hit fetch.
 // We resolve with an empty payload so the component falls back to its
@@ -55,6 +56,12 @@ describe('ChatPanel', () => {
       chatWidth: 380,
       isResizing: false,
       defaultChatModel: 'claude',
+    })
+    useRunningAgentsStore.setState({
+      count: 0,
+      agents: [],
+      connected: false,
+      lastUpdatedAt: null,
     })
   })
 
@@ -2738,6 +2745,135 @@ describe('ChatPanel', () => {
         expect(screen.getByTestId('agent-running-banner')).toBeTruthy()
       })
       expect(screen.getByText(/banner-agent is running/i)).toBeTruthy()
+    })
+
+    // 992 finish line: when the WebSocket-fed running set drops the
+    // tracked agent's name, the banner must hide instantly instead of
+    // waiting up to 30s for the status-feedback poll. The seenRunning
+    // gate prevents the agent from being dropped before its first
+    // appearance in a snapshot.
+    it('hides the banner when the running agents store drops the agent', async () => {
+      const apiMod = await import('../lib/api')
+      const getMock = apiMod.api.get as unknown as ReturnType<typeof vi.fn>
+
+      getMock.mockImplementation((path: string) => {
+        if (path === '/chat/history') {
+          return Promise.resolve({ tabs: [], active_tab_id: '' })
+        }
+        if (path.startsWith('/agents/')) {
+          return Promise.resolve({
+            exists: true,
+            terminal: false,
+            status: 'running',
+            feedback: null,
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'saa push cleanup' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'tool_use',
+        data: {
+          tool: 'spawn_agent',
+          id: 'tc-push-cleanup-1',
+          input: { name: 'push-cleanup-agent', prompt: 'go' },
+        },
+      }
+      rerender(<ChatPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-running-banner')).toBeTruthy()
+      })
+
+      // Simulate the WebSocket feed delivering a snapshot that
+      // includes the agent. seenRunningRef records the name.
+      act(() => {
+        useRunningAgentsStore.setState({
+          count: 1,
+          agents: [{ name: 'push-cleanup-agent', status: 'running' }],
+          connected: true,
+          lastUpdatedAt: new Date().toISOString(),
+        })
+      })
+
+      // Now the agent finishes: snapshot drops it. Banner must hide
+      // without any /status-feedback poll resolving.
+      act(() => {
+        useRunningAgentsStore.setState({
+          count: 0,
+          agents: [],
+          connected: true,
+          lastUpdatedAt: new Date().toISOString(),
+        })
+      })
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('agent-running-banner')).toBeNull()
+      })
+    })
+
+    // Counter-test: a freshly spawned agent that has not yet appeared
+    // in any snapshot must NOT be dropped on the first push. Otherwise
+    // a race between spawn and the next snapshot would erase the
+    // banner immediately.
+    it('does not drop the agent before it appears in any snapshot', async () => {
+      const apiMod = await import('../lib/api')
+      const getMock = apiMod.api.get as unknown as ReturnType<typeof vi.fn>
+
+      getMock.mockImplementation((path: string) => {
+        if (path === '/chat/history') {
+          return Promise.resolve({ tabs: [], active_tab_id: '' })
+        }
+        if (path.startsWith('/agents/')) {
+          return Promise.resolve({
+            exists: true,
+            terminal: false,
+            status: 'running',
+            feedback: null,
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'saa just-spawned' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'tool_use',
+        data: {
+          tool: 'spawn_agent',
+          id: 'tc-just-spawned-1',
+          input: { name: 'just-spawned-agent', prompt: 'go' },
+        },
+      }
+      rerender(<ChatPanel />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('agent-running-banner')).toBeTruthy()
+      })
+
+      // Snapshot arrives but does NOT include our just-spawned agent
+      // (race: spawn finished after the snapshot was assembled).
+      act(() => {
+        useRunningAgentsStore.setState({
+          count: 0,
+          agents: [],
+          connected: true,
+          lastUpdatedAt: new Date().toISOString(),
+        })
+      })
+
+      // The banner must still be shown.
+      expect(screen.getByTestId('agent-running-banner')).toBeTruthy()
     })
   })
 
