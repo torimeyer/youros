@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
+from services.oauth_state import oauth_states as _oauth_states
 from services.settings_store import settings_store
 
 router = APIRouter(tags=["auth"])
@@ -16,9 +17,6 @@ GOOGLE_SCOPES = "https://www.googleapis.com/auth/cloud-platform"
 
 SLACK_BOT_SCOPES = "channels:read,channels:history,chat:write,groups:read,groups:history,users:read"
 SLACK_USER_SCOPES = "search:read"
-
-# In-memory state for CSRF protection during OAuth
-_oauth_states: dict[str, bool] = {}
 
 
 def _google_client_id() -> str:
