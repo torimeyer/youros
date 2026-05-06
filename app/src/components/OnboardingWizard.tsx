@@ -13,8 +13,8 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Connect', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'EnhanceClaude', 'Connect', 'Ready'] as const
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
 
@@ -407,6 +407,28 @@ export default function OnboardingWizard() {
           )}
           {step === 'Theme' && (
             <ThemeStep darkMode={pickedDark} onChoose={handleDarkModeChoice} subtextCls={subtextCls} />
+          )}
+          {step === 'EnhanceClaude' && (
+            <div data-testid="step-enhance-claude">
+              <h2 className="text-2xl font-bold mb-2">Want myOS to enhance Claude Code?</h2>
+              <p className={`mb-6 ${subtextCls}`}>
+                myOS can plug into Claude Code so it knows what you're working on. This is optional and you can change it later in Settings.
+              </p>
+              <div className="space-y-3">
+                <button
+                  onClick={() => setStepIndex(i => Math.min(i + 1, STEPS.length - 1))}
+                  className={`w-full flex items-center gap-4 p-5 rounded-xl border ${cardCls} hover:border-blue-500 hover:bg-blue-500/10 text-left transition-all`}
+                >
+                  <span className="font-medium">Yes, enhance Claude Code with myOS</span>
+                </button>
+                <button
+                  onClick={() => setStepIndex(i => Math.min(i + 1, STEPS.length - 1))}
+                  className={`w-full flex items-center gap-4 p-5 rounded-xl border ${cardCls} hover:border-slate-400 text-left transition-all`}
+                >
+                  <span className={`font-medium ${subtextCls}`}>No thanks, maybe later</span>
+                </button>
+              </div>
+            </div>
           )}
           {step === 'Connect' && (
             <ConnectStep
