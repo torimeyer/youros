@@ -24,6 +24,7 @@ These tests mirror the structure of test_dev_backend_lock.py.
 """
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -531,11 +532,18 @@ def test_backend_alive_across_five_commits():
     ctx.verify_mode = ssl.CERT_NONE
 
     def http_status() -> Optional[int]:
-        try:
-            with urllib.request.urlopen(url, context=ctx, timeout=5) as r:
-                return r.status
-        except Exception:
-            return None
+        # Retry up to 4 times so a brief uvicorn reload (typically 3-10 s)
+        # triggered by background agents editing api/ files does not count as
+        # "backend died".  Total tolerance ~36 s; genuine crashes stay down
+        # until the watchdog fires (30+ s), so the assertion still catches them.
+        for _attempt in range(4):
+            try:
+                with urllib.request.urlopen(url, context=ctx, timeout=5) as r:
+                    return r.status
+            except Exception:
+                if _attempt < 3:
+                    time.sleep(4)
+        return None
 
     pre = http_status()
     if pre is None:
