@@ -174,20 +174,78 @@ For each: owner should run `git -C .claude/worktrees/<name> diff` and `git -C .c
 8. **agent-implement-964** — scaffold-commit-watcher hook (2 commits) not on main
 9. **agent-needle-970-concurrent-comprehens-04751b** — dirty build_queue + Tasks.tsx (124 insertions) not committed; base →970 work is on main
 10. **agent-spawn-isolation-wire** — new spawn-isolation service (new files, 10 dirty) not on main; non-standard branch format
-
 ---
 
 ## Execution log — 2026-05-06
 
 *Action agent: execute-45-drop-recommendations-cd41da*
-*Started: 2026-05-06T03:16 UTC*
-*Status: IN PROGRESS*
+*Completed: 2026-05-06T03:18 UTC*
+*Status: DONE — 42/42 worktrees removed, 3/3 branches deleted, 0 failures*
 
-### Worktrees removed (42 planned)
+### Result summary
 
-<!-- rows appended as each deletion completes -->
+| metric | value |
+|---|---|
+| Worktrees removed | 42 / 42 |
+| Branches deleted | 3 / 3 |
+| Failures | 0 |
+| Worktree count before | 54 |
+| Worktree count after | 12 (10 INVESTIGATE + triage agent + main) |
+| INVESTIGATE worktrees touched | 0 (none) |
+| `nr-enterprise` branch (the real one) | intact |
 
-### Branches deleted (3 planned)
+### Worktrees removed (42 / 42)
 
-<!-- rows appended as each deletion completes -->
+| # | status | worktree dir | branch deleted |
+|---|---|---|---|
+| 1 | ✓ | agent-955-genai-sdk-migration-finish-088f9f | worktree-agent-955-genai-sdk-migration-finish-088f9f |
+| 2 | ✓ | agent-962-register-agentsh-curl-timeou-7bf0b3 | worktree-agent-962-register-agentsh-curl-timeou-7bf0b3 |
+| 3 | ✓ | agent-971-worktree-stale-hooks-fix-34becb | worktree-agent-971-worktree-stale-hooks-fix-34becb |
+| 4 | ✓ | agent-972-diagnose-claude-chat-shallow-eb095c | worktree-agent-972-diagnose-claude-chat-shallow-eb095c |
+| 5 | ✓ | agent-973-step-efficiency-cap-behavior-cf23d2 | worktree-agent-973-step-efficiency-cap-behavior-cf23d2 |
+| 6 | ✓ | agent-a983626a | worktree-agent-a983626a |
+| 7 | ✓ | agent-apply-timing-instrumentation-and-d6ce13 | worktree-agent-apply-timing-instrumentation-and-d6ce13 |
+| 8 | ✓ | agent-atlassian-wave-3b-2-way-frontend-b40561 | worktree-agent-atlassian-wave-3b-2-way-frontend-b40561 |
+| 9 | ✓ | agent-diagnose-adhd-mode-cadence-enfor-34d58b | worktree-agent-diagnose-adhd-mode-cadence-enfor-34d58b |
+| 10 | ✓ | agent-diagnose-backend-death-after-com-e51c49 | worktree-agent-diagnose-backend-death-after-com-e51c49 |
+| 11 | ✓ | agent-diagnose-dead-process-detection-892d5e | worktree-agent-diagnose-dead-process-detection-892d5e |
+| 12 | ✓ | agent-diagnose-in-app-chat-skipping-os-1b1206 | worktree-agent-diagnose-in-app-chat-skipping-os-1b1206 |
+| 13 | ✓ | agent-diagnose-monitor-as-read-misuse-9a7178 | worktree-agent-diagnose-monitor-as-read-misuse-9a7178 |
+| 14 | ✓ | agent-diagnose-random-feature-is-live-7a3862 | worktree-agent-diagnose-random-feature-is-live-7a3862 |
+| 15 | ✓ | agent-diagnose-reaper-deleting-worktre-9c7829 | worktree-agent-diagnose-reaper-deleting-worktre-9c7829 |
+| 16 | ✓ | agent-diagnose-stale-your-feature-is-l-7258db | worktree-agent-diagnose-stale-your-feature-is-l-7258db |
+| 17 | ✓ | agent-e3-org-settings-home-784248 | worktree-agent-e3-org-settings-home-784248 |
+| 18 | ✓ | agent-e4-team-adoption-rollup-fa3ba9 | worktree-agent-e4-team-adoption-rollup-fa3ba9 |
+| 19 | ✓ | agent-e7-admin-customized-starter-pack-cd214b | worktree-agent-e7-admin-customized-starter-pack-cd214b |
+| 20 | ✓ | agent-eager-taco-wave-2-retrofit-denyi-67b419 | worktree-agent-eager-taco-wave-2-retrofit-denyi-67b419 |
+| 21 | ✓ | agent-f3-quicklook-full-modal-7c7202 | worktree-agent-f3-quicklook-full-modal-7c7202 |
+| 22 | ✓ | agent-finish-970-buildstate-wiring-b86384 | worktree-agent-finish-970-buildstate-wiring-b86384 |
+| 23 | ✓ | agent-fix-gemini-connection-dropped-mi-dea20c | worktree-agent-fix-gemini-connection-dropped-mi-dea20c |
+| 24 | ✓ | agent-fix-gray-bg-on-personal-label-in-0da393 | worktree-agent-fix-gray-bg-on-personal-label-in-0da393 |
+| 25 | ✓ | agent-fix-needle-974-ac91ad | worktree-agent-fix-needle-974-ac91ad |
+| 26 | ✓ | agent-fix-needle-975-a112a2 | worktree-agent-fix-needle-975-a112a2 |
+| 27 | ✓ | agent-fix-needle-976-007ac1 | worktree-agent-fix-needle-976-007ac1 |
+| 28 | ✓ | agent-fix-needle-976-retry-ca39da | worktree-agent-fix-needle-976-retry-ca39da |
+| 29 | ✓ | agent-fix-smoke-test-failures-from-thi-96534d | worktree-agent-fix-smoke-test-failures-from-thi-96534d |
+| 30 | ✓ | agent-fix-tests-acc9e1 | worktree-agent-fix-tests-acc9e1 |
+| 31 | ✓ | agent-implement-946 | worktree-agent-implement-946 |
+| 32 | ✓ | agent-inbox-page-sidebar-wiring-a19715 | worktree-agent-inbox-page-sidebar-wiring-a19715 |
+| 33 | ✓ | agent-integration-tests-for-windows-co-20c1ac | worktree-agent-integration-tests-for-windows-co-20c1ac |
+| 34 | ✓ | agent-merge-sequence-to-main-push-for-7807f2 | worktree-agent-merge-sequence-to-main-push-for-7807f2 |
+| 35 | ✓ | agent-migrate-googlegenerativeai-goog-7d232a | worktree-agent-migrate-googlegenerativeai-goog-7d232a |
+| 36 | ✓ | agent-needle-956-python-311-venv-upgra-2af5f4 | worktree-agent-needle-956-python-311-venv-upgra-2af5f4 |
+| 37 | ✓ | agent-p2-my-ai-setup-page-f8f175 | worktree-agent-p2-my-ai-setup-page-f8f175 |
+| 38 | ✓ | agent-p6-undo-agent-action-1ba14f | worktree-agent-p6-undo-agent-action-1ba14f |
+| 39 | ✓ | agent-rename-plansspecs-in-ui-copy-829b70 | worktree-agent-rename-plansspecs-in-ui-copy-829b70 |
+| 40 | ✓ | agent-saa-calendar-aware-tasks-2-9d1919 | worktree-agent-saa-calendar-aware-tasks-2-9d1919 |
+| 41 | ✓ | agent-wave-1-hook-fail-open-fixes-7a27be | worktree-agent-wave-1-hook-fail-open-fixes-7a27be |
+| 42 | ✓ | agent-write-e2eintegration-tests-for-w-b515dd | worktree-agent-write-e2eintegration-tests-for-w-b515dd |
+
+### Branches deleted (3 / 3)
+
+| # | status | branch | notes |
+|---|---|---|---|
+| 43 | ✓ | nr-enterprise-rebase-try | — |
+| 44 | ✓ | nr-enterprise-rebase-v3 | — |
+| 45 | ✓ | nr-enterprise-rebase-v3-inline | — |
 
