@@ -416,7 +416,14 @@ export default function OnboardingWizard() {
               </p>
               <div className="space-y-3">
                 <button
-                  onClick={() => setStepIndex(i => Math.min(i + 1, STEPS.length - 1))}
+                  onClick={async () => {
+                    try {
+                      await api.post('/onboarding/enable-myos-hooks', {})
+                    } catch (e) {
+                      console.error('enable myos hooks failed:', e)
+                    }
+                    setStepIndex(i => Math.min(i + 1, STEPS.length - 1))
+                  }}
                   className={`w-full flex items-center gap-4 p-5 rounded-xl border ${cardCls} hover:border-blue-500 hover:bg-blue-500/10 text-left transition-all`}
                 >
                   <span className="font-medium">Yes, enhance Claude Code with myOS</span>

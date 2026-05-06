@@ -1,5 +1,7 @@
 import json
 import logging
+import subprocess
+from pathlib import Path
 from typing import Literal, Optional
 
 import anthropic
@@ -288,6 +290,26 @@ async def first_runs(intent: str = "writing"):
     """Return 3 concrete starter actions tailored to the user's intent."""
     raw = _FIRST_RUNS_HINTS.get(intent, _FIRST_RUNS_HINTS["writing"])
     return FirstRunsResponse(hints=[FirstRunsItem(**h) for h in raw])
+
+
+@router.post("/onboarding/enable-myos-hooks")
+async def enable_myos_hooks():
+    """Run myos-track.sh to wire myOS hooks into Claude Code for this project."""
+    repo_root = Path(__file__).resolve().parents[2]
+    script = repo_root / "myos-track.sh"
+    try:
+        result = subprocess.run(
+            [str(script)],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception as exc:
+        return {"enabled": False, "error": str(exc)}
+    if result.returncode != 0:
+        return {"enabled": False, "error": result.stderr.strip() or f"exit {result.returncode}"}
+    return {"enabled": True, "method": "track"}
 
 
 @router.post("/onboarding/intent", response_model=IntentResponse)

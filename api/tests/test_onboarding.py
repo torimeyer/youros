@@ -491,6 +491,18 @@ async def test_first_runs_default_intent_is_writing(client):
 
 
 @pytest.mark.asyncio
+async def test_enable_myos_hooks_success(client):
+    """enable-myos-hooks runs myos-track.sh and returns enabled:True on success."""
+    with patch("routers.onboarding.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        resp = await client.post("/api/onboarding/enable-myos-hooks")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["enabled"] is True
+    assert data["method"] == "track"
+
+
+@pytest.mark.asyncio
 async def test_intent_endpoint_does_not_break_dream(client):
     """The dream endpoint still works after the intent endpoint is added."""
     with (
