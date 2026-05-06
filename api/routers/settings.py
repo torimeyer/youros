@@ -172,3 +172,21 @@ async def run_probe():
     result = await run_probe()
     settings_store.update({"last_probe_result": result})
     return result
+
+
+@router.delete("/settings/data")
+async def wipe_user_data():
+    """Delete all user data inside ~/.myos/ except settings.json."""
+    import shutil
+    from pathlib import Path
+
+    data_dir = Path.home() / ".myos"
+    if data_dir.exists():
+        for item in data_dir.iterdir():
+            if item.name == "settings.json":
+                continue
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+    return {"ok": True}
