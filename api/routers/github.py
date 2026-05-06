@@ -1,9 +1,20 @@
-"""GitHub integration endpoints."""
+"""GitHub integration endpoints.
+
+Supports both PAT (personal access token) and OAuth flows.
+OAuth endpoints: /github/auth, /github/callback, /github/defaults.
+"""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+import os
+import secrets
+
+import httpx
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
+
+from services.oauth_state import oauth_states
 
 from services import github as github_service
 from services import recent_deletes
