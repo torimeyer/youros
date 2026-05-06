@@ -90,14 +90,20 @@ fi
 echo "-> Removing api/.venv, app/node_modules, app/dist, .mcp.json..."
 rm -rf api/.venv app/node_modules app/dist .mcp.json
 
-# 3. Remove shell aliases.
+# 3. Remove shell aliases (myos, myos-update, myos-track, myos-claude).
 SHELL_RC="$HOME/.zshrc"
 [ -f "$HOME/.bashrc" ] && [ ! -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.bashrc"
-if [ -f "$SHELL_RC" ] && grep -qE "alias myos=|alias myos-update=" "$SHELL_RC"; then
+if [ -f "$SHELL_RC" ] && grep -qE "alias myos(-(update|track|claude))?=" "$SHELL_RC"; then
     cp "$SHELL_RC" "$SHELL_RC.bak.myos-uninstall"
-    # Remove the alias lines. Also remove a blank line that immediately
-    # precedes them if install.sh added one.
-    sed -i.tmp -e '/alias myos=/d' -e '/alias myos-update=/d' "$SHELL_RC"
+    # Remove all myos* alias lines. `alias myos=` as a standalone
+    # pattern would also match `alias myos-update=` so we anchor with
+    # `=`. Using multiple -e expressions keeps each pattern obvious.
+    sed -i.tmp \
+        -e '/^alias myos=/d' \
+        -e '/^alias myos-update=/d' \
+        -e '/^alias myos-track=/d' \
+        -e '/^alias myos-claude=/d' \
+        "$SHELL_RC"
     rm -f "$SHELL_RC.tmp"
     echo "-> Removed myos aliases from $SHELL_RC"
     echo "   (backup at $SHELL_RC.bak.myos-uninstall)"

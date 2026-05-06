@@ -22,7 +22,17 @@ cd ~/myos
 
 Python and Node come pre-installed on recent macOS, or you can download them from [python.org](https://python.org/downloads) and [nodejs.org](https://nodejs.org).
 
-By default `install.sh` only sets up this project. If you also want every Claude Code session on your machine (regardless of project) to register its subagents with the local myOS backend, run `./install.sh --with-claude-hooks` instead. This is opt-in because it installs a user-global hook at `~/.claude/hooks/register-agent.sh`; `./uninstall.sh` removes it.
+### Claude Code integration (optional)
+
+When you spawn Claude Code Task-tool subagents, myOS can register them on its Agents page so you have one place to see all your in-flight AI work. By default this only happens inside the myOS repo itself. If you want it elsewhere, you have three options — pick any or none:
+
+| Mode | How | When |
+|---|---|---|
+| **Per-repo** | `cd some-project && myos-track` | You always want tracking when working in a specific project. Writes `.claude/settings.local.json` in that repo. `myos-track --remove` reverses it. No global modification. |
+| **Per-session** | `cd some-project && myos-claude` | You occasionally want tracking — one Claude Code session at a time. Wrapper script that cleans up on exit, so the next plain `claude` in that dir isn't tracked. |
+| **Machine-wide** | `./install.sh --with-claude-hooks` | You use myOS as your daily dashboard for all Claude Code activity. Installs a hook at `~/.claude/hooks/register-agent.sh` that fires on every Claude Code session on this machine. `./uninstall.sh` removes it. |
+
+All three point at the same hook file at `~/.myos/hooks/register-agent.sh`, which `install.sh` stages automatically.
 
 ### On Linux
 

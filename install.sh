@@ -265,12 +265,33 @@ if command -v ostk &> /dev/null; then
     echo ""
 fi
 
+# --- Stage the register-agent hook file -------------------------------
+# Always copy .claude/hooks/register-agent.sh and its lib to
+# ~/.myos/hooks/ so myos-track / myos-claude / --with-claude-hooks all
+# point at the same canonical location. Nothing fires yet — this just
+# places the artifact. Idempotent; refreshes on every install.
+STAGED_HOOKS_DIR="$HOME/.myos/hooks"
+mkdir -p "$STAGED_HOOKS_DIR/lib"
+if [ -f "$INSTALL_DIR/.claude/hooks/register-agent.sh" ]; then
+    cp -f "$INSTALL_DIR/.claude/hooks/register-agent.sh" "$STAGED_HOOKS_DIR/register-agent.sh"
+    chmod +x "$STAGED_HOOKS_DIR/register-agent.sh"
+fi
+if [ -f "$INSTALL_DIR/.claude/hooks/lib/drain-pending.sh" ]; then
+    cp -f "$INSTALL_DIR/.claude/hooks/lib/drain-pending.sh" "$STAGED_HOOKS_DIR/lib/drain-pending.sh"
+fi
+echo "Staged register-agent hook in $STAGED_HOOKS_DIR"
+echo ""
+
 # --- Install Claude Code hooks into ~/.claude/ (opt-in) --------------
 # Wires the Agent PreToolUse register hook globally so every Claude
 # Code session on this machine registers its subagents with myOS,
 # not just sessions inside this repo. Scoped off by default because
 # the scope is machine-wide, not per-project. Enable with
 # --with-claude-hooks or MYOS_INSTALL_CLAUDE_HOOKS=1. Idempotent.
+#
+# Per-project alternatives (no ~/.claude/ modification):
+#   myos-track                    enable tracking in current repo
+#   myos-claude                   one-shot wrapper around `claude`
 if [ "$WITH_CLAUDE_HOOKS" = "1" ]; then
     if [ -x "$INSTALL_DIR/scripts/install-claude-hooks.sh" ]; then
         echo "Wiring global Claude Code hooks into ~/.claude/..."
@@ -281,9 +302,14 @@ if [ "$WITH_CLAUDE_HOOKS" = "1" ]; then
 else
     echo "Skipping global Claude Code hook install."
     echo "Project-local hooks under .claude/hooks/ still activate when Claude"
-    echo "Code is opened in this repo. To also register subagents with myOS"
-    echo "from every Claude Code session on this machine (any project), rerun"
-    echo "with --with-claude-hooks."
+    echo "Code is opened in this repo."
+    echo ""
+    echo "To opt any OTHER project into myOS subagent tracking:"
+    echo "  myos-track              (persistent, writes .claude/settings.local.json)"
+    echo "  myos-claude             (one-shot, cleans up on exit)"
+    echo ""
+    echo "To register every Claude Code session on this machine (any project),"
+    echo "rerun with --with-claude-hooks."
     echo ""
 fi
 
@@ -307,6 +333,24 @@ if [ -f "$INSTALL_DIR/update.sh" ] && ! grep -q "alias myos-update=" "$SHELL_RC"
     echo "" >> "$SHELL_RC"
     echo "alias myos-update='$INSTALL_DIR/update.sh'" >> "$SHELL_RC"
     echo "Added 'myos-update' command to $SHELL_RC"
+fi
+
+# myos-track: enable/disable myOS subagent tracking in the current repo
+# (no global modification). Writes .claude/settings.local.json.
+if [ -f "$INSTALL_DIR/myos-track.sh" ] && ! grep -q "alias myos-track=" "$SHELL_RC" 2>/dev/null; then
+    chmod +x "$INSTALL_DIR/myos-track.sh"
+    echo "" >> "$SHELL_RC"
+    echo "alias myos-track='$INSTALL_DIR/myos-track.sh'" >> "$SHELL_RC"
+    echo "Added 'myos-track' command to $SHELL_RC"
+fi
+
+# myos-claude: one-shot tracked Claude Code session (transient, cleans
+# up .claude/settings.local.json on exit).
+if [ -f "$INSTALL_DIR/myos-claude.sh" ] && ! grep -q "alias myos-claude=" "$SHELL_RC" 2>/dev/null; then
+    chmod +x "$INSTALL_DIR/myos-claude.sh"
+    echo "" >> "$SHELL_RC"
+    echo "alias myos-claude='$INSTALL_DIR/myos-claude.sh'" >> "$SHELL_RC"
+    echo "Added 'myos-claude' command to $SHELL_RC"
 fi
 
 echo ""
