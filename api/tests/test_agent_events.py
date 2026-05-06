@@ -1,6 +1,6 @@
 import asyncio
 import pytest
-from api.services.agent_events import AgentEvent, AgentEventBus
+from services.agent_events import AgentEvent, AgentEventBus
 
 
 @pytest.mark.asyncio

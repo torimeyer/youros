@@ -1,5 +1,6 @@
 """Tests for Atlassian (Jira + Confluence) integration."""
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,15 +15,33 @@ async def test_atlassian_defaults_no_env(client):
         os.environ.pop("ATLASSIAN_SITE", None)
         resp = await client.get("/api/atlassian/defaults")
     assert resp.status_code == 200
-    assert resp.json() == {"site": "", "email": ""}
+    data = resp.json()
+    assert data["site"] == ""
+    assert data["email"] == ""
+    assert "oauth_available" in data
 
 
 @pytest.mark.asyncio
 async def test_atlassian_defaults_with_env(client):
-    with patch.dict("os.environ", {"ATLASSIAN_SITE": "https://company.atlassian.net"}):
+    env = {k: v for k, v in os.environ.items() if k not in ("ATLASSIAN_SITE", "ATLASSIAN_CLIENT_ID")}
+    env["ATLASSIAN_SITE"] = "https://company.atlassian.net"
+    with patch.dict("os.environ", env, clear=True):
         resp = await client.get("/api/atlassian/defaults")
     assert resp.status_code == 200
-    assert resp.json() == {"site": "https://company.atlassian.net", "email": ""}
+    data = resp.json()
+    assert data["site"] == "https://company.atlassian.net"
+    assert data["email"] == ""
+    assert data["oauth_available"] is False
+
+
+@pytest.mark.asyncio
+async def test_atlassian_defaults_oauth_available_when_client_id_set(client):
+    env = {k: v for k, v in os.environ.items() if k not in ("ATLASSIAN_SITE",)}
+    env["ATLASSIAN_CLIENT_ID"] = "test-client-id"
+    with patch.dict("os.environ", env, clear=True):
+        resp = await client.get("/api/atlassian/defaults")
+    assert resp.status_code == 200
+    assert resp.json()["oauth_available"] is True
 
 
 @pytest.mark.asyncio
@@ -501,7 +520,7 @@ class TestAtlassianServiceActions:
         mock_client.post = AsyncMock(return_value=mock_resp)
 
         with patch("services.atlassian._get_auth_and_base", AsyncMock(
-            return_value=(MagicMock(), "https://example.atlassian.net")
+            return_value=({"auth": MagicMock()}, "https://example.atlassian.net", "example.atlassian.net")
         )):
             with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
                 result = await add_comment("JIRA-1", "Hello world")
@@ -528,7 +547,7 @@ class TestAtlassianServiceActions:
         mock_client.post = AsyncMock(return_value=mock_resp)
 
         with patch("services.atlassian._get_auth_and_base", AsyncMock(
-            return_value=(MagicMock(), "https://example.atlassian.net")
+            return_value=({"auth": MagicMock()}, "https://example.atlassian.net", "example.atlassian.net")
         )):
             with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
                 with pytest.raises(RuntimeError, match="Jira API error"):
@@ -553,7 +572,7 @@ class TestAtlassianServiceActions:
         mock_client.get = AsyncMock(return_value=mock_resp)
 
         with patch("services.atlassian._get_auth_and_base", AsyncMock(
-            return_value=(MagicMock(), "https://example.atlassian.net")
+            return_value=({"auth": MagicMock()}, "https://example.atlassian.net", "example.atlassian.net")
         )):
             with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
                 result = await list_transitions("JIRA-1")
@@ -575,7 +594,7 @@ class TestAtlassianServiceActions:
         mock_client.post = AsyncMock(return_value=mock_resp)
 
         with patch("services.atlassian._get_auth_and_base", AsyncMock(
-            return_value=(MagicMock(), "https://example.atlassian.net")
+            return_value=({"auth": MagicMock()}, "https://example.atlassian.net", "example.atlassian.net")
         )):
             with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
                 await transition_issue("JIRA-1", "31")
@@ -596,7 +615,7 @@ class TestAtlassianServiceActions:
         mock_client.put = AsyncMock(return_value=mock_resp)
 
         with patch("services.atlassian._get_auth_and_base", AsyncMock(
-            return_value=(MagicMock(), "https://example.atlassian.net")
+            return_value=({"auth": MagicMock()}, "https://example.atlassian.net", "example.atlassian.net")
         )):
             with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
                 await assign_issue("JIRA-1", "user123")
@@ -617,7 +636,7 @@ class TestAtlassianServiceActions:
         mock_client.put = AsyncMock(return_value=mock_resp)
 
         with patch("services.atlassian._get_auth_and_base", AsyncMock(
-            return_value=(MagicMock(), "https://example.atlassian.net")
+            return_value=({"auth": MagicMock()}, "https://example.atlassian.net", "example.atlassian.net")
         )):
             with patch("services.atlassian.httpx.AsyncClient", return_value=mock_client):
                 await assign_issue("JIRA-1", None)

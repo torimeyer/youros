@@ -1,7 +1,17 @@
 """Atlassian (Jira + Confluence) integration service.
 
-API-token auth only (Phase 1). Stores email + site in ~/.myos/atlassian.json;
-the token lives in the system keychain via ostk secret_set.
+Supports two auth paths:
+  - PAT: email + API token in keychain, base URL = https://<site>
+  - OAuth: access + refresh tokens in keychain, base URL =
+    https://api.atlassian.com/ex/{product}/<cloud_id>
+
+When an ATLASSIAN_ACCESS_TOKEN secret is present we prefer OAuth and route
+calls through api.atlassian.com using the Atlassian Connect-style cloud_id
+path. Otherwise we fall back to the original PAT BasicAuth path so existing
+users do not need to reconnect.
+
+Tokens live in the system keychain via ostk secret_set. Site, email, and
+cloud_id (OAuth-only) live in ~/.myos/atlassian.json.
 """
 
 from __future__ import annotations
@@ -20,6 +30,8 @@ from services.ostk import ostk
 MYOS_DIR = Path.home() / ".myos"
 CONFIG_PATH = MYOS_DIR / "atlassian.json"
 ATLASSIAN_TOKEN_KEY = "ATLASSIAN_API_TOKEN"
+ATLASSIAN_ACCESS_TOKEN_KEY = "ATLASSIAN_ACCESS_TOKEN"
+ATLASSIAN_REFRESH_TOKEN_KEY = "ATLASSIAN_REFRESH_TOKEN"
 
 _CACHE_TTL_SECONDS = 60.0
 _response_cache: dict[tuple, tuple[float, object]] = {}
@@ -77,15 +89,85 @@ def get_config() -> dict:
     return config
 
 
-async def _get_auth_and_base() -> tuple[httpx.BasicAuth, str]:
-    """Return (BasicAuth, base_url) for the connected account."""
+def _site_host(config: dict) -> str:
+    """Return the user-facing host for building external links (no scheme)."""
+    site = config.get("site", "") or ""
+    return site.replace("https://", "").replace("http://", "").rstrip("/")
+
+
+async def _get_auth_and_base(product: str = "jira") -> tuple[dict, str, str]:
+    """Return (httpx-kwargs, api_base_url, site_host) for the connected account.
+
+    The kwargs dict is splatted into client.get/post calls so the caller
+    does not need to know whether we are using OAuth bearer headers or
+    PAT BasicAuth. ``product`` is one of "jira" or "confluence" and is
+    only consulted on the OAuth path because the cloud_id-based base
+    URL differs per product.
+
+    site_host is the user-facing hostname (e.g. ``acme.atlassian.net``)
+    used to build links the user clicks on. It is the same regardless
+    of which auth path produced api_base_url.
+    """
     config = get_config()
+    site_host = _site_host(config)
+    access_token = await ostk.secret_get(ATLASSIAN_ACCESS_TOKEN_KEY)
+    if access_token:
+        cloud_id = config.get("cloud_id", "")
+        if not cloud_id:
+            raise RuntimeError(
+                "Atlassian connected via OAuth but cloud_id is missing. Please reconnect."
+            )
+        base = f"https://api.atlassian.com/ex/{product}/{cloud_id}"
+        return (
+            {"headers": {"Authorization": f"Bearer {access_token}"}},
+            base,
+            site_host,
+        )
+
     email = config["email"]
-    site = config["site"].replace("https://", "").replace("http://", "").rstrip("/")
     token = await ostk.secret_get(ATLASSIAN_TOKEN_KEY)
     if not token:
         raise RuntimeError("Atlassian token not found in keychain. Please reconnect.")
-    return httpx.BasicAuth(email, token), f"https://{site}"
+    return ({"auth": httpx.BasicAuth(email, token)}, f"https://{site_host}", site_host)
+
+
+async def _refresh_atlassian_token() -> bool:
+    """Use the saved refresh token to mint a new access token.
+
+    Returns True on success, False on any failure. Callers can then
+    decide whether to retry the original request or surface the error.
+    """
+    refresh_token = await ostk.secret_get(ATLASSIAN_REFRESH_TOKEN_KEY)
+    if not refresh_token:
+        return False
+    client_id = os.environ.get("ATLASSIAN_CLIENT_ID", "")
+    client_secret = os.environ.get("ATLASSIAN_CLIENT_SECRET", "")
+    if not client_id or not client_secret:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://auth.atlassian.com/oauth/token",
+                json={
+                    "grant_type": "refresh_token",
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                },
+            )
+        if resp.status_code != 200:
+            return False
+        data = resp.json()
+        new_access = data.get("access_token", "")
+        new_refresh = data.get("refresh_token", "")
+        if not new_access:
+            return False
+        await ostk.secret_set(ATLASSIAN_ACCESS_TOKEN_KEY, new_access)
+        if new_refresh:
+            await ostk.secret_set(ATLASSIAN_REFRESH_TOKEN_KEY, new_refresh)
+        return True
+    except httpx.HTTPError:
+        return False
 
 
 async def verify_creds(email: str, api_token: str, site: str) -> dict:
@@ -130,15 +212,35 @@ async def save_config(email: str, api_token: str, site: str) -> None:
     _cache_clear()
 
 
+async def save_oauth_config(
+    email: str, site: str, cloud_id: str, access_token: str, refresh_token: str
+) -> None:
+    """Persist OAuth-flow connection details. site/email/cloud_id on disk; tokens in keychain."""
+    global _config_cache, _config_cache_mtime
+    _ensure_dirs()
+    site = site.replace("https://", "").replace("http://", "").rstrip("/")
+    atomic_write_json(
+        CONFIG_PATH,
+        {"email": email, "site": site, "cloud_id": cloud_id, "auth_method": "oauth"},
+    )
+    await ostk.secret_set(ATLASSIAN_ACCESS_TOKEN_KEY, access_token)
+    if refresh_token:
+        await ostk.secret_set(ATLASSIAN_REFRESH_TOKEN_KEY, refresh_token)
+    _config_cache = None
+    _config_cache_mtime = 0.0
+    _cache_clear()
+
+
 async def disconnect() -> None:
-    """Remove config file and clear keychain entry."""
+    """Remove config file and clear keychain entries (PAT and OAuth)."""
     global _config_cache, _config_cache_mtime
     if CONFIG_PATH.exists():
         CONFIG_PATH.unlink(missing_ok=True)
-    try:
-        await ostk.secret_set(ATLASSIAN_TOKEN_KEY, "")
-    except Exception:
-        pass
+    for key in (ATLASSIAN_TOKEN_KEY, ATLASSIAN_ACCESS_TOKEN_KEY, ATLASSIAN_REFRESH_TOKEN_KEY):
+        try:
+            await ostk.secret_set(key, "")
+        except Exception:
+            pass
     _config_cache = None
     _config_cache_mtime = 0.0
     _cache_clear()
@@ -146,7 +248,7 @@ async def disconnect() -> None:
 
 async def list_assigned_issues() -> list[dict]:
     """Return issues assigned to the current user that are not done."""
-    auth, base_url = await _get_auth_and_base()
+    auth_kwargs, base_url, site = await _get_auth_and_base(product="jira")
     cache_key = ("list_assigned_issues", base_url)
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -158,7 +260,7 @@ async def list_assigned_issues() -> list[dict]:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{base_url}/rest/api/3/search",
-                auth=auth,
+                **auth_kwargs,
                 params={"jql": jql, "fields": fields, "maxResults": 50},
             )
             if resp.status_code == 401:
@@ -172,7 +274,6 @@ async def list_assigned_issues() -> list[dict]:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
 
     issues = []
-    site = base_url.replace("https://", "")
     for item in data.get("issues", []):
         fields_data = item.get("fields", {})
         status_obj = fields_data.get("status") or {}
@@ -194,12 +295,12 @@ async def list_assigned_issues() -> list[dict]:
 
 async def get_issue(key: str) -> dict:
     """Return full issue detail including rendered description and comments."""
-    auth, base_url = await _get_auth_and_base()
+    auth_kwargs, base_url, site = await _get_auth_and_base(product="jira")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{base_url}/rest/api/3/issue/{key}",
-                auth=auth,
+                **auth_kwargs,
                 params={"fields": "*all", "expand": "renderedFields"},
             )
             if resp.status_code == 401:
@@ -212,7 +313,7 @@ async def get_issue(key: str) -> dict:
 
             comment_resp = await client.get(
                 f"{base_url}/rest/api/3/issue/{key}/comment",
-                auth=auth,
+                **auth_kwargs,
                 params={"maxResults": 50, "orderBy": "created"},
             )
             comment_data = comment_resp.json() if comment_resp.status_code == 200 else {"comments": []}
@@ -226,7 +327,6 @@ async def get_issue(key: str) -> dict:
     issuetype_obj = fields_data.get("issuetype") or {}
     assignee_obj = fields_data.get("assignee") or {}
     reporter_obj = fields_data.get("reporter") or {}
-    site = base_url.replace("https://", "")
 
     comments = []
     for c in comment_data.get("comments", []):
@@ -259,7 +359,7 @@ async def get_issue(key: str) -> dict:
 
 async def list_recent_pages(limit: int = 25) -> list[dict]:
     """Return recently-updated Confluence pages via the v2 API."""
-    auth, base_url = await _get_auth_and_base()
+    auth_kwargs, base_url, site = await _get_auth_and_base(product="confluence")
     cache_key = ("list_recent_pages", base_url, limit)
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -269,7 +369,7 @@ async def list_recent_pages(limit: int = 25) -> list[dict]:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{base_url}/wiki/api/v2/pages",
-                auth=auth,
+                **auth_kwargs,
                 params={"sort": "-modified-date", "limit": limit},
             )
             if resp.status_code == 401:
@@ -283,7 +383,6 @@ async def list_recent_pages(limit: int = 25) -> list[dict]:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
 
     pages = []
-    site = base_url.replace("https://", "")
     for page in data.get("results", []):
         page_id = str(page.get("id", ""))
         pages.append({
@@ -300,12 +399,12 @@ async def list_recent_pages(limit: int = 25) -> list[dict]:
 
 async def get_page(page_id: str) -> dict:
     """Return Confluence page detail with body HTML."""
-    auth, base_url = await _get_auth_and_base()
+    auth_kwargs, base_url, site = await _get_auth_and_base(product="confluence")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{base_url}/wiki/api/v2/pages/{page_id}",
-                auth=auth,
+                **auth_kwargs,
                 params={"body-format": "view"},
             )
             if resp.status_code == 401:
@@ -318,7 +417,6 @@ async def get_page(page_id: str) -> dict:
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Could not reach Atlassian: {exc}") from exc
 
-    site = base_url.replace("https://", "")
     page_id_str = str(data.get("id", page_id))
     space_id = str(data.get("spaceId", ""))
     body_obj = data.get("body", {})
@@ -340,7 +438,7 @@ async def get_page(page_id: str) -> dict:
 
 async def add_comment(issue_key: str, body: str) -> dict:
     """Post a comment on a Jira issue. Returns the created comment dict."""
-    auth, base_url = await _get_auth_and_base()
+    auth_kwargs, base_url, _ = await _get_auth_and_base(product="jira")
     payload = {
         "body": {
             "type": "doc",
@@ -357,7 +455,7 @@ async def add_comment(issue_key: str, body: str) -> dict:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 f"{base_url}/rest/api/3/issue/{issue_key}/comment",
-                auth=auth,
+                **auth_kwargs,
                 json=payload,
             )
             if resp.status_code == 401:
@@ -373,12 +471,12 @@ async def add_comment(issue_key: str, body: str) -> dict:
 
 async def list_transitions(issue_key: str) -> list[dict]:
     """Return available transitions for a Jira issue."""
-    auth, base_url = await _get_auth_and_base()
+    auth_kwargs, base_url, _ = await _get_auth_and_base(product="jira")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{base_url}/rest/api/3/issue/{issue_key}/transitions",
-                auth=auth,
+                **auth_kwargs,
             )
             if resp.status_code == 401:
                 raise RuntimeError("Atlassian credentials expired. Please reconnect.")
@@ -402,13 +500,13 @@ async def list_transitions(issue_key: str) -> list[dict]:
 
 async def transition_issue(issue_key: str, transition_id: str) -> None:
     """Move a Jira issue to a new status via a transition ID."""
-    auth, base_url = await _get_auth_and_base()
+    auth_kwargs, base_url, _ = await _get_auth_and_base(product="jira")
     payload = {"transition": {"id": transition_id}}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 f"{base_url}/rest/api/3/issue/{issue_key}/transitions",
-                auth=auth,
+                **auth_kwargs,
                 json=payload,
             )
             if resp.status_code == 401:
@@ -423,13 +521,13 @@ async def transition_issue(issue_key: str, transition_id: str) -> None:
 
 async def assign_issue(issue_key: str, account_id: Optional[str]) -> None:
     """Assign a Jira issue to a user by account ID. Pass None to unassign."""
-    auth, base_url = await _get_auth_and_base()
+    auth_kwargs, base_url, _ = await _get_auth_and_base(product="jira")
     payload = {"accountId": account_id}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.put(
                 f"{base_url}/rest/api/3/issue/{issue_key}/assignee",
-                auth=auth,
+                **auth_kwargs,
                 json=payload,
             )
             if resp.status_code == 401:

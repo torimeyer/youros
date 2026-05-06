@@ -3,14 +3,31 @@
 from __future__ import annotations
 
 import os
+import secrets
+import urllib.parse
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+import httpx
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from services import atlassian as atlassian_service
+from services.oauth_state import oauth_states
 
 router = APIRouter(tags=["atlassian"])
+
+# Scopes covering Jira read/write and Confluence read/write, plus offline_access
+# so we receive a refresh_token alongside the access_token.
+ATLASSIAN_OAUTH_SCOPES = (
+    "read:jira-user read:jira-work write:jira-work "
+    "read:confluence-content.all read:confluence-space.summary "
+    "write:confluence-content offline_access"
+)
+
+
+def _frontend_url() -> str:
+    return os.environ.get("FRONTEND_URL", "https://localhost:3010")
 
 
 class AtlassianConnectRequest(BaseModel):
@@ -31,7 +48,134 @@ async def atlassian_defaults():
         saved_email = config.get("email", "")
     except Exception:
         pass
-    return {"site": env_site or saved_site, "email": saved_email}
+    return {
+        "site": env_site or saved_site,
+        "email": saved_email,
+        "oauth_available": bool(os.environ.get("ATLASSIAN_CLIENT_ID", "")),
+    }
+
+
+@router.get("/atlassian/auth")
+async def atlassian_auth(request: Request):
+    """Redirect the user to Atlassian's OAuth consent screen."""
+    client_id = os.environ.get("ATLASSIAN_CLIENT_ID", "")
+    if not client_id:
+        return RedirectResponse(
+            f"{_frontend_url()}/?auth_error=atlassian_not_configured"
+        )
+
+    state = secrets.token_urlsafe(32)
+    oauth_states[state] = True
+
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/atlassian/callback"
+
+    params = {
+        "audience": "api.atlassian.com",
+        "client_id": client_id,
+        "scope": ATLASSIAN_OAUTH_SCOPES,
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "response_type": "code",
+        "prompt": "consent",
+    }
+    auth_url = "https://auth.atlassian.com/authorize?" + urllib.parse.urlencode(params)
+    return RedirectResponse(auth_url)
+
+
+@router.get("/atlassian/callback")
+async def atlassian_callback(
+    request: Request, code: str = "", state: str = "", error: str = ""
+):
+    """Handle the OAuth callback from Atlassian."""
+    frontend_url = _frontend_url()
+
+    if error:
+        return RedirectResponse(f"{frontend_url}/?auth_error={error}")
+
+    if state not in oauth_states:
+        return RedirectResponse(f"{frontend_url}/?auth_error=invalid_state")
+    del oauth_states[state]
+
+    if not code:
+        return RedirectResponse(f"{frontend_url}/?auth_error=no_code")
+
+    client_id = os.environ.get("ATLASSIAN_CLIENT_ID", "")
+    client_secret = os.environ.get("ATLASSIAN_CLIENT_SECRET", "")
+    if not client_id or not client_secret:
+        return RedirectResponse(
+            f"{frontend_url}/?auth_error=atlassian_not_configured"
+        )
+
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/atlassian/callback"
+
+    async with httpx.AsyncClient(timeout=10.0) as http:
+        token_resp = await http.post(
+            "https://auth.atlassian.com/oauth/token",
+            json={
+                "grant_type": "authorization_code",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "redirect_uri": redirect_uri,
+            },
+        )
+        if token_resp.status_code != 200:
+            return RedirectResponse(
+                f"{frontend_url}/?auth_error=token_exchange_failed"
+            )
+        tokens = token_resp.json()
+        access_token = tokens.get("access_token", "")
+        refresh_token = tokens.get("refresh_token", "")
+        if not access_token:
+            return RedirectResponse(
+                f"{frontend_url}/?auth_error=token_exchange_failed"
+            )
+
+        resources_resp = await http.get(
+            "https://api.atlassian.com/oauth/token/accessible-resources",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if resources_resp.status_code != 200:
+            return RedirectResponse(
+                f"{frontend_url}/?auth_error=accessible_resources_failed"
+            )
+        resources = resources_resp.json()
+        if not resources:
+            return RedirectResponse(
+                f"{frontend_url}/?auth_error=no_atlassian_sites"
+            )
+
+    first = resources[0]
+    cloud_id = first.get("id", "")
+    site_url = first.get("url", "")
+    site_host = site_url.replace("https://", "").replace("http://", "").rstrip("/")
+
+    # Best-effort: ask the API for the user's email so we can show it on the
+    # connection card. If it fails, leave email blank — connection still works.
+    email = ""
+    if cloud_id:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as http:
+                me_resp = await http.get(
+                    f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/myself",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if me_resp.status_code == 200:
+                    email = me_resp.json().get("emailAddress", "") or ""
+        except httpx.HTTPError:
+            email = ""
+
+    await atlassian_service.save_oauth_config(
+        email=email,
+        site=site_host,
+        cloud_id=cloud_id,
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
+
+    return RedirectResponse(f"{frontend_url}/?atlassian_connected=true")
 
 
 @router.post("/atlassian/connect")
