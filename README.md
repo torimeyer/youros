@@ -6,6 +6,8 @@ Your personal AI operating system. A local web app that gives you a workspace wi
 
 myOS runs entirely on your computer. You open it in your browser at localhost, no account or login needed. All your data lives in `~/.myos/` and never leaves your machine unless you connect an integration like Gmail or Slack, in which case those requests go directly from your machine to the provider. myOS is not a cloud service.
 
+Icons and fonts are loaded from Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`). If your network blocks those hosts, the UI will still work but icons will render as text labels. See Troubleshooting below.
+
 ## Install
 
 You need Python 3.9 or newer, Node 18 or newer, and git. Installing myOS does not require Homebrew. myOS runs on macOS and Linux.
@@ -19,6 +21,18 @@ cd ~/myos
 ```
 
 Python and Node come pre-installed on recent macOS, or you can download them from [python.org](https://python.org/downloads) and [nodejs.org](https://nodejs.org).
+
+### Claude Code integration (optional)
+
+When you spawn Claude Code Task-tool subagents, myOS can register them on its Agents page so you have one place to see all your in-flight AI work. By default this only happens inside the myOS repo itself. If you want it elsewhere, you have three options — pick any or none:
+
+| Mode | How | When |
+|---|---|---|
+| **Per-repo** | `cd some-project && myos-track` | You always want tracking when working in a specific project. Writes `.claude/settings.local.json` in that repo. `myos-track --remove` reverses it. No global modification. |
+| **Per-session** | `cd some-project && myos-claude` | You occasionally want tracking — one Claude Code session at a time. Wrapper script that cleans up on exit, so the next plain `claude` in that dir isn't tracked. |
+| **Machine-wide** | `./install.sh --with-claude-hooks` | You use myOS as your daily dashboard for all Claude Code activity. Installs a hook at `~/.claude/hooks/register-agent.sh` that fires on every Claude Code session on this machine. `./uninstall.sh` removes it. |
+
+All three point at the same hook file at `~/.myos/hooks/register-agent.sh`, which `install.sh` stages automatically.
 
 ### On Linux
 
@@ -70,6 +84,24 @@ cd ~/myos
 
 Your settings, chats, tasks, and labels live in `~/.myos/` (separate from the repo) and are never touched by updates. You can also verify this by running `ls -la ~/.myos/` before and after.
 
+## Uninstall
+
+```bash
+./uninstall.sh
+```
+
+Stops running myOS processes and removes what `install.sh` put in the repo: `api/.venv`, `app/node_modules`, `app/dist`, `.mcp.json`, and the `myos` / `myos-update` shell aliases. Keeps `~/.myos/` (your tasks, chats, settings), ostk, and the localhost cert trust — so re-running `./install.sh` brings you right back.
+
+To truly reset to a clean slate (useful when testing a fresh install):
+
+```bash
+./uninstall.sh --purge
+```
+
+Also removes `~/.myos/` (DESTROYS ALL USER DATA), stops the ostk daemon, removes `~/.local/bin/ostk` and `~/.cache/ostk`, and removes the localhost cert from the macOS login Keychain. Prompts before each destructive step — add `--yes` to skip prompts.
+
+The repo directory is never deleted. Remove it yourself with `rm -rf <path>` when you're done.
+
 ## Start
 
 ```bash
@@ -83,6 +115,29 @@ myos
 ```
 
 Your browser will open to http://localhost:8000.
+
+For development (Vite hot reload on `app/` source), use the two-terminal setup instead:
+
+```bash
+scripts/dev-backend.sh      # backend on https://127.0.0.1:8000
+scripts/dev-frontend.sh     # Vite on https://localhost:3010
+```
+
+## Stop
+
+```bash
+./stop.sh
+```
+
+`./start.sh` and `scripts/dev-backend.sh` both run a watchdog that restarts uvicorn on crash, so `Ctrl+C` alone can leave myOS running in the background. `stop.sh` kills the watchdog first, then uvicorn on port 8000 and Vite on port 3010.
+
+If `stop.sh` isn't available, the manual equivalent is:
+
+```bash
+pkill -9 -f backend_watchdog.sh
+lsof -ti tcp:8000 | xargs kill 2>/dev/null
+lsof -ti tcp:3010 | xargs kill 2>/dev/null
+```
 
 ## First Run
 
@@ -179,6 +234,23 @@ git commit --no-verify
 ```
 
 If you already have a local pre-commit hook, the installer preserves it as `.git/hooks/pre-commit.local` and runs it first, so nothing you had before is lost.
+
+## Troubleshooting
+
+**Icons render as text labels ("home", "checklist", "drag_indicator", etc.)**
+The Material Symbols font failed to load. Usually a stale browser cache after an update — hard refresh with Cmd+Shift+R (Mac) or Ctrl+Shift+R (Linux). If it persists, rebuild the frontend: `cd app && npm run build`, then restart. If your browser's DevTools console shows `Content-Security-Policy` errors for `fonts.googleapis.com`, pull the latest — this was fixed by allowing Google Fonts in the CSP.
+
+**`localhost:8000` still responds after you close the terminal**
+`start.sh` runs a watchdog that respawns uvicorn on crash, so the app can keep running after you Ctrl+C. Use `./stop.sh` to shut down cleanly.
+
+**Port 8000 is already in use**
+Another process (often a leftover myOS from a previous session) is holding it. Run `./stop.sh`. If that doesn't clear it, `lsof -nP -iTCP:8000 -sTCP:LISTEN` shows what's there.
+
+**401 on `/api/calendar/events` in the browser console**
+Expected until you finish Google Sign-In. See "Google Sign-In Setup" above.
+
+**Corporate network or VPN blocks Google Fonts**
+Icons show as text because `fonts.googleapis.com` / `fonts.gstatic.com` are unreachable. The app is otherwise fully functional. If you need icons offline, open an issue — bundling the font locally is possible but not currently shipped.
 
 ## Roadmap
 

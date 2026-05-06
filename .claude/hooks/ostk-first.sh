@@ -107,5 +107,13 @@ case "$CMD" in
     ;;
 esac
 
-trace "blocked" "$TOOL"
-deny "use $EQ instead of $TOOL. Standing rule: ostk first. If the ostk tool is deferred, load it via ToolSearch('select:$EQ') then retry."
+# Advisory only. The socket existing (even with the liveness probe
+# above passing) does not guarantee the redirect target ($EQ) is
+# actually registered in this session — lower trust tiers and partial
+# MCP installs expose a limited surface. Blocking here would trap the
+# session when $EQ is not loaded (e.g. fresh install running with
+# OSTK_TRUST_TIER=T1). Emit the preference as a hint and allow the
+# native call through.
+trace "advisory-allowed" "$TOOL"
+echo "Hint: prefer $EQ over $TOOL when ostk is fully wired." >&2
+exit 0

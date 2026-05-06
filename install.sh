@@ -1,6 +1,6 @@
 #!/bin/bash
 # myOS installer
-# Usage: ./install.sh (from inside the repo)
+# Usage: ./install.sh [--with-claude-hooks] [--help]
 
 set -e
 
@@ -10,6 +10,51 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
+
+# --- Flag parsing ---
+#
+# --with-claude-hooks wires a user-global Claude Code hook at
+# ~/.claude/hooks/register-agent.sh that fires on EVERY Claude Code
+# session on this machine (regardless of project) and POSTs to the
+# local myOS backend so Task-tool subagents show up on the Agents
+# page. Off by default because it has machine-wide scope and most
+# users never open Claude Code in a non-myOS project anyway.
+# Also honours MYOS_INSTALL_CLAUDE_HOOKS=1 for scripted installs.
+WITH_CLAUDE_HOOKS="${MYOS_INSTALL_CLAUDE_HOOKS:-0}"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --with-claude-hooks) WITH_CLAUDE_HOOKS=1; shift ;;
+        --without-claude-hooks) WITH_CLAUDE_HOOKS=0; shift ;;
+        --help|-h)
+            cat <<'EOF'
+Usage: ./install.sh [--with-claude-hooks] [--help]
+
+Installs ostk (if absent), sets up the Python backend in api/.venv,
+installs and builds the frontend in app/, seeds ~/.myos/settings.json,
+and adds `myos` / `myos-update` aliases to your shell rc.
+
+Flags:
+  --with-claude-hooks     Also install a user-global Claude Code hook
+                          at ~/.claude/hooks/register-agent.sh. Fires
+                          on every Claude Code session on this machine
+                          (not just myOS projects) and registers
+                          Task-tool subagents with the local myOS
+                          backend. Machine-wide. Off by default.
+                          Equivalent env var: MYOS_INSTALL_CLAUDE_HOOKS=1
+
+  --without-claude-hooks  Explicitly skip the hook install (the default;
+                          use this if MYOS_INSTALL_CLAUDE_HOOKS=1 is
+                          set in your environment and you want to
+                          override it for one run).
+
+  --help, -h              Print this message and exit.
+EOF
+            exit 0
+            ;;
+        *) echo "Unknown flag: $1" >&2; echo "Try --help." >&2; exit 2 ;;
+    esac
+done
 
 INSTALL_DIR="${MYOS_DIR:-$HOME/myos}"
 
@@ -220,15 +265,51 @@ if command -v ostk &> /dev/null; then
     echo ""
 fi
 
-# --- Install Claude Code hooks into ~/.claude/ -----------------------
+# --- Stage the register-agent hook file -------------------------------
+# Always copy .claude/hooks/register-agent.sh and its lib to
+# ~/.myos/hooks/ so myos-track / myos-claude / --with-claude-hooks all
+# point at the same canonical location. Nothing fires yet — this just
+# places the artifact. Idempotent; refreshes on every install.
+STAGED_HOOKS_DIR="$HOME/.myos/hooks"
+mkdir -p "$STAGED_HOOKS_DIR/lib"
+if [ -f "$INSTALL_DIR/.claude/hooks/register-agent.sh" ]; then
+    cp -f "$INSTALL_DIR/.claude/hooks/register-agent.sh" "$STAGED_HOOKS_DIR/register-agent.sh"
+    chmod +x "$STAGED_HOOKS_DIR/register-agent.sh"
+fi
+if [ -f "$INSTALL_DIR/.claude/hooks/lib/drain-pending.sh" ]; then
+    cp -f "$INSTALL_DIR/.claude/hooks/lib/drain-pending.sh" "$STAGED_HOOKS_DIR/lib/drain-pending.sh"
+fi
+echo "Staged register-agent hook in $STAGED_HOOKS_DIR"
+echo ""
+
+# --- Install Claude Code hooks into ~/.claude/ (opt-in) --------------
 # Wires the Agent PreToolUse register hook globally so every Claude
-# Code session on this machine registers its subagents with torios,
-# not just sessions inside this repo. Idempotent: safe to run on
-# every update.
-if [ -x "$INSTALL_DIR/scripts/install-claude-hooks.sh" ]; then
-    echo "Wiring Claude Code hooks into ~/.claude/..."
-    bash "$INSTALL_DIR/scripts/install-claude-hooks.sh" --from "$INSTALL_DIR" \
-        || echo -e "${YELLOW}Claude Code hook install skipped (non-fatal).${NC}"
+# Code session on this machine registers its subagents with myOS,
+# not just sessions inside this repo. Scoped off by default because
+# the scope is machine-wide, not per-project. Enable with
+# --with-claude-hooks or MYOS_INSTALL_CLAUDE_HOOKS=1. Idempotent.
+#
+# Per-project alternatives (no ~/.claude/ modification):
+#   myos-track                    enable tracking in current repo
+#   myos-claude                   one-shot wrapper around `claude`
+if [ "$WITH_CLAUDE_HOOKS" = "1" ]; then
+    if [ -x "$INSTALL_DIR/scripts/install-claude-hooks.sh" ]; then
+        echo "Wiring global Claude Code hooks into ~/.claude/..."
+        bash "$INSTALL_DIR/scripts/install-claude-hooks.sh" --from "$INSTALL_DIR" \
+            || echo -e "${YELLOW}Claude Code hook install skipped (non-fatal).${NC}"
+        echo ""
+    fi
+else
+    echo "Skipping global Claude Code hook install."
+    echo "Project-local hooks under .claude/hooks/ still activate when Claude"
+    echo "Code is opened in this repo."
+    echo ""
+    echo "To opt any OTHER project into myOS subagent tracking:"
+    echo "  myos-track              (persistent, writes .claude/settings.local.json)"
+    echo "  myos-claude             (one-shot, cleans up on exit)"
+    echo ""
+    echo "To register every Claude Code session on this machine (any project),"
+    echo "rerun with --with-claude-hooks."
     echo ""
 fi
 
@@ -252,6 +333,24 @@ if [ -f "$INSTALL_DIR/update.sh" ] && ! grep -q "alias myos-update=" "$SHELL_RC"
     echo "" >> "$SHELL_RC"
     echo "alias myos-update='$INSTALL_DIR/update.sh'" >> "$SHELL_RC"
     echo "Added 'myos-update' command to $SHELL_RC"
+fi
+
+# myos-track: enable/disable myOS subagent tracking in the current repo
+# (no global modification). Writes .claude/settings.local.json.
+if [ -f "$INSTALL_DIR/myos-track.sh" ] && ! grep -q "alias myos-track=" "$SHELL_RC" 2>/dev/null; then
+    chmod +x "$INSTALL_DIR/myos-track.sh"
+    echo "" >> "$SHELL_RC"
+    echo "alias myos-track='$INSTALL_DIR/myos-track.sh'" >> "$SHELL_RC"
+    echo "Added 'myos-track' command to $SHELL_RC"
+fi
+
+# myos-claude: one-shot tracked Claude Code session (transient, cleans
+# up .claude/settings.local.json on exit).
+if [ -f "$INSTALL_DIR/myos-claude.sh" ] && ! grep -q "alias myos-claude=" "$SHELL_RC" 2>/dev/null; then
+    chmod +x "$INSTALL_DIR/myos-claude.sh"
+    echo "" >> "$SHELL_RC"
+    echo "alias myos-claude='$INSTALL_DIR/myos-claude.sh'" >> "$SHELL_RC"
+    echo "Added 'myos-claude' command to $SHELL_RC"
 fi
 
 echo ""

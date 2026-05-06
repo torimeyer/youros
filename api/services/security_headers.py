@@ -24,7 +24,8 @@ _PROD_CSP = (
     "default-src 'self'; "
     "connect-src 'self' ws: wss: https:; "
     "img-src 'self' data: https:; "
-    "style-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com; "
     "script-src 'self'"
 )
 
@@ -35,7 +36,8 @@ _DEV_CSP = (
     "default-src 'self'; "
     "connect-src 'self' ws: wss: http: https:; "
     "img-src 'self' data: blob: https:; "
-    "style-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com; "
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
 )
 
