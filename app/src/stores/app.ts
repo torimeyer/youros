@@ -595,7 +595,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     let server: Record<string, unknown> = {}
     try {
       server = await api.get<Record<string, unknown>>('/settings')
-    } catch {
+    } catch (e) {
+      console.error('settings hydration failed:', e)
       set({ hydrated: true })
       return
     }
@@ -855,7 +856,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           patchServer({ instance_mode: 'team' })
         }
       }
-    } catch {
+    } catch (e) {
+      console.error('enterprise user fetch failed:', e)
       set({ hydrated: true })
       set({ enterpriseUser: null })
     }

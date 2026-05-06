@@ -207,7 +207,7 @@ export default function OnboardingWizard() {
     if (secretName && apiKey) {
       api.post('/secrets', { key: secretName, value: apiKey })
         .then(() => setKeySaved(true))
-        .catch(() => {})
+        .catch((e) => console.error('save key failed:', e))
     }
   }
 
@@ -919,7 +919,7 @@ function ConnectStep({
   useEffect(() => {
     api.get<{ google_oauth_available?: boolean }>('/secrets/key-status')
       .then((data) => setGoogleOAuthAvailable(data.google_oauth_available ?? false))
-      .catch(() => {})
+      .catch((e) => console.error('key status check failed:', e))
   }, [])
 
   const providers = [
@@ -1128,7 +1128,7 @@ function AtlassianSetupCard({
       .then((data) => {
         if (data.site) setSite(data.site)
       })
-      .catch(() => {})
+      .catch((e) => console.error('load atlassian defaults failed:', e))
   }
 
   const handleConnect = () => {
