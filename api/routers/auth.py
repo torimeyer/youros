@@ -36,7 +36,7 @@ async def google_auth(request: Request):
     """Redirect the user to Google's OAuth consent screen."""
     client_id = _google_client_id()
     if not client_id:
-        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/?auth_error=google_not_configured")
+        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/?auth_error=google_not_configured")
 
     state = secrets.token_urlsafe(32)
     _oauth_states[state] = True
@@ -62,14 +62,14 @@ async def google_auth(request: Request):
 async def google_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     """Handle the OAuth callback from Google."""
     if error:
-        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/?auth_error=" + error)
+        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/?auth_error=" + error)
 
     if state not in _oauth_states:
-        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/?auth_error=invalid_state")
+        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/?auth_error=invalid_state")
     del _oauth_states[state]
 
     if not code:
-        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/?auth_error=no_code")
+        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/?auth_error=no_code")
 
     client_id = _google_client_id()
     client_secret = _google_client_secret()
@@ -90,7 +90,7 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
         )
 
     if resp.status_code != 200:
-        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'http://localhost:3010')}/?auth_error=token_exchange_failed")
+        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/?auth_error=token_exchange_failed")
 
     tokens = resp.json()
     access_token = tokens.get("access_token", "")
@@ -104,7 +104,7 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
     })
 
     # In dev mode, redirect to the Vite dev server instead of the backend
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
     return RedirectResponse(f"{frontend_url}/?auth_success=google")
 
 
@@ -128,7 +128,7 @@ def _slack_redirect_uri(request: Request) -> str:
 async def slack_login(request: Request):
     """Redirect the user to Slack's OAuth consent screen."""
     client_id = _slack_client_id()
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
     if not client_id:
         return RedirectResponse(f"{frontend_url}/?auth_error=slack_not_configured")
 
@@ -149,7 +149,7 @@ async def slack_login(request: Request):
 @router.get("/api/auth/slack/callback")
 async def slack_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     """Handle the OAuth callback from Slack."""
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
 
     if error:
         return RedirectResponse(f"{frontend_url}/?auth_error=" + error)

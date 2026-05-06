@@ -605,3 +605,53 @@ class TestSlackWorkspaceFields:
 
         assert info["team_id"] == "T-old"
         assert info["team_name"] == "Old Workspace"
+
+
+# --- FRONTEND_URL default scheme ---
+
+
+@pytest.mark.asyncio
+async def test_callback_success_redirect_uses_https_default(client, tmp_path):
+    """OAuth success redirect must use https:// when FRONTEND_URL is not set (→996)."""
+    import os
+    from routers.auth import _oauth_states
+
+    _oauth_states["https-default-state"] = True
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "access_token": "ya29.https-test",
+        "refresh_token": "1//https-test",
+    }
+
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text('{"os_name": "myOS"}')
+
+    orig = os.environ.pop("FRONTEND_URL", None)
+    try:
+        with (
+            patch("routers.auth._google_client_id", return_value="test-client-id"),
+            patch("routers.auth._google_client_secret", return_value="test-secret"),
+            patch("routers.auth.httpx.AsyncClient") as MockHttpxClient,
+            patch("services.settings_store.SETTINGS_PATH", settings_file),
+        ):
+            mock_client_instance = AsyncMock()
+            mock_client_instance.post = AsyncMock(return_value=mock_response)
+            mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+            mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+            MockHttpxClient.return_value = mock_client_instance
+
+            resp = await client.get(
+                "/api/auth/google/callback?code=https-code&state=https-default-state",
+                follow_redirects=False,
+            )
+    finally:
+        if orig is not None:
+            os.environ["FRONTEND_URL"] = orig
+
+    assert resp.status_code == 307
+    location = resp.headers["location"]
+    assert location.startswith("https://"), (
+        f"Redirect must use https:// by default, got: {location}"
+    )
