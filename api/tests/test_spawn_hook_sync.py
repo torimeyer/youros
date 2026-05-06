@@ -79,7 +79,9 @@ def test_hook_sync_returns_false_on_missing_src():
         assert result is False
 
 
-def test_hook_edit_in_worktree_does_not_leak_to_main():
+def test_hooks_dir_is_symlink_to_main():
+    # →971: hooks/ is now a live symlink so edits on main land immediately
+    # in every worktree. The old copy-isolation behaviour was replaced.
     with tempfile.TemporaryDirectory() as tmp:
         tmp_p = Path(tmp)
         _make_fake_claude(tmp_p)
@@ -89,7 +91,6 @@ def test_hook_edit_in_worktree_does_not_leak_to_main():
         asyncio.run(
             sync_claude_dir_to_worktree(tmp_p / ".claude", wt / ".claude")
         )
-        # Modify the synced copy in the worktree
-        (wt / ".claude" / "hooks" / "example.sh").write_text("MODIFIED")
-        # Main's copy must be unchanged
-        assert (tmp_p / ".claude" / "hooks" / "example.sh").read_text() == "#!/bin/bash\necho hi\n"
+        dst_hooks = wt / ".claude" / "hooks"
+        assert dst_hooks.is_symlink(), "hooks/ must be a symlink, not a copy"
+        assert dst_hooks.resolve() == (tmp_p / ".claude" / "hooks").resolve()

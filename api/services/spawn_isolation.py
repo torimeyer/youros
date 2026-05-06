@@ -689,11 +689,16 @@ async def remove_worktree(
 
 
 async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10.0):
-    """Sync .claude/ (hooks + lib) into a new worktree via rsync.
+    """Sync .claude/ (hooks + lib) into a new worktree via rsync + symlink.
 
     L2.3 (→902): git worktree add does not copy untracked dirs, so without
     this every "isolated" worktree runs main's hooks by reference. Hook
     file mutations race across sessions. rsync the dir at fork time.
+
+    →971: hooks/ is now a live symlink to the parent repo's hooks/ instead
+    of a rsynced copy. This means hook edits on main land immediately in
+    every worktree without a re-sync, eliminating the stale-hook failure
+    mode where a worktree spawned after a hook fix still runs the old file.
 
     Excludes nested worktrees/ (infinite recursion) and session-history/
     (bloat). Failure is logged WARN but never raises; the worktree remains
@@ -702,6 +707,7 @@ async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10
     Returns True on success, False on any failure. Never raises.
     """
     import os
+    import shutil as _shutil
     from pathlib import Path as _P
 
     try:
@@ -717,6 +723,7 @@ async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10
             "rsync", "-a",
             "--exclude=worktrees/",
             "--exclude=session-history/",
+            "--exclude=hooks/",
             f"{src}/", f"{dst}/",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -733,15 +740,52 @@ async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10
                 src, dst, timeout,
             )
             return False
-        if proc.returncode == 0:
-            logger.info("spawn.hook_sync.ok src=%s dst=%s", src, dst)
-            return True
-        logger.warning(
-            "spawn.hook_sync.failed rc=%s src=%s dst=%s err=%s",
-            proc.returncode, src, dst,
-            (err or b"").decode(errors="replace")[:200],
-        )
-        return False
+        if proc.returncode != 0:
+            logger.warning(
+                "spawn.hook_sync.failed rc=%s src=%s dst=%s err=%s",
+                proc.returncode, src, dst,
+                (err or b"").decode(errors="replace")[:200],
+            )
+            return False
+
+        # →971: symlink hooks/ so live edits on main land immediately in
+        # every worktree. A copied hooks/ drifts the moment main is patched;
+        # a symlink has zero lag and requires no re-sync.
+        src_hooks = src / "hooks"
+        dst_hooks = dst / "hooks"
+        if src_hooks.is_dir():
+            # Remove any stale copy or symlink before creating the live link.
+            if dst_hooks.is_symlink():
+                dst_hooks.unlink()
+            elif dst_hooks.exists():
+                _shutil.rmtree(str(dst_hooks))
+            try:
+                dst_hooks.symlink_to(src_hooks.resolve())
+                logger.info(
+                    "spawn.hook_sync.hooks_symlinked src=%s dst=%s",
+                    src_hooks, dst_hooks,
+                )
+            except Exception as sym_exc:
+                logger.warning(
+                    "spawn.hook_sync.hooks_symlink_failed src=%s dst=%s err=%s "
+                    "-- falling back to rsync copy",
+                    src_hooks, dst_hooks, sym_exc,
+                )
+                proc2 = await asyncio.create_subprocess_exec(
+                    "rsync", "-a", f"{src_hooks}/", f"{dst_hooks}/",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                try:
+                    await asyncio.wait_for(proc2.communicate(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    try:
+                        proc2.kill()
+                    except Exception:
+                        pass
+
+        logger.info("spawn.hook_sync.ok src=%s dst=%s", src, dst)
+        return True
     except Exception as exc:
         logger.warning(
             "spawn.hook_sync.exception src=%s dst=%s err=%s",
