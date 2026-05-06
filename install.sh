@@ -80,7 +80,7 @@ echo "Checking requirements..."
 
 need git    "git"
 need curl   "curl"
-need python3 "python3 (3.9 or newer)"
+need python3 "python3 (3.11 or newer)"
 need node   "node (18 or newer)"
 need npm    "npm (ships with node)"
 
@@ -89,8 +89,8 @@ if command -v python3 &> /dev/null; then
     PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
     PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
     PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
-    if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 9 ]); then
-        MISSING+=("python3 3.9 or newer (found $PYTHON_VERSION)")
+    if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 11 ]); then
+        MISSING+=("python3 3.11 or newer (found $PYTHON_VERSION)")
     fi
     # On Debian/Ubuntu, python3-venv is a separate package. Detect and report,
     # do not install.

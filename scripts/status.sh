@@ -90,7 +90,7 @@ def parse_iso(value):
     """Parse an ISO8601 timestamp into an aware datetime, or return None."""
     if not value or not isinstance(value, str):
         return None
-    # Python 3.9 fromisoformat does not accept trailing "Z"; normalize.
+    # fromisoformat does not accept trailing "Z" before 3.11; normalize for portability.
     cleaned = value.replace("Z", "+00:00")
     try:
         dt = datetime.fromisoformat(cleaned)
