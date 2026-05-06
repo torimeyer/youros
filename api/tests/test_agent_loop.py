@@ -194,7 +194,7 @@ class TestAgentLoop:
                         websocket,
                     )
 
-        assert "Stopped after" in result or "max turns" in result
+        assert "I've used" in result and "steps on this" in result
         assert mock_client.messages.create.await_count == MAX_AGENT_TURNS
         done = websocket.get_messages_of_type("done")
         assert len(done) == 1
@@ -575,10 +575,10 @@ class TestAgentLoop:
         """'Still working' must not appear as a token when the loop also hits the step cap.
 
         Before the fix: both '(Still working. N steps so far.)' (type:token at
-        turn WARN_AT) and 'Stopped after 25 steps.' (type:token at turn >MAX)
+        turn WARN_AT) and the step-cap message (type:token at turn >MAX)
         landed in the same bubble, creating a contradictory pair.
         After the fix: the progress update is a type:step_progress event (not a
-        token), so only 'Stopped after' appears as bubble text.
+        token), so only the step-cap message appears as bubble text.
         """
         from services.chat_providers import ChatService, MAX_AGENT_TURNS
 
@@ -605,12 +605,12 @@ class TestAgentLoop:
         progress_msgs = websocket.get_messages_of_type("step_progress")
 
         # The cap message must be visible as bubble text.
-        assert "Stopped after" in token_text
+        assert "I've used" in token_text and "steps on this" in token_text
 
         # The progress update must NOT be in the token stream — it's a
         # step_progress event so it won't pollute the final bubble text.
         assert "Still working" not in token_text, (
-            "'Still working' appeared as a token alongside 'Stopped after' — "
+            "'Still working' appeared as a token alongside the step-cap message — "
             "contradictory pair in the same response bubble"
         )
 
