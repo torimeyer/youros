@@ -270,6 +270,38 @@ describe('Settings', () => {
     })
   })
 
+  describe('GitHub and Atlassian setup cards in Connections', () => {
+    it('renders GitHub connect section in Connections tab', async () => {
+      renderSettings()
+      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
+      fireEvent.click(connectionsButtons[0])
+      expect(screen.getByTestId('github-connect-section')).toBeInTheDocument()
+    })
+
+    it('renders Atlassian connect section in Connections tab', async () => {
+      renderSettings()
+      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
+      fireEvent.click(connectionsButtons[0])
+      expect(screen.getByTestId('atlassian-connect-section')).toBeInTheDocument()
+    })
+
+    it('renders GithubSetupCard inside github section after api resolves', async () => {
+      renderSettings()
+      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
+      fireEvent.click(connectionsButtons[0])
+      const card = await screen.findByTestId('onboarding-github-card')
+      expect(card).toBeInTheDocument()
+    })
+
+    it('renders AtlassianSetupCard inside atlassian section after api resolves', async () => {
+      renderSettings()
+      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
+      fireEvent.click(connectionsButtons[0])
+      const card = await screen.findByTestId('onboarding-atlassian-card')
+      expect(card).toBeInTheDocument()
+    })
+  })
+
   describe('Data Management and Shared Links tab scoping', () => {
     it('Data Management heading is not in the DOM on non-Connections tabs', () => {
       renderSettings()

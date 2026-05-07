@@ -9,8 +9,7 @@ import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
-import AtlassianConnect from '../components/AtlassianConnect';
-import GithubConnect from '../components/GithubConnect';
+import { AtlassianSetupCard, GithubSetupCard } from '../components/OnboardingWizard';
 import CustomVerbs from '../components/CustomVerbs';
 
 interface MCPServer {
@@ -1846,7 +1845,11 @@ export default function Settings() {
               <Icon name="code" size={18} className="text-slate-300" />
               <h2 className="text-base font-semibold">GitHub</h2>
             </div>
-            <GithubConnect />
+            <GithubSetupCard
+              darkMode={true}
+              inputCls="bg-slate-800 border-slate-700 text-white"
+              subtextCls="text-slate-400"
+            />
           </div>
 
           {/* Atlassian (Jira + Confluence) */}
@@ -1855,7 +1858,11 @@ export default function Settings() {
               <Icon name="bug_report" size={18} className="text-blue-400" />
               <h2 className="text-base font-semibold">Jira & Confluence</h2>
             </div>
-            <AtlassianConnect />
+            <AtlassianSetupCard
+              darkMode={true}
+              inputCls="bg-slate-800 border-slate-700 text-white"
+              subtextCls="text-slate-400"
+            />
           </div>
 
           {/* iMessage */}
