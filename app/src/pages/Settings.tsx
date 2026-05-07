@@ -1694,7 +1694,7 @@ export default function Settings() {
                     : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
                 }`}
               >
-                <span className="mt-1 w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                <span className="mt-1 w-2.5 h-2.5 rounded-full bg-emerald-400 claude-provider-dot flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-200">Claude</p>
                   <p className="text-xs text-slate-500 mt-0.5">Always connected</p>
