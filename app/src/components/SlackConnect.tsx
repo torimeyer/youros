@@ -78,7 +78,7 @@ export default function SlackConnect() {
         onClick={handleConnect}
         disabled={!configured}
         data-testid="slack-connect-btn"
-        className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium text-white transition-colors disabled:bg-purple-100 dark:disabled:bg-purple-900/40 disabled:text-purple-600 dark:disabled:text-purple-500 disabled:cursor-not-allowed"
       >
         <Icon name="forum" size={16} />
         Connect your Slack workspace
