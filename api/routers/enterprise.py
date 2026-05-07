@@ -261,7 +261,7 @@ async def create_invite(body: InviteCreate, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
     invite_url = f"{frontend_url}/invite/{token}"
     return {"invite_url": invite_url, "email": body.email}
 
@@ -271,7 +271,7 @@ async def accept_invite(token: str):
     """Accept an invite link, add user as member, redirect to login."""
     import os
 
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
 
     invite = enterprise_store.consume_invite(token)
     if not invite:
@@ -352,7 +352,7 @@ async def magic_link_login(token: str):
     """Consume a magic link token, create a session, set a cookie, and redirect."""
     import os
 
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
 
     member = enterprise_store.consume_login_token(token)
     if not member:
@@ -465,7 +465,7 @@ async def sso_login_url():
     """Get the SSO login URL to redirect the user to."""
     import os
     from services.sso import get_auth_url
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
     redirect_uri = "http://localhost:8000/api/enterprise/sso/callback"  # REDIRECT_URI
     url = get_auth_url(redirect_uri)
     if not url:
@@ -480,7 +480,7 @@ async def sso_callback(code: str = "", state: str = ""):
     from fastapi.responses import RedirectResponse
     from services.sso import exchange_code, validate_state
 
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3010")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
     redirect_uri = "http://localhost:8000/api/enterprise/sso/callback"  # REDIRECT_URI
 
     if not code:
