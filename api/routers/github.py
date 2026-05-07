@@ -24,19 +24,40 @@ router = APIRouter(tags=["github"])
 
 
 class GitHubConnectRequest(BaseModel):
-    token: str
+    token: str = ""
     repo: str
 
 
 @router.post("/github/connect")
 async def github_connect(req: GitHubConnectRequest):
-    """Save a personal access token and repo, then verify the connection."""
-    if not req.token.strip():
-        raise HTTPException(status_code=400, detail="Token cannot be empty.")
+    """Save a token + repo and verify the connection.
+
+    Two flows arrive here:
+      - PAT flow: token + repo are both provided.
+      - OAuth pick-repo flow: token is empty because the OAuth callback
+        already saved a token; the user is now picking which repo to
+        track. We reuse the saved token in that case.
+    """
     if not req.repo.strip():
         raise HTTPException(status_code=400, detail="Repository cannot be empty.")
 
-    github_service.save_config(req.token.strip(), req.repo.strip())
+    token = req.token.strip()
+    if not token:
+        # Pick-repo-after-OAuth: a token must already be saved.
+        if not github_service.is_connected():
+            raise HTTPException(
+                status_code=400,
+                detail="Token cannot be empty. Connect first or paste a personal access token.",
+            )
+        try:
+            saved = github_service.get_config()
+            token = saved.get("token", "")
+        except RuntimeError:
+            token = ""
+        if not token:
+            raise HTTPException(status_code=400, detail="Saved token missing. Reconnect.")
+
+    github_service.save_config(token, req.repo.strip())
 
     try:
         user = await github_service.verify_token()

@@ -101,4 +101,21 @@ describe('App routing', () => {
     render(<App />)
     expect(screen.queryByTestId('footer')).not.toBeInTheDocument()
   })
+
+  // OAuth callback cleanup: when Atlassian's callback redirects back to
+  // the app with ?atlassian_connected=true, App must strip the param so
+  // a refresh does not surface it again.
+  it('strips ?atlassian_connected=true from the URL on mount', async () => {
+    window.history.pushState({}, '', '/?atlassian_connected=true')
+    render(<App />)
+    await Promise.resolve()
+    expect(window.location.search).toBe('')
+  })
+
+  it('preserves other query params when stripping ?atlassian_connected', async () => {
+    window.history.pushState({}, '', '/?keep=this&atlassian_connected=true')
+    render(<App />)
+    await Promise.resolve()
+    expect(window.location.search).toBe('?keep=this')
+  })
 })

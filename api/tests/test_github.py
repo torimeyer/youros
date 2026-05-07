@@ -35,9 +35,30 @@ async def test_github_status_connected(client):
 # --- POST /api/github/connect ---
 
 @pytest.mark.asyncio
-async def test_github_connect_empty_token(client):
-    resp = await client.post("/api/github/connect", json={"token": "", "repo": "owner/repo"})
+async def test_github_connect_empty_token_when_not_connected(client):
+    """Empty token without an already-saved one is rejected with 400."""
+    with patch("routers.github.github_service") as mock_svc:
+        mock_svc.is_connected.return_value = False
+        resp = await client.post("/api/github/connect", json={"token": "", "repo": "owner/repo"})
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_github_connect_empty_token_uses_saved_token_after_oauth(client):
+    """Empty token + repo is allowed when a token is already saved (OAuth pick-repo)."""
+    with patch("routers.github.github_service") as mock_svc:
+        mock_svc.is_connected.return_value = True
+        mock_svc.get_config.return_value = {"token": "saved-oauth-token", "repo": ""}
+        mock_svc.save_config = MagicMock()
+        mock_svc.verify_token = AsyncMock(return_value={"login": "user", "name": "User"})
+        resp = await client.post(
+            "/api/github/connect", json={"token": "", "repo": "owner/repo"}
+        )
+    assert resp.status_code == 200
+    # save_config must have been called with the saved token, not an empty one.
+    args = mock_svc.save_config.call_args.args
+    assert args[0] == "saved-oauth-token"
+    assert args[1] == "owner/repo"
 
 
 @pytest.mark.asyncio

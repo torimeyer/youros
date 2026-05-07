@@ -200,6 +200,82 @@ export default function GitHub() {
   const hasSeededIssues = issues.length > 0
   const showConnectCard = status ? !status.connected : !hasSeededIssues
 
+  // Post-OAuth pick-repo: when the OAuth callback comes back with
+  // ?oauth_connected=true, status.connected is already true (the
+  // callback saved the token) but status.repo is empty. Show a
+  // narrower card that asks ONLY for a repo name. The connect handler
+  // posts {repo} only — the backend reuses the saved OAuth token.
+  const oauthPickRepo = !!(status?.connected && !status.repo)
+  if (oauthPickRepo) {
+    const handlePickRepo = async () => {
+      setConnectError(null)
+      if (!connectRepo.trim()) {
+        setConnectError('Repository is required.')
+        return
+      }
+      setConnecting(true)
+      try {
+        await api.post('/github/connect', { repo: connectRepo.trim() })
+        // Strip ?oauth_connected so a refresh does not hit this path again.
+        const params = new URLSearchParams(window.location.search)
+        params.delete('oauth_connected')
+        const next = params.toString()
+        window.history.replaceState(
+          {},
+          '',
+          window.location.pathname + (next ? `?${next}` : ''),
+        )
+        await fetchStatus()
+        await fetchIssues()
+        setConnectRepo('')
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Connection failed'
+        setConnectError(message)
+      } finally {
+        setConnecting(false)
+      }
+    }
+    return (
+      <div className="min-h-dvh bg-slate-950 text-white">
+        <TopBar title="GitHub" />
+        <div className="pt-16 px-4 pb-4 sm:pt-20 sm:px-8 sm:pb-8">
+          <ConnectCard
+            icon="code"
+            accentColor="#94a3b8"
+            title="GitHub connected — pick a repo"
+            description="Tell us which repository to track. You can change it later."
+            primaryAction={
+              <div className="w-full space-y-3 text-left">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Repository</label>
+                  <input
+                    type="text"
+                    value={connectRepo}
+                    onChange={(e) => setConnectRepo(e.target.value)}
+                    placeholder="owner/repo or https://github.com/owner/repo"
+                    data-testid="github-oauth-pick-repo"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                  />
+                </div>
+                {connectError && (
+                  <p className="text-xs text-red-400">{connectError}</p>
+                )}
+                <button
+                  onClick={handlePickRepo}
+                  disabled={connecting}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition-colors"
+                  data-testid="github-oauth-pick-repo-submit"
+                >
+                  {connecting ? 'Saving...' : 'Track this repo'}
+                </button>
+              </div>
+            }
+          />
+        </div>
+      </div>
+    )
+  }
+
   if (showConnectCard) {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">

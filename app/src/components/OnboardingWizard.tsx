@@ -1128,7 +1128,7 @@ function ConnectStep({
   )
 }
 
-function AtlassianSetupCard({
+export function AtlassianSetupCard({
   darkMode,
   inputCls,
   subtextCls,
@@ -1144,6 +1144,8 @@ function AtlassianSetupCard({
   const [token, setToken] = useState('')
   const [status, setStatus] = useState<'idle' | 'connecting' | 'done' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [oauthAvailable, setOauthAvailable] = useState(false)
+  const [forceTokenForm, setForceTokenForm] = useState(false)
 
   useEffect(() => {
     api.get<{ connected: boolean }>('/atlassian/status')
@@ -1153,9 +1155,10 @@ function AtlassianSetupCard({
 
   const handleExpand = () => {
     setExpanded(true)
-    api.get<{ site?: string; email?: string }>('/atlassian/defaults')
+    api.get<{ site?: string; email?: string; oauth_available?: boolean }>('/atlassian/defaults')
       .then((data) => {
         if (data.site) setSite(data.site)
+        if (data.oauth_available) setOauthAvailable(true)
       })
       .catch((e) => console.error('load atlassian defaults failed:', e))
   }
@@ -1186,6 +1189,40 @@ function AtlassianSetupCard({
             data-testid="onboarding-atlassian-setup"
           >
             Set up
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (oauthAvailable && !forceTokenForm) {
+    return (
+      <div data-testid="onboarding-atlassian-card" className={cardBase}>
+        <p className="text-sm font-semibold mb-3">Connect Jira & Confluence (optional)</p>
+        <p className={`text-xs mb-3 ${subtextCls}`}>
+          One click. Atlassian will ask for your permission, then bring you back here.
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { window.location.href = '/api/atlassian/auth' }}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
+            data-testid="onboarding-atlassian-oauth"
+          >
+            Connect Atlassian
+          </button>
+          <button
+            onClick={() => setForceTokenForm(true)}
+            className={`text-xs underline ${subtextCls} hover:opacity-80`}
+            data-testid="onboarding-atlassian-use-token"
+          >
+            Use a token instead
+          </button>
+          <button
+            onClick={() => setExpanded(false)}
+            className={`text-sm ml-auto ${subtextCls} hover:opacity-80`}
+            data-testid="onboarding-atlassian-skip"
+          >
+            Skip for now
           </button>
         </div>
       </div>
@@ -1255,7 +1292,7 @@ function AtlassianSetupCard({
   )
 }
 
-function GithubSetupCard({
+export function GithubSetupCard({
   darkMode,
   inputCls,
   subtextCls,
@@ -1270,11 +1307,16 @@ function GithubSetupCard({
   const [token, setToken] = useState('')
   const [status, setStatus] = useState<'idle' | 'connecting' | 'done' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [oauthAvailable, setOauthAvailable] = useState(false)
+  const [forceTokenForm, setForceTokenForm] = useState(false)
 
   useEffect(() => {
     api.get<{ connected: boolean }>('/github/status')
       .then((data) => setConnected(data.connected))
       .catch(() => setConnected(false))
+    api.get<{ oauth_available?: boolean }>('/github/defaults')
+      .then((data) => setOauthAvailable(Boolean(data.oauth_available)))
+      .catch(() => setOauthAvailable(false))
   }, [])
 
   const handleConnect = () => {
@@ -1303,6 +1345,40 @@ function GithubSetupCard({
             data-testid="onboarding-github-setup"
           >
             Set up
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (oauthAvailable && !forceTokenForm) {
+    return (
+      <div data-testid="onboarding-github-card" className={cardBase}>
+        <p className="text-sm font-semibold mb-3">Connect GitHub (optional)</p>
+        <p className={`text-xs mb-3 ${subtextCls}`}>
+          One click. GitHub will ask for your permission, then you'll pick which repo to track.
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { window.location.href = '/api/github/auth' }}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
+            data-testid="onboarding-github-oauth"
+          >
+            Connect GitHub
+          </button>
+          <button
+            onClick={() => setForceTokenForm(true)}
+            className={`text-xs underline ${subtextCls} hover:opacity-80`}
+            data-testid="onboarding-github-use-token"
+          >
+            Use a token instead
+          </button>
+          <button
+            onClick={() => setExpanded(false)}
+            className={`text-sm ml-auto ${subtextCls} hover:opacity-80`}
+            data-testid="onboarding-github-skip"
+          >
+            Skip for now
           </button>
         </div>
       </div>

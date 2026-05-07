@@ -61,6 +61,21 @@ export default function App() {
     hydrateFromServer()
   }, [hydrateFromServer])
 
+  // OAuth callback cleanup: when Atlassian's callback redirects back to
+  // the app with ?atlassian_connected=true, strip the param so a
+  // refresh does not re-trigger anything. The connection card on the
+  // onboarding screen polls /atlassian/status independently and will
+  // pick up the new connected=true state on its next mount.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('atlassian_connected') === 'true') {
+      params.delete('atlassian_connected')
+      const next = params.toString()
+      const url = window.location.pathname + (next ? `?${next}` : '')
+      window.history.replaceState({}, '', url)
+    }
+  }, [])
+
   // Wait for hydration BEFORE deciding whether to show the wizard. The
   // server is the source of truth for onboarded; localStorage is just a
   // cache that can drift (especially after an admin reset). If we read

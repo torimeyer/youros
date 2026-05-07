@@ -188,3 +188,83 @@ describe('GitHub localStorage seed', () => {
     expect(screen.queryByTestId('github-refreshing')).not.toBeInTheDocument()
   })
 })
+
+// Post-OAuth pick-repo flow: when GitHub's OAuth callback redirects back
+// the token is already saved (status.connected=true) but no repo is
+// chosen yet (status.repo=""). The page must show a small "pick a repo"
+// form instead of either the full PAT connect card or the issues list.
+describe('GitHub OAuth pick-repo flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.githubIssues.v1')
+  })
+
+  it('shows the pick-repo card when connected with empty repo', async () => {
+    const mockedApiGet = vi.mocked(api.get)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/github/status')) {
+        return Promise.resolve({ connected: true, repo: '' })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGitHub()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('github-oauth-pick-repo')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('github-oauth-pick-repo-submit')).toBeInTheDocument()
+    // The PAT-form fields from the full connect card MUST NOT appear here.
+    expect(screen.queryByPlaceholderText(/ghp_/i)).toBeNull()
+  })
+
+  it('submitting the picked repo posts {repo} only', async () => {
+    const { fireEvent } = await import('@testing-library/react')
+    const mockedApiGet = vi.mocked(api.get)
+    const mockedApiPost = vi.mocked(api.post)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/github/status')) {
+        return Promise.resolve({ connected: true, repo: '' })
+      }
+      if (path.includes('/github/issues')) {
+        return Promise.resolve({ issues: [] })
+      }
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true })
+
+    renderGitHub()
+
+    const input = (await screen.findByTestId('github-oauth-pick-repo')) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'owner/picked' } })
+
+    const submit = await screen.findByTestId('github-oauth-pick-repo-submit')
+    fireEvent.click(submit)
+
+    await waitFor(() => {
+      const matched = mockedApiPost.mock.calls.find((c) => c[0] === '/github/connect')
+      expect(matched).toBeTruthy()
+      expect(matched?.[1]).toEqual({ repo: 'owner/picked' })
+    })
+  })
+
+  it('rejects empty repo input with an error message', async () => {
+    const mockedApiGet = vi.mocked(api.get)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/github/status')) {
+        return Promise.resolve({ connected: true, repo: '' })
+      }
+      return Promise.resolve({})
+    })
+
+    renderGitHub()
+
+    const submit = await screen.findByTestId('github-oauth-pick-repo-submit')
+    const { fireEvent } = await import('@testing-library/react')
+    fireEvent.click(submit)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Repository is required/i)).toBeInTheDocument()
+    })
+  })
+})
