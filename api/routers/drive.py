@@ -395,12 +395,18 @@ def _build_drive_service():
         ) from exc
 
     tokens = get_credentials()
+    client_config = {}
+    try:
+        from services.google_auth import _load_client_config
+        client_config = _load_client_config()
+    except Exception:
+        pass
     creds = Credentials(
         token=tokens.get("access_token"),
         refresh_token=tokens.get("refresh_token"),
         token_uri="https://oauth2.googleapis.com/token",
-        client_id=None,
-        client_secret=None,
+        client_id=client_config.get("client_id"),
+        client_secret=client_config.get("client_secret"),
     )
     return build("drive", "v3", credentials=creds)
 
@@ -1188,12 +1194,18 @@ async def _fetch_slides_thumbnails(file_id: str) -> list[dict]:
         from google.oauth2.credentials import Credentials
 
         tokens = get_credentials()
+        client_config = {}
+        try:
+            from services.google_auth import _load_client_config
+            client_config = _load_client_config()
+        except Exception:
+            pass
         creds = Credentials(
             token=tokens.get("access_token"),
             refresh_token=tokens.get("refresh_token"),
             token_uri="https://oauth2.googleapis.com/token",
-            client_id=None,
-            client_secret=None,
+            client_id=client_config.get("client_id"),
+            client_secret=client_config.get("client_secret"),
         )
         slides = build("slides", "v1", credentials=creds)
         pres = slides.presentations().get(presentationId=file_id).execute()
@@ -1321,12 +1333,18 @@ def _build_docs_service():
         ) from exc
 
     tokens = get_credentials()
+    client_config = {}
+    try:
+        from services.google_auth import _load_client_config
+        client_config = _load_client_config()
+    except Exception:
+        pass
     creds = Credentials(
         token=tokens.get("access_token"),
         refresh_token=tokens.get("refresh_token"),
         token_uri="https://oauth2.googleapis.com/token",
-        client_id=None,
-        client_secret=None,
+        client_id=client_config.get("client_id"),
+        client_secret=client_config.get("client_secret"),
     )
     return build("docs", "v1", credentials=creds)
 

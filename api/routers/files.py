@@ -496,12 +496,18 @@ async def import_file_from_drive(body: DriveImportBody):
 
     def _get_meta():
         tokens = get_credentials()
+        client_config = {}
+        try:
+            from services.google_auth import _load_client_config
+            client_config = _load_client_config()
+        except Exception:
+            pass
         creds = Credentials(
             token=tokens.get("access_token"),
             refresh_token=tokens.get("refresh_token"),
             token_uri="https://oauth2.googleapis.com/token",
-            client_id=None,
-            client_secret=None,
+            client_id=client_config.get("client_id"),
+            client_secret=client_config.get("client_secret"),
         )
         service = build("drive", "v3", credentials=creds)
         return (
@@ -515,12 +521,18 @@ async def import_file_from_drive(body: DriveImportBody):
         from googleapiclient.http import MediaIoBaseDownload
 
         tokens = get_credentials()
+        client_config = {}
+        try:
+            from services.google_auth import _load_client_config
+            client_config = _load_client_config()
+        except Exception:
+            pass
         creds = Credentials(
             token=tokens.get("access_token"),
             refresh_token=tokens.get("refresh_token"),
             token_uri="https://oauth2.googleapis.com/token",
-            client_id=None,
-            client_secret=None,
+            client_id=client_config.get("client_id"),
+            client_secret=client_config.get("client_secret"),
         )
         service = build("drive", "v3", credentials=creds)
         mime = meta.get("mimeType", "")

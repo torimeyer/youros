@@ -986,3 +986,39 @@ async def test_calendar_events_clamps_unsupported_days(client, tmp_path):
     assert data["days"] == 30
     assert captured["days"] == 30
 
+
+# ---------------------------------------------------------------------------
+# Credential construction: client_id / client_secret must not be None
+# ---------------------------------------------------------------------------
+
+
+def test_build_calendar_service_passes_client_credentials():
+    """_build_calendar_service must populate client_id and client_secret.
+
+    When the access token expires Google's library calls Credentials.refresh(),
+    which requires client_id and client_secret. Passing None raises
+    'The credentials do not contain the necessary fields'.
+    """
+    from services.calendar import _build_calendar_service
+
+    captured_creds: dict = {}
+
+    def _fake_build(service_name, version, credentials=None, **_kw):
+        captured_creds["creds"] = credentials
+        return MagicMock()
+
+    fake_tokens = {"access_token": "tok", "refresh_token": "ref"}
+    fake_config = {"client_id": "test-client-id", "client_secret": "test-client-secret"}
+
+    with (
+        patch("services.calendar.get_credentials", return_value=fake_tokens),
+        patch("services.google_auth._load_client_config", return_value=fake_config),
+        patch("googleapiclient.discovery.build", side_effect=_fake_build),
+    ):
+        _build_calendar_service()
+
+    creds = captured_creds.get("creds")
+    assert creds is not None, "build() was not called"
+    assert creds.client_id == "test-client-id", f"client_id={creds.client_id!r}"
+    assert creds.client_secret == "test-client-secret", f"client_secret={creds.client_secret!r}"
+

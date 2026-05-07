@@ -77,12 +77,18 @@ def _build_gmail_service():
         ) from exc
 
     tokens = get_credentials()
+    client_config = {}
+    try:
+        from services.google_auth import _load_client_config
+        client_config = _load_client_config()
+    except Exception:
+        pass
     creds = Credentials(
         token=tokens.get("access_token"),
         refresh_token=tokens.get("refresh_token"),
         token_uri="https://oauth2.googleapis.com/token",
-        client_id=None,
-        client_secret=None,
+        client_id=client_config.get("client_id"),
+        client_secret=client_config.get("client_secret"),
         scopes=(tokens.get("scope") or "").split() or None,
     )
     return build("gmail", "v1", credentials=creds)
