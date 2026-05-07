@@ -1211,22 +1211,9 @@ export default function Settings() {
               {/* Option 1: Sign in (Gemini OAuth or Anthropic console link) */}
               {selectedProvider === 'Google Gemini' ? (
                 googleConnected ? (
-                  <div className="mb-3 px-4 py-3 bg-white border border-green-300 rounded-lg flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Icon name="check_circle" size={18} className="text-green-600" />
-                      <span className="text-sm text-green-700 font-medium">Connected with Google</span>
-                    </div>
-                    <button
-                      onClick={async () => {
-                        await api.post('/secrets/google/disconnect', {});
-                        setGoogleConnected(false);
-                        setKeyAvailable(prev => ({ ...prev, 'Google Gemini': false }));
-                        setKeySource(prev => ({ ...prev, 'Google Gemini': 'none' }));
-                      }}
-                      className="text-xs text-slate-400 hover:text-red-400 transition-colors"
-                    >
-                      Disconnect
-                    </button>
+                  <div className="mb-3 px-4 py-3 bg-white border border-green-300 rounded-lg flex items-center gap-2">
+                    <Icon name="check_circle" size={18} className="text-green-600" />
+                    <span className="text-sm text-green-700 font-medium">Connected with Google</span>
                   </div>
                 ) : googleOAuthAvailable ? (
                   <button
@@ -1796,6 +1783,50 @@ export default function Settings() {
                 </div>
               );
             })}
+          </div>
+
+          {/* Google */}
+          <div className={cardClass} data-testid="google-connect-section">
+            <div className="flex items-center gap-2 mb-3">
+              <Icon name="travel_explore" size={18} className="text-blue-400" />
+              <h2 className="text-base font-semibold">Google</h2>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">Gmail, Calendar, and Drive</p>
+            {googleConnected ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                  <p className="text-sm text-slate-200 font-medium">
+                    {geminiStatus.email || 'Connected'}
+                  </p>
+                </div>
+                <button
+                  onClick={async () => {
+                    await api.post('/secrets/google/disconnect', {});
+                    setGoogleConnected(false);
+                    setKeyAvailable(prev => ({ ...prev, 'Google Gemini': false }));
+                    setKeySource(prev => ({ ...prev, 'Google Gemini': 'none' }));
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  <Icon name="link_off" size={15} />
+                  Disconnect
+                </button>
+              </div>
+            ) : googleOAuthAvailable ? (
+              <button
+                onClick={() => window.open('/api/auth/google', '_self')}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
+                data-testid="google-connect-btn"
+              >
+                <Icon name="login" size={16} />
+                Connect Google
+              </button>
+            ) : (
+              <p className="text-sm text-slate-400">
+                Google sign-in is not configured for this instance.
+              </p>
+            )}
           </div>
 
           {/* Slack one-click connect */}
