@@ -317,6 +317,13 @@ export default function Activity() {
     fetchActivity();
   }, [fetchActivity]);
 
+  // Keep the events tab live with a 10-second refresh
+  useEffect(() => {
+    if (tab !== "events") return;
+    const id = setInterval(fetchActivity, 10_000);
+    return () => clearInterval(id);
+  }, [tab, fetchActivity]);
+
   const toggleKey = (key: string) => {
     setExpandedKeys((prev) => {
       const next = new Set(prev);
@@ -454,6 +461,24 @@ export default function Activity() {
           </div>
         )}
 
+        {tab === "events" && traceFilter.trim() && (
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-xs text-slate-500">Active filter:</span>
+            <span className="inline-flex items-center gap-1.5 bg-blue-500/20 text-blue-300 text-xs px-2.5 py-1 rounded-full">
+              trace: {traceFilter.trim()}
+              <button
+                type="button"
+                onClick={() => setTraceFilter("")}
+                className="hover:text-white transition-colors"
+                aria-label="Clear trace filter"
+                data-testid="clear-trace-filter"
+              >
+                <Icon name="close" size={12} />
+              </button>
+            </span>
+          </div>
+        )}
+
         {/* Tab content */}
         {tab === "transcripts" ? (
           <Suspense fallback={<div className="text-slate-500 text-center py-12">Loading transcripts...</div>}>
@@ -464,11 +489,20 @@ export default function Activity() {
             {loading && rawEvents.length === 0 ? (
               <LoadingState variant="spinner" message="Loading activity..." />
             ) : totalVisible === 0 ? (
-              <EmptyState
-                icon="history"
-                title="Your activity will show up here as you work"
-                description="Tasks you close, specs you promote, and agents you run will all appear here."
-              />
+              traceFilter.trim() ? (
+                <EmptyState
+                  icon="search_off"
+                  title={`No events match "${traceFilter.trim()}"`}
+                  description="That trace ID doesn't appear in the current event window. Try a different ID or clear the filter."
+                  action={{ label: "Clear filter", onClick: () => setTraceFilter("") }}
+                />
+              ) : (
+                <EmptyState
+                  icon="history"
+                  title="Your activity will show up here as you work"
+                  description="Tasks you close, specs you promote, and agents you run will all appear here."
+                />
+              )
             ) : (
               <>
                 {showTechnical && (
