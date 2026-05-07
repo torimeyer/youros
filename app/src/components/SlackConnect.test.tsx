@@ -68,13 +68,14 @@ describe('SlackConnect — disconnected state', () => {
     expect(locationHrefSetter).toHaveBeenCalledWith('/api/auth/slack/login')
   })
 
-  it('shows setup prompt when configured is false', async () => {
+  it('shows inline credential form when configured is false', async () => {
     mockedApiGet.mockResolvedValue({ connected: false, team_name: '', team_id: '', configured: false })
 
     render(<MemoryRouter><SlackConnect /></MemoryRouter>)
 
     await waitFor(() => {
-      expect(screen.getByText(/Set up Slack credentials first/i)).toBeInTheDocument()
+      expect(screen.getByTestId('slack-client-id-input')).toBeInTheDocument()
+      expect(screen.getByTestId('slack-client-secret-input')).toBeInTheDocument()
     })
   })
 
