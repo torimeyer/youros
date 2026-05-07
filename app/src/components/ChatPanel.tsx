@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import TackAutocomplete from './TackAutocomplete'
 import Icon from './Icon'
 import ConfirmModal from './ConfirmModal'
 import { useConfirm } from '../hooks/useConfirm'
@@ -530,6 +531,7 @@ export function ChatPanel() {
   // Held in a ref so updating it does not re-run the lastMessage
   // effect, which would otherwise loop on the same event.
   const currentBubbleIdRef = useRef<string | null>(null)
+  const tackKeyHandlerRef = useRef<((e: React.KeyboardEvent) => boolean) | null>(null)
   // Maps model name ("claude", "gemini") to the bubble id currently
   // receiving that model's tokens. Populated on multi_ai_turn_start and
   // cleared on multi_ai_turn_end. Used by parallel broadcast fan-out:
@@ -1763,6 +1765,7 @@ export function ChatPanel() {
   }
 
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    if (tackKeyHandlerRef.current?.(e)) return
     if (e.key === 'Enter') {
       handleSend()
       return
@@ -2524,15 +2527,18 @@ export function ChatPanel() {
               </span>
             )}
           </button>
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleInputKeyDown}
-            onPaste={handlePaste}
-            className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50"
-            placeholder={replyingTo ? 'Type your reply...' : `Message ${defaultChatModel}... (/giphy to search GIFs)`}
-          />
+          <div className="relative flex-1">
+            <TackAutocomplete inputValue={input} onSelect={(s) => setInput(s)} keyHandlerRef={tackKeyHandlerRef} />
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleInputKeyDown}
+              onPaste={handlePaste}
+              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 text-sm text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/50"
+              placeholder={replyingTo ? 'Type your reply...' : `Message ${defaultChatModel}... (/giphy to search GIFs)`}
+            />
+          </div>
           <button
             onClick={() => { setShowGiphy(!showGiphy); setGiphyInitialSearch('') }}
             className={`hidden sm:block p-2 transition-colors rounded-lg ${showGiphy ? 'text-blue-400 bg-blue-500/10' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'}`}
