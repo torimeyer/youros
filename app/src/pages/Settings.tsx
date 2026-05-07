@@ -882,15 +882,6 @@ export default function Settings() {
         <div className="flex-1 min-w-0 px-4 pb-8 sm:px-6 lg:pr-8 space-y-10">
           <PageHeader title="Settings" />
 
-          <div className="text-sm text-slate-400" data-testid="privacy-link-row">
-            <Link to="/privacy" className="underline hover:text-slate-200">Privacy</Link>
-            <span className="ml-2">How torios handles your data.</span>
-          </div>
-          <div className="text-sm text-slate-400 mt-2" data-testid="about-link-row">
-            <Link to="/about" className="underline hover:text-slate-200">About myOS</Link>
-            <span className="ml-2">What myOS is and how it works.</span>
-          </div>
-
           {/* ── 1. Instructions ─────────────────────── */}
           <div id="section-instructions" className={activeSection !== 'section-instructions' ? 'hidden' : ''}>
           <div
