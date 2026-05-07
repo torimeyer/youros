@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { ChatPanel } from './ChatPanel'
-import { CommandPalette } from './CommandPalette'
+import { UniversalSearch } from './UniversalSearch'
 import GuidedTour from './GuidedTour'
 import NotificationToasts from './NotificationToast'
 import ReleaseNotesWatcher from './ReleaseNotesWatcher'
@@ -179,7 +179,7 @@ export function Layout() {
     <div data-theme={darkMode ? 'dark' : 'light'}>
       <Sidebar />
       <ChatPanel />
-      <CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} />
+      <UniversalSearch open={commandPaletteOpen} onClose={closeCommandPalette} />
       {showTour && <GuidedTour onComplete={() => setShowTour(false)} />}
       <NotificationToasts />
       <ReleaseNotesWatcher />
