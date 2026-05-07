@@ -6015,6 +6015,50 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             "source": "claude-code",
         }
     _save_agent_state()
+
+    # Auto-merge worktree branch onto main when a bridge-spawned agent completes.
+    # The PostToolUse complete-agent.sh hook handles this for native Agent-tool spawns
+    # (source="claude-code"), but the bridge blocks those calls (exit 2) so PostToolUse
+    # never fires — leaving worktree commits stranded until manual cherry-pick. (→999)
+    _am_branch = existing_meta.get("worktree_branch")
+    if (
+        existing_meta.get("isolation") == "worktree"
+        and _am_branch
+        and existing_meta.get("source") != "claude-code"
+    ):
+        try:
+            from config import PROJECT_ROOT as _am_root
+            import subprocess as _am_sub
+            _am_result = await asyncio.to_thread(
+                _am_sub.run,
+                ["git", "merge", "--ff-only", _am_branch],
+                cwd=str(_am_root),
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if _am_result.returncode == 0:
+                if "Already up to date" in _am_result.stdout:
+                    logger.info(
+                        "mark_agent_complete.auto_merge name=%s branch=%s already_merged",
+                        name, _am_branch,
+                    )
+                else:
+                    logger.info(
+                        "mark_agent_complete.auto_merge name=%s branch=%s merged",
+                        name, _am_branch,
+                    )
+            else:
+                logger.warning(
+                    "mark_agent_complete.auto_merge_failed name=%s branch=%s stderr=%s",
+                    name, _am_branch, _am_result.stderr.strip(),
+                )
+        except Exception:
+            logger.exception(
+                "mark_agent_complete.auto_merge_error name=%s branch=%s",
+                name, _am_branch,
+            )
+
     _fire_delta(name, "completed")
 
     # Auto-close the spec builder task if this agent was spawned from a

@@ -275,3 +275,104 @@ async def test_complete_proceeds_when_no_pid_in_metadata(agent_app):
         )
     finally:
         agents_mod.agent_metadata.pop(name, None)
+
+
+# ---------------------------------------------------------------------------
+# mark_agent_complete: auto-merge for bridge-spawned worktree agents (→999)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_complete_auto_merges_bridge_spawned_worktree(agent_app):
+    """mark_agent_complete runs git merge --ff-only for task-bridge worktree agents.
+
+    Regression for →999: the PostToolUse complete-agent.sh hook never fires
+    when the bridge blocks the native Agent call (exit 2), leaving worktree
+    commits stranded until manual cherry-pick. The /complete endpoint must
+    trigger the merge itself.
+    """
+    import routers.agents as agents_mod
+
+    name = "test-bridge-merge-agent"
+    branch = f"worktree-agent-{name}"
+    agents_mod.agent_metadata[name] = {
+        "status": "running",
+        "spawned_at": "2026-05-06T00:00:00+00:00",
+        "source": "task-bridge",
+        "isolation": "worktree",
+        "worktree_branch": branch,
+    }
+
+    merge_calls: list = []
+
+    def mock_subprocess_run(cmd, **kwargs):
+        merge_calls.append(list(cmd))
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = "Fast-forward\n1 file changed, 1 insertion(+)"
+        result.stderr = ""
+        return result
+
+    try:
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            async with agent_app as client:
+                resp = await client.post(
+                    f"/api/agents/{name}/complete",
+                    json={"summary": "done"},
+                )
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "completed"
+        git_merges = [c for c in merge_calls if "merge" in c]
+        assert git_merges, (
+            "Expected git merge --ff-only to be called on /complete for a task-bridge worktree agent"
+        )
+        assert "--ff-only" in git_merges[0], "Merge must be fast-forward only"
+        assert branch in git_merges[0], f"Expected branch {branch!r} in merge command, got {git_merges[0]}"
+    finally:
+        agents_mod.agent_metadata.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_complete_skips_merge_for_claude_code_source(agent_app):
+    """mark_agent_complete does NOT merge for source='claude-code' agents.
+
+    The PostToolUse complete-agent.sh hook handles the merge for native
+    Agent-tool spawns. /complete must not double-merge them. (→999)
+    """
+    import routers.agents as agents_mod
+
+    name = "test-claude-code-no-merge"
+    agents_mod.agent_metadata[name] = {
+        "status": "running",
+        "spawned_at": "2026-05-06T00:00:00+00:00",
+        "source": "claude-code",
+        "isolation": "worktree",
+        "worktree_branch": f"worktree-agent-{name}",
+    }
+
+    merge_calls: list = []
+
+    def mock_subprocess_run(cmd, **kwargs):
+        merge_calls.append(list(cmd))
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = "Already up to date."
+        result.stderr = ""
+        return result
+
+    try:
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            async with agent_app as client:
+                resp = await client.post(
+                    f"/api/agents/{name}/complete",
+                    json={"summary": "done"},
+                )
+
+        assert resp.status_code == 200
+        git_merges = [c for c in merge_calls if "merge" in c]
+        assert not git_merges, (
+            "source='claude-code' agents must not trigger merge in /complete "
+            "(the PostToolUse complete-agent.sh hook handles it)"
+        )
+    finally:
+        agents_mod.agent_metadata.pop(name, None)

@@ -9,6 +9,8 @@ import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
+import AtlassianConnect from '../components/AtlassianConnect';
+import GithubConnect from '../components/GithubConnect';
 import CustomVerbs from '../components/CustomVerbs';
 
 interface MCPServer {
@@ -1836,6 +1838,24 @@ export default function Settings() {
               <h2 className="text-base font-semibold">Slack</h2>
             </div>
             <SlackConnect />
+          </div>
+
+          {/* GitHub */}
+          <div className={cardClass} data-testid="github-connect-section">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="code" size={18} className="text-slate-300" />
+              <h2 className="text-base font-semibold">GitHub</h2>
+            </div>
+            <GithubConnect />
+          </div>
+
+          {/* Atlassian (Jira + Confluence) */}
+          <div className={cardClass} data-testid="atlassian-connect-section">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="bug_report" size={18} className="text-blue-400" />
+              <h2 className="text-base font-semibold">Jira & Confluence</h2>
+            </div>
+            <AtlassianConnect />
           </div>
 
           {/* Custom tack commands */}
