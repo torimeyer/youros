@@ -1858,6 +1858,25 @@ export default function Settings() {
             <AtlassianConnect />
           </div>
 
+          {/* iMessage */}
+          <div className={cardClass} data-testid="imessage-connect-section">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon name="chat_bubble" size={18} className="text-green-400" />
+              <h2 className="text-base font-semibold">iMessage</h2>
+            </div>
+            <p className="text-sm text-slate-400 mb-3">
+              Read and reply to iMessages from within myOS. Requires macOS.
+            </p>
+            <a
+              href="/imessage"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium text-white transition-colors"
+              data-testid="imessage-setup-link"
+            >
+              <Icon name="open_in_new" size={16} />
+              Set up iMessage
+            </a>
+          </div>
+
           {/* Custom tack commands */}
           <div className={cardClass} data-testid="custom-verbs-section">
             <CustomVerbs />
