@@ -996,6 +996,55 @@ def _transcript_is_stub(path) -> bool:
         return False
 
 
+def _transcript_has_real_content(path) -> bool:
+    """Return True when the transcript file has content beyond heartbeat markers.
+
+    Heartbeat lines written by _drain_stdout look like ``[heartbeat ts=<iso>]``.
+    The empty-stdout diagnostic note ends with ``with no stdout output.``.
+    Any line that is neither blank, a heartbeat marker, nor the diagnostic note
+    is considered real agent output -- a signal that real work was done and the
+    transcript should not be clobbered by the cancelled-without-work banner.
+    """
+    try:
+        from pathlib import Path as _Path
+        p = _Path(path)
+        if not p.exists() or p.stat().st_size == 0:
+            return False
+        with open(str(p), "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith("[heartbeat ts="):
+                    continue
+                if stripped.endswith("with no stdout output."):
+                    continue
+                return True
+        return False
+    except (OSError, ValueError):
+        return False
+
+
+def _worktree_branch_has_commits(branch: str) -> bool:
+    """Return True when the agent's worktree branch has commits ahead of main.
+
+    Uses a blocking subprocess call with a short timeout -- acceptable because
+    this is a best-effort guard on the cancel path, not a hot path.
+    """
+    if not branch:
+        return False
+    try:
+        import subprocess as _subprocess
+        from config import PROJECT_ROOT as _PR
+        result = _subprocess.run(
+            ["git", "log", f"main..{branch}", "--oneline"],
+            capture_output=True, text=True, timeout=5, cwd=str(_PR),
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        return False
+
+
 def _write_terminated_banner(path, name: str, reason: str) -> bool:
     """Overwrite transcript at ``path`` with the terminated-without-work banner.
 
@@ -6449,11 +6498,17 @@ async def cancel_agent(
     # mid-stream when we cancelled. Overwrite it with the terminated
     # banner so downstream consumers (inline chat, audit tools) cannot
     # attribute invented completions to this row.
+    # Guard: do NOT clobber when (a) the transcript already contains real
+    # (non-heartbeat) content, or (b) the agent's worktree branch has
+    # commits ahead of main. Either condition means real work was done even
+    # if tokens_used stayed 0 (→1041).
     if _terminated_without_work(meta):
         try:
             from config import PROJECT_ROOT
             _t_path = PROJECT_ROOT / "transcripts" / f"{name}.md"
-            _write_terminated_banner(_t_path, name, reason)
+            _wt_branch = meta.get("worktree_branch") or ""
+            if not _transcript_has_real_content(_t_path) and not _worktree_branch_has_commits(_wt_branch):
+                _write_terminated_banner(_t_path, name, reason)
         except Exception:
             pass
 
