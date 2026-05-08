@@ -1,4 +1,5 @@
 """Gemini Enterprise provider detection and status."""
+import asyncio
 import logging
 import time
 from typing import Optional
@@ -12,10 +13,11 @@ router = APIRouter()
 _gemini_status_cache: Optional[dict] = None
 _gemini_cache_ts: float = 0.0
 _CACHE_TTL = 600.0
+_DETECT_TIMEOUT = 5.0
 
 
-async def _detect_gemini() -> dict:
-    """Try google.auth.default() to detect enterprise credentials."""
+def _detect_gemini_sync() -> dict:
+    """Synchronous credential check — called via asyncio.to_thread to avoid blocking the event loop."""
     try:
         import google.auth
         import google.auth.transport.requests
@@ -70,6 +72,28 @@ async def _detect_gemini() -> dict:
             "workspace_connected": False,
             "api_reachable": False,
         }
+
+
+async def _detect_gemini() -> dict:
+    """Run credential check in a thread pool so the event loop stays free."""
+    _unavailable = {
+        "available": False,
+        "authenticated": False,
+        "email": None,
+        "workspace_connected": False,
+        "api_reachable": False,
+    }
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_detect_gemini_sync),
+            timeout=_DETECT_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.debug("gemini.detect: timed out after %ss", _DETECT_TIMEOUT)
+        return _unavailable
+    except Exception as exc:
+        logger.debug("gemini.detect: error: %s", exc)
+        return _unavailable
 
 
 @router.get("/gemini/status")
