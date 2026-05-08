@@ -778,13 +778,22 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-sales-objection-handling",
         "name": "Objection Handling",
         "aliases": [],
-        "description": "Help you prep answers to common customer objections.",
+        "description": "Prep three responses to a customer objection (empathetic, direct, curious) plus the discovery question that beats answering.",
         "icon": "question_answer",
         "prompt_template": (
-            "You are a sales coach. For the product and objection the user "
-            "provides, propose 3 response options ranked by tone (empathetic, "
-            "direct, curious). Each response is one paragraph. Suggest the "
-            "discovery question you would ask instead of answering."
+            "You are a sales coach helping prep responses to a customer objection. "
+            "For the product and objection the user provides, output exactly four sections.\n\n"
+            "**Empathetic response**: one paragraph that acknowledges their concern in their words, "
+            "then offers a path forward. Warm, not soft.\n\n"
+            "**Direct response**: one paragraph that takes the objection at face value and answers "
+            "the underlying business question. Specific, no hedging.\n\n"
+            "**Curious response**: one paragraph that turns the objection into a question that opens "
+            "the conversation. The point is learning what's actually behind the objection.\n\n"
+            "**Better than answering**: ONE discovery question you should ask before offering any response. "
+            "The question should make THEM articulate the real concern.\n\n"
+            "Avoid: defensive language (\"actually\", \"well, but\"), price-shaming a \"too expensive\" objection, "
+            "scripted \"feel-felt-found\", ending with the pitch. "
+            "Stay under 350 words total."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -795,6 +804,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "objection", "label": "What objection are you preparing for?", "placeholder": "e.g. \"Your product is too expensive\"", "type": "text", "required": True, "advanced": False},
             {"key": "product", "label": "What product or service is involved?", "placeholder": "e.g. enterprise analytics platform", "type": "text", "required": True, "advanced": False},
+            {"key": "severity", "label": "How serious is this objection?", "placeholder": "", "type": "chips", "options": ["Knee-jerk reaction", "Real concern", "Likely deal-breaker"], "required": False, "advanced": False},
         ],
     },
     # --- Writers and creators ---

@@ -62,7 +62,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
       { name: 'Cold Outreach Draft', description: "When you need a personalized outreach email that doesn't read like a template. Under 120 words, one clear ask, no filler.", icon: 'outgoing_mail', model: 'sonnet', budget: 2.0 },
       { name: 'Call Prep', description: 'Before a customer call, get a one-page brief with fresh research on the company, the people, three discovery questions, and your exact ask.', icon: 'support_agent', model: 'sonnet', budget: 2.0 },
       { name: 'Follow Up', description: 'After a customer call, turn your notes into a recap email with decisions, open questions, and the next step with a specific date.', icon: 'forward_to_inbox', model: 'sonnet', budget: 2.0 },
-      { name: 'Objection Handling', description: 'Help you prep answers to common customer objections.', icon: 'question_answer', model: 'sonnet', budget: 2.0 },
+      { name: 'Objection Handling', description: 'Prep three responses to a customer objection (empathetic, direct, curious) plus the discovery question that beats answering.', icon: 'question_answer', model: 'sonnet', budget: 2.0 },
     ],
   },
   {
