@@ -268,15 +268,15 @@ export default function Activity() {
   const [deduping, setDeduping] = useState(false);
   const [dedupeResult, setDedupeResult] = useState<string | null>(null);
 
-  const fetchActivity = useCallback(async () => {
-    setLoading(true);
+  const fetchActivity = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.get<ActivityResponse>(`/activity?last=${eventCount}`);
       setRawEvents(res.events ?? []);
     } catch (e) {
       console.error("Failed to fetch activity:", e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [eventCount]);
 
@@ -298,10 +298,12 @@ export default function Activity() {
     fetchActivity();
   }, [fetchActivity]);
 
-  // Keep the events tab live with a 10-second refresh
+  // Keep the events tab live with a 10-second refresh.
+  // Pass silent=true so the background poll doesn't flip the page back
+  // to the loading spinner every 10 seconds.
   useEffect(() => {
     if (tab !== "events") return;
-    const id = setInterval(fetchActivity, 10_000);
+    const id = setInterval(() => fetchActivity(true), 10_000);
     return () => clearInterval(id);
   }, [tab, fetchActivity]);
 
@@ -406,7 +408,7 @@ export default function Activity() {
               </select>
 
               <button
-                onClick={fetchActivity}
+                onClick={() => fetchActivity()}
                 className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1"
               >
                 <Icon name="refresh" size={16} />
