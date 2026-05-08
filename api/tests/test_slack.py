@@ -174,6 +174,36 @@ async def test_slack_disconnect(client):
     assert data["ok"] is True
 
 
+# --- POST /api/slack/configure ---
+
+@pytest.mark.asyncio
+async def test_slack_configure_saves_credentials(client):
+    """POST /slack/configure must accept the real dotted client_id format and return 200."""
+    with patch("routers.slack._slack_settings") as mock_settings:
+        resp = await client.post(
+            "/api/slack/configure",
+            json={
+                "client_id": "289085593413.10904204636326",
+                "client_secret": "0fe5ea567b937af9b0d585587aa4c129",
+            },
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["configured"] is True
+    mock_settings.update.assert_called_once_with({
+        "slack_client_id": "289085593413.10904204636326",
+        "slack_client_secret": "0fe5ea567b937af9b0d585587aa4c129",
+    })
+
+
+@pytest.mark.asyncio
+async def test_slack_configure_rejects_empty_fields(client):
+    """POST /slack/configure with empty values must return 400."""
+    resp = await client.post("/api/slack/configure", json={"client_id": "", "client_secret": ""})
+    assert resp.status_code == 400
+
+
 # --- Service unit tests ---
 
 class TestSlackService:

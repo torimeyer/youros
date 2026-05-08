@@ -162,11 +162,12 @@ class SlackCredentials(BaseModel):
 
 
 @router.post("/slack/credentials")
+@router.post("/slack/configure")
 async def save_slack_credentials(body: SlackCredentials):
     """Save Slack OAuth credentials to the settings store.
 
-    This lets users configure Slack directly from the Settings page
-    instead of editing .env files.
+    Reachable as both /slack/credentials and /slack/configure (the name
+    the onboarding wizard and Settings page use).
     """
     cid = body.client_id.strip()
     secret = body.client_secret.strip()
