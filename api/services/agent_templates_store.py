@@ -1208,8 +1208,8 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Campaign Brief",
         "aliases": [],
         "description": (
-            "Turn a product feature or launch into a campaign brief -- messaging, "
-            "target audience, channels, and call to action."
+            "Turn a feature, launch, or update into a one-page campaign brief. "
+            "Audience, message angles, channel mix, the call to action."
         ),
         "icon": "campaign",
         "prompt_template": (
@@ -1232,6 +1232,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "feature", "label": "What feature, launch, or update is this for?", "placeholder": "e.g. new mobile app, price change, v2 of our core product", "type": "textarea", "required": True, "advanced": False},
             {"key": "audience", "label": "Who is the primary audience?", "placeholder": "e.g. small business owners, enterprise IT teams", "type": "text", "required": False, "advanced": False},
+            {"key": "channel_focus", "label": "Channel focus", "placeholder": "", "type": "chips", "options": ["Email", "Social", "In-product", "Paid", "Mix"], "required": False, "advanced": True},
         ],
     },
     # --- Finance / home templates ---
