@@ -598,7 +598,7 @@ export default function Calendar() {
     }
   })
 
-  if (loading) {
+  if (loading || authStatus === null) {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="Calendar" />

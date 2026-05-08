@@ -368,7 +368,7 @@ export default function Gmail() {
 
   const cardClass = 'bg-slate-900/40 border border-slate-800 p-3 sm:p-4 rounded-xl'
 
-  if (loading) {
+  if (loading || authStatus === null) {
     return (
       <div className="min-h-dvh bg-slate-950 text-white">
         <TopBar title="Gmail" />
