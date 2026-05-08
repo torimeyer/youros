@@ -75,9 +75,10 @@ async def slack_callback(code: str = ""):
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Redirect back to the Slack page in the UI
+    # Redirect back to the Slack page in the frontend
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/slack?connected=true")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    return RedirectResponse(url=f"{frontend_url}/slack?connected=true")
 
 
 def _compute_slack_status() -> dict:

@@ -5,6 +5,47 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+# --- GET /api/slack/callback ---
+
+@pytest.mark.asyncio
+async def test_slack_callback_redirects_to_frontend(client):
+    """OAuth callback must redirect to the frontend, not a backend-relative URL."""
+    with patch("routers.slack._get_slack_client_id", return_value="client-id"), \
+         patch("routers.slack._get_slack_client_secret", return_value="client-secret"), \
+         patch("routers.slack._get_slack_redirect_uri", return_value="https://localhost:8000/api/slack/callback"), \
+         patch("routers.slack.slack_service") as mock_svc, \
+         patch.dict("os.environ", {"FRONTEND_URL": "https://localhost:3010"}):
+        mock_svc.exchange_code = AsyncMock()
+        resp = await client.get("/api/slack/callback", params={"code": "test-code"}, follow_redirects=False)
+
+    assert resp.status_code in (302, 307)
+    location = resp.headers["location"]
+    assert location.startswith("https://localhost:3010"), (
+        f"Expected redirect to frontend (https://localhost:3010), got: {location}"
+    )
+    assert "connected=true" in location
+
+
+@pytest.mark.asyncio
+async def test_slack_callback_uses_default_frontend_url_when_env_unset(client):
+    """Falls back to https://localhost:3010 when FRONTEND_URL is not set."""
+    with patch("routers.slack._get_slack_client_id", return_value="client-id"), \
+         patch("routers.slack._get_slack_client_secret", return_value="client-secret"), \
+         patch("routers.slack._get_slack_redirect_uri", return_value="https://localhost:8000/api/slack/callback"), \
+         patch("routers.slack.slack_service") as mock_svc, \
+         patch.dict("os.environ", {}, clear=False):
+        import os
+        os.environ.pop("FRONTEND_URL", None)
+        mock_svc.exchange_code = AsyncMock()
+        resp = await client.get("/api/slack/callback", params={"code": "test-code"}, follow_redirects=False)
+
+    assert resp.status_code in (302, 307)
+    location = resp.headers["location"]
+    assert location.startswith("https://localhost:3010"), (
+        f"Expected redirect to default frontend URL, got: {location}"
+    )
+
+
 # --- GET /api/slack/status ---
 
 @pytest.mark.asyncio
