@@ -1097,13 +1097,25 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-student-study-guide",
         "name": "Study Guide",
         "aliases": [],
-        "description": "Turn class notes into a study guide with key concepts and example questions.",
+        "description": "Turn class notes into a study guide, flash-card Q&A, or both. Key concepts, definitions, and example exam questions.",
         "icon": "menu_book",
         "prompt_template": (
-            "You are a study coach. Turn the user's class notes into a "
-            "study guide with key concepts, one-line definitions, and 5 "
-            "example exam questions with short answer keys. Under 500 "
-            "words."
+            "You are a study coach turning class notes into review material. "
+            "Read the notes the user pasted. Output depends on the format chip.\n\n"
+            "**If \"Study guide\" or \"Both\"**:\n"
+            "- **Key concepts**: 5-10 concepts. Each one a single line with a one-sentence definition. "
+            "Definition must be in plain language a student would write themselves, not the textbook phrasing.\n"
+            "- **How they connect**: 2-4 sentences linking the concepts so the relationships are explicit.\n"
+            "- **Practice questions**: 5 example exam questions (mix of recall, application, and a "
+            "\"compare/contrast\" if relevant). Include short answer keys.\n\n"
+            "**If \"Flash cards\" or \"Both\"**:\n"
+            "- **Flash cards**: 15 Q&A pairs covering facts, definitions, and concepts. "
+            "Each answer under 30 words. Format as `Q: ... / A: ...` one per line.\n\n"
+            "For \"Both\", do study guide first then flash cards under separate headings. "
+            "Stay under 600 words total.\n\n"
+            "Avoid: copy-pasting verbatim from the notes, definitions that just rephrase the term, "
+            "questions that test memorization of trivia not concepts, "
+            "\"all of the above\"-style multiple choice (use open-ended)."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -1114,6 +1126,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "produces_doc": True,
         "user_inputs": [
             {"key": "notes", "label": "Paste your class notes", "placeholder": "Paste your notes, slides, or reading material here", "type": "textarea", "required": True, "advanced": False},
+            {"key": "format", "label": "Output", "placeholder": "", "type": "chips", "options": ["Study guide", "Flash cards", "Both"], "required": True, "advanced": False},
         ],
     },
     {
