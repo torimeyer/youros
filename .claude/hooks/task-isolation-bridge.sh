@@ -94,13 +94,14 @@ iso = ti.get("isolation")
 if iso is None:
     iso = d.get("isolation")
 iso = (iso or "").strip().lower() if isinstance(iso, str) else ""
+model = (ti.get("model") or "").strip()
 
 def flat(s):
     return " ".join((s or "").split())
 
 US = "\x1f"
 sys.stdout.write(
-    f"{flat(tool)}{US}{flat(prompt)}{US}{flat(desc)}{US}{flat(subagent)}{US}{flat(iso)}"
+    f"{flat(tool)}{US}{flat(prompt)}{US}{flat(desc)}{US}{flat(subagent)}{US}{flat(iso)}{US}{flat(model)}"
 )
 PY
 )
@@ -109,7 +110,7 @@ if [ -z "$PARSED" ]; then
     exit 0
 fi
 
-IFS=$'\x1f' read -r TOOL PROMPT DESCRIPTION SUBAGENT ISOLATION <<<"$PARSED"
+IFS=$'\x1f' read -r TOOL PROMPT DESCRIPTION SUBAGENT ISOLATION MODEL <<<"$PARSED"
 
 # Only act on Task/Agent invocations. Other tool calls fall through.
 case "$TOOL" in
@@ -237,7 +238,7 @@ ORIG_SESSION_ID="${_STDIN_SID:-${CLAUDE_SESSION_ID:-}}"
 # downstream agent-list filters can distinguish bridge spawns from
 # direct REST spawns.
 BODY=$(SPAWN_NAME="$SPAWN_NAME" DESCRIPTION="$DESCRIPTION" PROMPT="$PROMPT" \
-        SUBAGENT="$SUBAGENT" \
+        SUBAGENT="$SUBAGENT" MODEL="$MODEL" \
         ORIG_SESSION_ID="$ORIG_SESSION_ID" ORIG_MSG_ID="${ORIG_MSG_ID:-}" \
         python3 <<'PY' 2>/dev/null
 import os, json, re
@@ -277,6 +278,9 @@ if orig_msg:
 sub = os.environ.get("SUBAGENT") or ""
 if sub:
     body["subagent_type"] = sub
+mdl = os.environ.get("MODEL") or ""
+if mdl:
+    body["model"] = mdl
 print(json.dumps(body))
 PY
 )
