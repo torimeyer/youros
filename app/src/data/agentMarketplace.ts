@@ -48,7 +48,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     tagline: 'I write code and debug things.',
     templates: [
       // Code Review is covered by the built-in Review template (alias "Code Review").
-      { name: 'Write Tests', description: 'Generate test cases for your code.', icon: 'bug_report', model: 'sonnet', budget: 2.0 },
+      { name: 'Write Tests', description: 'Paste a function or module, get tests for the happy path, edge cases, and failure paths. Names tests by what they assert.', icon: 'bug_report', model: 'sonnet', budget: 2.0 },
       { name: 'Debug Helper', description: 'Read an error log, find the root cause, and suggest a fix.', icon: 'bug_report', model: 'sonnet', budget: 2.0 },
       { name: 'Refactor Plan', description: 'Review messy code and propose a clean refactoring plan.', icon: 'auto_fix_high', model: 'sonnet', budget: 3.0 },
     ],

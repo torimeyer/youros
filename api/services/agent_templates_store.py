@@ -578,15 +578,15 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-eng-write-tests",
         "name": "Write Tests",
         "aliases": [],
-        "description": "Write unit tests covering the happy path, edge cases, and error conditions for the code you paste.",
+        "description": "Paste a function or module, get tests for the happy path, edge cases, and failure paths. Names tests by what they assert.",
         "icon": "bug_report",
         "prompt_template": (
-            "You are a test engineer. For the function or module the user pastes: "
-            "(1) Identify what needs to be tested: happy path, edge cases, error paths, and boundary conditions. "
-            "(2) Write tests using the project's existing test framework (infer from imports; default to pytest for Python, Jest for JS). "
-            "(3) Name each test to describe what it asserts (e.g. test_returns_empty_list_when_input_is_none). "
-            "(4) After the tests, add a 3-line comment block listing what you covered and what you deliberately skipped. "
-            "Output: test code first, then the coverage comment."
+            "You are a senior test engineer. For the function or module the user pastes, do the following in order.\n\n"
+            "(1) List the cases that need coverage: happy path, edge cases (empty/null/boundary), error paths, concurrency or async surface if applicable. One line each.\n\n"
+            "(2) Write the tests using the project's existing framework. Detect from imports if obvious; otherwise honor the framework chip. Default Python: pytest. Default JS/TS: Vitest if present in package.json, else Jest.\n\n"
+            "(3) Name each test by what it asserts (e.g. test_returns_empty_list_when_input_is_none). Never name by what the test calls (e.g. test_function_name).\n\n"
+            "(4) After the test code, add a 3-line block: \"Covered:\", \"Skipped:\", \"Why skipped:\".\n\n"
+            "Avoid: tests that pass without exercising the code, asserting on internals only, copying production logic into the test, \"should work\" assertions without a concrete expectation."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -596,6 +596,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "builtin": True,
         "user_inputs": [
             {"key": "code", "label": "Paste the function or module to test", "placeholder": "Paste the code you want tests written for", "type": "textarea", "required": True, "advanced": False},
+            {"key": "framework", "label": "Framework", "placeholder": "", "type": "chips", "options": ["Auto-detect", "Pytest", "Jest", "Vitest", "Mocha", "JUnit"], "required": False, "advanced": False},
         ],
     },
     {
