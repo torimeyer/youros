@@ -847,13 +847,22 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-writer-social-post",
         "name": "Social Post",
         "aliases": [],
-        "description": "Turn a long post into short, punchy social versions.",
+        "description": "Adapt long content for the platforms you pick. LinkedIn post, Twitter/X thread, or Instagram caption with the right voice for each.",
         "icon": "share",
         "prompt_template": (
-            "You are a social copywriter. Turn the long input into versions "
-            "for the platforms the user selects. LinkedIn: under 200 words. "
-            "Twitter/X: a 5-tweet thread. Instagram: a short caption. Keep "
-            "the voice specific and human. Only produce the selected platforms."
+            "You are a social copywriter adapting long-form content. Output only the posts the user asked for, separated by clear platform headers. For each selected platform, follow these rules.\n\n"
+            "**LinkedIn**: under 200 words. Hook in the first line (not \"I'm excited to share\"). "
+            "Conversational, human, one specific insight from the source. End with one open question. "
+            "No hashtag spam (max 3 if relevant).\n\n"
+            "**Twitter/X**: 5-tweet thread. First tweet under 240 chars and earns the click. "
+            "Each follow-up tweet stands alone. Number the thread (1/, 2/, etc). Last tweet has the call to action.\n\n"
+            "**Instagram**: caption under 220 words. Strong first line that survives the truncation. "
+            "Short paragraphs, line breaks for breathability. End with a question or CTA. "
+            "5-8 relevant hashtags grouped at the bottom.\n\n"
+            "Voice: human, specific, never corporate. Match the original content's intent "
+            "(informative / story / opinion / promotional).\n\n"
+            "Avoid: \"I'm thrilled to announce\", emoji decoration on every line, "
+            "motivational platitudes, \"let me know in the comments below\" generic CTAs."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -864,6 +873,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "content", "label": "Paste the content to adapt", "placeholder": "Paste the blog post, article, or long-form content here", "type": "textarea", "required": True, "advanced": False},
             {"key": "platforms", "label": "Which platforms?", "placeholder": "", "type": "multi_chips", "options": ["LinkedIn", "Twitter/X", "Instagram"], "required": True, "advanced": False},
+            {"key": "intent", "label": "Intent", "placeholder": "", "type": "chips", "options": ["Inform", "Tell a story", "Share an opinion", "Promote a launch"], "required": False, "advanced": False},
         ],
     },
     {
