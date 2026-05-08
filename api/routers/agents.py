@@ -4396,6 +4396,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             _had_any_byte = False
             _had_model_output = False
             _last_any_byte_at = [time.monotonic()]
+            _first_any_byte_at = [time.monotonic()]  # set once; Phase 2 uses this
             _last_model_output_at = [time.monotonic()]
 
             # stream-json event types that indicate model activity (excluding
@@ -4413,7 +4414,10 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         limit = _STDOUT_FIRST_BYTE_LIMIT_SECONDS
                         hang_kind = "startup (no first byte)"
                     elif not _had_model_output:
-                        silent_for = now - _last_any_byte_at[0]
+                        # Use _first_any_byte_at so periodic hook events
+                        # (heartbeat hooks, tool events) don't reset the clock
+                        # and let an API-hung subprocess survive indefinitely.
+                        silent_for = now - _first_any_byte_at[0]
                         limit = _STDOUT_API_HANG_LIMIT_SECONDS
                         hang_kind = "api-hang (hooks only, no model output)"
                     else:
@@ -4454,6 +4458,8 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         chunk = await p.stdout.read(4096)
                         if not chunk:
                             break
+                        if not _had_any_byte:
+                            _first_any_byte_at[0] = time.monotonic()
                         _had_any_byte = True
                         _last_any_byte_at[0] = time.monotonic()
                         _json_buf += chunk

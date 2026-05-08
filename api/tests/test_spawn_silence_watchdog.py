@@ -127,6 +127,34 @@ class _HookOnlyProc:
         self.returncode = -9
 
 
+class _PeriodicHookProc:
+    """Emits JSON hook events every gap_s forever, never produces model output.
+
+    Simulates a subprocess whose heartbeat hook fires every 30s but whose
+    model call never returns.  Before the _first_any_byte_at fix, the
+    api-hang watchdog would keep resetting _last_any_byte_at on every hook
+    event and never fire.
+    """
+
+    def __init__(self, gap_s: float) -> None:
+        self.returncode: int | None = None
+        self.stdout = self
+        self._gap_s = gap_s
+        self._killed = False
+
+    async def read(self, n: int) -> bytes:
+        if self._killed:
+            return b""
+        await asyncio.sleep(self._gap_s)
+        if self._killed:
+            return b""
+        return b'{"type":"system","subtype":"heartbeat"}\n'
+
+    def kill(self) -> None:
+        self._killed = True
+        self.returncode = -9
+
+
 class _OneThenSilentProc:
     """Emits one chunk then blocks forever — simulates mid-stream stall."""
 
@@ -164,6 +192,7 @@ async def _run_drain_helper(proc, name: str, tpath: Path) -> None:
     _had_any_byte = False
     _had_model_output = False
     _last_any_byte_at = [_time.monotonic()]
+    _first_any_byte_at = [_time.monotonic()]
     _last_model_output_at = [_time.monotonic()]
     _MODEL_EVENT_TYPES = frozenset(("text", "tool_use", "tool_result", "thinking"))
 
@@ -178,7 +207,7 @@ async def _run_drain_helper(proc, name: str, tpath: Path) -> None:
                 limit = agents_mod._STDOUT_FIRST_BYTE_LIMIT_SECONDS
                 hang_kind = "startup (no first byte)"
             elif not _had_model_output:
-                silent_for = now - _last_any_byte_at[0]
+                silent_for = now - _first_any_byte_at[0]
                 limit = agents_mod._STDOUT_API_HANG_LIMIT_SECONDS
                 hang_kind = "api-hang (hooks only, no model output)"
             else:
@@ -212,6 +241,8 @@ async def _run_drain_helper(proc, name: str, tpath: Path) -> None:
                 chunk = await proc.stdout.read(4096)
                 if not chunk:
                     break
+                if not _had_any_byte:
+                    _first_any_byte_at[0] = _time.monotonic()
                 _had_any_byte = True
                 _last_any_byte_at[0] = _time.monotonic()
                 _json_buf += chunk
@@ -311,5 +342,35 @@ async def test_api_hang_killed_after_hooks_only(tmp_path, monkeypatch):
 
     body = transcript.read_text()
     assert "killing wedged process" in body, f"api-hang watchdog did not fire: {body!r}"
+    assert "api-hang" in body, f"expected api-hang label, got: {body!r}"
+    assert proc._killed, "watchdog did not kill the process"
+
+
+@pytest.mark.asyncio
+async def test_periodic_hooks_do_not_prevent_api_hang_kill(tmp_path, monkeypatch):
+    """A subprocess that emits periodic hook events but no model output is still
+    killed after _STDOUT_API_HANG_LIMIT_SECONDS.
+
+    Regression for the _first_any_byte_at fix: before that fix, each hook event
+    reset _last_any_byte_at, so silent_for never exceeded the limit and agents
+    hung indefinitely while the API call was wedged.
+    """
+    monkeypatch.setattr(agents_mod, "_TRANSCRIPT_FLUSH_INTERVAL", 0.05)
+    monkeypatch.setattr(agents_mod, "_STDOUT_FIRST_BYTE_LIMIT_SECONDS", 9999.0)
+    monkeypatch.setattr(agents_mod, "_STDOUT_API_HANG_LIMIT_SECONDS", 0.3)
+    monkeypatch.setattr(agents_mod, "_STDOUT_SILENCE_LIMIT_SECONDS", 9999.0)
+
+    transcript = tmp_path / "transcript.md"
+    transcript.write_text("")
+    # Hook fires every 0.05s — much faster than the 0.3s limit, so without
+    # the fix _last_any_byte_at would reset each tick and the watchdog would
+    # never fire.
+    proc = _PeriodicHookProc(gap_s=0.05)
+
+    drain_coro = _run_drain_helper(proc, "test-periodic-hooks", transcript)
+    await asyncio.wait_for(drain_coro, timeout=3.0)
+
+    body = transcript.read_text()
+    assert "killing wedged process" in body, f"watchdog did not fire: {body!r}"
     assert "api-hang" in body, f"expected api-hang label, got: {body!r}"
     assert proc._killed, "watchdog did not kill the process"
