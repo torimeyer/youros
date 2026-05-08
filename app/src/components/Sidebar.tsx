@@ -638,7 +638,7 @@ export function Sidebar() {
         )}
       </div>
 
-      <nav className="flex flex-col gap-0.5 px-3 flex-1 overflow-y-auto">
+      <nav className="flex flex-col gap-0.5 px-3 flex-1 overflow-y-auto" data-testid="primary-nav">
         {/* Top-level items: Home, Tasks, Agents */}
         {topLevelItems.map((item) => (
           <NavLink

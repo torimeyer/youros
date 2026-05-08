@@ -3,7 +3,7 @@
  * These verify that settings changes propagate correctly across components.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { useAppStore } from '../stores/app'
 import { Layout } from '../components/Layout'
@@ -195,17 +195,16 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
   })
 
   it('Activity is not in the primary nav regardless of feature flag', () => {
-    // Activity was moved out of the sidebar into the Settings page's
-    // Developer section. Toggling the Activity feature flag no longer
-    // controls a sidebar surface, so Activity must be absent whether
-    // the flag is on or off.
+    // Activity lives in the bottom utility nav, not in the primary nav.
+    // Ensure it does not appear in the primary nav group even when enabled.
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
         f.label === 'Activity' ? { ...f, enabled: true } : f
       ),
     })
     renderSidebar()
-    expect(screen.queryByText('Activity')).not.toBeInTheDocument()
+    const primaryNav = screen.getByTestId('primary-nav')
+    expect(within(primaryNav).queryByText('Activity')).not.toBeInTheDocument()
   })
 
   it('always shows Home and Settings regardless of feature toggles', () => {
