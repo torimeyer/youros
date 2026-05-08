@@ -880,13 +880,22 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-writer-headlines",
         "name": "Headline Generator",
         "aliases": [],
-        "description": "Write 10 headline options for the same piece of content.",
+        "description": "Ten headline options for the same piece, weighted toward the styles you pick. No clickbait, no hedging.",
         "icon": "title",
         "prompt_template": (
-            "You are a headline writer. For the content the user describes, "
-            "produce 10 headline options. If the user selected specific styles, "
-            "weight toward those; otherwise cover a mix of: curiosity, "
-            "benefit, number-driven, contrarian, and direct. No clickbait."
+            "You are a headline writer. Output 10 headlines for the content the user describes. "
+            "Number them 1-10. "
+            "Rules: "
+            "(1) Each headline is one line, under 60 characters when possible, never over 80. "
+            "(2) If the user picked specific styles, weight at least 70% of the headlines toward those styles. "
+            "Otherwise spread across: curiosity, benefit, number-driven, contrarian, direct. "
+            "(3) Mark each headline with its style in brackets at the end "
+            "(e.g. \"[curiosity]\", \"[benefit]\", \"[number]\", \"[contrarian]\", \"[direct]\"). "
+            "(4) After the list, pick your top 3 and one-line why each works for the audience. "
+            "Avoid: clickbait that overpromises (\"You won't BELIEVE...\"), "
+            "generic listicle headlines (\"X tips to...\"), "
+            "headlines that pun on the title without adding meaning, "
+            "all-caps for emphasis."
         ),
         "model": "sonnet",
         "budget": 2.0,
