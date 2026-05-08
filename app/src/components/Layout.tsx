@@ -203,7 +203,9 @@ export function Layout() {
         <div className="flex-1">
           <Outlet />
         </div>
-        <Footer />
+        <div className="sticky bottom-0 bg-slate-950/95 dark:bg-slate-950/95 backdrop-blur">
+          <Footer />
+        </div>
       </main>
     </div>
   )

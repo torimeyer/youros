@@ -87,15 +87,14 @@ describe('Sidebar', () => {
     }
   })
 
-  it('Activity does not render in the sidebar by default', () => {
-    // Activity was moved out of the primary nav into the Settings page's
-    // Developer section. It must not appear in the sidebar even when all
-    // groups are expanded and every feature flag is on.
+  it('Transcripts and Activity render in the sidebar bottom utility nav', () => {
     renderSidebar()
-    expandAllGroups()
-    expect(screen.queryByText('Activity')).not.toBeInTheDocument()
+    expect(screen.getByText('Transcripts')).toBeInTheDocument()
+    expect(screen.getByText('Activity')).toBeInTheDocument()
+    const transcriptsLink = document.querySelector('a[href="/transcripts"]')
     const activityLink = document.querySelector('a[href="/activity"]')
-    expect(activityLink).toBeNull()
+    expect(transcriptsLink).not.toBeNull()
+    expect(activityLink).not.toBeNull()
   })
 
   it('sidebar shows "Usage" label for the costs nav entry', () => {

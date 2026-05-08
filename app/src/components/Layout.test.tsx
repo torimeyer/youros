@@ -77,11 +77,29 @@ describe('Layout', () => {
       expect(flexChild).toBeTruthy()
     })
 
+    it('footer is wrapped in sticky bottom-0 wrapper for viewport pinning', () => {
+      renderLayout()
+      const main = document.querySelector('main')
+      const stickyWrapper = main?.lastElementChild
+      expect(stickyWrapper?.className).toContain('sticky')
+      expect(stickyWrapper?.className).toContain('bottom-0')
+      expect(stickyWrapper?.className).toContain('bg-slate-950/95')
+      expect(stickyWrapper?.className).toContain('backdrop-blur')
+    })
+
+    it('footer is inside the sticky wrapper so it pins to viewport bottom', () => {
+      renderLayout()
+      const main = document.querySelector('main')
+      const stickyWrapper = main?.lastElementChild
+      const footer = stickyWrapper?.querySelector('[data-testid="footer"]')
+      expect(footer).toBeTruthy()
+    })
+
     it('footer is the last child of main so it always appears at the bottom', () => {
       renderLayout()
       const main = document.querySelector('main')
       const lastChild = main?.lastElementChild
-      expect(lastChild?.getAttribute('data-testid')).toBe('footer')
+      expect(lastChild?.className).toContain('sticky')
     })
 
     it('main retains min-h-dvh so the flex column spans the full viewport height', () => {

@@ -713,6 +713,30 @@ export function Sidebar() {
           <Icon name="explore" filled={iconStyle === 'filled'} className="text-lg" />
           <span className="text-xs font-medium">Tour</span>
         </button>
+        <NavLink
+          to="/transcripts"
+          onClick={() => setMobileOpen(false)}
+          className={({ isActive }) => utilLinkClass(isActive)}
+        >
+          {({ isActive }) => (
+            <>
+              <Icon name="record_voice_over" filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
+              <span className="text-xs font-medium">Transcripts</span>
+            </>
+          )}
+        </NavLink>
+        <NavLink
+          to="/activity"
+          onClick={() => setMobileOpen(false)}
+          className={({ isActive }) => utilLinkClass(isActive)}
+        >
+          {({ isActive }) => (
+            <>
+              <Icon name="history" filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
+              <span className="text-xs font-medium">Activity</span>
+            </>
+          )}
+        </NavLink>
         {TEAM_MODE_VISIBLE && instanceMode === 'team' && enterpriseUser?.role === 'admin' && (
           <AdminSection
             linkClass={linkClass}
