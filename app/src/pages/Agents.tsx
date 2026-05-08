@@ -2374,6 +2374,10 @@ export default function Agents() {
   const [editorSource, setEditorSource] = useState<string | undefined>(undefined);
   const [editorAliases, setEditorAliases] = useState<string[] | undefined>(undefined);
   const [editorUserInputs, setEditorUserInputs] = useState<UserInput[] | undefined>(undefined);
+  // Full marketplace catalog — all builtin marketplace templates with user_inputs.
+  // Used to look up user_inputs when spawning a marketplace-installed template
+  // that is not in the current persona's pmTemplates list.
+  const [marketplaceCatalog, setMarketplaceCatalog] = useState<PMAgentTemplate[]>([]);
 
   // Custom templates live on the server via the app store. localStorage
   // is only a first paint cache.
@@ -2570,6 +2574,15 @@ export default function Agents() {
       writeTemplatesCache(USER_TEMPLATES_CACHE_KEY, list);
     } catch {
       // keep empty
+    }
+  };
+
+  const fetchMarketplaceCatalog = async () => {
+    try {
+      const data = await api.get<PMTemplatesResponse>("/agents/pm-templates/marketplace");
+      setMarketplaceCatalog(data.templates || []);
+    } catch {
+      // keep empty — displayTemplates handler falls back to undefined
     }
   };
 
@@ -3017,6 +3030,7 @@ export default function Agents() {
     fetchTemplates();
     fetchPersonaTemplates();
     fetchUserTemplates();
+    fetchMarketplaceCatalog();
 
     // Poll for agent updates every 2 seconds so status changes
     // (running -> completed) propagate quickly without a page reload.
@@ -4469,7 +4483,15 @@ export default function Agents() {
                   setEditorTemplateId(tpl.templateId);
                   setEditorSource(tpl.isBuiltIn ? "builtin" : (tpl.source ?? "custom"));
                   setEditorAliases(tpl.aliases);
-                  setEditorUserInputs(undefined);
+                  // Look up user_inputs from all known sources: persona templates,
+                  // user templates, and the full marketplace catalog. Marketplace-
+                  // installed templates that fall outside the current persona would
+                  // otherwise always get undefined here, showing the generic textarea.
+                  const allKnown = [...pmTemplates, ...userTemplates, ...marketplaceCatalog];
+                  const matchedTpl = allKnown.find(
+                    (m) => m.name.toLowerCase().trim() === tpl.name.toLowerCase().trim()
+                  );
+                  setEditorUserInputs(matchedTpl?.user_inputs);
                   setEditorOpen(true);
                 } : undefined}
                 actionLabel="Use"

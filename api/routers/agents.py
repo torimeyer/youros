@@ -532,7 +532,7 @@ MAILBOX_SLOW_POLL_SECONDS = 60
 MAILBOX_CHECK_INTERVAL_SECONDS = MAILBOX_SLOW_POLL_SECONDS
 
 
-def agent_mailbox_instruction_short(agent_name: str) -> str:
+def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> str:
     """Return a compact mailbox block for fast-spawning agents.
 
     The long ``agent_mailbox_instruction`` block is ~4 KB of instructions
@@ -554,7 +554,7 @@ def agent_mailbox_instruction_short(agent_name: str) -> str:
     # end" cue survives.
     ct = "-H 'Content-Type: application/json'"
     register_body = (
-        '{"name":"' + agent_name + '","status":"running",'
+        '{"name":"' + agent_name + '","model":"' + model + '","status":"running",'
         '"task":"<one line>","source":"claude-code"}'
     )
     heartbeat_body = '{"step":"<now>"}'
@@ -589,7 +589,7 @@ def agent_mailbox_instruction_short(agent_name: str) -> str:
     )
 
 
-def agent_mailbox_instruction(agent_name: str) -> str:
+def agent_mailbox_instruction(agent_name: str, model: str = "sonnet") -> str:
     """Return the standard mailbox checking prompt block for a spawned agent.
 
     Every Claude Code subagent spawned by the orchestrator must have
@@ -631,7 +631,7 @@ def agent_mailbox_instruction(agent_name: str) -> str:
         "in the Agents page:\n"
         f"   `curl -sSk -X POST https://127.0.0.1:8000/api/agents/register "
         "-H 'Content-Type: application/json' "
-        f"-d '{{\"name\": \"{agent_name}\", \"model\": \"sonnet\", \"budget\": 5, \"task\": \"<one line description of your task>\", \"source\": \"claude-code\"}}'`\n\n"
+        f"-d '{{\"name\": \"{agent_name}\", \"model\": \"{model}\", \"budget\": 5, \"task\": \"<one line description of your task>\", \"source\": \"claude-code\"}}'`\n\n"
         f"### Heartbeat (every {slow} seconds, CRITICAL for long tasks)\n\n"
         "The Agents page marks you as stopped if it does not hear from "
         f"you for more than {STALE_AGENT_TIMEOUT_SECONDS} seconds (15 min). "
@@ -4955,7 +4955,7 @@ async def register_agent(body: AgentSpawn, request: Request = None):
             detail="register requires source (e.g. 'claude-code')",
         )
 
-    model = MODEL_MAP.get(body.model, body.model)
+    resolved_model = MODEL_MAP.get(body.model, body.model)
     # Default status to "running" so newly registered agents appear in the UI
     # immediately. Callers may pass an explicit status to override.
     status = body.status or "running"
@@ -5081,6 +5081,12 @@ async def register_agent(body: AgentSpawn, request: Request = None):
             ),
         )
 
+    # When an agent was REST-spawned (has a pid), preserve the spawn-time model
+    # rather than letting the agent's own /register call overwrite it. The
+    # mailbox template used to hardcode "sonnet", so old agents would overwrite
+    # haiku/opus spawn-time assignments on first register.
+    spawn_time_model = existing.get("model") if existing.get("pid") else None
+    model = spawn_time_model or resolved_model
     record: dict = {
         "spawned_at": spawned_at,
         "budget": str(body.budget),

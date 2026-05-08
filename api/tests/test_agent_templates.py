@@ -2179,6 +2179,64 @@ def test_marketplace_listing_includes_all_wave_8_specialty_templates(store):
         )
 
 
+def test_marketplace_every_template_has_user_inputs(store):
+    """→1039 regression: every template returned by list_marketplace() must have
+    at least one user_inputs entry so the spawn modal shows structured fields.
+
+    The bug: marketplace-installed templates shown in the displayTemplates grid
+    (templates not in the current persona's persona-templates list) previously
+    always received setEditorUserInputs(undefined), forcing the generic textarea.
+    The fix fetches the full marketplace catalog and looks up user_inputs at
+    spawn time. This test guards the data layer: if any template loses its
+    user_inputs, the frontend fix cannot help.
+    """
+    marketplace = store.list_marketplace()
+    assert marketplace, "list_marketplace() returned an empty list"
+    for t in marketplace:
+        inputs = t.get("user_inputs", [])
+        assert isinstance(inputs, list) and len(inputs) > 0, (
+            f"→1039: '{t['name']}' has no user_inputs — "
+            "spawn modal will fall back to the generic textarea"
+        )
+        assert any(i.get("required") for i in inputs), (
+            f"→1039: '{t['name']}' has user_inputs but none are required — "
+            "spawn modal will not show the structured fields correctly"
+        )
+
+
+KNOWN_DEEP_TEMPLATES_WITH_INPUTS = {
+    "Refactor Plan": ["code", "goal"],
+    "Cold Outreach Draft": ["prospect", "value_prop", "stage"],
+    "Write Tests": ["code", "framework"],
+    "Interactive Debug": ["error", "urgency"],
+    "PRD": ["idea", "user", "stage"],
+    "Competitive Scan": ["area", "competitors"],
+    "Customer Interview Notes": ["transcript", "goal"],
+    "Launch Checklist": ["feature", "launch_type"],
+    "Stakeholder Update": ["notes", "audience"],
+    "Prospect Research": ["company", "contact"],
+}
+
+
+def test_known_deep_templates_have_expected_input_keys(store):
+    """→1039 regression: spot-check that specific deep-rewritten templates have
+    the input keys the spawn modal renders. Catches accidental user_inputs wipe
+    during future prompt rewrites.
+    """
+    all_templates = {t["name"]: t for t in store.list_marketplace()}
+    all_templates.update({t["name"]: t for t in BUILTIN_AGENT_TEMPLATES})
+
+    for name, expected_keys in KNOWN_DEEP_TEMPLATES_WITH_INPUTS.items():
+        tpl = all_templates.get(name)
+        assert tpl is not None, f"→1039: template '{name}' not found in store"
+        actual_keys = {i["key"] for i in tpl.get("user_inputs", [])}
+        for key in expected_keys:
+            assert key in actual_keys, (
+                f"→1039: '{name}' missing expected input key '{key}'. "
+                f"Got keys: {sorted(actual_keys)}"
+            )
+
+
 def test_marketplace_listing_count_for_fresh_store(store):
     """A fresh store (no installs) returns all default-uninstalled marketplace templates.
 
