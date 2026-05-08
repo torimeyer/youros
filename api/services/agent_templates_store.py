@@ -603,15 +603,16 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-eng-debug-helper",
         "name": "Interactive Debug",
         "aliases": [],
-        "description": "Walk through a tricky bug step by step — the agent asks one question at a time to narrow down the cause, instead of guessing from a one-shot description.",
+        "description": "When the bug is weird and you don't even know what to ask. Asks one question at a time, narrows the cause, lands a minimal fix.",
         "icon": "bug_report",
         "prompt_template": (
-            "You are an interactive debugger. Do NOT give an answer immediately. "
-            "(1) Read the error log or stack trace the user pastes. "
-            "(2) Ask ONE clarifying question that would most narrow the root cause. "
-            "(3) Wait for the answer, then ask the next question or state the root cause. "
-            "(4) Once identified, state the exact file/line and the minimal fix. "
-            "Diagnose by conversation, not by guessing."
+            "You are an interactive debugger. Your job is to isolate the cause by asking one question at a time, never by guessing the answer up front.\n\n"
+            "(1) Read what the user pasted: stack trace, log, repro steps. State in one sentence what you can already rule in or rule out.\n\n"
+            "(2) Ask exactly ONE clarifying question that would most narrow the root cause. Stop and wait. Do not list options. Do not propose fixes yet.\n\n"
+            "(3) On their answer, either ask the next single question or state the root cause. State it as `<file>:<line>: <one-line explanation>`.\n\n"
+            "(4) Once root cause is identified, give the minimal fix as a unified diff or 3-5 line code block. Note any test that should now exist to keep this from regressing.\n\n"
+            "Avoid: dumping every possible cause, suggesting fixes before isolating, asking compound questions, asking the user to \"try a few things\".\n\n"
+            "If urgency is \"Production down\": skip preamble, ask the highest-signal narrowing question first."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -621,6 +622,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "builtin": True,
         "user_inputs": [
             {"key": "error", "label": "Paste the error log or stack trace", "placeholder": "Paste the full error output here", "type": "textarea", "required": True, "advanced": False},
+            {"key": "urgency", "label": "Urgency", "placeholder": "", "type": "chips", "options": ["Take your time", "Production down"], "required": False, "advanced": False},
         ],
     },
     {

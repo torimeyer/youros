@@ -1658,8 +1658,10 @@ def test_wave_a_descriptions_are_specific():
     )
 
     debug_helper = by_id["builtin-eng-debug-helper"]
-    assert "step by step" in debug_helper["description"].lower(), (
-        "debug-helper description must contain 'step by step'"
+    desc = debug_helper["description"].lower()
+    assert "one question" in desc or "step by step" in desc, (
+        "debug-helper description must convey conversational narrowing "
+        "(e.g. 'one question at a time' or 'step by step')"
     )
 
     competitive_scan = by_id["builtin-pm-competitive-scan"]
