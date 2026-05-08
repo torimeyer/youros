@@ -519,6 +519,14 @@ _TRANSCRIPT_FLUSH_INTERVAL: float = 30.0
 # tests via monkeypatch to keep suites fast.
 _STDOUT_SILENCE_LIMIT_SECONDS: float = 300.0
 
+# Tighter startup limit: if a subprocess has never produced any stdout,
+# kill it much sooner. A subprocess hanging before its first byte is
+# almost always wedged at API startup (rate-limit, auth delay, TLS
+# stall) rather than doing legitimate thinking. 45s is long enough for
+# slow cold starts but short enough that users aren't stuck staring at
+# a spinner for 5 minutes before a clean retry.
+_STDOUT_FIRST_BYTE_LIMIT_SECONDS: float = 45.0
+
 # Adaptive poll constants: agents start polling fast right after a
 # nudge (when Tori is most likely to iterate) and back off toward the
 # slow cap during quiet stretches. This gives sub-15-second latency
@@ -4389,17 +4397,19 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     # silently (model never streamed first token) and the
                     # only signal is the heartbeats this loop writes.
                     silent_for = time.monotonic() - _last_stdout_at[0]
-                    if silent_for > _STDOUT_SILENCE_LIMIT_SECONDS:
+                    limit = _STDOUT_SILENCE_LIMIT_SECONDS if _had_real_content else _STDOUT_FIRST_BYTE_LIMIT_SECONDS
+                    if silent_for > limit:
                         try:
+                            hang_kind = "mid-stream" if _had_real_content else "startup (no first byte)"
                             with open(str(tpath), "a") as fh:
                                 fh.write(
                                     f"\nAgent '{name}' subprocess silent for "
-                                    f"{int(silent_for)}s with no stdout - "
+                                    f"{int(silent_for)}s ({hang_kind}) - "
                                     f"killing wedged process.\n"
                                 )
                             logger.warning(
-                                "spawn.silent_kill name=%s silent_s=%.0f",
-                                name, silent_for,
+                                "spawn.silent_kill name=%s silent_s=%.0f hang_kind=%s",
+                                name, silent_for, hang_kind,
                             )
                             p.kill()
                         except Exception:

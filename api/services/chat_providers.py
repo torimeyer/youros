@@ -1037,6 +1037,34 @@ async def _send_friendly_anthropic_error(
         pass
 
 
+# Smaller Claude model used as an automatic fallback when Sonnet returns 429.
+_ANTHROPIC_FALLBACK_MODEL = "claude-haiku-4-5-20251001"
+
+
+async def _handle_anthropic_rate_limit(
+    chat_service_instance: "ChatService",
+    messages: list[dict],
+    websocket: WebSocket,
+) -> str:
+    """Handle a 429 rate-limit from Anthropic by retrying with a smaller model.
+
+    Sends a ``provider_fallback`` notice so the chat panel can show a
+    brief inline status, then re-runs the request with Haiku.
+    """
+    try:
+        await websocket.send_json({
+            "type": "provider_fallback",
+            "from": "claude-sonnet",
+            "to": "claude-haiku",
+            "reason": "Claude Sonnet is busy right now. Switching to Claude Haiku for this message.",
+        })
+    except Exception:
+        pass
+    return await chat_service_instance.stream_anthropic(
+        messages, websocket, _fallback_model=_ANTHROPIC_FALLBACK_MODEL
+    )
+
+
 
 def _messages_contain_images(messages: list[dict]) -> bool:
     """True if any message has an image block in its content.
@@ -1982,7 +2010,7 @@ _anthropic_log = logging.getLogger("myos.chat.anthropic")
 
 
 class ChatService:
-    async def stream_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "", disable_tools: bool = False, force_api: bool = False) -> str:
+    async def stream_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "", disable_tools: bool = False, force_api: bool = False, _fallback_model: Optional[str] = None) -> str:
         # Run template matching up front so both backends pick up any
         # matched helper. The matcher itself uses the API key when one is
         # available, but it also handles the no-key case gracefully.
@@ -2078,7 +2106,7 @@ class ChatService:
             labeled = _strip_tool_blocks_from_messages(labeled)
         cached_messages = _add_conversation_prefix_cache(labeled)
         stream_kwargs: dict = {
-            "model": "claude-sonnet-4-20250514",
+            "model": _fallback_model or "claude-sonnet-4-20250514",
             "max_tokens": 4096,
             "messages": cached_messages,
         }
@@ -2241,14 +2269,23 @@ class ChatService:
                 topic=_extract_chat_topic(messages),
             )
         except anthropic.APIStatusError as e:
-            status = getattr(e, "status_code", None)
-            if status is not None and 500 <= int(status) < 600:
+            http_status = getattr(e, "status_code", None)
+            if http_status is not None and 500 <= int(http_status) < 600:
                 # Retries were already attempted inside
                 # ``_anthropic_retry_call``. Surface a plain-language
                 # error instead of the raw JSON body.
                 await _send_friendly_anthropic_error(websocket, e)
+            elif http_status is not None and int(http_status) == 429:
+                if _fallback_model:
+                    # Already running on the fallback model. Don't recurse.
+                    await websocket.send_json({
+                        "type": "error",
+                        "data": "Claude is at capacity right now. Try again in a moment.",
+                    })
+                else:
+                    full_text = await _handle_anthropic_rate_limit(self, messages, websocket)
             else:
-                # 4xx: show the real error text so the user can fix it
+                # Other 4xx: show the real error so the user can fix it
                 # (bad key, unknown model, bad input, etc.).
                 await websocket.send_json({"type": "error", "data": str(e)})
         except (anthropic.APIConnectionError, anthropic.APITimeoutError) as e:
@@ -2583,14 +2620,17 @@ class ChatService:
             # Loop exits naturally when Claude responds with text only (no tool calls)
 
         except anthropic.APIStatusError as e:
-            status = getattr(e, "status_code", None)
-            if status is not None and 500 <= int(status) < 600:
+            http_status = getattr(e, "status_code", None)
+            if http_status is not None and 500 <= int(http_status) < 600:
                 # Retries were already attempted inside
                 # ``_anthropic_retry_call``. Surface a plain-language
                 # error instead of the raw JSON body.
                 await _send_friendly_anthropic_error(websocket, e)
+            elif http_status is not None and int(http_status) == 429:
+                # Rate-limited. Try Gemini if a key is available.
+                return await _handle_anthropic_rate_limit(self, messages, websocket)
             else:
-                # 4xx: real bug in the request. Show the actual error so
+                # Other 4xx: real bug in the request. Show the actual error so
                 # the user can fix it (bad key, bad input, etc.).
                 await websocket.send_json({"type": "error", "data": str(e)})
             return ""

@@ -4102,3 +4102,140 @@ class TestBackendActiveBeforeTemplateMatching:
             "backend_active must be sent before _maybe_match_template for roadmap prompts; "
             f"messages at matcher call time: {snap_types}"
         )
+
+
+# ---------------------------------------------------------------------------
+# TestAnthropicRateLimitFallback (→1052)
+# ---------------------------------------------------------------------------
+
+class _FakeStreamCM:
+    """Async context manager that either raises or yields text tokens."""
+
+    def __init__(self, exc_or_text):
+        self._exc_or_text = exc_or_text
+
+    async def __aenter__(self):
+        if isinstance(self._exc_or_text, Exception):
+            raise self._exc_or_text
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    @property
+    def text_stream(self):
+        text = self._exc_or_text
+        async def _gen():
+            yield text
+        return _gen()
+
+    async def get_final_message(self):
+        m = MagicMock()
+        m.usage.input_tokens = 3
+        m.usage.output_tokens = 5
+        m.usage.cache_creation_input_tokens = 0
+        m.usage.cache_read_input_tokens = 0
+        return m
+
+
+def _make_fake_client(stream_results: list):
+    """Build a fake Anthropic client whose messages.stream cycles through stream_results."""
+    call_count = [0]
+
+    def _stream_factory(**kwargs):
+        idx = call_count[0]
+        call_count[0] += 1
+        val = stream_results[min(idx, len(stream_results) - 1)]
+        return _FakeStreamCM(val if isinstance(val, Exception) else val)
+
+    fake_client = MagicMock()
+    fake_client.messages.stream.side_effect = _stream_factory
+    return fake_client, call_count
+
+
+class TestAnthropicRateLimitFallback:
+    """Tests for the 429 rate-limit automatic fallback to Haiku (→1052)."""
+
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self):
+        with patch("services.chat_providers.asyncio.sleep", new=AsyncMock(return_value=None)):
+            yield
+
+    @pytest.fixture
+    def websocket(self):
+        return FakeWebSocket()
+
+    def _common_patches(self, fake_client):
+        return [
+            patch("services.chat_providers._resolve_chat_backend", new=AsyncMock(return_value="anthropic_api")),
+            patch("services.chat_providers._resolve_api_key", new=AsyncMock(return_value="test-key")),
+            patch("services.chat_providers._maybe_match_template", new=AsyncMock(return_value=None)),
+            patch("services.chat_providers._get_anthropic_client", return_value=fake_client),
+            patch("services.chat_providers.safe_record_chat_turn"),
+            patch("services.chat_providers._log_chat_completion"),
+            patch("services.chat_providers._ANTHROPIC_HEARTBEAT_INTERVAL_S", 9999),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_429_triggers_fallback_to_haiku(self, websocket):
+        """Sonnet 429 sends provider_fallback and retries with Haiku model."""
+        from services.chat_providers import _ANTHROPIC_FALLBACK_MODEL
+
+        fake_client, call_count = _make_fake_client([
+            _make_api_status_error(429),
+            "haiku reply",
+        ])
+        messages = [{"role": "user", "content": "hello"}]
+
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            for p in self._common_patches(fake_client):
+                stack.enter_context(p)
+            await ChatService().stream_anthropic(messages, websocket)
+
+        fallbacks = websocket.get_messages_of_type("provider_fallback")
+        assert len(fallbacks) == 1, f"expected 1 provider_fallback, got {fallbacks}"
+        assert fallbacks[0]["to"] == "claude-haiku"
+
+        assert call_count[0] == 2, f"expected 2 stream calls, got {call_count[0]}"
+        second_kwargs = fake_client.messages.stream.call_args_list[1][1]
+        assert second_kwargs.get("model") == _ANTHROPIC_FALLBACK_MODEL, (
+            f"second call should use Haiku, got {second_kwargs.get('model')}"
+        )
+        assert not websocket.get_messages_of_type("error")
+
+    @pytest.mark.asyncio
+    async def test_haiku_also_rate_limited_shows_capacity_error(self, websocket):
+        """If Haiku also 429s, show friendly error and stop (no recursion)."""
+        fake_client, call_count = _make_fake_client([
+            _make_api_status_error(429),
+            _make_api_status_error(429),
+        ])
+        messages = [{"role": "user", "content": "hello"}]
+
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            for p in self._common_patches(fake_client):
+                stack.enter_context(p)
+            await ChatService().stream_anthropic(messages, websocket)
+
+        errors = websocket.get_messages_of_type("error")
+        assert len(errors) == 1
+        msg = errors[0]["data"].lower()
+        assert "capacity" in msg or "busy" in msg, f"unexpected error text: {errors[0]['data']}"
+        assert call_count[0] <= 2, f"recursion detected: {call_count[0]} stream calls"
+
+    @pytest.mark.asyncio
+    async def test_happy_path_does_not_fall_back(self, websocket):
+        """Successful Sonnet response must not trigger provider_fallback."""
+        fake_client, call_count = _make_fake_client(["all good"])
+        messages = [{"role": "user", "content": "hello"}]
+
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            for p in self._common_patches(fake_client):
+                stack.enter_context(p)
+            await ChatService().stream_anthropic(messages, websocket)
+
+        assert not websocket.get_messages_of_type("provider_fallback")
+        assert call_count[0] == 1

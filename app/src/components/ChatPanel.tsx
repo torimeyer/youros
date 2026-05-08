@@ -1126,6 +1126,18 @@ export function ChatPanel() {
         }
         return updated
       })
+    } else if (lastMessage.type === 'provider_fallback') {
+      // Anthropic returned 429 (rate-limited) and we switched to Gemini.
+      // Show a small inline notice above the incoming response.
+      setMessages(prev => [
+        ...prev,
+        {
+          id: genId(),
+          role: 'system' as const,
+          content: `Switched to Claude Haiku (Claude Sonnet is busy)`,
+          model: '',
+        },
+      ])
     } else if (lastMessage.type === 'model_boundary') {
       setMessages(prev => {
         const last = prev[prev.length - 1]
