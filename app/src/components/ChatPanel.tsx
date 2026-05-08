@@ -42,6 +42,13 @@ const MODEL_COLORS: Record<string, string> = {
   gemini: 'text-emerald-400',
 }
 
+type ClaudeTier = 'haiku' | 'sonnet' | 'opus'
+const CLAUDE_TIER_LABELS: Record<ClaudeTier, string> = {
+  haiku: 'Haiku',
+  sonnet: 'Sonnet',
+  opus: 'Opus',
+}
+
 const MODEL_BG: Record<string, string> = {
   claude: 'bg-blue-500/10 border-blue-500/30',
   gemini: 'bg-emerald-500/10 border-emerald-500/30',
@@ -558,6 +565,15 @@ export function ChatPanel() {
   // When the user submits a peer-chat intent prompt, we defer dispatch here
   // and show the turns picker first. Cleared after the user picks turns.
   const [pendingPeerChatText, setPendingPeerChatText] = useState<string | null>(null)
+
+  // In-chat Claude model tier switcher (→1065). Persists for the session.
+  const [claudeTier, setClaudeTier] = useState<ClaudeTier>(() => {
+    try { return (sessionStorage.getItem('chatClaudeTier') as ClaudeTier) || 'sonnet' } catch { return 'sonnet' }
+  })
+  const handleSetClaudeTier = (t: ClaudeTier) => {
+    setClaudeTier(t)
+    try { sessionStorage.setItem('chatClaudeTier', t) } catch { /* ignore */ }
+  }
 
   // Id of the assistant bubble currently receiving streaming tokens.
   // During a single-model reply this stays null so the token handler
@@ -1737,6 +1753,8 @@ export function ChatPanel() {
       // All pill: when sideBySideEnabled is on, fan out to Claude
       // AND Gemini in parallel on the backend.
       side_by_side: sideBySideEnabled,
+      // Claude tier selection (→1065): haiku / sonnet / opus
+      claude_tier: claudeTier,
     })
   }
 
@@ -2652,6 +2670,27 @@ export function ChatPanel() {
               </span>
             )}
           </button>
+          {/* Claude tier switcher (→1065) — only visible when Claude is active */}
+          {!sideBySideEnabled && defaultChatModel === 'claude' && (
+            <div className="flex items-center gap-0.5 shrink-0" data-testid="claude-tier-switcher">
+              {(Object.entries(CLAUDE_TIER_LABELS) as [ClaudeTier, string][]).map(([tier, label]) => (
+                <button
+                  key={tier}
+                  onClick={() => handleSetClaudeTier(tier)}
+                  data-testid={`claude-tier-${tier}`}
+                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                    claudeTier === tier
+                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                      : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                  }`}
+                  title={`Use Claude ${label}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="relative flex-1">
             <TackAutocomplete inputValue={input} onSelect={(s) => setInput(s)} keyHandlerRef={tackKeyHandlerRef} />
             <input
