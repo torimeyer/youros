@@ -4035,3 +4035,70 @@ class TestBackendActiveBeforeTemplateMatching:
             "backend_active must be sent before _maybe_match_template is called; "
             f"messages at matcher call time: {snap_types}"
         )
+
+    @pytest.mark.asyncio
+    async def test_roadmap_prompt_sends_backend_active_before_template_matched(self, websocket):
+        """→1048: roadmap-style prompt must get backend_active before _maybe_match_template.
+
+        'build me a 3 year roadmap for myOS' goes through agent_anthropic (tools=True
+        from the frontend). The →1043 fix moved _send_backend_active before
+        _maybe_match_template in that function; this test verifies the ordering holds
+        specifically for roadmap content so the fix cannot regress silently.
+        """
+        from services.chat_providers import ChatService
+
+        service = ChatService()
+        snapshot: list = []
+
+        matched = {
+            "name": "Roadmap",
+            "description": "Draft a multi-year roadmap",
+            "prompt": "You are a senior PM...",
+            "_match_reason": "keyword",
+        }
+
+        async def fake_match(messages, ws, api_key):
+            snapshot.extend(ws.messages)
+            return matched
+
+        fake_response = MagicMock()
+        fake_response.stop_reason = "end_turn"
+        fake_response.content = []
+        fake_response.usage.input_tokens = 1
+        fake_response.usage.output_tokens = 1
+
+        fake_client = MagicMock()
+        fake_client.messages.create = AsyncMock(return_value=fake_response)
+        fake_client.beta = MagicMock()
+        fake_client.beta.messages = MagicMock()
+        fake_client.beta.messages.create = AsyncMock(return_value=fake_response)
+
+        with patch(
+            "services.chat_providers._resolve_chat_backend",
+            new=AsyncMock(return_value="anthropic_api"),
+        ), patch(
+            "services.chat_providers._resolve_api_key",
+            new=AsyncMock(return_value="test-key"),
+        ), patch(
+            "services.chat_providers._maybe_match_template",
+            side_effect=fake_match,
+        ), patch(
+            "services.chat_providers._get_anthropic_client",
+            return_value=fake_client,
+        ), patch(
+            "services.chat_providers.settings_store"
+        ) as mock_settings:
+            mock_settings.get.side_effect = lambda key, default=None: (
+                [] if key == "mcp_servers" else default
+            )
+
+            await service.agent_anthropic(
+                [{"role": "user", "content": "build me a 3 year roadmap for myOS"}],
+                websocket,
+            )
+
+        snap_types = [m["type"] for m in snapshot]
+        assert "backend_active" in snap_types, (
+            "backend_active must be sent before _maybe_match_template for roadmap prompts; "
+            f"messages at matcher call time: {snap_types}"
+        )

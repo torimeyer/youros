@@ -13,6 +13,8 @@ from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSock
 from services.chat_history_store import chat_history_store
 from services.chat_providers import (
     MULTI_AI_DEFAULT_ROUNDS,
+    _resolve_chat_backend,
+    _send_backend_active,
     chat_service,
     route_provider,
     stream_group_broadcast,
@@ -1204,6 +1206,19 @@ async def chat_websocket(websocket: WebSocket):
                 handled = await _handle_slash_command(last_text.strip(), websocket)
                 if handled:
                     continue
+
+            # Clear the 30s dead-backend timer BEFORE any blocking work.
+            # build_baseline_context (ostk.list_tasks) and image transforms can
+            # stall for seconds when the task list is large (e.g. after a roadmap
+            # build that created many tasks). Sending backend_active here means
+            # the timer is cleared regardless of which provider path follows,
+            # including the roadmap path that previously bypassed agent_anthropic
+            # and stream_anthropic's own backend_active sends.
+            try:
+                _early_backend = await _resolve_chat_backend()
+                await _send_backend_active(websocket, _early_backend)
+            except Exception:
+                pass
 
             use_tools = data.get("tools", False)
             mentioned_models = parse_mentions(last_text)
