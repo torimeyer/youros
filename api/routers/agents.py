@@ -4614,6 +4614,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         )
         agent_metadata[body.name] = spawn_meta
         _save_agent_state()
+        _fire_delta(body.name, "running")
 
         # Log to audit
         try:

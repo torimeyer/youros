@@ -13018,3 +13018,93 @@ async def test_spawn_health_gate_passes_healthy_loop(tmp_path, monkeypatch):
     finally:
         agent_metadata.pop(agent_name, None)
         active_agents.pop(agent_name, None)
+
+
+@pytest.mark.asyncio
+async def test_template_spawn_appears_in_running_snapshot(tmp_path, monkeypatch):
+    """Template-spawned agents must appear in _compute_running_snapshot immediately after spawn.
+
+    Before the fix: spawn_agent wrote agent_metadata but never called
+    _fire_delta. The WS snapshot was only recomputed on the NEXT
+    unrelated event (heartbeat, complete, etc.). While waiting for that
+    event the frontend's runningAgentNames set did not include the new
+    agent, so the Active panel's ``runningAgentNames.has(name)`` check
+    returned false and the row stayed invisible.
+
+    The fix adds _fire_delta(body.name, "running") inside spawn_agent
+    right after _save_agent_state(). This test asserts the agent is in
+    the snapshot the moment spawn returns.
+    """
+    from routers import agents as agents_module
+    from routers.agents import (
+        _compute_running_snapshot,
+        active_agents,
+        agent_metadata,
+    )
+
+    class _FakeStdin:
+        def __init__(self):
+            self._closed = False
+
+        def write(self, data):
+            pass
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            self._closed = True
+
+        def is_closing(self) -> bool:
+            return self._closed
+
+    class _FakeProc:
+        pid = 424242
+        returncode = None
+
+        def __init__(self):
+            self.stdin = _FakeStdin()
+
+    async def _fake_create_subprocess_exec(*args, **kwargs):
+        return _FakeProc()
+
+    async def _noop_run(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        agents_module.asyncio,
+        "create_subprocess_exec",
+        _fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(agents_module.ostk, "_run", _noop_run)
+
+    agent_name = "template-snapshot-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "Run the Roadmap template.",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "source": "ui",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+
+        snapshot = _compute_running_snapshot()
+        running_names = {a["name"] for a in snapshot.get("agents", [])}
+        assert agent_name in running_names, (
+            f"Template-spawned agent '{agent_name}' must appear in the WS running "
+            f"snapshot immediately after spawn. Got names: {sorted(running_names)}. "
+            "This means the Active Agents panel would not show it until the next "
+            "unrelated WS event fired (heartbeat, complete, etc.)."
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
