@@ -2010,7 +2010,7 @@ _anthropic_log = logging.getLogger("myos.chat.anthropic")
 
 
 class ChatService:
-    async def stream_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "", disable_tools: bool = False, force_api: bool = False, _fallback_model: Optional[str] = None) -> str:
+    async def stream_anthropic(self, messages: list[dict], websocket: WebSocket, tab_id: str = "", disable_tools: bool = False, force_api: bool = False, _fallback_model: Optional[str] = None, claude_tier: str = "") -> str:
         # Run template matching up front so both backends pick up any
         # matched helper. The matcher itself uses the API key when one is
         # available, but it also handles the no-key case gracefully.
@@ -2105,8 +2105,14 @@ class ChatService:
         if disable_tools:
             labeled = _strip_tool_blocks_from_messages(labeled)
         cached_messages = _add_conversation_prefix_cache(labeled)
+        _CLAUDE_TIER_MODELS = {
+            "haiku": "claude-haiku-4-5-20251001",
+            "sonnet": "claude-sonnet-4-6",
+            "opus": "claude-opus-4-7",
+        }
+        _model_id = _fallback_model or _CLAUDE_TIER_MODELS.get(claude_tier, "claude-sonnet-4-6")
         stream_kwargs: dict = {
-            "model": _fallback_model or "claude-sonnet-4-20250514",
+            "model": _model_id,
             "max_tokens": 4096,
             "messages": cached_messages,
         }

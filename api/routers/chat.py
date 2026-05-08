@@ -624,7 +624,7 @@ async def build_calendar_context() -> str:
         return ""
 
 
-async def call_model(provider: str, messages: list[dict], websocket: WebSocket, label: str = "", use_tools: bool = False, tab_id: str = ""):
+async def call_model(provider: str, messages: list[dict], websocket: WebSocket, label: str = "", use_tools: bool = False, tab_id: str = "", claude_tier: str = ""):
     """Call a single model and stream the response, returning the full text."""
     if label:
         await websocket.send_json({"type": "model_label", "data": label})
@@ -681,7 +681,7 @@ async def call_model(provider: str, messages: list[dict], websocket: WebSocket, 
             if use_tools:
                 full_text = await chat_service.agent_anthropic(messages, websocket, tab_id=tab_id)
             else:
-                full_text = await chat_service.stream_anthropic(messages, websocket, tab_id=tab_id)
+                full_text = await chat_service.stream_anthropic(messages, websocket, tab_id=tab_id, claude_tier=claude_tier)
         elif provider == "gemini":
             full_text = await chat_service.stream_gemini(messages, websocket)
         else:
@@ -1330,6 +1330,7 @@ async def chat_websocket(websocket: WebSocket):
             # Inject prior conversation memory so the AI can reference
             # what the user talked about in their last chat tab.
             tab_id = data.get("tab_id", "")
+            claude_tier = data.get("claude_tier", "")
             memory_msgs = build_memory_context(current_tab_id=tab_id)
             if memory_msgs:
                 messages = memory_msgs + messages
@@ -1508,7 +1509,7 @@ async def chat_websocket(websocket: WebSocket):
                         except Exception:
                             pass
                     label = model.capitalize() if len(mentioned_models) > 0 else ""
-                    await call_model(model, messages, tracked_ws, label=label, use_tools=use_tools, tab_id=tab_id)
+                    await call_model(model, messages, tracked_ws, label=label, use_tools=use_tools, tab_id=tab_id, claude_tier=claude_tier)
             except WebSocketDisconnect:
                 raise
             except BaseException as exc:
