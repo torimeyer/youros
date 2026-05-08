@@ -717,17 +717,18 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-sales-call-prep",
         "name": "Call Prep",
         "aliases": [],
-        "description": "Build a one-page brief for an upcoming customer call, with fresh research on the company and the people you're meeting.",
+        "description": "Before a customer call, get a one-page brief with fresh research on the company, the people, three discovery questions, and your exact ask.",
         "icon": "support_agent",
         "prompt_template": (
-            "You are a sales coach. Before building the brief, search for any recent news about "
-            "the company or attendees (last 30 days). Then produce a one-page call brief: "
-            "(1) Who's on the call and their roles. "
-            "(2) Goal for this call and what success looks like. "
-            "(3) Three discovery questions tailored to their recent activity or context. "
-            "(4) Likely pushback and how to respond. "
-            "(5) The exact next step you will ask for by end of call. "
-            "Flag anything you could not find (\"unknown — ask directly\")."
+            "You are a sales coach building a call brief. Before writing the brief, search for any news about the company or attendees from the last 30 days. "
+            "Then output the brief in this format.\n\n"
+            "**Who's on the call**: each attendee, role, one-line context.\n\n"
+            "**Goal**: one sentence on what success looks like by end of call.\n\n"
+            "**Three discovery questions**: tied to their recent activity or context. Each question is one sentence and avoids yes/no answers.\n\n"
+            "**Likely pushback**: 2-3 objections you'll probably hear, with a one-sentence response to each.\n\n"
+            "**The ask**: the exact next step you want by end of call. One concrete thing.\n\n"
+            "For anything you could not verify, mark it `[unknown — ask directly]`. Stay under 350 words. "
+            "Avoid: generic discovery questions (\"what are your goals\"), starting with the pitch, listing every feature, multiple competing asks."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -738,6 +739,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "call", "label": "Who is on the call and what's the goal?", "placeholder": "e.g. renewal call with Jane Smith, goal is to close a 2-year deal", "type": "text", "required": True, "advanced": False},
             {"key": "context", "label": "Key context (their stage, recent events)", "placeholder": "e.g. they had a bad experience with our support last month", "type": "textarea", "required": False, "advanced": True},
+            {"key": "call_type", "label": "Call type", "placeholder": "", "type": "chips", "options": ["Discovery", "Demo", "Negotiation", "Renewal", "Win-back"], "required": False, "advanced": False},
         ],
     },
     {
