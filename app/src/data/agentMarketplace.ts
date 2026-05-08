@@ -35,11 +35,11 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     category: 'Product managers',
     tagline: 'I ship features and work with teams.',
     templates: [
-      { name: 'Competitive Scan', description: 'Research what competitors are shipping in a product area.', icon: 'monitor_heart', model: 'sonnet', budget: 3.0 },
-      { name: 'PRD', description: 'Turn a rough idea into a product requirements doc.', icon: 'article', model: 'sonnet', budget: 3.0 },
-      { name: 'Customer Interview Notes', description: 'Turn raw interview notes into themes and insights.', icon: 'record_voice_over', model: 'sonnet', budget: 2.0 },
-      { name: 'Launch Checklist', description: 'Generate a launch checklist for a new feature.', icon: 'checklist', model: 'sonnet', budget: 2.0 },
-      { name: 'Stakeholder Update', description: 'Write a weekly update for your leadership team.', icon: 'campaign', model: 'sonnet', budget: 2.0 },
+      { name: 'Competitive Scan', description: 'When you need a market read. Outputs what competitors are shipping, the gap, and one concrete product move.', icon: 'monitor_heart', model: 'sonnet', budget: 3.0 },
+      { name: 'PRD', description: 'When you have a feature idea to spec. Outputs a structured PRD ready to share with engineering.', icon: 'article', model: 'sonnet', budget: 3.0 },
+      { name: 'Customer Interview Notes', description: 'When you finish an interview. Outputs themes with real quotes, the clearest unmet need, and follow-up questions.', icon: 'record_voice_over', model: 'sonnet', budget: 2.0 },
+      { name: 'Launch Checklist', description: "When you're planning a feature launch. Outputs a grouped checklist covering engineering, docs, comms, and rollout.", icon: 'checklist', model: 'sonnet', budget: 2.0 },
+      { name: 'Stakeholder Update', description: 'When you need to keep leadership in the loop without a meeting. Outputs a formatted update ready to send.', icon: 'campaign', model: 'sonnet', budget: 2.0 },
     ],
   },
   {

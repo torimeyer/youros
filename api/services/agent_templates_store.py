@@ -382,13 +382,21 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-pm-competitive-scan",
         "name": "Competitive Scan",
         "aliases": [],
-        "description": "See what your top competitors have shipped recently — features, pricing changes, and where you could stand out.",
+        "description": "When you need a market read. Outputs what competitors are shipping, the gap, and one concrete product move.",
         "icon": "monitor_heart",
         "prompt_template": (
-            "You are a product researcher. Given a product area, search public "
-            "sources and summarize what the top 3-5 competitors have shipped in "
-            "the last 6 months. Focus on features, positioning, and pricing. "
-            "Call out gaps where the user could differentiate."
+            "PM researcher. For the product area and any listed competitors, search public sources "
+            "and produce a scan in this exact format:\n\n"
+            "**Where the market is heading**: One sentence.\n\n"
+            "**Competitor snapshots** (one block per competitor):\n"
+            "- What changed: 2-3 notable feature, pricing, or positioning moves in the timeframe\n"
+            "- Angle: how they are positioning against the field\n\n"
+            "**The gap**: Where is the clearest opening to differentiate?\n\n"
+            "**One move**: The single most concrete response -- a feature direction, pricing change, "
+            "or messaging shift.\n\n"
+            "Anti-patterns: listing every feature update, vague takeaways like 'they're investing in "
+            "AI', copying a competitor roadmap without explaining why. "
+            "Plain language. No buzzwords. Under 500 words."
         ),
         "model": "sonnet",
         "budget": 3.0,
@@ -399,6 +407,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "produces_doc": True,
         "user_inputs": [
             {"key": "area", "label": "What product area are we looking at?", "placeholder": "e.g. project management, AI writing tools", "type": "text", "required": True, "advanced": False},
+            {"key": "angle", "label": "What angle matters most?", "placeholder": "", "type": "chips", "options": ["Features", "Pricing", "Positioning", "GTM"], "required": False, "advanced": False},
             {"key": "timeframe", "label": "Timeframe", "placeholder": "", "type": "chips", "options": ["Last 3 months", "Last 6 months", "Last year"], "required": False, "advanced": True},
             {"key": "competitors", "label": "Which competitors to focus on?", "placeholder": "e.g. Notion, Linear, Asana (or leave blank for top players)", "type": "text", "required": False, "advanced": True},
         ],
@@ -407,13 +416,21 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-pm-prd",
         "name": "PRD",
         "aliases": ["PRD Draft"],
-        "description": "Turn a rough idea into a product requirements doc.",
+        "description": "When you have a feature idea to spec. Outputs a structured PRD ready to share with engineering.",
         "icon": "article",
         "prompt_template": (
-            "You are a senior PM. Turn the user's rough feature idea into a PRD "
-            "with: problem, user, goal, non-goals, user stories, acceptance "
-            "criteria, open questions. Plain language, no jargon. Keep the "
-            "whole PRD under 400 words and stop after the first draft."
+            "PM writing a first-draft PRD. From the feature idea, target user, and stage, "
+            "produce a PRD in this exact format:\n\n"
+            "## Problem\nWhat the user cannot do today and why it matters. One paragraph.\n\n"
+            "## Users\nWho this is for. One sentence per distinct group.\n\n"
+            "## Goal\nOne sentence: what success looks like in measurable terms.\n\n"
+            "## Non-goals\n2-3 bullets on what this feature will NOT do.\n\n"
+            "## User stories\n3-5 stories: 'As a [user], I want to [action] so that [outcome].'\n\n"
+            "## Acceptance criteria\nTestable checklist. Each starts with 'The user can...'.\n\n"
+            "## Open questions\n2-3 unresolved decisions with a suggested default.\n\n"
+            "Anti-patterns: vague goals like 'improve user experience', stories without an outcome, "
+            "acceptance criteria that describe internal implementation steps. "
+            "Plain language. Under 500 words. Do not add scope beyond what is asked."
         ),
         "model": "sonnet",
         "budget": 3.0,
@@ -425,18 +442,27 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "idea", "label": "Describe the feature or idea in a few sentences", "placeholder": "e.g. Users need a way to export their data as a CSV", "type": "textarea", "required": True, "advanced": False},
             {"key": "user", "label": "Who is this for?", "placeholder": "e.g. enterprise admins, new free-tier users", "type": "text", "required": False, "advanced": False},
+            {"key": "stage", "label": "Where are you in the process?", "placeholder": "", "type": "chips", "options": ["Rough concept", "Spec ready", "Refining"], "required": False, "advanced": False},
         ],
     },
     {
         "id": "builtin-pm-customer-interviews",
         "name": "Customer Interview Notes",
         "aliases": [],
-        "description": "Turn raw interview notes into themes and insights.",
+        "description": "When you finish an interview. Outputs themes with real quotes, the clearest unmet need, and follow-up questions.",
         "icon": "record_voice_over",
         "prompt_template": (
-            "You are a researcher. Read the raw interview transcript the user "
-            "pastes and return: top 3 themes, memorable quotes for each, the "
-            "single most important unmet need, and two follow-up questions."
+            "UX researcher synthesizing a customer conversation. From the transcript or notes:\n\n"
+            "(1) **Top themes** (exactly 3): Give each a bold header, then 1-2 supporting quotes "
+            "in the customer's actual words.\n\n"
+            "(2) **Most important unmet need**: One sentence, specific enough that a PM could write "
+            "a user story from it directly.\n\n"
+            "(3) **Signals to explore**: 2 follow-up questions worth asking in the next interview.\n\n"
+            "(4) **Confidence check**: One sentence on how representative this single interview seems "
+            "and what would change that.\n\n"
+            "Anti-patterns: paraphrasing quotes into PM-speak, inventing themes not in the data, "
+            "treating one customer as market validation. "
+            "Plain language. Under 350 words."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -447,19 +473,28 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "produces_doc": True,
         "user_inputs": [
             {"key": "transcript", "label": "Paste your raw interview notes or transcript", "placeholder": "Paste the interview transcript or your rough notes here", "type": "textarea", "required": True, "advanced": False},
+            {"key": "goal", "label": "What was the interview trying to learn?", "placeholder": "", "type": "chips", "options": ["Discovery", "Validation", "Pricing", "Churn"], "required": False, "advanced": True},
         ],
     },
     {
         "id": "builtin-pm-launch-checklist",
         "name": "Launch Checklist",
         "aliases": [],
-        "description": "Generate a launch checklist for a new feature.",
+        "description": "When you're planning a feature launch. Outputs a grouped checklist covering engineering, docs, comms, and rollout.",
         "icon": "checklist",
         "prompt_template": (
-            "You are a launch-experienced PM. Given a feature name and rough "
-            "scope, output a concrete launch checklist grouped by: engineering "
-            "readiness, docs, internal comms, external comms, metrics, rollout "
-            "plan. Each item should be a one-line action, owner unassigned."
+            "PM owning a product launch. From the feature description and launch type, "
+            "produce a grouped launch checklist:\n\n"
+            "**Engineering readiness**: Is it done, stable, and instrumented? Rollback plan exists?\n"
+            "**Documentation**: User-facing help, internal runbook, changelog entry.\n"
+            "**Internal comms**: Who needs to know before customers do -- sales, support, legal.\n"
+            "**External comms**: Blog post, email, in-app announcement, social. Adapt to launch type.\n"
+            "**Metrics**: What are you measuring? What threshold triggers a rollback?\n"
+            "**Rollout plan**: Phased, flagged, or all at once? What is the sequence?\n\n"
+            "Format each item as: [ ] <action> -- <owner TBD>. "
+            "Anti-patterns: items with no clear finish condition, skipping the rollback threshold, "
+            "external comms before internal alignment. "
+            "Plain language. No launch jargon."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -469,7 +504,8 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "builtin": True,
         "produces_doc": True,
         "user_inputs": [
-            {"key": "feature", "label": "Feature name and what it does", "placeholder": "e.g. CSV export — lets users download their data as a spreadsheet", "type": "textarea", "required": True, "advanced": False},
+            {"key": "feature", "label": "Feature name and what it does", "placeholder": "e.g. CSV export: lets users download their data as a spreadsheet", "type": "textarea", "required": True, "advanced": False},
+            {"key": "launch_type", "label": "Type of launch", "placeholder": "", "type": "chips", "options": ["Silent", "Beta", "GA", "Paid promo"], "required": False, "advanced": False},
         ],
     },
     {
@@ -508,13 +544,19 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-pm-stakeholder-update",
         "name": "Stakeholder Update",
         "aliases": [],
-        "description": "Write a weekly update for your leadership team.",
+        "description": "When you need to keep leadership in the loop without a meeting. Outputs a formatted update ready to send.",
         "icon": "campaign",
         "prompt_template": (
-            "You are a PM writing a weekly leadership update. From the user's "
-            "raw notes, produce: what shipped, what is on track, what is at "
-            "risk (with reason and ask), and a one-line headline. Plain "
-            "language, no jargon. Under 200 words."
+            "PM writing a leadership update. From the raw notes and audience, write the update "
+            "in this exact format:\n\n"
+            "**Headline**: One sentence on what mattered most this week.\n\n"
+            "**Shipped**: 2-3 bullets. Name the feature, metric, or decision specifically.\n\n"
+            "**On track**: 1-2 bullets on what is progressing as planned.\n\n"
+            "**At risk**: 1-2 bullets, each with: what, why it is at risk, and what you need to resolve it.\n\n"
+            "**One ask** (if any): The single thing you need from this audience.\n\n"
+            "Anti-patterns: vague signals like 'moving forward on X', at-risk items with no ask, "
+            "padding with status that does not affect any decision. "
+            "Plain language. Under 200 words. Ready to paste into Slack or email."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -525,6 +567,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "produces_doc": True,
         "user_inputs": [
             {"key": "notes", "label": "Paste your raw notes on what shipped, what's in progress, and what's at risk", "placeholder": "Bullet points are fine", "type": "textarea", "required": True, "advanced": False},
+            {"key": "audience", "label": "Who is this for?", "placeholder": "", "type": "chips", "options": ["CEO", "VP", "Cross-functional team", "Board"], "required": False, "advanced": False},
         ],
     },
     # --- Engineers ---
