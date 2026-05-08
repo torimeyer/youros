@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
 import TopBar from '../components/TopBar';
@@ -223,7 +222,7 @@ export default function Settings() {
   const [adhdFocusMode, setAdhdFocusMode] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeSection, setActiveSection] = useState('section-ai-chat');
+  const [activeSection, setActiveSection] = useState('section-connections');
 
 
   useEffect(() => {
@@ -829,14 +828,8 @@ export default function Settings() {
     'bg-slate-900/40 border border-slate-800 p-4 sm:p-6 rounded-xl hover:border-slate-700 transition-colors';
 
   const navItems = [
-    { id: 'section-ai-chat', label: 'AI & Chat', icon: 'smart_toy' },
     { id: 'section-connections', label: 'Connections', icon: 'hub' },
-    { id: 'section-notifications-focus', label: 'Notifications & Focus', icon: 'notifications' },
-    { id: 'section-instructions', label: 'Instructions', icon: 'edit_note' },
-    { id: 'section-appearance', label: 'Appearance', icon: 'palette' },
-    { id: 'section-developer', label: 'Developer', icon: 'code' },
-    { id: 'section-shortcuts', label: 'Shortcuts', icon: 'keyboard' },
-    ...(instanceMode === 'team' ? [{ id: 'section-team-admin', label: 'Team Admin', icon: 'admin_panel_settings' }] : []),
+    { id: 'section-preferences', label: 'Preferences', icon: 'palette' },
   ];
 
   // No IntersectionObserver needed: tabs show one section at a time.
@@ -883,8 +876,8 @@ export default function Settings() {
         <div className="flex-1 min-w-0 px-4 pb-8 sm:px-6 lg:pr-8 space-y-10">
           <PageHeader title="Settings" />
 
-          {/* ── 1. Instructions ─────────────────────── */}
-          <div id="section-instructions" className={activeSection !== 'section-instructions' ? 'hidden' : ''}>
+          {/* ── Instructions ─────────────────────── */}
+          <div id="section-instructions" className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
           <div
             ref={standingSectionRef}
             id="standing-instructions"
@@ -1008,7 +1001,7 @@ export default function Settings() {
 
 
           {/* ── 2. Appearance ───────────────────────── */}
-          <div id="section-appearance" className={`grid grid-cols-1 md:grid-cols-2 gap-6 items-start${activeSection !== 'section-appearance' ? ' hidden' : ''}`}>
+          <div id="section-appearance" className={`grid grid-cols-1 md:grid-cols-2 gap-6 items-start${activeSection !== 'section-preferences' ? ' hidden' : ''}`}>
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">Appearance</h2>
 
@@ -1165,8 +1158,8 @@ export default function Settings() {
           </div>
           </div>
 
-          {/* ── 3. AI & Chat ────────────────────────── */}
-          <div id="section-ai-chat" className={`space-y-6${activeSection !== 'section-ai-chat' ? ' hidden' : ''}`}>
+          {/* ── AI Provider and Chat Settings (shown in Connections tab) ────────────────────────── */}
+          <div id="section-ai-chat" className={activeSection !== 'section-connections' ? 'hidden' : 'space-y-6'}>
           <div className={cardClass} data-testid="api-key-setup-section">
             <h2 className="text-lg font-semibold mb-5">AI Provider</h2>
 
@@ -1740,8 +1733,12 @@ export default function Settings() {
           </div>
           </div>
 
-          {/* ── 5. Connections ──────────────────────── */}
+          {/* ── Connections Tab ──────────────────────── */}
           <div id="section-connections" className={`space-y-6${activeSection !== 'section-connections' ? ' hidden' : ''}`}>
+          <div>
+            <h2 className="text-2xl font-bold mb-2">Connections</h2>
+            <p className="text-sm text-slate-400 mb-6">Sign in to the apps myOS works with.</p>
+          </div>
           <div className={cardClass} data-testid="connections-section">
           <div className="flex items-center gap-2 mb-4">
             <h2 className="text-lg font-semibold">Connections</h2>
@@ -1793,12 +1790,12 @@ export default function Settings() {
               <h2 className="text-base font-semibold">Google</h2>
             </div>
             <p className="text-xs text-slate-500 mb-3">Gmail, Calendar, and Drive</p>
-            {googleConnected ? (
+            {connectionStatus.Drive.connected ? (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
                   <p className="text-sm text-slate-200 font-medium">
-                    {geminiStatus.email || 'Connected'}
+                    {connectionStatus.Drive.label || 'Connected'}
                   </p>
                 </div>
                 <button
@@ -2367,50 +2364,13 @@ export default function Settings() {
           </div>
           )}
 
-          {/* ── 7. Developer ────────────────────────── */}
-          <div id="section-developer" className={activeSection !== 'section-developer' ? 'hidden' : ''}>
-          <div className={cardClass} data-testid="developer-section">
-            <h2 className="text-lg font-semibold mb-4">Developer</h2>
-          <div className="space-y-1">
-            <a
-              href="/activity"
-              data-testid="developer-activity-link"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-800/50 transition-colors group"
-            >
-              <Icon name="history" size={18} className="text-slate-400 group-hover:text-slate-200 flex-shrink-0" />
-              <div>
-                <p className="text-sm text-slate-200">View activity log</p>
-                <p className="text-xs text-slate-500">Behind-the-scenes audit of what happened</p>
-              </div>
-            </a>
-            <a
-              href="/transcripts"
-              data-testid="developer-transcripts-link"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-800/50 transition-colors group"
-            >
-              <Icon name="mic" size={18} className="text-slate-400 group-hover:text-slate-200 flex-shrink-0" />
-              <div>
-                <p className="text-sm text-slate-200">View transcripts</p>
-                <p className="text-xs text-slate-500">Full text of every chat and agent session</p>
-              </div>
-            </a>
-            <Link
-              to="/privacy"
-              data-testid="developer-privacy-link"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-800/50 transition-colors group"
-            >
-              <Icon name="policy" size={18} className="text-slate-400 group-hover:text-slate-200 flex-shrink-0" />
-              <div>
-                <p className="text-sm text-slate-200">Privacy policy</p>
-                <p className="text-xs text-slate-500">How your data is used</p>
-              </div>
-            </Link>
-          </div>
-          </div>
+          {/* ── Preferences Tab ────────────────────────── */}
+          <div id="section-preferences" className={activeSection !== 'section-preferences' ? 'hidden' : 'space-y-6'}>
+          <h2 className="text-2xl font-bold mb-6">Preferences</h2>
           </div>
 
-          {/* ── 8. Shortcuts ────────────────────────── */}
-          <div id="section-shortcuts" className={activeSection !== 'section-shortcuts' ? 'hidden' : ''}>
+          {/* ── Shortcuts ────────────────────────── */}
+          <div id="section-shortcuts" className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
           <div className={cardClass}>
             <h2 className="text-lg font-semibold mb-5">Shortcuts</h2>
           <div className="space-y-3">

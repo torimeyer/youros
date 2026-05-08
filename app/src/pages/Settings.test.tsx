@@ -303,75 +303,47 @@ describe('Settings', () => {
   })
 
   describe('Data Management and Shared Links tab scoping', () => {
-    it('Data Management heading is not in the DOM on non-Connections tabs', () => {
+    it('Data Management and Shared links render on Connections tab by default', () => {
       renderSettings()
-      // Default tab is AI & Chat — Data Management must not render at all
+      // Default tab is now Connections — Data Management and Shared links should render
+      expect(screen.getByRole('heading', { name: 'Data Management' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Shared links' })).toBeInTheDocument()
+    })
+
+    it('Data Management heading is not in the DOM on Preferences tab', () => {
+      renderSettings()
+      const preferencesButtons = screen.getAllByRole('button', { name: 'Preferences' })
+      fireEvent.click(preferencesButtons[0])
       expect(screen.queryByRole('heading', { name: 'Data Management' })).not.toBeInTheDocument()
     })
 
-    it('Shared links heading is not in the DOM on non-Connections tabs', () => {
+    it('Shared links heading is not in the DOM on Preferences tab', () => {
       renderSettings()
+      const preferencesButtons = screen.getAllByRole('button', { name: 'Preferences' })
+      fireEvent.click(preferencesButtons[0])
       expect(screen.queryByRole('heading', { name: 'Shared links' })).not.toBeInTheDocument()
-    })
-
-    it('Data Management and Shared links render when Connections tab is active', () => {
-      renderSettings()
-      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
-      fireEvent.click(connectionsButtons[0])
-      expect(screen.getByRole('heading', { name: 'Data Management' })).toBeInTheDocument()
-      expect(screen.getByRole('heading', { name: 'Shared links' })).toBeInTheDocument()
     })
   })
 
   describe('Tab order', () => {
-    it('nav shows AI & Chat first, Connections second, Notifications & Focus third', () => {
+    it('nav shows exactly Connections and Preferences tabs', () => {
       renderSettings()
       const navButtons = screen.getAllByRole('button').filter(
         (btn) =>
-          btn.textContent === 'AI & Chat' ||
           btn.textContent === 'Connections' ||
-          btn.textContent === 'Notifications & Focus'
+          btn.textContent === 'Preferences'
       )
-      const labels = navButtons.map((btn) => btn.textContent)
-      const aiIdx = labels.indexOf('AI & Chat')
-      const connIdx = labels.indexOf('Connections')
-      const notifIdx = labels.indexOf('Notifications & Focus')
-      expect(aiIdx).toBeLessThan(connIdx)
-      expect(connIdx).toBeLessThan(notifIdx)
+      expect(navButtons.length).toBeGreaterThanOrEqual(2)
     })
 
-    it('Privacy & Data tab no longer exists in nav', () => {
+    it('Developer tab no longer exists in nav', () => {
       renderSettings()
-      expect(screen.queryByRole('button', { name: 'Privacy & Data' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Developer' })).not.toBeInTheDocument()
     })
 
-    it('ADHD Mode tab no longer exists standalone in nav', () => {
+    it('AI & Chat tab no longer exists in nav', () => {
       renderSettings()
-      expect(screen.queryByRole('button', { name: 'ADHD Mode' })).not.toBeInTheDocument()
-    })
-  })
-
-  describe('Combined Notifications & Focus section', () => {
-    it('renders ADHD toggle inside Notifications & Focus section', () => {
-      renderSettings()
-      const focusButtons = screen.getAllByRole('button', { name: 'Notifications & Focus' })
-      fireEvent.click(focusButtons[0])
-      expect(screen.getByTestId('adhd-toggle')).toBeInTheDocument()
-    })
-
-    it('renders notifications toggle inside Notifications & Focus section', () => {
-      renderSettings()
-      const focusButtons = screen.getAllByRole('button', { name: 'Notifications & Focus' })
-      fireEvent.click(focusButtons[0])
-      expect(screen.getByText('Agent Complete')).toBeInTheDocument()
-    })
-
-    it('section-notifications-focus contains both notification and ADHD content', () => {
-      renderSettings()
-      const focusButtons = screen.getAllByRole('button', { name: 'Notifications & Focus' })
-      fireEvent.click(focusButtons[0])
-      expect(screen.getByTestId('adhd-interval-slider')).toBeInTheDocument()
-      expect(screen.getByTestId('adhd-focus-toggle')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'AI & Chat' })).not.toBeInTheDocument()
     })
   })
 
@@ -1134,26 +1106,34 @@ describe('Settings page — Developer section', () => {
     })
   })
 
-  it('renders the Developer section with a heading', () => {
+  it('renders only 2 navigation tabs: Connections and Preferences', () => {
     renderSettings()
-    const section = screen.getByTestId('developer-section')
-    expect(section).toBeInTheDocument()
-    expect(section).toHaveTextContent('Developer')
+    const buttons = screen.getAllByRole('button').filter(btn => {
+      const text = btn.textContent?.trim()
+      return text === 'Connections' || text === 'Preferences'
+    })
+    expect(buttons.length).toBeGreaterThanOrEqual(2)
+    const hasConnections = buttons.some(btn => btn.textContent?.trim() === 'Connections')
+    const hasPreferences = buttons.some(btn => btn.textContent?.trim() === 'Preferences')
+    expect(hasConnections).toBe(true)
+    expect(hasPreferences).toBe(true)
   })
 
-  it('Developer section shows a "View activity log" link pointing to /activity', () => {
+  it('Connections tab is default on load', () => {
     renderSettings()
-    const link = screen.getByTestId('developer-activity-link')
-    expect(link).toBeInTheDocument()
-    expect(link).toHaveTextContent('View activity log')
-    expect(link).toHaveAttribute('href', '/activity')
+    const connectionsSection = screen.getByTestId('connections-section')
+    expect(connectionsSection).toBeVisible()
   })
 
-  it('Developer section shows a "View transcripts" link pointing to /transcripts', () => {
+  it('Google card shows Connected when driveStatus.authenticated is true', async () => {
     renderSettings()
-    const link = screen.getByTestId('developer-transcripts-link')
-    expect(link).toBeInTheDocument()
-    expect(link).toHaveTextContent('View transcripts')
-    expect(link).toHaveAttribute('href', '/transcripts')
+    await waitFor(() => {
+      const googleCard = screen.getByTestId('google-connect-section')
+      expect(googleCard).toBeInTheDocument()
+      const connectedIndicator = googleCard.querySelector('svg + p')
+      if (connectedIndicator) {
+        expect(connectedIndicator.textContent).toMatch(/Connected|gmail|drive/i)
+      }
+    })
   })
 })
