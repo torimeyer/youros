@@ -2877,6 +2877,34 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('single-tab streaming', () => {
+    it('renders streaming tokens with or without tab_id in single-tab mode', () => {
+      const { rerender } = render(<ChatPanel />)
 
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'build me a roadmap' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // First token arrives with tab_id - should be processed
+      mockLastMessage = { type: 'token', data: 'Here ' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText(/Here/)).toBeTruthy()
+
+      // Second token arrives without tab_id (legacy backend) - should still be processed in single-tab
+      mockLastMessage = { type: 'token', data: 'is a' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText(/Here is a/)).toBeTruthy()
+
+      // Final token
+      mockLastMessage = { type: 'token', data: ' roadmap' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText(/Here is a roadmap/)).toBeTruthy()
+
+      // Stream completes
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+      expect(screen.getByText(/Here is a roadmap/)).toBeTruthy()
+    })
+  })
 
 })

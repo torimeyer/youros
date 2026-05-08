@@ -664,8 +664,9 @@ export function ChatPanel() {
 
     // Filter by tab_id: only process messages for the currently active tab.
     // When multiple tabs are streaming, skip frames that belong to other tabs.
+    // Single-tab mode bypasses the filter since there's nowhere else for frames to leak.
     const messageTabId = (lastMessage as unknown as { tab_id?: string }).tab_id
-    if (messageTabId && messageTabId !== activeTabId) return
+    if (tabs.length > 1 && messageTabId && messageTabId !== activeTabId) return
 
     // Deduplicate: the effect fires when currentModel changes but
     // lastMessage has not changed (same object reference). Processing
