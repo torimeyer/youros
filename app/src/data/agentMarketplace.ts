@@ -50,7 +50,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
       // Code Review is covered by the built-in Review template (alias "Code Review").
       { name: 'Write Tests', description: 'Paste a function or module, get tests for the happy path, edge cases, and failure paths. Names tests by what they assert.', icon: 'bug_report', model: 'sonnet', budget: 2.0 },
       { name: 'Interactive Debug', description: "When the bug is weird and you don't even know what to ask. Asks one question at a time, narrows the cause, lands a minimal fix.", icon: 'bug_report', model: 'sonnet', budget: 2.0 },
-      { name: 'Refactor Plan', description: 'Review messy code and propose a clean refactoring plan.', icon: 'auto_fix_high', model: 'sonnet', budget: 3.0 },
+      { name: 'Refactor Plan', description: 'When code works but is hard to live with. Outputs a step-by-step refactor plan that keeps behavior identical, each step independently landable.', icon: 'auto_fix_high', model: 'sonnet', budget: 3.0 },
     ],
   },
   {

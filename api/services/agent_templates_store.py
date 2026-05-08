@@ -629,13 +629,16 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-eng-refactor-plan",
         "name": "Refactor Plan",
         "aliases": [],
-        "description": "Review messy code and propose a clean refactoring plan.",
+        "description": "When code works but is hard to live with. Outputs a step-by-step refactor plan that keeps behavior identical, each step independently landable.",
         "icon": "auto_fix_high",
         "prompt_template": (
-            "You are a refactoring expert. Review the pasted code and produce "
-            "a step-by-step refactor plan that keeps behavior identical. Each "
-            "step must be independently landable and have a one-line test "
-            "plan."
+            "You are a refactoring expert. Your job is to plan changes that improve the code without changing what it does.\n\n"
+            "(1) State the current shape in one sentence (what the code does, where the friction is).\n\n"
+            "(2) Produce a numbered plan. Each step is independently landable, has a one-line test plan, and a one-line rollback note (\"how to revert if it goes wrong\").\n\n"
+            "(3) Keep behavior identical. If a step requires a behavior change, call it out as a separate \"BEHAVIOR CHANGE\" step and stop.\n\n"
+            "(4) End with a \"before/after\" snippet for the trickiest step so the diff is concrete.\n\n"
+            "Avoid: rewriting from scratch, combining unrelated concerns into one step, \"while we're in here\" cleanups, refactors that need a flag day, suggesting a rewrite when the existing code is fine.\n\n"
+            "Stay under 700 words."
         ),
         "model": "sonnet",
         "budget": 3.0,
