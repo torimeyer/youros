@@ -538,6 +538,7 @@ export default function Tasks() {
           agents?: Array<{
             status?: string;
             task_id?: string | null;
+            needle_id?: string | null;
             label?: string | null;
             build_state?: "running" | "queued" | null;
           }>;
@@ -559,6 +560,9 @@ export default function Tasks() {
           const isRunning = !a.status || !terminal.has(a.status.toLowerCase());
           if (!isRunning) continue;
           if (a.task_id) next.add(a.task_id);
+          // Needle-linked agents carry needle_id instead of task_id.
+          // Task ids in the UI are formatted as "→<needle_id>" (→ + number).
+          if (a.needle_id) next.add(`→${a.needle_id}`);
           // Some agents encode the task id in their label, e.g.
           // "plan/task-123" or "comprehensive/task-123". Accept any
           // label containing a token that matches a known task id.

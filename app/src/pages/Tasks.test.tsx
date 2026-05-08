@@ -2884,6 +2884,34 @@ describe('Tasks page - 2026-04-23 regression set', () => {
     })
   })
 
+  describe('needle_id-linked agent shows in-progress badge (→1034)', () => {
+    it('agent with needle_id but no task_id triggers in-progress indicator on matching task', async () => {
+      const task = {
+        id: '→1004',
+        title: 'Needle-linked task',
+        priority: 'P1',
+        status: 'in_progress',
+        created_at: new Date().toISOString(),
+        goal: null,
+        label_ids: [],
+      }
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: [task] })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: null, needle_id: '1004' }] })
+        return Promise.resolve({})
+      })
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByTestId('task-in-progress-indicator-→1004')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('task-row-→1004')).toHaveAttribute('data-in-progress', 'true')
+      // Task must appear under In Progress filter.
+      fireEvent.click(screen.getByTestId('status-filter-in_progress'))
+      expect(screen.getByText('Needle-linked task')).toBeInTheDocument()
+    })
+  })
+
   describe('in-progress badge is runtime-derived only (regression: stored in_progress must not show badge)', () => {
     it('stored in_progress task with no running agent: visible in Open tab, no badge, absent from In Progress tab', async () => {
       const task = {
