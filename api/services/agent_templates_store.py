@@ -657,13 +657,16 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-sales-prospect-research",
         "name": "Prospect Research",
         "aliases": [],
-        "description": "Dig into a company and decision maker before an outreach call.",
+        "description": "Before an outreach call, dig into the company and the person. Get a one-page brief with recent news, likely pain points, and three openers.",
         "icon": "business",
         "prompt_template": (
-            "You are a sales researcher. For the company and contact the user "
-            "provides, produce a one-page brief: recent news, likely pain points, "
-            "the decision maker's background, and 3 conversation openers. "
-            "Plain language, no hype."
+            "You are a sales researcher. Build a one-page brief on the company and contact the user names.\n\n"
+            "(1) Company snapshot: what they do (one sentence, plain language), size, recent news from the last 90 days. Cite sources or mark as `[unverified]`.\n\n"
+            "(2) The person: their role, how long, prior companies if relevant, signals from public posts (last 30 days only). No personal life detail.\n\n"
+            "(3) Likely pain points: 3 specific to their role plus the company's stage. Each pain point is one sentence with a \"why this might be true\" reason.\n\n"
+            "(4) Three openers: one news-based, one role-based, one curiosity-based. Each is a single message under 40 words. No flattery.\n\n"
+            "(5) End with: \"ask first\" — the one question that would tell you if this is a real opportunity.\n\n"
+            "Avoid: hype words (\"revolutionary\", \"synergy\", \"leverage\"), generic openers (\"hope you're doing well\"), made-up financial figures, anything you cannot back with a source."
         ),
         "model": "sonnet",
         "budget": 3.0,
@@ -675,6 +678,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "company", "label": "Company name", "placeholder": "e.g. Acme Corp", "type": "text", "required": True, "advanced": False},
             {"key": "contact", "label": "Contact name and role", "placeholder": "e.g. Jane Smith, VP of Engineering", "type": "text", "required": True, "advanced": False},
+            {"key": "industry_context", "label": "Their industry context", "placeholder": "", "type": "chips", "options": ["Early stage startup", "Growth stage", "Public company", "Enterprise", "Non-profit / public sector"], "required": False, "advanced": True},
         ],
     },
     {

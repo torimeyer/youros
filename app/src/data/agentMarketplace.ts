@@ -58,7 +58,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     category: 'Sales and customer success',
     tagline: 'I talk to customers and close deals.',
     templates: [
-      { name: 'Prospect Research', description: 'Dig into a company and decision maker before an outreach call.', icon: 'business', model: 'sonnet', budget: 3.0 },
+      { name: 'Prospect Research', description: 'Before an outreach call, dig into the company and the person. Get a one-page brief with recent news, likely pain points, and three openers.', icon: 'business', model: 'sonnet', budget: 3.0 },
       { name: 'Cold Outreach Draft', description: 'Draft a personalized outreach email to a prospect.', icon: 'outgoing_mail', model: 'sonnet', budget: 2.0 },
       { name: 'Call Prep', description: 'Build a 1-page call brief for an upcoming customer meeting.', icon: 'support_agent', model: 'sonnet', budget: 2.0 },
       { name: 'Follow Up', description: 'Turn a call into a recap email and next steps.', icon: 'forward_to_inbox', model: 'sonnet', budget: 2.0 },
