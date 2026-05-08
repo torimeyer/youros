@@ -106,7 +106,7 @@ interface ToolCall {
 
 interface Message {
   id: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'system'
   content: string
   model?: string
   toolCalls?: ToolCall[]
