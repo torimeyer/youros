@@ -186,7 +186,7 @@ describe('ChatPanel pre-send turns picker (→1040)', () => {
     expect(mockSend).toHaveBeenCalled()
   })
 
-  it.skip('auto-confirms peer_chat_turns_required with pre-selected turns (→1037)', async () => {
+  it.skip('auto-confirms peer_chat_turns_required with pre-selected turns (→1038, partial — localStorage shipped, full auto-confirm pending)', async () => {
     const mockPost = vi.mocked(api.post)
     render(<ChatPanel />)
     const input = screen.getByTestId('chat-input')

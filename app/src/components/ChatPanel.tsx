@@ -922,7 +922,8 @@ export function ChatPanel() {
       })
       setIsStreaming(false)
       setPlaceholderAwaitingServer(false)
-      const preSelected = preSelectedTurnsRef.current
+      const storedTurns = localStorage.getItem('peer_chat_last_turns')
+      const preSelected = preSelectedTurnsRef.current ?? (storedTurns ? parseInt(storedTurns, 10) : null)
       if (preSelected !== null) {
         preSelectedTurnsRef.current = null
         api.post('/chat/peer/start', { pending_id: data.pending_id, turns: preSelected }).catch(() => {
@@ -1758,6 +1759,7 @@ export function ChatPanel() {
     if (!peerChatPending) return
     const { pendingId } = peerChatPending
     setPeerChatPending(null)
+    localStorage.setItem('peer_chat_last_turns', String(turns))
     api.post('/chat/peer/start', { pending_id: pendingId, turns }).catch(() => {
       // If the session expired, surface a short error bubble.
       setMessages(prev => [
@@ -1769,6 +1771,7 @@ export function ChatPanel() {
 
   const handlePreSelectTurns = (turns: number) => {
     preSelectedTurnsRef.current = turns
+    localStorage.setItem('peer_chat_last_turns', String(turns))
     if (pendingPeerChatText) {
       sendMessage(pendingPeerChatText)
       setPendingPeerChatText(null)
