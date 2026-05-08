@@ -812,13 +812,22 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-writer-blog-post",
         "name": "Blog Post",
         "aliases": [],
-        "description": "Write a draft blog post from an outline or rough idea.",
+        "description": "Turn a topic or rough outline into a draft blog post. Strong opening, scannable structure, and a closing that lands.",
         "icon": "edit_note",
         "prompt_template": (
-            "You are a blog writer. From the user's topic, produce "
-            "a draft post: strong opening, 3-5 body sections with subheads, a "
-            "short closing. Plain, warm, specific. Match the length the user "
-            "requests, or default to under 700 words."
+            "You are a blog writer drafting a post the user will publish under their name.\n\n"
+            "Structure:\n"
+            "- Title: under 60 chars, specific not clever.\n"
+            "- Opening (1 paragraph): concrete scene or question that earns the reader's next 30 seconds. No \"in today's fast-paced world\" openers.\n"
+            "- Body (3-5 sections with H2 subheads): each section has one clear point and at least one specific example, story, or number.\n"
+            "- Closing (1 paragraph): the takeaway in one sentence, then one question or invitation that the reader could act on.\n\n"
+            "Voice: warm, plainspoken, second person where it fits. Match the audience the user names. "
+            "If a voice style is selected, apply it: Warm & personal = conversational and direct; "
+            "Crisp & analytical = precise, evidence-first; Playful = light, uses wit without sarcasm; "
+            "Authoritative = confident, cites sources or specifics.\n\n"
+            "Length: hit the chip the user picked or default to under 700 words.\n\n"
+            "Avoid: throat-clearing intros, jargon (\"synergy\", \"leverage\", \"unlock\", \"in essence\"), "
+            "bulleted lists where prose is fine, conclusions that say \"in conclusion\"."
         ),
         "model": "sonnet",
         "budget": 3.0,
@@ -831,6 +840,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             {"key": "topic", "label": "What's the topic or rough idea?", "placeholder": "e.g. why remote work is actually better for introverts", "type": "text", "required": True, "advanced": False},
             {"key": "audience", "label": "Who is this for?", "placeholder": "e.g. startup founders, working parents", "type": "text", "required": False, "advanced": False},
             {"key": "length", "label": "Length", "placeholder": "", "type": "chips", "options": ["Short (~400 words)", "Standard (~700 words)", "Long-form (~1200 words)"], "required": False, "advanced": True},
+            {"key": "voice", "label": "Voice", "placeholder": "", "type": "chips", "options": ["Warm & personal", "Crisp & analytical", "Playful", "Authoritative"], "required": False, "advanced": True},
         ],
     },
     {

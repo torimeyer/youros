@@ -70,7 +70,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     category: 'Writers and creators',
     tagline: 'I publish content.',
     templates: [
-      { name: 'Blog Post', description: 'Write a draft blog post from an outline or rough idea.', icon: 'edit_note', model: 'sonnet', budget: 3.0 },
+      { name: 'Blog Post', description: 'Turn a topic or rough outline into a draft blog post. Strong opening, scannable structure, and a closing that lands.', icon: 'edit_note', model: 'sonnet', budget: 3.0 },
       { name: 'Social Post', description: 'Turn a long post into short, punchy social versions.', icon: 'share', model: 'sonnet', budget: 2.0 },
       { name: 'Headline Generator', description: 'Write 10 headline options for the same piece of content.', icon: 'title', model: 'sonnet', budget: 2.0 },
       { name: 'Proofreader', description: 'Catch typos, grammar issues, and awkward phrasing.', icon: 'spellcheck', model: 'sonnet', budget: 2.0 },
