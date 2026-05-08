@@ -1347,7 +1347,7 @@ export default function Tasks() {
 
   if (!isLegacyView && selectedStatus === "all") {
     filteredTasks = [...filteredTasks].sort((a, b) => {
-      // 1. Status group
+      // 1. Status group: running agents first, closed last
       const statusPriority = (t: typeof a) => {
         if (runningAgentTaskIds.has(t.id)) return 0;
         if (t.status === "closed") return 2;
@@ -1355,7 +1355,14 @@ export default function Tasks() {
       };
       const statusDiff = statusPriority(a) - statusPriority(b);
       if (statusDiff !== 0) return statusDiff;
-      // 2. Priority (P0 < P1 < P2 < P3 < none)
+      // 2. When a date-based sort is active, respect it across ALL statuses (→1066)
+      if (sortBy === "date-desc") {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+      if (sortBy === "date-asc") {
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      }
+      // 3. Default: priority (P0 < P1 < P2 < P3 < none), then newest first
       const priorityOrder = (t: typeof a) => {
         const p = t.priority;
         if (p === "P0") return 0;
@@ -1366,7 +1373,6 @@ export default function Tasks() {
       };
       const priorityDiff = priorityOrder(a) - priorityOrder(b);
       if (priorityDiff !== 0) return priorityDiff;
-      // 3. Newest first
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
   } else if (onlyClosedSelected) {

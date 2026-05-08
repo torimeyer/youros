@@ -399,6 +399,41 @@ describe('Tasks page', () => {
     })
   })
 
+  it('→1066 All view + Newest first: closed tasks sort newest-first, not by priority', async () => {
+    // Regression: previously the All-view hardcoded priority as secondary sort,
+    // ignoring sortBy. Closed tasks with lower priority but newer dates showed
+    // after higher-priority but older closed tasks.
+    const mixedTasks = [
+      { id: 'o1', title: 'Open task', priority: 'P1', status: 'open', created_at: '2026-04-10T00:00:00Z', goal: null, label_ids: [] },
+      // Closed tasks with opposite priority/date ordering:
+      // c_old_p1 is old (2024) but high priority (P1)
+      { id: 'c_old_p1', title: 'Closed old P1', priority: 'P1', status: 'closed', created_at: '2024-01-01T00:00:00Z', goal: null, label_ids: [], closed_at: '2024-01-01T00:00:00Z' },
+      // c_new_p3 is new (2026) but low priority (P3)
+      { id: 'c_new_p3', title: 'Closed new P3', priority: 'P3', status: 'closed', created_at: '2026-04-01T00:00:00Z', goal: null, label_ids: [], closed_at: '2026-04-01T00:00:00Z' },
+    ]
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: mixedTasks })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+    renderTasks()
+    await waitFor(() => {
+      expect(screen.getByText('Closed new P3')).toBeInTheDocument()
+    })
+
+    // All view is the default — switch to it explicitly to be safe
+    selectOnlyStatus('all')
+    fireEvent.click(screen.getByTestId('sort-by-date-desc'))
+
+    await waitFor(() => {
+      const body = document.body.textContent || ''
+      // Open task still floats above closed tasks
+      expect(body.indexOf('Open task')).toBeLessThan(body.indexOf('Closed new P3'))
+      // Within closed: newer P3 task must appear before older P1 task
+      expect(body.indexOf('Closed new P3')).toBeLessThan(body.indexOf('Closed old P1'))
+    })
+  })
+
   it('clicking Open filter after Closed shows open tasks again', async () => {
     renderTasks()
 
