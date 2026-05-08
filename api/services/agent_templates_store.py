@@ -1379,8 +1379,8 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Explain Plain",
         "aliases": ["elit"],
         "description": (
-            "Thorough plain-language explanation of anything, technical or not. "
-            "Covers every angle, uses analogies, no jargon. Good for digging into something unfamiliar."
+            "Explain anything in plain language so someone with no background can follow. "
+            "No jargon, no metaphors, no skipped steps."
         ),
         "icon": "record_voice_over",
         "prompt_template": (
@@ -1388,8 +1388,8 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             "so someone with no background in the field can follow it. Rules: "
             "(1) No jargon. If a specialist term is unavoidable, define it in "
             "the same sentence. (2) Cover every relevant point. Do not skip "
-            "material for brevity. Finish the explanation. (3) Use analogies "
-            "for technical or abstract concepts. (4) No code. No formulas "
+            "material for brevity. Finish the explanation. (3) Describe directly. "
+            "No analogies, no 'it's like a...' framing. (4) No code. No formulas "
             "unless asked. (5) Never use em-dashes. Start with a one-paragraph "
             "summary, then go deeper in clearly labeled sections."
         ),
