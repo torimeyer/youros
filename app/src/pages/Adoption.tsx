@@ -25,6 +25,13 @@ function skillDelta(skill: Skill): { label: string; color: string } | null {
   return null
 }
 
+function truncatePriority(text: string): string {
+  const colonIdx = text.indexOf(':')
+  if (colonIdx > 0 && colonIdx <= 80) return text.slice(0, colonIdx)
+  if (text.length <= 80) return text
+  return text.slice(0, 80) + '…'
+}
+
 interface Recommendation {
   id: string
   name: string
@@ -195,8 +202,8 @@ export default function Adoption() {
           {data.this_week.top_spec_or_task && (
             <div className="flex items-center gap-3">
               <Icon name="flag" className="text-amber-400 text-lg shrink-0" />
-              <span className="text-sm text-slate-300">
-                Top priority: {data.this_week.top_spec_or_task}
+              <span className="text-sm text-slate-300" data-testid="top-priority-label">
+                Top priority: {truncatePriority(data.this_week.top_spec_or_task!)}
               </span>
             </div>
           )}

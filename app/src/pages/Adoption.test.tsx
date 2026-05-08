@@ -184,6 +184,27 @@ describe('Adoption page', () => {
     expect(screen.getByTestId('rec-why').textContent).toContain("you've been using Builder")
   })
 
+  it('truncates a long top-priority needle title to first sentence before the colon', async () => {
+    const longTitle =
+      'Chat 30s timeout: when chatting with Claude, the chat panel shows an error. Hypothesis: stream_anthropic has no per-phase timeouts. Fix: add backend first-chunk timeout.'
+    mockAdoptionGet({ ...mockData, this_week: { agent_runs_completed: 3, top_spec_or_task: longTitle } })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('top-priority-label')).toBeTruthy())
+    const label = screen.getByTestId('top-priority-label')
+    expect(label.textContent).toBe('Top priority: Chat 30s timeout')
+    expect(label.textContent).not.toContain('when chatting with Claude')
+  })
+
+  it('truncates a long top-priority needle title to 80 chars + ellipsis when no colon present', async () => {
+    const longTitle = 'A'.repeat(100)
+    mockAdoptionGet({ ...mockData, this_week: { agent_runs_completed: 1, top_spec_or_task: longTitle } })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('top-priority-label')).toBeTruthy())
+    const label = screen.getByTestId('top-priority-label')
+    expect(label.textContent).toContain('…')
+    expect(label.textContent!.replace('Top priority: ', '')).toHaveLength(81) // 80 chars + ellipsis
+  })
+
   it('shows the page header while loading', () => {
     mockedGet.mockImplementation((url: string) => {
       if (url === '/adoption/whats-working') return new Promise(() => {})
