@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Post-commit hook to automatically close needles when commit message contains →NNNN
+# Idempotent: closing already-closed needles is silent ok.
+# Never blocks commits: always exits 0 even on errors.
+
+set -u
+
+# Get the latest commit message
+msg=$(git log -1 --pretty=%B 2>/dev/null || true)
+
+# Find all →NNN or →NNNN patterns (2-4 digits) and close them
+if [ -n "$msg" ]; then
+  # Extract all needle references: →NN, →NNN, →NNNN (case-sensitive arrow, 2-4 digits)
+  while IFS= read -r needle; do
+    if [ -n "$needle" ]; then
+      # Run ostk work close, silently ignore if already closed or error
+      if ostk work close "$needle" 2>/dev/null | grep -q "closed"; then
+        echo "Auto-closed $needle"
+      fi
+    fi
+  done < <(echo "$msg" | grep -oE '→[0-9]{2,4}' | sort -u)
+fi
+
+exit 0
