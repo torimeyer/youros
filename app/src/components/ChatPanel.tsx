@@ -662,6 +662,11 @@ export function ChatPanel() {
   useEffect(() => {
     if (!lastMessage) return
 
+    // Filter by tab_id: only process messages for the currently active tab.
+    // When multiple tabs are streaming, skip frames that belong to other tabs.
+    const messageTabId = (lastMessage as unknown as { tab_id?: string }).tab_id
+    if (messageTabId && messageTabId !== activeTabId) return
+
     // Deduplicate: the effect fires when currentModel changes but
     // lastMessage has not changed (same object reference). Processing
     // the same event twice causes a stale `done` from the previous turn

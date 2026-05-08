@@ -1135,13 +1135,17 @@ class _TerminalTrackingWS:
     delegated via ``__getattr__``.
     """
 
-    def __init__(self, inner: WebSocket) -> None:
+    def __init__(self, inner: WebSocket, tab_id: str = "") -> None:
         self._inner = inner
         self.terminal_sent: bool = False
+        self._tab_id = tab_id
 
     async def send_json(self, data: dict) -> None:
         if isinstance(data, dict) and data.get("type") in _TERMINAL_FRAME_TYPES:
             self.terminal_sent = True
+        # Inject tab_id into every streaming frame so the frontend can filter by tab
+        if isinstance(data, dict) and self._tab_id and "tab_id" not in data:
+            data = {**data, "tab_id": self._tab_id}
         await self._inner.send_json(data)
 
     async def send_text(self, data: str) -> None:
@@ -1407,7 +1411,9 @@ async def chat_websocket(websocket: WebSocket):
             # frame when a provider bailed without a terminal frame, which
             # is what surfaced as "Connection dropped before the response
             # finished" in the UI on backend reload / subprocess crash.
-            tracked_ws = _TerminalTrackingWS(websocket)
+            # Also inject tab_id into all streaming frames so the frontend
+            # can route them to the correct tab.
+            tracked_ws = _TerminalTrackingWS(websocket, tab_id=tab_id)
 
             try:
                 if trigger_multi_ai:

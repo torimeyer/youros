@@ -3797,3 +3797,71 @@ class TestBuildBaselineContext:
         assert "STANDING INSTRUCTIONS" in result
         assert "always apply" in result.lower()
         assert "Always reply in plain English." in result
+
+
+class TestTabIdIsolation:
+    """Tests for tab_id isolation to prevent tab stream cross-contamination."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_frames_include_tab_id(self, websocket):
+        """Streaming frames should include tab_id so the frontend can filter by tab."""
+        from routers.chat import _TerminalTrackingWS
+
+        # Create a wrapped websocket with tab_id
+        tracked_ws = _TerminalTrackingWS(websocket, tab_id="tab-123")
+
+        # Send a token frame through the wrapper
+        await tracked_ws.send_json({"type": "token", "data": "hello"})
+
+        # Verify the frame includes tab_id
+        assert len(websocket.messages) > 0
+        assert websocket.messages[0]["tab_id"] == "tab-123"
+        assert websocket.messages[0]["type"] == "token"
+        assert websocket.messages[0]["data"] == "hello"
+
+    @pytest.mark.asyncio
+    async def test_wrapper_preserves_existing_tab_id(self, websocket):
+        """If a frame already has tab_id, the wrapper should not overwrite it."""
+        from routers.chat import _TerminalTrackingWS
+
+        tracked_ws = _TerminalTrackingWS(websocket, tab_id="tab-456")
+
+        # Send a frame that already has tab_id
+        await tracked_ws.send_json({
+            "type": "token",
+            "data": "world",
+            "tab_id": "tab-789",  # Existing tab_id should be preserved
+        })
+
+        assert websocket.messages[0]["tab_id"] == "tab-789"
+
+    @pytest.mark.asyncio
+    async def test_wrapper_handles_empty_tab_id(self, websocket):
+        """Wrapper should not add tab_id if it's empty."""
+        from routers.chat import _TerminalTrackingWS
+
+        tracked_ws = _TerminalTrackingWS(websocket, tab_id="")
+
+        await tracked_ws.send_json({"type": "token", "data": "test"})
+
+        # Empty tab_id should not be added
+        assert "tab_id" not in websocket.messages[0]
+
+    @pytest.mark.asyncio
+    async def test_multiple_message_types_get_tab_id(self, websocket):
+        """All message types should get tab_id injection."""
+        from routers.chat import _TerminalTrackingWS
+
+        tracked_ws = _TerminalTrackingWS(websocket, tab_id="tab-multi")
+
+        # Send various message types
+        await tracked_ws.send_json({"type": "token", "data": "text"})
+        await tracked_ws.send_json({"type": "thinking", "data": "thought"})
+        await tracked_ws.send_json({
+            "type": "tool_use",
+            "data": {"tool": "test", "id": "123"},
+        })
+
+        # All should have tab_id
+        for msg in websocket.messages:
+            assert msg["tab_id"] == "tab-multi"

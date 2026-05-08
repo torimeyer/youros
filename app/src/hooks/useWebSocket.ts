@@ -6,6 +6,7 @@ interface WSMessage {
   data?: string | Record<string, unknown>
   usage?: { input_tokens: number; output_tokens: number }
   return_code?: number
+  tab_id?: string
 }
 
 // Reconnect backoff: starts at 1 s, doubles each attempt, caps at 16 s.
