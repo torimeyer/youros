@@ -95,7 +95,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     templates: [
       { name: 'Study Guide', description: 'Turn class notes into a study guide, flash-card Q&A, or both. Key concepts, definitions, and example exam questions.', icon: 'menu_book', model: 'sonnet', budget: 2.0 },
       { name: 'Essay Outline', description: 'Outline an essay from a prompt or topic. Thesis, body paragraphs, counterargument, conclusion. Tailored to the essay type.', icon: 'format_list_numbered', model: 'sonnet', budget: 2.0 },
-      { name: 'Citation Helper', description: 'Format sources in APA, MLA, or Chicago style.', icon: 'format_quote', model: 'sonnet', budget: 2.0 },
+      { name: 'Citation Helper', description: 'Format sources in APA, MLA, or Chicago. Bibliography entries plus inline citation snippets. Flags missing fields.', icon: 'format_quote', model: 'sonnet', budget: 2.0 },
     ],
   },
 ]

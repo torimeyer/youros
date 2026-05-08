@@ -1171,13 +1171,25 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-student-citation-helper",
         "name": "Citation Helper",
         "aliases": [],
-        "description": "Format sources in APA, MLA, or Chicago style.",
+        "description": "Format sources in APA, MLA, or Chicago. Bibliography entries plus inline citation snippets. Flags missing fields.",
         "icon": "format_quote",
         "prompt_template": (
             "You are a citation helper. Format the sources the user pastes "
-            "in the style they select (APA, MLA, or Chicago). Return one "
-            "formatted citation per line and flag any sources with missing "
-            "fields."
+            "in the style they picked (APA 7, MLA 9, or Chicago 17 author-date by default).\n\n"
+            "Output:\n\n"
+            "**Bibliography entries**: one per source. Format strictly per the chosen style. "
+            "Sort alphabetically by author last name.\n\n"
+            "**Inline citations**: under each bibliography entry, show the inline format "
+            "the writer would use mid-sentence.\n"
+            "- APA: (Author, year)\n"
+            "- MLA: (Author page)\n"
+            "- Chicago author-date: (Author year)\n\n"
+            "**Missing fields**: if any source is missing required info (no author, no year, "
+            "no page), list it as `[needs: <missing field>]` next to that entry.\n\n"
+            "**Style notes**: 1-2 lines on anything tricky in the user's sources "
+            "(e.g. multiple authors, organizational author, no page numbers, online vs print).\n\n"
+            "Avoid: guessing missing data, mixing styles, \"et al.\" when fewer than 3 authors, "
+            "italicizing what shouldn't be italicized for the chosen style."
         ),
         "model": "sonnet",
         "budget": 2.0,
