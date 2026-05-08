@@ -129,6 +129,53 @@ describe('PeerChatTurnsPicker component', () => {
   })
 })
 
+describe('ChatPanel pre-send turns picker (→1035)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    uuidCounter = 0
+    mockLastMessage = null
+    mockIsConnected = true
+    localStorage.clear()
+    setupAppStore()
+  })
+
+  it('renders turns selector on fresh chat before any user send', () => {
+    render(<ChatPanel />)
+    expect(screen.getByTestId('peer-chat-turns-picker')).toBeTruthy()
+  })
+
+  it('hides pre-send picker after user pre-selects a turn count', async () => {
+    render(<ChatPanel />)
+    const picker = screen.getByTestId('peer-chat-turns-picker')
+    expect(picker).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('turns-option-2'))
+    })
+    expect(screen.queryByTestId('peer-chat-turns-picker')).toBeNull()
+  })
+
+  it.skip('auto-confirms peer_chat_turns_required with pre-selected turns (→1037)', async () => {
+    const mockPost = vi.mocked(api.post)
+    render(<ChatPanel />)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('turns-option-3'))
+    })
+    await act(async () => {
+      mockLastMessage = {
+        type: 'peer_chat_turns_required',
+        pending_id: 'pending-autoconfirm-1',
+        participants: ['claude', 'gemini'],
+        prompt: 'chat with gemini',
+      }
+    })
+    expect(mockPost).toHaveBeenCalledWith('/chat/peer/start', {
+      pending_id: 'pending-autoconfirm-1',
+      turns: 3,
+    })
+    expect(screen.queryByTestId('peer-chat-turns-picker')).toBeNull()
+  })
+})
+
 describe('ChatPanel peer_chat_turns_required integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
