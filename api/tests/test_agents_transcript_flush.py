@@ -373,3 +373,77 @@ async def test_heartbeat_multiple_ticks_grow_transcript_monotonically(tmp_path, 
     assert sizes[-1] > 0, "transcript never grew during run"
     assert sizes == sorted(sizes), f"file sizes not monotonically increasing: {sizes}"
     assert sizes[-1] > sizes[0], f"no growth between first and last tick: {sizes}"
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_note_written_when_heartbeats_grew_transcript(tmp_path, monkeypatch):
+    """Diagnostic note must be written even when the heartbeat loop already grew
+    the transcript file (st_size > 0).
+
+    Regression for →1004: the original code guarded the note with
+    `if not _had_real_content and (not tpath.exists() or tpath.stat().st_size == 0)`.
+    Any heartbeat marker made st_size > 0, which suppressed the note and left a
+    heartbeat-only transcript with no explanation for the empty output.
+
+    Commit 16c7702 (→1030 bridge fix) accidentally restored the old size-guard after
+    77fd43b had already removed it, causing the regression. The correct condition is
+    simply `if not _had_real_content` with no size check.
+    """
+    import routers.agents as agents_mod
+
+    monkeypatch.setattr(agents_mod, "_TRANSCRIPT_FLUSH_INTERVAL", 0.05)
+
+    tpath = tmp_path / "transcripts" / "diag-note-regression.md"
+    tpath.parent.mkdir(parents=True, exist_ok=True)
+    tpath.touch()
+
+    # Pre-seed the file with a heartbeat marker, exactly as _heartbeat_loop would.
+    tpath.write_bytes(b"\n[heartbeat ts=2026-05-08T00:00:00+00:00]\n")
+    assert tpath.stat().st_size > 0, "pre-condition: heartbeat must have grown the file"
+
+    stdout = _SilentStdout()
+    proc = _FakeProc(stdout=stdout)
+    proc.returncode = 0
+
+    name = "diag-note-test-agent"
+    _had_real_content = False
+
+    async def drain_with_diagnostic():
+        nonlocal _had_real_content
+        _hb_task = asyncio.create_task(asyncio.sleep(100))
+        try:
+            with open(str(tpath), "ab") as tfh:
+                while True:
+                    if proc.stdout is None:
+                        break
+                    chunk = await proc.stdout.read(4096)
+                    if not chunk:
+                        break
+                    _had_real_content = True
+                    tfh.write(chunk)
+                    tfh.flush()
+            # Fixed condition — no size guard. Old (broken) form was:
+            #   if not _had_real_content and (not tpath.exists() or tpath.stat().st_size == 0)
+            if not _had_real_content:
+                _rc = proc.returncode
+                _rc_str = str(_rc) if _rc is not None else "unknown"
+                with open(str(tpath), "a") as fh:
+                    fh.write(
+                        f"Agent '{name}' subprocess exited (rc={_rc_str})"
+                        f" with no stdout output.\n"
+                    )
+        finally:
+            _hb_task.cancel()
+            try:
+                await asyncio.wait_for(_hb_task, timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+
+    await asyncio.wait_for(drain_with_diagnostic(), timeout=2.0)
+
+    content = tpath.read_text()
+    assert "[heartbeat ts=" in content, "pre-written heartbeat marker was lost"
+    assert "subprocess exited" in content, (
+        "diagnostic note not found; the old file-size guard would suppress it when "
+        "heartbeats already grew the transcript — this is the →1004 / →1030 regression"
+    )

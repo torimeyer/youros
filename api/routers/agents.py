@@ -532,7 +532,7 @@ MAILBOX_SLOW_POLL_SECONDS = 60
 MAILBOX_CHECK_INTERVAL_SECONDS = MAILBOX_SLOW_POLL_SECONDS
 
 
-def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> str:
+def agent_mailbox_instruction_short(agent_name: str) -> str:
     """Return a compact mailbox block for fast-spawning agents.
 
     The long ``agent_mailbox_instruction`` block is ~4 KB of instructions
@@ -555,7 +555,6 @@ def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> s
     ct = "-H 'Content-Type: application/json'"
     register_body = (
         '{"name":"' + agent_name + '","status":"running",'
-        '"model":"' + model + '",'
         '"task":"<one line>","source":"claude-code"}'
     )
     heartbeat_body = '{"step":"<now>"}'
@@ -590,7 +589,7 @@ def agent_mailbox_instruction_short(agent_name: str, model: str = "sonnet") -> s
     )
 
 
-def agent_mailbox_instruction(agent_name: str, model: str = "sonnet") -> str:
+def agent_mailbox_instruction(agent_name: str) -> str:
     """Return the standard mailbox checking prompt block for a spawned agent.
 
     Every Claude Code subagent spawned by the orchestrator must have
@@ -632,7 +631,7 @@ def agent_mailbox_instruction(agent_name: str, model: str = "sonnet") -> str:
         "in the Agents page:\n"
         f"   `curl -sSk -X POST https://127.0.0.1:8000/api/agents/register "
         "-H 'Content-Type: application/json' "
-        f"-d '{{\"name\": \"{agent_name}\", \"model\": \"{model}\", \"budget\": 5, \"task\": \"<one line description of your task>\", \"source\": \"claude-code\"}}'`\n\n"
+        f"-d '{{\"name\": \"{agent_name}\", \"model\": \"sonnet\", \"budget\": 5, \"task\": \"<one line description of your task>\", \"source\": \"claude-code\"}}'`\n\n"
         f"### Heartbeat (every {slow} seconds, CRITICAL for long tasks)\n\n"
         "The Agents page marks you as stopped if it does not hear from "
         f"you for more than {STALE_AGENT_TIMEOUT_SECONDS} seconds (15 min). "
@@ -3892,9 +3891,9 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     # existing agents are untouched.
     _quick_mode = _spawn_quick_mode(body)
     if _quick_mode:
-        mailbox_block = agent_mailbox_instruction_short(body.name, model=body.model)
+        mailbox_block = agent_mailbox_instruction_short(body.name)
     else:
-        mailbox_block = agent_mailbox_instruction(body.name, model=body.model)
+        mailbox_block = agent_mailbox_instruction(body.name)
     if prompt_with_memory:
         prompt_with_memory = mailbox_block + "\n\n---\n\n" + prompt_with_memory
     else:
@@ -4361,9 +4360,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                 # stdout is fully drained before checking — no race with the
                 # concurrent stderr drain task.
                 try:
-                    if not _had_real_content and (
-                        not tpath.exists() or tpath.stat().st_size == 0
-                    ):
+                    if not _had_real_content:
                         _rc = getattr(p, "returncode", None)
                         _rc_str = str(_rc) if _rc is not None else "unknown"
                         with open(str(tpath), "a") as fh:
@@ -5050,14 +5047,6 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     # Accept caller-supplied spawned_at (first registration sets it; re-registers
     # keep the original). Fall back to the existing record, then now.
     spawned_at = existing.get("spawned_at") or body.spawned_at or now_iso
-    # Belt-and-suspenders for →1030: if this agent was REST-spawned (has a
-    # pid in its existing metadata), preserve the spawn-time model rather
-    # than accepting whatever the agent sends in its register call. The
-    # mailbox instruction embeds the model in the register curl command, so
-    # this path only triggers when the mailbox instruction was generated
-    # without a model (old agents) or when there is a mismatch.
-    if existing.get("pid") and existing.get("model"):
-        model = existing["model"]
 
     # Never downgrade a terminal status back to "running". If the agent
     # already completed or failed, a stale re-register call (e.g. from a
