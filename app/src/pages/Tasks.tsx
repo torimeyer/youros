@@ -576,6 +576,9 @@ export default function Tasks() {
           // "plan/task-123" or "comprehensive/task-123". Accept any
           // label containing a token that matches a known task id.
           if (a.label) {
+            // Extract needle ID from names like "fix-1062-description-hash"
+            const needleInLabel = a.label.match(/^[a-z_]+-(\d{3,6})-/)
+            if (needleInLabel) next.add(`→${needleInLabel[1]}`)
             for (const tok of a.label.split(/[^A-Za-z0-9_-]+/)) {
               if (tok) next.add(tok);
             }

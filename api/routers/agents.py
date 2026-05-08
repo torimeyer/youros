@@ -3653,6 +3653,9 @@ _ARROW_NEEDLE_RE = _needle_re.compile(r"→(\d{1,6})")
 # Matches a trailing -NNN suffix in an agent name (2-5 digits, no hex).
 # Used as a fallback when no arrow-prefixed reference is found in text.
 _NAME_NEEDLE_SUFFIX_RE = _needle_re.compile(r"-(\d{2,5})$")
+# Matches the second segment in names like "fix-1062-description-hash".
+# The needle ID follows the action verb before any descriptive words.
+_NAME_NEEDLE_SECOND_SEG_RE = _needle_re.compile(r"^[a-z_]+-(\d{3,6})-")
 
 
 def _infer_needle_id(
@@ -3666,7 +3669,8 @@ def _infer_needle_id(
 
     Priority:
     1. Arrow-prefixed →NNN in task, description, or prompt (most reliable).
-    2. Trailing -NNN in agent name verified against issues.jsonl (fallback).
+    2. Second segment in names like "fix-1062-description-hash" (verified).
+    3. Trailing -NNN suffix in agent name (verified).
 
     Returns a bare numeric string (e.g. "968") or None when nothing is found.
     Closed or shelved needles are not excluded here; the overlay in tasks.py
@@ -3679,21 +3683,29 @@ def _infer_needle_id(
         if m:
             return m.group(1)
     if name:
-        m = _NAME_NEEDLE_SUFFIX_RE.search(name)
-        if m:
-            candidate = m.group(1)
-            if issues_path is None:
-                issues_path = Path(ostk.cwd) / ".ostk" / "needles" / "issues.jsonl"
-            if issues_path.exists():
-                arrow_form = f"→{candidate}"
-                try:
-                    for line in issues_path.read_text().splitlines():
-                        entry = json.loads(line)
-                        raw_id = str(entry.get("id", ""))
-                        if raw_id == arrow_form or raw_id.lstrip("→") == candidate:
-                            return candidate
-                except Exception:
-                    pass
+        if issues_path is None:
+            issues_path = Path(ostk.cwd) / ".ostk" / "needles" / "issues.jsonl"
+
+        def _verify_candidate(candidate: str) -> Optional[str]:
+            if not issues_path.exists():
+                return None
+            arrow_form = f"→{candidate}"
+            try:
+                for line in issues_path.read_text().splitlines():
+                    entry = json.loads(line)
+                    raw_id = str(entry.get("id", ""))
+                    if raw_id == arrow_form or raw_id.lstrip("→") == candidate:
+                        return candidate
+            except Exception:
+                pass
+            return None
+
+        for pattern in (_NAME_NEEDLE_SECOND_SEG_RE, _NAME_NEEDLE_SUFFIX_RE):
+            m = pattern.search(name)
+            if m:
+                result = _verify_candidate(m.group(1))
+                if result is not None:
+                    return result
     return None
 
 

@@ -297,3 +297,60 @@ def test_get_running_needle_ids_includes_inferred():
         result = get_running_needle_ids()
 
     assert "968" in result
+
+
+# ---------------------------------------------------------------------------
+# →1064 regression: needle ID in second segment of agent name (not suffix)
+# Agent names like "fix-1062-slack-oauth-callback-40-f61ff0" embed the
+# needle ID after the action verb, not at the trailing position where
+# _NAME_NEEDLE_SUFFIX_RE ($) would find it.
+# ---------------------------------------------------------------------------
+
+def test_second_segment_needle_id_extracted(tmp_path):
+    """fix-1062-description-hash → needle_id=1062 via second-segment regex."""
+    issues_path = tmp_path / "issues.jsonl"
+    issues_path.write_text(
+        json.dumps({"id": "→1062", "title": "slack oauth fix", "status": "open"}) + "\n"
+    )
+    result = _infer_needle_id(
+        name="fix-1062-slack-oauth-callback-40-f61ff0",
+        task="",
+        description="",
+        prompt="",
+        issues_path=issues_path,
+    )
+    assert result == "1062"
+
+
+def test_second_segment_rejected_when_not_in_issues(tmp_path):
+    """Second-segment digit that doesn't match any needle is rejected."""
+    issues_path = tmp_path / "issues.jsonl"
+    issues_path.write_text(
+        json.dumps({"id": "→9999", "title": "other needle", "status": "open"}) + "\n"
+    )
+    result = _infer_needle_id(
+        name="fix-1062-slack-oauth-callback-40-f61ff0",
+        task="",
+        description="",
+        prompt="",
+        issues_path=issues_path,
+    )
+    assert result is None
+
+
+def test_second_segment_beats_suffix_when_both_present(tmp_path):
+    """When both second-segment and suffix match, second segment wins."""
+    issues_path = tmp_path / "issues.jsonl"
+    issues_path.write_text(
+        json.dumps({"id": "→1062", "title": "fix needle", "status": "open"}) + "\n"
+        + json.dumps({"id": "→40", "title": "short needle", "status": "open"}) + "\n"
+    )
+    # "fix-1062-description-40" → second seg=1062, suffix=40; 1062 should win
+    result = _infer_needle_id(
+        name="fix-1062-description-40",
+        task="",
+        description="",
+        prompt="",
+        issues_path=issues_path,
+    )
+    assert result == "1062"
