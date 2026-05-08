@@ -178,7 +178,7 @@ const releaseNotes: ReleaseGroup[] = [
       },
       {
         title: 'A better tour',
-        description: 'The first-time tour now has 7 steps including the Specs and Build-it flow. Tour tooltips stay inside the screen on every step, and the Chat step no longer names just one AI.',
+        description: 'The first-time tour now has 7 steps including the Specs and Build-it flow.',
       },
       {
         title: 'Feature completion notification',
