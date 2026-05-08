@@ -87,13 +87,10 @@ describe('Sidebar', () => {
     }
   })
 
-  it('Transcripts and Activity render in the sidebar bottom utility nav', () => {
+  it('Activity renders in the sidebar bottom utility nav', () => {
     renderSidebar()
-    expect(screen.getByText('Transcripts')).toBeInTheDocument()
     expect(screen.getByText('Activity')).toBeInTheDocument()
-    const transcriptsLink = document.querySelector('a[href="/transcripts"]')
     const activityLink = document.querySelector('a[href="/activity"]')
-    expect(transcriptsLink).not.toBeNull()
     expect(activityLink).not.toBeNull()
   })
 
