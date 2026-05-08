@@ -103,6 +103,30 @@ class _ChattyProc:
         self.returncode = -9
 
 
+class _HookOnlyProc:
+    """Emits one JSON system/hook event then blocks forever — simulates API hang."""
+
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self.stdout = self
+        self._sent = False
+        self._killed = False
+
+    async def read(self, n: int) -> bytes:
+        if self._killed:
+            return b""
+        if not self._sent:
+            self._sent = True
+            return b'{"type":"system","subtype":"hook_started","hook_type":"PreToolUse"}\n'
+        while not self._killed:
+            await asyncio.sleep(0.05)
+        return b""
+
+    def kill(self) -> None:
+        self._killed = True
+        self.returncode = -9
+
+
 class _OneThenSilentProc:
     """Emits one chunk then blocks forever — simulates mid-stream stall."""
 
@@ -129,21 +153,40 @@ class _OneThenSilentProc:
 
 
 async def _run_drain_helper(proc, name: str, tpath: Path) -> None:
-    """Invoke the same drain logic spawn_agent uses, isolated for testing."""
+    """Invoke the same drain logic spawn_agent uses, isolated for testing.
+
+    Mirrors the three-threshold + stream-json parsing in _drain_stdout.
+    Non-JSON chunks fall through to raw write so existing fake procs work.
+    """
+    import json as _json
     import time as _time
-    _had_real_content = False
-    _last_stdout_at = [_time.monotonic()]
+
+    _had_any_byte = False
+    _had_model_output = False
+    _last_any_byte_at = [_time.monotonic()]
+    _last_model_output_at = [_time.monotonic()]
+    _MODEL_EVENT_TYPES = frozenset(("text", "tool_use", "tool_result", "thinking"))
 
     async def _heartbeat_loop() -> None:
         while True:
             await asyncio.sleep(agents_mod._TRANSCRIPT_FLUSH_INTERVAL)
             if proc.returncode is not None:
                 break
-            silent_for = _time.monotonic() - _last_stdout_at[0]
-            limit = agents_mod._STDOUT_SILENCE_LIMIT_SECONDS if _had_real_content else agents_mod._STDOUT_FIRST_BYTE_LIMIT_SECONDS
+            now = _time.monotonic()
+            if not _had_any_byte:
+                silent_for = now - _last_any_byte_at[0]
+                limit = agents_mod._STDOUT_FIRST_BYTE_LIMIT_SECONDS
+                hang_kind = "startup (no first byte)"
+            elif not _had_model_output:
+                silent_for = now - _last_any_byte_at[0]
+                limit = agents_mod._STDOUT_API_HANG_LIMIT_SECONDS
+                hang_kind = "api-hang (hooks only, no model output)"
+            else:
+                silent_for = now - _last_model_output_at[0]
+                limit = agents_mod._STDOUT_SILENCE_LIMIT_SECONDS
+                hang_kind = "mid-stream"
             if silent_for > limit:
                 try:
-                    hang_kind = "mid-stream" if _had_real_content else "startup (no first byte)"
                     with open(str(tpath), "a") as fh:
                         fh.write(
                             f"\nAgent '{name}' subprocess silent for "
@@ -164,14 +207,38 @@ async def _run_drain_helper(proc, name: str, tpath: Path) -> None:
     hb_task = asyncio.create_task(_heartbeat_loop())
     try:
         with open(str(tpath), "ab") as tfh:
+            _json_buf = b""
             while True:
                 chunk = await proc.stdout.read(4096)
                 if not chunk:
                     break
-                _had_real_content = True
-                _last_stdout_at[0] = _time.monotonic()
-                tfh.write(chunk)
-                tfh.flush()
+                _had_any_byte = True
+                _last_any_byte_at[0] = _time.monotonic()
+                _json_buf += chunk
+                while b"\n" in _json_buf:
+                    line, _json_buf = _json_buf.split(b"\n", 1)
+                    if not line.strip():
+                        continue
+                    try:
+                        event = _json.loads(line.decode("utf-8", errors="replace"))
+                        etype = event.get("type")
+                        if etype == "text":
+                            text = event.get("text", "")
+                            if text:
+                                _had_model_output = True
+                                _last_model_output_at[0] = _time.monotonic()
+                                tfh.write(text.encode("utf-8", errors="replace"))
+                                tfh.flush()
+                        elif etype in _MODEL_EVENT_TYPES:
+                            _had_model_output = True
+                            _last_model_output_at[0] = _time.monotonic()
+                        # system/hook events: tracked via _had_any_byte, skip transcript
+                    except (ValueError, UnicodeDecodeError):
+                        # Non-JSON: write raw (covers plain-text fake procs in tests)
+                        tfh.write(line + b"\n")
+                        tfh.flush()
+                        _had_model_output = True
+                        _last_model_output_at[0] = _time.monotonic()
     finally:
         hb_task.cancel()
         try:
@@ -220,3 +287,29 @@ async def test_mid_stream_silence_uses_general_limit(tmp_path, monkeypatch):
     assert "killing wedged process" in body, f"general watchdog did not fire: {body!r}"
     assert "mid-stream" in body, f"expected mid-stream label, got: {body!r}"
     assert proc._killed
+
+
+@pytest.mark.asyncio
+async def test_api_hang_killed_after_hooks_only(tmp_path, monkeypatch):
+    """Subprocess emitting hook events but no model text uses the API-hang limit.
+
+    With stream-json, hook events arrive within 1-2s proving the process is
+    alive. If the model never responds, _STDOUT_API_HANG_LIMIT_SECONDS fires
+    before the slower mid-stream limit would.
+    """
+    monkeypatch.setattr(agents_mod, "_TRANSCRIPT_FLUSH_INTERVAL", 0.05)
+    monkeypatch.setattr(agents_mod, "_STDOUT_FIRST_BYTE_LIMIT_SECONDS", 9999.0)
+    monkeypatch.setattr(agents_mod, "_STDOUT_API_HANG_LIMIT_SECONDS", 0.3)
+    monkeypatch.setattr(agents_mod, "_STDOUT_SILENCE_LIMIT_SECONDS", 9999.0)
+
+    transcript = tmp_path / "transcript.md"
+    transcript.write_text("")
+    proc = _HookOnlyProc()
+
+    drain_coro = _run_drain_helper(proc, "test-api-hang", transcript)
+    await asyncio.wait_for(drain_coro, timeout=3.0)
+
+    body = transcript.read_text()
+    assert "killing wedged process" in body, f"api-hang watchdog did not fire: {body!r}"
+    assert "api-hang" in body, f"expected api-hang label, got: {body!r}"
+    assert proc._killed, "watchdog did not kill the process"

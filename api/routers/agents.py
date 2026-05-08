@@ -527,6 +527,15 @@ _STDOUT_SILENCE_LIMIT_SECONDS: float = 300.0
 # a spinner for 5 minutes before a clean retry.
 _STDOUT_FIRST_BYTE_LIMIT_SECONDS: float = 45.0
 
+# Mid-tier limit: subprocess emitted bytes (hook events arrived) but the
+# model never produced any text/tool output. Hooks fire within 1-2s on a
+# healthy claude --print run; if 120s pass without a model event the API
+# is hung (rate-limit, TLS stall after auth, model timeout). This is
+# intentionally longer than _STDOUT_FIRST_BYTE_LIMIT_SECONDS because the
+# hook events prove the subprocess is alive — we just need more patience
+# for the API round-trip itself.
+_STDOUT_API_HANG_LIMIT_SECONDS: float = 120.0
+
 # Adaptive poll constants: agents start polling fast right after a
 # nudge (when Tori is most likely to iterate) and back off toward the
 # slow cap during quiet stretches. This gives sub-15-second latency
@@ -4053,7 +4062,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     cmd = [
         CLAUDE_BIN, "--print",
         "--model", model,
-        "--output-format", "text",
+        "--output-format", "stream-json", "--verbose",
         "--permission-mode", _perm_mode,
     ]
 
@@ -4370,37 +4379,47 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         async def _drain_stdout(p, name: str, tpath: Path) -> None:
             """Drain subprocess stdout to the transcript file, flushing after each chunk.
 
-            With stdout=asyncio.subprocess.PIPE the subprocess writes to a pipe.
-            We read from the pipe here and immediately write+flush to tpath so the
-            transcript file grows in real time during the run rather than staying
-            at 0 bytes until the process exits (which happened with the previous
-            stdout=open(file) redirect, where the subprocess's internal buffer was
-            only flushed on buffer-full or process exit).
+            Subprocess output is stream-json (--output-format stream-json --verbose).
+            JSON events are parsed so only model text content is written to the
+            transcript; hook/system events update the watchdog timer without
+            polluting the transcript file with raw JSON.
 
-            A background heartbeat task also wakes every _TRANSCRIPT_FLUSH_INTERVAL
-            seconds while the subprocess is alive and writes a progress marker to
-            tpath so transcript_bytes grows on every tick even when the subprocess
-            buffers output internally (libc full buffering on non-TTY pipes).
+            Three-threshold watchdog:
+              Phase 1 — no bytes at all: _STDOUT_FIRST_BYTE_LIMIT_SECONDS (45s).
+                A subprocess that never writes is wedged at startup.
+              Phase 2 — bytes (hook events) but no model output:
+                _STDOUT_API_HANG_LIMIT_SECONDS (120s). Hooks prove the process
+                started; the extended window covers the API round-trip itself.
+              Phase 3 — had model output, now silent:
+                _STDOUT_SILENCE_LIMIT_SECONDS (300s). Mid-stream stall.
             """
-            _had_real_content = False
-            _last_stdout_at = [time.monotonic()]
+            _had_any_byte = False
+            _had_model_output = False
+            _last_any_byte_at = [time.monotonic()]
+            _last_model_output_at = [time.monotonic()]
+
+            _MODEL_EVENT_TYPES = frozenset(("text", "tool_use", "tool_result", "thinking"))
 
             async def _heartbeat_loop() -> None:
                 while True:
                     await asyncio.sleep(_TRANSCRIPT_FLUSH_INTERVAL)
                     if p.returncode is not None:
                         break
-                    # Watchdog: if subprocess hasn't emitted any stdout for
-                    # _STDOUT_SILENCE_LIMIT_SECONDS, treat it as wedged and
-                    # kill it so the agent fails loudly instead of looking
-                    # alive forever. Without this, claude --print can hang
-                    # silently (model never streamed first token) and the
-                    # only signal is the heartbeats this loop writes.
-                    silent_for = time.monotonic() - _last_stdout_at[0]
-                    limit = _STDOUT_SILENCE_LIMIT_SECONDS if _had_real_content else _STDOUT_FIRST_BYTE_LIMIT_SECONDS
+                    now = time.monotonic()
+                    if not _had_any_byte:
+                        silent_for = now - _last_any_byte_at[0]
+                        limit = _STDOUT_FIRST_BYTE_LIMIT_SECONDS
+                        hang_kind = "startup (no first byte)"
+                    elif not _had_model_output:
+                        silent_for = now - _last_any_byte_at[0]
+                        limit = _STDOUT_API_HANG_LIMIT_SECONDS
+                        hang_kind = "api-hang (hooks only, no model output)"
+                    else:
+                        silent_for = now - _last_model_output_at[0]
+                        limit = _STDOUT_SILENCE_LIMIT_SECONDS
+                        hang_kind = "mid-stream"
                     if silent_for > limit:
                         try:
-                            hang_kind = "mid-stream" if _had_real_content else "startup (no first byte)"
                             with open(str(tpath), "a") as fh:
                                 fh.write(
                                     f"\nAgent '{name}' subprocess silent for "
@@ -4426,32 +4445,75 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             _hb_task = asyncio.create_task(_heartbeat_loop())
             try:
                 with open(str(tpath), "ab") as tfh:
+                    _json_buf = b""
                     while True:
                         if p.stdout is None:
                             break
                         chunk = await p.stdout.read(4096)
                         if not chunk:
                             break
-                        _had_real_content = True
-                        _last_stdout_at[0] = time.monotonic()
+                        _had_any_byte = True
+                        _last_any_byte_at[0] = time.monotonic()
+                        _json_buf += chunk
+                        # Process complete newline-delimited JSON events
+                        while b"\n" in _json_buf:
+                            line, _json_buf = _json_buf.split(b"\n", 1)
+                            if not line.strip():
+                                continue
+                            try:
+                                event = json.loads(line.decode("utf-8", errors="replace"))
+                                etype = event.get("type")
+                                if etype == "text":
+                                    text = event.get("text", "")
+                                    if text:
+                                        _had_model_output = True
+                                        _last_model_output_at[0] = time.monotonic()
+                                        try:
+                                            tfh.write(text.encode("utf-8", errors="replace"))
+                                            tfh.flush()
+                                        except Exception:
+                                            pass
+                                elif etype in _MODEL_EVENT_TYPES:
+                                    # Tool calls/results: update watchdog but skip raw JSON in transcript
+                                    _had_model_output = True
+                                    _last_model_output_at[0] = time.monotonic()
+                                # system/hook events: _had_any_byte already set; skip transcript
+                            except (json.JSONDecodeError, UnicodeDecodeError):
+                                # Non-JSON line: write raw (backward compat / plain-text fallback)
+                                if line.strip():
+                                    try:
+                                        tfh.write(line + b"\n")
+                                        tfh.flush()
+                                    except Exception:
+                                        pass
+                                    _had_model_output = True
+                                    _last_model_output_at[0] = time.monotonic()
+                    # Flush any partial line left in the buffer
+                    if _json_buf.strip():
                         try:
-                            tfh.write(chunk)
-                            tfh.flush()
-                        except Exception:
-                            pass
-                # All stdout consumed. If no real content arrived the subprocess
-                # produced no final text response. Write a diagnostic note so:
-                #   1. transcript_bytes > 0 → ghost-detection check won't fire a
-                #      false positive and mark the agent "failed" while it's alive.
+                            event = json.loads(_json_buf.decode("utf-8", errors="replace"))
+                            etype = event.get("type")
+                            if etype == "text":
+                                text = event.get("text", "")
+                                if text:
+                                    _had_model_output = True
+                                    tfh.write(text.encode("utf-8", errors="replace"))
+                                    tfh.flush()
+                            elif etype in _MODEL_EVENT_TYPES:
+                                _had_model_output = True
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            try:
+                                tfh.write(_json_buf + b"\n")
+                                tfh.flush()
+                            except Exception:
+                                pass
+                            _had_model_output = True
+                # All stdout consumed. If no model output arrived write a diagnostic note so:
+                #   1. transcript_bytes > 0 → ghost-detection won't fire a false positive.
                 #   2. The user sees a useful message instead of the opaque
                 #      "registered externally" stub from mark_agent_complete.
-                # Skip when heartbeat markers already grew the file — they are not
-                # "real" output and the diagnostic note still applies.
-                # This is the correct place (not _drain_stderr) because we know
-                # stdout is fully drained before checking — no race with the
-                # concurrent stderr drain task.
                 try:
-                    if not _had_real_content:
+                    if not _had_model_output:
                         _rc = getattr(p, "returncode", None)
                         _rc_str = str(_rc) if _rc is not None else "unknown"
                         with open(str(tpath), "a") as fh:
