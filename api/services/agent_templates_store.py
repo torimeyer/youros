@@ -1336,8 +1336,8 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Design Critique",
         "aliases": [],
         "description": (
-            "Review a design for usability, clarity, and accessibility -- "
-            "with specific, prioritized feedback."
+            "Senior-designer-style review of a screen or flow. What works, ranked issues, "
+            "quick wins, bigger questions. Skips vague praise."
         ),
         "icon": "design_services",
         "prompt_template": (
