@@ -61,6 +61,16 @@ def _collect_until_done(ws, *, max_frames: int = 200) -> list[dict]:
     )
 
 
+def _receive_until_type(ws, target_type: str, *, max_frames: int = 10) -> dict:
+    """Drain WS frames until one matches target_type. Skips prelude frames
+    like backend_active that the chat handler emits before peer-chat events."""
+    for _ in range(max_frames):
+        frame = ws.receive_json()
+        if frame.get("type") == target_type:
+            return frame
+    raise AssertionError(f"No {target_type!r} frame after {max_frames} frames")
+
+
 def _send_peer_chat(ws, message: str, model: str = "@claude"):
     ws.send_json({
         "model": model,
@@ -76,7 +86,7 @@ def test_peer_chat_trigger_returns_turns_required(patched_streams):
 
     with client.websocket_connect("/ws/chat") as ws:
         _send_peer_chat(ws, "@gemini chat with claude about AI", model="@claude")
-        frame = ws.receive_json()
+        frame = _receive_until_type(ws, "peer_chat_turns_required")
 
     assert frame["type"] == "peer_chat_turns_required", (
         f"Expected peer_chat_turns_required, got {frame}"
@@ -106,7 +116,7 @@ def test_peer_chat_phrasings_trigger_picker(patched_streams, message, fallback_m
             "messages": [{"role": "user", "content": message}],
             "tools": False,
         })
-        frame = ws.receive_json()
+        frame = _receive_until_type(ws, "peer_chat_turns_required")
 
     assert frame["type"] == "peer_chat_turns_required", (
         f"Phrasing '{message}' did not trigger picker. Got: {frame['type']}"
@@ -120,8 +130,7 @@ def test_peer_start_with_turns_1_runs_exactly_one_round(patched_streams):
 
     with client.websocket_connect("/ws/chat") as ws:
         _send_peer_chat(ws, "@gemini chat with claude", model="@claude")
-        frame = ws.receive_json()
-        assert frame["type"] == "peer_chat_turns_required"
+        frame = _receive_until_type(ws, "peer_chat_turns_required")
         pending_id = frame["pending_id"]
 
         resp = client.post("/api/chat/peer/start", json={"pending_id": pending_id, "turns": 1})
@@ -146,8 +155,7 @@ def test_peer_start_with_turns_3_runs_three_rounds(patched_streams):
 
     with client.websocket_connect("/ws/chat") as ws:
         _send_peer_chat(ws, "@gemini chat with claude", model="@claude")
-        frame = ws.receive_json()
-        assert frame["type"] == "peer_chat_turns_required"
+        frame = _receive_until_type(ws, "peer_chat_turns_required")
         pending_id = frame["pending_id"]
 
         resp = client.post("/api/chat/peer/start", json={"pending_id": pending_id, "turns": 3})
@@ -184,10 +192,7 @@ def test_peer_chat_bare_name_with_host_fallback_triggers_picker(patched_streams)
             "chat with claude about whether we are ready to release",
             model="@gemini",
         )
-        frame = ws.receive_json()
-        assert frame["type"] == "peer_chat_turns_required", (
-            f"Bare-name phrasing should trigger picker, got {frame}"
-        )
+        frame = _receive_until_type(ws, "peer_chat_turns_required")
         assert "claude" in frame["participants"]
         assert "gemini" in frame["participants"]
 
@@ -207,8 +212,7 @@ def test_peer_start_clamps_turns_to_valid_range(patched_streams):
     # turns=10 should be clamped to 3
     with client.websocket_connect("/ws/chat") as ws:
         _send_peer_chat(ws, "@gemini chat with claude", model="@claude")
-        frame = ws.receive_json()
-        assert frame["type"] == "peer_chat_turns_required"
+        frame = _receive_until_type(ws, "peer_chat_turns_required")
         pending_id = frame["pending_id"]
 
         resp = client.post("/api/chat/peer/start", json={"pending_id": pending_id, "turns": 10})
