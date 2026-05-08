@@ -1193,3 +1193,60 @@ describe('Settings page — Developer section', () => {
     })
   })
 })
+
+describe('Settings page — Push notifications toggle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({
+      osName: 'myOS',
+      darkMode: true,
+      accentColor: 'blue',
+      features: [
+        { label: 'Chat', enabled: true },
+        { label: 'Tasks', enabled: true },
+        { label: 'Agents', enabled: true },
+        { label: 'Activity', enabled: true },
+        { label: 'Projects', enabled: true },
+        { label: 'Specs', enabled: true },
+        { label: 'Automations', enabled: false },
+        { label: 'Cost Tracking', enabled: true },
+      ],
+    })
+  })
+
+  it('does not render push toggle when push is not supported', async () => {
+    renderSettings()
+    const toggle = screen.queryByTestId('push-toggle')
+    expect(toggle).not.toBeInTheDocument()
+  })
+
+  it('clicking push toggle calls subscribe when not subscribed', async () => {
+    const { isPushSupported, subscribe, isSubscribed } = await import('../lib/pushNotifications')
+    vi.mocked(isPushSupported).mockReturnValue(true)
+    vi.mocked(isSubscribed).mockResolvedValue(false)
+    vi.mocked(subscribe).mockResolvedValue(true)
+
+    renderSettings()
+    const toggle = await screen.findByTestId('push-toggle')
+    
+    fireEvent.click(toggle)
+    await waitFor(() => {
+      expect(vi.mocked(subscribe)).toHaveBeenCalled()
+    })
+  })
+
+  it('clicking push toggle calls unsubscribe when subscribed', async () => {
+    const { isPushSupported, unsubscribe, isSubscribed } = await import('../lib/pushNotifications')
+    vi.mocked(isPushSupported).mockReturnValue(true)
+    vi.mocked(isSubscribed).mockResolvedValue(true)
+    vi.mocked(unsubscribe).mockResolvedValue(true)
+
+    renderSettings()
+    const toggle = await screen.findByTestId('push-toggle')
+    
+    fireEvent.click(toggle)
+    await waitFor(() => {
+      expect(vi.mocked(unsubscribe)).toHaveBeenCalled()
+    })
+  })
+})

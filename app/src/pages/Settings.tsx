@@ -1387,6 +1387,7 @@ export default function Settings() {
                     <p className="text-xs text-slate-500">Get alerts even when the browser tab is closed</p>
                   </div>
                   <button
+                    type="button"
                     data-testid="push-toggle"
                     onClick={handlePushToggle}
                     disabled={pushToggling}
