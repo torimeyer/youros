@@ -15,6 +15,7 @@ import {
   type RoadmapToTasksResponse,
 } from '../lib/roadmapChatCommand'
 import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
+import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
 
 // Local cache key. The server is the source of truth for chat history.
 // We still mirror to localStorage so the very first paint after a hard
@@ -522,6 +523,15 @@ export function ChatPanel() {
     models?: string[]
     rounds?: number
   } | null>(null)
+  // Pending peer-chat turn selection. Set when the backend sends
+  // peer_chat_turns_required instead of starting the AI-to-AI
+  // conversation immediately. Cleared when the user picks a count.
+  const [peerChatPending, setPeerChatPending] = useState<{
+    pendingId: string
+    participants: string[]
+    prompt: string
+  } | null>(null)
+
   // Id of the assistant bubble currently receiving streaming tokens.
   // During a single-model reply this stays null so the token handler
   // falls back to the append-to-last-assistant path. During a multi-AI
@@ -881,6 +891,29 @@ export function ChatPanel() {
         }
       }
       currentBubbleIdRef.current = null
+    } else if (lastMessage.type === 'peer_chat_turns_required') {
+      // Backend is waiting for the user to pick a turn count before starting
+      // the AI-to-AI conversation. Remove the empty assistant placeholder so
+      // the picker renders instead, and clear streaming state.
+      const data = lastMessage as unknown as {
+        pending_id: string
+        participants: string[]
+        prompt: string
+      }
+      setMessages(prev => {
+        const last = prev[prev.length - 1]
+        if (last && last.role === 'assistant' && !last.content && !last.toolCalls?.length) {
+          return prev.slice(0, -1)
+        }
+        return prev
+      })
+      setIsStreaming(false)
+      setPlaceholderAwaitingServer(false)
+      setPeerChatPending({
+        pendingId: data.pending_id,
+        participants: data.participants ?? [],
+        prompt: data.prompt ?? '',
+      })
     } else if (lastMessage.type === 'tool_use') {
       const data = lastMessage.data as unknown as { tool: string; input: Record<string, unknown>; id: string }
       // Route tool_use frames by the top-level model field when the
@@ -1697,6 +1730,19 @@ export function ChatPanel() {
       })
   }
 
+  const handlePeerChatTurnsPick = (turns: number) => {
+    if (!peerChatPending) return
+    const { pendingId } = peerChatPending
+    setPeerChatPending(null)
+    api.post('/chat/peer/start', { pending_id: pendingId, turns }).catch(() => {
+      // If the session expired, surface a short error bubble.
+      setMessages(prev => [
+        ...prev,
+        { id: crypto.randomUUID(), role: 'assistant', content: 'The chat session expired. Please try again.' },
+      ])
+    })
+  }
+
   // Re-send the last user turn after a WebSocket-level error.
   //
   // After a mid-turn socket drop the last bubble carries isError=true
@@ -2394,6 +2440,13 @@ export function ChatPanel() {
             </span>
             <span>{multiAiPillText}</span>
           </div>
+        )}
+        {peerChatPending && (
+          <PeerChatTurnsPicker
+            pendingId={peerChatPending.pendingId}
+            participants={peerChatPending.participants}
+            onPick={handlePeerChatTurnsPick}
+          />
         )}
         <div ref={messagesEndRef} />
       </div>

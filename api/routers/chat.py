@@ -2,6 +2,8 @@ import asyncio
 import json as _json
 import os
 import re
+import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -36,6 +38,16 @@ _ACTIVE_CHAT_WEBSOCKETS: set[WebSocket] = set()
 # weak refs to tasks, so without this set the GC can destroy them before they
 # complete and emit "Task was destroyed but it is pending!".
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+# In-memory pending peer-chat sessions. Keyed by pending_id (UUID string).
+# Each entry holds: user_message, models, event (asyncio.Event), turns, created_at.
+# Entries older than 300 s are pruned on each new peer-chat trigger.
+_pending_peer_chats: dict[str, dict] = {}
+
+# How long the WS handler waits for the user to pick a turn count before
+# giving up and sending done. Tests can set this to a small value to avoid
+# the 5-minute wait.
+_PEER_CHAT_TURN_TIMEOUT: float = 300.0
 
 
 def _fire_and_forget(coro) -> asyncio.Task:
@@ -221,6 +233,8 @@ _CONVERSATION_KEYWORDS: tuple[str, ...] = (
     "exchange with",
     "exchange messages",
     "respond to each other",
+    "work this out",
+    "work it out",
 )
 
 # Regex patterns that allow words between the verb and the preposition,
@@ -864,6 +878,27 @@ async def chat_create_tasks_from_roadmap(body: Optional[dict] = None):
     }
 
 
+@router.post("/api/chat/peer/start")
+async def start_peer_chat(body: dict):
+    """Resume a pending peer-chat session with a user-chosen turn count.
+
+    Called by the frontend after the user clicks one of the 1/2/3-turn
+    buttons in the PeerChatTurnsPicker. Validates the turn count, stores
+    it in the pending-session dict, and signals the asyncio Event that
+    the WebSocket handler is blocking on, causing it to resume and run
+    stream_multi_ai_conversation with the chosen turn count.
+    """
+    pending_id = (body or {}).get("pending_id", "")
+    raw_turns = (body or {}).get("turns")
+    turns = max(1, min(3, int(raw_turns) if raw_turns is not None else 2))
+    state = _pending_peer_chats.get(pending_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Session expired or not found")
+    state["turns"] = turns
+    state["event"].set()
+    return {"ok": True, "turns": turns}
+
+
 @router.post("/api/chat/tools/run")
 async def run_chat_tool(body: dict, request: Request = None):
     from services.rate_limit import rate_limit_check
@@ -1360,12 +1395,42 @@ async def chat_websocket(websocket: WebSocket):
             try:
                 if trigger_multi_ai:
                     clean_text = strip_mentions(last_text)
-                    await stream_multi_ai_conversation(
-                        websocket=tracked_ws,
-                        models=mentioned_models[:2],
-                        user_message=clean_text or last_text,
-                        rounds=MULTI_AI_DEFAULT_ROUNDS,
-                    )
+                    _pending_id = str(uuid.uuid4())
+                    _peer_evt = asyncio.Event()
+                    _now = time.time()
+                    # Prune entries older than 300 s to cap dict size.
+                    for _k in list(_pending_peer_chats):
+                        if _now - _pending_peer_chats[_k].get("created_at", 0) > 300:
+                            del _pending_peer_chats[_k]
+                    _pending_peer_chats[_pending_id] = {
+                        "user_message": clean_text or last_text,
+                        "models": mentioned_models[:2],
+                        "event": _peer_evt,
+                        "turns": None,
+                        "created_at": _now,
+                    }
+                    await tracked_ws.send_json({
+                        "type": "peer_chat_turns_required",
+                        "pending_id": _pending_id,
+                        "participants": mentioned_models[:2],
+                        "prompt": last_text,
+                    })
+                    _timed_out = False
+                    try:
+                        await asyncio.wait_for(_peer_evt.wait(), timeout=_PEER_CHAT_TURN_TIMEOUT)
+                    except asyncio.TimeoutError:
+                        _timed_out = True
+                    _state = _pending_peer_chats.pop(_pending_id, {})
+                    if _timed_out:
+                        await tracked_ws.send_json({"type": "done"})
+                    else:
+                        _turns = max(1, min(3, _state.get("turns") or 2))
+                        await stream_multi_ai_conversation(
+                            websocket=tracked_ws,
+                            models=_state.get("models", mentioned_models[:2]),
+                            user_message=_state.get("user_message", clean_text or last_text),
+                            rounds=_turns,
+                        )
                 elif trigger_broadcast:
                     # Broadcast (All pill or "everyone"/"you guys") is a
                     # plain text fan-out. Every model streams a direct

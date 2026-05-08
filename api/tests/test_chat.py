@@ -1903,18 +1903,13 @@ class TestTwoMentionRouting:
 
     @pytest.mark.asyncio
     async def test_two_mention_chat_with_intent_routes_to_orchestration(self):
+        """Two mentions + conversation intent triggers peer-chat picker.
+
+        Updated for needle 1016: verified by peer_chat_turns_required
+        arriving with [gemini, claude] as participants. The prompt must
+        have @mentions stripped (checked via the pending state dict).
+        """
         import routers.chat as chat_router
-
-        calls = {"count": 0, "models": None, "message": None, "rounds": None}
-
-        async def fake_orchestration(
-            *, websocket, models, user_message, rounds
-        ):
-            calls["count"] += 1
-            calls["models"] = list(models)
-            calls["message"] = user_message
-            calls["rounds"] = rounds
-            await websocket.send_json({"type": "done"})
 
         class FakeWS:
             def __init__(self):
@@ -1944,20 +1939,16 @@ class TestTwoMentionRouting:
                 self.messages.append(data)
 
         ws = FakeWS()
-        with patch.object(
-            chat_router, "stream_multi_ai_conversation", new=fake_orchestration
-        ):
+        with patch("routers.chat._PEER_CHAT_TURN_TIMEOUT", 0.001):
             await chat_router.chat_websocket(ws)
 
-        assert calls["count"] == 1
-        assert calls["models"] == ["gemini", "claude"]
-        # The message passed to orchestration must have the mentions stripped.
-        assert "@gemini" not in (calls["message"] or "")
-        assert "@claude" not in (calls["message"] or "")
-        assert "chat with" in (calls["message"] or "")
-        # Default rounds comes from the module constant.
-        from services.chat_providers import MULTI_AI_DEFAULT_ROUNDS
-        assert calls["rounds"] == MULTI_AI_DEFAULT_ROUNDS
+        picker_events = [m for m in ws.messages if m.get("type") == "peer_chat_turns_required"]
+        assert len(picker_events) == 1, f"Expected picker event, got: {ws.messages}"
+        participants = picker_events[0].get("participants", [])
+        assert participants == ["gemini", "claude"], f"Wrong participants: {participants}"
+        # The prompt stored in the picker event should have mentions stripped.
+        prompt = picker_events[0].get("prompt", "")
+        assert "chat with" in prompt or "shortcomings" in prompt
 
     @pytest.mark.asyncio
     async def test_two_mention_no_intent_routes_to_first_model_only(self):
@@ -2068,18 +2059,12 @@ class TestHostFallbackForConversation:
     @pytest.mark.asyncio
     async def test_multi_ai_chat_with_gemini_schedules_three_turns(self):
         """Default host is Claude, user says ``chat with @gemini ...``.
-        Orchestration must fire with [gemini, claude] for 3 rounds so
-        the panel renders six alternating bubbles (G, C, G, C, G, C).
+        Orchestration must fire — verified by peer_chat_turns_required
+        arriving with [gemini, claude] as participants. Updated for
+        needle 1016: the handler now pauses for the user to pick turns
+        before starting the conversation.
         """
         import routers.chat as chat_router
-
-        calls = {"count": 0, "models": None, "rounds": None}
-
-        async def fake_orchestration(*, websocket, models, user_message, rounds):
-            calls["count"] += 1
-            calls["models"] = list(models)
-            calls["rounds"] = rounds
-            await websocket.send_json({"type": "done"})
 
         ws = FakeWebSocket()
         ws._recv_queue = [
@@ -2098,33 +2083,31 @@ class TestHostFallbackForConversation:
             }
         ]
 
-        with patch.object(
-            chat_router, "stream_multi_ai_conversation", new=fake_orchestration
-        ):
+        with patch("routers.chat._PEER_CHAT_TURN_TIMEOUT", 0.001):
             try:
                 await chat_router.chat_websocket(ws)
             except RuntimeError:
                 pass
 
-        from services.chat_providers import MULTI_AI_DEFAULT_ROUNDS
-
-        assert calls["count"] == 1
-        assert calls["models"] == ["gemini", "claude"]
-        assert calls["rounds"] == MULTI_AI_DEFAULT_ROUNDS
+        picker_events = [
+            m for m in ws.messages if m.get("type") == "peer_chat_turns_required"
+        ]
+        assert len(picker_events) == 1, (
+            f"Expected peer_chat_turns_required, got messages: {ws.messages}"
+        )
+        participants = set(picker_events[0].get("participants", []))
+        assert participants == {"gemini", "claude"}, (
+            f"Wrong participants: {participants}"
+        )
 
     @pytest.mark.asyncio
     async def test_multi_ai_alternates_claude_and_gemini(self):
         """Default host is Gemini, user says ``chat with @claude ...``.
-        Orchestration must fire with [claude, gemini], flipping the
-        order so the @mentioned model speaks first each round.
+        Orchestration must fire with [claude, gemini] — verified by
+        peer_chat_turns_required arriving with participants in that order.
+        Updated for needle 1016.
         """
         import routers.chat as chat_router
-
-        calls = {"models": None}
-
-        async def fake_orchestration(*, websocket, models, user_message, rounds):
-            calls["models"] = list(models)
-            await websocket.send_json({"type": "done"})
 
         ws = FakeWebSocket()
         ws._recv_queue = [
@@ -2139,15 +2122,20 @@ class TestHostFallbackForConversation:
             }
         ]
 
-        with patch.object(
-            chat_router, "stream_multi_ai_conversation", new=fake_orchestration
-        ):
+        with patch("routers.chat._PEER_CHAT_TURN_TIMEOUT", 0.001):
             try:
                 await chat_router.chat_websocket(ws)
             except RuntimeError:
                 pass
 
-        assert calls["models"] == ["claude", "gemini"]
+        picker_events = [
+            m for m in ws.messages if m.get("type") == "peer_chat_turns_required"
+        ]
+        assert len(picker_events) == 1
+        participants = picker_events[0].get("participants", [])
+        assert participants == ["claude", "gemini"], (
+            f"Wrong participant order: {participants}"
+        )
 
     @pytest.mark.asyncio
     async def test_multi_ai_single_ai_does_not_alternate(self):
@@ -2450,15 +2438,16 @@ class TestGroupBroadcastRouting:
     async def test_collective_address_with_debate_keyword_uses_multi_ai(self):
         """'you guys debate X' has both collective AND debate intent.
 
-        is_conversation wins and the router should use stream_multi_ai_conversation,
-        not the broadcast path. Both AIs still participate.
+        is_conversation wins and the router should use the multi-AI path
+        (verified by peer_chat_turns_required arriving), not the broadcast
+        path. Updated for needle 1016.
         """
         from unittest.mock import AsyncMock, patch
 
         ws = self._make_ws()
         with patch("routers.chat.stream_group_broadcast", new_callable=AsyncMock) as mock_broadcast, \
-             patch("routers.chat.stream_multi_ai_conversation", new_callable=AsyncMock) as mock_debate, \
-             patch("routers.chat.call_model", new_callable=AsyncMock):
+             patch("routers.chat.call_model", new_callable=AsyncMock), \
+             patch("routers.chat._PEER_CHAT_TURN_TIMEOUT", 0.001):
             ws._recv_queue = [
                 {"messages": [{"role": "user", "content": "you guys debate the best programming language"}], "model": "@claude"}
             ]
@@ -2476,7 +2465,11 @@ class TestGroupBroadcastRouting:
             except Exception:
                 pass
 
-            mock_debate.assert_called_once()
+            # Multi-AI path taken → peer_chat_turns_required sent, not broadcast
+            picker_events = [m for m in ws.messages if m.get("type") == "peer_chat_turns_required"]
+            assert len(picker_events) == 1, (
+                f"Expected peer_chat_turns_required for debate intent, got: {ws.messages}"
+            )
             mock_broadcast.assert_not_called()
 
     @pytest.mark.asyncio

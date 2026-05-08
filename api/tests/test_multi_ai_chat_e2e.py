@@ -147,6 +147,11 @@ def test_multi_ai_chat_with_bare_second_model_runs_full_back_and_forth(
     Proves the bug where ``@gemini chat with claude`` was treated as a
     single-model call is fixed, and asserts every event the frontend
     relies on is present in the right order.
+
+    Updated for needle 1016: the backend now first returns
+    ``peer_chat_turns_required`` so the user can pick turn count.
+    The test picks 3 turns (matching MULTI_AI_DEFAULT_ROUNDS) so all
+    downstream assertions continue to hold.
     """
     fake_gemini, fake_claude = patched_streams
     client = TestClient(app)
@@ -161,6 +166,22 @@ def test_multi_ai_chat_with_bare_second_model_runs_full_back_and_forth(
                 "tools": False,
             }
         )
+        # New flow: backend returns the turn picker event first.
+        picker_frame = ws.receive_json()
+        assert picker_frame["type"] == "peer_chat_turns_required", (
+            f"Expected peer_chat_turns_required, got {picker_frame}"
+        )
+        pending_id = picker_frame["pending_id"]
+        assert set(picker_frame.get("participants", [])) == {"gemini", "claude"}
+
+        # Simulate the user picking 3 turns (matches MULTI_AI_DEFAULT_ROUNDS).
+        resp = client.post(
+            "/api/chat/peer/start",
+            json={"pending_id": pending_id, "turns": 3},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["turns"] == 3
+
         events = _collect_until_done(ws)
 
     # Exactly one done event at the very end.
@@ -333,6 +354,9 @@ def test_two_mentions_conversation_intent_via_bare_word_threaded(
     something to talk about. This is a narrow but critical check: if
     the user_message is empty, both models will hallucinate a topic
     and the whole conversation will be off-topic.
+
+    Updated for needle 1016: now picks 2 turns via the picker endpoint
+    before collecting events.
     """
     fake_gemini, _ = patched_streams
     client = TestClient(app)
@@ -347,6 +371,13 @@ def test_two_mentions_conversation_intent_via_bare_word_threaded(
                 "tools": False,
             }
         )
+        picker_frame = ws.receive_json()
+        assert picker_frame["type"] == "peer_chat_turns_required"
+        resp = client.post(
+            "/api/chat/peer/start",
+            json={"pending_id": picker_frame["pending_id"], "turns": 2},
+        )
+        assert resp.status_code == 200
         _collect_until_done(ws)
 
     first_prompt = fake_gemini.received_prompts[0]
