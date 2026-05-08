@@ -540,7 +540,7 @@ export default function Dashboard() {
                 </div>
                 <div className="text-sm text-slate-200 leading-relaxed space-y-3">
                   {briefing.briefing.split(/\n\n+/).map((para, i) => (
-                    <p key={i}>{renderMarkdown(para)}</p>
+                    <div key={i}>{renderMarkdown(para)}</div>
                   ))}
                 </div>
                 {briefing.action_items && briefing.action_items.length > 0 && (

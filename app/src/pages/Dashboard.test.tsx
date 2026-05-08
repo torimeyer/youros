@@ -1095,6 +1095,48 @@ describe('Briefing localStorage seed', () => {
   })
 })
 
+describe('widget-briefing no nested <p> (hydration regression →1018)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    useAppStore.setState({
+      chatOpen: false,
+      osName: 'ToriOS',
+      darkMode: true,
+      showTour: false,
+      dashboardWidgets: ['briefing'],
+    })
+  })
+
+  it('briefing paragraphs do not contain a nested <p> child', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/briefing') return Promise.resolve({
+        show: true,
+        briefing: 'First paragraph.\n\nSecond paragraph.',
+        action_items: [],
+      })
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      return Promise.resolve({})
+    })
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>
+    )
+
+    const widget = await waitFor(() => screen.getByTestId('widget-briefing'))
+    const ps = widget.querySelectorAll('p')
+    ps.forEach((p) => {
+      expect(p.querySelector('p')).toBeNull()
+    })
+  })
+})
+
 describe('calendar widget range selector', () => {
   // Build a stub calendar event N days from now so the dashboard's
   // in-window filter keeps the mocked event for whatever range is
