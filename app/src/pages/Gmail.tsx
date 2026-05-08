@@ -397,7 +397,7 @@ export default function Gmail() {
               <div className="w-full space-y-3">
                 {googleOAuthAvailable ? (
                   <button
-                    onClick={() => { window.location.href = '/api/auth/google' }}
+                    onClick={handleConnect}
                     className="w-full py-3 bg-red-600 hover:bg-red-700 rounded-xl font-medium transition-colors"
                     data-testid="connect-google-button-gmail"
                   >

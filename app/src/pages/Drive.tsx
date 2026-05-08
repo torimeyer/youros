@@ -354,7 +354,7 @@ function ConnectScreen({
               </div>
             )}
             <button
-              onClick={() => { window.location.href = '/api/auth/google' }}
+              onClick={handleConnect}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-white font-medium transition-colors"
               data-testid="connect-google-button-drive"
             >

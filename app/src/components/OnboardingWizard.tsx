@@ -994,7 +994,14 @@ function ConnectStep({
       {googleOAuthAvailable && (
         <div className={`mb-4 pb-4 border-b ${darkMode ? 'border-slate-700' : 'border-gray-200'}`}>
           <button
-            onClick={() => { window.location.href = '/api/auth/google' }}
+            onClick={async () => {
+              try {
+                const res = await api.get<{ url: string }>('/drive/auth/url');
+                window.location.href = res.url;
+              } catch (err) {
+                console.error('Google Workspace sign-in failed to start:', err);
+              }
+            }}
             className={`w-full px-4 py-2.5 border rounded-lg text-sm transition-colors flex items-center gap-2 ${
               darkMode
                 ? 'bg-slate-800/50 border-slate-700 text-slate-300 hover:border-blue-500'

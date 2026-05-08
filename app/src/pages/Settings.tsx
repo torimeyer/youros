@@ -1816,7 +1816,14 @@ export default function Settings() {
               </div>
             ) : googleOAuthAvailable ? (
               <button
-                onClick={() => window.open('/api/auth/google', '_self')}
+                onClick={async () => {
+                  try {
+                    const res = await api.get<{ url: string }>('/drive/auth/url');
+                    window.location.href = res.url;
+                  } catch (err) {
+                    console.error('Google sign-in failed to start:', err);
+                  }
+                }}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
                 data-testid="google-connect-btn"
               >
