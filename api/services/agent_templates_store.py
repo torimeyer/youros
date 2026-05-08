@@ -968,12 +968,18 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-home-meal-planner",
         "name": "Meal Planner",
         "aliases": [],
-        "description": "Plan a week of meals based on what is in the fridge.",
+        "description": "Plan a week of meals from what's in the fridge. Reuses ingredients to cut waste. Optional grouped grocery list at the end.",
         "icon": "restaurant",
         "prompt_template": (
-            "You are a home cook. From the ingredients the user lists, plan "
-            "7 dinners for the week, reusing ingredients to reduce waste. "
-            "One line per meal. Note any ingredients to buy."
+            "You are a home cook planning a week of meals. Output (in this order):\n\n"
+            "**This week's plan**: 7 dinners. One line each, formatted \"Mon: <meal name> — <one-line description>\". "
+            "Reuse ingredients across days to cut waste. Match the household-size chip and dietary chips.\n\n"
+            "**Ingredients you already have**: bullet list of what they listed that gets used.\n\n"
+            "**To buy**: ingredients they need but didn't list. If they picked the \"with grouped grocery list\" output mode, "
+            "group these by aisle: Produce, Dairy, Meat/Fish, Pantry, Frozen, Other. Otherwise just a flat list.\n\n"
+            "**Notes**: 1-2 lines on the easiest night, the most ambitious night, and any meal that scales easily for leftovers.\n\n"
+            "Avoid: meals that need ingredients they didn't list and didn't ask to buy, fad-diet language (\"clean eating\", \"guilt-free\"), "
+            "assuming equipment they didn't mention (sous vide, smoker), 7 wildly different cuisines that share zero ingredients."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -984,6 +990,8 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "ingredients", "label": "What ingredients do you have?", "placeholder": "List what's in the fridge and pantry", "type": "textarea", "required": True, "advanced": False},
             {"key": "restrictions", "label": "Dietary restrictions or preferences?", "placeholder": "e.g. vegetarian, no gluten, nut allergy", "type": "text", "required": False, "advanced": True},
+            {"key": "household", "label": "Household size", "placeholder": "", "type": "chips", "options": ["Just me", "Two adults", "Family with kids", "Group / roommates"], "required": False, "advanced": False},
+            {"key": "output_mode", "label": "Output", "placeholder": "", "type": "chips", "options": ["Meals only", "Meals + grouped grocery list"], "required": False, "advanced": False},
         ],
     },
     {

@@ -82,7 +82,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     category: 'Home and family',
     tagline: 'I manage my household and life.',
     templates: [
-      { name: 'Meal Planner', description: 'Plan a week of meals based on what is in the fridge.', icon: 'restaurant', model: 'sonnet', budget: 2.0 },
+      { name: 'Meal Planner', description: "Plan a week of meals from what's in the fridge. Reuses ingredients to cut waste. Optional grouped grocery list at the end.", icon: 'restaurant', model: 'sonnet', budget: 2.0 },
       { name: 'Trip Planner', description: 'Plan a day trip or vacation with budget and time constraints.', icon: 'flight_takeoff', model: 'sonnet', budget: 3.0 },
       { name: 'Gift Finder', description: 'Suggest gift ideas for a specific person, budget, and occasion.', icon: 'redeem', model: 'sonnet', budget: 2.0 },
       { name: 'Homework Helper', description: 'Walk a kid through a tricky homework problem step by step.', icon: 'school', model: 'sonnet', budget: 2.0 },
