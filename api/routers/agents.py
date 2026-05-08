@@ -4024,11 +4024,12 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                 # Map builtin-builder -> "builder" (agentfile name stem),
                 # builtin-diagnose -> "diagnose", etc.
                 tpl = _BUILTIN_BY_ID.get(alias_id, {})
-                canonical_name = tpl.get("name", body.template).lower().replace(" ", "-")
-                # For agentfile-backed templates, the file stem is the canonical name
-                # Strip "builtin-" prefix to get the stem: builtin-builder -> builder
-                stem = alias_id.replace("builtin-", "")
-                resolved_template = stem
+                # Derive the agentfile stem from the display name, not the id.
+                # "builtin-pm-roadmap" → id-stem "pm-roadmap" but file is "roadmap.agent".
+                # "Roadmap".lower().replace(" ", "-") → "roadmap" which matches.
+                # Previously used alias_id.replace("builtin-", "") which broke every
+                # category-prefixed id (pm-*, sales-*, writer-*, eng-*, home-*).
+                resolved_template = tpl.get("name", body.template).lower().replace(" ", "-")
         except Exception:
             pass
 

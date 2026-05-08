@@ -5261,6 +5261,55 @@ async def test_spawn_with_unknown_template_returns_plain_language_400(tmp_path, 
     assert "saa" in detail
 
 
+@pytest.mark.asyncio
+async def test_spawn_with_category_prefixed_template_resolves_correctly(tmp_path, monkeypatch):
+    """POST /agents/spawn with template='Roadmap' (a category-prefixed builtin id
+    'builtin-pm-roadmap') must resolve to roadmap.agent, not pm-roadmap.agent.
+
+    Regression for →1068: the spawn path stripped 'builtin-' from the id to
+    get 'pm-roadmap', then looked for pm-roadmap.agent which doesn't exist.
+    The fix derives the stem from the template display name instead ('Roadmap'
+    -> 'roadmap'), which matches the actual file naming convention.
+    """
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    marketplace_dir = agents_dir / "marketplace"
+    marketplace_dir.mkdir()
+    (agents_dir / "builder.agent").write_text(
+        'FROM auto\nPROMPT "builder"\nTOOL shell\n'
+    )
+    (marketplace_dir / "roadmap.agent").write_text(
+        'FROM auto\nPROMPT "You are a senior PM. Draft the roadmap."\n'
+        'LIMIT quick_mode true\n'
+    )
+    from services import agentfile_parser
+    monkeypatch.setattr(agentfile_parser, "AGENTS_DIR", agents_dir)
+    monkeypatch.setattr(agentfile_parser, "MARKETPLACE_DIR", marketplace_dir)
+
+    fake_proc = _FakeProc()
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_make_spawn_returner(fake_proc)):
+        with patch("routers.agents.ostk._run", new_callable=AsyncMock):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/agents/spawn",
+                    json={
+                        "name": "roadmap-agent-1",
+                        "prompt": "Draft a roadmap for next year.",
+                        "model": "sonnet",
+                        "budget": 2.0,
+                        "template": "Roadmap",
+                        "locks": ["*"],  # read-only spawn, no file edits
+                    },
+                )
+
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+    decoded = fake_proc.stdin.written.decode()
+    assert "senior PM" in decoded, f"roadmap.agent PROMPT not injected: {decoded[:300]}"
+    assert "Draft a roadmap for next year" in decoded
+
+
 # ── Stale sweep safety (needle 300) ─────────────────────────────────
 #
 # Root cause: the stale sweep kept marking actively-working agents as
