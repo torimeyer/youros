@@ -4398,7 +4398,9 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             _last_any_byte_at = [time.monotonic()]
             _last_model_output_at = [time.monotonic()]
 
-            _MODEL_EVENT_TYPES = frozenset(("text", "tool_use", "tool_result", "thinking"))
+            # stream-json event types that indicate model activity (excluding
+            # "assistant" which is handled separately to extract nested text)
+            _MODEL_EVENT_TYPES = frozenset(("tool_result", "thinking"))
 
             async def _heartbeat_loop() -> None:
                 while True:
@@ -4463,18 +4465,25 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                             try:
                                 event = json.loads(line.decode("utf-8", errors="replace"))
                                 etype = event.get("type")
-                                if etype == "text":
-                                    text = event.get("text", "")
-                                    if text:
-                                        _had_model_output = True
-                                        _last_model_output_at[0] = time.monotonic()
-                                        try:
-                                            tfh.write(text.encode("utf-8", errors="replace"))
-                                            tfh.flush()
-                                        except Exception:
-                                            pass
+                                if etype == "assistant":
+                                    # stream-json wraps text in assistant.message.content[]
+                                    for block in event.get("message", {}).get("content", []):
+                                        btype = block.get("type")
+                                        if btype == "text":
+                                            text = block.get("text", "")
+                                            if text:
+                                                _had_model_output = True
+                                                _last_model_output_at[0] = time.monotonic()
+                                                try:
+                                                    tfh.write(text.encode("utf-8", errors="replace"))
+                                                    tfh.flush()
+                                                except Exception:
+                                                    pass
+                                        elif btype in ("tool_use",):
+                                            _had_model_output = True
+                                            _last_model_output_at[0] = time.monotonic()
                                 elif etype in _MODEL_EVENT_TYPES:
-                                    # Tool calls/results: update watchdog but skip raw JSON in transcript
+                                    # tool_result etc: update watchdog, skip raw JSON in transcript
                                     _had_model_output = True
                                     _last_model_output_at[0] = time.monotonic()
                                 # system/hook events: _had_any_byte already set; skip transcript
@@ -4493,12 +4502,19 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         try:
                             event = json.loads(_json_buf.decode("utf-8", errors="replace"))
                             etype = event.get("type")
-                            if etype == "text":
-                                text = event.get("text", "")
-                                if text:
-                                    _had_model_output = True
-                                    tfh.write(text.encode("utf-8", errors="replace"))
-                                    tfh.flush()
+                            if etype == "assistant":
+                                for block in event.get("message", {}).get("content", []):
+                                    if block.get("type") == "text":
+                                        text = block.get("text", "")
+                                        if text:
+                                            _had_model_output = True
+                                            try:
+                                                tfh.write(text.encode("utf-8", errors="replace"))
+                                                tfh.flush()
+                                            except Exception:
+                                                pass
+                                    elif block.get("type") in ("tool_use",):
+                                        _had_model_output = True
                             elif etype in _MODEL_EVENT_TYPES:
                                 _had_model_output = True
                         except (json.JSONDecodeError, UnicodeDecodeError):
