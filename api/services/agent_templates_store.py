@@ -1270,8 +1270,8 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Investor Update",
         "aliases": [],
         "description": (
-            "Turn raw notes from the past month into a crisp investor update -- "
-            "metrics, progress, blockers, the one ask."
+            "Turn this month's notes into a crisp investor update. "
+            "TL;DR, metrics, progress, blockers, and the one specific ask."
         ),
         "icon": "trending_up",
         "prompt_template": (
