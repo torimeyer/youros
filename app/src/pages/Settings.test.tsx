@@ -1287,4 +1287,91 @@ describe('Settings page — Push notifications toggle', () => {
       expect(vi.mocked(unsubscribe)).toHaveBeenCalled()
     })
   })
+
+  describe('Connections skeleton loading state (→1061)', () => {
+    it('shows key-status skeleton while key-status API is pending', () => {
+      const mockedApiGet = vi.mocked(api.get)
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/secrets/key-status') {
+          return new Promise(() => {}) // never resolves
+        }
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      expect(screen.getByTestId('key-status-skeleton')).toBeInTheDocument()
+      expect(screen.queryByText(/No key found/)).not.toBeInTheDocument()
+    })
+
+    it('hides skeleton and shows key status after API resolves with no key', async () => {
+      const mockedApiGet = vi.mocked(api.get)
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/secrets/key-status') {
+          return Promise.resolve({ anthropic: false, gemini: false, google_oauth_available: false })
+        }
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('key-status-skeleton')).not.toBeInTheDocument()
+      })
+      expect(screen.getByText(/No key found/)).toBeInTheDocument()
+    })
+
+    it('hides skeleton and shows key available banner after API resolves with key present', async () => {
+      const mockedApiGet = vi.mocked(api.get)
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/secrets/key-status') {
+          return Promise.resolve({
+            anthropic: true,
+            anthropic_source: 'keychain',
+            gemini: false,
+            google_oauth_available: false,
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('key-status-skeleton')).not.toBeInTheDocument()
+      })
+      expect(screen.getByText(/Key available/)).toBeInTheDocument()
+      expect(screen.queryByText(/No key found/)).not.toBeInTheDocument()
+    })
+
+    it('never shows amber no-key warning before key-status resolves', () => {
+      const mockedApiGet = vi.mocked(api.get)
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/secrets/key-status') {
+          return new Promise(() => {}) // never resolves
+        }
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      expect(screen.queryByText(/No key found/)).not.toBeInTheDocument()
+    })
+
+    it('connection dots render immediately on mount before status loads', () => {
+      const mockedApiGet = vi.mocked(api.get)
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/gmail/auth/status' || path === '/calendar/auth/status' ||
+            path === '/drive/auth/status' || path === '/slack/status') {
+          return new Promise(() => {}) // never resolves
+        }
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      expect(screen.getByTestId('pill-google')).toBeInTheDocument()
+      expect(screen.getByTestId('pill-slack')).toBeInTheDocument()
+    })
+  })
 })

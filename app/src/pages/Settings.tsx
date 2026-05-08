@@ -164,6 +164,7 @@ export default function Settings() {
   const [googleConnected, setGoogleConnected] = useState(false);
   const [keyAvailable, setKeyAvailable] = useState<Record<string, boolean>>({ Anthropic: false, 'Google Gemini': false });
   const [keySource, setKeySource] = useState<Record<string, string>>({});
+  const [keyStatusLoading, setKeyStatusLoading] = useState(true);
   const [ostkMcpServers, setOstkMcpServers] = useState<OstkMCPServer[]>([]);
 
   // Gemini Enterprise provider state
@@ -336,8 +337,9 @@ export default function Settings() {
         setGoogleConnected(data.google_connected ?? false);
         setKeyAvailable({ Anthropic: data.anthropic ?? false, 'Google Gemini': data.gemini ?? false });
         setKeySource({ Anthropic: data.anthropic_source ?? 'none', 'Google Gemini': data.gemini_source ?? 'none' });
+        setKeyStatusLoading(false);
       })
-      .catch(() => {});
+      .catch(() => { setKeyStatusLoading(false); });
     api.get<{ ostk_servers?: OstkMCPServer[] }>('/settings/mcp-servers')
       .then((data) => setOstkMcpServers(data.ostk_servers ?? []))
       .catch(() => {});
@@ -1189,7 +1191,9 @@ export default function Settings() {
               <label className="text-sm text-slate-400 mb-3 block">Connect {selectedProvider}</label>
 
               {/* Status indicator */}
-              {keyAvailable[selectedProvider] ? (
+              {keyStatusLoading ? (
+                <div data-testid="key-status-skeleton" className="h-8 bg-slate-800/60 rounded-lg animate-pulse mb-3" />
+              ) : keyAvailable[selectedProvider] ? (
                 <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-white border border-green-300 rounded-lg">
                   <Icon name="check_circle" size={16} className="text-green-600" />
                   <span className="text-sm text-green-700">
@@ -1750,7 +1754,7 @@ export default function Settings() {
             >
               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                 connectionStatus.Drive.loading
-                  ? 'bg-slate-600'
+                  ? 'bg-slate-600 animate-pulse'
                   : connectionStatus.Drive.connected
                   ? 'bg-emerald-400'
                   : 'bg-slate-600'
@@ -1827,7 +1831,7 @@ export default function Settings() {
             >
               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                 connectionStatus.Slack.loading
-                  ? 'bg-slate-600'
+                  ? 'bg-slate-600 animate-pulse'
                   : connectionStatus.Slack.connected
                   ? 'bg-emerald-400'
                   : 'bg-slate-600'
