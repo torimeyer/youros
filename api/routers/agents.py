@@ -512,6 +512,13 @@ STALE_AGENT_TRANSCRIPT_GRACE_SECONDS = 120
 # monkeypatch to keep suites fast.
 _TRANSCRIPT_FLUSH_INTERVAL: float = 30.0
 
+# If a subprocess produces NO stdout for this many seconds while still
+# running, we treat it as wedged and kill it. Without this guard, agents
+# can register, heartbeat forever, and never stream model output, which
+# looks indistinguishable from a healthy long-running agent. Override in
+# tests via monkeypatch to keep suites fast.
+_STDOUT_SILENCE_LIMIT_SECONDS: float = 300.0
+
 # Adaptive poll constants: agents start polling fast right after a
 # nudge (when Tori is most likely to iterate) and back off toward the
 # slow cap during quiet stretches. This gives sub-15-second latency
@@ -4368,11 +4375,35 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             buffers output internally (libc full buffering on non-TTY pipes).
             """
             _had_real_content = False
+            _last_stdout_at = [time.monotonic()]
 
             async def _heartbeat_loop() -> None:
                 while True:
                     await asyncio.sleep(_TRANSCRIPT_FLUSH_INTERVAL)
                     if p.returncode is not None:
+                        break
+                    # Watchdog: if subprocess hasn't emitted any stdout for
+                    # _STDOUT_SILENCE_LIMIT_SECONDS, treat it as wedged and
+                    # kill it so the agent fails loudly instead of looking
+                    # alive forever. Without this, claude --print can hang
+                    # silently (model never streamed first token) and the
+                    # only signal is the heartbeats this loop writes.
+                    silent_for = time.monotonic() - _last_stdout_at[0]
+                    if silent_for > _STDOUT_SILENCE_LIMIT_SECONDS:
+                        try:
+                            with open(str(tpath), "a") as fh:
+                                fh.write(
+                                    f"\nAgent '{name}' subprocess silent for "
+                                    f"{int(silent_for)}s with no stdout - "
+                                    f"killing wedged process.\n"
+                                )
+                            logger.warning(
+                                "spawn.silent_kill name=%s silent_s=%.0f",
+                                name, silent_for,
+                            )
+                            p.kill()
+                        except Exception:
+                            pass
                         break
                     try:
                         ts = datetime.now(timezone.utc).isoformat()
@@ -4392,6 +4423,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         if not chunk:
                             break
                         _had_real_content = True
+                        _last_stdout_at[0] = time.monotonic()
                         try:
                             tfh.write(chunk)
                             tfh.flush()
