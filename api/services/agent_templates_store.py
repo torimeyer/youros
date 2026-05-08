@@ -1307,10 +1307,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-support-customer-reply",
         "name": "Customer Reply",
         "aliases": [],
-        "description": (
-            "Draft a clear, empathetic response to a customer complaint or support ticket -- "
-            "with a resolution, an explanation, and a next step."
-        ),
+        "description": "Reply to a complaint or support ticket. Acknowledges what happened, offers a real resolution, names the next step. No filler.",
         "icon": "mark_email_read",
         "prompt_template": (
             "You are a customer support writer. From the user's pasted ticket or complaint: "
