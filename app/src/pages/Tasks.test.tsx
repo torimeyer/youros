@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import Tasks from './Tasks'
+import Tasks, { getFirstSentence } from './Tasks'
 import { useAppStore } from '../stores/app'
 
 vi.mock('../lib/api', () => ({
@@ -2967,5 +2967,23 @@ describe('Tasks page - 2026-04-23 regression set', () => {
         expect(screen.queryByText('Legacy in-progress task')).not.toBeInTheDocument()
       })
     })
+  })
+})
+
+describe('getFirstSentence (→1057)', () => {
+  it('returns text up to and including the first period', () => {
+    expect(getFirstSentence('Short title. Longer body here.')).toBe('Short title.')
+  })
+
+  it('treats colon as a sentence boundary', () => {
+    expect(getFirstSentence('Bug: user clicks save but nothing happens')).toBe('Bug:')
+  })
+
+  it('returns full text when no boundary char is present', () => {
+    expect(getFirstSentence('No boundary at all')).toBe('No boundary at all')
+  })
+
+  it('trims surrounding whitespace from the result', () => {
+    expect(getFirstSentence('   Title.   Rest of body')).toBe('Title.')
   })
 })

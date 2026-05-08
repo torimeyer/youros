@@ -167,6 +167,15 @@ const priorityDotColors: Record<string, string> = {
 
 const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 
+// Returns text up to (and including) the first sentence boundary ("." or ":").
+// Used to show a short summary in the collapsed row; full text appears in the
+// detail panel when the row is expanded.
+export function getFirstSentence(text: string): string {
+  const idx = text.search(/[.:]/)
+  if (idx < 0) return text
+  return text.slice(0, idx + 1).trim()
+}
+
 // First-paint cache (needle 299).
 //
 // Why this exists:
@@ -2191,7 +2200,7 @@ export default function Tasks() {
                           className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5"
                           title={task.description}
                         >
-                          {task.description}
+                          {getFirstSentence(task.description)}
                         </p>
                       )}
                       {task.notes && (
