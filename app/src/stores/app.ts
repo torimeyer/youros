@@ -42,6 +42,7 @@ export interface CustomAgentTemplate {
   icon: string
   model: string
   budget: number
+  source?: string
 }
 
 // Maps Settings provider names to chat model keys

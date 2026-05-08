@@ -5425,6 +5425,41 @@ describe('Agent Templates source attribution', () => {
       expect(names).toContain('My Real Custom')
     })
   })
+
+  it('marketplace template installed via the Add button shows marketplace badge, not custom', async () => {
+    // →1032: when a user clicks "Use" on a marketplace card, the installed
+    // template must show "marketplace" not "custom". The fix stores
+    // source: "marketplace" on the template object so displayTemplates
+    // passes the right value to TemplateCard.
+    useAppStore.setState({
+      chatOpen: true,
+      osName: 'myOS',
+      darkMode: true,
+      customAgentTemplates: [
+        { name: 'Summarizer', description: 'Summarize docs.', icon: 'summarize', model: 'sonnet', budget: 2, source: 'marketplace' },
+      ],
+    })
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: true, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return { templates: [] }
+      if (path.startsWith('/agents/persona-templates')) return { templates: [], persona: 'pm' }
+      if (path === '/agents/user-templates') return { templates: [] }
+      if (path === '/settings') return { persona: 'pm' }
+      if (path === '/agents/fleets') return { fleets: [] }
+      return {}
+    })
+
+    renderAgents()
+
+    const templatesTab = await screen.findByRole('button', { name: 'Templates' })
+    fireEvent.click(templatesTab)
+
+    await screen.findByTestId('installed-templates-grid')
+
+    const card = await screen.findByTestId('template-card-Summarizer')
+    expect(card.textContent).toContain('marketplace')
+    expect(card.textContent).not.toContain('custom')
+  })
 })
 
 describe('Agents page - Phase 2 enterprise consistency', () => {

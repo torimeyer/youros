@@ -3321,6 +3321,7 @@ export default function Agents() {
     model: string;
     budget: number;
     isBuiltIn: boolean;
+    source?: string;
     aliases: string[];
     capabilities: TemplateCapabilities | null;
     parseError: string | null;
@@ -3388,6 +3389,7 @@ export default function Agents() {
       .map((ct) => ({
         ...ct,
         isBuiltIn: false,
+        source: ct.source ?? "custom",
         aliases: [],
         capabilities: null,
         parseError: null,
@@ -4450,7 +4452,7 @@ export default function Agents() {
                 description={tpl.description}
                 icon={tpl.icon}
                 aliases={tpl.aliases}
-                source={tpl.isBuiltIn ? "builtin" : "custom"}
+                source={tpl.isBuiltIn ? "builtin" : (tpl.source ?? "custom")}
                 installed={true}
                 onAction={tpl.parseError == null ? () => {
                   const rawContent = tpl.isBuiltIn
@@ -4465,7 +4467,7 @@ export default function Agents() {
                   setEditorBuiltInName(tpl.isBuiltIn ? tpl.name : null);
                   setEditorPromptTemplate(extractedPrompt || undefined);
                   setEditorTemplateId(tpl.templateId);
-                  setEditorSource(tpl.isBuiltIn ? "builtin" : "custom");
+                  setEditorSource(tpl.isBuiltIn ? "builtin" : (tpl.source ?? "custom"));
                   setEditorAliases(tpl.aliases);
                   setEditorUserInputs(undefined);
                   setEditorOpen(true);
@@ -4571,7 +4573,7 @@ export default function Agents() {
                       icon={mt.icon}
                       source="marketplace"
                       installed={false}
-                      onAction={() => addCustomTemplate(mt)}
+                      onAction={() => addCustomTemplate({ ...mt, source: 'marketplace' })}
                       testId={`marketplace-card-${mt.name}`}
                     />
                   ];
