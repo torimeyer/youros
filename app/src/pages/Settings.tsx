@@ -223,6 +223,7 @@ export default function Settings() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSection, setActiveSection] = useState('section-connections');
+  const [expandedConnection, setExpandedConnection] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -1739,160 +1740,202 @@ export default function Settings() {
             <h2 className="text-2xl font-bold mb-2">Connections</h2>
             <p className="text-sm text-slate-400 mb-6">Sign in to the apps myOS works with.</p>
           </div>
-          <div className={cardClass} data-testid="connections-section">
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-lg font-semibold">Connections</h2>
-            <div className="group relative ml-1">
-              <Icon name="help_outline" size={18} className="text-slate-500 hover:text-slate-300 cursor-help" />
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 bg-slate-800 border border-slate-700 rounded-lg p-3 text-xs text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-10">
-                Shows which outside accounts are linked. Green means connected, red means not connected.
-              </div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {(['Gmail', 'Calendar', 'Drive', 'Slack'] as const).map((svc) => {
-              const status = connectionStatus[svc];
-              const iconName = svc === 'Gmail' ? 'mail' : svc === 'Calendar' ? 'calendar_month' : svc === 'Drive' ? 'folder_shared' : 'forum';
-              return (
-                <div
-                  key={svc}
-                  data-testid={`connection-${svc.toLowerCase()}`}
-                  className="flex items-center gap-2 px-3 py-2.5 bg-slate-800/50 rounded-lg border border-slate-700/50"
-                >
-                  <Icon name={iconName} size={18} className="text-slate-300 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-slate-200 font-medium truncate">{svc}</p>
-                    {status.label && (
-                      <p className="text-xs text-slate-500 truncate" title={status.label}>{status.label}</p>
-                    )}
-                  </div>
-                  <span
-                    data-testid={`connection-dot-${svc.toLowerCase()}`}
-                    data-connected={status.loading ? 'loading' : status.connected ? 'yes' : 'no'}
-                    className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                      status.loading
-                        ? 'bg-slate-600'
-                        : status.connected
-                        ? 'bg-emerald-400'
-                        : 'bg-red-500'
-                    }`}
-                    title={status.loading ? 'Checking' : status.connected ? 'Connected' : 'Not connected'}
-                  />
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Google */}
-          <div className={cardClass} data-testid="google-connect-section">
-            <div className="flex items-center gap-2 mb-3">
-              <Icon name="travel_explore" size={18} className="text-blue-400" />
-              <h2 className="text-base font-semibold">Google</h2>
-            </div>
-            <p className="text-xs text-slate-500 mb-3">Gmail, Calendar, and Drive</p>
-            {connectionStatus.Drive.connected ? (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
-                  <p className="text-sm text-slate-200 font-medium">
-                    {connectionStatus.Drive.label || 'Connected'}
-                  </p>
-                </div>
-                <button
-                  onClick={async () => {
-                    await api.post('/secrets/google/disconnect', {});
-                    setGoogleConnected(false);
-                    setKeyAvailable(prev => ({ ...prev, 'Google Gemini': false }));
-                    setKeySource(prev => ({ ...prev, 'Google Gemini': 'none' }));
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-400 hover:text-slate-200 transition-colors"
-                >
-                  <Icon name="link_off" size={15} />
-                  Disconnect
-                </button>
-              </div>
-            ) : googleOAuthAvailable ? (
-              <button
-                onClick={async () => {
-                  try {
-                    const res = await api.get<{ url: string }>('/drive/auth/url');
-                    window.location.href = res.url;
-                  } catch (err) {
-                    console.error('Google sign-in failed to start:', err);
-                  }
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
-                data-testid="google-connect-btn"
-              >
-                <Icon name="login" size={16} />
-                Connect Google
-              </button>
-            ) : (
-              <p className="text-sm text-slate-400">
-                Google sign-in is not configured for this instance.
-              </p>
-            )}
-          </div>
-
-          {/* Slack one-click connect */}
-          <div className={cardClass} data-testid="slack-connect-section">
-            <div className="flex items-center gap-2 mb-4">
-              <Icon name="forum" size={18} className="text-purple-400" />
-              <h2 className="text-base font-semibold">Slack</h2>
-            </div>
-            <SlackConnect />
-          </div>
-
-          {/* GitHub */}
-          <div className={cardClass} data-testid="github-connect-section">
-            <div className="flex items-center gap-2 mb-4">
-              <Icon name="code" size={18} className="text-slate-300" />
-              <h2 className="text-base font-semibold">GitHub</h2>
-            </div>
-            <GithubSetupCard
-              darkMode={true}
-              inputCls="bg-slate-800 border-slate-700 text-white"
-              subtextCls="text-slate-400"
-            />
-          </div>
-
-          {/* Atlassian (Jira + Confluence) */}
-          <div className={cardClass} data-testid="atlassian-connect-section">
-            <div className="flex items-center gap-2 mb-4">
-              <Icon name="bug_report" size={18} className="text-blue-400" />
-              <h2 className="text-base font-semibold">Jira & Confluence</h2>
-            </div>
-            <AtlassianSetupCard
-              darkMode={true}
-              inputCls="bg-slate-800 border-slate-700 text-white"
-              subtextCls="text-slate-400"
-            />
-          </div>
-
-          {/* iMessage */}
-          <div className={cardClass} data-testid="imessage-connect-section">
-            <div className="flex items-center gap-2 mb-4">
-              <Icon name="chat_bubble" size={18} className="text-green-400" />
-              <h2 className="text-base font-semibold">iMessage</h2>
-            </div>
-            <p className="text-sm text-slate-400 mb-3">
-              Read and reply to iMessages from within myOS. Requires macOS.
-            </p>
-            <a
-              href="/imessage"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium text-white transition-colors"
-              data-testid="imessage-setup-link"
+          <div className="space-y-4">
+            {/* Google pill */}
+            <button
+              onClick={() => setExpandedConnection(expandedConnection === 'google' ? null : 'google')}
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
+              data-testid="pill-google"
             >
-              <Icon name="open_in_new" size={16} />
-              Set up iMessage
-            </a>
+              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                connectionStatus.Drive.loading
+                  ? 'bg-slate-600'
+                  : connectionStatus.Drive.connected
+                  ? 'bg-emerald-400'
+                  : 'bg-slate-600'
+              }`} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-200">Google</p>
+                <p className="text-xs text-slate-400 truncate">{connectionStatus.Drive.connected ? connectionStatus.Drive.label || 'Connected' : 'Sign in to use Gmail, Calendar, and Drive'}</p>
+              </div>
+              <Icon name={expandedConnection === 'google' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
+            </button>
+            {expandedConnection === 'google' && (
+              <div className={cardClass} data-testid="google-connect-section">
+                <div className="flex items-center gap-2 mb-3">
+                  <Icon name="travel_explore" size={18} className="text-blue-400" />
+                  <h2 className="text-base font-semibold">Google</h2>
+                </div>
+                <p className="text-xs text-slate-500 mb-3">Gmail, Calendar, and Drive</p>
+                {connectionStatus.Drive.connected ? (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                      <p className="text-sm text-slate-200 font-medium">
+                        {connectionStatus.Drive.label || 'Connected'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        await api.post('/secrets/google/disconnect', {});
+                        setGoogleConnected(false);
+                        setKeyAvailable(prev => ({ ...prev, 'Google Gemini': false }));
+                        setKeySource(prev => ({ ...prev, 'Google Gemini': 'none' }));
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                      <Icon name="link_off" size={15} />
+                      Disconnect
+                    </button>
+                  </div>
+                ) : googleOAuthAvailable ? (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await api.get<{ url: string }>('/drive/auth/url');
+                        window.location.href = res.url;
+                      } catch (err) {
+                        console.error('Google sign-in failed to start:', err);
+                      }
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
+                    data-testid="google-connect-btn"
+                  >
+                    <Icon name="login" size={16} />
+                    Connect Google
+                  </button>
+                ) : (
+                  <p className="text-sm text-slate-400">
+                    Google sign-in is not configured for this instance.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Slack pill */}
+            <button
+              onClick={() => setExpandedConnection(expandedConnection === 'slack' ? null : 'slack')}
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
+              data-testid="pill-slack"
+            >
+              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                connectionStatus.Slack.loading
+                  ? 'bg-slate-600'
+                  : connectionStatus.Slack.connected
+                  ? 'bg-emerald-400'
+                  : 'bg-slate-600'
+              }`} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-200">Slack</p>
+                <p className="text-xs text-slate-400 truncate">{connectionStatus.Slack.connected ? connectionStatus.Slack.label || 'Connected' : 'Sign in to use slash commands'}</p>
+              </div>
+              <Icon name={expandedConnection === 'slack' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
+            </button>
+            {expandedConnection === 'slack' && (
+              <div className={cardClass} data-testid="slack-connect-section">
+                <div className="flex items-center gap-2 mb-4">
+                  <Icon name="forum" size={18} className="text-purple-400" />
+                  <h2 className="text-base font-semibold">Slack</h2>
+                </div>
+                <SlackConnect />
+              </div>
+            )}
+
+            {/* iMessage pill */}
+            <button
+              onClick={() => setExpandedConnection(expandedConnection === 'imessage' ? null : 'imessage')}
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
+              data-testid="pill-imessage"
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-200">iMessage</p>
+                <p className="text-xs text-slate-400">Set up iMessage</p>
+              </div>
+              <Icon name={expandedConnection === 'imessage' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
+            </button>
+            {expandedConnection === 'imessage' && (
+              <div className={cardClass} data-testid="imessage-connect-section">
+                <div className="flex items-center gap-2 mb-4">
+                  <Icon name="chat_bubble" size={18} className="text-green-400" />
+                  <h2 className="text-base font-semibold">iMessage</h2>
+                </div>
+                <p className="text-sm text-slate-400 mb-3">
+                  Read and reply to iMessages from within myOS. Requires macOS.
+                </p>
+                <a
+                  href="/imessage"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium text-white transition-colors"
+                  data-testid="imessage-setup-link"
+                >
+                  <Icon name="open_in_new" size={16} />
+                  Set up iMessage
+                </a>
+              </div>
+            )}
+
+            {/* GitHub pill */}
+            <button
+              onClick={() => setExpandedConnection(expandedConnection === 'github' ? null : 'github')}
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
+              data-testid="pill-github"
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-200">GitHub</p>
+                <p className="text-xs text-slate-400">Sign in to access your repos</p>
+              </div>
+              <Icon name={expandedConnection === 'github' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
+            </button>
+            {expandedConnection === 'github' && (
+              <div className={cardClass} data-testid="github-connect-section">
+                <div className="flex items-center gap-2 mb-4">
+                  <Icon name="code" size={18} className="text-slate-300" />
+                  <h2 className="text-base font-semibold">GitHub</h2>
+                </div>
+                <GithubSetupCard
+                  darkMode={true}
+                  inputCls="bg-slate-800 border-slate-700 text-white"
+                  subtextCls="text-slate-400"
+                />
+              </div>
+            )}
+
+            {/* Atlassian pill */}
+            <button
+              onClick={() => setExpandedConnection(expandedConnection === 'atlassian' ? null : 'atlassian')}
+              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-800/70 transition-colors text-left"
+              data-testid="pill-atlassian"
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-200">Atlassian</p>
+                <p className="text-xs text-slate-400">Connect Jira & Confluence</p>
+              </div>
+              <Icon name={expandedConnection === 'atlassian' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
+            </button>
+            {expandedConnection === 'atlassian' && (
+              <div className={cardClass} data-testid="atlassian-connect-section">
+                <div className="flex items-center gap-2 mb-4">
+                  <Icon name="bug_report" size={18} className="text-blue-400" />
+                  <h2 className="text-base font-semibold">Jira & Confluence</h2>
+                </div>
+                <AtlassianSetupCard
+                  darkMode={true}
+                  inputCls="bg-slate-800 border-slate-700 text-white"
+                  subtextCls="text-slate-400"
+                />
+              </div>
+            )}
+
+            {/* Custom tack commands */}
+            <div className={cardClass} data-testid="custom-verbs-section">
+              <CustomVerbs />
+            </div>
           </div>
 
-          {/* Custom tack commands */}
-          <div className={cardClass} data-testid="custom-verbs-section">
-            <CustomVerbs />
-          </div>
-          </div>
+          {/* Divider */}
+          <div className="h-px bg-slate-700/50 my-6" />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
           <div className={cardClass}>

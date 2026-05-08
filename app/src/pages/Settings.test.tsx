@@ -273,30 +273,30 @@ describe('Settings', () => {
   describe('GitHub and Atlassian setup cards in Connections', () => {
     it('renders GitHub connect section in Connections tab', async () => {
       renderSettings()
-      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
-      fireEvent.click(connectionsButtons[0])
+      const githubPill = screen.getByTestId('pill-github')
+      fireEvent.click(githubPill)
       expect(screen.getByTestId('github-connect-section')).toBeInTheDocument()
     })
 
     it('renders Atlassian connect section in Connections tab', async () => {
       renderSettings()
-      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
-      fireEvent.click(connectionsButtons[0])
+      const atlassianPill = screen.getByTestId('pill-atlassian')
+      fireEvent.click(atlassianPill)
       expect(screen.getByTestId('atlassian-connect-section')).toBeInTheDocument()
     })
 
     it('renders GithubSetupCard inside github section after api resolves', async () => {
       renderSettings()
-      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
-      fireEvent.click(connectionsButtons[0])
+      const githubPill = screen.getByTestId('pill-github')
+      fireEvent.click(githubPill)
       const card = await screen.findByTestId('onboarding-github-card')
       expect(card).toBeInTheDocument()
     })
 
     it('renders AtlassianSetupCard inside atlassian section after api resolves', async () => {
       renderSettings()
-      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
-      fireEvent.click(connectionsButtons[0])
+      const atlassianPill = screen.getByTestId('pill-atlassian')
+      fireEvent.click(atlassianPill)
       const card = await screen.findByTestId('onboarding-atlassian-card')
       expect(card).toBeInTheDocument()
     })
@@ -666,22 +666,76 @@ describe('Settings', () => {
         expect(dispatched).toContain('/slack/status')
       })
 
-      // Now resolve all four and confirm the dots render in the same
-      // subsequent render pass (all loading states clear together).
+      // Now resolve all four and confirm the pills render with connected status.
       resolvers['/gmail/auth/status']()
       resolvers['/calendar/auth/status']()
       resolvers['/drive/auth/status']()
       resolvers['/slack/status']()
 
       await waitFor(() => {
-        expect(screen.getByTestId('connection-dot-gmail')).toHaveAttribute('data-connected', 'yes')
-        expect(screen.getByTestId('connection-dot-calendar')).toHaveAttribute('data-connected', 'yes')
-        expect(screen.getByTestId('connection-dot-drive')).toHaveAttribute('data-connected', 'yes')
-        expect(screen.getByTestId('connection-dot-slack')).toHaveAttribute('data-connected', 'yes')
+        expect(screen.getByTestId('pill-google')).toBeInTheDocument()
+        expect(screen.getByTestId('pill-slack')).toBeInTheDocument()
       })
     })
 
-    it('shows a red dot for disconnected services', async () => {
+    it('renders all five connection pills: Google, Slack, iMessage, GitHub, Atlassian', async () => {
+      renderSettings()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pill-google')).toBeInTheDocument()
+        expect(screen.getByTestId('pill-slack')).toBeInTheDocument()
+        expect(screen.getByTestId('pill-imessage')).toBeInTheDocument()
+        expect(screen.getByTestId('pill-github')).toBeInTheDocument()
+        expect(screen.getByTestId('pill-atlassian')).toBeInTheDocument()
+      })
+    })
+
+    it('expands Google pill details when clicked', async () => {
+      renderSettings()
+
+      const googlePill = screen.getByTestId('pill-google')
+      fireEvent.click(googlePill)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('google-connect-section')).toBeVisible()
+      })
+    })
+
+    it('collapses Google pill when clicked again', async () => {
+      renderSettings()
+
+      const googlePill = screen.getByTestId('pill-google')
+      fireEvent.click(googlePill)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('google-connect-section')).toBeVisible()
+      })
+
+      fireEvent.click(googlePill)
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('google-connect-section')).not.toBeInTheDocument()
+      })
+    })
+
+    it('shows connected status for Gmail when authenticated', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/drive/auth/status') return Promise.resolve({ authenticated: true, email: 'test@example.com' })
+        if (path === '/gmail/auth/status') return Promise.resolve({ authenticated: true, email: null })
+        if (path === '/calendar/auth/status') return Promise.resolve({ authenticated: true, email: null })
+        if (path === '/slack/status') return Promise.resolve({ connected: false, team_name: '' })
+        return Promise.resolve({})
+      })
+
+      renderSettings()
+
+      await waitFor(() => {
+        const googlePill = screen.getByTestId('pill-google')
+        expect(googlePill.textContent).toContain('test@example.com')
+      })
+    })
+
+    it('shows disconnected subtitle when services are not connected', async () => {
       vi.mocked(api.get).mockImplementation((path: string) => {
         if (path === '/gmail/auth/status') return Promise.resolve({ authenticated: false, email: null })
         if (path === '/calendar/auth/status') return Promise.resolve({ authenticated: false, email: null })
@@ -693,8 +747,8 @@ describe('Settings', () => {
       renderSettings()
 
       await waitFor(() => {
-        expect(screen.getByTestId('connection-dot-gmail')).toHaveAttribute('data-connected', 'no')
-        expect(screen.getByTestId('connection-dot-slack')).toHaveAttribute('data-connected', 'no')
+        const googlePill = screen.getByTestId('pill-google')
+        expect(googlePill.textContent).toContain('Sign in to use Gmail, Calendar, and Drive')
       })
     })
   })
@@ -1121,12 +1175,14 @@ describe('Settings page — Developer section', () => {
 
   it('Connections tab is default on load', () => {
     renderSettings()
-    const connectionsSection = screen.getByTestId('connections-section')
-    expect(connectionsSection).toBeVisible()
+    const googlePill = screen.getByTestId('pill-google')
+    expect(googlePill).toBeVisible()
   })
 
   it('Google card shows Connected when driveStatus.authenticated is true', async () => {
     renderSettings()
+    const googlePill = screen.getByTestId('pill-google')
+    fireEvent.click(googlePill)
     await waitFor(() => {
       const googleCard = screen.getByTestId('google-connect-section')
       expect(googleCard).toBeInTheDocument()
