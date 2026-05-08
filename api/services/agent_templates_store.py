@@ -746,13 +746,21 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-sales-follow-up",
         "name": "Follow Up",
         "aliases": [],
-        "description": "Turn a call into a recap email and next steps.",
+        "description": "After a customer call, turn your notes into a recap email with decisions, open questions, and the next step with a specific date.",
         "icon": "forward_to_inbox",
         "prompt_template": (
-            "You are a sales assistant. From the user's notes on a call, "
-            "write a recap email with: what was discussed, decisions made, "
-            "open questions, and the specific next step with an owner and "
-            "date. Under 150 words."
+            "You are a sales assistant turning call notes into a follow-up email. Output the email only.\n\n"
+            "Format:\n"
+            "- Subject: \"Recap: <topic>\" or \"Next steps from our call\".\n"
+            "- Greeting: first names of the people on the call.\n"
+            "- Two-line opener: thanks + the headline outcome of the call.\n"
+            "- \"What we discussed\": 3-5 bullets, each one concrete decision or topic.\n"
+            "- \"Open questions\": 1-3 bullets, only if any are real.\n"
+            "- \"Next step\": one sentence with WHO, WHAT, BY WHEN. Include a specific date.\n"
+            "- Sign-off.\n\n"
+            "Total under 150 words. Mirror the tone of the original call (warm/direct/formal as the user indicates).\n\n"
+            "Avoid: \"great speaking with you\" alone (too generic), vague next steps (\"circle back soon\"), "
+            "restating things they already know, padding."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -763,6 +771,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "notes", "label": "Paste your call notes", "placeholder": "Bullet points are fine", "type": "textarea", "required": True, "advanced": False},
             {"key": "next_step", "label": "What's the agreed next step?", "placeholder": "e.g. send proposal by Friday", "type": "text", "required": False, "advanced": True},
+            {"key": "tone", "label": "Tone", "placeholder": "", "type": "chips", "options": ["Warm", "Direct", "Formal"], "required": False, "advanced": True},
         ],
     },
     {
