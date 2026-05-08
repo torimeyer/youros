@@ -14,6 +14,7 @@ import {
   isRoadmapToTasksRequest,
   type RoadmapToTasksResponse,
 } from '../lib/roadmapChatCommand'
+import { isPeerChatIntent } from '../lib/peerChatIntentDetector'
 import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
 import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
 
@@ -531,15 +532,12 @@ export function ChatPanel() {
     participants: string[]
     prompt: string
   } | null>(null)
-  // Turns selected by the user on a fresh chat (before any backend pending_id
-  // exists). When peer_chat_turns_required arrives, if this is set, we
-  // auto-confirm instead of showing the picker again.
-  const [preSelectedTurns, setPreSelectedTurns] = useState<number | null>(null)
+  // When peer_chat_turns_required arrives, if the user pre-selected a count
+  // before sending, auto-confirm instead of showing the picker again.
   const preSelectedTurnsRef = useRef<number | null>(null)
-  // Controls whether the pre-send picker (shown on fresh chats) is visible.
-  // Flips to false once the user picks from either the pending or pre-send
-  // picker, so resolving a pending session does not re-surface the picker.
-  const [preSendPickerVisible, setPreSendPickerVisible] = useState(true)
+  // When the user submits a peer-chat intent prompt, we defer dispatch here
+  // and show the turns picker first. Cleared after the user picks turns.
+  const [pendingPeerChatText, setPendingPeerChatText] = useState<string | null>(null)
 
   // Id of the assistant bubble currently receiving streaming tokens.
   // During a single-model reply this stays null so the token handler
@@ -927,7 +925,6 @@ export function ChatPanel() {
       const preSelected = preSelectedTurnsRef.current
       if (preSelected !== null) {
         preSelectedTurnsRef.current = null
-        setPreSelectedTurns(null)
         api.post('/chat/peer/start', { pending_id: data.pending_id, turns: preSelected }).catch(() => {
           setMessages(prev => [
             ...prev,
@@ -1761,7 +1758,6 @@ export function ChatPanel() {
     if (!peerChatPending) return
     const { pendingId } = peerChatPending
     setPeerChatPending(null)
-    setPreSendPickerVisible(false)
     api.post('/chat/peer/start', { pending_id: pendingId, turns }).catch(() => {
       // If the session expired, surface a short error bubble.
       setMessages(prev => [
@@ -1773,7 +1769,10 @@ export function ChatPanel() {
 
   const handlePreSelectTurns = (turns: number) => {
     preSelectedTurnsRef.current = turns
-    setPreSelectedTurns(turns)
+    if (pendingPeerChatText) {
+      sendMessage(pendingPeerChatText)
+      setPendingPeerChatText(null)
+    }
   }
 
   // Re-send the last user turn after a WebSocket-level error.
@@ -1838,6 +1837,11 @@ export function ChatPanel() {
     if (input.trim()) {
       setCommandHistory(prev => [...prev, input.trim()])
       setHistoryIndex(-1)
+    }
+    if (isPeerChatIntent(input)) {
+      setPendingPeerChatText(input.trim())
+      setInput('')
+      return
     }
     sendMessage(input)
     setInput('')
@@ -2474,7 +2478,7 @@ export function ChatPanel() {
             <span>{multiAiPillText}</span>
           </div>
         )}
-        {(peerChatPending || (preSendPickerVisible && messages.length === 0 && preSelectedTurns === null)) && (
+        {(peerChatPending || pendingPeerChatText !== null) && (
           <PeerChatTurnsPicker
             pendingId={peerChatPending?.pendingId ?? ''}
             participants={peerChatPending?.participants ?? ['claude', 'gemini']}
@@ -2617,6 +2621,7 @@ export function ChatPanel() {
             <TackAutocomplete inputValue={input} onSelect={(s) => setInput(s)} keyHandlerRef={tackKeyHandlerRef} />
             <input
               ref={inputRef}
+              data-testid="chat-input"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleInputKeyDown}

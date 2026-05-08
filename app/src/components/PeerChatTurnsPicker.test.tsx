@@ -129,7 +129,7 @@ describe('PeerChatTurnsPicker component', () => {
   })
 })
 
-describe('ChatPanel pre-send turns picker (→1035)', () => {
+describe('ChatPanel pre-send turns picker (→1040)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     uuidCounter = 0
@@ -139,24 +139,63 @@ describe('ChatPanel pre-send turns picker (→1035)', () => {
     setupAppStore()
   })
 
-  it('renders turns selector on fresh chat before any user send', () => {
+  it('does NOT render turns picker on a fresh chat with no input', () => {
     render(<ChatPanel />)
+    expect(screen.queryByTestId('peer-chat-turns-picker')).toBeNull()
+  })
+
+  it('shows turns picker when user sends a peer-chat intent prompt', async () => {
+    render(<ChatPanel />)
+    const input = screen.getByTestId('chat-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'chat with gemini about dogs' } })
+    })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
     expect(screen.getByTestId('peer-chat-turns-picker')).toBeTruthy()
   })
 
-  it('hides pre-send picker after user pre-selects a turn count', async () => {
+  it('does NOT show picker for a solo prompt — dispatches immediately', async () => {
     render(<ChatPanel />)
-    const picker = screen.getByTestId('peer-chat-turns-picker')
-    expect(picker).toBeTruthy()
+    const input = screen.getByTestId('chat-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'write me a poem' } })
+    })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(screen.queryByTestId('peer-chat-turns-picker')).toBeNull()
+    expect(mockSend).toHaveBeenCalled()
+  })
+
+  it('hides picker and dispatches after user picks turns for a peer-chat prompt', async () => {
+    render(<ChatPanel />)
+    const input = screen.getByTestId('chat-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'chat with gemini about dogs' } })
+    })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(screen.getByTestId('peer-chat-turns-picker')).toBeTruthy()
     await act(async () => {
       fireEvent.click(screen.getByTestId('turns-option-2'))
     })
     expect(screen.queryByTestId('peer-chat-turns-picker')).toBeNull()
+    expect(mockSend).toHaveBeenCalled()
   })
 
   it.skip('auto-confirms peer_chat_turns_required with pre-selected turns (→1037)', async () => {
     const mockPost = vi.mocked(api.post)
     render(<ChatPanel />)
+    const input = screen.getByTestId('chat-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'chat with gemini about dogs' } })
+    })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
     await act(async () => {
       fireEvent.click(screen.getByTestId('turns-option-3'))
     })
