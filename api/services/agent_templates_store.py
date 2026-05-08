@@ -186,6 +186,10 @@ MIGRATIONS: dict[str, str] = {
     "review": "Review",
     "Comprehensive": "Builder",
     "comprehensive": "Builder",
+    "Grocery List": "Meal Planner",
+    "Concept Explainer": "Explain Plain",
+    "Bug Finder": "Review",
+    "Flash Cards": "Study Guide",
 }
 
 # Single unified template list. Built-ins have source="builtin".
@@ -546,28 +550,6 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         ],
     },
     {
-        "id": "builtin-eng-bug-finder",
-        "name": "Bug Finder",
-        "aliases": [],
-        "description": "Analyze code for potential bugs and security issues.",
-        "icon": "pest_control",
-        "prompt_template": (
-            "You are a code auditor. Scan the pasted code for bugs, security "
-            "issues (injection, auth bypass, exposed secrets), and "
-            "concurrency problems. Return a ranked list with severity, "
-            "location, and a one-line fix."
-        ),
-        "model": "sonnet",
-        "budget": 2.0,
-        "source": "marketplace",
-        "personas": ["engineer"],
-        "installed": False,
-        "builtin": True,
-        "user_inputs": [
-            {"key": "code", "label": "Paste the code to audit", "placeholder": "Paste the code you want checked for bugs and security issues", "type": "textarea", "required": True, "advanced": False},
-        ],
-    },
-    {
         "id": "builtin-eng-debug-helper",
         "name": "Interactive Debug",
         "aliases": [],
@@ -880,27 +862,6 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         ],
     },
     {
-        "id": "builtin-home-grocery-list",
-        "name": "Grocery List",
-        "aliases": [],
-        "description": "Turn a meal plan into an organized shopping list.",
-        "icon": "shopping_cart",
-        "prompt_template": (
-            "You are a shopper. Turn the user's meal plan into a grocery "
-            "list grouped by aisle: produce, dairy, meat/fish, pantry, "
-            "frozen, other. One line per item with quantity."
-        ),
-        "model": "sonnet",
-        "budget": 2.0,
-        "source": "marketplace",
-        "personas": ["home"],
-        "installed": False,
-        "builtin": True,
-        "user_inputs": [
-            {"key": "meal_plan", "label": "Paste or describe your meal plan", "placeholder": "e.g. Mon: pasta, Tue: tacos, Wed: stir fry...", "type": "textarea", "required": True, "advanced": False},
-        ],
-    },
-    {
         "id": "builtin-home-trip-planner",
         "name": "Trip Planner",
         "aliases": [],
@@ -1017,27 +978,6 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         ],
     },
     {
-        "id": "builtin-student-flash-cards",
-        "name": "Flash Cards",
-        "aliases": [],
-        "description": "Turn a reading into a set of flash-card style Q&A pairs.",
-        "icon": "quiz",
-        "prompt_template": (
-            "You are a study-aid writer. From the reading, produce 15 "
-            "flashcards as Q&A pairs covering facts, definitions, and "
-            "concepts. Keep each answer under 30 words."
-        ),
-        "model": "sonnet",
-        "budget": 2.0,
-        "source": "marketplace",
-        "personas": ["student"],
-        "installed": False,
-        "builtin": True,
-        "user_inputs": [
-            {"key": "reading", "label": "Paste the reading or describe the topic", "placeholder": "Paste the text, chapter, or article you want flash cards for", "type": "textarea", "required": True, "advanced": False},
-        ],
-    },
-    {
         "id": "builtin-student-citation-helper",
         "name": "Citation Helper",
         "aliases": [],
@@ -1058,29 +998,6 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "sources", "label": "Paste the sources to cite", "placeholder": "Paste URLs, book titles, article names, or raw reference info", "type": "textarea", "required": True, "advanced": False},
             {"key": "style", "label": "Citation style", "placeholder": "", "type": "chips", "options": ["APA", "MLA", "Chicago"], "required": True, "advanced": False},
-        ],
-    },
-    {
-        "id": "builtin-student-concept-explainer",
-        "name": "Concept Explainer",
-        "aliases": [],
-        "description": "Walk through a concept at two levels — a plain-English summary first, then a deeper version with a worked example. Great for class material.",
-        "icon": "lightbulb",
-        "prompt_template": (
-            "You are a patient teacher. Explain the concept the user provides "
-            "at two levels: a one-paragraph plain-English version, and a "
-            "more detailed version with a worked example. No jargon in the "
-            "first version."
-        ),
-        "model": "sonnet",
-        "budget": 2.0,
-        "source": "marketplace",
-        "personas": ["student"],
-        "installed": False,
-        "builtin": True,
-        "user_inputs": [
-            {"key": "concept", "label": "What concept do you want explained?", "placeholder": "e.g. supply and demand, the Pythagorean theorem", "type": "text", "required": True, "advanced": False},
-            {"key": "subject", "label": "What class or subject is this for?", "placeholder": "e.g. AP Economics, high school biology", "type": "text", "required": False, "advanced": True},
         ],
     },
     # --- Marketing templates ---
@@ -1721,6 +1638,8 @@ class AgentTemplatesStore:
             "personas": data.get("personas", []),
             "installed": True,
             "builtin": False,
+            "user_inputs": data.get("user_inputs", []),
+            "produces_doc": bool(data.get("produces_doc", False)),
         }
         overrides.append(new_template)
         self._save(overrides)
@@ -1741,6 +1660,10 @@ class AgentTemplatesStore:
                     t["budget"] = float(data["budget"])
                 if "aliases" in data:
                     t["aliases"] = list(data["aliases"])
+                if "user_inputs" in data:
+                    t["user_inputs"] = list(data["user_inputs"])
+                if "produces_doc" in data:
+                    t["produces_doc"] = bool(data["produces_doc"])
                 overrides[i] = t
                 self._save(overrides)
                 # Rename agentfile if name changed; always rewrite to stay in sync.
@@ -2019,7 +1942,6 @@ _FIRST_RUNS: dict[str, list[dict]] = {
     ],
     "engineer": [
         {"id": "fr-eng-1", "title": "Write tests for your code", "description": "Generate test cases for a function or module.", "icon": "bug_report", "agent_id": "builtin-eng-write-tests"},
-        {"id": "fr-eng-2", "title": "Find bugs in your code", "description": "Scan code for bugs, security issues, and edge cases.", "icon": "pest_control", "agent_id": "builtin-eng-bug-finder"},
         {"id": "fr-eng-3", "title": "Review a code change", "description": "Get actionable feedback on a diff or patch.", "icon": "rate_review", "agent_id": "builtin-review"},
     ],
     "writer": [
@@ -2034,13 +1956,11 @@ _FIRST_RUNS: dict[str, list[dict]] = {
     ],
     "home": [
         {"id": "fr-home-1", "title": "Plan this week's meals", "description": "Get a 7-dinner plan based on what's in the fridge.", "icon": "restaurant", "agent_id": "builtin-home-meal-planner"},
-        {"id": "fr-home-2", "title": "Build a grocery list", "description": "Turn a meal plan into an organized shopping list.", "icon": "shopping_cart", "agent_id": "builtin-home-grocery-list"},
         {"id": "fr-home-3", "title": "Plan a trip", "description": "Get a day-by-day plan with activities and costs.", "icon": "flight_takeoff", "agent_id": "builtin-home-trip-planner"},
     ],
     "student": [
         {"id": "fr-student-1", "title": "Build a study guide", "description": "Turn class notes into a guide with key concepts and practice questions.", "icon": "menu_book", "agent_id": "builtin-student-study-guide"},
         {"id": "fr-student-2", "title": "Outline an essay", "description": "Build a structured outline from a prompt or topic.", "icon": "format_list_numbered", "agent_id": "builtin-student-essay-outline"},
-        {"id": "fr-student-3", "title": "Make flash cards", "description": "Turn a reading into a set of Q&A flash cards.", "icon": "quiz", "agent_id": "builtin-student-flash-cards"},
     ],
 }
 

@@ -182,6 +182,10 @@ class AgentfileConfig:
     pin_policy: PinPolicy = field(default_factory=PinPolicy)
     limits: LimitPolicy = field(default_factory=LimitPolicy)
 
+    # Structured user-input fields for the spawn modal (UI concept).
+    # Serialized as ``USER_INPUTS <json>`` for round-trip through .agent files.
+    user_inputs: list = field(default_factory=list)
+
     # Alias pointer. When an Agentfile contains only ``ALIAS <name>``,
     # this holds the target template name. The resolver in
     # get_agent_config_by_template follows it so the caller gets the
@@ -516,6 +520,14 @@ def parse_agentfile(path: Path) -> AgentfileConfig:
             config.aliases.extend(
                 a.strip() for a in re.split(r"[,\s]+", value) if a.strip()
             )
+        elif directive == "USER_INPUTS":
+            try:
+                import json as _json
+                parsed = _json.loads(value)
+                if isinstance(parsed, list):
+                    config.user_inputs = parsed
+            except (ValueError, TypeError):
+                pass  # Malformed JSON is a no-op; unknown directives are ignored.
         elif directive == "AC":
             config.acceptance_criteria.append(value)
         elif directive == "REVIEW":
@@ -892,6 +904,10 @@ def serialize_agentfile(config: AgentfileConfig) -> str:
 
     if config.aliases:
         lines.append(f"ALIASES {', '.join(config.aliases)}")
+
+    if config.user_inputs:
+        import json as _json
+        lines.append(f"USER_INPUTS {_json.dumps(config.user_inputs, separators=(',', ':'))}")
 
     # Quality gates
     for ac in config.acceptance_criteria:

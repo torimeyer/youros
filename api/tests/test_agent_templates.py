@@ -1672,12 +1672,6 @@ def test_wave_a_descriptions_are_specific():
         "call-prep description must contain 'research'"
     )
 
-    concept_explainer = by_id["builtin-student-concept-explainer"]
-    explain_plain = by_id["builtin-explain-plain"]
-    assert concept_explainer["description"] != explain_plain["description"], (
-        "concept-explainer and explain-plain must have different descriptions"
-    )
-
 
 def test_builtin_templates_have_clean_descriptions():
     """Every built-in agentfile must return a description that is
@@ -2096,3 +2090,62 @@ def test_wave_b_new_personas_exist():
         assert group in all_personas, (
             f"Persona group '{group}' not found in any template's personas list"
         )
+
+
+# ---------- Wave 1 guard tests ----------
+
+def test_no_thin_prompt_templates():
+    """Deep templates have prompts >= 200 chars with a numbered step marker.
+
+    Only checks the 13 already-deep templates. Thin ones get rewritten in
+    Wave 2+ and are excluded here so CI stays green from day 1.
+    """
+    import re
+
+    already_deep = {
+        "Builder", "Diagnose", "Research", "Brainstorm", "Review", "Test",
+        "Call Prep", "Campaign Brief", "Budget Builder", "Investor Update",
+        "Customer Reply", "Design Critique", "Explain Plain",
+    }
+    for t in BUILTIN_AGENT_TEMPLATES:
+        if t["name"] not in already_deep:
+            continue
+        prompt = t.get("prompt_template", "")
+        assert len(prompt) >= 200, f"{t['name']}: prompt is only {len(prompt)} chars"
+        has_step = bool(re.search(r"\(1\)|^1\.|\*\*[A-Z]", prompt, re.MULTILINE))
+        assert has_step, f"{t['name']}: prompt has no numbered structure"
+
+
+def test_every_template_has_required_user_input():
+    """Every builtin template has at least one required user_inputs entry."""
+    for t in BUILTIN_AGENT_TEMPLATES:
+        inputs = t.get("user_inputs", [])
+        assert any(i.get("required") for i in inputs), (
+            f"{t['name']}: no required input"
+        )
+
+
+def test_create_preserves_user_inputs(tmp_path, monkeypatch):
+    """create() must round-trip user_inputs into the returned template dict."""
+    import services.agent_templates_store as mod
+
+    monkeypatch.setattr(mod, "AGENT_TEMPLATES_PATH", tmp_path / "tpl.json")
+    store = AgentTemplatesStore()
+    inputs = [{"key": "task", "label": "Task", "type": "textarea", "required": True}]
+    created = store.create({"name": "T", "prompt_template": "p", "user_inputs": inputs})
+    assert created["user_inputs"] == inputs
+
+
+def test_culled_templates_resolve_via_migration():
+    """Old culled template names resolve to their successor IDs via _resolve_alias."""
+    from services.agent_templates_store import _resolve_alias
+
+    cases = {
+        "Grocery List": "builtin-home-meal-planner",
+        "Concept Explainer": "builtin-explain-plain",
+        "Bug Finder": "builtin-review",
+        "Flash Cards": "builtin-student-study-guide",
+    }
+    for old_name, expected_id in cases.items():
+        resolved = _resolve_alias(old_name)
+        assert resolved == expected_id, f"{old_name} -> {resolved}, expected {expected_id}"

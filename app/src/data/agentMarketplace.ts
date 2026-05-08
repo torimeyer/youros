@@ -49,7 +49,6 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     templates: [
       // Code Review is covered by the built-in Review template (alias "Code Review").
       { name: 'Write Tests', description: 'Generate test cases for your code.', icon: 'bug_report', model: 'sonnet', budget: 2.0 },
-      { name: 'Bug Finder', description: 'Analyze code for potential bugs and security issues.', icon: 'pest_control', model: 'sonnet', budget: 2.0 },
       { name: 'Debug Helper', description: 'Read an error log, find the root cause, and suggest a fix.', icon: 'bug_report', model: 'sonnet', budget: 2.0 },
       { name: 'Refactor Plan', description: 'Review messy code and propose a clean refactoring plan.', icon: 'auto_fix_high', model: 'sonnet', budget: 3.0 },
     ],
@@ -84,7 +83,6 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     tagline: 'I manage my household and life.',
     templates: [
       { name: 'Meal Planner', description: 'Plan a week of meals based on what is in the fridge.', icon: 'restaurant', model: 'sonnet', budget: 2.0 },
-      { name: 'Grocery List', description: 'Turn a meal plan into an organized shopping list.', icon: 'shopping_cart', model: 'sonnet', budget: 2.0 },
       { name: 'Trip Planner', description: 'Plan a day trip or vacation with budget and time constraints.', icon: 'flight_takeoff', model: 'sonnet', budget: 3.0 },
       { name: 'Gift Finder', description: 'Suggest gift ideas for a specific person, budget, and occasion.', icon: 'redeem', model: 'sonnet', budget: 2.0 },
       { name: 'Homework Helper', description: 'Walk a kid through a tricky homework problem step by step.', icon: 'school', model: 'sonnet', budget: 2.0 },
@@ -97,7 +95,6 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     templates: [
       { name: 'Study Guide', description: 'Turn class notes into a study guide with key concepts and example questions.', icon: 'menu_book', model: 'sonnet', budget: 2.0 },
       { name: 'Essay Outline', description: 'Build an outline for a paper based on a prompt or topic.', icon: 'format_list_numbered', model: 'sonnet', budget: 2.0 },
-      { name: 'Flash Cards', description: 'Turn a reading into a set of flash-card style Q&A pairs.', icon: 'quiz', model: 'sonnet', budget: 2.0 },
       { name: 'Citation Helper', description: 'Format sources in APA, MLA, or Chicago style.', icon: 'format_quote', model: 'sonnet', budget: 2.0 },
     ],
   },
