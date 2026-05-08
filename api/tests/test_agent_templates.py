@@ -2151,3 +2151,44 @@ def test_culled_templates_resolve_via_migration():
     for old_name, expected_id in cases.items():
         resolved = _resolve_alias(old_name)
         assert resolved == expected_id, f"{old_name} -> {resolved}, expected {expected_id}"
+
+
+def test_marketplace_listing_includes_all_wave_8_specialty_templates(store):
+    """→1033 regression: list_marketplace() must surface all Wave 8 specialty templates.
+
+    These 5 templates were present in BUILTIN_AGENT_TEMPLATES but missing from
+    the frontend agentMarketplace.ts static catalog. The fresh-store listing
+    (no persona installs yet) is the canonical check: if they are not in
+    list_marketplace() for a new user, they can never be added via the
+    marketplace UI.
+    """
+    marketplace = store.list_marketplace()
+    names = {t["name"] for t in marketplace}
+
+    wave_8_specialty = [
+        "Campaign Brief",
+        "Budget Builder",
+        "Investor Update",
+        "Customer Reply",
+        "Design Critique",
+    ]
+    for name in wave_8_specialty:
+        assert name in names, (
+            f"→1033: '{name}' missing from list_marketplace() — "
+            "it exists in BUILTIN_AGENT_TEMPLATES but does not appear for new users"
+        )
+
+
+def test_marketplace_listing_count_for_fresh_store(store):
+    """A fresh store (no installs) returns all default-uninstalled marketplace templates.
+
+    Research, Review, and Test are marketplace-sourced but installed=True by
+    default, so they are excluded. The 4 builtin-source templates (Builder,
+    Diagnose, Brainstorm, Explain Plain) are also excluded. This leaves 31
+    templates visible in the marketplace for a brand-new user.
+    """
+    marketplace = store.list_marketplace()
+    assert len(marketplace) == 31, (
+        f"Expected 31 marketplace templates for a fresh store, got {len(marketplace)}. "
+        f"Names: {sorted(t['name'] for t in marketplace)}"
+    )

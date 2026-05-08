@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { AGENT_MARKETPLACE, PERSONA_ICONS } from './agentMarketplace'
 
 describe('AGENT_MARKETPLACE data', () => {
-  it('has exactly 7 categories', () => {
-    expect(AGENT_MARKETPLACE).toHaveLength(7)
+  it('has exactly 11 categories', () => {
+    expect(AGENT_MARKETPLACE).toHaveLength(11)
   })
 
   it('has the expected category ids in order', () => {
@@ -16,7 +16,19 @@ describe('AGENT_MARKETPLACE data', () => {
       'writer',
       'home',
       'student',
+      'marketing',
+      'founder',
+      'support',
+      'designer',
     ])
+  })
+
+  it('includes all Wave 8 specialty templates', () => {
+    const allNames = AGENT_MARKETPLACE.flatMap((c) => c.templates.map((t) => t.name))
+    const wave8 = ['Campaign Brief', 'Budget Builder', 'Investor Update', 'Customer Reply', 'Design Critique']
+    for (const name of wave8) {
+      expect(allNames).toContain(name)
+    }
   })
 
   it('every category has a non-empty templates array', () => {

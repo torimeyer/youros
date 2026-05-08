@@ -86,6 +86,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
       { name: 'Trip Planner', description: 'Plan a trip from destination, dates, budget, and group. Day-by-day with costs, downtime built in, advance bookings flagged.', icon: 'flight_takeoff', model: 'sonnet', budget: 3.0 },
       { name: 'Gift Finder', description: 'Eight gift ideas for a specific person, occasion, and budget. Three price tiers, why each fits, where to find it.', icon: 'redeem', model: 'sonnet', budget: 2.0 },
       { name: 'Homework Helper', description: 'Walks a kid through a stuck homework problem one guiding question at a time. Adjusts to grade level. Never just gives the answer.', icon: 'school', model: 'sonnet', budget: 2.0 },
+      { name: 'Budget Builder', description: 'List your income and expenses, get a categorized breakdown, what\'s overspent, and the top three cuts to hit a savings goal.', icon: 'account_balance_wallet', model: 'sonnet', budget: 2.0 },
     ],
   },
   {
@@ -96,6 +97,38 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
       { name: 'Study Guide', description: 'Turn class notes into a study guide, flash-card Q&A, or both. Key concepts, definitions, and example exam questions.', icon: 'menu_book', model: 'sonnet', budget: 2.0 },
       { name: 'Essay Outline', description: 'Outline an essay from a prompt or topic. Thesis, body paragraphs, counterargument, conclusion. Tailored to the essay type.', icon: 'format_list_numbered', model: 'sonnet', budget: 2.0 },
       { name: 'Citation Helper', description: 'Format sources in APA, MLA, or Chicago. Bibliography entries plus inline citation snippets. Flags missing fields.', icon: 'format_quote', model: 'sonnet', budget: 2.0 },
+    ],
+  },
+  {
+    id: 'marketing',
+    category: 'Marketing',
+    tagline: 'I run campaigns and drive growth.',
+    templates: [
+      { name: 'Campaign Brief', description: 'Turn a feature, launch, or update into a one-page campaign brief. Audience, message angles, channel mix, the call to action.', icon: 'campaign', model: 'sonnet', budget: 3.0 },
+    ],
+  },
+  {
+    id: 'founder',
+    category: 'Founders',
+    tagline: 'I am building a company.',
+    templates: [
+      { name: 'Investor Update', description: 'Turn this month\'s notes into a crisp investor update. TL;DR, metrics, progress, blockers, and the one specific ask.', icon: 'trending_up', model: 'sonnet', budget: 3.0 },
+    ],
+  },
+  {
+    id: 'support',
+    category: 'Customer support',
+    tagline: 'I help customers succeed.',
+    templates: [
+      { name: 'Customer Reply', description: 'Reply to a complaint or support ticket. Acknowledges what happened, offers a real resolution, names the next step. No filler.', icon: 'mark_email_read', model: 'sonnet', budget: 2.0 },
+    ],
+  },
+  {
+    id: 'designer',
+    category: 'Designers',
+    tagline: 'I design products and experiences.',
+    templates: [
+      { name: 'Design Critique', description: 'Senior-designer-style review of a screen or flow. What works, ranked issues, quick wins, bigger questions. Skips vague praise.', icon: 'design_services', model: 'sonnet', budget: 3.0 },
     ],
   },
 ]
@@ -109,4 +142,8 @@ export const PERSONA_ICONS: Record<string, string> = {
   writer: 'edit_note',
   home: 'home',
   student: 'school',
+  marketing: 'campaign',
+  founder: 'rocket_launch',
+  support: 'headset_mic',
+  designer: 'brush',
 }
