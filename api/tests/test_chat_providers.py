@@ -3922,7 +3922,6 @@ class TestBackendActiveBeforeTemplateMatching:
         return FakeWebSocket()
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="→1046: agent's mock setup is broken (side_effect with async fn returns coroutine). Impl is correct per code reading. Test needs rewrite.")
     async def test_stream_anthropic_sends_backend_active_before_template_matched(self, websocket):
         """backend_active must already be in the WebSocket buffer when
         _maybe_match_template is called, so the frontend dead-backend timer
@@ -3942,10 +3941,7 @@ class TestBackendActiveBeforeTemplateMatching:
             })
             return {"name": "saa", "_match_reason": "explicit"}
 
-        # Raise inside the stream so we exit after the ordering check.
-        async def fail_stream(*args, **kwargs):
-            raise RuntimeError("stream not needed for this test")
-
+        # _get_anthropic_client is sync — raise directly so we exit after the ordering check.
         with patch(
             "services.chat_providers._resolve_chat_backend",
             new=AsyncMock(return_value="anthropic_api"),
@@ -3957,7 +3953,7 @@ class TestBackendActiveBeforeTemplateMatching:
             side_effect=fake_match,
         ), patch(
             "services.chat_providers._get_anthropic_client",
-            side_effect=fail_stream,
+            side_effect=RuntimeError("stream not needed for this test"),
         ):
             try:
                 await service.stream_anthropic(

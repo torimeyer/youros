@@ -2128,15 +2128,7 @@ export default function Tasks() {
                               />
                             );
                           }
-                          return (
-                            <span
-                              data-testid={`in-progress-badge-${task.id}`}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30"
-                            >
-                              <Icon name="play_arrow" className="text-[10px]" />
-                              In progress
-                            </span>
-                          );
+                          return null;
                         })()}
                         {task.status === "closed" && task.closed_reason === "completed" && (
                           <span

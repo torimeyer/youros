@@ -2910,6 +2910,30 @@ describe('Tasks page - 2026-04-23 regression set', () => {
       fireEvent.click(screen.getByTestId('status-filter-in_progress'))
       expect(screen.getByText('Needle-linked task')).toBeInTheDocument()
     })
+
+    it('only one in-progress indicator renders per row (→1045 regression guard)', async () => {
+      const task = {
+        id: 'dup1',
+        title: 'Duplicate guard task',
+        priority: 'P1',
+        status: 'open',
+        created_at: new Date().toISOString(),
+        goal: null,
+        label_ids: [],
+      }
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks') return Promise.resolve({ tasks: [task] })
+        if (path === '/labels') return Promise.resolve({ labels: [] })
+        if (path === '/agents') return Promise.resolve({ agents: [{ status: 'running', task_id: 'dup1' }] })
+        return Promise.resolve({})
+      })
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByTestId('task-in-progress-indicator-dup1')).toBeInTheDocument()
+      })
+      // Only the left pill must exist — no second badge inside the description.
+      expect(screen.queryByTestId('in-progress-badge-dup1')).not.toBeInTheDocument()
+    })
   })
 
   describe('in-progress badge is runtime-derived only (regression: stored in_progress must not show badge)', () => {
