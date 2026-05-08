@@ -26,8 +26,8 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
       { name: 'Summarizer', description: 'Summarize documents, articles, or meeting notes into key points.', icon: 'summarize', model: 'sonnet', budget: 2.0 },
       { name: 'Daily Planner', description: 'Review your tasks and create a focused plan for today.', icon: 'today', model: 'sonnet', budget: 2.0 },
       { name: 'Email Drafter', description: 'Draft a clear, friendly email based on your instructions.', icon: 'mail', model: 'sonnet', budget: 2.0 },
-      { name: 'Brainstorm', description: 'Generate ideas for any topic or problem you are stuck on.', icon: 'psychology', model: 'sonnet', budget: 2.0 },
-      { name: 'Research', description: 'Search the web, read multiple sources, and write a short summary.', icon: 'search', model: 'sonnet', budget: 2.0 },
+      { name: 'Brainstorm', description: 'Turns a problem into 5-8 structured options with tradeoffs and a recommendation. Good for when you are stuck on approach.', icon: 'psychology', model: 'sonnet', budget: 2.0 },
+      { name: 'Research', description: 'Takes a question, searches real sources, and delivers a structured summary with citations and one recommended next step.', icon: 'search', model: 'sonnet', budget: 2.0 },
     ],
   },
   {

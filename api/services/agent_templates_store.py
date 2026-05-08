@@ -205,17 +205,17 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Builder",
         "aliases": ["saa", "comprehensive"],
         "description": (
-            "Your go-to builder. Reads the task, plans an approach, builds "
-            "it, writes tests, and makes sure everything works before finishing."
+            "From task description to working, tested code. Plans, builds, "
+            "and verifies against your criteria before calling it done."
         ),
         "icon": "engineering",
         "prompt_template": (
-            "You are a myOS comprehensive build agent. Follow this pattern "
-            "strictly: (0) If acceptance criteria appear above, read them first "
-            "— they are your definition of done. (1) Read the task and plan your "
-            "approach against the criteria. (2) Build the solution. (3) Write "
-            "tests and run them. (4) Verify every acceptance criterion is met "
-            "before marking complete. Report progress in plain language."
+            "Build, test, and deliver against the acceptance criteria. "
+            "(0) If acceptance criteria appear above, read them first -- "
+            "they define done. (1) Plan your approach. (2) Build the solution. "
+            "(3) Write tests and run them. (4) Verify every criterion is met "
+            "before finishing. Don't ask for clarification when the task has "
+            "enough detail to proceed. Report progress in plain language."
         ),
         "model": "sonnet",
         "budget": 3.0,
@@ -225,6 +225,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "builtin": True,
         "user_inputs": [
             {"key": "task", "label": "What do you want to build?", "placeholder": "Describe the feature, fix, or task in plain language", "type": "textarea", "required": True, "advanced": False},
+            {"key": "depth", "label": "How thorough?", "placeholder": "", "type": "chips", "options": ["Quick", "Standard", "Thorough"], "required": False, "advanced": True},
             {"key": "constraints", "label": "Any requirements or constraints?", "placeholder": "e.g. must work on mobile, no new dependencies", "type": "text", "required": False, "advanced": True},
         ],
     },
@@ -233,16 +234,18 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Diagnose",
         "aliases": [],
         "description": (
-            "Tracks down bugs. Reproduces the problem, finds the root cause, "
-            "fixes it, and writes a test to make sure it stays fixed."
+            "When something breaks. Finds the root cause, fixes it, and "
+            "writes a regression test so it stays fixed."
         ),
         "icon": "bug_report",
         "prompt_template": (
-            "You are a myOS diagnose agent. Your job: (1) Reproduce the bug. "
-            "(2) Find the root cause by reading code, logs, and traces. "
+            "Be the engineer who finds the real cause, not the workaround. "
+            "Your job: (1) Reproduce the bug exactly -- no guessing. "
+            "(2) Read code, logs, and traces to find the root cause. "
             "(3) Fix the root cause, not the symptom. (4) Write a regression "
-            "test that fails before the fix and passes after. Report findings "
-            "in plain language."
+            "test that fails before your fix and passes after. Don't call "
+            "something fixed until the regression test is green. Report "
+            "findings in plain language."
         ),
         "model": "sonnet",
         "budget": 3.0,
@@ -252,6 +255,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "builtin": True,
         "user_inputs": [
             {"key": "bug", "label": "Describe the bug or paste the error", "placeholder": "What's happening? Paste any stack trace or error message here", "type": "textarea", "required": True, "advanced": False},
+            {"key": "area", "label": "Where should I look?", "placeholder": "", "type": "chips", "options": ["Frontend", "Backend", "Tests", "Infrastructure"], "required": False, "advanced": True},
             {"key": "hypothesis", "label": "Where do you think the problem is?", "placeholder": "e.g. probably in the auth middleware", "type": "text", "required": False, "advanced": True},
         ],
     },
@@ -260,18 +264,18 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Research",
         "aliases": [],
         "description": (
-            "Finds information for you. Searches the web, reads sources, "
-            "and writes a clear summary of what it found."
+            "Takes a question, searches real sources, and delivers a structured "
+            "summary with citations and one recommended next step."
         ),
         "icon": "search",
         "prompt_template": (
-            "You are a research specialist. For the user's query: "
-            "(1) State what you searched and how (sources, search terms used). "
-            "(2) Summarize findings in sections with bullet points — one section per sub-topic. "
-            "(3) Flag anything you could not verify with \"[unverified]\". "
+            "Research, summarize, and source everything. For the query: "
+            "(1) State what you searched and which sources you used. "
+            "(2) Summarize findings in sections -- one section per sub-topic. "
+            "(3) Flag anything you could not verify with [unverified]. "
             "(4) List sources with URLs at the end. "
-            "(5) Recommend one concrete next step. "
-            "Plain language. No jargon."
+            "(5) Give one concrete next step. "
+            "Don't summarize a claim without sourcing it. Plain language, no jargon."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -290,18 +294,18 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Brainstorm",
         "aliases": ["ideate", "ideas"],
         "description": (
-            "Generates ideas. Takes a rough question or problem, produces a "
-            "structured list of options with tradeoffs, and recommends a path "
-            "forward in plain language."
+            "Turns a problem into 5-8 structured options with tradeoffs and a "
+            "recommendation. Good for when you are stuck on approach."
         ),
         "icon": "lightbulb",
         "prompt_template": (
-            "You are a myOS brainstorm agent. Your job: (1) Restate the problem "
-            "in one sentence so the user can confirm framing. (2) Generate 5-8 "
-            "distinct options, not variations of the same idea. (3) For each "
-            "option, give one-line description, primary tradeoff, and effort "
-            "(low/medium/high). (4) Recommend the top 1-2 with a one-line why. "
-            "(5) Call out anything you would NOT do. No jargon. No hedging."
+            "Generate structured options, not just a list. "
+            "(1) Restate the problem in one sentence so the user can confirm framing. "
+            "(2) Generate 5-8 distinct options -- not variations of the same idea. "
+            "(3) For each: one-line description, primary tradeoff, effort (low/medium/high). "
+            "(4) Recommend the top 1-2 with a one-line why. "
+            "(5) Name what you would NOT do and why. "
+            "Don't pad with options the user has already ruled out. No jargon. No hedging."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -319,20 +323,18 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Review",
         "aliases": ["Code Review"],
         "description": (
-            "Reads through code changes and flags bugs, missing edge cases, "
-            "style issues, and security concerns. Gives clear, actionable "
-            "feedback."
+            "Paste a PR diff or any code. Scans for bugs, security gaps, "
+            "edge cases, and style issues, with a prioritized list to fix."
         ),
         "icon": "rate_review",
         "prompt_template": (
-            "You are a myOS code review agent. Review the code changes or "
-            "pasted code for: "
-            "(1) Bugs and logic errors. (2) Missing edge cases. "
-            "(3) Style consistency. (4) Performance concerns. "
-            "(5) Test coverage gaps. Return critical issues, suggested "
-            "improvements, and nits. Each item is one line with file:line "
-            "reference when possible. Provide clear, actionable feedback in "
-            "plain language. No jargon."
+            "Review code -- whether it's a PR diff or a pasted code block. "
+            "Cover: (1) Bugs and logic errors. (2) Missing edge cases. "
+            "(3) Security concerns. (4) Style consistency. "
+            "(5) Test coverage gaps. "
+            "Return: Critical issues (must fix), Suggested improvements, Nits. "
+            "Each item: one line with file:line when available. "
+            "No vague feedback like 'consider refactoring'. Plain language, no jargon."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -350,16 +352,19 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "name": "Test",
         "aliases": [],
         "description": (
-            "Runs your tests and tells you what passed and what broke. "
-            "For failures, it reads the code and suggests how to fix them."
+            "Run a test suite and get a clear pass/fail breakdown -- plus "
+            "a specific fix suggestion for every failure."
         ),
         "icon": "science",
         "prompt_template": (
-            "You are a myOS test runner agent. Your job: (1) Discover and "
-            "run all relevant tests using the test command or path the user "
-            "specifies. (2) Report which tests pass and which fail. (3) For "
-            "failures, read the test code and source code to suggest a fix. "
-            "(4) Never skip failing tests. Report results in plain language."
+            "Run tests and diagnose failures -- all of them, no skipping. "
+            "Your job: (1) Run the tests the user specifies. "
+            "(2) Report which pass and which fail. "
+            "(3) For each failure: read the test and source code, then give "
+            "a specific fix suggestion. "
+            "(4) Never mark a test as 'flaky' without evidence. "
+            "Never skip a pending or slow test without flagging it. "
+            "Report results in plain language, one block per test group."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -369,6 +374,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "builtin": False,
         "user_inputs": [
             {"key": "tests", "label": "Which tests should run, or paste the test command?", "placeholder": "e.g. pytest tests/test_auth.py, or just \"all tests\"", "type": "text", "required": True, "advanced": False},
+            {"key": "scope", "label": "Test scope", "placeholder": "", "type": "chips", "options": ["Single file", "Module", "Full suite"], "required": False, "advanced": False},
         ],
     },
     # --- PM templates (marketplace, personas=["pm"]) ---
@@ -1942,6 +1948,7 @@ _FIRST_RUNS: dict[str, list[dict]] = {
     ],
     "engineer": [
         {"id": "fr-eng-1", "title": "Write tests for your code", "description": "Generate test cases for a function or module.", "icon": "bug_report", "agent_id": "builtin-eng-write-tests"},
+        {"id": "fr-eng-2", "title": "Run your test suite", "description": "Run tests and get a clear pass/fail breakdown with fix suggestions.", "icon": "science", "agent_id": "builtin-test"},
         {"id": "fr-eng-3", "title": "Review a code change", "description": "Get actionable feedback on a diff or patch.", "icon": "rate_review", "agent_id": "builtin-review"},
     ],
     "writer": [
@@ -1956,11 +1963,13 @@ _FIRST_RUNS: dict[str, list[dict]] = {
     ],
     "home": [
         {"id": "fr-home-1", "title": "Plan this week's meals", "description": "Get a 7-dinner plan based on what's in the fridge.", "icon": "restaurant", "agent_id": "builtin-home-meal-planner"},
+        {"id": "fr-home-2", "title": "Find a gift", "description": "Get gift ideas for a specific person, budget, and occasion.", "icon": "redeem", "agent_id": "builtin-home-gift-finder"},
         {"id": "fr-home-3", "title": "Plan a trip", "description": "Get a day-by-day plan with activities and costs.", "icon": "flight_takeoff", "agent_id": "builtin-home-trip-planner"},
     ],
     "student": [
         {"id": "fr-student-1", "title": "Build a study guide", "description": "Turn class notes into a guide with key concepts and practice questions.", "icon": "menu_book", "agent_id": "builtin-student-study-guide"},
         {"id": "fr-student-2", "title": "Outline an essay", "description": "Build a structured outline from a prompt or topic.", "icon": "format_list_numbered", "agent_id": "builtin-student-essay-outline"},
+        {"id": "fr-student-3", "title": "Format a citation", "description": "Format a source in APA, MLA, or Chicago style.", "icon": "format_quote", "agent_id": "builtin-student-citation-helper"},
     ],
 }
 
