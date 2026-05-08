@@ -35,40 +35,6 @@ const releaseNotes: ReleaseGroup[] = [
         title: 'Chat picks up your Claude subscription automatically',
         description: 'When you sign in via claude.ai, chat now uses your subscription rather than your API key. No menu toggle needed.',
       },
-      {
-        title: 'Better chat behavior on long answers',
-        description: 'No more contradictory "Still working" / "Stopped" messages on the same turn. Claude also prefers reading the file before editing it.',
-      },
-      {
-        title: 'Gemini no longer leaks an internal instance name',
-        description: 'Removed an old instance name from the Gemini system prompt so it no longer surfaces in identity questions.',
-      },
-    ],
-  },
-  // v3.11.2
-  {
-    date: '2026-05-04',
-    label: 'May 4, 2026',
-    entries: [
-      {
-        title: 'Onboarding no longer stuck on Loading',
-        description: 'The "Your starter agents" step could hang on "Loading..." forever. It now times out after 10 seconds and shows an actionable error with a "Try again" button.',
-      },
-    ],
-  },
-  // v3.11.1
-  {
-    date: '2026-05-04',
-    label: 'May 4, 2026',
-    entries: [
-      {
-        title: 'Gemini answers as Gemini',
-        description: 'Stronger system prompt for the Gemini chat path. Gemini now opens with "I am Gemini, Google\'s AI model" when asked which AI it is, and is forbidden from describing itself as local or embedded.',
-      },
-      {
-        title: 'Cleaner public install',
-        description: 'Removed internal-only documents from the install. Strategy notes, internal diagnoses, and agent backup files no longer ship to colleagues.',
-      },
     ],
   },
   // v3.11.0
@@ -95,20 +61,6 @@ const releaseNotes: ReleaseGroup[] = [
       {
         title: 'Agent template aliases',
         description: 'Agent files now support an ALIASES directive, so a template can be found under any of its alternate names in the picker and command bar.',
-      },
-    ],
-  },
-  {
-    date: '2026-05-02',
-    label: 'May 2, 2026',
-    entries: [
-      {
-        title: 'ADHD mode sticks across devices',
-        description: 'Turning ADHD mode on in one browser used to reset when you opened myOS on another device. The setting now lives on the server, so it follows you everywhere.',
-      },
-      {
-        title: 'Settings sections stay in the right place',
-        description: 'Data Management and Shared Links were showing up on every Settings tab, not just Privacy & Data. They now appear only where they belong.',
       },
     ],
   },
@@ -153,10 +105,6 @@ const releaseNotes: ReleaseGroup[] = [
       {
         title: 'Settings tabs',
         description: 'Settings sections are now tabs instead of one long scrolling page. Click a section and only that section shows.',
-      },
-      {
-        title: 'Cleaner agent templates',
-        description: 'Agent template details no longer show the description and prompt twice. Less clutter, same information.',
       },
       {
         title: 'Lighter sidebar',
@@ -229,28 +177,8 @@ const releaseNotes: ReleaseGroup[] = [
         description: 'When you click Build-it on a spec, real AI agents now go off and do the actual work. They write code, edit files, and close their tasks when the work lands. Expect it to take a few minutes instead of a few seconds. You will get a notification the moment the feature is ready to try.',
       },
       {
-        title: 'Reliable calendar',
-        description: 'Events you create from chat now show up on the Calendar tab right away, no reload needed. Deleting events works whether you made them in chat or directly in Google Calendar, with a 5 second undo window that will not bounce back if something else syncs in the background.',
-      },
-      {
-        title: 'Smoother chat',
-        description: 'Chat responses no longer flicker or rewind while typing. The switch from plain text to styled formatting happens with a quick fade so it feels clean. Long responses stream evenly with no jitter.',
-      },
-      {
         title: 'A better tour',
         description: 'The first-time tour now has 7 steps including the Specs and Build-it flow. Tour tooltips stay inside the screen on every step, and the Chat step no longer names just one AI.',
-      },
-      {
-        title: 'Cleaner briefing',
-        description: 'Your daily briefing no longer lists test tasks, scratch notes, or accidental long paste-ins as closed work. Only real tasks make it into the summary.',
-      },
-      {
-        title: 'Accurate session count',
-        description: 'The sidebar badge that shows how many sessions are active now counts only real sessions. Old background reload rows no longer pad the number.',
-      },
-      {
-        title: 'Smarter chat tools',
-        description: 'When Claude uses tools in chat, it now prefers ostk commands over raw shell tools. Cleaner, faster, and it matches the rest of myOS.',
       },
       {
         title: 'Feature completion notification',
@@ -357,10 +285,6 @@ const releaseNotes: ReleaseGroup[] = [
         description: 'Track why decisions were made. Log them from the Activity page and they show up in search results and audit trails.',
       },
       {
-        title: 'Faster daily briefing',
-        description: 'Your briefing now pulls activity data directly from the system instead of asking the AI to reconstruct it. Loads faster and more accurate.',
-      },
-      {
         title: 'Deep search',
         description: 'Cmd+K now searches everything: tasks, ideas, decisions, threads, audit events, and past session transcripts. Results are grouped by category.',
       },
@@ -371,10 +295,6 @@ const releaseNotes: ReleaseGroup[] = [
       {
         title: 'Priority change tracking',
         description: 'When you change a task priority, you can note why. The reason is saved in the audit trail.',
-      },
-      {
-        title: 'Smarter idea breakdown',
-        description: 'Breaking an idea into tasks is smarter now. It groups related pieces together before asking the AI, which is faster and costs less.',
       },
       {
         title: 'Context pressure alerts',
