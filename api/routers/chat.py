@@ -1260,6 +1260,23 @@ async def chat_websocket(websocket: WebSocket):
                 model_key = MODEL_ALIASES.get(fallback_model.lower(), "claude")
                 mentioned_models = [model_key]
 
+            # Re-run inference after the fallback. Bare-name phrasings
+            # like "chat with claude" parse to zero @mentions, so the
+            # earlier inference block sees len(mentioned_models)==0 and
+            # skips. Now that the fallback has filled in the host model
+            # (e.g. ["gemini"] when the user is on the Gemini panel),
+            # infer the second speaker from the bare name in the text
+            # so peer-chat triggers correctly.
+            if (
+                isinstance(last_text, str)
+                and len(mentioned_models) == 1
+                and is_conversation(last_text)
+                and not conversation_target_is_user(last_text)
+            ):
+                inferred = infer_second_model(last_text, mentioned_models)
+                if inferred and inferred not in mentioned_models:
+                    mentioned_models = [*mentioned_models, inferred]
+
             # Always inject baseline project context (who the user is, what's in flight)
             baseline = await build_baseline_context()
             if baseline:

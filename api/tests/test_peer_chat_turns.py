@@ -165,6 +165,33 @@ def test_peer_start_with_turns_3_runs_three_rounds(patched_streams):
     assert fake_claude.call_count == 3
 
 
+def test_peer_chat_bare_name_with_host_fallback_triggers_picker(patched_streams):
+    """Bare-name phrasing ('chat with claude' without @) on the Gemini panel
+    must still trigger the picker, not fall through to single-model.
+
+    Regression for needle 1017: parse_mentions returns [] for bare names, so
+    the inference block (which only ran for len==1) was skipped. After the
+    fallback fills mentioned_models with the host model (gemini), inference
+    must re-run to detect the bare name and add the second speaker.
+    """
+    fake_gemini, fake_claude = patched_streams
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/chat") as ws:
+        # NO @mention; user is on Gemini panel (model="@gemini" is the dropdown).
+        _send_peer_chat(
+            ws,
+            "chat with claude about whether we are ready to release",
+            model="@gemini",
+        )
+        frame = ws.receive_json()
+        assert frame["type"] == "peer_chat_turns_required", (
+            f"Bare-name phrasing should trigger picker, got {frame}"
+        )
+        assert "claude" in frame["participants"]
+        assert "gemini" in frame["participants"]
+
+
 def test_peer_start_with_unknown_pending_id_returns_404():
     """Unknown pending_id must return 404."""
     client = TestClient(app)
