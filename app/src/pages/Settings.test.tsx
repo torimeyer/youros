@@ -751,6 +751,44 @@ describe('Settings', () => {
         expect(googlePill.textContent).toContain('Sign in to use Gmail, Calendar, and Drive')
       })
     })
+
+    it('clicking Disconnect button calls /drive/auth/revoke and updates UI', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path === '/drive/auth/status') return Promise.resolve({ authenticated: true, email: 'test@example.com' })
+        if (path === '/gmail/auth/status') return Promise.resolve({ authenticated: true, email: null })
+        if (path === '/calendar/auth/status') return Promise.resolve({ authenticated: true, email: null })
+        if (path === '/slack/status') return Promise.resolve({ connected: false, team_name: '' })
+        return Promise.resolve({})
+      })
+      vi.mocked(api.post).mockResolvedValue({})
+
+      renderSettings()
+
+      // Expand the Google pill
+      const googlePill = screen.getByTestId('pill-google')
+      fireEvent.click(googlePill)
+
+      // Wait for the expand and find the Disconnect button
+      await waitFor(() => {
+        const googleCard = screen.getByTestId('google-connect-section')
+        expect(googleCard).toBeInTheDocument()
+      })
+
+      // Click Disconnect
+      const disconnectBtn = screen.getByRole('button', { name: /Disconnect/i })
+      fireEvent.click(disconnectBtn)
+
+      // Verify the API was called with the correct endpoint
+      await waitFor(() => {
+        expect(vi.mocked(api.post)).toHaveBeenCalledWith('/drive/auth/revoke', {})
+      })
+
+      // Verify UI shows disconnected state
+      await waitFor(() => {
+        const googlePill = screen.getByTestId('pill-google')
+        expect(googlePill.textContent).toContain('Sign in to use Gmail, Calendar, and Drive')
+      })
+    })
   })
 
   describe('Chat backend section (Fix 2: separate card)', () => {

@@ -1777,11 +1777,17 @@ export default function Settings() {
                       </p>
                     </div>
                     <button
+                      type="button"
                       onClick={async () => {
-                        await api.post('/secrets/google/disconnect', {});
-                        setGoogleConnected(false);
-                        setKeyAvailable(prev => ({ ...prev, 'Google Gemini': false }));
-                        setKeySource(prev => ({ ...prev, 'Google Gemini': 'none' }));
+                        try {
+                          await api.post('/drive/auth/revoke', {});
+                          setConnectionStatus(prev => ({
+                            ...prev,
+                            Drive: { loading: false, connected: false, label: '' }
+                          }));
+                        } catch (err) {
+                          console.error('Failed to disconnect Google:', err);
+                        }
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm text-slate-400 hover:text-slate-200 transition-colors"
                     >
