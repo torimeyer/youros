@@ -85,7 +85,7 @@ function mockConnectedWithMessages() {
 describe('Slack flag + reply buttons', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    window.localStorage.removeItem('myos.slackChannels.v1')
+    window.localStorage.removeItem('myos.slackChannels.v2')
   })
 
   async function renderAndOpenChannel() {
@@ -151,14 +151,14 @@ describe('Slack flag + reply buttons', () => {
 describe('Slack stale cache cleared on disconnect', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    window.localStorage.removeItem('myos.slackChannels.v1')
+    window.localStorage.removeItem('myos.slackChannels.v2')
   })
 
-  it('clears channel cache from localStorage when status returns disconnected', async () => {
-    // Pre-seed stale channel data in localStorage
+  it('clears channel cache when status returns disconnected', async () => {
+    // Pre-seed stale channel data in localStorage (v2 format with team_id)
     window.localStorage.setItem(
-      'myos.slackChannels.v1',
-      JSON.stringify([{ id: 'C_OLD', name: 'old-channel', is_private: false, num_members: 5, topic: '' }])
+      'myos.slackChannels.v2',
+      JSON.stringify({ team_id: 'T_OLD', channels: [{ id: 'C_OLD', name: 'old-channel', is_private: false, num_members: 5, topic: '' }] })
     )
 
     mockedApiGet.mockImplementation((path: string) => {
@@ -174,12 +174,10 @@ describe('Slack stale cache cleared on disconnect', () => {
       expect(screen.getByTestId('connect-card')).toBeInTheDocument()
     })
 
-    const cached = window.localStorage.getItem('myos.slackChannels.v1')
-    expect(JSON.parse(cached ?? '[]')).toEqual([])
+    expect(window.localStorage.getItem('myos.slackChannels.v2')).toBeNull()
   })
 
-  it('clears channel cache from localStorage after disconnect action', async () => {
-    // Start connected with channels
+  it('clears channel cache after disconnect action', async () => {
     mockedApiGet.mockImplementation((path: string) => {
       if (path.includes('/slack/status')) {
         return Promise.resolve({ connected: true, team_name: 'Acme', team_id: 'T1', configured: true })
@@ -200,8 +198,8 @@ describe('Slack stale cache cleared on disconnect', () => {
       expect(screen.getByText('general')).toBeInTheDocument()
     })
 
-    // Verify cache was written
-    expect(window.localStorage.getItem('myos.slackChannels.v1')).not.toBeNull()
+    // Verify v2 cache was written after channels loaded
+    expect(window.localStorage.getItem('myos.slackChannels.v2')).not.toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /Disconnect/i }))
 
@@ -209,15 +207,61 @@ describe('Slack stale cache cleared on disconnect', () => {
       expect(screen.getByTestId('connect-card')).toBeInTheDocument()
     })
 
-    const cached = window.localStorage.getItem('myos.slackChannels.v1')
-    expect(JSON.parse(cached ?? '[]')).toEqual([])
+    expect(window.localStorage.getItem('myos.slackChannels.v2')).toBeNull()
+  })
+})
+
+describe('→1063 stale workspace channels cleared on reconnect', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.slackChannels.v2')
+  })
+
+  it('does not show channels from prior workspace when team_id changes', async () => {
+    // Pre-seed channels from workspace A (team_id T_OLD)
+    window.localStorage.setItem(
+      'myos.slackChannels.v2',
+      JSON.stringify({
+        team_id: 'T_OLD',
+        channels: [
+          { id: 'C_OLD', name: 'furniture', is_private: false, num_members: 3, topic: 'Trello board URL' },
+        ],
+      })
+    )
+
+    // Status returns workspace B (team_id T_NEW)
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: true, team_name: 'New Corp', team_id: 'T_NEW', configured: true })
+      }
+      if (path.includes('/slack/channels')) {
+        return Promise.resolve({
+          channels: [{ id: 'C_NEW', name: 'engineering', is_private: false, num_members: 8, topic: '' }],
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    // The old-workspace channel must never appear
+    await waitFor(() => {
+      expect(screen.getByText('engineering')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('furniture')).not.toBeInTheDocument()
+
+    // Cache must now hold workspace B's team_id
+    const raw = window.localStorage.getItem('myos.slackChannels.v2')
+    const entry = JSON.parse(raw ?? '{}')
+    expect(entry.team_id).toBe('T_NEW')
+    expect(entry.channels[0].name).toBe('engineering')
   })
 })
 
 describe('Slack mrkdwn stripping in channel topics', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    window.localStorage.removeItem('myos.slackChannels.v1')
+    window.localStorage.removeItem('myos.slackChannels.v2')
   })
 
   it('renders plain URL from <url> mrkdwn syntax in channel topic', async () => {
@@ -282,7 +326,7 @@ describe('Slack mrkdwn stripping in channel topics', () => {
 describe('Slack ConnectCard (chunk-d migration)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    window.localStorage.removeItem('myos.slackChannels.v1')
+    window.localStorage.removeItem('myos.slackChannels.v2')
   })
 
   it('renders ConnectCard with purple accent when not connected', async () => {
@@ -338,7 +382,7 @@ describe('Slack ConnectCard (chunk-d migration)', () => {
 describe('Slack configure form', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    window.localStorage.removeItem('myos.slackChannels.v1')
+    window.localStorage.removeItem('myos.slackChannels.v2')
   })
 
   it('renders configure form when configured is false', async () => {

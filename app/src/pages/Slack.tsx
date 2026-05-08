@@ -29,25 +29,41 @@ interface SlackStatus {
   configured: boolean
 }
 
-// Seed from localStorage for instant paint
-const SLACK_CHANNELS_CACHE_KEY = 'myos.slackChannels.v1'
+// Seed from localStorage for instant paint — keyed by team_id to prevent
+// stale channels from a prior workspace showing after reconnect (→1063).
+const SLACK_CHANNELS_CACHE_KEY = 'myos.slackChannels.v2'
 
-function readChannelCache(): SlackChannel[] {
+interface ChannelCacheEntry {
+  team_id: string
+  channels: SlackChannel[]
+}
+
+function readChannelCache(): ChannelCacheEntry | null {
   try {
-    if (typeof window === 'undefined' || !window.localStorage) return []
+    if (typeof window === 'undefined' || !window.localStorage) return null
     const raw = window.localStorage.getItem(SLACK_CHANNELS_CACHE_KEY)
-    if (!raw) return []
+    if (!raw) return null
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as SlackChannel[]) : []
+    if (!parsed || !Array.isArray(parsed.channels)) return null
+    return { team_id: parsed.team_id || '', channels: parsed.channels }
   } catch {
-    return []
+    return null
   }
 }
 
-function writeChannelCache(channels: SlackChannel[]) {
+function writeChannelCache(team_id: string, channels: SlackChannel[]) {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return
-    window.localStorage.setItem(SLACK_CHANNELS_CACHE_KEY, JSON.stringify(channels))
+    window.localStorage.setItem(SLACK_CHANNELS_CACHE_KEY, JSON.stringify({ team_id, channels }))
+  } catch {
+    // not fatal
+  }
+}
+
+function clearChannelCache() {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    window.localStorage.removeItem(SLACK_CHANNELS_CACHE_KEY)
   } catch {
     // not fatal
   }
@@ -60,8 +76,8 @@ function stripSlackMrkdwn(text: string): string {
 export default function Slack() {
   const [searchParams] = useSearchParams()
   const [status, setStatus] = useState<SlackStatus | null>(null)
-  const [channels, setChannels] = useState<SlackChannel[]>(() => readChannelCache())
-  const [loading, setLoading] = useState<boolean>(() => readChannelCache().length === 0)
+  const [channels, setChannels] = useState<SlackChannel[]>(() => readChannelCache()?.channels ?? [])
+  const [loading, setLoading] = useState<boolean>(() => (readChannelCache()?.channels ?? []).length === 0)
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
   const [messages, setMessages] = useState<SlackMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
@@ -84,11 +100,11 @@ export default function Slack() {
     }
   }, [])
 
-  const fetchChannels = useCallback(async () => {
+  const fetchChannels = useCallback(async (teamId?: string) => {
     try {
       const res = await api.get<{ channels: SlackChannel[] }>('/slack/channels')
       setChannels(res.channels || [])
-      writeChannelCache(res.channels || [])
+      writeChannelCache(teamId ?? '', res.channels || [])
     } catch {
       setChannels((prev) => (prev.length > 0 ? prev : []))
     }
@@ -107,17 +123,23 @@ export default function Slack() {
   }, [])
 
   useEffect(() => {
-    const hasCached = readChannelCache().length > 0
+    const cached = readChannelCache()
+    const hasCached = (cached?.channels ?? []).length > 0
     if (!hasCached) setLoading(true)
     ;(async () => {
       try {
         const s = await api.get<SlackStatus>('/slack/status')
         setStatus(s)
         if (s.connected) {
-          await fetchChannels()
+          // Discard cached channels immediately if the workspace changed (→1063)
+          if (cached?.team_id && s.team_id && cached.team_id !== s.team_id) {
+            setChannels([])
+            clearChannelCache()
+          }
+          await fetchChannels(s.team_id)
         } else {
           setChannels([])
-          writeChannelCache([])
+          clearChannelCache()
         }
       } catch {
         setStatus({ connected: false, team_name: '', team_id: '', configured: false })
@@ -126,12 +148,26 @@ export default function Slack() {
     })()
   }, [fetchChannels])
 
-  // Handle ?connected=true redirect
+  // Handle ?connected=true redirect — re-fetch status to get the new team_id
+  // so we can validate the cache and write channels under the correct workspace.
   useEffect(() => {
     if (searchParams.get('connected') === 'true') {
-      fetchStatus().then(() => fetchChannels())
+      ;(async () => {
+        try {
+          const s = await api.get<SlackStatus>('/slack/status')
+          setStatus(s)
+          const cached = readChannelCache()
+          if (cached?.team_id && s.team_id && cached.team_id !== s.team_id) {
+            setChannels([])
+            clearChannelCache()
+          }
+          await fetchChannels(s.team_id)
+        } catch {
+          // ignore
+        }
+      })()
     }
-  }, [searchParams, fetchStatus, fetchChannels])
+  }, [searchParams, fetchChannels])
 
   const handleConnect = async () => {
     setConnectError(null)
@@ -163,7 +199,7 @@ export default function Slack() {
       await api.delete('/slack/disconnect')
       setStatus({ connected: false, team_name: '', team_id: '', configured: false })
       setChannels([])
-      writeChannelCache([])
+      clearChannelCache()
       setSelectedChannel(null)
       setMessages([])
     } catch {
