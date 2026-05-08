@@ -180,7 +180,7 @@ async def drive_auth_url():
         )
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
-        "return_to": f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/documents?tab=drive",
+        "return_to": f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/drive",
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
