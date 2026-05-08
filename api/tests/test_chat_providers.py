@@ -3972,11 +3972,14 @@ class TestBackendActiveBeforeTemplateMatching:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="→1046: asserts non-existent template_matched WS event. Impl is correct; test over-asserts.")
     async def test_agent_anthropic_sends_backend_active_before_template_matched(self, websocket):
+        """backend_active must already be in the WebSocket buffer when
+        _maybe_match_template is called, so the frontend dead-backend timer
+        (→1043) clears before the potentially-slow AI classifier runs."""
         from services.chat_providers import ChatService
 
         service = ChatService()
+        snapshot: list = []
 
         matched = {
             "name": "saa",
@@ -3984,6 +3987,10 @@ class TestBackendActiveBeforeTemplateMatching:
             "prompt": "...",
             "_match_reason": "explicit",
         }
+
+        async def fake_match(messages, ws, api_key):
+            snapshot.extend(ws.messages)
+            return matched
 
         fake_response = MagicMock()
         fake_response.stop_reason = "end_turn"
@@ -4005,7 +4012,7 @@ class TestBackendActiveBeforeTemplateMatching:
             new=AsyncMock(return_value="test-key"),
         ), patch(
             "services.chat_providers._maybe_match_template",
-            new=AsyncMock(return_value=matched),
+            side_effect=fake_match,
         ), patch(
             "services.chat_providers._get_anthropic_client",
             return_value=fake_client,
@@ -4021,12 +4028,10 @@ class TestBackendActiveBeforeTemplateMatching:
                 websocket,
             )
 
-        types = [m["type"] for m in websocket.messages]
-        assert "backend_active" in types, "backend_active must be sent"
-        assert "template_matched" in types, "template_matched must be sent"
-        ba_idx = types.index("backend_active")
-        tm_idx = types.index("template_matched")
-        assert ba_idx < tm_idx, (
-            f"backend_active (pos {ba_idx}) must arrive before "
-            f"template_matched (pos {tm_idx})"
+        # backend_active must be in the snapshot captured inside fake_match,
+        # meaning it was sent BEFORE _maybe_match_template was called.
+        snap_types = [m["type"] for m in snapshot]
+        assert "backend_active" in snap_types, (
+            "backend_active must be sent before _maybe_match_template is called; "
+            f"messages at matcher call time: {snap_types}"
         )
