@@ -1240,10 +1240,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-finance-budget-builder",
         "name": "Budget Builder",
         "aliases": [],
-        "description": (
-            "Take a list of income and expenses and show where the money goes, "
-            "what's over budget, and where to cut."
-        ),
+        "description": "List your income and expenses, get a categorized breakdown, what's overspent, and the top three cuts to hit a savings goal.",
         "icon": "account_balance_wallet",
         "prompt_template": (
             "You are a personal-finance helper. From the user's income and expenses: "
