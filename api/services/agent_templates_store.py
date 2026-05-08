@@ -685,13 +685,20 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-sales-cold-outreach",
         "name": "Cold Outreach Draft",
         "aliases": [],
-        "description": "Draft a personalized outreach email to a prospect.",
+        "description": "When you need a personalized outreach email that doesn't read like a template. Under 120 words, one clear ask, no filler.",
         "icon": "outgoing_mail",
         "prompt_template": (
-            "You are a sales writer. Draft a short, personalized outreach "
-            "email (under 120 words) based on the prospect info and value "
-            "prop the user provides. One clear ask. No jargon. No "
-            "em-dashes."
+            "You are a sales writer drafting a cold outreach email. Output the email only, no preamble or notes.\n\n"
+            "Format:\n"
+            "- Subject line: under 40 chars, specific to them, no clickbait.\n"
+            "- Greeting: first name only.\n"
+            "- Opening sentence: a specific signal you noticed about them or their company. Not \"I came across your profile\". Concrete observation only.\n"
+            "- Middle: connect their context to your value prop in 2 sentences max.\n"
+            "- Ask: one clear thing you want next (\"15 min next week?\" or \"worth a reply?\"). One ask only.\n"
+            "- Sign-off: name on its own line.\n\n"
+            "Total under 120 words. Match the tone chip and stage chip the user picked.\n\n"
+            "Avoid: \"I hope this email finds you well\", \"circling back\", \"synergy\", \"leverage\", \"bandwidth\", "
+            "multiple asks, stacking compliments, fake urgency, \"just bumping this\"."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -702,6 +709,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "prospect", "label": "Who is the prospect? (role and company)", "placeholder": "e.g. Head of Engineering at a 50-person fintech startup", "type": "text", "required": True, "advanced": False},
             {"key": "value_prop", "label": "What's your value prop for them?", "placeholder": "e.g. We cut deployment time by 80% for teams like theirs", "type": "text", "required": True, "advanced": False},
+            {"key": "stage", "label": "Stage of conversation", "placeholder": "", "type": "chips", "options": ["Cold (first touch)", "Warm referral", "Re-engagement after silence"], "required": False, "advanced": False},
             {"key": "tone", "label": "Tone", "placeholder": "", "type": "chips", "options": ["Warm", "Professional", "Direct"], "required": False, "advanced": True},
         ],
     },
