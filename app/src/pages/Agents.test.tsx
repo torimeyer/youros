@@ -5676,6 +5676,59 @@ describe('Agents page - Template detail alias feature', () => {
       expect(screen.getByTestId('template-prompt-expand')).toBeInTheDocument()
     })
   })
+
+  it('alias section visible for built-in agentfile template not in AGENTFILE_TEMPLATE_IDS', async () => {
+    // "explain-plain" is a built-in that is NOT in the AGENTFILE_TEMPLATE_IDS map.
+    // Its derived templateId must be "builtin-explain-plain" so the alias section renders.
+    const agentfileTemplates = {
+      templates: [
+        {
+          name: 'explain-plain',
+          file: 'explain-plain.agent',
+          content: 'FROM auto\nDESC "Explain anything in plain language."\n',
+          description: 'Explain anything in plain language.',
+          capabilities: null,
+          parse_error: null,
+        },
+      ],
+    }
+
+    mockedApiGet.mockImplementation(async (path: string) => {
+      if (path === '/agents') return { daemon_running: false, status: 'ok', active: [], agents: [] }
+      if (path === '/agents/templates') return agentfileTemplates
+      if (path.startsWith('/agents/persona-templates')) return { templates: [], persona: 'pm' }
+      if (path === '/agents/user-templates') return { templates: [] }
+      if (path === '/settings') return { persona: 'pm' }
+      if (path === '/agents/fleets') return { fleets: [] }
+      if (path.includes('/alias')) return { alias: null }
+      return {}
+    })
+    vi.mocked(api.patch).mockResolvedValue({ template: { user_alias: 'ep' } })
+
+    renderAgents()
+
+    const templatesTab = await screen.findByText('Templates')
+    fireEvent.click(templatesTab)
+
+    const useBtn = await screen.findByTestId('template-card-Explain Plain-action')
+    fireEvent.click(useBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('template-alias-section')).toBeInTheDocument()
+    })
+
+    // Save alias and assert the PATCH uses the derived builtin-explain-plain id
+    const aliasInput = screen.getByTestId('template-alias-input')
+    fireEvent.change(aliasInput, { target: { value: 'ep' } })
+    fireEvent.click(screen.getByTestId('template-alias-save'))
+
+    await waitFor(() => {
+      expect(vi.mocked(api.patch)).toHaveBeenCalledWith(
+        '/agents/templates/builtin-explain-plain/alias',
+        { alias: 'ep' }
+      )
+    })
+  })
 })
 
 describe('Agents page - optimistic spawn insert + agents bus', () => {

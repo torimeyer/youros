@@ -3382,7 +3382,7 @@ export default function Agents() {
               aliases,
               capabilities: t.capabilities ?? null,
               parseError: t.parse_error ?? null,
-              templateId: AGENTFILE_TEMPLATE_IDS[titleName],
+              templateId: AGENTFILE_TEMPLATE_IDS[titleName] ?? `builtin-${titleName.toLowerCase().replace(/\s+/g, '-')}`,
             };
           })
       : [
