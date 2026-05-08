@@ -23,6 +23,7 @@ Design choices:
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import re
@@ -271,11 +272,17 @@ async def _run_classifier(
 
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
-            model=_CLASSIFIER_MODEL,
-            max_tokens=32,
-            system=system,
-            messages=[{"role": "user", "content": user}],
+        # Cap the classifier at 5 seconds. A slow or stalled Anthropic API
+        # would otherwise block the caller (stream_anthropic / agent_anthropic)
+        # before backend_active is sent, which fires the frontend 30s timer.
+        response = await asyncio.wait_for(
+            client.messages.create(
+                model=_CLASSIFIER_MODEL,
+                max_tokens=32,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            ),
+            timeout=5.0,
         )
         # Extract text from the first content block.
         if not response.content:

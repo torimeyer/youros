@@ -314,6 +314,42 @@ class TestClassifier:
 
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_classifier_timeout_returns_none(self):
+        """A slow Anthropic call must not block the caller — 5s cap returns None.
+
+        Root cause of →1043: _run_classifier had no timeout, so a stalled API
+        call blocked backend_active from being sent, firing the frontend 30s
+        dead-backend timer. The fix caps the classifier at 5 seconds.
+        """
+        import asyncio
+
+        custom = [{
+            "name": "writer",
+            "description": "Help drafting content",
+            "prompt": "...",
+        }]
+        templates = merge_with_built_ins(custom)
+
+        async def slow_create(*args, **kwargs):
+            await asyncio.sleep(60)
+            return MagicMock()
+
+        with patch("services.template_matcher.anthropic") as mock_anth, \
+             patch("services.template_matcher.asyncio.wait_for",
+                   side_effect=asyncio.TimeoutError):
+            client = MagicMock()
+            client.messages.create = AsyncMock(side_effect=slow_create)
+            mock_anth.AsyncAnthropic.return_value = client
+
+            result = await match_template(
+                "draft a tweet",
+                templates,
+                api_key="fake-key",
+            )
+
+        assert result is None
+
 
 # --- empty / edge cases --------------------------------------------------
 

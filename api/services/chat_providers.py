@@ -1989,6 +1989,36 @@ class ChatService:
         import time as _time
         _t0 = _time.perf_counter()
         api_key = await _resolve_api_key("anthropic_api_key")
+
+        # Resolve backend and send backend_active BEFORE template matching.
+        # The AI classifier in _maybe_match_template makes a blocking
+        # Anthropic call that can stall 30+ seconds when the API is slow,
+        # preventing any event from reaching the frontend and causing the
+        # dead-backend timer to fire. Sending backend_active first clears
+        # that timer immediately so the UI stays responsive.
+        backend = await _resolve_chat_backend()
+
+        # Broadcast ("All" pill) path: skip the Claude Code CLI in favor
+        # of the direct Anthropic API when a key is available. The CLI
+        # subprocess adds several seconds of first-token latency because
+        # of shell spin-up and streaming framing, which makes broadcast
+        # feel serial even though the two providers run under
+        # asyncio.gather. Direct API streaming puts Claude's first token
+        # within the same second as Gemini's in practice. Falls through
+        # to whatever the normal backend is if no key is configured.
+        if force_api and backend == "claude_code":
+            if api_key:
+                backend = "anthropic_api"
+
+        # Claude Code CLI cannot receive inline image blocks. If the last
+        # message includes an image (GIF or pasted screenshot), force the
+        # Anthropic API backend so the model can actually see it.
+        if backend == "claude_code" and _messages_contain_images(messages):
+            if api_key:
+                backend = "anthropic_api"
+
+        await _send_backend_active(websocket, backend)
+
         matched_template = await _maybe_match_template(messages, websocket, api_key)
         _t_template = _time.perf_counter()
         _anthropic_log.info(
@@ -2003,31 +2033,6 @@ class ChatService:
             system_prompt = _compose_system_prompt(matched_template)
         else:
             system_prompt = None
-
-        backend = await _resolve_chat_backend()
-
-        # Broadcast ("All" pill) path: skip the Claude Code CLI in favor
-        # of the direct Anthropic API when a key is available. The CLI
-        # subprocess adds several seconds of first-token latency because
-        # of shell spin-up and streaming framing, which makes broadcast
-        # feel serial even though the two providers run under
-        # asyncio.gather. Direct API streaming puts Claude's first token
-        # within the same second as Gemini's in practice. Falls through
-        # to whatever the normal backend is if no key is configured.
-        if force_api and backend == "claude_code":
-            api_key = await _resolve_api_key("anthropic_api_key")
-            if api_key:
-                backend = "anthropic_api"
-
-        # Claude Code CLI cannot receive inline image blocks. If the last
-        # message includes an image (GIF or pasted screenshot), force the
-        # Anthropic API backend so the model can actually see it.
-        if backend == "claude_code" and _messages_contain_images(messages):
-            api_key = await _resolve_api_key("anthropic_api_key")
-            if api_key:
-                backend = "anthropic_api"
-
-        await _send_backend_active(websocket, backend)
 
         if backend == "claude_code":
             return await claude_code_provider.stream_chat(
@@ -2273,16 +2278,9 @@ class ChatService:
         """
         api_key = await _resolve_api_key("anthropic_api_key")
 
-        # Auto-match agent template based on the user's message. If matched,
-        # the system prompt picks up the template's extra instructions and
-        # the chat panel shows a small "Using: <name>" badge. We do this
-        # before picking a backend so both paths get the matched helper.
-        matched_template = await _maybe_match_template(messages, websocket, api_key)
-        # Use split system blocks so stable instructions stay cached
-        # even when volatile boot context changes between turns.
-        cached_system_prompt = _build_cached_system_blocks(matched_template)
-        active_system_prompt = _compose_system_prompt(matched_template)
-
+        # Resolve backend and send backend_active BEFORE template matching.
+        # Same fix as stream_anthropic: the classifier can stall 30+ seconds
+        # on a slow API, blocking backend_active and firing the frontend timer.
         backend = await _resolve_chat_backend()
 
         # Claude Code CLI cannot receive inline image blocks. If the last
@@ -2293,6 +2291,15 @@ class ChatService:
                 backend = "anthropic_api"
 
         await _send_backend_active(websocket, backend)
+
+        # Auto-match agent template based on the user's message. If matched,
+        # the system prompt picks up the template's extra instructions and
+        # the chat panel shows a small "Using: <name>" badge.
+        matched_template = await _maybe_match_template(messages, websocket, api_key)
+        # Use split system blocks so stable instructions stay cached
+        # even when volatile boot context changes between turns.
+        cached_system_prompt = _build_cached_system_blocks(matched_template)
+        active_system_prompt = _compose_system_prompt(matched_template)
 
         # With session mode, the local program handles tools natively
         # via --dangerously-skip-permissions. The tab_id enables session
