@@ -2907,4 +2907,108 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('MCP tool call rendering (→1050)', () => {
+    it('shows friendly label and path for mcp__ostk__fs_ops, hides raw JSON by default', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'write my roadmap' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      // Backend emits an mcp_tool_use event for fs_ops with new_str containing
+      // a real newline (the classic source of literal \n in the expanded view).
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: {
+          tool: 'fs_ops',
+          server: 'ostk',
+          id: 'mcp_abc123',
+          input: {
+            path: 'docs/plans/myos-roadmap-2026-2029.md',
+            new_str: 'line one\nline two\nline three',
+          },
+        },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      // Pill must be visible.
+      const pill = screen.getByTestId('tool-call-pill')
+      expect(pill).toBeTruthy()
+
+      // Friendly label "Edit file" must appear instead of "ostk: fs_ops".
+      expect(pill.textContent).toContain('Edit file')
+      expect(pill.textContent).not.toContain('ostk: fs_ops')
+      expect(pill.textContent).not.toContain('mcp__ostk__fs_ops')
+
+      // Path summary must be visible in the collapsed state.
+      expect(pill.textContent).toContain('docs/plans/myos-roadmap-2026-2029.md')
+
+      // Raw JSON wall (literal \n, escaped quotes) must NOT appear in the pill.
+      expect(pill.textContent).not.toContain('\\n')
+      expect(pill.textContent).not.toContain('\\"')
+      expect(pill.textContent).not.toContain('new_str')
+      expect(pill.textContent).not.toContain('line one\\nline two')
+
+      // Args section must be collapsed by default.
+      expect(screen.queryByTestId('tool-call-args')).toBeNull()
+    })
+
+    it('shows friendly label and cmd preview for mcp__ostk__bash', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'run tests' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: {
+          tool: 'bash',
+          server: 'ostk',
+          id: 'mcp_bash1',
+          input: { cmd: 'scripts/run-vitest.sh src/components/' },
+        },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      const pill = screen.getByTestId('tool-call-pill')
+      expect(pill.textContent).toContain('Run command')
+      expect(pill.textContent).toContain('scripts/run-vitest.sh src/components/')
+      expect(pill.textContent).not.toContain('ostk: bash')
+    })
+
+    it('shows friendly label and query for mcp__ostk__search', () => {
+      const { rerender } = render(<ChatPanel />)
+
+      const input = screen.getByPlaceholderText(/Message claude/i)
+      fireEvent.change(input, { target: { value: 'search code' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      mockLastMessage = {
+        type: 'mcp_tool_use',
+        data: {
+          tool: 'search',
+          server: 'ostk',
+          id: 'mcp_search1',
+          input: { query: 'ToolCallBlock' },
+        },
+      }
+      rerender(<ChatPanel />)
+
+      mockLastMessage = { type: 'done' }
+      rerender(<ChatPanel />)
+
+      const pill = screen.getByTestId('tool-call-pill')
+      expect(pill.textContent).toContain('Search')
+      expect(pill.textContent).toContain('ToolCallBlock')
+      expect(pill.textContent).not.toContain('ostk: search')
+    })
+  })
+
 })

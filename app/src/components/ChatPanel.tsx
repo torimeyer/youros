@@ -66,6 +66,19 @@ const TOOL_LABELS: Record<string, string> = {
   git_commit: 'Save changes',
 }
 
+const MCP_TOOL_LABELS: Record<string, string> = {
+  bash: 'Run command',
+  read: 'Read file',
+  fs_ops: 'Edit file',
+  search: 'Search',
+  spawn: 'Spawn agent',
+  lock: 'Acquire lock',
+  session: 'Session',
+  help: 'Get help',
+  tack: 'Run tack',
+  interact: 'Interact with process',
+}
+
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '🔥', '👎']
 
 interface ToolCall {
@@ -154,14 +167,21 @@ function resolveToolInput(call: ToolCall): Record<string, unknown> {
 function ToolCallBlock({ call }: { call: ToolCall }) {
   const [expanded, setExpanded] = useState(false)
   const label = call.isMcp
-    ? `${call.mcpServer}: ${call.tool}`
+    ? (MCP_TOOL_LABELS[call.tool] ?? `${call.mcpServer}: ${call.tool}`)
     : (TOOL_LABELS[call.tool] ?? call.tool)
 
   const resolvedInput = resolveToolInput(call)
   let summary = ''
+  const batchOps = resolvedInput.ops as Array<{ method?: string; path?: string }> | undefined
   if (resolvedInput.path) summary = String(resolvedInput.path)
+  else if (resolvedInput.cmd) summary = String(resolvedInput.cmd).slice(0, 80)
   else if (resolvedInput.command) summary = String(resolvedInput.command)
+  else if (resolvedInput.query) summary = String(resolvedInput.query)
   else if (resolvedInput.pattern) summary = String(resolvedInput.pattern)
+  else if (Array.isArray(batchOps) && batchOps.length > 0) {
+    const firstPath = batchOps.find(op => op.path)?.path
+    if (firstPath) summary = String(firstPath)
+  }
   else if (resolvedInput.title) summary = String(resolvedInput.title)
   else if (resolvedInput.task_id) summary = String(resolvedInput.task_id)
 
