@@ -74,7 +74,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
       { name: 'Social Post', description: 'Adapt long content for the platforms you pick. LinkedIn post, Twitter/X thread, or Instagram caption with the right voice for each.', icon: 'share', model: 'sonnet', budget: 2.0 },
       { name: 'Headline Generator', description: 'Ten headline options for the same piece, weighted toward the styles you pick. No clickbait, no hedging.', icon: 'title', model: 'sonnet', budget: 2.0 },
       { name: 'Proofreader', description: 'Catch typos, grammar slips, and awkward phrasing without rewriting your voice. Returns corrected text plus the notable fixes.', icon: 'spellcheck', model: 'sonnet', budget: 2.0 },
-      { name: 'Name Generator', description: 'Come up with names for projects, features, or products.', icon: 'label', model: 'sonnet', budget: 2.0 },
+      { name: 'Name Generator', description: 'Fifteen name candidates for a project, product, or company. Weighted to your vibes. Brand-conflict flags included.', icon: 'label', model: 'sonnet', budget: 2.0 },
     ],
   },
   {
