@@ -1241,5 +1241,46 @@ describe('calendar widget range selector', () => {
     const calls = mockedApiGet.mock.calls.map((c) => c[0])
     expect(calls.filter((p) => p === '/calendar/events?days=1').length).toBeGreaterThan(0)
   })
+
+  it('renders a color dot for each event row using colorId', async () => {
+    const start = new Date(Date.now() + 2 * 60 * 60 * 1000)
+    const end = new Date(start.getTime() + 30 * 60 * 1000)
+    const coloredEvent = {
+      id: 'colored-1',
+      summary: 'Colored Event',
+      start: { dateTime: start.toISOString() },
+      end: { dateTime: end.toISOString() },
+      colorId: '7', // Peacock → #039BE5
+    }
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path.startsWith('/calendar/events')) return Promise.resolve({ events: [coloredEvent] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+
+    renderDashboard()
+    await waitFor(() => expect(screen.getByTestId('calendar-event-list')).toBeInTheDocument())
+
+    const list = screen.getByTestId('calendar-event-list')
+    const dot = list.querySelector('span[aria-hidden="true"]')
+    expect(dot).toBeInTheDocument()
+    expect(dot).toHaveStyle({ backgroundColor: '#039BE5' })
+  })
+
+  it('falls back to default blue dot when colorId is absent', async () => {
+    renderDashboard()
+    await waitFor(() => expect(screen.getByTestId('calendar-event-list')).toBeInTheDocument())
+
+    const list = screen.getByTestId('calendar-event-list')
+    const dot = list.querySelector('span[aria-hidden="true"]')
+    expect(dot).toBeInTheDocument()
+    expect(dot).toHaveStyle({ backgroundColor: '#4285F4' })
+  })
 })
 

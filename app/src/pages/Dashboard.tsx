@@ -106,7 +106,23 @@ interface CalendarEvent {
   end: { dateTime?: string; date?: string }
   location?: string
   hangoutLink?: string
+  colorId?: string
 }
+
+const GCAL_COLOR_MAP: Record<string, string> = {
+  '1': '#7986CB',
+  '2': '#33B679',
+  '3': '#8E24AA',
+  '4': '#E67C73',
+  '5': '#F6BF26',
+  '6': '#F4511E',
+  '7': '#039BE5',
+  '8': '#616161',
+  '9': '#3F51B5',
+  '10': '#0B8043',
+  '11': '#D50000',
+};
+const GCAL_DEFAULT_COLOR = '#4285F4';
 
 interface SessionDiff {
   files_changed: string[];
@@ -848,7 +864,7 @@ export default function Dashboard() {
       <div key="next_meeting" data-testid="widget-next-meeting" className="lg:col-span-2">
         <Card hover padding="sm" className="sm:p-6" onClick={() => navigate('/calendar')}>
           {header}
-          <ul className="space-y-2" data-testid="calendar-event-list">
+          <ul className="space-y-3" data-testid="calendar-event-list">
             {events.map((ev) => {
               const startStr = ev.start?.dateTime || ev.start?.date;
               let dayStr = '';
@@ -873,9 +889,15 @@ export default function Dashboard() {
                   // ignore unparseable dates; row will just have no time/day
                 }
               }
+              const dotColor = ev.colorId ? (GCAL_COLOR_MAP[ev.colorId] ?? GCAL_DEFAULT_COLOR) : GCAL_DEFAULT_COLOR;
               return (
-                <li key={ev.id} className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
+                <li key={ev.id} className="flex items-center gap-3 py-1">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: dotColor }}
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{ev.summary || 'Untitled'}</p>
                     {(dayStr || timeStr) && (
                       <p className="text-xs text-slate-400">
