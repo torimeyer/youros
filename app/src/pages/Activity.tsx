@@ -96,25 +96,7 @@ function StreamRow({ entry, expanded, onToggle }: StreamRowProps) {
               <span className="text-slate-600">time</span>{" "}
               <span className="font-mono text-slate-300">{entry.timestamp}</span>
             </span>
-            {entry.raw.trace_id && (
-              <span>
-                <span className="text-slate-600">trace</span>{" "}
-                <button
-                  type="button"
-                  data-testid="copy-trace-id"
-                  className="font-mono text-slate-300 hover:text-blue-400 underline decoration-dotted"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    try {
-                      navigator.clipboard.writeText(entry.raw.trace_id || "");
-                    } catch { /* swallow */ }
-                  }}
-                  title="Copy trace ID"
-                >
-                  {entry.raw.trace_id}
-                </button>
-              </span>
-            )}
+
           </div>
           {entry.raw.detail && (
             <p className="text-slate-500 break-words">{entry.raw.detail}</p>
@@ -283,7 +265,6 @@ export default function Activity() {
   const [eventCount, setEventCount] = useState(100);
   const [showTechnical, setShowTechnical] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
-  const [traceFilter, setTraceFilter] = useState("");
   const [deduping, setDeduping] = useState(false);
   const [dedupeResult, setDedupeResult] = useState<string | null>(null);
 
@@ -336,16 +317,13 @@ export default function Activity() {
   // When "Show technical details" is on, every row is auto-expanded and
   // the stream includes all raw events (not just curated ones). When off,
   // only user-facing entries show, and expand is per-row.
-  const filteredRawEvents = traceFilter.trim()
-    ? rawEvents.filter((ev) => (ev.trace_id || "").includes(traceFilter.trim()))
-    : rawEvents;
-  const streamEntries = buildStream(filteredRawEvents);
+  const streamEntries = buildStream(rawEvents);
   const dayGroups = groupByDay(streamEntries);
 
   // For the technical view, build groups from ALL raw events, surfacing
   // them as generic "other" entries.
   const allEntries = showTechnical
-    ? filteredRawEvents.map((ev, i) => ({
+    ? rawEvents.map((ev, i) => ({
         key: `raw-${ev.timestamp}-${i}`,
         kind: "other" as const,
         summary: ev.label || ev.event,
@@ -414,14 +392,7 @@ export default function Activity() {
                 Show technical details
               </label>
 
-              <input
-                type="text"
-                value={traceFilter}
-                onChange={(e) => setTraceFilter(e.target.value)}
-                placeholder="Filter by trace ID"
-                data-testid="trace-filter-input"
-                className="bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm text-slate-300 placeholder-slate-500 w-40"
-              />
+
 
               <select
                 value={eventCount}
@@ -461,23 +432,7 @@ export default function Activity() {
           </div>
         )}
 
-        {tab === "events" && traceFilter.trim() && (
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-xs text-slate-500">Active filter:</span>
-            <span className="inline-flex items-center gap-1.5 bg-blue-500/20 text-blue-300 text-xs px-2.5 py-1 rounded-full">
-              trace: {traceFilter.trim()}
-              <button
-                type="button"
-                onClick={() => setTraceFilter("")}
-                className="hover:text-white transition-colors"
-                aria-label="Clear trace filter"
-                data-testid="clear-trace-filter"
-              >
-                <Icon name="close" size={12} />
-              </button>
-            </span>
-          </div>
-        )}
+
 
         {/* Tab content */}
         {tab === "transcripts" ? (
@@ -489,20 +444,11 @@ export default function Activity() {
             {loading && rawEvents.length === 0 ? (
               <LoadingState variant="spinner" message="Loading activity..." />
             ) : totalVisible === 0 ? (
-              traceFilter.trim() ? (
-                <EmptyState
-                  icon="search_off"
-                  title={`No events match "${traceFilter.trim()}"`}
-                  description="That trace ID doesn't appear in the current event window. Try a different ID or clear the filter."
-                  action={{ label: "Clear filter", onClick: () => setTraceFilter("") }}
-                />
-              ) : (
-                <EmptyState
-                  icon="history"
-                  title="Your activity will show up here as you work"
-                  description="Tasks you close, specs you promote, and agents you run will all appear here."
-                />
-              )
+              <EmptyState
+                icon="history"
+                title="Your activity will show up here as you work"
+                description="Tasks you close, specs you promote, and agents you run will all appear here."
+              />
             ) : (
               <>
                 {showTechnical && (
