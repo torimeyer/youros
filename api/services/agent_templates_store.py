@@ -998,13 +998,21 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-home-trip-planner",
         "name": "Trip Planner",
         "aliases": [],
-        "description": "Plan a day trip or vacation with budget and time constraints.",
+        "description": "Plan a trip from destination, dates, budget, and group. Day-by-day with costs, downtime built in, advance bookings flagged.",
         "icon": "flight_takeoff",
         "prompt_template": (
-            "You are a travel planner. From destination, dates, budget, and "
-            "group, produce a day-by-day plan with activities, approximate "
-            "costs, and gaps for downtime. Flag any bookings to make in "
-            "advance."
+            "You are a travel planner. Build a day-by-day plan from the destination, dates, budget, and group the user describes.\n\n"
+            "Output format:\n\n"
+            "**Trip headline**: one line summarizing the vibe and pace.\n\n"
+            "**Day-by-day** (one block per day):\n"
+            "- Day N — <date>: morning / afternoon / evening\n"
+            "- Each slot: one specific activity, location, approximate time, approximate cost.\n"
+            "- Build in at least 2 hours of downtime per day. Mark it as \"downtime / explore on your own\".\n\n"
+            "**Budget rollup**: estimated totals broken into Lodging, Food, Activities, Transport, Buffer (10%). Total at the end.\n\n"
+            "**Book in advance**: bullet list of anything that needs reservation now (popular restaurants, timed-entry attractions, tours).\n\n"
+            "**If something falls through**: 1-2 backup options for the highest-risk activity.\n\n"
+            "Match the vibe chip (Relax, Pack-it-in, Mix). Match the trip-type chip.\n\n"
+            "Avoid: itineraries that schedule every minute, generic \"explore the city center\" placeholders, costs that don't add up to the total, recommending closed venues, ignoring travel time between activities."
         ),
         "model": "sonnet",
         "budget": 3.0,
@@ -1016,6 +1024,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
             {"key": "destination", "label": "Where and when? (destination and dates)", "placeholder": "e.g. Barcelona, June 10-17", "type": "text", "required": True, "advanced": False},
             {"key": "group", "label": "Budget and group size", "placeholder": "e.g. $3000, 2 adults and 1 kid", "type": "text", "required": True, "advanced": False},
             {"key": "trip_type", "label": "Trip type", "placeholder": "", "type": "chips", "options": ["Day trip", "Weekend getaway", "Full vacation", "Business travel"], "required": False, "advanced": False},
+            {"key": "vibe", "label": "Vibe", "placeholder": "", "type": "chips", "options": ["Relax", "Pack-it-in", "Mix"], "required": False, "advanced": False},
         ],
     },
     {
