@@ -2970,6 +2970,29 @@ describe('Tasks page - 2026-04-23 regression set', () => {
   })
 })
 
+describe('task title truncation (→1060)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'myOS', darkMode: true })
+  })
+
+  it('task title span has line-clamp-2 to prevent multi-paragraph overflow', async () => {
+    const longTitle = 'Spawning agent from template succeeds but the agent does not appear in Active Agents panel. Repro: user clicked Spawn agent on the Roadmap template and nothing appeared.'
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks') return Promise.resolve({ tasks: [{ id: 'lt1', title: longTitle, priority: 'P1', status: 'open', created_at: new Date().toISOString(), label_ids: [] }] })
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.resolve({})
+    })
+    render(<MemoryRouter><Tasks /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByTestId('task-row-lt1')).toBeInTheDocument())
+    const row = screen.getByTestId('task-row-lt1')
+    const titleSpan = row.querySelector(`span[title="${longTitle}"]`)
+    expect(titleSpan).not.toBeNull()
+    expect(titleSpan!.className).toContain('line-clamp-2')
+  })
+})
+
 describe('getFirstSentence (→1057)', () => {
   it('returns text up to and including the first period', () => {
     expect(getFirstSentence('Short title. Longer body here.')).toBe('Short title.')

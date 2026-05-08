@@ -2116,7 +2116,7 @@ export default function Tasks() {
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-sm ${task.status === "closed" ? "line-through text-slate-500" : ""} ${task.status === "shelved" ? "text-slate-500" : ""}`}>
+                        <span className={`text-sm line-clamp-2 ${task.status === "closed" ? "line-through text-slate-500" : ""} ${task.status === "shelved" ? "text-slate-500" : ""}`} title={task.title}>
                           {task.title}
                         </span>
                         {task.status === "shelved" && (
