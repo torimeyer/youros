@@ -143,15 +143,6 @@ class TestAdhdPersistence:
         assert "adhd_mode" in data, "adhd_mode missing from GET /settings after PATCH /adhd/config"
         assert data["adhd_mode"]["enabled"] is True
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "PUT /settings calls settings_store.save(body) which overwrites the "
-            "whole file, erasing adhd_mode.  Fix: change api/routers/settings.py "
-            "update_settings() to use settings_store.update(body) instead of "
-            "settings_store.save(body)."
-        ),
-    )
     def test_adhd_config_survives_put_settings_partial_body(self):
         """Enabling ADHD mode must survive a subsequent PUT /settings with partial data.
 

@@ -72,7 +72,7 @@ async def get_settings():
 async def update_settings(body: dict):
     if "mcp_servers" in body:
         _validate_mcp_servers(body["mcp_servers"])
-    settings_store.save(body)
+    settings_store.update(body)
     return {"result": "saved"}
 
 
