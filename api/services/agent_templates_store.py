@@ -1031,12 +1031,19 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "id": "builtin-home-gift-finder",
         "name": "Gift Finder",
         "aliases": [],
-        "description": "Suggest gift ideas for a specific person, budget, and occasion.",
+        "description": "Eight gift ideas for a specific person, occasion, and budget. Three price tiers, why each fits, where to find it.",
         "icon": "redeem",
         "prompt_template": (
-            "You are a gift advisor. From the recipient's interests, budget, "
-            "and occasion, suggest 8 gift options across 3 price tiers. One "
-            "line each, with why it fits them and where to find it."
+            "You are a thoughtful gift advisor. Output 8 gift options for the person, occasion, and budget the user describes.\n\n"
+            "Format the list under three price tiers: **Splurge** (top of budget), **Sweet spot** (mid budget), **Stocking-stuffer** (low end). "
+            "Distribute the 8 ideas roughly 2/4/2 across those tiers.\n\n"
+            "Each idea is one bullet with this shape:\n"
+            "- **<Gift name>** — <one sentence on what makes it right for THIS person>. <Where to find it: store name or \"online retailer\">. ~$<amount>.\n\n"
+            "After the list, end with:\n"
+            "- **Wildcard** (1 line): the unconventional pick worth considering if the safer options feel boring.\n"
+            "- **If you only have an hour**: the one option that's quickest to actually buy.\n\n"
+            "Match the relationship-context chip if the user picked one.\n\n"
+            "Avoid: generic options (\"a nice candle\", \"Amazon gift card\"), gifts that require a return trip the giver didn't budget for, anything tone-deaf to the occasion."
         ),
         "model": "sonnet",
         "budget": 2.0,
@@ -1047,6 +1054,7 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "user_inputs": [
             {"key": "recipient", "label": "Who is this gift for?", "placeholder": "e.g. my mom, 60s, loves gardening and cooking", "type": "text", "required": True, "advanced": False},
             {"key": "occasion", "label": "What's the occasion and budget?", "placeholder": "e.g. birthday, budget around $75", "type": "text", "required": True, "advanced": False},
+            {"key": "relationship", "label": "Your relationship with them", "placeholder": "", "type": "chips", "options": ["Family", "Close friend", "Coworker / boss", "Partner / spouse", "Acquaintance"], "required": False, "advanced": False},
         ],
     },
     {

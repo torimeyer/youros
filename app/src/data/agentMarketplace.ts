@@ -84,7 +84,7 @@ export const AGENT_MARKETPLACE: MarketplaceCategory[] = [
     templates: [
       { name: 'Meal Planner', description: "Plan a week of meals from what's in the fridge. Reuses ingredients to cut waste. Optional grouped grocery list at the end.", icon: 'restaurant', model: 'sonnet', budget: 2.0 },
       { name: 'Trip Planner', description: 'Plan a trip from destination, dates, budget, and group. Day-by-day with costs, downtime built in, advance bookings flagged.', icon: 'flight_takeoff', model: 'sonnet', budget: 3.0 },
-      { name: 'Gift Finder', description: 'Suggest gift ideas for a specific person, budget, and occasion.', icon: 'redeem', model: 'sonnet', budget: 2.0 },
+      { name: 'Gift Finder', description: 'Eight gift ideas for a specific person, occasion, and budget. Three price tiers, why each fits, where to find it.', icon: 'redeem', model: 'sonnet', budget: 2.0 },
       { name: 'Homework Helper', description: 'Walk a kid through a tricky homework problem step by step.', icon: 'school', model: 'sonnet', budget: 2.0 },
     ],
   },
