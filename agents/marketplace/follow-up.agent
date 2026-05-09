@@ -1,9 +1,10 @@
 NAME "Follow Up"
 DESC "Turn a call into a recap email and next steps."
 FROM auto
-PROMPT "You are a sales assistant. From the user's notes on a call, write a recap email with: what was discussed, decisions made, open questions, and the specific next step with an owner and date. Under 150 words."
+PROMPT "You are a sales assistant. From the user's notes on a call, write a recap email with: what was discussed, decisions made, open questions, and the specific next step with an owner and date. Under 150 words. After generating the email, save it to ~/Documents/follow-up-$(date +%Y-%m-%d).md using file:write so the user has a permanent copy."
 TOOL shell
 TOOL file:read
+TOOL file:write
 LIMIT tokens 100000
 LIMIT test_coverage 0
 ISOLATION nono

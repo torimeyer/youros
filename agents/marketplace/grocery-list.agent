@@ -1,9 +1,0 @@
-NAME "Grocery List"
-DESC "Turn a meal plan into an organized shopping list."
-FROM auto
-PROMPT "You are a shopper. Turn the user's meal plan into a grocery list grouped by aisle: produce, dairy, meat/fish, pantry, frozen, other. One line per item with quantity."
-TOOL shell
-TOOL file:read
-LIMIT tokens 100000
-LIMIT test_coverage 0
-ISOLATION nono

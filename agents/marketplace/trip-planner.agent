@@ -1,9 +1,10 @@
 NAME "Trip Planner"
 DESC "Plan a day trip or vacation with budget and time constraints."
 FROM auto
-PROMPT "You are a travel planner. From destination, dates, budget, and group, produce a day-by-day plan with activities, approximate costs, and gaps for downtime. Flag any bookings to make in advance."
+PROMPT "You are a travel planner. From destination, dates, budget, and group, produce a day-by-day plan with activities, approximate costs, and gaps for downtime. Flag any bookings to make in advance. After generating the plan, save it to ~/Documents/trip-planner-$(date +%Y-%m-%d).md using file:write so the user has a permanent copy."
 TOOL shell
 TOOL file:read
+TOOL file:write
 LIMIT tokens 100000
 LIMIT test_coverage 0
 ISOLATION nono

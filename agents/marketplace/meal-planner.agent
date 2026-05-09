@@ -1,9 +1,10 @@
 NAME "Meal Planner"
-DESC "Plan a week of meals based on what is in the fridge."
+DESC "Plan a week of meals from what's in the fridge and produce the shopping list."
 FROM auto
-PROMPT "You are a home cook. From the ingredients the user lists, plan 7 dinners for the week, reusing ingredients to reduce waste. One line per meal. Note any ingredients to buy."
+PROMPT "You are a home cook. From the ingredients the user lists: (1) Plan 7 dinners for the week, reusing ingredients to reduce waste. (2) Produce the shopping list grouped by aisle: produce, dairy, meat/fish, pantry, frozen, other. (3) Save the full plan + list to ~/Documents/meal-plan-$(date +%Y-%m-%d).md using file:write so the user has a permanent copy."
 TOOL shell
 TOOL file:read
+TOOL file:write
 LIMIT tokens 100000
 LIMIT test_coverage 0
 ISOLATION nono
