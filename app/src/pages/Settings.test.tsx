@@ -261,12 +261,10 @@ describe('Settings', () => {
   })
 
   describe('Data management', () => {
-    it('renders import and export buttons on the Connections tab', () => {
+    it('import and export buttons are no longer shown (feature removed)', () => {
       renderSettings()
-      const connectionsButtons = screen.getAllByRole('button', { name: 'Connections' })
-      fireEvent.click(connectionsButtons[0])
-      expect(screen.getByText('Import Config')).toBeInTheDocument()
-      expect(screen.getByText('Export Config')).toBeInTheDocument()
+      expect(screen.queryByText('Import Config')).not.toBeInTheDocument()
+      expect(screen.queryByText('Export Config')).not.toBeInTheDocument()
     })
   })
 
@@ -303,24 +301,9 @@ describe('Settings', () => {
   })
 
   describe('Data Management and Shared Links tab scoping', () => {
-    it('Data Management and Shared links render on Connections tab by default', () => {
+    it('Data Management and Shared links sections are not shown (removed)', () => {
       renderSettings()
-      // Default tab is now Connections — Data Management and Shared links should render
-      expect(screen.getByRole('heading', { name: 'Data Management' })).toBeInTheDocument()
-      expect(screen.getByRole('heading', { name: 'Shared links' })).toBeInTheDocument()
-    })
-
-    it('Data Management heading is not in the DOM on Preferences tab', () => {
-      renderSettings()
-      const preferencesButtons = screen.getAllByRole('button', { name: 'Preferences' })
-      fireEvent.click(preferencesButtons[0])
       expect(screen.queryByRole('heading', { name: 'Data Management' })).not.toBeInTheDocument()
-    })
-
-    it('Shared links heading is not in the DOM on Preferences tab', () => {
-      renderSettings()
-      const preferencesButtons = screen.getAllByRole('button', { name: 'Preferences' })
-      fireEvent.click(preferencesButtons[0])
       expect(screen.queryByRole('heading', { name: 'Shared links' })).not.toBeInTheDocument()
     })
   })

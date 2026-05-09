@@ -144,7 +144,7 @@ describe('TemplateCard badge behavior', () => {
     expect(card.textContent).not.toContain('built-in')
   })
 
-  it('marketplace card renders the marketplace badge', () => {
+  it('marketplace card renders the catalog badge', () => {
     render(
       <TemplateCard
         name="Summarizer"
@@ -157,10 +157,10 @@ describe('TemplateCard badge behavior', () => {
       />
     )
     const card = screen.getByTestId('tc-badge-mkt')
-    expect(card.textContent).toContain('marketplace')
+    expect(card.textContent).toContain('catalog')
   })
 
-  it('marketplace badge uses light-mode-readable colors (not gray-on-gray)', () => {
+  it('catalog badge uses light-mode-readable colors (not gray-on-gray)', () => {
     render(
       <TemplateCard
         name="Summarizer"
@@ -172,7 +172,7 @@ describe('TemplateCard badge behavior', () => {
         testId="tc-badge-contrast"
       />
     )
-    const badge = screen.getByText('marketplace')
+    const badge = screen.getByText('catalog')
     expect(badge.className).toMatch(/bg-slate-200/)
     expect(badge.className).toMatch(/text-slate-700/)
     expect(badge.className).toMatch(/dark:bg-slate-700\/60/)
@@ -399,7 +399,7 @@ describe('TemplateCard name prominence', () => {
 })
 
 describe('TemplateCard source badge correctness', () => {
-  it('marketplace template shows "marketplace" badge, NOT "custom"', () => {
+  it('marketplace template shows "catalog" badge, NOT "custom"', () => {
     render(
       <TemplateCard
         name="Competitive Scan"
@@ -412,7 +412,7 @@ describe('TemplateCard source badge correctness', () => {
       />
     )
     const card = screen.getByTestId('tc-mp-badge')
-    expect(card.textContent).toContain('marketplace')
+    expect(card.textContent).toContain('catalog')
     expect(card.textContent).not.toContain('custom')
   })
 

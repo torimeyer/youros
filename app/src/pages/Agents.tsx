@@ -3590,7 +3590,7 @@ export default function Agents() {
                 const runningCount = allAgents.filter(
                   (a) =>
                     isUserSpawnedAgent(a) &&
-                    (hasSummary ? runningAgentNames.has(a.name) || isAgentActive(a) : isAgentActive(a))
+                    (hasSummary ? runningAgentNames.has(a.name) || a.status === 'spawned' : isAgentActive(a))
                 ).length;
                 return (
                   <button
@@ -3633,10 +3633,11 @@ export default function Agents() {
               const hasSummary = runningAgentNames.size > 0;
               const isVisibleActive = (a: typeof allAgents[number]) =>
                 isUserSpawnedAgent(a) &&
-                // Always include agents that are locally active (covers optimistic
-                // placeholders that haven't reached the WS feed yet, including
-                // quick_mode agents that complete before the next poll tick).
-                (hasSummary ? runningAgentNames.has(a.name) || isAgentActive(a) : isAgentActive(a));
+                // Include optimistic placeholders (status='spawned') that have not
+                // yet reached the WS feed — covers quick_mode agents that complete
+                // before the next poll tick. For running agents, the WS store is
+                // authoritative: only show them if the store confirms they're live.
+                (hasSummary ? runningAgentNames.has(a.name) || a.status === 'spawned' : isAgentActive(a));
 
               const visibleAgents = allAgents.filter(isVisibleActive);
 

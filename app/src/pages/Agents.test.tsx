@@ -5457,7 +5457,7 @@ describe('Agent Templates source attribution', () => {
     await screen.findByTestId('installed-templates-grid')
 
     const card = await screen.findByTestId('template-card-Summarizer')
-    expect(card.textContent).toContain('marketplace')
+    expect(card.textContent).toContain('catalog')
     expect(card.textContent).not.toContain('custom')
   })
 })
