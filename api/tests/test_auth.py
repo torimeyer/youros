@@ -656,3 +656,72 @@ async def test_callback_success_redirect_uses_frontend_url(client, tmp_path):
         f"Redirect must use FRONTEND_URL when set, got: {location}"
     )
     assert "auth_success=google" in location
+
+
+@pytest.mark.asyncio
+async def test_callback_redirect_uses_request_base_url_when_no_frontend_url(client):
+    """When FRONTEND_URL is unset, the callback redirects to request.base_url, not https://localhost:3010."""
+    import json
+    from unittest.mock import patch, AsyncMock, MagicMock
+    import tempfile, os
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+        json.dump({"session_id": "test"}, f)
+        settings_file = f.name
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json = MagicMock(return_value={
+        "access_token": "ya29.test",
+        "refresh_token": "1//test",
+        "expires_in": 3600,
+        "token_type": "Bearer",
+    })
+
+    env_without_frontend_url = {k: v for k, v in os.environ.items() if k != "FRONTEND_URL"}
+
+    with (
+        patch("routers.auth._google_client_id", return_value="test-client-id"),
+        patch("routers.auth._google_client_secret", return_value="test-secret"),
+        patch("routers.auth.httpx.AsyncClient") as MockHttpxClient,
+        patch("services.settings_store.SETTINGS_PATH", settings_file),
+        patch.dict("os.environ", env_without_frontend_url, clear=True),
+    ):
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post = AsyncMock(return_value=mock_response)
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        MockHttpxClient.return_value = mock_client_instance
+
+        resp = await client.get(
+            "/api/auth/google/callback?code=fallback-code&state=fallback-state",
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    assert "localhost:3010" not in location, (
+        f"Redirect must not fall back to hardcoded https://localhost:3010, got: {location}"
+    )
+    assert location.startswith("http://"), f"Expected http:// scheme from test client base_url, got: {location}"
+
+
+def test_google_connected_reads_token_file(tmp_path):
+    """GET /secrets/key-status returns google_connected=true when google_token.json exists."""
+    import json
+    from unittest.mock import patch
+    from fastapi.testclient import TestClient
+    from main import app
+
+    token_file = tmp_path / "google_token.json"
+    token_file.write_text(json.dumps({"access_token": "ya29.test", "refresh_token": "1//test"}))
+
+    with patch("services.google_auth.TOKEN_PATH", token_file):
+        sync_client = TestClient(app)
+        resp = sync_client.get("/api/secrets/key-status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("google_connected") is True, (
+        f"google_connected should be True when token file exists, got: {data}"
+    )

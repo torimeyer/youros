@@ -466,7 +466,7 @@ export default function Drive() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [apiNotEnabled, setApiNotEnabled] = useState(false);
-  const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false);
+  const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState<boolean | null>(null);
 
   // Undo-delete state: optimistic delete with a 5s grace window.
   const [undoDelete, setUndoDelete] = useState<{
@@ -815,7 +815,7 @@ export default function Drive() {
         )}
 
         {/* Connect screen */}
-        {authStatus !== null && !authStatus.authenticated && !apiNotEnabled && (
+        {authStatus !== null && !authStatus.authenticated && !apiNotEnabled && googleOAuthAvailable !== null && (
           <ConnectScreen
             hasCredentialsFile={authStatus.credentials_file_present}
             googleOAuthAvailable={googleOAuthAvailable}

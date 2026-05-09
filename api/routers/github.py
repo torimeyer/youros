@@ -192,8 +192,8 @@ async def github_disconnect():
     return {"ok": True}
 
 
-def _frontend_url() -> str:
-    return os.environ.get("FRONTEND_URL", "https://localhost:3010")
+def _frontend_url(request: Request) -> str:
+    return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
 
 
 @router.get("/github/auth")
@@ -201,7 +201,7 @@ async def github_auth(request: Request):
     """Redirect the user to GitHub's OAuth consent screen."""
     client_id = os.environ.get("GITHUB_CLIENT_ID", "")
     if not client_id:
-        return RedirectResponse(f"{_frontend_url()}/?auth_error=github_not_configured")
+        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=github_not_configured")
 
     state = secrets.token_urlsafe(32)
     oauth_states[state] = True
@@ -222,7 +222,7 @@ async def github_auth(request: Request):
 @router.get("/github/callback")
 async def github_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     """Handle the OAuth callback from GitHub."""
-    frontend_url = _frontend_url()
+    frontend_url = _frontend_url(request)
 
     if error:
         return RedirectResponse(f"{frontend_url}/?auth_error={error}")

@@ -26,8 +26,8 @@ ATLASSIAN_OAUTH_SCOPES = (
 )
 
 
-def _frontend_url() -> str:
-    return os.environ.get("FRONTEND_URL", "https://localhost:3010")
+def _frontend_url(request: Request) -> str:
+    return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
 
 
 class AtlassianConnectRequest(BaseModel):
@@ -61,7 +61,7 @@ async def atlassian_auth(request: Request):
     client_id = os.environ.get("ATLASSIAN_CLIENT_ID", "")
     if not client_id:
         return RedirectResponse(
-            f"{_frontend_url()}/?auth_error=atlassian_not_configured"
+            f"{_frontend_url(request)}/?auth_error=atlassian_not_configured"
         )
 
     state = secrets.token_urlsafe(32)
@@ -88,7 +88,7 @@ async def atlassian_callback(
     request: Request, code: str = "", state: str = "", error: str = ""
 ):
     """Handle the OAuth callback from Atlassian."""
-    frontend_url = _frontend_url()
+    frontend_url = _frontend_url(request)
 
     if error:
         return RedirectResponse(f"{frontend_url}/?auth_error={error}")

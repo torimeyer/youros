@@ -6,6 +6,7 @@ and compliance audit export. All endpoints are prefixed with /enterprise.
 
 from __future__ import annotations
 
+import os
 import secrets
 from typing import Optional
 
@@ -19,6 +20,10 @@ from services.policy_enforcement import ISOLATION_LEVELS
 from services.session import create_session, verify_session, SESSION_COOKIE_NAME
 
 router = APIRouter(tags=["enterprise"])
+
+
+def _frontend_url(request: Request) -> str:
+    return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
 
 
 class OrgCreate(BaseModel):
@@ -253,25 +258,21 @@ async def create_invite(body: InviteCreate, request: Request):
     if not enterprise_store.is_enterprise():
         raise HTTPException(status_code=400, detail="Enterprise mode must be active first")
 
-    import os
-
     token = secrets.token_urlsafe(32)
     try:
         enterprise_store.add_invite(body.email, body.role, token)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    frontend_url = _frontend_url(request)
     invite_url = f"{frontend_url}/invite/{token}"
     return {"invite_url": invite_url, "email": body.email}
 
 
 @router.get("/enterprise/invite/{token}")
-async def accept_invite(token: str):
+async def accept_invite(token: str, request: Request):
     """Accept an invite link, add user as member, redirect to login."""
-    import os
-
-    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    frontend_url = _frontend_url(request)
 
     invite = enterprise_store.consume_invite(token)
     if not invite:
@@ -348,11 +349,9 @@ async def send_magic_link(body: MagicLinkRequest):
 
 
 @router.get("/enterprise/login/{token}")
-async def magic_link_login(token: str):
+async def magic_link_login(token: str, request: Request):
     """Consume a magic link token, create a session, set a cookie, and redirect."""
-    import os
-
-    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    frontend_url = _frontend_url(request)
 
     member = enterprise_store.consume_login_token(token)
     if not member:
@@ -461,12 +460,10 @@ async def remove_sso():
 
 
 @router.get("/enterprise/sso/login")
-async def sso_login_url():
+async def sso_login_url(request: Request):
     """Get the SSO login URL to redirect the user to."""
-    import os
     from services.sso import get_auth_url
-    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
-    redirect_uri = "http://localhost:8000/api/enterprise/sso/callback"  # REDIRECT_URI
+    redirect_uri = f"{str(request.base_url).rstrip('/')}/api/enterprise/sso/callback"
     url = get_auth_url(redirect_uri)
     if not url:
         raise HTTPException(status_code=400, detail="SSO not configured")
@@ -474,14 +471,13 @@ async def sso_login_url():
 
 
 @router.get("/enterprise/sso/callback")
-async def sso_callback(code: str = "", state: str = ""):
+async def sso_callback(request: Request, code: str = "", state: str = ""):
     """Handle the SSO callback from the IdP."""
-    import os
     from fastapi.responses import RedirectResponse
     from services.sso import exchange_code, validate_state
 
-    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
-    redirect_uri = "http://localhost:8000/api/enterprise/sso/callback"  # REDIRECT_URI
+    frontend_url = _frontend_url(request)
+    redirect_uri = f"{str(request.base_url).rstrip('/')}/api/enterprise/sso/callback"
 
     if not code:
         return RedirectResponse(f"{frontend_url}/settings?sso_error=no_code")
