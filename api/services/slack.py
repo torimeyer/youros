@@ -189,6 +189,7 @@ async def list_channels(limit: int = 100) -> list[dict]:
             "topic": ch.get("topic", {}).get("value", ""),
         }
         for ch in channels
+        if ch.get("is_member")
     ]
 
 

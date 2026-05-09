@@ -240,3 +240,22 @@ class TestSlackService:
             from services.slack import disconnect, is_connected
             disconnect()
             assert is_connected() is False
+
+    @pytest.mark.asyncio
+    async def test_list_channels_filters_to_is_member(self):
+        """list_channels must only return channels the user has joined (is_member=True)."""
+        raw_channels = [
+            {"id": "C1", "name": "general", "is_private": False, "num_members": 50, "topic": {}, "is_member": True},
+            {"id": "C2", "name": "random", "is_private": False, "num_members": 30, "topic": {}, "is_member": False},
+            {"id": "C3", "name": "my-team", "is_private": True, "num_members": 5, "topic": {}, "is_member": True},
+            {"id": "C4", "name": "furniture", "is_private": False, "num_members": 10, "topic": {}},
+        ]
+        with patch("services.slack._slack_get", new=AsyncMock(return_value={"ok": True, "channels": raw_channels})):
+            from services.slack import list_channels
+            result = await list_channels()
+
+        ids = [ch["id"] for ch in result]
+        assert "C1" in ids, "joined public channel must be included"
+        assert "C3" in ids, "joined private channel must be included"
+        assert "C2" not in ids, "unjoined channel (is_member=False) must be excluded"
+        assert "C4" not in ids, "channel with no is_member field must be excluded"
