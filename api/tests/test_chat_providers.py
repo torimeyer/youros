@@ -2126,7 +2126,8 @@ class TestGeminiContentBlobRegression:
         either a plain string or a list of SDK-native Parts. It must NEVER
         receive a raw Content proto, an Anthropic-shaped dict, or a plain list
         of dicts (which trips the SDK's 'Could not create Blob' error).
-        History entries must still use string parts only (as before).
+        History entries must use {"text": "..."} dict parts (not raw strings)
+        so the new google.genai SDK's Pydantic Content model accepts them.
         """
         from google import genai as real_new_genai
 
@@ -2159,7 +2160,9 @@ class TestGeminiContentBlobRegression:
             text = "".join(p.text for p in payload if p.text)
             assert "thanks gemini, appreciated" in text
 
-        # start_chat got a history list of dicts with string parts only.
+        # start_chat got a history list of dicts with {"text": ...} parts.
+        # The new google.genai SDK's Content Pydantic model rejects raw strings
+        # in parts; each part must be a dict like {"text": "..."}.
         assert len(history_log) == 1
         history = history_log[0]
         assert isinstance(history, list)
@@ -2169,8 +2172,8 @@ class TestGeminiContentBlobRegression:
             parts = entry.get("parts")
             assert isinstance(parts, list)
             for part in parts:
-                assert isinstance(part, str), (
-                    f"history part must be str, got {type(part).__name__}: {part!r}"
+                assert isinstance(part, dict) and "text" in part, (
+                    f"history part must be {{\"text\": str}}, got {type(part).__name__}: {part!r}"
                 )
 
     @pytest.mark.asyncio
@@ -2203,21 +2206,21 @@ class TestGeminiContentBlobRegression:
 
         send_log, history_log = await _run_gemini_with_recorder(websocket, messages)
 
-        # Every history part must be a plain string. stream_gemini merges
+        # Every history part must be a {"text": str} dict. stream_gemini merges
         # consecutive same-role entries to satisfy Gemini's alternation
         # requirement, so the flattened GIF text may land inside a merged
         # user entry instead of its own slot. The contract that matters
-        # is that no list/dict leaks to the SDK and that the flattened
-        # GIF text plus the image placeholder reach the model somewhere
-        # in history.
+        # is that no raw string leaks to the SDK (new google.genai SDK's
+        # Content Pydantic model rejects plain strings in parts) and that
+        # the flattened GIF text plus the image placeholder reach the model.
         history = history_log[0]
         all_parts: list[str] = []
         for entry in history:
             for p in entry.get("parts", []):
-                assert isinstance(p, str), (
-                    f"image block list must be flattened to str, got {type(p).__name__}"
+                assert isinstance(p, dict) and "text" in p, (
+                    f"image block list must be flattened to {{\"text\": str}}, got {type(p).__name__}: {p!r}"
                 )
-                all_parts.append(p)
+                all_parts.append(p["text"])
         joined = "\n".join(all_parts)
         assert "look at this gif" in joined
         assert "[image attached]" in joined

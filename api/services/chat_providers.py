@@ -2736,7 +2736,7 @@ class ChatService:
                     elif source and "gemini" in source:
                         text = f"[Your previous response]: {text}"
                 history.append(
-                    {"role": role, "parts": [text]}
+                    {"role": role, "parts": [{"text": text}]}
                 )
 
             # ``send_message`` accepts a string, dict, Blob, Image, or a list
@@ -2765,10 +2765,16 @@ class ChatService:
                 if merged_history and merged_history[-1]["role"] == entry["role"]:
                     prev_parts = merged_history[-1].get("parts", [])
                     new_parts = entry.get("parts", [])
-                    combined_text = "\n\n".join(
-                        p for p in (list(prev_parts) + list(new_parts)) if p
-                    )
-                    merged_history[-1] = {"role": entry["role"], "parts": [combined_text]}
+                    prev_texts = [
+                        p["text"] for p in prev_parts
+                        if isinstance(p, dict) and p.get("text")
+                    ]
+                    new_texts = [
+                        p["text"] for p in new_parts
+                        if isinstance(p, dict) and p.get("text")
+                    ]
+                    combined_text = "\n\n".join(prev_texts + new_texts)
+                    merged_history[-1] = {"role": entry["role"], "parts": [{"text": combined_text}]}
                 else:
                     merged_history.append(entry)
             # Gemini requires history to END with a model turn so the
@@ -2787,7 +2793,7 @@ class ChatService:
             if merged_history and merged_history[-1]["role"] == "user":
                 merged_history.append({
                     "role": "model",
-                    "parts": ["Got it. What would you like to know?"],
+                    "parts": [{"text": "Got it. What would you like to know?"}],
                 })
             chat = model.chats.create(
                 model=model_name,

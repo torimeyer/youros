@@ -698,8 +698,9 @@ class TestGeminiModelSelection:
         assert len(model_entries) == 1
         parts = model_entries[0].get("parts", [])
         assert parts, "model history entry must have parts"
-        assert "[Claude's response]" in parts[0]
-        assert "starter" in parts[0]
+        part_text = parts[0]["text"] if isinstance(parts[0], dict) else parts[0]
+        assert "[Claude's response]" in part_text
+        assert "starter" in part_text
 
     @pytest.mark.asyncio
     async def test_stream_gemini_merges_consecutive_user_messages(self, websocket):
@@ -766,7 +767,8 @@ class TestGeminiModelSelection:
             f"Gemini history must end with model role, got {roles}"
         )
         # The prepended context must still be preserved, just merged.
-        merged_user_text = history[0]["parts"][0]
+        raw_part = history[0]["parts"][0]
+        merged_user_text = raw_part["text"] if isinstance(raw_part, dict) else raw_part
         assert "Prior conversation" in merged_user_text
         assert "bread rise" in merged_user_text
         # All three streamed chunks must have reached the WebSocket AND
