@@ -1518,9 +1518,10 @@ async def test_drive_structured_preview_sheet_returns_parsed_table(client, tmp_p
     data = resp.json()
     assert data["kind"] == "sheet"
     assert data["sample"] is not None
-    assert data["sample"]["headers"] == ["Month", "Revenue", "Cost"]
-    assert data["sample"]["rows"] == [["Jan", "100", "50"], ["Feb", "200", "80"]]
-    assert data["sample"]["truncated"] is False
+    sheet = data["sample"]["sheets"][0]
+    assert sheet["headers"] == ["Month", "Revenue", "Cost"]
+    assert sheet["rows"] == [["Jan", "100", "50"], ["Feb", "200", "80"]]
+    assert sheet["truncated"] is False
 
 
 @pytest.mark.asyncio
@@ -1688,5 +1689,6 @@ async def test_drive_structured_preview_sheet_truncates_large_data(client, tmp_p
         resp = await client.get("/api/drive/preview/sheet-big")
 
     data = resp.json()
-    assert data["sample"]["truncated"] is True
-    assert len(data["sample"]["rows"]) <= 20
+    sheet = data["sample"]["sheets"][0]
+    assert sheet["truncated"] is True
+    assert len(sheet["rows"]) <= 20

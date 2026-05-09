@@ -1356,9 +1356,11 @@ async def drive_file_structured_preview(file_id: str):
                 "truncated": len(slides) >= _SLIDES_MAX_THUMBS,
             }
         except Exception:
-            # Slides API unavailable — return empty list so the UI shows
-            # a fallback instead of a fake "Slide 1 of 1".
-            sample = {"slides": [], "truncated": False}
+            # Slides API unavailable — fall back to Drive thumbnail if present.
+            if thumbnail_url:
+                sample = {"slides": [{"slide_id": "p1", "thumbnail_url": thumbnail_url}], "truncated": False}
+            else:
+                sample = {"slides": [], "truncated": False}
 
     return {
         "kind": kind,

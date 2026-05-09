@@ -28,7 +28,7 @@ async def test_slack_callback_redirects_to_frontend(client):
 
 @pytest.mark.asyncio
 async def test_slack_callback_uses_default_frontend_url_when_env_unset(client):
-    """Falls back to https://localhost:3010 when FRONTEND_URL is not set."""
+    """When FRONTEND_URL is unset, the callback redirects to request.base_url, not https://localhost:3010."""
     with patch("routers.slack._get_slack_client_id", return_value="client-id"), \
          patch("routers.slack._get_slack_client_secret", return_value="client-secret"), \
          patch("routers.slack._get_slack_redirect_uri", return_value="https://localhost:8000/api/slack/callback"), \
@@ -41,9 +41,11 @@ async def test_slack_callback_uses_default_frontend_url_when_env_unset(client):
 
     assert resp.status_code in (302, 307)
     location = resp.headers["location"]
-    assert location.startswith("https://localhost:3010"), (
-        f"Expected redirect to default frontend URL, got: {location}"
+    assert "localhost:3010" not in location, (
+        f"Redirect must not fall back to hardcoded https://localhost:3010, got: {location}"
     )
+    assert location.startswith("http://"), f"Expected redirect to request.base_url, got: {location}"
+    assert "connected=true" in location
 
 
 # --- GET /api/slack/status ---
