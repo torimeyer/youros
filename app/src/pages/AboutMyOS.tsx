@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import TopBar from '../components/TopBar'
+import { api } from '../lib/api'
 
 interface Section {
   id: string
@@ -7,6 +9,29 @@ interface Section {
 }
 
 export default function AboutMyOS() {
+  const [version, setVersion] = useState('')
+  const [taskCount, setTaskCount] = useState<number | null>(null)
+  const [agentCount, setAgentCount] = useState<number | null>(null)
+  const [decisionCount, setDecisionCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    api.get<{ myos: { current: string } }>('/upgrade/status')
+      .then((res) => setVersion(res.myos?.current ?? ''))
+      .catch(() => {})
+    api.get<{ tasks: unknown[] }>('/tasks')
+      .then((res) => setTaskCount(Array.isArray(res.tasks) ? res.tasks.length : 0))
+      .catch(() => {})
+    api.get<{ agents: unknown[] }>('/agents')
+      .then((res) => setAgentCount(Array.isArray(res.agents) ? res.agents.length : 0))
+      .catch(() => {})
+    api.get<{ count: number }>('/decisions')
+      .then((res) => setDecisionCount(typeof res.count === 'number' ? res.count : 0))
+      .catch(() => {})
+  }, [])
+
+  const totalCounts = (taskCount ?? 0) + (agentCount ?? 0) + (decisionCount ?? 0)
+  const showCounters = totalCounts > 0
+
   const sections: Section[] = [
     {
       id: 'what-myos-is',
@@ -20,14 +45,26 @@ export default function AboutMyOS() {
       ),
     },
     {
+      id: 'why-not-wrapper',
+      heading: 'Why this is not another AI wrapper',
+      body: (
+        <p className="text-sm text-slate-400">
+          Most AI tools call a model and forget. myOS coordinates. The kernel underneath tracks
+          every file change, every agent run, every decision, so that next week's work picks up
+          where today's left off. The AI provider is interchangeable. The coordination is not.
+        </p>
+      ),
+    },
+    {
       id: 'kernel-underneath',
       heading: 'The kernel underneath: ostk',
       body: (
         <p className="text-sm text-slate-400">
-          myOS is the part you see. ostk is the coordination layer underneath. ostk tracks who
-          changed what, prevents agents from stepping on each other, keeps a record of every
-          action, and remembers context across sessions. Without it, agents would conflict and
-          forget. With it, they cooperate and pick up where they left off.
+          myOS is the part you see. Underneath, it runs on ostk, an open coordination kernel built
+          by Scott Walters. ostk tracks who changed what, prevents agents from stepping on each
+          other, keeps a record of every action, and remembers context across sessions. Without it,
+          agents would conflict and forget. With it, they cooperate and pick up where they left
+          off.
         </p>
       ),
     },
@@ -77,6 +114,12 @@ export default function AboutMyOS() {
             to configure your AI provider, standing instructions, and connected services.
           </li>
           <li>
+            <a href="/settings#shortcuts" className="underline hover:text-slate-200">
+              Keyboard shortcuts
+            </a>{' '}
+            for the moves that save the most time.
+          </li>
+          <li>
             <a href="/privacy" className="underline hover:text-slate-200">
               Privacy
             </a>{' '}
@@ -84,7 +127,7 @@ export default function AboutMyOS() {
           </li>
           <li>
             <a
-              href="https://github.com/aetherwing-io"
+              href="https://github.com/torimeyer/myos"
               className="underline hover:text-slate-200"
               target="_blank"
               rel="noopener noreferrer"
@@ -101,10 +144,40 @@ export default function AboutMyOS() {
   return (
     <div className="min-h-dvh bg-slate-950">
       <TopBar title="About" />
-      <main className="pt-24 pb-16 px-8 max-w-2xl">
-        <p className="text-slate-400 text-sm mb-8">
-          What myOS is, how it works, and where to learn more.
-        </p>
+      <main className="pt-24 pb-16 px-8 max-w-3xl mx-auto">
+        <div data-testid="about-hero" className="mb-10">
+          <h1 className="text-4xl font-bold text-slate-100 mb-3">myOS</h1>
+          <p className="text-lg text-slate-400">
+            A workspace that remembers your work and coordinates AI agents on your behalf, all
+            running locally on your machine.
+          </p>
+        </div>
+
+        {showCounters && (
+          <div
+            data-testid="about-counters"
+            className="grid grid-cols-3 gap-4 mb-10 bg-slate-900 border border-slate-800 rounded-xl p-6"
+          >
+            {(taskCount ?? 0) > 0 && (
+              <div className="text-center">
+                <div className="text-3xl font-semibold text-slate-100">{taskCount}</div>
+                <div className="text-xs text-slate-500 mt-1">tasks tracked</div>
+              </div>
+            )}
+            {(agentCount ?? 0) > 0 && (
+              <div className="text-center">
+                <div className="text-3xl font-semibold text-slate-100">{agentCount}</div>
+                <div className="text-xs text-slate-500 mt-1">agents run</div>
+              </div>
+            )}
+            {(decisionCount ?? 0) > 0 && (
+              <div className="text-center">
+                <div className="text-3xl font-semibold text-slate-100">{decisionCount}</div>
+                <div className="text-xs text-slate-500 mt-1">decisions logged</div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="space-y-6">
           {sections.map((section) => (
@@ -114,7 +187,7 @@ export default function AboutMyOS() {
               className="bg-slate-900 border border-slate-800 rounded-xl p-6"
             >
               <h2
-                className="text-base font-semibold text-slate-100 mb-4"
+                className="text-lg font-semibold text-slate-100 mb-4"
                 data-testid={`about-heading-${section.id}`}
               >
                 {section.heading}
@@ -124,7 +197,14 @@ export default function AboutMyOS() {
           ))}
         </div>
 
-        <p className="text-xs text-slate-600 mt-10">Updated: April 2026</p>
+        {version && (
+          <p
+            data-testid="about-version"
+            className="text-xs text-slate-600 mt-10 text-center font-mono"
+          >
+            myOS {version}
+          </p>
+        )}
       </main>
     </div>
   )
