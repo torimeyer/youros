@@ -77,6 +77,21 @@ export default function OnboardingWizard() {
       .catch((e) => console.error('provider detection failed:', e))
   }, [])
 
+  // Restore step after Google OAuth redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const savedStep = sessionStorage.getItem('onboarding_step_before_oauth')
+    const isOAuthReturn = params.get('connected') === 'true' || params.get('auth_success') === 'google'
+    if (isOAuthReturn && savedStep !== null) {
+      const idx = parseInt(savedStep, 10)
+      if (!Number.isNaN(idx) && idx >= 0) {
+        setStepIndex(Math.min(idx + 1, STEPS.length - 1))
+      }
+      sessionStorage.removeItem('onboarding_step_before_oauth')
+      window.history.replaceState({}, '', '/')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Profile (HUMANFILE) step state
   const [profileRole, setProfileRole] = useState('')
   const [profileStyle, setProfileStyle] = useState<'brief' | 'detailed' | ''>('')
@@ -449,6 +464,7 @@ export default function OnboardingWizard() {
               darkMode={effectiveDark}
               inputCls={inputCls}
               subtextCls={subtextCls}
+              stepIndex={stepIndex}
             />
           )}
           {step === 'Ready' && (
@@ -931,6 +947,7 @@ function ConnectStep({
   darkMode,
   inputCls,
   subtextCls,
+  stepIndex,
 }: {
   selectedProvider: string
   onSelectProvider: (name: string) => void
@@ -942,6 +959,7 @@ function ConnectStep({
   darkMode: boolean
   inputCls: string
   subtextCls: string
+  stepIndex: number
 }) {
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
 
@@ -996,10 +1014,12 @@ function ConnectStep({
           <button
             onClick={async () => {
               try {
-                const res = await api.get<{ url: string }>('/drive/auth/url');
-                window.location.href = res.url;
+                sessionStorage.setItem('onboarding_step_before_oauth', String(stepIndex))
+                const res = await api.get<{ url: string }>('/drive/auth/url?return_to=%2F')
+                window.location.href = res.url
               } catch (err) {
-                console.error('Google Workspace sign-in failed to start:', err);
+                console.error('Google Workspace sign-in failed to start:', err)
+                sessionStorage.removeItem('onboarding_step_before_oauth')
               }
             }}
             className={`w-full px-4 py-2.5 border rounded-lg text-sm transition-colors flex items-center gap-2 ${
@@ -1019,7 +1039,10 @@ function ConnectStep({
       {selectedProvider === 'Google Gemini' ? (
         googleOAuthAvailable ? (
           <button
-            onClick={() => window.open('/api/auth/google', '_self')}
+            onClick={() => {
+              sessionStorage.setItem('onboarding_step_before_oauth', String(stepIndex))
+              window.open('/api/auth/google', '_self')
+            }}
             className={`w-full mb-3 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
               darkMode
                 ? 'bg-slate-800 border-slate-700 text-white hover:border-blue-500'
