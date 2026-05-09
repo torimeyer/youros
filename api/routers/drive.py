@@ -1113,11 +1113,8 @@ def _parse_doc_blocks(text: str) -> dict:
 
     Each block is {"type": "heading"|"paragraph", "text": "..."}. A line
     that looks like a heading (short, no trailing period, followed by a
-    blank line) becomes a heading. Everything else is a paragraph. The
-    result is capped to ``_DOC_MAX_CHARS`` characters total.
+    blank line) becomes a heading. Everything else is a paragraph.
     """
-    text = text[:_DOC_MAX_CHARS]
-    truncated = len(text) == _DOC_MAX_CHARS
     blocks: list[dict] = []
     # Split on blank lines into paragraphs.
     for chunk in text.split("\n\n"):
@@ -1131,7 +1128,7 @@ def _parse_doc_blocks(text: str) -> dict:
             blocks.append({"type": "heading", "text": line})
         else:
             blocks.append({"type": "paragraph", "text": line})
-    return {"blocks": blocks, "truncated": truncated}
+    return {"blocks": blocks, "truncated": False}
 
 
 async def _fetch_slides_thumbnails(file_id: str) -> list[dict]:
@@ -1344,8 +1341,7 @@ async def drive_file_structured_preview(file_id: str):
     elif kind == "doc":
         try:
             html = await _export_doc_html(file_id)
-            truncated = len(html) > _DOC_MAX_CHARS
-            sample = {"html": html[:_DOC_MAX_CHARS], "truncated": truncated}
+            sample = {"html": html, "truncated": False}
         except Exception:
             # Fall back to plain-text block rendering.
             try:

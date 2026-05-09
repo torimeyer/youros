@@ -590,11 +590,6 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                             className="bg-white rounded-lg p-6 text-gray-900 text-sm leading-relaxed max-w-3xl mx-auto"
                             dangerouslySetInnerHTML={{ __html: sample.html }}
                           />
-                          {sample.truncated && (
-                            <p className="mt-4 text-xs text-slate-500 max-w-3xl mx-auto">
-                              Showing the first part of the doc. Open in Drive to read the rest.
-                            </p>
-                          )}
                         </div>
                       )
                     }
@@ -627,11 +622,6 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen, driveFi
                             </p>
                           )
                         })}
-                        {sample.truncated && (
-                          <p className="mt-4 text-xs text-slate-500">
-                            Showing the first part of the doc. Open in Drive to read the rest.
-                          </p>
-                        )}
                       </div>
                     )
                   })()}

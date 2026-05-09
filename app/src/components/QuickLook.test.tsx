@@ -339,6 +339,40 @@ describe('QuickLook - Drive mode', () => {
     expect(screen.getByText('First paragraph.')).toBeInTheDocument()
   })
 
+  it('renders full Drive doc HTML without a truncation notice', () => {
+    const lastParagraph = 'This is the last paragraph of a very long document.'
+    render(<QuickLook {...driveBase} driveData={makeDriveData({
+      kind: 'doc',
+      name: 'Long Doc',
+      mime_type: 'application/vnd.google-apps.document',
+      sample: {
+        html: `<p>Opening sentence.</p><p>${lastParagraph}</p>`,
+        truncated: false,
+      },
+    })} />)
+    expect(screen.getByText('Opening sentence.')).toBeInTheDocument()
+    expect(screen.getByText(lastParagraph)).toBeInTheDocument()
+    expect(screen.queryByText(/showing the first part/i)).not.toBeInTheDocument()
+  })
+
+  it('renders full Drive doc blocks without a truncation notice', () => {
+    render(<QuickLook {...driveBase} driveData={makeDriveData({
+      kind: 'doc',
+      name: 'Long Doc',
+      mime_type: 'application/vnd.google-apps.document',
+      sample: {
+        blocks: [
+          { type: 'heading', text: 'Introduction' },
+          { type: 'paragraph', text: 'This is the very last paragraph.' },
+        ],
+        truncated: false,
+      },
+    })} />)
+    expect(screen.getByText('Introduction')).toBeInTheDocument()
+    expect(screen.getByText('This is the very last paragraph.')).toBeInTheDocument()
+    expect(screen.queryByText(/showing the first part/i)).not.toBeInTheDocument()
+  })
+
   it('renders Drive doc blocks when html is absent', () => {
     render(<QuickLook {...driveBase} driveData={makeDriveData({
       kind: 'doc',

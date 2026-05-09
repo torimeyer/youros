@@ -1566,6 +1566,48 @@ async def test_drive_structured_preview_doc_returns_blocks(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_drive_structured_preview_doc_returns_full_content(client, tmp_path):
+    """Google Doc export returns the full text without truncation, even for long docs."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    fake_meta = {
+        "id": "doc-long",
+        "name": "Long Report",
+        "mimeType": "application/vnd.google-apps.document",
+        "webViewLink": "https://docs.google.com/document/d/doc-long",
+        "size": None,
+        "thumbnailLink": None,
+    }
+    last_paragraph = "This is the final paragraph and must appear in the preview."
+    fake_text = (
+        "Introduction\n\n"
+        + ("Body paragraph. " * 300 + "\n\n")
+        + f"Conclusion\n\n{last_paragraph}"
+    )
+    assert len(fake_text) > 4000
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive._get_file_meta", new=AsyncMock(return_value=fake_meta)),
+        patch("routers.drive._export_doc_html", new=AsyncMock(side_effect=Exception("html unavailable"))),
+        patch("routers.drive._export_doc_text", new=AsyncMock(return_value=fake_text)),
+    ):
+        resp = await client.get("/api/drive/preview/doc-long")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kind"] == "doc"
+    assert data["sample"] is not None
+    assert data["sample"]["truncated"] is False
+    blocks = data["sample"]["blocks"]
+    block_texts = [b["text"] for b in blocks]
+    assert any(last_paragraph in t for t in block_texts), (
+        "Last paragraph missing from preview — doc content was truncated"
+    )
+
+
+@pytest.mark.asyncio
 async def test_drive_structured_preview_slides_returns_thumbnail_strip(client, tmp_path):
     """Google Slides returns a list of per-slide thumbnail URLs."""
     token_path = tmp_path / "google_token.json"
