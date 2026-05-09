@@ -193,6 +193,10 @@ export default function IMessage() {
       }
       setLoading(false)
     })()
+    // Re-fetch when the window regains focus so messages read in iMessage.app
+    // clear the unread count immediately rather than waiting for the cache TTL.
+    window.addEventListener('focus', fetchConversations)
+    return () => window.removeEventListener('focus', fetchConversations)
   }, [fetchConversations])
 
   const handleSelectChat = (chatId: number) => {

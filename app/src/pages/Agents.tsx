@@ -3403,6 +3403,19 @@ export default function Agents() {
         spawnPayload.template = template;
       }
       await api.post("/agents/spawn", spawnPayload);
+      // Optimistically add to the WS store so the Active tab shows it
+      // immediately. The WS delta from _fire_delta races with fetchAgents —
+      // if fetchAgents wins and replaces the placeholder (status='spawned')
+      // with the real row (status='running') before the delta updates
+      // runningAgentNames, the agent vanishes from Active. Seeding the store
+      // here closes that window permanently.
+      const _store = useRunningAgentsStore.getState();
+      if (!_store.agents.some((a) => a.name === cleanName)) {
+        _store.setSnapshot(_store.count + 1, [
+          ..._store.agents,
+          { name: cleanName, status: "running" },
+        ]);
+      }
       setShowNewForm(false);
       setNewAgentName("");
       setEditorOpen(false);

@@ -29,7 +29,7 @@ CONTACTS_CACHE_PATH = IMESSAGE_CACHE_DIR / "contacts.json"
 CHAT_DB_PATH = Path.home() / "Library" / "Messages" / "chat.db"
 
 # Cache TTL: 60 seconds for conversations list.
-_CONVERSATIONS_CACHE_TTL = 60
+_CONVERSATIONS_CACHE_TTL = 15
 
 # Contact name cache: loaded once from disk, updated in background.
 _contacts_cache: dict[str, str] | None = None
