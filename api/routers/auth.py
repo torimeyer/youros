@@ -20,6 +20,11 @@ from services.settings_store import settings_store
 
 router = APIRouter(tags=["auth"])
 
+
+def _frontend_url(request: Request) -> str:
+    return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
+
+
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/cloud-platform"
 
 SLACK_BOT_SCOPES = "channels:read,channels:history,chat:write,groups:read,groups:history,users:read"
@@ -41,7 +46,7 @@ async def google_auth(request: Request):
     """Redirect the user to Google's OAuth consent screen."""
     client_id = _google_client_id()
     if not client_id:
-        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/?auth_error=google_not_configured")
+        return RedirectResponse(f"{_frontend_url(request)}/?auth_error=google_not_configured")
 
     state = secrets.token_urlsafe(32)
     _oauth_states[state] = True
@@ -71,7 +76,7 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
     - Drive/Calendar/Gmail: state is in _drive_oauth_states, saves token file.
     - Gemini AI: state is in _oauth_states, saves to settings store.
     """
-    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    frontend_url = _frontend_url(request)
 
     if error:
         return RedirectResponse(f"{frontend_url}/?auth_error=" + error, status_code=302)
@@ -86,7 +91,8 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
             return RedirectResponse(f"{frontend_url}/?auth_error=no_code", status_code=302)
         return_to = state_data.get("return_to", f"{frontend_url}/drive")
         try:
-            _drive_exchange_code(code)
+            redirect_uri = str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+            _drive_exchange_code(code, redirect_uri)
         except Exception:
             sep = "&" if "?" in return_to else "?"
             return RedirectResponse(f"{return_to}{sep}error=token_exchange_failed", status_code=302)
@@ -154,7 +160,7 @@ def _slack_redirect_uri(request: Request) -> str:
 async def slack_login(request: Request):
     """Redirect the user to Slack's OAuth consent screen."""
     client_id = _slack_client_id()
-    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    frontend_url = _frontend_url(request)
     if not client_id:
         return RedirectResponse(f"{frontend_url}/?auth_error=slack_not_configured")
 
@@ -175,7 +181,7 @@ async def slack_login(request: Request):
 @router.get("/api/auth/slack/callback")
 async def slack_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     """Handle the OAuth callback from Slack."""
-    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    frontend_url = _frontend_url(request)
 
     if error:
         return RedirectResponse(f"{frontend_url}/?auth_error=" + error)

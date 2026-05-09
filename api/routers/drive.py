@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
 from services import connections_cache, recent_deletes
@@ -152,7 +152,7 @@ async def drive_auth_status():
 
 
 @router.get("/drive/auth/url")
-async def drive_auth_url(return_to: str = ""):
+async def drive_auth_url(request: Request, return_to: str = ""):
     """Return the URL the user should visit to connect their Google account."""
     if not can_start_oauth():
         raise HTTPException(
@@ -162,20 +162,21 @@ async def drive_auth_url(return_to: str = ""):
                 "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file."
             ),
         )
-    frontend = os.environ.get("FRONTEND_URL", "https://localhost:3010")
-    effective_return_to = _validate_return_to(return_to, f"{frontend}/drive")
+    frontend = _frontend_url(request)
+    effective_return_to = _validate_return_to(return_to, f"{frontend}/drive", request)
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
         "return_to": effective_return_to,
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
-    url = get_auth_url(state)
+    redirect_uri = str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+    url = get_auth_url(state, redirect_uri)
     return {"url": url}
 
 
 @router.get("/drive/auth/url/calendar")
-async def drive_auth_url_for_calendar(return_to: str = ""):
+async def drive_auth_url_for_calendar(request: Request, return_to: str = ""):
     """Return an OAuth URL that redirects back to the Calendar page after auth."""
     if not can_start_oauth():
         raise HTTPException(
@@ -185,20 +186,21 @@ async def drive_auth_url_for_calendar(return_to: str = ""):
                 "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file."
             ),
         )
-    frontend = os.environ.get("FRONTEND_URL", "https://localhost:3010")
-    effective_return_to = _validate_return_to(return_to, f"{frontend}/calendar")
+    frontend = _frontend_url(request)
+    effective_return_to = _validate_return_to(return_to, f"{frontend}/calendar", request)
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
         "return_to": effective_return_to,
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
-    url = get_auth_url(state)
+    redirect_uri = str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+    url = get_auth_url(state, redirect_uri)
     return {"url": url}
 
 
 @router.get("/drive/auth/url/gmail")
-async def drive_auth_url_for_gmail(return_to: str = ""):
+async def drive_auth_url_for_gmail(request: Request, return_to: str = ""):
     """Return an OAuth URL that redirects back to the Gmail page after auth."""
     if not can_start_oauth():
         raise HTTPException(
@@ -208,22 +210,21 @@ async def drive_auth_url_for_gmail(return_to: str = ""):
                 "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file."
             ),
         )
-    frontend = os.environ.get("FRONTEND_URL", "https://localhost:3010")
-    effective_return_to = _validate_return_to(return_to, f"{frontend}/gmail")
+    frontend = _frontend_url(request)
+    effective_return_to = _validate_return_to(return_to, f"{frontend}/gmail", request)
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
         "return_to": effective_return_to,
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
-    url = get_auth_url(state)
+    redirect_uri = str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+    url = get_auth_url(state, redirect_uri)
     return {"url": url}
 
 
-def _frontend_url() -> str:
-    """Return the frontend base URL, evaluated at request time so env changes
-    take effect without a server restart."""
-    return os.environ.get("FRONTEND_URL", "https://localhost:3010")
+def _frontend_url(request: Request) -> str:
+    return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
 
 
 # Module-level anchor for regression tests: the post-auth redirect
@@ -234,9 +235,9 @@ def _frontend_url() -> str:
 FRONTEND_DRIVE_URL = "/drive"
 
 
-def _frontend_drive_url() -> str:
+def _frontend_drive_url(request: Request) -> str:
     """Build the default post-auth redirect URL at request time."""
-    return f"{_frontend_url()}{FRONTEND_DRIVE_URL}"
+    return f"{_frontend_url(request)}{FRONTEND_DRIVE_URL}"
 
 
 def _append_query(url: str, param: str) -> str:
@@ -245,7 +246,7 @@ def _append_query(url: str, param: str) -> str:
     return f"{url}{sep}{param}"
 
 
-def _validate_return_to(return_to: str, default: str) -> str:
+def _validate_return_to(return_to: str, default: str, request: Request) -> str:
     """Validate and return a safe post-OAuth redirect target.
 
     Only accepts same-origin paths (starting with /) or URLs that start with
@@ -254,7 +255,7 @@ def _validate_return_to(return_to: str, default: str) -> str:
     """
     if not return_to:
         return default
-    frontend = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    frontend = _frontend_url(request)
     if return_to.startswith("/") or return_to.startswith(frontend):
         if return_to.startswith("/"):
             return f"{frontend}{return_to}"

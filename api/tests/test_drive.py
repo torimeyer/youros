@@ -210,7 +210,8 @@ async def test_drive_auth_url_contains_correct_redirect_uri(client, tmp_path):
 
     assert resp.status_code == 200
     url = resp.json()["url"]
-    assert "https%3A%2F%2Flocalhost%3A8000%2Fapi%2Fauth%2Fgoogle%2Fcallback" in url
+    # redirect_uri is now derived dynamically from the request's base URL
+    assert "%2Fapi%2Fauth%2Fgoogle%2Fcallback" in url
 
 
 # ---------------------------------------------------------------------------

@@ -31,12 +31,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
 ]
 
-# Redirect URI used during the Drive/Calendar/Gmail OAuth flow.
-# Points to the unified Google callback in auth.py, which is already
-# registered in GCP Console. The old /api/drive/auth/callback was never
-# registered and caused redirect_uri_mismatch errors on fresh installs.
-REDIRECT_URI = "https://localhost:8000/api/auth/google/callback"
-
 
 def _ensure_dirs() -> None:
     MYOS_DIR.mkdir(parents=True, exist_ok=True)
@@ -89,7 +83,7 @@ def _load_client_config() -> dict:
     return {"client_id": client_id, "client_secret": client_secret}
 
 
-def get_auth_url(state: str) -> str:
+def get_auth_url(state: str, redirect_uri: str) -> str:
     """Build the Google OAuth consent-screen URL."""
     cfg = _load_client_config()
     client_id = cfg["client_id"]
@@ -98,7 +92,7 @@ def get_auth_url(state: str) -> str:
 
     params = {
         "client_id": client_id,
-        "redirect_uri": REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": scope_str,
         "access_type": "offline",
@@ -110,7 +104,7 @@ def get_auth_url(state: str) -> str:
     )
 
 
-def exchange_code(code: str) -> None:
+def exchange_code(code: str, redirect_uri: str) -> None:
     """Exchange an authorization code for tokens and persist them."""
     import urllib.request
     import urllib.parse
@@ -123,7 +117,7 @@ def exchange_code(code: str) -> None:
             "client_secret": cfg["client_secret"],
             "code": code,
             "grant_type": "authorization_code",
-            "redirect_uri": REDIRECT_URI,
+            "redirect_uri": redirect_uri,
         }
     ).encode()
 

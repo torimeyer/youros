@@ -62,7 +62,8 @@ async def key_status():
     # sign-in flow stores tokens here, but those tokens are NOT valid for
     # the Gemini chat API. The public Generative Language API only accepts
     # API keys, so Gemini chat readiness is determined by gemini_src alone.
-    google_connected = bool(settings_store.get("gemini_oauth_access_token", ""))
+    from services.google_auth import is_authenticated as _google_is_authenticated
+    google_connected = _google_is_authenticated()
 
     return {
         "anthropic": anthropic_src != "none",
