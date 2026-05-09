@@ -152,7 +152,7 @@ if not tool_use_id:
         if isinstance(v, str) and v.strip():
             tool_use_id = v.strip()
 
-name = re.sub(r"[^a-z0-9-]", "", desc.lower().replace(" ", "-"))[:40]
+name = re.sub(r"[^a-z0-9]+", "-", desc.lower())[:40]
 name = re.sub(r"-+", "-", name).strip("-")
 if not name:
     name = "claude-code-subagent"

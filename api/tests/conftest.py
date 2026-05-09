@@ -46,6 +46,24 @@ os.environ.setdefault("MYOS_REAPER_ENABLED", "0")
 from main import app
 
 
+@pytest.fixture(autouse=True)
+def _redirect_async_state_save(tmp_path):
+    """Redirect _save_agent_state_async writes to a temp path so tests never
+    pollute the real .ostk/agent_state.json.
+
+    The sync _save_agent_state has long been patched in individual tests.
+    Since →1086 the hot async handlers call _save_agent_state_async, which
+    writes via _write_state_content. Redirecting AGENT_STATE_PATH here keeps
+    those writes harmless. Tests that need a specific path patch it themselves
+    in their own ``with patch("routers.agents.AGENT_STATE_PATH", ...)`` block,
+    which takes precedence over this fixture's patch for that scope.
+    """
+    tmp_state = tmp_path / "test_agent_state.json"
+    tmp_state.write_text("{}")
+    with patch("routers.agents.AGENT_STATE_PATH", tmp_state):
+        yield
+
+
 @pytest_asyncio.fixture
 async def client():
     transport = httpx.ASGITransport(app=app)

@@ -3778,14 +3778,14 @@ async def test_list_endpoint_marks_stale_running_agents(tmp_path):
 
     save_calls = []
 
-    def fake_save():
+    async def fake_save_async():
         save_calls.append(True)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         try:
             with patch("routers.agents.ostk") as mock_ostk, \
-                 patch("routers.agents._save_agent_state", side_effect=fake_save), \
+                 patch("routers.agents._save_agent_state_async", side_effect=fake_save_async), \
                  patch("config.PROJECT_ROOT", tmp_path):
                 mock_ostk.kernel_ps = AsyncMock(return_value={
                     "raw": "no daemon", "daemon_running": False, "agents": []
@@ -3971,14 +3971,14 @@ async def test_stale_sweep_runs_at_most_once_per_request(tmp_path):
 
     save_calls = []
 
-    def fake_save():
+    async def fake_save_async():
         save_calls.append(True)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         try:
             with patch("routers.agents.ostk") as mock_ostk, \
-                 patch("routers.agents._save_agent_state", side_effect=fake_save), \
+                 patch("routers.agents._save_agent_state_async", side_effect=fake_save_async), \
                  patch("config.PROJECT_ROOT", tmp_path):
                 mock_ostk.kernel_ps = AsyncMock(return_value={
                     "raw": "no daemon", "daemon_running": False, "agents": []
@@ -9952,14 +9952,14 @@ async def test_stale_sweep_persists_to_disk(tmp_path):
 
     save_calls = []
 
-    def fake_save():
+    async def fake_save_async():
         save_calls.append(True)
 
     transport = ASGITransport(app=app)
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             with patch("routers.agents.ostk") as mock_ostk, \
-                 patch("routers.agents._save_agent_state", side_effect=fake_save), \
+                 patch("routers.agents._save_agent_state_async", side_effect=fake_save_async), \
                  patch("config.PROJECT_ROOT", tmp_path):
                 mock_ostk.kernel_ps = AsyncMock(return_value={
                     "raw": "no daemon", "daemon_running": False, "agents": []
@@ -9971,10 +9971,10 @@ async def test_stale_sweep_persists_to_disk(tmp_path):
                 assert resp.status_code == 200
                 # In-memory metadata reflects the demotion.
                 assert agent_metadata[name]["status"] == "completed_timeout"
-                # _save_agent_state was called at least once (the sweep
+                # _save_agent_state_async was called at least once (the sweep
                 # batches all rows into a single write per request).
                 assert len(save_calls) >= 1, (
-                    "Sweep must persist via _save_agent_state so a server "
+                    "Sweep must persist via _save_agent_state_async so a server "
                     "restart sees the demoted row."
                 )
     finally:
@@ -11817,13 +11817,13 @@ async def test_list_agents_single_save_per_request_even_with_many_reconciles():
 
     save_calls = 0
 
-    def counting_save():
+    async def counting_save_async():
         nonlocal save_calls
         save_calls += 1
 
     with patch.dict(agents_module.agent_metadata, seed, clear=True), \
          patch.dict(agents_module.active_agents, {}, clear=True), \
-         patch.object(agents_module, "_save_agent_state", counting_save), \
+         patch.object(agents_module, "_save_agent_state_async", counting_save_async), \
          patch.object(
              agents_module.ostk,
              "kernel_ps",
@@ -11842,7 +11842,7 @@ async def test_list_agents_single_save_per_request_even_with_many_reconciles():
 
     # Invariant: at most ONE save no matter how many rows were reconciled.
     assert save_calls <= 1, (
-        f"Expected <=1 _save_agent_state call for 10 stale rows, got "
+        f"Expected <=1 _save_agent_state_async call for 10 stale rows, got "
         f"{save_calls}. Regression: inline saves inside the reconcile "
         f"loop will collapse the event loop under concurrent /api/agents "
         f"polls and trip the 5s SSL handshake timeout."

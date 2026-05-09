@@ -203,7 +203,7 @@ esac
 SPAWN_NAME=$(DESC="$DESCRIPTION" PROMPT="$PROMPT" python3 <<'PY' 2>/dev/null
 import os, re, uuid
 desc = os.environ.get("DESC", "") or os.environ.get("PROMPT", "")[:60]
-base = re.sub(r"[^a-z0-9-]", "", desc.lower().replace(" ", "-"))[:32]
+base = re.sub(r"[^a-z0-9]+", "-", desc.lower())[:32]
 base = re.sub(r"-+", "-", base).strip("-") or "task-bridge"
 print(f"{base}-{uuid.uuid4().hex[:6]}")
 PY

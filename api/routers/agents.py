@@ -883,12 +883,45 @@ def _save_agent_state():
     consistent at the moment json.dumps runs, so we do not need a
     separate lock: no await can interleave synchronous serialization
     on the same loop.
+
+    Sync contexts (startup, tests, reconcile loop): call this directly.
+    Async handlers: call ``_save_agent_state_async()`` instead so the
+    event loop is not blocked by fsync while TLS handshakes are queued.
     """
     from services.atomic_io import atomic_write_json
     try:
         atomic_write_json(AGENT_STATE_PATH, agent_metadata)
     except OSError:
         pass
+
+
+import threading as _threading
+_save_state_write_lock = _threading.Lock()
+
+
+def _write_state_content(content: str) -> None:
+    """Write pre-serialized JSON state to disk. Called from asyncio.to_thread."""
+    with _save_state_write_lock:
+        from services.atomic_io import atomic_write_text
+        try:
+            atomic_write_text(AGENT_STATE_PATH, content)
+        except OSError:
+            pass
+
+
+async def _save_agent_state_async() -> None:
+    """Non-blocking save for use inside async handlers.
+
+    json.dumps serializes agent_metadata on the event loop (~10-30ms for
+    a typical 500-row state file). The file write + fsync run inside
+    asyncio.to_thread so the event loop is free to process TLS handshakes
+    and other requests while the disk I/O completes. Without this, five
+    parallel subagents each heartbeating + a standing-rules poll loop
+    can block the event loop long enough for SSL handshakes on queued
+    requests to time out, returning empty bodies (→1086).
+    """
+    content = json.dumps(agent_metadata, indent=2, ensure_ascii=False)
+    await asyncio.to_thread(_write_state_content, content)
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -1203,7 +1236,7 @@ async def _schedule_ghost_retry(name: str) -> None:
     meta["recovery_count"] = recovery_count + 1
     meta["last_recovery_at"] = _now_iso()
     meta["recovery_reason"] = "ghost_haiku_retry"
-    _save_agent_state()
+    await _save_agent_state_async()
     from models.schemas import AgentSpawn as _AgentSpawn
     spawn_body = _AgentSpawn(
         name=name,
@@ -1227,7 +1260,7 @@ async def _schedule_ghost_retry(name: str) -> None:
         logger.warning("ghost_retry.failed name=%s err=%s", name, exc)
         if name in agent_metadata:
             agent_metadata[name]["recovery_count"] = recovery_count
-            _save_agent_state()
+            await _save_agent_state_async()
 
 # Approximate cost per 1M tokens by model family. Used to estimate cost from
 # token counts. These are rough averages of input+output pricing.
@@ -3347,9 +3380,10 @@ async def list_agents(
     # step 2b transitions (PID-death reconciles, legacy-stale-no-heartbeat,
     # abandoned-on-age) AND the sweep above. One atomic disk write
     # regardless of how many rows changed, so concurrent pollers do not
-    # serialize on disk I/O.
+    # serialize on disk I/O. Async version keeps the event loop free
+    # during fsync so TLS handshakes on concurrent requests are not dropped.
     if sweep_changed or persisted_pass_changed:
-        _save_agent_state()
+        await _save_agent_state_async()
 
     # Auto-complete pass: flip source='claude-code' agents that exited
     # cleanly (no heartbeat for >5 min, transcript idle for >2 min, no
@@ -3361,7 +3395,7 @@ async def list_agents(
     # new status immediately.
     ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
     if ac_changed:
-        _save_agent_state()
+        await _save_agent_state_async()
         await _agent_events_bus.publish("sweep", {})
         # Reflect the completed status into agents_map for this response.
         for name, meta in agent_metadata.items():
@@ -3377,7 +3411,7 @@ async def list_agents(
     # rows (status != 'cancelled') are skipped cheaply.
     rc_changed = _recover_bulk_cancelled_agents()
     if rc_changed:
-        _save_agent_state()
+        await _save_agent_state_async()
         for name, meta in agent_metadata.items():
             if meta.get("status") == "completed" and name in agents_map:
                 if agents_map[name].get("status") == "cancelled":
@@ -3395,7 +3429,7 @@ async def list_agents(
     # gets first crack. Never touches agents without workflow_run_id.
     wf_changed = _reconcile_workflow_step_agents()
     if wf_changed:
-        _save_agent_state()
+        await _save_agent_state_async()
         for name, meta in agent_metadata.items():
             if meta.get("status") == "cancelled" and meta.get("terminated_reason") == "workflow ended":
                 if name in agents_map and agents_map[name].get("status") == "running":
@@ -3992,7 +4026,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     "build_state": "queued",
                     "label": f"comprehensive/{body.task_id}" if body.task_id else body.name,
                 }
-                _save_agent_state()
+                await _save_agent_state_async()
                 logger.info("spawn.build_queue.queued name=%s", body.name)
                 return {
                     "result": "queued",
@@ -4386,7 +4420,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         _fail_meta["status"] = "failed"
                         _fail_meta["completed_at"] = datetime.now(timezone.utc).isoformat()
                         _fail_meta["error"] = f"subprocess exited {rc}"
-                        _save_agent_state()
+                        await _save_agent_state_async()
                         logger.info("spawn.marked_failed name=%s rc=%s", name, rc)
                 # Quick-mode roadmap agents write JSON to stdout (transcript)
                 # and exit without calling /complete, so _save_agent_output_to_files
@@ -4402,7 +4436,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                         if _m and _m.get("status") == "running":
                             _m["status"] = "completed"
                             _m["completed_at"] = _now_c
-                            _save_agent_state()
+                            await _save_agent_state_async()
                     except Exception as _qc_exc:
                         logger.warning("roadmap.quick_complete name=%s err=%s", name, _qc_exc)
             except Exception:
@@ -4818,7 +4852,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
             else bool(body.originating_session_id and body.originating_user_message_id)
         )
         agent_metadata[body.name] = spawn_meta
-        _save_agent_state()
+        await _save_agent_state_async()
         _fire_delta(body.name, "running")
 
         # Log to audit
@@ -4917,7 +4951,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     "source": body.source or "api",
                     "recovery_note": "claude_bin_stale_retry",
                 }
-                _save_agent_state()
+                await _save_agent_state_async()
                 return {
                     "result": f"Agent '{body.name}' spawned (retry)",
                     "name": body.name,
@@ -5177,7 +5211,7 @@ async def spawn_fleet(body: FleetSpawn):
             })
             existing_meta.setdefault("spawned_at", now_iso)
             agent_metadata[agent_name] = existing_meta
-            _save_agent_state()
+            await _save_agent_state_async()
             return {
                 "name": agent_name,
                 "role": member["role"],
@@ -5323,7 +5357,7 @@ async def register_agent(body: AgentSpawn, request: Request = None):
                 agent_aliases[body.name] = existing_name
                 agent_metadata[existing_name] = existing_meta
                 canonical_name = existing_name
-            _save_agent_state()
+            await _save_agent_state_async()
             _fire_delta(canonical_name, existing_meta.get("status", "running"))
             return {
                 "result": (
@@ -5510,7 +5544,7 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     elif existing.get("chat_mode"):
         record["chat_mode"] = existing["chat_mode"]
     agent_metadata[body.name] = record
-    _save_agent_state()
+    await _save_agent_state_async()
     _fire_delta(body.name, status)
 
     # Start the ack bot on first registration so Tori's inline chat
@@ -6169,7 +6203,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         }
     # Persist the sentinel so even a server restart within the AC window
     # does not create a second completion event.
-    _save_agent_state()
+    await _save_agent_state_async()
 
     # Run quality gate checks from the matching Agentfile.
     # Each command runs in a thread so it never blocks the event loop.
@@ -6235,7 +6269,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             # (the agent already did the work, blocking helps nobody)
             if name in agent_metadata:
                 agent_metadata[name]["gate_results"] = gate_failures
-                _save_agent_state()
+                await _save_agent_state_async()
 
     # Save session summary to memory if provided
     if body and body.summary:
@@ -6315,7 +6349,7 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             "status": "completed",
             "source": "claude-code",
         }
-    _save_agent_state()
+    await _save_agent_state_async()
 
     # Auto-merge worktree branch onto main when a bridge-spawned agent completes.
     # The PostToolUse complete-agent.sh hook handles this for native Agent-tool spawns
@@ -6504,7 +6538,7 @@ async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
     if body and body.step:
         meta["current_step"] = body.step
         meta["current_step_updated_at"] = now_iso
-    _save_agent_state()
+    await _save_agent_state_async()
     return {"ok": True, "last_heartbeat_at": now_iso}
 
 
@@ -6558,7 +6592,7 @@ async def update_agent_budget(name: str, body: TokenUsageUpdate):
         )
     meta = agent_metadata[name]
     meta["tokens_used"] = body.tokens_used
-    _save_agent_state()
+    await _save_agent_state_async()
     return {"ok": True, "tokens_used": body.tokens_used}
 
 
@@ -6649,7 +6683,7 @@ async def recover_agent(name: str):
     meta["recovery_count"] = recovery_count + 1
     meta["last_recovery_at"] = _now_iso()
     meta["status"] = "recovering"
-    _save_agent_state()
+    await _save_agent_state_async()
 
     # Spawn the recovered agent
     spawn_body = AgentSpawn(
@@ -6672,7 +6706,7 @@ async def recover_agent(name: str):
         meta["status"] = "failed"
         meta["terminated_at"] = _now_iso()
         meta["terminated_reason"] = f"Recovery spawn failed: {e}"
-        _save_agent_state()
+        await _save_agent_state_async()
         raise HTTPException(status_code=500, detail=f"Recovery spawn failed: {e}")
 
 
@@ -6726,7 +6760,7 @@ async def cancel_agent(
     meta["status"] = "cancelled"
     meta["terminated_at"] = now_iso
     meta["terminated_reason"] = reason
-    _save_agent_state()
+    await _save_agent_state_async()
     _fire_delta(name, "cancelled")
 
     # Terminate the subprocess if we hold one.
@@ -6832,7 +6866,7 @@ async def cancel_all_agents():
         cancelled_names.append(name)
 
     if cancelled_names:
-        _save_agent_state()
+        await _save_agent_state_async()
         for name in cancelled_names:
             _emit_audit_event(
                 "agent.cancelled",
@@ -6939,7 +6973,7 @@ async def reconcile_agents():
         _agent_stdin_writers.pop(name, None)
 
     if reconciled_names:
-        _save_agent_state()
+        await _save_agent_state_async()
         for rname in reconciled_names:
             _emit_audit_event(
                 "agent.reconciled",
@@ -6978,7 +7012,7 @@ async def _reconcile_loop():
             stale_changed = _sweep_stale_running_agents()
             ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
             if stale_changed or ac_changed:
-                _save_agent_state()
+                await _save_agent_state_async()
                 await _agent_events_bus.publish("sweep", {})
             # Drain ghost retry queue populated by _autocomplete_exited_subagents.
             retries = _pending_ghost_retries[:]
@@ -7417,7 +7451,7 @@ async def post_agent_reply(name: str, body: AgentNudgeReply):
                 "The agent was still working. Record restored to completed."
             )
             revived = True
-        _save_agent_state()
+        await _save_agent_state_async()
 
     # Wake any long-poll /nudges waiters so the frontend transcript poll
     # surfaces the reply immediately instead of on the next cycle. This
@@ -8292,7 +8326,7 @@ async def delete_agent(name: str):
         raise HTTPException(status_code=400, detail="Cancel the agent before deleting it.")
     if meta:
         del agent_metadata[name]
-        _save_agent_state()
+        await _save_agent_state_async()
 
     # Add to deleted set so audit-log entries are also filtered out
     deleted = _load_deleted_agents()
@@ -8344,7 +8378,7 @@ async def bulk_delete_agents(body: BulkDeleteAgents):
         deleted.add(name)
         if name in agent_metadata:
             del agent_metadata[name]
-    _save_agent_state()
+    await _save_agent_state_async()
     _save_deleted_agents(deleted)
 
     return {"deleted": len(target_names), "names": sorted(target_names)}
@@ -8823,7 +8857,7 @@ async def register_chat_session(
     # and do not overwrite the model that was set on first registration.
     if existing.get("status") == "running":
         existing["last_heartbeat_at"] = now_iso
-        _save_agent_state()
+        await _save_agent_state_async()
         return
 
     spawned_at = existing.get("spawned_at") or now_iso
@@ -8839,7 +8873,7 @@ async def register_chat_session(
     if prompt_preview:
         record["prompt"] = prompt_preview[:500]
     agent_metadata[name] = record
-    _save_agent_state()
+    await _save_agent_state_async()
     _emit_audit_event(
         "agent.spawned",
         {"name": name, "model": record["model"], "source": "chat"},
@@ -8869,7 +8903,7 @@ async def complete_chat_session(
     total_tokens = int(tokens_in or 0) + int(tokens_out or 0)
     if total_tokens:
         meta["tokens_used"] = int(meta.get("tokens_used", 0) or 0) + total_tokens
-    _save_agent_state()
+    await _save_agent_state_async()
     _emit_audit_event(
         "agent.completed" if status == "completed" else "agent.failed",
         {"name": name, "source": "chat", "tokens": total_tokens},
