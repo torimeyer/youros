@@ -107,12 +107,17 @@ describe('DrivePreview', () => {
           export_url: '/api/drive/files/sheet-1/preview',
           web_view_link: '',
           sample: {
-            headers: ['Month', 'Revenue', 'Cost'],
-            rows: [
-              ['Jan', '100', '50'],
-              ['Feb', '200', '80'],
+            sheets: [
+              {
+                name: 'Sheet 1',
+                headers: ['Month', 'Revenue', 'Cost'],
+                rows: [
+                  ['Jan', '100', '50'],
+                  ['Feb', '200', '80'],
+                ],
+                truncated: false,
+              },
             ],
-            truncated: false,
           },
         }}
       />
@@ -123,6 +128,52 @@ describe('DrivePreview', () => {
     expect(screen.getByText('Revenue')).toBeInTheDocument();
     expect(screen.getByText('Jan')).toBeInTheDocument();
     expect(screen.getByText('Feb')).toBeInTheDocument();
+  });
+
+  it('renders sheet tabs for multi-sheet workbooks', () => {
+    render(
+      <DrivePreview
+        fileId="sheet-2"
+        name="Finance"
+        mimeType="application/vnd.google-apps.spreadsheet"
+        onClose={() => {}}
+        initialData={{
+          kind: 'sheet',
+          name: 'Finance',
+          mime_type: 'application/vnd.google-apps.spreadsheet',
+          thumbnail_url: null,
+          export_url: '/api/drive/files/sheet-2/preview',
+          web_view_link: '',
+          sample: {
+            sheets: [
+              {
+                name: 'Revenue',
+                headers: ['Month', 'Amount'],
+                rows: [['Jan', '1000']],
+                truncated: false,
+              },
+              {
+                name: 'Costs',
+                headers: ['Item', 'Price'],
+                rows: [['Rent', '500']],
+                truncated: false,
+              },
+            ],
+          },
+        }}
+      />
+    );
+    expect(screen.getByTestId('drive-preview-sheet')).toBeInTheDocument();
+    expect(screen.getByTestId('sheet-tab-0')).toBeInTheDocument();
+    expect(screen.getByTestId('sheet-tab-1')).toBeInTheDocument();
+    expect(screen.getByText('Revenue')).toBeInTheDocument();
+    expect(screen.getByText('Costs')).toBeInTheDocument();
+    // Active tab shows first sheet content.
+    expect(screen.getByText('Month')).toBeInTheDocument();
+    // Click second tab — switches to Costs sheet.
+    fireEvent.click(screen.getByTestId('sheet-tab-1'));
+    expect(screen.getByText('Item')).toBeInTheDocument();
+    expect(screen.getByText('Price')).toBeInTheDocument();
   });
 
   it('renders a horizontal strip of slide thumbnails for slides', () => {
@@ -194,6 +245,33 @@ describe('DrivePreview', () => {
     expect(h2s[0].textContent).toBe('Project Plan');
     expect(h2s[1].textContent).toBe('Next Steps');
     expect(screen.getByText('This is the intro paragraph.')).toBeInTheDocument();
+  });
+
+  it('renders HTML content for docs when html field is present', () => {
+    render(
+      <DrivePreview
+        fileId="doc-2"
+        name="Report"
+        mimeType="application/vnd.google-apps.document"
+        onClose={() => {}}
+        initialData={{
+          kind: 'doc',
+          name: 'Report',
+          mime_type: 'application/vnd.google-apps.document',
+          thumbnail_url: null,
+          export_url: '/api/drive/files/doc-2/preview',
+          web_view_link: '',
+          sample: {
+            html: '<h1>Report Title</h1><p>Body text here.</p>',
+            truncated: false,
+          },
+        }}
+      />
+    );
+    const doc = screen.getByTestId('drive-preview-doc');
+    expect(doc).toBeInTheDocument();
+    expect(doc.querySelector('h1')?.textContent).toBe('Report Title');
+    expect(screen.getByText('Body text here.')).toBeInTheDocument();
   });
 
   it('handles missing thumbnail_url gracefully for images by falling back to export_url', () => {

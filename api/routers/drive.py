@@ -1134,8 +1134,9 @@ def _parse_doc_blocks(text: str) -> dict:
 async def _fetch_slides_thumbnails(file_id: str) -> list[dict]:
     """Return a list of {slide_id, thumbnail_url} for each slide.
 
-    Uses the Slides API if available. Falls back to a single-image list
-    built from the Drive thumbnailLink on any error.
+    Uses the Slides API. Per-slide thumbnail failures are skipped rather
+    than aborting the whole fetch, so a partial list is returned instead
+    of falling back to a single Drive thumbnail.
     """
     import asyncio
 
@@ -1165,18 +1166,117 @@ async def _fetch_slides_thumbnails(file_id: str) -> list[dict]:
             sid = s.get("objectId")
             if not sid:
                 continue
-            thumb = (
-                slides.presentations()
-                .pages()
-                .getThumbnail(
-                    presentationId=file_id,
-                    pageObjectId=sid,
-                    thumbnailProperties_thumbnailSize="MEDIUM",
+            try:
+                thumb = (
+                    slides.presentations()
+                    .pages()
+                    .getThumbnail(
+                        presentationId=file_id,
+                        pageObjectId=sid,
+                        thumbnailProperties_thumbnailSize="MEDIUM",
+                    )
+                    .execute()
                 )
-                .execute()
-            )
-            out.append({"slide_id": sid, "thumbnail_url": thumb.get("contentUrl", "")})
+                out.append({"slide_id": sid, "thumbnail_url": thumb.get("contentUrl", "")})
+            except Exception:
+                out.append({"slide_id": sid, "thumbnail_url": ""})
         return out
+
+    return await asyncio.get_event_loop().run_in_executor(None, _call)
+
+
+async def _export_all_sheets(file_id: str) -> list[dict]:
+    """Return all sheets from a Google Spreadsheet via the Sheets API v4.
+
+    Returns a list of {name, headers, rows, truncated} dicts, one per sheet tab.
+    Falls back to empty rows on a per-sheet error rather than aborting.
+    """
+    import asyncio
+
+    def _call():
+        from googleapiclient.discovery import build
+        from google.oauth2.credentials import Credentials
+
+        tokens = get_credentials()
+        client_config = {}
+        try:
+            from services.google_auth import _load_client_config
+            client_config = _load_client_config()
+        except Exception:
+            pass
+        creds = Credentials(
+            token=tokens.get("access_token"),
+            refresh_token=tokens.get("refresh_token"),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_config.get("client_id"),
+            client_secret=client_config.get("client_secret"),
+        )
+        sheets_svc = build("sheets", "v4", credentials=creds)
+
+        spreadsheet = sheets_svc.spreadsheets().get(
+            spreadsheetId=file_id,
+            fields="sheets.properties(sheetId,title)",
+        ).execute()
+        sheet_props = [s["properties"] for s in spreadsheet.get("sheets", [])]
+
+        result = []
+        for prop in sheet_props:
+            sheet_name = prop.get("title", "Sheet")
+            try:
+                values_resp = sheets_svc.spreadsheets().values().get(
+                    spreadsheetId=file_id,
+                    range=sheet_name,
+                ).execute()
+                all_rows = values_resp.get("values", [])
+            except Exception:
+                all_rows = []
+
+            total_rows = len(all_rows)
+            total_cols = max((len(r) for r in all_rows), default=0)
+            truncated = total_rows > _SHEET_MAX_ROWS or total_cols > _SHEET_MAX_COLS
+
+            sampled = all_rows[:_SHEET_MAX_ROWS]
+            max_cols = min(total_cols, _SHEET_MAX_COLS)
+            padded = [
+                list(row[:max_cols]) + [""] * max(0, max_cols - len(row))
+                for row in sampled
+            ]
+
+            if padded:
+                headers = padded[0]
+                data_rows = padded[1:]
+            else:
+                headers = []
+                data_rows = []
+
+            result.append({
+                "name": sheet_name,
+                "headers": headers,
+                "rows": data_rows,
+                "truncated": truncated,
+            })
+
+        return result
+
+    return await asyncio.get_event_loop().run_in_executor(None, _call)
+
+
+async def _export_doc_html(file_id: str) -> str:
+    """Export a Google Doc as HTML."""
+    import asyncio
+    import io
+
+    def _call():
+        from googleapiclient.http import MediaIoBaseDownload
+
+        service = _build_drive_service()
+        request = service.files().export_media(fileId=file_id, mimeType="text/html")
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return buf.getvalue().decode("utf-8", errors="replace")
 
     return await asyncio.get_event_loop().run_in_executor(None, _call)
 
@@ -1224,18 +1324,29 @@ async def drive_file_structured_preview(file_id: str):
 
     if kind == "sheet":
         try:
-            csv_text = await _export_sheet_csv(file_id)
-            sample = _parse_csv_sample(csv_text)
+            sheets = await _export_all_sheets(file_id)
+            sample = {"sheets": sheets}
         except Exception:
-            # Fall back to thumbnail only so the UI still shows something.
-            sample = None
+            # Fall back to single-sheet CSV export.
+            try:
+                csv_text = await _export_sheet_csv(file_id)
+                single = _parse_csv_sample(csv_text)
+                sample = {"sheets": [{"name": "Sheet 1", **single}]}
+            except Exception:
+                sample = None
 
     elif kind == "doc":
         try:
-            doc_text = await _export_doc_text(file_id)
-            sample = _parse_doc_blocks(doc_text)
+            html = await _export_doc_html(file_id)
+            truncated = len(html) > _DOC_MAX_CHARS
+            sample = {"html": html[:_DOC_MAX_CHARS], "truncated": truncated}
         except Exception:
-            sample = None
+            # Fall back to plain-text block rendering.
+            try:
+                doc_text = await _export_doc_text(file_id)
+                sample = _parse_doc_blocks(doc_text)
+            except Exception:
+                sample = None
 
     elif kind == "slides":
         try:
@@ -1245,15 +1356,9 @@ async def drive_file_structured_preview(file_id: str):
                 "truncated": len(slides) >= _SLIDES_MAX_THUMBS,
             }
         except Exception:
-            # Fall back to the single-image Drive thumbnail.
-            sample = {
-                "slides": (
-                    [{"slide_id": "fallback", "thumbnail_url": thumbnail_url}]
-                    if thumbnail_url
-                    else []
-                ),
-                "truncated": False,
-            }
+            # Slides API unavailable — return empty list so the UI shows
+            # a fallback instead of a fake "Slide 1 of 1".
+            sample = {"slides": [], "truncated": False}
 
     return {
         "kind": kind,

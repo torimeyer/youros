@@ -18,10 +18,15 @@ export interface DrivePreviewData {
   sample: SheetSample | DocSample | SlidesSample | null;
 }
 
-export interface SheetSample {
+export interface SheetTab {
+  name: string;
   headers: string[];
   rows: string[][];
   truncated: boolean;
+}
+
+export interface SheetSample {
+  sheets: SheetTab[];
 }
 
 export interface DocBlock {
@@ -30,7 +35,8 @@ export interface DocBlock {
 }
 
 export interface DocSample {
-  blocks: DocBlock[];
+  html?: string;
+  blocks?: DocBlock[];
   truncated: boolean;
 }
 
@@ -369,7 +375,10 @@ function PdfPreview({ data }: { data: DrivePreviewData }) {
 
 function SheetPreview({ data }: { data: DrivePreviewData }) {
   const sample = data.sample as SheetSample | null;
-  if (!sample || (!sample.headers.length && !sample.rows.length)) {
+  const sheets = sample?.sheets ?? [];
+  const [activeSheet, setActiveSheet] = useState(0);
+
+  if (!sheets.length) {
     return (
       <FallbackToExport
         data={data}
@@ -377,43 +386,69 @@ function SheetPreview({ data }: { data: DrivePreviewData }) {
       />
     );
   }
+
+  const sheet = sheets[Math.min(activeSheet, sheets.length - 1)];
+
   return (
-    <div className="p-4 overflow-auto">
-      <table
-        className="w-full text-xs border-collapse"
-        data-testid="drive-preview-sheet"
-      >
-        <thead>
-          <tr className="bg-slate-800">
-            {sample.headers.map((h, i) => (
-              <th
-                key={i}
-                className="border border-slate-700 px-2 py-1.5 text-left font-semibold text-slate-200"
-              >
-                {h || `Column ${i + 1}`}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sample.rows.map((row, ri) => (
-            <tr key={ri} className={ri % 2 === 0 ? 'bg-slate-900/60' : 'bg-slate-900/30'}>
-              {row.map((cell, ci) => (
-                <td
-                  key={ci}
-                  className="border border-slate-800 px-2 py-1.5 text-slate-300 align-top"
-                >
-                  {cell}
-                </td>
-              ))}
-            </tr>
+    <div className="flex flex-col h-full" data-testid="drive-preview-sheet">
+      {sheets.length > 1 && (
+        <div className="flex border-b border-slate-700 px-4 pt-2 gap-1 flex-shrink-0 overflow-x-auto">
+          {sheets.map((s, i) => (
+            <button
+              key={i}
+              onClick={() => setActiveSheet(i)}
+              className={`px-3 py-1.5 text-xs rounded-t transition-colors whitespace-nowrap ${
+                i === activeSheet
+                  ? 'bg-slate-700 text-slate-100 font-medium'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+              }`}
+              data-testid={`sheet-tab-${i}`}
+            >
+              {s.name}
+            </button>
           ))}
-        </tbody>
-      </table>
-      {sample.truncated && (
-        <p className="mt-3 text-xs text-slate-500">
-          Showing the first rows and columns. Open in Drive to see everything.
-        </p>
+        </div>
+      )}
+      {!sheet.headers.length && !sheet.rows.length ? (
+        <div className="flex items-center justify-center flex-1 p-8 text-xs text-slate-500">
+          This sheet is empty.
+        </div>
+      ) : (
+        <div className="p-4 overflow-auto flex-1">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-800">
+                {sheet.headers.map((h, i) => (
+                  <th
+                    key={i}
+                    className="border border-slate-700 px-2 py-1.5 text-left font-semibold text-slate-200"
+                  >
+                    {h || `Column ${i + 1}`}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sheet.rows.map((row, ri) => (
+                <tr key={ri} className={ri % 2 === 0 ? 'bg-slate-900/60' : 'bg-slate-900/30'}>
+                  {row.map((cell, ci) => (
+                    <td
+                      key={ci}
+                      className="border border-slate-800 px-2 py-1.5 text-slate-300 align-top"
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {sheet.truncated && (
+            <p className="mt-3 text-xs text-slate-500">
+              Showing the first rows and columns. Open in Drive to see everything.
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -479,7 +514,28 @@ function SlidesPreview({ data }: { data: DrivePreviewData }) {
 
 function DocPreview({ data }: { data: DrivePreviewData }) {
   const sample = data.sample as DocSample | null;
-  const blocks = sample?.blocks ?? [];
+
+  if (!sample) {
+    return <FallbackToExport data={data} message="This doc is empty." />;
+  }
+
+  if (sample.html) {
+    return (
+      <div className="p-4 h-full overflow-auto" data-testid="drive-preview-doc">
+        <div
+          className="bg-white rounded-lg p-6 text-gray-900 text-sm leading-relaxed max-w-3xl mx-auto"
+          dangerouslySetInnerHTML={{ __html: sample.html }}
+        />
+        {sample.truncated && (
+          <p className="mt-4 text-xs text-slate-500 max-w-3xl mx-auto">
+            Showing the first part of the doc. Open in Drive to read the rest.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  const blocks = sample.blocks ?? [];
   if (blocks.length === 0) {
     return <FallbackToExport data={data} message="This doc is empty." />;
   }
