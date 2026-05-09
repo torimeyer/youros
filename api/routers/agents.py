@@ -2847,6 +2847,11 @@ async def get_agent_transcript(name: str):
             )
         return {"name": name, "content": "", "bytes": 0, "empty": True, "reason": reason}
 
+    try:
+        actual_bytes = source.stat().st_size
+    except OSError:
+        actual_bytes = 0
+
     suffix = source.suffix.lower()
     try:
         if suffix in (".output", ".jsonl") or _looks_like_jsonl(source):
@@ -2863,9 +2868,9 @@ async def get_agent_transcript(name: str):
             reason = f"Agent '{name}' is still starting up. Check back in a moment."
         else:
             reason = f"Transcript for '{name}' is empty."
-        return {"name": name, "content": "", "bytes": 0, "empty": True, "reason": reason}
+        return {"name": name, "content": "", "bytes": actual_bytes, "empty": True, "reason": reason}
 
-    return {"name": name, "content": content, "bytes": len(content), "empty": False}
+    return {"name": name, "content": content, "bytes": actual_bytes, "empty": False}
 
 
 def _looks_like_jsonl(path: Path) -> bool:

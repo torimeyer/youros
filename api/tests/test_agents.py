@@ -2426,6 +2426,56 @@ async def test_get_agent_transcript_empty_for_cancelled_agent(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_get_agent_transcript_returns_real_bytes_for_running_agent_meta_only_jsonl(tmp_path):
+    """Per-agent transcript endpoint must report bytes matching the disk file size
+    even when all JSONL entries are isMeta=true (no formatted output yet).
+
+    A running agent's JSONL typically starts with only system-context user entries
+    marked isMeta=true. _format_jsonl_transcript skips those, returning ''.
+    Before the fix the endpoint returned bytes=0; after the fix it returns
+    bytes equal to the raw file size, matching the list endpoint's transcript_bytes.
+    """
+    jsonl_content = (
+        json.dumps({
+            "type": "user",
+            "isMeta": True,
+            "message": {"role": "user", "content": "system context injected by harness"},
+        }) + "\n"
+    )
+    jsonl_path = tmp_path / "meta-only.jsonl"
+    jsonl_path.write_text(jsonl_content)
+    expected_bytes = jsonl_path.stat().st_size
+
+    from routers.agents import agent_metadata, _reset_transcript_resolver_cache
+    agent_metadata["meta-only-agent"] = {
+        "spawned_at": "2026-05-09T00:00:00+00:00",
+        "source": "claude-code",
+        "status": "running",
+        "transcript_path": str(jsonl_path),
+    }
+    _reset_transcript_resolver_cache()
+
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("config.PROJECT_ROOT", tmp_path):
+                (tmp_path / "transcripts").mkdir(parents=True, exist_ok=True)
+                resp = await client.get("/api/agents/meta-only-agent/transcript")
+    finally:
+        agent_metadata.pop("meta-only-agent", None)
+        _reset_transcript_resolver_cache()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    # bytes must reflect the real disk size, not len(formatted_text).
+    assert data["bytes"] == expected_bytes, (
+        f"Expected bytes={expected_bytes} (disk size) but got {data['bytes']}. "
+        "Per-agent endpoint must match list endpoint's transcript_bytes."
+    )
+    assert data["bytes"] > 0
+
+
+@pytest.mark.asyncio
 async def test_get_agent_transcript_warm_returns_content_fast(tmp_path):
     """Warm transcript (resolver cache populated) must return real content
     proving sub-200ms warm reads."""
