@@ -298,6 +298,8 @@ describe('Agents page - Nudge feature', () => {
     await waitFor(() => {
       expect(screen.getByText('Messages sent')).toBeInTheDocument()
     })
+
+    expect(screen.queryByText(/token budget/i)).toBeNull()
   })
 
   it('shows no nudge input when no active agents', async () => {

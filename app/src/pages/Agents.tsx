@@ -20,7 +20,7 @@ import AgentInsights from "../components/AgentInsights";
 import AgentTemplateFileUpload from "../components/AgentTemplateFileUpload";
 import { RoadmapCards } from "../components/RoadmapCards";
 import { parseRoadmapJson, type RoadmapQuarter } from "../lib/parseRoadmapJson";
-import { formatTokenBudget, formatTokenBudgetApprox } from "../lib/budgetDisplay";
+import { formatTokenBudget } from "../lib/budgetDisplay";
 
 
 // Re-export so tests can still import these from './Agents'
@@ -3994,17 +3994,11 @@ export default function Agents() {
                             "expandedAgent" toggle, but that UX is gone now
                             that the whole detail view is collapsible. */}
                         <div className="mt-4 pt-4 border-t border-slate-800">
-                          <div className="grid grid-cols-3 gap-4 text-xs mb-4">
+                          <div className="grid grid-cols-2 gap-4 text-xs mb-4">
                             <div>
                               <span className="text-slate-500">Source</span>
                               <p className="text-white mt-1">{agent.source}</p>
                             </div>
-                            {agent.budget && (
-                              <div>
-                                <span className="text-slate-500">Token budget</span>
-                                <p className="text-white mt-1">{formatTokenBudgetApprox(agent.budget, agent.model)}</p>
-                              </div>
-                            )}
                             <div>
                               <span className="text-slate-500">Messages sent</span>
                               <p className="text-white mt-1">{agentNudges.length}</p>
