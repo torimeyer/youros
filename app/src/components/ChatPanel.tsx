@@ -1336,6 +1336,25 @@ export function ChatPanel() {
     return () => clearTimeout(deadTimer)
   }, [placeholderAwaitingServer, isStreaming, disconnect])
 
+  // Reset all per-turn streaming state when the active tab changes.
+  // Without this, switching tabs carries over multiAiStatus ("Claude is
+  // speaking round X of Y"), isStreaming, stepProgress, etc. from the
+  // previous tab onto the new one, causing phantom indicators and empty
+  // bubbles on the first message in the new tab.
+  useEffect(() => {
+    setIsStreaming(false)
+    setPlaceholderAwaitingServer(false)
+    setActiveTemplate(null)
+    setActiveBackend(null)
+    setMultiAiStatus(null)
+    setPeerChatPending(null)
+    setActiveStreamingBubbleIds(new Set())
+    setStepProgress(null)
+    currentBubbleIdRef.current = null
+    bubbleIdByModelRef.current.clear()
+    receivedAnyServerEventRef.current = false
+  }, [activeTabId])
+
   // Hydrate chat history from the server on first mount. The server is
   // the source of truth, so anything it returns replaces what was in the
   // localStorage cache. This makes chat history survive cache clears and
@@ -1950,6 +1969,16 @@ export function ChatPanel() {
     setTabs(prev => [...prev, newTab])
     setActiveTabId(newTab.id)
     setIsStreaming(false)
+    setMultiAiStatus(null)
+    setPlaceholderAwaitingServer(false)
+    setActiveTemplate(null)
+    setActiveBackend(null)
+    setPeerChatPending(null)
+    setActiveStreamingBubbleIds(new Set())
+    setStepProgress(null)
+    currentBubbleIdRef.current = null
+    bubbleIdByModelRef.current.clear()
+    receivedAnyServerEventRef.current = false
     setCurrentModel(null)
     setReplyingTo(null)
     setShowGiphy(false)
@@ -2004,6 +2033,16 @@ export function ChatPanel() {
     if (tabId === activeTabId) return
     setActiveTabId(tabId)
     setIsStreaming(false)
+    setMultiAiStatus(null)
+    setPlaceholderAwaitingServer(false)
+    setActiveTemplate(null)
+    setActiveBackend(null)
+    setPeerChatPending(null)
+    setActiveStreamingBubbleIds(new Set())
+    setStepProgress(null)
+    currentBubbleIdRef.current = null
+    bubbleIdByModelRef.current.clear()
+    receivedAnyServerEventRef.current = false
     setCurrentModel(null)
     setReplyingTo(null)
     setShowGiphy(false)

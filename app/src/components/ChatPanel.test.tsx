@@ -1525,6 +1525,59 @@ describe('ChatPanel', () => {
         'Gemini is thinking (round 3 of 3)',
       )
     })
+
+    it('multi-ai status pill clears when a new tab is opened', async () => {
+      const { rerender } = render(<ChatPanel />)
+
+      // Drive a multi-AI conversation so the pill is visible.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 2 },
+      }
+      rerender(<ChatPanel />)
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'speaking', model: 'gemini', round: 1 },
+      }
+      rerender(<ChatPanel />)
+      expect(screen.getByTestId('multi-ai-status-pill')).toBeTruthy()
+
+      // Open a new tab — pill must vanish.
+      fireEvent.click(screen.getByTestId('new-tab-button'))
+      await waitFor(() => {
+        expect(screen.queryByTestId('multi-ai-status-pill')).toBeNull()
+      })
+    })
+
+    it('multi-ai status pill clears when switching to an existing tab', async () => {
+      const { rerender } = render(<ChatPanel />)
+
+      // Open a second tab first so there are two tabs in the bar.
+      fireEvent.click(screen.getByTestId('new-tab-button'))
+
+      // Switch back to the first tab (index 0).
+      const tabs = screen.getAllByTestId(/^tab-/)
+      fireEvent.click(tabs[0])
+
+      // Drive a multi-AI conversation on tab 0.
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'starting', models: ['gemini', 'claude'], rounds: 2 },
+      }
+      rerender(<ChatPanel />)
+      mockLastMessage = {
+        type: 'multi_ai_status',
+        data: { phase: 'speaking', model: 'gemini', round: 1 },
+      }
+      rerender(<ChatPanel />)
+      expect(screen.getByTestId('multi-ai-status-pill')).toBeTruthy()
+
+      // Switch to the second tab — pill must vanish.
+      fireEvent.click(tabs[1])
+      await waitFor(() => {
+        expect(screen.queryByTestId('multi-ai-status-pill')).toBeNull()
+      })
+    })
   })
 
   // Needle 239: Tori wants the chat panel freely resizable with the rest
