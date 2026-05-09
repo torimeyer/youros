@@ -206,6 +206,7 @@ export default function Settings() {
     Calendar: { loading: true, connected: false, label: '' },
     Drive: { loading: true, connected: false, label: '' },
     Slack: { loading: true, connected: false, label: '' },
+    iMessage: { loading: true, connected: false, label: '' },
   });
 
   // Push notification state
@@ -364,17 +365,20 @@ export default function Settings() {
       type CalStatus = { authenticated: boolean; email: string | null };
       type DriveStatus = { authenticated: boolean; email: string | null };
       type SlackStat = { connected: boolean; team_name: string };
-      const [gmail, cal, drive, slack] = await Promise.all([
+      type iMessageStat = { available: boolean; reason: string };
+      const [gmail, cal, drive, slack, imsg] = await Promise.all([
         api.get<GmailStatus>('/gmail/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<CalStatus>('/calendar/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<DriveStatus>('/drive/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<SlackStat>('/slack/status').catch(() => ({ connected: false, team_name: '' })),
+        api.get<iMessageStat>('/imessage/status').catch(() => ({ available: false, reason: '' })),
       ]);
       setConnectionStatus({
         Gmail: { loading: false, connected: !!gmail.authenticated, label: gmail.email || '' },
         Calendar: { loading: false, connected: !!cal.authenticated, label: cal.email || '' },
         Drive: { loading: false, connected: !!drive.authenticated, label: drive.email || '' },
         Slack: { loading: false, connected: !!slack.connected, label: slack.team_name || '' },
+        iMessage: { loading: false, connected: !!imsg.available, label: '' },
       });
     })();
     api.get<{ configured?: boolean; remote_url?: string | null; last_synced?: string | null }>('/sync/status')
@@ -1527,7 +1531,7 @@ export default function Settings() {
               <span className="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-slate-200">iMessage</p>
-                <p className="text-xs text-slate-400">Set up iMessage</p>
+                <p className="text-xs text-slate-400">{connectionStatus.iMessage.connected ? 'Connected' : 'Set up iMessage'}</p>
               </div>
               <Icon name={expandedConnection === 'imessage' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-400 flex-shrink-0" />
             </button>
@@ -1821,7 +1825,7 @@ export default function Settings() {
           <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
             <div className={cardClass}>
               <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-lg font-semibold">Focus mode</h2>
+                <h2 className="text-lg font-semibold">ADHD mode</h2>
                 <Toggle checked={adhdEnabled} onChange={handleAdhdToggle} testId="adhd-toggle" />
               </div>
               <p className="text-sm text-slate-400 mb-5">Get regular check-ins while agents work, see where you left off when you come back, and get one clear recommendation instead of a list.</p>
