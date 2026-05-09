@@ -568,6 +568,39 @@ def test_no_duplicate_names_across_installed_and_marketplace(tmp_path, monkeypat
     )
 
 
+def test_list_installed_is_alphabetical(tmp_path, monkeypatch):
+    """list_installed() must return templates sorted alphabetically by name (→1072)."""
+    import services.agent_templates_store as mod
+
+    fake_path = tmp_path / "at_alpha.json"
+    monkeypatch.setattr(mod, "AGENT_TEMPLATES_PATH", fake_path)
+
+    store = mod.AgentTemplatesStore()
+    installed = store.list_installed()
+    names = [t["name"].lower() for t in installed]
+    assert names == sorted(names), (
+        f"list_installed() not sorted: {[t['name'] for t in installed[:5]]!r}"
+    )
+
+
+def test_list_marketplace_is_alphabetical(tmp_path, monkeypatch):
+    """list_marketplace() must return templates sorted alphabetically by name (→1072)."""
+    import services.agent_templates_store as mod
+
+    fake_path = tmp_path / "at_mkt_alpha.json"
+    fake_mkt_dir = tmp_path / "marketplace"
+    monkeypatch.setattr(mod, "AGENT_TEMPLATES_PATH", fake_path)
+    monkeypatch.setattr(mod, "MARKETPLACE_AGENTS_DIR", fake_mkt_dir)
+    mod._seed_marketplace_agentfiles()
+
+    store = mod.AgentTemplatesStore()
+    marketplace = store.list_marketplace()
+    names = [t["name"].lower() for t in marketplace]
+    assert names == sorted(names), (
+        f"list_marketplace() not sorted: {[t['name'] for t in marketplace[:5]]!r}"
+    )
+
+
 def test_code_review_alias_resolves_to_review(tmp_path, monkeypatch):
     """Spawning by old name 'Code Review' must resolve to the Review template
     via its alias. This ensures the merge does not break callers that used the

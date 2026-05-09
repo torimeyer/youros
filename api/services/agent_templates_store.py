@@ -1655,21 +1655,22 @@ class AgentTemplatesStore:
         return _dedupe_templates(result)
 
     def list_installed(self) -> list[dict]:
-        """Return only installed templates.
+        """Return only installed templates, sorted alphabetically by name.
 
         ``source=builtin`` is always installed.
         ``source=marketplace`` requires ``installed=True`` in the disk store.
         Custom templates are always shown.
         """
-        return [
+        result = [
             t for t in self.list_all()
             if t.get("source") == "builtin"
             or t.get("installed", False)
             or t.get("id", "").startswith("custom-")
         ]
+        return sorted(result, key=lambda t: t.get("name", "").lower())
 
     def list_marketplace(self) -> list[dict]:
-        """Return marketplace templates that are not yet installed.
+        """Return marketplace templates that are not yet installed, sorted alphabetically by name.
 
         Suppresses any marketplace entry whose normalized name or alias
         matches a built-in template, since built-ins are always installed
@@ -1682,12 +1683,13 @@ class AgentTemplatesStore:
                 for alias in t.get("aliases", []):
                     builtin_names.add(alias.strip().lower())
 
-        return [
+        result = [
             t for t in self.list_all()
             if t.get("source") == "marketplace"
             and not t.get("installed", False)
             and t["name"].strip().lower() not in builtin_names
         ]
+        return sorted(result, key=lambda t: t.get("name", "").lower())
 
     def install_for_persona(self, persona_id: str) -> list[dict]:
         """Install all marketplace templates whose personas list includes persona_id.
