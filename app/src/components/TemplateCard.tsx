@@ -11,7 +11,7 @@
  *   installed: true when the template is already in the user's list
  *   onAction: called when the action button is clicked
  *   actionLabel: label for the action button (default: "Use")
- *   onUnfavorite: optional, shows an unfavorite (star) icon to remove from favorites
+ *   onUnfavorite: optional, makes the star clickable to remove from favorites
  *   capabilities: optional agentfile capability summary shown on hover
  *   parseError: when set, shows an error panel instead of capabilities
  *   testId: data-testid prefix
@@ -87,10 +87,21 @@ export default function TemplateCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <p className="text-white font-semibold text-lg truncate" title={name}>{name}</p>
-            {favorited && (
-              <span className="text-amber-400" title="Favorited" data-testid={`${testId ?? `template-card-${name}`}-favorited`}>
-                <Icon name="star" size={14} />
-              </span>
+            {(favorited || onUnfavorite) && (
+              onUnfavorite ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onUnfavorite(); }}
+                  className="text-amber-400 hover:text-amber-300"
+                  title="Remove from favorites"
+                  data-testid={`${testId ?? `template-card-${name}`}-star`}
+                >
+                  <Icon name="star" size={14} />
+                </button>
+              ) : (
+                <span className="text-amber-400" title="Favorited" data-testid={`${testId ?? `template-card-${name}`}-favorited`}>
+                  <Icon name="star" size={14} />
+                </span>
+              )
             )}
             {aliases.map((a) => (
               <span
@@ -177,16 +188,7 @@ export default function TemplateCard({
               <Icon name="check_circle" size={18} />
             </span>
           )}
-          {onUnfavorite && (
-            <button
-              onClick={onUnfavorite}
-              className="text-amber-400 hover:text-amber-300 transition-colors mt-1"
-              title="Remove from favorites"
-              data-testid={testId ? `${testId}-unfavorite` : `template-card-${name}-unfavorite`}
-            >
-              <Icon name="star" size={16} />
-            </button>
-          )}
+
         </div>
       </div>
 

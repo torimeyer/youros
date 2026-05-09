@@ -108,7 +108,7 @@ describe('TemplateCard', () => {
         testId="tc-custom"
       />
     )
-    expect(screen.getByTestId('tc-custom-unfavorite')).toBeInTheDocument()
+    expect(screen.getByTestId('tc-custom-star')).toBeInTheDocument()
   })
 
   it('does not show unfavorite button when onUnfavorite is not provided', () => {
