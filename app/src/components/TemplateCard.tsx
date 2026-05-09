@@ -35,6 +35,7 @@ export interface TemplateCardProps {
   aliases?: string[]
   source?: 'builtin' | 'marketplace' | 'custom' | string
   installed?: boolean
+  favorited?: boolean
   onAction?: () => void
   actionLabel?: string
   onDelete?: () => void
@@ -50,6 +51,7 @@ export default function TemplateCard({
   aliases = [],
   source = 'builtin',
   installed = true,
+  favorited = false,
   onAction,
   actionLabel = 'Use',
   onDelete,
@@ -71,7 +73,7 @@ export default function TemplateCard({
 
   return (
     <div
-      className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 flex flex-col gap-2 hover:border-slate-700 transition-colors"
+      className={`bg-slate-900/40 border rounded-xl p-5 flex flex-col gap-2 hover:border-slate-700 transition-colors ${favorited ? 'border-amber-500/40' : 'border-slate-800'}`}
       data-testid={testId ?? `template-card-${name}`}
     >
       {/* Top row: icon, body, action */}
@@ -85,6 +87,11 @@ export default function TemplateCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <p className="text-white font-semibold text-lg truncate" title={name}>{name}</p>
+            {favorited && (
+              <span className="text-amber-400" title="Favorited" data-testid={`${testId ?? `template-card-${name}`}-favorited`}>
+                <Icon name="star" size={14} />
+              </span>
+            )}
             {aliases.map((a) => (
               <span
                 key={a}
@@ -100,7 +107,7 @@ export default function TemplateCard({
                   ? 'bg-slate-200 text-slate-700 dark:bg-slate-700/60 dark:text-slate-400'
                   : 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400'
               }`}>
-                {source === 'marketplace' ? 'marketplace' : 'custom'}
+                {source === 'marketplace' ? 'catalog' : 'custom'}
               </span>
             )}
           </div>

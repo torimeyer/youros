@@ -2398,6 +2398,9 @@ export default function Agents() {
   // that is not in the current persona's pmTemplates list.
   const [marketplaceCatalog, setMarketplaceCatalog] = useState<PMAgentTemplate[]>([]);
 
+  // MCP servers for the Templates tab consolidated view
+  const [templatesMcpServers, setTemplatesMcpServers] = useState<{ name: string; url: string; enabled: boolean }[]>([]);
+
   // Custom templates live on the server via the app store. localStorage
   // is only a first paint cache.
   const customTemplates = useAppStore((s) => s.customAgentTemplates);
@@ -3164,6 +3167,15 @@ export default function Agents() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  // Load MCP servers when Templates tab is active for the consolidated view
+  useEffect(() => {
+    if (activeTab === "Templates") {
+      api.get<{ mcp_servers?: { name: string; url: string; enabled: boolean }[] }>('/settings')
+        .then((data) => setTemplatesMcpServers(data.mcp_servers ?? []))
+        .catch(() => {});
+    }
+  }, [activeTab]);
+
   // Listen for the dashboard "Spawn Agent" quick launch so the form
   // opens the moment the user lands on this page.
   useEffect(() => {
@@ -3578,7 +3590,7 @@ export default function Agents() {
                 const runningCount = allAgents.filter(
                   (a) =>
                     isUserSpawnedAgent(a) &&
-                    (hasSummary ? runningAgentNames.has(a.name) : isAgentActive(a))
+                    (hasSummary ? runningAgentNames.has(a.name) || isAgentActive(a) : isAgentActive(a))
                 ).length;
                 return (
                   <button
@@ -3621,7 +3633,10 @@ export default function Agents() {
               const hasSummary = runningAgentNames.size > 0;
               const isVisibleActive = (a: typeof allAgents[number]) =>
                 isUserSpawnedAgent(a) &&
-                (hasSummary ? runningAgentNames.has(a.name) : isAgentActive(a));
+                // Always include agents that are locally active (covers optimistic
+                // placeholders that haven't reached the WS feed yet, including
+                // quick_mode agents that complete before the next poll tick).
+                (hasSummary ? runningAgentNames.has(a.name) || isAgentActive(a) : isAgentActive(a));
 
               const visibleAgents = allAgents.filter(isVisibleActive);
 
@@ -4474,7 +4489,7 @@ export default function Agents() {
           <div className="border border-dashed border-slate-700 rounded-xl p-10 text-center mb-8" data-testid="agent-templates-empty">
             <Icon name="storefront" className="text-4xl text-slate-600 mb-3" />
             <p className="text-slate-400 text-sm font-medium">You have no templates yet</p>
-            <p className="text-slate-500 text-xs mt-1">Browse the Marketplace below to add your first template.</p>
+            <p className="text-slate-500 text-xs mt-1">Browse the Agents catalog below to add your first template.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-8" data-testid="installed-templates-grid">
@@ -4487,6 +4502,7 @@ export default function Agents() {
                 aliases={tpl.aliases}
                 source={tpl.isBuiltIn ? "builtin" : (tpl.source ?? "custom")}
                 installed={true}
+                favorited={true}
                 onAction={tpl.parseError == null ? () => {
                   const rawContent = tpl.isBuiltIn
                     ? (templates.find(
@@ -4535,6 +4551,7 @@ export default function Agents() {
                   // if the backend forgets to set source.
                   source={tpl.source ?? (tpl.builtin ? "builtin" : "marketplace")}
                   installed={true}
+                  favorited={true}
                   onAction={() => handleUsePmTemplate(tpl)}
                   actionLabel="Use"
                   onDelete={!tpl.builtin ? () => handleDeletePmTemplate(tpl.id) : undefined}
@@ -4559,6 +4576,7 @@ export default function Agents() {
                   icon={tpl.icon}
                   source="custom"
                   installed={true}
+                  favorited={true}
                   onAction={() => handleUsePmTemplate(tpl)}
                   actionLabel="Use"
                   onDelete={() => handleDeletePmTemplate(tpl.id)}
@@ -4589,9 +4607,9 @@ export default function Agents() {
             Plans page template grid. The backend /agents/fleets/spawn
             endpoint stays alive for backwards compatibility. */}
 
-        {/* Marketplace section (always visible) */}
+        {/* Agents catalog (always visible) */}
         <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-xl p-6" data-testid="marketplace-section">
-          <h2 className="text-lg font-semibold text-white mb-4" data-testid="marketplace-heading">Marketplace</h2>
+          <h2 className="text-lg font-semibold text-white mb-4" data-testid="marketplace-heading">Agents</h2>
           {AGENT_MARKETPLACE.map((cat) => (
             <div key={cat.id} className="mb-6 last:mb-0">
               <h4 className="text-sm text-slate-400 font-medium mb-3 uppercase tracking-wider">{cat.category}</h4>
@@ -4622,6 +4640,44 @@ export default function Agents() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Connected Tools (MCP Servers) */}
+        <div className="mt-6 bg-slate-900/40 border border-slate-800 rounded-xl p-6" data-testid="mcp-servers-section">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white" data-testid="mcp-servers-heading">Connected Tools</h2>
+            <a
+              href="/settings"
+              className="text-xs text-slate-400 hover:text-blue-400 transition-colors flex items-center gap-1"
+            >
+              <Icon name="settings" size={14} />
+              Manage in Settings
+            </a>
+          </div>
+          {templatesMcpServers.length === 0 ? (
+            <p className="text-slate-500 text-sm">No MCP servers configured. <a href="/settings" className="text-blue-400 hover:text-blue-300">Add one in Settings.</a></p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {templatesMcpServers.map((srv) => (
+                <div
+                  key={srv.name}
+                  className={`bg-slate-800/40 border rounded-xl p-4 flex items-center gap-3 ${srv.enabled ? 'border-slate-700' : 'border-slate-800 opacity-50'}`}
+                  data-testid={`mcp-server-card-${srv.name}`}
+                >
+                  <div className="shrink-0 w-9 h-9 rounded-lg bg-slate-700 border border-slate-600 flex items-center justify-center">
+                    <Icon name="extension" className="text-blue-400" size={18} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-medium text-sm truncate">{srv.name}</p>
+                    <p className="text-slate-500 text-xs truncate">{srv.url}</p>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded ${srv.enabled ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-500'}`}>
+                    {srv.enabled ? 'on' : 'off'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         </div>}

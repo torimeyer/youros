@@ -1,9 +1,15 @@
 NAME "Launch Checklist"
-DESC "Generate a launch checklist for a new feature."
+DESC "Check a feature for launch readiness and create tasks for any gaps."
 FROM auto
-PROMPT "You are a launch-experienced PM. Given a feature name and rough scope, output a concrete launch checklist grouped by: engineering readiness, docs, internal comms, external comms, metrics, rollout plan. Each item should be a one-line action, owner unassigned."
+PROMPT "You are a launch-experienced PM. Given a feature name or description:
+1. Search the codebase for related files (grep the feature name across src/)
+2. Check for test coverage near the feature code (look for .test. or .spec. files)
+3. Check for docs/changelog updates (search for the feature name in docs/, CHANGELOG, README)
+4. For each gap found (missing tests, missing docs, no changelog entry, no rollout steps), create a concrete task using `ostk work add 'description'`
+5. Output a short table: what you checked, what exists, what tasks you created
+Focus on gaps — skip anything already in place."
 TOOL shell
 TOOL file:read
-LIMIT tokens 100000
-LIMIT test_coverage 0
+TOOL file:write
+LIMIT tokens 150000
 ISOLATION nono
