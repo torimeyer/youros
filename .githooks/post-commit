@@ -16,6 +16,12 @@ if [ -n "$msg" ]; then
       # Run ostk work close, silently ignore if already closed or error
       if ostk work close "$needle" 2>/dev/null | grep -q "closed"; then
         echo "Auto-closed $needle"
+        # Also close the matching myOS session task (needle →1069)
+        curl -sk --connect-timeout 2 -m 4 -X POST \
+          "https://127.0.0.1:8000/api/tasks/${needle}/close" \
+          -H "Content-Type: application/json" \
+          -d '{"reason":"completed"}' \
+          >/dev/null 2>&1 || true
       fi
     fi
   done < <(echo "$msg" | grep -oE '→[0-9]{2,4}' | sort -u)
