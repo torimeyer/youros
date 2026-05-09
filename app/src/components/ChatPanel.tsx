@@ -19,6 +19,7 @@ import { detectIMessageSendIntent } from '../lib/imessageIntentDetector'
 import { IMessageConfirmBubble } from './IMessageConfirmBubble'
 import AttachmentPicker, { type AttachmentFile } from './AttachmentPicker'
 import { PeerChatTurnsPicker } from './PeerChatTurnsPicker'
+import { InlineTextPrompt } from './InlineTextPrompt'
 
 // Local cache key. The server is the source of truth for chat history.
 // We still mirror to localStorage so the very first paint after a hard
@@ -567,6 +568,7 @@ export function ChatPanel() {
   // When the user submits a peer-chat intent prompt, we defer dispatch here
   // and show the turns picker first. Cleared after the user picks turns.
   const [pendingPeerChatText, setPendingPeerChatText] = useState<string | null>(null)
+  const [inlinePrompt, setInlinePrompt] = useState<{ label: string; placeholder: string; prefix: string } | null>(null)
   const [imessagePending, setImessagePending] = useState<{
     phrase: string
     originalInput: string
@@ -1394,6 +1396,7 @@ export function ChatPanel() {
     setActiveBackend(null)
     setMultiAiStatus(null)
     setPeerChatPending(null)
+    setInlinePrompt(null)
     setActiveStreamingBubbleIds(new Set())
     setStepProgress(null)
     currentBubbleIdRef.current = null
@@ -2315,14 +2318,20 @@ export function ChatPanel() {
             <p className="text-slate-600 text-xs mb-6">Switch with the button below, or type @claude / @gemini in your message.</p>
             <div className="flex flex-wrap justify-center gap-2 max-w-sm">
               {[
-                { icon: 'calendar_month', text: "What's on my calendar today?" },
-                { icon: 'checklist', text: 'Help me plan my week' },
-                { icon: 'bolt', text: 'Break a project into tasks' },
-                { icon: 'summarize', text: 'Write a status update from my recent work' },
+                { icon: 'calendar_month', text: "What's on my calendar today?", send: true },
+                { icon: 'checklist', text: 'Help me plan my week', send: true },
+                { icon: 'bolt', text: 'Break this into tasks', send: false, label: 'What project or goal?', placeholder: 'e.g. Launch the new onboarding flow', prefix: 'Break this into tasks: ' },
+                { icon: 'summarize', text: 'Write a status update', send: false, label: 'About what?', placeholder: 'e.g. last week\'s sprint', prefix: 'Write a status update about ' },
               ].map((s) => (
                 <button
                   key={s.text}
-                  onClick={() => sendMessage(s.text)}
+                  onClick={() => {
+                    if (s.send) {
+                      sendMessage(s.text)
+                    } else {
+                      setInlinePrompt({ label: s.label!, placeholder: s.placeholder!, prefix: s.prefix! })
+                    }
+                  }}
                   className="flex items-center gap-2 px-3 py-2 bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700 rounded-lg text-xs text-slate-300 hover:text-white transition-colors"
                 >
                   <Icon name={s.icon} className="text-sm text-blue-400" />
@@ -2690,6 +2699,15 @@ export function ChatPanel() {
             pendingId={peerChatPending?.pendingId ?? ''}
             participants={peerChatPending?.participants ?? ['claude', 'gemini']}
             onPick={peerChatPending ? handlePeerChatTurnsPick : handlePreSelectTurns}
+          />
+        )}
+        {inlinePrompt && (
+          <InlineTextPrompt
+            label={inlinePrompt.label}
+            placeholder={inlinePrompt.placeholder}
+            prefix={inlinePrompt.prefix}
+            onSubmit={(full) => { setInlinePrompt(null); sendMessage(full) }}
+            onCancel={() => setInlinePrompt(null)}
           />
         )}
         {imessagePending && (
