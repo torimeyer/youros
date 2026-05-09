@@ -293,3 +293,37 @@ def test_create_custom_includes_aliases(tmp_path):
     })
     assert t["aliases"] == ["mt", "mytemplate"]
     assert t["id"].startswith("custom-")
+
+
+def test_follow_on_actions_present_on_roadmap(tmp_path):
+    """Roadmap template must carry follow_on_actions with at least 2 entries."""
+    store = make_store(tmp_path)
+    tpl = store.get_by_id("builtin-pm-roadmap")
+    assert tpl is not None
+    actions = tpl.get("follow_on_actions", [])
+    assert len(actions) >= 2, "Roadmap must have at least 2 follow-on actions"
+    labels = [a["label"] for a in actions]
+    assert any("slide" in lbl.lower() for lbl in labels), "Expected a slide-deck action"
+    assert any("email" in lbl.lower() for lbl in labels), "Expected an email action"
+    for action in actions:
+        assert "label" in action and "prompt" in action
+
+
+def test_follow_on_actions_present_on_competitive_scan(tmp_path):
+    """Competitive Scan template must carry at least one follow_on_action."""
+    store = make_store(tmp_path)
+    tpl = store.get_by_id("builtin-pm-competitive-scan")
+    assert tpl is not None
+    actions = tpl.get("follow_on_actions", [])
+    assert len(actions) >= 1
+    assert all("label" in a and "prompt" in a for a in actions)
+
+
+def test_follow_on_actions_present_on_study_guide(tmp_path):
+    """Study Guide template must carry at least one follow_on_action."""
+    store = make_store(tmp_path)
+    tpl = store.get_by_id("builtin-student-study-guide")
+    assert tpl is not None
+    actions = tpl.get("follow_on_actions", [])
+    assert len(actions) >= 1
+    assert any("flash" in a["label"].lower() for a in actions)

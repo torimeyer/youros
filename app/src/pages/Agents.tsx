@@ -1708,6 +1708,11 @@ interface UserInput {
   advanced?: boolean;
 }
 
+interface FollowOnAction {
+  label: string;
+  prompt: string;
+}
+
 interface PMAgentTemplate {
   id: string;
   name: string;
@@ -1720,6 +1725,7 @@ interface PMAgentTemplate {
   source?: 'builtin' | 'marketplace' | 'custom' | string;
   user_inputs?: UserInput[];
   attached_files?: string[];
+  follow_on_actions?: FollowOnAction[];
 }
 
 interface PMTemplatesResponse {
@@ -2826,6 +2832,22 @@ export default function Agents() {
   function isRoadmapAgent(agent: AgentInfo): boolean {
     const tpl = (agent.template || '').toLowerCase().trim();
     return ['roadmap', 'pm-roadmap', 'builtin-pm-roadmap'].includes(tpl);
+  }
+
+  const followOnMap = useMemo(() => {
+    const map = new Map<string, FollowOnAction[]>();
+    for (const tpl of pmTemplates) {
+      if (!tpl.follow_on_actions?.length) continue;
+      const actions = tpl.follow_on_actions;
+      map.set(tpl.id.toLowerCase(), actions);
+      map.set(tpl.name.toLowerCase(), actions);
+    }
+    return map;
+  }, [pmTemplates]);
+
+  function getFollowOns(agent: AgentInfo): FollowOnAction[] {
+    const tpl = (agent.template || '').toLowerCase().trim();
+    return followOnMap.get(tpl) ?? followOnMap.get(tpl.replace(/^builtin-/, '')) ?? [];
   }
 
   const fetchRoadmapForAgent = useCallback(async (agentName: string) => {
@@ -4453,6 +4475,27 @@ export default function Agents() {
                             quarters={agentRoadmaps[agent.name]}
                             onNavigateToChat={() => navigate('/')}
                           />
+                        )}
+                        {agent.status === 'completed' && getFollowOns(agent).length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-slate-800">
+                            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">What's next</p>
+                            <div className="flex flex-wrap gap-2">
+                              {getFollowOns(agent).map((action) => (
+                                <button
+                                  key={action.label}
+                                  data-testid="follow-on-action-btn"
+                                  onClick={() => {
+                                    try { sessionStorage.setItem('chat_pending_input', action.prompt); } catch { /* ignore */ }
+                                    navigate('/');
+                                  }}
+                                  className="inline-flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-emerald-900/60 border border-slate-700 hover:border-emerald-700 text-slate-300 hover:text-emerald-300 rounded-full px-3 py-1 transition-colors"
+                                >
+                                  <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
+                                  {action.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         )}
                         {isRecentExpanded && (
                           <div className="mt-3 pt-3 border-t border-slate-800">

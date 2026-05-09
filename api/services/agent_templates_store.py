@@ -405,6 +405,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "follow_on_actions": [
+            {"label": "Draft email summary to team", "prompt": "Draft an email to my team summarizing the competitive scan you just ran"},
+        ],
         "user_inputs": [
             {"key": "area", "label": "What product area are we looking at?", "placeholder": "e.g. project management, AI writing tools", "type": "text", "required": True, "advanced": False},
             {"key": "angle", "label": "What angle matters most?", "placeholder": "", "type": "chips", "options": ["Features", "Pricing", "Positioning", "GTM"], "required": False, "advanced": False},
@@ -535,6 +538,10 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "follow_on_actions": [
+            {"label": "Make slide deck", "prompt": "Make a slide deck from the roadmap you just created"},
+            {"label": "Draft email summary", "prompt": "Write a brief email summarizing the roadmap you just created"},
+        ],
         "user_inputs": [
             {"key": "initiatives", "label": "What are the main initiatives for the next year?", "placeholder": "List the big bets, one per line", "type": "textarea", "required": True, "advanced": False},
             {"key": "timeframe", "label": "Timeframe", "placeholder": "", "type": "chips", "options": ["1 year", "2 years", "3 years", "5 years"], "required": True, "advanced": False},
@@ -1124,6 +1131,9 @@ BUILTIN_AGENT_TEMPLATES: list[dict] = [
         "installed": False,
         "builtin": True,
         "produces_doc": True,
+        "follow_on_actions": [
+            {"label": "Make flashcards", "prompt": "Turn the study guide you just created into flashcards"},
+        ],
         "user_inputs": [
             {"key": "notes", "label": "Paste your class notes", "placeholder": "Paste your notes, slides, or reading material here", "type": "textarea", "required": True, "advanced": False},
             {"key": "format", "label": "Output", "placeholder": "", "type": "chips", "options": ["Study guide", "Flash cards", "Both"], "required": True, "advanced": False},
