@@ -171,7 +171,7 @@ export default function App() {
           <Route path="team" element={<Team />} />
           <Route path="team/settings" element={<TeamSettings />} />
           <Route path="team-setup" element={<TeamStart />} />
-          <Route path="adoption" element={<Adoption />} />
+          <Route path="adoption" element={<Navigate to="/settings" replace />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/upgrade" element={<Upgrade />} />
           <Route path="privacy" element={<PrivacyPolicy />} />
