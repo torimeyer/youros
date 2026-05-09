@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import pytest
 
+pytestmark = pytest.mark.touches_agent_registry
+
 
 # ---------------------------------------------------------------------------
 # Layer 1: mailbox instruction embeds the right model

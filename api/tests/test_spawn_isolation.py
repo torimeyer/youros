@@ -10,6 +10,8 @@ import logging
 
 import pytest
 
+pytestmark = pytest.mark.touches_agent_registry
+
 from services.spawn_isolation import (
     ISOLATION_NONE,
     ISOLATION_WORKTREE,

@@ -1,4 +1,6 @@
+import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -270,17 +272,27 @@ def _isolate_agent_state(tmp_path, monkeypatch):
     real writes happen, clears the dict, and restores the snapshot
     afterwards. Tests that add their own rows still see them via the
     module dict. Tests that call ``_save_agent_state`` write to the tmp
-    path and never touch the shared file. Deliberately a separate
-    fixture so it composes cleanly with ``live_task_tracker`` (added in
-    a parallel branch) rather than nesting inside it.
+    path and never touch the shared file.
+
+    Also redirects OSTK_DIR so that _emit_audit_event (which constructs
+    its audit.jsonl path from OSTK_DIR at call time) writes to a tmp
+    directory rather than the production .ostk/audit.jsonl. Without this,
+    every POST /register call during tests appends a real agent.registered
+    event to the live audit log, causing test-named agents to appear in
+    the production GET /api/agents response.
     """
     from routers import agents as agents_mod
 
+    tmp_ostk = tmp_path / "ostk"
+    tmp_ostk.mkdir(parents=True, exist_ok=True)
     tmp_state = tmp_path / "agent_state.json"
     snapshot = dict(agents_mod.agent_metadata)
     nudge_snapshot = {k: list(v) for k, v in agents_mod.nudge_history.items()}
 
+    monkeypatch.setattr(agents_mod, "OSTK_DIR", tmp_ostk)
     monkeypatch.setattr(agents_mod, "AGENT_STATE_PATH", tmp_state)
+    monkeypatch.setattr(agents_mod, "DELETED_AGENTS_PATH", tmp_ostk / "deleted_agents.json")
+    monkeypatch.setattr(agents_mod, "DURATION_STATS_PATH", tmp_ostk / "agent_durations.json")
     agents_mod.agent_metadata.clear()
     agents_mod.nudge_history.clear()
 
@@ -402,3 +414,64 @@ def _reset_api_key_cache():
     _clear_api_key_cache()
     yield
     _clear_api_key_cache()
+
+
+# ---------------------------------------------------------------------------
+# Pre-flight guard: block registry tests when live claude-code agents run
+# ---------------------------------------------------------------------------
+
+
+def _check_no_live_agents(curl_stdout: str) -> None:
+    """Parse curl output from GET /api/agents and raise UsageError if any
+    claude-code agent with status 'running' is present.
+
+    Accepts malformed or non-JSON input silently so the fixture degrades
+    gracefully when the backend is not reachable.
+    """
+    try:
+        agents = json.loads(curl_stdout)
+    except (json.JSONDecodeError, ValueError):
+        return
+    if not isinstance(agents, list):
+        return
+    live = [
+        a["name"]
+        for a in agents
+        if isinstance(a, dict)
+        and a.get("source") == "claude-code"
+        and a.get("status") == "running"
+    ]
+    if live:
+        names = ", ".join(live)
+        raise pytest.UsageError(
+            f"Cannot run registry tests while live claude-code agents are running: "
+            f"{names}. Stop them first via "
+            f"curl --connect-timeout 3 -m 5 -sSk -X POST "
+            f"https://127.0.0.1:8000/api/agents/<name>/cancel"
+        )
+
+
+@pytest.fixture(autouse=True)
+def _preflight_no_live_agents(request):
+    """Block test execution if live claude-code agents are running.
+
+    Only activates for tests marked with @pytest.mark.touches_agent_registry.
+    When the backend is unreachable the check is skipped rather than
+    blocking the whole test session.
+    """
+    if not request.node.get_closest_marker("touches_agent_registry"):
+        return
+    result = subprocess.run(
+        [
+            "curl",
+            "--connect-timeout", "1",
+            "-m", "2",
+            "-sSk",
+            "https://127.0.0.1:8000/api/agents",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return
+    _check_no_live_agents(result.stdout)

@@ -28,6 +28,8 @@ if str(_api_root) not in sys.path:
 
 from services.ghost_reaper import reap_ghost_agents
 
+pytestmark = pytest.mark.touches_agent_registry
+
 
 # ---------------------------------------------------------------------------
 # Helpers
