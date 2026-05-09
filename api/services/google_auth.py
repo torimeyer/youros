@@ -31,11 +31,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
 ]
 
-# Redirect URI used during the OAuth flow.  The backend serves the callback.
-# Must use https:// because the backend runs with a self-signed TLS cert
-# (see scripts/dev-backend.sh SSL_ARGS block).  Using http:// causes
-# ERR_EMPTY_RESPONSE because nothing listens on plain HTTP port 8000.
-REDIRECT_URI = "https://localhost:8000/api/drive/auth/callback"
+# Redirect URI used during the Drive/Calendar/Gmail OAuth flow.
+# Points to the unified Google callback in auth.py, which is already
+# registered in GCP Console. The old /api/drive/auth/callback was never
+# registered and caused redirect_uri_mismatch errors on fresh installs.
+REDIRECT_URI = "https://localhost:8000/api/auth/google/callback"
 
 
 def _ensure_dirs() -> None:
@@ -48,20 +48,45 @@ def credentials_file_exists() -> bool:
     return CREDENTIALS_PATH.exists()
 
 
+def can_start_oauth() -> bool:
+    """Return True if we have enough config to start an OAuth flow.
+
+    Accepts either the credentials file OR env vars so machines without
+    the manually-placed JSON file can still authenticate via env vars.
+    """
+    return CREDENTIALS_PATH.exists() or bool(
+        os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_CLIENT_SECRET")
+    )
+
+
 def _load_client_config() -> dict:
-    """Read client_id/client_secret from the user-supplied credentials file."""
-    try:
-        data = json.loads(CREDENTIALS_PATH.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+    """Read client_id/client_secret from the credentials file or env vars.
+
+    Falls back to GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET env vars when
+    the credentials file is missing. This lets the app work on machines
+    where the user has set env vars but hasn't manually placed the JSON file.
+    """
+    if CREDENTIALS_PATH.exists():
+        try:
+            data = json.loads(CREDENTIALS_PATH.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"Could not read {CREDENTIALS_PATH}: {exc}"
+            ) from exc
+        # Support both 'web' and 'installed' app types from Google Cloud Console.
+        for key in ("web", "installed"):
+            if key in data:
+                return data[key]
+        return data
+    # Fallback: build config from env vars (no credentials file on this machine).
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    if not client_id or not client_secret:
         raise RuntimeError(
-            f"Could not read {CREDENTIALS_PATH}: {exc}"
-        ) from exc
-    # Support both 'web' and 'installed' app types from Google Cloud Console.
-    for key in ("web", "installed"):
-        if key in data:
-            return data[key]
-    # Flat format (rare).
-    return data
+            f"No credentials file at {CREDENTIALS_PATH} and "
+            "GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET env vars are not set."
+        )
+    return {"client_id": client_id, "client_secret": client_secret}
 
 
 def get_auth_url(state: str) -> str:

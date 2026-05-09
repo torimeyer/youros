@@ -75,7 +75,7 @@ async def test_callback_error_param_redirects(client):
         follow_redirects=False,
     )
 
-    assert resp.status_code == 307
+    assert resp.status_code == 302
     assert "auth_error=access_denied" in resp.headers["location"]
 
 
@@ -87,7 +87,7 @@ async def test_callback_invalid_state_redirects(client):
         follow_redirects=False,
     )
 
-    assert resp.status_code == 307
+    assert resp.status_code == 302
     assert "auth_error=invalid_state" in resp.headers["location"]
 
 
@@ -103,7 +103,7 @@ async def test_callback_no_code_redirects(client):
         follow_redirects=False,
     )
 
-    assert resp.status_code == 307
+    assert resp.status_code == 302
     assert "auth_error=no_code" in resp.headers["location"]
 
 
@@ -141,7 +141,7 @@ async def test_callback_success_stores_tokens(client, tmp_path):
             follow_redirects=False,
         )
 
-    assert resp.status_code == 307
+    assert resp.status_code == 302
     assert "auth_success=google" in resp.headers["location"]
 
     # Verify tokens were persisted to settings
@@ -178,7 +178,7 @@ async def test_callback_token_exchange_failure(client):
             follow_redirects=False,
         )
 
-    assert resp.status_code == 307
+    assert resp.status_code == 302
     assert "auth_error=token_exchange_failed" in resp.headers["location"]
 
 
@@ -650,7 +650,7 @@ async def test_callback_success_redirect_uses_https_default(client, tmp_path):
         if orig is not None:
             os.environ["FRONTEND_URL"] = orig
 
-    assert resp.status_code == 307
+    assert resp.status_code == 302
     location = resp.headers["location"]
     assert location.startswith("https://"), (
         f"Redirect must use https:// by default, got: {location}"

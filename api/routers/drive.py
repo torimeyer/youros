@@ -21,6 +21,7 @@ from services.google_auth import (
     CREDENTIALS_PATH,
     DRIVE_CACHE_DIR,
     TOKEN_PATH,
+    can_start_oauth,
     credentials_file_exists,
     exchange_code,
     get_auth_url,
@@ -31,38 +32,21 @@ from services.google_auth import (
     is_authenticated,
     revoke,
 )
+from services.oauth_state import (
+    _STATE_TTL_SECONDS,
+    drive_oauth_states as _drive_oauth_states,
+    load_drive_oauth_states as _load_oauth_states,
+    save_drive_oauth_states as _save_oauth_states,
+)
 
 router = APIRouter(tags=["drive"])
 
 # Cache key used by the in-memory TTL cache around /drive/auth/status.
 _DRIVE_STATUS_CACHE_KEY = "drive_auth_status"
 
-# OAuth state map, persisted to disk so server restarts don't invalidate in-flight auth.
-# Maps state token -> {return_to: str, expires: float}
-_OAUTH_STATES_PATH = Path.home() / ".myos" / "oauth_states.json"
-_STATE_TTL_SECONDS = 600  # 10 minutes
-
-
-def _load_oauth_states() -> dict:
-    try:
-        if _OAUTH_STATES_PATH.exists():
-            data = json.loads(_OAUTH_STATES_PATH.read_text())
-            now = time.time()
-            return {k: v for k, v in data.items() if v.get("expires", 0) > now}
-    except Exception:
-        pass
-    return {}
-
-
-def _save_oauth_states(states: dict) -> None:
-    try:
-        _OAUTH_STATES_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _OAUTH_STATES_PATH.write_text(json.dumps(states))
-    except Exception:
-        pass
-
-
-_drive_oauth_states: dict[str, dict] = _load_oauth_states()
+# Drive OAuth states are now managed by services.oauth_state (imported above).
+# _drive_oauth_states, _load_oauth_states, _save_oauth_states, _STATE_TTL_SECONDS
+# are all imported from there; no local definitions needed.
 
 # MIME types that Google Drive can export to PDF.
 _EXPORTABLE_MIME = {
@@ -168,19 +152,21 @@ async def drive_auth_status():
 
 
 @router.get("/drive/auth/url")
-async def drive_auth_url():
+async def drive_auth_url(return_to: str = ""):
     """Return the URL the user should visit to connect their Google account."""
-    if not credentials_file_exists():
+    if not can_start_oauth():
         raise HTTPException(
             status_code=400,
             detail=(
-                "No credentials file found at ~/.myos/google_credentials.json. "
-                "Download it from Google Cloud Console and save it there."
+                "Google credentials are not configured. "
+                "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file."
             ),
         )
+    frontend = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    effective_return_to = _validate_return_to(return_to, f"{frontend}/drive")
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
-        "return_to": f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/drive",
+        "return_to": effective_return_to,
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
@@ -189,19 +175,21 @@ async def drive_auth_url():
 
 
 @router.get("/drive/auth/url/calendar")
-async def drive_auth_url_for_calendar():
+async def drive_auth_url_for_calendar(return_to: str = ""):
     """Return an OAuth URL that redirects back to the Calendar page after auth."""
-    if not CREDENTIALS_PATH.exists():
+    if not can_start_oauth():
         raise HTTPException(
             status_code=400,
             detail=(
-                "No credentials file found at ~/.myos/google_credentials.json. "
-                "Download it from Google Cloud Console and save it there."
+                "Google credentials are not configured. "
+                "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file."
             ),
         )
+    frontend = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    effective_return_to = _validate_return_to(return_to, f"{frontend}/calendar")
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
-        "return_to": f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/calendar",
+        "return_to": effective_return_to,
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
@@ -210,19 +198,21 @@ async def drive_auth_url_for_calendar():
 
 
 @router.get("/drive/auth/url/gmail")
-async def drive_auth_url_for_gmail():
+async def drive_auth_url_for_gmail(return_to: str = ""):
     """Return an OAuth URL that redirects back to the Gmail page after auth."""
-    if not CREDENTIALS_PATH.exists():
+    if not can_start_oauth():
         raise HTTPException(
             status_code=400,
             detail=(
-                "No credentials file found at ~/.myos/google_credentials.json. "
-                "Download it from Google Cloud Console and save it there."
+                "Google credentials are not configured. "
+                "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file."
             ),
         )
+    frontend = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    effective_return_to = _validate_return_to(return_to, f"{frontend}/gmail")
     state = secrets.token_urlsafe(32)
     _drive_oauth_states[state] = {
-        "return_to": f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/gmail",
+        "return_to": effective_return_to,
         "expires": time.time() + _STATE_TTL_SECONDS,
     }
     _save_oauth_states(_drive_oauth_states)
@@ -255,70 +245,26 @@ def _append_query(url: str, param: str) -> str:
     return f"{url}{sep}{param}"
 
 
-@router.get("/drive/auth/callback")
-async def drive_auth_callback(
-    code: str = "",
-    state: str = "",
-    error: str = "",
-):
-    """Handle the OAuth callback from Google.
+def _validate_return_to(return_to: str, default: str) -> str:
+    """Validate and return a safe post-OAuth redirect target.
 
-    On success, redirects the browser back to the myOS Drive page with
-    ?connected=true so the user lands back in the app automatically.
-    On failure, redirects with ?error=<reason>.
+    Only accepts same-origin paths (starting with /) or URLs that start with
+    the configured FRONTEND_URL. Anything else falls back to ``default``
+    to prevent open-redirect attacks.
     """
-    fallback_url = _frontend_drive_url()
-    if error:
-        return RedirectResponse(
-            url=_append_query(fallback_url, f"error={error}"),
-            status_code=302,
-        )
+    if not return_to:
+        return default
+    frontend = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+    if return_to.startswith("/") or return_to.startswith(frontend):
+        if return_to.startswith("/"):
+            return f"{frontend}{return_to}"
+        return return_to
+    return default
 
-    # Reload persisted states in case this is a fresh server process.
-    current_states = _load_oauth_states()
-    _drive_oauth_states.update(current_states)
 
-    state_data = _drive_oauth_states.get(state)
-    if not state_data:
-        return RedirectResponse(
-            url=_append_query(fallback_url, "error=invalid_state"),
-            status_code=302,
-        )
-    return_to = state_data.get("return_to", fallback_url)
-    del _drive_oauth_states[state]
-    _save_oauth_states(_drive_oauth_states)
-
-    if not code:
-        return RedirectResponse(
-            url=_append_query(return_to, "error=no_code"),
-            status_code=302,
-        )
-
-    try:
-        exchange_code(code)
-    except Exception:
-        return RedirectResponse(
-            url=_append_query(return_to, "error=token_exchange_failed"),
-            status_code=302,
-        )
-
-    # After saving the token, prewarm the caches for every Google service
-    # that shares these credentials: Drive files, Gmail inbox, and
-    # Calendar events. All three run in parallel so the user lands on
-    # their target page (Drive, Gmail, or Calendar) and sees data
-    # immediately instead of waiting 5 to 10 seconds for a cold fetch.
-    # Each prewarm swallows its own exceptions so a single service
-    # failing (for example Gmail API not enabled) cannot block the
-    # others from populating or the redirect from completing.
-    try:
-        await _prewarm_all_google_caches()
-    except Exception:
-        pass
-
-    return RedirectResponse(
-        url=_append_query(return_to, "connected=true"),
-        status_code=302,
-    )
+# Drive OAuth callback is now handled by /api/auth/google/callback in auth.py.
+# That URI is already registered in GCP Console and handles both Drive and
+# Gemini OAuth flows via the state token prefix.
 
 
 async def _prewarm_all_google_caches() -> None:

@@ -8,7 +8,14 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
-from services.oauth_state import oauth_states as _oauth_states
+from routers.drive import _prewarm_all_google_caches
+from services.google_auth import exchange_code as _drive_exchange_code
+from services.oauth_state import (
+    drive_oauth_states as _drive_oauth_states,
+    load_drive_oauth_states,
+    oauth_states as _oauth_states,
+    save_drive_oauth_states,
+)
 from services.settings_store import settings_store
 
 router = APIRouter(tags=["auth"])
@@ -58,23 +65,51 @@ async def google_auth(request: Request):
 
 @router.get("/api/auth/google/callback")
 async def google_callback(request: Request, code: str = "", state: str = "", error: str = ""):
-    """Handle the OAuth callback from Google."""
-    if error:
-        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/?auth_error=" + error)
+    """Handle the OAuth callback from Google.
 
+    Serves two flows that both use this registered redirect URI:
+    - Drive/Calendar/Gmail: state is in _drive_oauth_states, saves token file.
+    - Gemini AI: state is in _oauth_states, saves to settings store.
+    """
+    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
+
+    if error:
+        return RedirectResponse(f"{frontend_url}/?auth_error=" + error, status_code=302)
+
+    # --- Drive/Calendar/Gmail path ---
+    # Reload persisted states in case this is a fresh server process.
+    _drive_oauth_states.update(load_drive_oauth_states())
+    if state in _drive_oauth_states:
+        state_data = _drive_oauth_states.pop(state)
+        save_drive_oauth_states(_drive_oauth_states)
+        if not code:
+            return RedirectResponse(f"{frontend_url}/?auth_error=no_code", status_code=302)
+        return_to = state_data.get("return_to", f"{frontend_url}/drive")
+        try:
+            _drive_exchange_code(code)
+        except Exception:
+            sep = "&" if "?" in return_to else "?"
+            return RedirectResponse(f"{return_to}{sep}error=token_exchange_failed", status_code=302)
+        try:
+            await _prewarm_all_google_caches()
+        except Exception:
+            pass
+        sep = "&" if "?" in return_to else "?"
+        return RedirectResponse(f"{return_to}{sep}connected=true", status_code=302)
+
+    # --- Gemini AI path ---
     if state not in _oauth_states:
-        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/?auth_error=invalid_state")
+        return RedirectResponse(f"{frontend_url}/?auth_error=invalid_state", status_code=302)
     del _oauth_states[state]
 
     if not code:
-        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/?auth_error=no_code")
+        return RedirectResponse(f"{frontend_url}/?auth_error=no_code", status_code=302)
 
     client_id = _google_client_id()
     client_secret = _google_client_secret()
     base_url = str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/api/auth/google/callback"
 
-    # Exchange authorization code for tokens
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://oauth2.googleapis.com/token",
@@ -88,22 +123,15 @@ async def google_callback(request: Request, code: str = "", state: str = "", err
         )
 
     if resp.status_code != 200:
-        return RedirectResponse(f"{os.environ.get('FRONTEND_URL', 'https://localhost:3010')}/?auth_error=token_exchange_failed")
+        return RedirectResponse(f"{frontend_url}/?auth_error=token_exchange_failed", status_code=302)
 
     tokens = resp.json()
-    access_token = tokens.get("access_token", "")
-    refresh_token = tokens.get("refresh_token", "")
-
-    # Store the tokens. The Gemini API can use the access token directly.
     settings_store.update({
-        "gemini_oauth_access_token": access_token,
-        "gemini_oauth_refresh_token": refresh_token,
+        "gemini_oauth_access_token": tokens.get("access_token", ""),
+        "gemini_oauth_refresh_token": tokens.get("refresh_token", ""),
         "gemini_auth_method": "oauth",
     })
-
-    # In dev mode, redirect to the Vite dev server instead of the backend
-    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
-    return RedirectResponse(f"{frontend_url}/?auth_success=google")
+    return RedirectResponse(f"{frontend_url}/?auth_success=google", status_code=302)
 
 
 def _slack_client_id() -> str:
