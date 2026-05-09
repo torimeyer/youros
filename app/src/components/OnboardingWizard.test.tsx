@@ -668,6 +668,22 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     })
   })
 
+  it('EnhanceClaude step shows ostk-aware benefit copy and new button labels', async () => {
+    render(<OnboardingWizard />)
+    choosePersonalMode()
+    clickNext(6) // Welcome -> You -> Name -> Profile -> Customize -> Theme -> EnhanceClaude
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-enhance-claude')).toBeInTheDocument()
+    })
+
+    const step = screen.getByTestId('step-enhance-claude')
+    expect(step.textContent).toMatch(/Connect Claude Code to myOS/i)
+    expect(step.textContent).toMatch(/ostk/i)
+    expect(step.textContent).toMatch(/Yes, connect Claude Code to myOS/i)
+    expect(step.textContent).toMatch(/Skip for now/i)
+  })
+
   it('Enter on the Profile step advances to Customize step', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
