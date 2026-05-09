@@ -11,7 +11,7 @@
  *   installed: true when the template is already in the user's list
  *   onAction: called when the action button is clicked
  *   actionLabel: label for the action button (default: "Use")
- *   onDelete: optional, shows a delete icon for custom templates
+ *   onUnfavorite: optional, shows an unfavorite (star) icon to remove from favorites
  *   capabilities: optional agentfile capability summary shown on hover
  *   parseError: when set, shows an error panel instead of capabilities
  *   testId: data-testid prefix
@@ -38,7 +38,7 @@ export interface TemplateCardProps {
   favorited?: boolean
   onAction?: () => void
   actionLabel?: string
-  onDelete?: () => void
+  onUnfavorite?: () => void
   capabilities?: TemplateCapabilities | null
   parseError?: string | null
   testId?: string
@@ -54,7 +54,7 @@ export default function TemplateCard({
   favorited = false,
   onAction,
   actionLabel = 'Use',
-  onDelete,
+  onUnfavorite,
   capabilities,
   parseError,
   testId,
@@ -177,14 +177,14 @@ export default function TemplateCard({
               <Icon name="check_circle" size={18} />
             </span>
           )}
-          {onDelete && (
+          {onUnfavorite && (
             <button
-              onClick={onDelete}
-              className="text-slate-500 hover:text-red-400 transition-colors mt-1"
-              title="Remove template"
-              data-testid={testId ? `${testId}-delete` : `template-card-${name}-delete`}
+              onClick={onUnfavorite}
+              className="text-amber-400 hover:text-amber-300 transition-colors mt-1"
+              title="Remove from favorites"
+              data-testid={testId ? `${testId}-unfavorite` : `template-card-${name}-unfavorite`}
             >
-              <Icon name="delete" size={16} />
+              <Icon name="star" size={16} />
             </button>
           )}
         </div>

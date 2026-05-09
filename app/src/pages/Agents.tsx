@@ -4531,7 +4531,7 @@ export default function Agents() {
                   setEditorOpen(true);
                 } : undefined}
                 actionLabel="Use"
-                onDelete={!tpl.isBuiltIn ? () => deleteCustomTemplate(tpl.name) : undefined}
+                onUnfavorite={!tpl.isBuiltIn ? () => deleteCustomTemplate(tpl.name) : undefined}
                 capabilities={tpl.capabilities ?? null}
                 parseError={tpl.parseError ?? null}
                 testId={`template-card-${tpl.name}`}
@@ -4555,7 +4555,7 @@ export default function Agents() {
                   favorited={true}
                   onAction={() => handleUsePmTemplate(tpl)}
                   actionLabel="Use"
-                  onDelete={!tpl.builtin ? () => handleDeletePmTemplate(tpl.id) : undefined}
+                  onUnfavorite={!tpl.builtin ? () => handleDeletePmTemplate(tpl.id) : undefined}
                   testId={`pm-template-card-${tpl.id}`}
                 />
               ))}
@@ -4580,7 +4580,7 @@ export default function Agents() {
                   favorited={true}
                   onAction={() => handleUsePmTemplate(tpl)}
                   actionLabel="Use"
-                  onDelete={() => handleDeletePmTemplate(tpl.id)}
+                  onUnfavorite={() => handleDeletePmTemplate(tpl.id)}
                   testId={`user-template-card-${tpl.id}`}
                 />
               ))}

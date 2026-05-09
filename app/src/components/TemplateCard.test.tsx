@@ -94,8 +94,8 @@ describe('TemplateCard', () => {
     expect(root1.children.length).toBe(root2.children.length)
   })
 
-  it('shows delete button only for custom templates', () => {
-    const onDelete = vi.fn()
+  it('shows unfavorite button only for custom templates', () => {
+    const onUnfavorite = vi.fn()
     render(
       <TemplateCard
         name="My Custom"
@@ -104,14 +104,14 @@ describe('TemplateCard', () => {
         source="custom"
         installed={true}
         onAction={vi.fn()}
-        onDelete={onDelete}
+        onUnfavorite={onUnfavorite}
         testId="tc-custom"
       />
     )
-    expect(screen.getByTestId('tc-custom-delete')).toBeInTheDocument()
+    expect(screen.getByTestId('tc-custom-unfavorite')).toBeInTheDocument()
   })
 
-  it('does not show delete button when onDelete is not provided', () => {
+  it('does not show unfavorite button when onUnfavorite is not provided', () => {
     render(
       <TemplateCard
         name="Builder"
@@ -123,7 +123,7 @@ describe('TemplateCard', () => {
         testId="tc-no-delete"
       />
     )
-    expect(screen.queryByTestId('tc-no-delete-delete')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tc-no-delete-unfavorite')).not.toBeInTheDocument()
   })
 })
 
