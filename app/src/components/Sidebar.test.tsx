@@ -36,7 +36,6 @@ const DEFAULT_FEATURES = [
   { label: 'Cost Tracking', enabled: true },
   { label: 'Specs', enabled: true },
   { label: 'Automations', enabled: true },
-  { label: 'Inbox', enabled: true },
 ]
 
 function renderSidebar(initialPath = '/') {
@@ -1258,8 +1257,10 @@ describe('Files and Drive sidebar entries', () => {
     expect(links.some((l) => l.getAttribute('href') === '/drive')).toBe(true)
   })
 
-  it('renders Inbox nav link with label "Inbox"', () => {
+  it('does not render Inbox in the nav', () => {
     renderSidebar()
-    expect(screen.getByText('Inbox')).toBeInTheDocument()
+    expandAllGroups()
+    const links = screen.getAllByRole('link')
+    expect(links.some((l) => l.getAttribute('href') === '/inbox')).toBe(false)
   })
 })

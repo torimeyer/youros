@@ -21,7 +21,7 @@ import ConfirmModal from './ConfirmModal'
 import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import AdminSection from './AdminSection'
 import { api } from '../lib/api'
-import { onTasksChange, onSpecsChange, onInboxChange } from '../lib/sidebarBus'
+import { onTasksChange, onSpecsChange } from '../lib/sidebarBus'
 import { useRunningAgentsStore } from '../stores/runningAgents'
 
 // ------------- types -------------
@@ -35,7 +35,7 @@ interface NavItem {
   gmailBadge?: boolean
   tasksBadge?: boolean
   specsBadge?: boolean
-  inboxBadge?: boolean
+
 }
 
 interface NavGroup {
@@ -51,7 +51,7 @@ interface NavGroup {
 // Value is a JSON object: { [groupId]: boolean }
 const COLLAPSED_KEY = 'sidebar-group-collapsed'
 
-const TOP_LEVEL_ROUTES = new Set(['/', '/tasks', '/inbox', '/agents'])
+const TOP_LEVEL_ROUTES = new Set(['/', '/tasks', '/agents'])
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -84,7 +84,6 @@ const NAV_GROUPS: NavGroup[] = [
 const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: 'home', label: 'Home', featureLabel: null },
   { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true },
-  { to: '/inbox', icon: 'inbox', label: 'Inbox', featureLabel: 'Inbox', inboxBadge: true },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
@@ -335,7 +334,6 @@ export function Sidebar() {
   const [openTasksCount, setOpenTasksCount] = useState(0)
   const [unfinishedSpecs, setUnfinishedSpecs] = useState(0)
   const [gmailUnread, setGmailUnread] = useState(0)
-  const [inboxCount, setInboxCount] = useState(0)
   const [version, setVersion] = useState('')
   const [backendUp, setBackendUp] = useState<boolean | null>(null)
   const [ostkUp, setOstkUp] = useState<boolean | null>(null)
@@ -396,23 +394,7 @@ export function Sidebar() {
     }
   }, [])
 
-  useEffect(() => {
-    const fetchInboxCounts = async () => {
-      try {
-        const res = await api.get<{ total: number }>('/inbox/counts')
-        setInboxCount(res.total ?? 0)
-      } catch {
-        // ignore
-      }
-    }
-    fetchInboxCounts()
-    const interval = setInterval(fetchInboxCounts, 2000)
-    const unsubscribe = onInboxChange(() => { fetchInboxCounts() })
-    return () => {
-      clearInterval(interval)
-      unsubscribe()
-    }
-  }, [])
+
 
   // Optimistic offset applied while the Specs page has a delete in its
   // 5 s undo window. The Specs page dispatches ``myos:pending-spec-delta``
@@ -569,7 +551,7 @@ export function Sidebar() {
 
   // Top-level items (Home + Tasks + Agents) that are not in any group
   const topLevelItems = ALL_NAV_ITEMS.filter((i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i)).sort((a, b) => {
-    const order = ['/', '/tasks', '/inbox', '/agents']
+    const order = ['/', '/tasks', '/agents']
     return order.indexOf(a.to) - order.indexOf(b.to)
   })
 
@@ -663,12 +645,7 @@ export function Sidebar() {
                     {openTasksCount}
                   </span>
                 )}
-                {item.inboxBadge && inboxCount > 0 && (
-                  <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    {inboxCount}
-                  </span>
-                )}
+
               </>
             )}
           </NavLink>

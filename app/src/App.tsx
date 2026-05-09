@@ -43,7 +43,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy'
 import AboutMyOS from './pages/AboutMyOS'
 import AgentfileEditor from './pages/AgentfileEditor'
 import MySetup from './pages/MySetup'
-import Inbox from './pages/Inbox'
+
 import Team from './pages/Team'
 import TeamSettings from './pages/TeamSettings'
 
@@ -177,7 +177,7 @@ export default function App() {
           <Route path="privacy" element={<PrivacyPolicy />} />
           <Route path="about" element={<AboutMyOS />} />
           <Route path="my-setup" element={<MySetup />} />
-          <Route path="inbox" element={<Inbox />} />
+
         </Route>
       </Routes>
     </BrowserRouter>
