@@ -771,6 +771,38 @@ async def sync_claude_dir_to_worktree(src_claude_dir, dst_claude_dir, timeout=10
                     "spawn.hook_sync.hooks_symlinked src=%s dst=%s",
                     src_hooks, dst_hooks,
                 )
+                # git does not descend into directory symlinks during status
+                # walks (lstat sees a symlink, not a directory). Every file
+                # tracked under .claude/hooks/ in the index would appear as
+                # " D" (phantom-deleted) without this. Mark them skip-worktree
+                # so git status ignores the divergence intentionally.
+                wt_root = dst.parent
+                rel_hooks = str(dst_hooks.relative_to(wt_root))
+                try:
+                    proc_ls = await asyncio.create_subprocess_exec(
+                        "git", "-C", str(wt_root), "ls-files", rel_hooks,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    ls_out, _ = await asyncio.wait_for(proc_ls.communicate(), timeout=5.0)
+                    hooks_tracked = [p for p in ls_out.decode(errors="replace").splitlines() if p]
+                    if hooks_tracked:
+                        proc_idx = await asyncio.create_subprocess_exec(
+                            "git", "-C", str(wt_root),
+                            "update-index", "--skip-worktree", "--", *hooks_tracked,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                        )
+                        await asyncio.wait_for(proc_idx.communicate(), timeout=5.0)
+                        logger.info(
+                            "spawn.hook_sync.skip_worktree_set count=%d wt=%s",
+                            len(hooks_tracked), wt_root,
+                        )
+                except Exception as idx_exc:
+                    logger.warning(
+                        "spawn.hook_sync.skip_worktree_failed wt=%s err=%s",
+                        wt_root, idx_exc,
+                    )
             except Exception as sym_exc:
                 logger.warning(
                     "spawn.hook_sync.hooks_symlink_failed src=%s dst=%s err=%s "

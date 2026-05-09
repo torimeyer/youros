@@ -94,3 +94,54 @@ def test_hooks_dir_is_symlink_to_main():
         dst_hooks = wt / ".claude" / "hooks"
         assert dst_hooks.is_symlink(), "hooks/ must be a symlink, not a copy"
         assert dst_hooks.resolve() == (tmp_p / ".claude" / "hooks").resolve()
+
+
+def _git(args: list[str], cwd: str, check: bool = True) -> "subprocess.CompletedProcess[str]":
+    import subprocess
+    return subprocess.run(
+        ["git"] + args, cwd=cwd, capture_output=True, text=True, check=check
+    )
+
+
+def test_no_phantom_deletes_after_hook_sync():
+    """After sync_claude_dir_to_worktree, git status must report 0 phantom-deleted
+    files under .claude/hooks/. The symlink created by the sync replaces a
+    tracked directory; without skip-worktree markers git reports every
+    tracked file as ' D' because it does not descend into directory symlinks."""
+    import subprocess
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_p = Path(tmp)
+        repo = tmp_p / "repo"
+        repo.mkdir()
+
+        _git(["init", "-b", "main"], cwd=str(repo))
+        _git(["config", "user.email", "test@test.com"], cwd=str(repo))
+        _git(["config", "user.name", "Test"], cwd=str(repo))
+
+        (repo / ".claude" / "hooks").mkdir(parents=True)
+        (repo / ".claude" / "hooks" / "guard.sh").write_text("#!/bin/bash\nexit 0\n")
+        (repo / ".claude" / "hooks" / "logger.sh").write_text("#!/bin/bash\necho log\n")
+        (repo / ".claude" / "lib").mkdir(parents=True)
+        (repo / ".claude" / "lib" / "helper.sh").write_text("# lib\n")
+        _git(["add", "-A"], cwd=str(repo))
+        _git(["commit", "-m", "initial"], cwd=str(repo))
+
+        wt = tmp_p / "worktree"
+        _git(
+            ["worktree", "add", "--lock", str(wt), "-b", "agent-branch", "main"],
+            cwd=str(repo),
+        )
+
+        asyncio.run(
+            sync_claude_dir_to_worktree(repo / ".claude", wt / ".claude")
+        )
+
+        result = _git(["status", "--short"], cwd=str(wt), check=False)
+        phantom_deletes = [
+            line for line in result.stdout.splitlines()
+            if line.startswith(" D")
+        ]
+        assert phantom_deletes == [], (
+            f"Expected 0 phantom-deleted files but got {len(phantom_deletes)}: "
+            f"{phantom_deletes}"
+        )
