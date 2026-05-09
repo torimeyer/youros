@@ -228,7 +228,6 @@ async def test_drive_auth_callback_error_param(client):
     )
     assert resp.status_code == 302
     assert "access_denied" in resp.headers["location"]
-    assert "localhost:3010" in resp.headers["location"]
 
 
 @pytest.mark.asyncio
@@ -240,7 +239,6 @@ async def test_drive_auth_callback_invalid_state(client):
     )
     assert resp.status_code == 302
     assert "invalid_state" in resp.headers["location"]
-    assert "localhost:3010" in resp.headers["location"]
 
 
 @pytest.mark.asyncio
@@ -780,18 +778,22 @@ async def test_drive_credentials_upload_web_format(client, tmp_path):
     assert resp.json()["ok"] is True
 
 
-def test_google_auth_redirect_uri_uses_https():
-    """REDIRECT_URI must use https:// so the OAuth callback reaches the TLS-only backend.
+def test_google_auth_redirect_uri_is_dynamic():
+    """get_auth_url must accept a redirect_uri parameter rather than using a hardcoded constant.
 
-    Regression guard: if someone changes the scheme back to http:// the backend
-    will have no listener on plain HTTP and Google will redirect to a dead URL,
-    producing ERR_EMPTY_RESPONSE in the browser.
+    Regression guard: redirect_uri is now derived from request.base_url so it
+    works on any host/scheme without requiring a hardcoded URL.
     """
-    from services.google_auth import REDIRECT_URI
+    import inspect
+    from services import google_auth
 
-    assert REDIRECT_URI.startswith("https://"), (
-        f"REDIRECT_URI must start with https:// (got {REDIRECT_URI!r}). "
-        "The backend serves HTTPS only; an http:// redirect URI leads to ERR_EMPTY_RESPONSE."
+    sig = inspect.signature(google_auth.get_auth_url)
+    assert "redirect_uri" in sig.parameters, (
+        "get_auth_url must accept a redirect_uri parameter. "
+        "The old hardcoded REDIRECT_URI constant has been removed."
+    )
+    assert not hasattr(google_auth, "REDIRECT_URI"), (
+        "REDIRECT_URI constant must be removed; redirect_uri is now passed as a parameter."
     )
 
 

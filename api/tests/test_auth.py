@@ -611,8 +611,12 @@ class TestSlackWorkspaceFields:
 
 
 @pytest.mark.asyncio
-async def test_callback_success_redirect_uses_https_default(client, tmp_path):
-    """OAuth success redirect must use https:// when FRONTEND_URL is not set (→996)."""
+async def test_callback_success_redirect_uses_frontend_url(client, tmp_path):
+    """OAuth success redirect uses FRONTEND_URL when set (→996).
+
+    redirect_uri is now derived dynamically: FRONTEND_URL env var takes
+    precedence; when absent the backend falls back to request.base_url.
+    """
     import os
     from routers.auth import _oauth_states
 
@@ -628,30 +632,27 @@ async def test_callback_success_redirect_uses_https_default(client, tmp_path):
     settings_file = tmp_path / "settings.json"
     settings_file.write_text('{"os_name": "myOS"}')
 
-    orig = os.environ.pop("FRONTEND_URL", None)
-    try:
-        with (
-            patch("routers.auth._google_client_id", return_value="test-client-id"),
-            patch("routers.auth._google_client_secret", return_value="test-secret"),
-            patch("routers.auth.httpx.AsyncClient") as MockHttpxClient,
-            patch("services.settings_store.SETTINGS_PATH", settings_file),
-        ):
-            mock_client_instance = AsyncMock()
-            mock_client_instance.post = AsyncMock(return_value=mock_response)
-            mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-            mock_client_instance.__aexit__ = AsyncMock(return_value=None)
-            MockHttpxClient.return_value = mock_client_instance
+    with (
+        patch("routers.auth._google_client_id", return_value="test-client-id"),
+        patch("routers.auth._google_client_secret", return_value="test-secret"),
+        patch("routers.auth.httpx.AsyncClient") as MockHttpxClient,
+        patch("services.settings_store.SETTINGS_PATH", settings_file),
+        patch.dict("os.environ", {"FRONTEND_URL": "https://localhost:3010"}),
+    ):
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post = AsyncMock(return_value=mock_response)
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        MockHttpxClient.return_value = mock_client_instance
 
-            resp = await client.get(
-                "/api/auth/google/callback?code=https-code&state=https-default-state",
-                follow_redirects=False,
-            )
-    finally:
-        if orig is not None:
-            os.environ["FRONTEND_URL"] = orig
+        resp = await client.get(
+            "/api/auth/google/callback?code=https-code&state=https-default-state",
+            follow_redirects=False,
+        )
 
     assert resp.status_code == 302
     location = resp.headers["location"]
-    assert location.startswith("https://"), (
-        f"Redirect must use https:// by default, got: {location}"
+    assert location.startswith("https://localhost:3010"), (
+        f"Redirect must use FRONTEND_URL when set, got: {location}"
     )
+    assert "auth_success=google" in location
