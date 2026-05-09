@@ -30,6 +30,7 @@ interface DriveFile {
 interface FilesResponse {
   files: DriveFile[];
   cached: boolean;
+  last_synced_at?: number | null;
 }
 
 interface SyncResponse {
@@ -532,7 +533,7 @@ export default function Drive() {
     }
   }, []);
 
-  const fetchFiles = useCallback(async (q?: string) => {
+  const fetchFiles = useCallback(async (q?: string): Promise<number | null> => {
     setFilesLoading(true);
     setFilesError(null);
     try {
@@ -546,6 +547,9 @@ export default function Drive() {
       // empty results so a transient zero-result fetch does not pin
       // the UI blank on the next visit.
       if (!q && list.length > 0) writeDriveCache(list);
+      const syncedAt = res.last_synced_at ?? null;
+      if (syncedAt !== null) setLastSyncedAt(syncedAt);
+      return syncedAt;
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: { api_not_enabled?: boolean } } } })
         ?.response?.data?.detail;
@@ -554,6 +558,7 @@ export default function Drive() {
       } else {
         setFilesError('Could not load your Drive files. Check your connection and try again.');
       }
+      return null;
     } finally {
       setFilesLoading(false);
     }
@@ -595,25 +600,33 @@ export default function Drive() {
   // for an unauthenticated user. Regression guard for slow page load
   // on return visits.
   useEffect(() => {
+    const maybeAutoSync = async (syncedAt: number | null) => {
+      const isStale = syncedAt === null || Date.now() / 1000 - syncedAt > 300;
+      if (!isStale) return;
+      try {
+        const res = await api.post<SyncResponse>('/drive/sync');
+        setLastSyncedAt(res.synced_at);
+        fetchFiles();
+      } catch {
+        // Background sync failures are silent — the file list still shows.
+      }
+    };
+
     const hasCached = readDriveCache().length > 0;
     if (hasCached) {
       // Speculatively fire both in parallel. If status says we are
       // not authenticated we throw away the files result silently.
       const statusPromise = fetchStatus();
       const filesPromise = fetchFiles();
-      statusPromise.then((status) => {
-        if (!status?.authenticated) {
-          // The page will render the connect flow anyway; the files
-          // fetch result is harmless to ignore here.
-          return;
-        }
-        return filesPromise;
+      Promise.all([statusPromise, filesPromise]).then(([status, syncedAt]) => {
+        if (!status?.authenticated) return;
+        return maybeAutoSync(syncedAt);
       });
       return;
     }
     fetchStatus().then((status) => {
       if (status?.authenticated) {
-        fetchFiles();
+        fetchFiles().then(maybeAutoSync);
       }
     });
   }, [fetchStatus, fetchFiles]);

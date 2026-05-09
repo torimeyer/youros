@@ -710,4 +710,35 @@ describe('Drive — Google OAuth connect button', () => {
     expect(screen.queryByTestId('connect-google-button-drive')).not.toBeInTheDocument()
     expect(screen.getByText('Step 1: Upload your credentials file')).toBeInTheDocument()
   })
+
+  it('shows real last-synced time when response includes last_synced_at', async () => {
+    const twoMinutesAgo = Date.now() / 1000 - 120
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      if (path.includes('/drive/files'))
+        return Promise.resolve({ files: SAMPLE_FILES, cached: true, last_synced_at: twoMinutesAgo })
+      return Promise.resolve({})
+    })
+    renderDrive()
+    await waitFor(() => {
+      expect(screen.queryByText('Never synced')).not.toBeInTheDocument()
+      expect(screen.getByText(/Last synced/)).toBeInTheDocument()
+    })
+  })
+
+  it('triggers a background sync when last_synced_at is null in the response', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/drive/auth/status')) return Promise.resolve(AUTHENTICATED)
+      // Return null last_synced_at to trigger auto-refresh.
+      if (path.includes('/drive/files'))
+        return Promise.resolve({ files: SAMPLE_FILES, cached: false, last_synced_at: null })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({ ok: true, file_count: 2, synced_at: Date.now() / 1000 })
+
+    renderDrive()
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/drive/sync')
+    })
+  })
 })

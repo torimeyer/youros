@@ -577,6 +577,56 @@ async def test_drive_files_search_skips_cache(client, tmp_path):
     assert len(resp.json()["files"]) == 1
 
 
+@pytest.mark.asyncio
+async def test_drive_files_cached_response_includes_last_synced_at(client, tmp_path):
+    """Cache hit should include last_synced_at as a float (the index file mtime)."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "drive_cache"
+    cache_dir.mkdir()
+    index_path = cache_dir / "index.json"
+    fake_files = _make_drive_files(2)
+    index_path.write_text(json.dumps(fake_files))
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
+        patch("routers.drive._INDEX_PATH", index_path),
+    ):
+        resp = await client.get("/api/drive/files")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["cached"] is True
+    assert isinstance(data["last_synced_at"], float)
+
+
+@pytest.mark.asyncio
+async def test_drive_files_no_cache_last_synced_at_is_null(client, tmp_path):
+    """When no cache exists, a fresh fetch returns last_synced_at as a float (just saved)."""
+    token_path = tmp_path / "google_token.json"
+    token_path.write_text(json.dumps({"access_token": "ya29.test"}))
+
+    cache_dir = tmp_path / "drive_cache"
+    # No index.json — cache is empty, so the fresh fetch path runs.
+    fake_files = _make_drive_files(2)
+
+    with (
+        patch("services.google_auth.TOKEN_PATH", token_path),
+        patch("routers.drive.DRIVE_CACHE_DIR", cache_dir),
+        patch("routers.drive._INDEX_PATH", cache_dir / "index.json"),
+        patch("routers.drive._fetch_drive_files", new=AsyncMock(return_value=fake_files)),
+    ):
+        resp = await client.get("/api/drive/files")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["cached"] is False
+    # Fresh fetch always returns a float timestamp (time.time() at save).
+    assert isinstance(data["last_synced_at"], float)
+
+
 # ---------------------------------------------------------------------------
 # Preview
 # ---------------------------------------------------------------------------

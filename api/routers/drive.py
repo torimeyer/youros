@@ -379,7 +379,8 @@ async def drive_files(
     if not q and not folder_id:
         cached = _load_file_list_cache()
         if cached is not None:
-            return {"files": cached, "cached": True}
+            last_synced_at = _INDEX_PATH.stat().st_mtime if _INDEX_PATH.exists() else None
+            return {"files": cached, "cached": True, "last_synced_at": last_synced_at}
 
     try:
         files = await asyncio.wait_for(
@@ -394,7 +395,8 @@ async def drive_files(
         if not q and not folder_id:
             stale = _load_file_list_cache(allow_stale=True)
             if stale is not None:
-                return {"files": stale, "cached": True, "stale": True}
+                last_synced_at = _INDEX_PATH.stat().st_mtime if _INDEX_PATH.exists() else None
+                return {"files": stale, "cached": True, "stale": True, "last_synced_at": last_synced_at}
         raise HTTPException(
             status_code=504,
             detail="Google Drive is slow to respond right now. Try again in a moment.",
@@ -418,7 +420,8 @@ async def drive_files(
         if not q and not folder_id:
             stale = _load_file_list_cache(allow_stale=True)
             if stale is not None:
-                return {"files": stale, "cached": True, "stale": True}
+                last_synced_at = _INDEX_PATH.stat().st_mtime if _INDEX_PATH.exists() else None
+                return {"files": stale, "cached": True, "stale": True, "last_synced_at": last_synced_at}
         raise HTTPException(
             status_code=500,
             detail=f"Could not load files from Google Drive: {exc}",
@@ -428,7 +431,7 @@ async def drive_files(
     if not q and not folder_id:
         _save_file_list_cache(files)
 
-    return {"files": files, "cached": False}
+    return {"files": files, "cached": False, "last_synced_at": time.time()}
 
 
 async def _fetch_drive_files(
