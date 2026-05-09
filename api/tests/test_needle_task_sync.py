@@ -3,9 +3,24 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import textwrap
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import pytest
+import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+os.environ.setdefault("MYOS_SKIP_RETRO_AGENT_FILES_SAVE", "1")
+os.environ.setdefault("MYOS_SKIP_AUTOMATION_FILES_SAVE", "1")
+os.environ.setdefault("MYOS_SKIP_CHAT_NOTIFICATIONS", "1")
+os.environ.setdefault("MYOS_DISABLE_RATE_LIMIT", "1")
+os.environ.setdefault("MYOS_REAPER_ENABLED", "0")
+
+from main import app
 
 HOOK_PATH = Path(__file__).parent.parent.parent / ".githooks" / "post-commit"
 
@@ -22,6 +37,18 @@ def test_post_commit_hook_curl_format():
     # Must also suppress errors so a dead backend never blocks a commit
     assert ">/dev/null 2>&1 || true" in src or "2>&1 || true" in src, (
         "hook must silence errors and always succeed"
+    )
+
+
+def test_post_commit_hook_uses_by_needle_lookup():
+    """The hook must look up the task via by-needle before calling close."""
+    src = _hook_source()
+    assert "by-needle" in src, (
+        "hook must call GET /api/tasks/by-needle/<id> to resolve the real task_id "
+        "before POSTing to /close — passing → directly in a URL path 404s"
+    )
+    assert "_bare=" in src or '_bare="${needle#' in src, (
+        "hook must strip the → arrow and use the bare numeric ID in URLs"
     )
 
 
@@ -67,3 +94,109 @@ def test_post_commit_hook_exits_zero_on_backend_down(tmp_path):
         f"hook must exit 0 even when backend is down; got {result.returncode}\n"
         f"stdout: {result.stdout.decode()}\nstderr: {result.stderr.decode()}"
     )
+
+
+# ---------------------------------------------------------------------------
+# API route tests for GET /api/tasks/by-needle/{needle_id}
+# ---------------------------------------------------------------------------
+
+def _make_client():
+    transport = httpx.ASGITransport(app=app)
+    return httpx.AsyncClient(transport=transport, base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_by_needle_found_by_id():
+    """by-needle returns a task when the arrow-ID matches exactly."""
+    sample = {"id": "→1067", "title": "Fix something", "description": "", "status": "open"}
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[sample])
+        async with _make_client() as client:
+            resp = await client.get("/api/tasks/by-needle/1067")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["task_id"] == "1067"
+    assert data["needle"] == "→1067"
+
+
+@pytest.mark.asyncio
+async def test_by_needle_arrow_prefix_accepted():
+    """by-needle accepts →1067 (arrow-prefixed) as input, not just bare numbers."""
+    sample = {"id": "→1067", "title": "Fix something", "description": "", "status": "open"}
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[sample])
+        async with _make_client() as client:
+            resp = await client.get("/api/tasks/by-needle/%E2%86%921067")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["task_id"] == "1067"
+
+
+@pytest.mark.asyncio
+async def test_by_needle_found_in_title():
+    """by-needle finds a task whose title contains the needle reference."""
+    sample = {
+        "id": "→500",
+        "title": "Fix post-commit hook →1067",
+        "description": "",
+        "status": "open",
+    }
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[sample])
+        async with _make_client() as client:
+            resp = await client.get("/api/tasks/by-needle/1067")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["task_id"] == "500"
+
+
+@pytest.mark.asyncio
+async def test_by_needle_found_in_description():
+    """by-needle finds a task whose description contains the needle reference."""
+    sample = {
+        "id": "→501",
+        "title": "Some other task",
+        "description": "Tracks progress on →1067",
+        "status": "open",
+    }
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[sample])
+        async with _make_client() as client:
+            resp = await client.get("/api/tasks/by-needle/1067")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["task_id"] == "501"
+
+
+@pytest.mark.asyncio
+async def test_by_needle_not_found():
+    """by-needle returns 404 when no matching task exists."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        async with _make_client() as client:
+            resp = await client.get("/api/tasks/by-needle/9999")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_by_needle_bad_id():
+    """by-needle returns 400 when the needle_id is not numeric."""
+    async with _make_client() as client:
+        resp = await client.get("/api/tasks/by-needle/notanumber")
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_close_task_normalizes_bare_id():
+    """POST /tasks/{task_id}/close accepts a bare number and normalizes to →NNN."""
+    with patch("routers.tasks.ostk") as mock_ostk:
+        mock_ostk.close_task = AsyncMock(return_value="closed →1067")
+        mock_ostk.list_tasks = AsyncMock(return_value=[])
+        async with _make_client() as client:
+            resp = await client.post(
+                "/api/tasks/1067/close",
+                json={"reason": "completed"},
+            )
+    assert resp.status_code == 200
+    # Verify ostk was called with the arrow-prefixed ID
+    mock_ostk.close_task.assert_called_once_with("→1067", closed_reason="completed")

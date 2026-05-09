@@ -556,6 +556,52 @@ async def _enrich_blockers(
     return enriched
 
 
+@router.get("/tasks/by-needle/{needle_id}")
+async def get_task_by_needle(needle_id: str):
+    """Look up a task by its ostk needle ID.
+
+    Accepts bare numbers (``1067``) or arrow-prefixed IDs (``→1067``).
+    Searches first by exact task ID match, then by needle reference
+    appearing in the task title or description. Returns the bare numeric
+    task_id (no arrow prefix) so callers can embed it in a URL safely.
+
+    Used by the post-commit hook so it can find the real task ID before
+    calling POST /api/tasks/{task_id}/close.
+    """
+    bare = needle_id.lstrip("→").strip()
+    if not bare.isdigit():
+        raise HTTPException(
+            status_code=400,
+            detail=f"needle_id must be numeric, got {needle_id!r}",
+        )
+    needle_arrow = f"→{bare}"
+
+    try:
+        tasks = await ostk.list_tasks()
+    except OstkError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    task = next((t for t in tasks if t.get("id") == needle_arrow), None)
+
+    if task is None:
+        for t in tasks:
+            title = t.get("title") or ""
+            desc = t.get("description") or ""
+            if needle_arrow in title or needle_arrow in desc:
+                task = t
+                break
+
+    if task is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No task found for needle {needle_arrow}",
+        )
+
+    raw_id = task.get("id", "")
+    bare_id = raw_id.lstrip("→")
+    return {"task_id": bare_id, "needle": needle_arrow, "task": task}
+
+
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: str):
     """Fetch a single task by ID.
@@ -1293,11 +1339,17 @@ async def close_task(task_id: str, body: TaskClose = TaskClose()):
             ),
         )
 
+    # Normalise pure numeric IDs like "1067" to "→1067" for ostk. This
+    # lets the post-commit hook pass a bare number from the URL without
+    # embedding the non-ASCII → character in the path. Non-numeric IDs
+    # (test slugs, UUIDs, already-prefixed IDs) are passed through as-is.
+    normalised_id = f"→{task_id}" if task_id.isdigit() else task_id
+
     allowed_reasons = {"completed", "duplicate", "archived"}
     raw_reason = (body.reason or "").strip()
     structured_reason = raw_reason if raw_reason in allowed_reasons else None
     try:
-        result = await ostk.close_task(task_id, closed_reason=structured_reason)
+        result = await ostk.close_task(normalised_id, closed_reason=structured_reason)
         _recent_closes.append(now)
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
