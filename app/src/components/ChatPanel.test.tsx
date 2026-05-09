@@ -2393,9 +2393,9 @@ describe('ChatPanel', () => {
     })
 
     it('30s total silence with no server events shows error (dead backend)', () => {
-      // When no server event arrives at all (backend is down or the
-      // WebSocket message was lost), the 30s dead-backend timer fires
-      // and shows a specific message about the backend being silent.
+      // When no server event arrives at all (backend is down or zombie
+      // WebSocket), the 10s dead-backend timer fires, disconnects the
+      // stale socket, and shows a specific error message.
       vi.useFakeTimers()
       const { rerender } = render(<ChatPanel />)
 
@@ -2404,18 +2404,17 @@ describe('ChatPanel', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
       rerender(<ChatPanel />)
 
-      // No server events arrive. After 10 seconds, still no error.
-      act(() => { vi.advanceTimersByTime(10_000) })
+      // No server events arrive. After 5 seconds, still no error.
+      act(() => { vi.advanceTimersByTime(5_000) })
       rerender(<ChatPanel />)
-      expect(screen.queryByText(/did not send any response/i)).toBeNull()
+      expect(screen.queryByText(/No response after/i)).toBeNull()
 
-      // After 30 seconds of total silence, the dead-backend timer fires.
-      act(() => { vi.advanceTimersByTime(20_000) })
+      // After 10 seconds of total silence, the dead-backend timer fires.
+      act(() => { vi.advanceTimersByTime(5_000) })
       rerender(<ChatPanel />)
 
-      // Specific dead-backend copy tells the user the server went silent,
-      // not a generic "no response" that leaves the cause ambiguous.
-      expect(screen.getByText(/did not send any response in 30 seconds/i)).toBeTruthy()
+      // Specific dead-backend copy tells the user the server went silent.
+      expect(screen.getByText(/No response after 10 seconds/i)).toBeTruthy()
     })
 
     it('ThinkingDots remain visible during Claude normal 5s first-token wait', () => {
@@ -2465,15 +2464,16 @@ describe('ChatPanel', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
       rerender(<ChatPanel />)
 
-      // 10s in, a thinking event arrives (Claude is processing).
-      act(() => { vi.advanceTimersByTime(10_000) })
+      // 8s in, a thinking event arrives (Claude is processing, before the
+      // 10s dead-backend timer fires).
+      act(() => { vi.advanceTimersByTime(8_000) })
       mockLastMessage = { type: 'thinking' }
       rerender(<ChatPanel />)
 
       // 30s total passes from the start. The dead-backend timer
-      // would have fired at 30s if not for the thinking event
+      // would have fired at 10s if not for the thinking event
       // setting receivedAnyServerEventRef to true.
-      act(() => { vi.advanceTimersByTime(20_000) })
+      act(() => { vi.advanceTimersByTime(22_000) })
       rerender(<ChatPanel />)
 
       // No error because the server IS alive (thinking event arrived).

@@ -1300,11 +1300,11 @@ export function ChatPanel() {
     }
   }, [lastMessage, currentModel])
 
-  // Dead-backend safety net: if the UI has been in the
-  // placeholderAwaitingServer state for 30 seconds and no real server
-  // event has arrived, show the error. This catches cases where the
-  // backend is genuinely unreachable and neither tokens nor a `done`
-  // event will ever arrive.
+  // Dead-backend safety net: if the UI has been waiting 10 seconds with
+  // no server event, the WebSocket is almost certainly a zombie (appears
+  // OPEN but the backend restarted and dropped the TCP connection without
+  // a close frame). Disconnect to kill the stale socket so the next send
+  // reconnects cleanly, then surface the error.
   useEffect(() => {
     if (!placeholderAwaitingServer && !isStreaming) return
     // Only start the dead-backend timer when we are waiting and have
@@ -1313,6 +1313,8 @@ export function ChatPanel() {
     const deadTimer = setTimeout(() => {
       // Re-check: if a real event arrived in the meantime, abort.
       if (receivedAnyServerEventRef.current) return
+      // Kill any zombie WebSocket so the next send reconnects fresh.
+      disconnect()
       setIsStreaming(false)
       setPlaceholderAwaitingServer(false)
       setMessages(prev => {
@@ -1320,24 +1322,19 @@ export function ChatPanel() {
         const last = updated[updated.length - 1]
         if (last && last.role === 'assistant' && !last.content?.trim()) {
           const idx = updated.indexOf(last)
-          // Backend went silent for 30s with no events. This is almost
-          // always a dead backend or a WebSocket that dropped without a
-          // close frame. The server-side provider timeouts will surface
-          // a more specific message when the provider itself stalls.
           updated[idx] = {
             ...last,
             content:
-              'The server did not send any response in 30 seconds. ' +
-              'The backend may be restarting or unreachable. ' +
+              'No response after 10 seconds — the server may have restarted. ' +
               'Please try again.',
             isError: true,
           }
         }
         return updated
       })
-    }, 30_000)
+    }, 10_000)
     return () => clearTimeout(deadTimer)
-  }, [placeholderAwaitingServer, isStreaming])
+  }, [placeholderAwaitingServer, isStreaming, disconnect])
 
   // Hydrate chat history from the server on first mount. The server is
   // the source of truth, so anything it returns replaces what was in the

@@ -51,6 +51,10 @@ export default defineConfig({
         target: 'https://127.0.0.1:8000',
         secure: false,  // accept self-signed cert
         changeOrigin: true,
+        // Also proxy WebSocket upgrade requests under /api (e.g.
+        // /api/ws/agents/state). Without ws:true the proxy treats
+        // WS handshakes as plain HTTP and the upgrade is rejected.
+        ws: true,
         configure: (proxy) => {
           // Force no keep-alive on every proxied HTTP request so a
           // backend restart can never strand dead sockets in the
