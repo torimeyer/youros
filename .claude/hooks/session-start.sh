@@ -135,4 +135,18 @@ if [ -n "$CWD" ] && [ -x "$REAPER" ]; then
     fi
 fi
 
+# ---- 4. Fleet hygiene: reap stale agents.jsonl entries. ----
+# The ostk fleet-active gate counts all rows in .ostk/agents.jsonl.
+# Entries older than STALE_THRESHOLD_MINUTES (default 5) accumulate and
+# falsely block git mutations (→1522). Run the reaper at every session
+# start so the gate never sees a bloated count.
+FLEET_REAPER="$CWD/scripts/reap-stale-fleet.sh"
+if [ -n "$CWD" ] && [ -x "$FLEET_REAPER" ]; then
+    FLEET_OUT=$("$FLEET_REAPER" --apply 2>&1) || true
+    REAPED=$(echo "$FLEET_OUT" | grep -oP 'Reaped:\s+\K[0-9]+' 2>/dev/null || echo 0)
+    if [ "${REAPED:-0}" -gt 0 ]; then
+        echo "[fleet-hygiene] Reaped $REAPED stale agent rows from .ostk/agents.jsonl" >&2
+    fi
+fi
+
 exit 0
