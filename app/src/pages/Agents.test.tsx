@@ -2945,7 +2945,7 @@ describe('Agents page - Template capabilities panel', () => {
     preExpandAgents(...DEFAULT_EXPANDED_AGENTS)
   })
 
-  it('renders parsed capabilities for a clean template', async () => {
+  it('built-in templates do not show capabilities (i) button', async () => {
     const templatesWithCaps = {
       templates: [
         {
@@ -2983,17 +2983,11 @@ describe('Agents page - Template capabilities panel', () => {
     })
     fireEvent.click(screen.getByText('Templates'))
 
-    // Hover the info button to reveal capabilities tooltip.
-    const infoBtn = await screen.findByTestId('template-caps-info-Demo')
-    fireEvent.mouseEnter(infoBtn)
-
-    const panel = await screen.findByTestId('template-capabilities-Demo')
-    expect(panel).toBeInTheDocument()
-    // Capabilities are rendered as icon-prefixed spans (e.g. ✎ src/) not "Writes to:" labels.
-    expect(panel.textContent).toContain('src/, tests/')
-    expect(panel.textContent).toContain('$5')
-    expect(panel.textContent).toContain('30 minutes')
-    expect(panel.textContent).toContain('docker container')
+    // Built-in templates never show the (i) capabilities button — they can't be
+    // unfavorited and we don't want to clutter their cards with the info blurb.
+    await waitFor(() => {
+      expect(screen.queryByTestId('template-caps-info-Demo')).not.toBeInTheDocument()
+    })
   })
 
   it('disables Spawn and shows an error for a broken template', async () => {

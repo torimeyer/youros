@@ -97,6 +97,10 @@ export default function TemplateCard({
                 >
                   <Icon name="star" size={14} />
                 </button>
+              ) : source === 'builtin' ? (
+                <span className="text-slate-500" title="Built-in — can't be removed" data-testid={`${testId ?? `template-card-${name}`}-lock`}>
+                  <Icon name="lock" size={13} />
+                </span>
               ) : (
                 <span className="text-amber-400" title="Favorited" data-testid={`${testId ?? `template-card-${name}`}-favorited`}>
                   <Icon name="star" size={14} />
@@ -130,7 +134,7 @@ export default function TemplateCard({
               {description}
             </p>
             {/* Capabilities info icon: only shown when capabilities are present and no parse error */}
-            {!hasParseError && capabilities && (
+            {!hasParseError && capabilities && source !== 'builtin' && (
               <div className="relative shrink-0">
                 <button
                   type="button"
