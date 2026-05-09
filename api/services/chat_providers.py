@@ -3110,16 +3110,16 @@ class _MultiAiTurnWebSocket:
             # sends exactly one done after every turn finishes.
             return
         if msg_type == "error":
-            # Swallow per-provider error events during orchestration.
-            # Provider errors (e.g. "Gemini API key missing") are
-            # internal to the turn; leaking them to the client causes
-            # the browser (and smoke-test client) to treat the whole
-            # multi-AI exchange as failed and close the WebSocket
-            # before the orchestrator sends its terminal ``done``,
-            # resulting in "no close frame received or sent". The
-            # orchestrator emits a single ``done`` when every turn
-            # finishes, which is the correct terminal signal.
-            return
+            # In single-model orchestration (no model_tag), swallow
+            # provider errors so they don't close the WebSocket before
+            # the outer orchestrator sends its terminal ``done``.
+            #
+            # In broadcast mode (model_tag set), pass the error through
+            # tagged with the owning model so the frontend can display it
+            # in that model's bubble without tearing down the sibling stream.
+            if not self._model_tag:
+                return
+            # Fall through to the model-tag injection and send below.
         # Tag the frame with the owning model so the frontend can route
         # parallel per-model streams into the right bubble. We merge
         # without clobbering an existing model field if the inner event
