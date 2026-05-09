@@ -47,10 +47,13 @@ class TestSystemPromptInvestigationRule:
     def test_contains_investigate_before_editing_heading(self):
         assert "INVESTIGATE BEFORE EDITING" in _system_prompt()
 
-    def test_mentions_footer_and_layout_as_examples(self):
+    def test_mentions_component_file_examples(self):
         prompt = _system_prompt()
-        assert "Footer.tsx" in prompt
-        assert "Layout.tsx" in prompt
+        # Prompt must include at least one concrete .tsx example so the model
+        # knows to use the file map directly rather than running a directory probe.
+        assert any(name in prompt for name in ("TemplateCard.tsx", "Footer.tsx", "Layout.tsx")), (
+            "INVESTIGATE BEFORE EDITING must include a concrete .tsx file example"
+        )
 
     def test_directs_to_components_directory(self):
         assert "app/src/components/" in _system_prompt()

@@ -1464,6 +1464,79 @@ def _clear_project_claude_md_cache() -> None:
     _PROJECT_CLAUDE_MD_CACHE = None
 
 
+# Cache: (components_mtime, pages_mtime) -> index string. Invalidated when
+# either directory mtime changes (a file is added/removed).
+_COMPONENT_INDEX_CACHE: Optional[tuple[float, float, str]] = None
+_COMPONENT_INDEX_MAX_CHARS = 2000
+
+
+def _build_component_index() -> str:
+    """Return a compact list of frontend component and page file names.
+
+    The inline Claude starts cold with no codebase map. When the user asks
+    about a UI element (e.g. "template card"), Claude has to search broadly
+    unless it already knows which file to open. This function injects the
+    actual file names from app/src/components/ and app/src/pages/ so the
+    model can pick the right file in one call instead of 40 exploratory probes.
+
+    Cached by directory mtime so additions/removals are picked up without a
+    restart, but repeated chat turns pay no I/O cost.
+    """
+    global _COMPONENT_INDEX_CACHE
+
+    components_dir = PROJECT_ROOT / "app" / "src" / "components"
+    pages_dir = PROJECT_ROOT / "app" / "src" / "pages"
+
+    try:
+        c_mtime = components_dir.stat().st_mtime if components_dir.exists() else 0.0
+        p_mtime = pages_dir.stat().st_mtime if pages_dir.exists() else 0.0
+    except OSError:
+        return ""
+
+    if _COMPONENT_INDEX_CACHE is not None:
+        cached_c, cached_p, cached_text = _COMPONENT_INDEX_CACHE
+        if cached_c == c_mtime and cached_p == p_mtime:
+            return cached_text
+
+    def _list_tsx(directory: "Path") -> list[str]:
+        if not directory.exists():
+            return []
+        try:
+            return sorted(
+                f.name
+                for f in directory.glob("*.tsx")
+                if not f.name.endswith(".test.tsx")
+            )
+        except OSError:
+            return []
+
+    components = _list_tsx(components_dir)
+    pages = _list_tsx(pages_dir)
+
+    if not components and not pages:
+        _COMPONENT_INDEX_CACHE = (c_mtime, p_mtime, "")
+        return ""
+
+    parts: list[str] = ["FRONTEND FILE MAP (use these paths directly — no search needed):"]
+    if components:
+        parts.append("app/src/components/: " + ", ".join(components))
+    if pages:
+        parts.append("app/src/pages/: " + ", ".join(pages))
+
+    text = "\n".join(parts)
+    if len(text) > _COMPONENT_INDEX_MAX_CHARS:
+        text = text[:_COMPONENT_INDEX_MAX_CHARS].rstrip() + "\n..."
+
+    _COMPONENT_INDEX_CACHE = (c_mtime, p_mtime, text)
+    return text
+
+
+def _clear_component_index_cache() -> None:
+    """Evict cached component index (used in tests)."""
+    global _COMPONENT_INDEX_CACHE
+    _COMPONENT_INDEX_CACHE = None
+
+
 def _system_prompt() -> str:
     """Return the static system prompt without boot context.
 
@@ -1594,13 +1667,13 @@ def _system_prompt() -> str:
         "you where the file is. Only search if reading the direct path fails.\n\n"
         "INVESTIGATE BEFORE EDITING: When the user's request mentions a UI component, "
         "layout element, or named file (e.g. 'footer', 'header', 'navbar', 'sidebar', "
-        "'Layout', 'Footer.tsx', or any React component name), you MUST search for and "
-        "read the actual component file before making any edit. Never guess the file path "
-        "or edit a file based on context or recent conversation history alone. "
-        "Search first: call search_code or read_file on the component (look in "
-        "app/src/components/ and app/src/pages/), read its contents, then make targeted edits. "
-        "Example: 'make the footer stay at the bottom' requires reading Footer.tsx and "
-        "Layout.tsx before touching any file.\n\n"
+        "'Layout', 'Footer.tsx', or any React component name), you MUST read the "
+        "actual component file before making any edit. Use the FRONTEND FILE MAP at the "
+        "top of this prompt to find the exact filename — pick the closest match by name "
+        "and call read_file on it directly. Do NOT run list_directory or search when the "
+        "file map already shows the filename. Example: user says 'template card' -> "
+        "look up 'TemplateCard.tsx' in the file map -> read_file('app/src/components/TemplateCard.tsx') "
+        "-> make targeted edits. One read, then edit. Never run exploratory probes.\n\n"
         "Keep your responses brief and focused on outcomes, not process. "
         "Do NOT narrate your steps. Do NOT say 'Let me check' or 'Let me look'. "
         "Just do the work and share the result. "
@@ -1754,6 +1827,9 @@ def _compose_system_prompt(matched_template: Optional[dict]) -> str:
     separate cached blocks. Includes boot context and recent activity inline.
     """
     base = _system_prompt()
+    component_index = _build_component_index()
+    if component_index:
+        base = component_index + "\n\n" + base
     claude_md = _project_claude_md_context()
     if claude_md:
         base = claude_md + "\n\n" + base
@@ -1790,6 +1866,9 @@ def _build_cached_system_blocks(matched_template: Optional[dict]) -> list[dict]:
     # cached across many turns and even across conversations within the
     # 5-minute TTL.
     base = _system_prompt()
+    component_index = _build_component_index()
+    if component_index:
+        base = component_index + "\n\n" + base
     claude_md = _project_claude_md_context()
     if claude_md:
         base = claude_md + "\n\n" + base
@@ -2374,16 +2453,24 @@ class ChatService:
         try:
             turn = 0
             WARN_AT = 15
+            files_modified: set[str] = set()
             while True:
                 turn += 1
                 # Stop check runs first so WARN_AT can never fire on the same
                 # turn as the cap — prevents a contradictory "Still working" /
                 # "Stopped after" pair in the same response bubble.
                 if turn > MAX_AGENT_TURNS:
-                    msg = (
-                        f"I've used {MAX_AGENT_TURNS} steps on this and haven't finished. "
-                        "To pick it up: tell me the exact file or component you want changed and I'll go straight there."
-                    )
+                    if files_modified:
+                        file_list = ", ".join(sorted(files_modified))
+                        msg = (
+                            f"I've used {MAX_AGENT_TURNS} steps and made changes to: {file_list}. "
+                            "Tell me if you'd like me to continue or review what I changed."
+                        )
+                    else:
+                        msg = (
+                            f"I've used {MAX_AGENT_TURNS} steps on this and haven't finished. "
+                            "To pick it up: tell me the exact file or component you want changed and I'll go straight there."
+                        )
                     await websocket.send_json({"type": "token", "data": msg})
                     await websocket.send_json({
                         "type": "done",
@@ -2615,6 +2702,13 @@ class ChatService:
                 for block, result in zip(local_tool_uses, raw_results):
                     if isinstance(result, BaseException):
                         result = f"Error executing {block.name}: {result}"
+                    else:
+                        # Track successful file mutations so the cap-hit message
+                        # can report what actually changed instead of "haven't finished".
+                        if block.name in ("edit_file", "write_file"):
+                            path_arg = dict(block.input).get("path", "")
+                            if path_arg and not result.startswith("Error"):
+                                files_modified.add(str(path_arg))
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,

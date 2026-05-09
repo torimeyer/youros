@@ -276,3 +276,253 @@ async def test_agent_anthropic_system_prompt_includes_step_efficiency():
         "System prompt sent to Anthropic API is missing the STEP LIMIT rule. "
         f"Got first 800 chars: {system_text[:800]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: component index injected into system prompt
+# ---------------------------------------------------------------------------
+
+
+class TestComponentIndexInjection:
+    """_build_component_index() must return a file map and land in the system prompt."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_cache(self):
+        from services import chat_providers
+        chat_providers._clear_component_index_cache()
+        yield
+        chat_providers._clear_component_index_cache()
+
+    def test_returns_empty_when_no_app_dir(self, tmp_path):
+        from services import chat_providers
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path):
+            result = chat_providers._build_component_index()
+
+        assert result == ""
+
+    def test_lists_tsx_files_from_components_dir(self, tmp_path):
+        from services import chat_providers
+
+        components = tmp_path / "app" / "src" / "components"
+        components.mkdir(parents=True)
+        (components / "TemplateCard.tsx").write_text("// TemplateCard")
+        (components / "Sidebar.tsx").write_text("// Sidebar")
+        (components / "Sidebar.test.tsx").write_text("// test")
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path):
+            result = chat_providers._build_component_index()
+
+        assert "FRONTEND FILE MAP" in result
+        assert "TemplateCard.tsx" in result
+        assert "Sidebar.tsx" in result
+        assert "Sidebar.test.tsx" not in result, "test files must be excluded"
+
+    def test_lists_tsx_files_from_pages_dir(self, tmp_path):
+        from services import chat_providers
+
+        pages = tmp_path / "app" / "src" / "pages"
+        pages.mkdir(parents=True)
+        (pages / "Settings.tsx").write_text("// Settings")
+        (pages / "Dashboard.tsx").write_text("// Dashboard")
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path):
+            result = chat_providers._build_component_index()
+
+        assert "app/src/pages/" in result
+        assert "Settings.tsx" in result
+        assert "Dashboard.tsx" in result
+
+    def test_caps_at_max_chars(self, tmp_path):
+        from services import chat_providers
+
+        components = tmp_path / "app" / "src" / "components"
+        components.mkdir(parents=True)
+        for i in range(200):
+            (components / f"Component{i:03d}.tsx").write_text("")
+
+        with patch("services.chat_providers.PROJECT_ROOT", tmp_path):
+            result = chat_providers._build_component_index()
+
+        assert len(result) <= chat_providers._COMPONENT_INDEX_MAX_CHARS + 10
+        assert result.endswith("...")
+
+    def test_injected_into_compose_system_prompt(self, tmp_path):
+        from services import chat_providers
+
+        components = tmp_path / "app" / "src" / "components"
+        components.mkdir(parents=True)
+        (components / "TemplateCard.tsx").write_text("")
+
+        with (
+            patch("services.chat_providers.PROJECT_ROOT", tmp_path),
+            patch("services.chat_providers._get_boot_context", return_value=""),
+            patch("services.chat_providers._recent_activity_context", return_value=""),
+            patch("services.chat_providers.settings_store") as ms,
+        ):
+            ms.get.side_effect = lambda k, d=None: d
+            result = chat_providers._compose_system_prompt(None)
+
+        assert "FRONTEND FILE MAP" in result
+        assert "TemplateCard.tsx" in result
+
+    def test_injected_into_cached_system_blocks(self, tmp_path):
+        from services import chat_providers
+
+        components = tmp_path / "app" / "src" / "components"
+        components.mkdir(parents=True)
+        (components / "TemplateCard.tsx").write_text("")
+
+        with (
+            patch("services.chat_providers.PROJECT_ROOT", tmp_path),
+            patch("services.chat_providers._get_boot_context", return_value=""),
+            patch("services.chat_providers._recent_activity_context", return_value=""),
+            patch("services.chat_providers.settings_store") as ms,
+        ):
+            ms.get.side_effect = lambda k, d=None: d
+            blocks = chat_providers._build_cached_system_blocks(None)
+
+        static_text = blocks[0]["text"]
+        assert "FRONTEND FILE MAP" in static_text
+        assert "TemplateCard.tsx" in static_text
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: cap-hit message is honest about whether edits were made
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cap_hit_reports_modified_files_when_edits_occurred():
+    """When cap fires after successful edits, the message names the changed files.
+
+    Regression guard for the 'I haven't finished' false report that fired
+    even after TemplateCard.tsx was written.
+    """
+    websocket = FakeWebSocket()
+    service = ChatService()
+
+    call_count = 0
+
+    def _make_tool_block(name: str, path: str):
+        block = MagicMock()
+        block.type = "tool_use"
+        block.name = name
+        block.id = f"toolu_{name}"
+        block.input = {"path": path, "content": "new content"}
+        return block
+
+    def _make_text_resp():
+        block = MagicMock()
+        block.type = "text"
+        block.text = "Done."
+        resp = MagicMock()
+        resp.content = [block]
+        resp.usage.input_tokens = 10
+        resp.usage.output_tokens = 5
+        resp.usage.cache_creation_input_tokens = 0
+        resp.usage.cache_read_input_tokens = 0
+        return resp
+
+    def _make_tool_resp(tool_name: str, path: str):
+        resp = MagicMock()
+        resp.content = [_make_tool_block(tool_name, path)]
+        resp.usage.input_tokens = 10
+        resp.usage.output_tokens = 5
+        resp.usage.cache_creation_input_tokens = 0
+        resp.usage.cache_read_input_tokens = 0
+        return resp
+
+    async def fake_create(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _make_tool_resp("edit_file", "app/src/components/TemplateCard.tsx")
+        return _make_tool_resp("list_directory", "")
+
+    fake_client = MagicMock()
+    fake_client.messages.create = AsyncMock(side_effect=fake_create)
+    fake_client_factory = MagicMock(return_value=fake_client)
+
+    messages = [{"role": "user", "content": "there should only be one favorite star"}]
+
+    async def _fake_execute_tool(name: str, input_data: dict) -> str:
+        if name == "edit_file":
+            return "File written successfully."
+        return "(ok)"
+
+    with (
+        patch("services.chat_providers._resolve_chat_backend", new=AsyncMock(return_value="anthropic_api")),
+        patch("services.chat_providers._resolve_api_key", new=AsyncMock(return_value="test-key")),
+        patch("services.chat_providers._maybe_match_template", new=AsyncMock(return_value=None)),
+        patch("services.chat_providers.anthropic.AsyncAnthropic", new=fake_client_factory),
+        patch("services.chat_providers.execute_tool", new=_fake_execute_tool),
+        patch("services.chat_providers.settings_store") as mock_settings,
+    ):
+        mock_settings.get.side_effect = lambda key, default=None: (
+            [] if key == "mcp_servers" else default
+        )
+        await service.agent_anthropic(messages, websocket)
+
+    token_msgs = websocket.get_messages_of_type("token")
+    combined_text = " ".join(m.get("data", "") for m in token_msgs)
+
+    assert "TemplateCard.tsx" in combined_text, (
+        f"Cap-hit message must name the file that was edited. Got: {combined_text!r}"
+    )
+    assert "haven't finished" not in combined_text.lower(), (
+        f"Cap-hit must not say 'haven't finished' when edits were made. Got: {combined_text!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cap_hit_says_not_finished_when_no_edits():
+    """When no edit tools succeeded, cap-hit still says 'haven't finished'."""
+    websocket = FakeWebSocket()
+    service = ChatService()
+
+    def _make_search_tool_block():
+        block = MagicMock()
+        block.type = "tool_use"
+        block.name = "search_files"
+        block.id = "toolu_search"
+        block.input = {"query": "TemplateCard"}
+        return block
+
+    def _make_resp_with_search():
+        resp = MagicMock()
+        resp.content = [_make_search_tool_block()]
+        resp.usage.input_tokens = 10
+        resp.usage.output_tokens = 5
+        resp.usage.cache_creation_input_tokens = 0
+        resp.usage.cache_read_input_tokens = 0
+        return resp
+
+    fake_client = MagicMock()
+    fake_client.messages.create = AsyncMock(return_value=_make_resp_with_search())
+    fake_client_factory = MagicMock(return_value=fake_client)
+
+    messages = [{"role": "user", "content": "find the template card"}]
+
+    async def _fake_execute_tool(name: str, input_data: dict) -> str:
+        return "(results)"
+
+    with (
+        patch("services.chat_providers._resolve_chat_backend", new=AsyncMock(return_value="anthropic_api")),
+        patch("services.chat_providers._resolve_api_key", new=AsyncMock(return_value="test-key")),
+        patch("services.chat_providers._maybe_match_template", new=AsyncMock(return_value=None)),
+        patch("services.chat_providers.anthropic.AsyncAnthropic", new=fake_client_factory),
+        patch("services.chat_providers.execute_tool", new=_fake_execute_tool),
+        patch("services.chat_providers.settings_store") as mock_settings,
+    ):
+        mock_settings.get.side_effect = lambda key, default=None: (
+            [] if key == "mcp_servers" else default
+        )
+        await service.agent_anthropic(messages, websocket)
+
+    token_msgs = websocket.get_messages_of_type("token")
+    combined_text = " ".join(m.get("data", "") for m in token_msgs)
+
+    assert "haven't finished" in combined_text.lower() or "not yet done" in combined_text.lower(), (
+        f"Cap-hit with no edits should say haven't finished. Got: {combined_text!r}"
+    )
