@@ -298,6 +298,77 @@ async def test_ostk_dir_not_created_for_isolation_none(tmp_path, monkeypatch):
         active_agents.pop(agent_name, None)
 
 
+@pytest.mark.asyncio
+async def test_claude_project_dir_set_to_worktree_on_successful_fork(tmp_path, monkeypatch):
+    """CLAUDE_PROJECT_DIR must be overridden to the worktree path on isolation:worktree spawns.
+
+    Root cause of the cwd-leak (→932, →916): _spawn_env = {**os.environ} copies the
+    parent CLAUDE_PROJECT_DIR (main repo). Without the override, hooks and Claude Code
+    itself resolve all file paths against the parent checkout, so edits land on main
+    even though the worktree exists and the cwd is correct.
+    """
+    from services.spawn_isolation import _reset_spawn_lock_registry_for_tests
+    _reset_spawn_lock_registry_for_tests()
+
+    import config as config_module
+    from main import app
+    from routers.agents import active_agents, agent_metadata
+
+    monkeypatch.setattr(config_module, "PROJECT_ROOT", tmp_path)
+    (tmp_path / ".claude" / "worktrees").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".claude" / "hooks").mkdir(parents=True, exist_ok=True)
+
+    # Inject a fake parent CLAUDE_PROJECT_DIR into the environment so the
+    # inheritance path (line 4127: _spawn_env = {**os.environ}) picks it up.
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path / "parent-repo"))
+
+    calls = _install_spawn_doubles(monkeypatch, fork_returncode=0)
+
+    agent_name = "wt-cpd-override-test"
+    agent_metadata.pop(agent_name, None)
+    active_agents.pop(agent_name, None)
+
+    wt_path = tmp_path / ".claude" / "worktrees" / f"agent-{agent_name}"
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/agents/spawn",
+                json={
+                    "name": agent_name,
+                    "prompt": "fix the failing test",
+                    "model": "sonnet",
+                    "budget": 2.0,
+                    "isolation": "worktree",
+                    "locks": ["/tmp/wt-cpd-override-test.log"],
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        assert calls["fork_called"] is True, "git worktree add was not called"
+
+        # Find the claude subprocess call (not git or rsync calls).
+        claude_calls = [
+            (a, kw) for (a, kw) in calls["exec"]
+            if a and a[0] not in ("git", "rsync")
+        ]
+        assert len(claude_calls) == 1, f"expected 1 claude call, got {claude_calls}"
+        _, kw = claude_calls[0]
+        env = kw.get("env", {})
+
+        assert "CLAUDE_PROJECT_DIR" in env, "CLAUDE_PROJECT_DIR missing from spawned env"
+        assert env["CLAUDE_PROJECT_DIR"] == str(wt_path), (
+            f"CLAUDE_PROJECT_DIR must be worktree path {wt_path!r}, "
+            f"got {env['CLAUDE_PROJECT_DIR']!r}. "
+            "The parent value leaked through — hooks and file edits will land in the parent repo."
+        )
+    finally:
+        agent_metadata.pop(agent_name, None)
+        active_agents.pop(agent_name, None)
+        _reset_spawn_lock_registry_for_tests()
+        shutil.rmtree(wt_path, ignore_errors=True)
+
+
 def test_ostk_root_traversal_regression():
     """Unit test demonstrating the traversal bug and verifying the fix anchors correctly.
 
