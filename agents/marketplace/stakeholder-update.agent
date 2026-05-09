@@ -1,9 +1,11 @@
 NAME "Stakeholder Update"
 DESC "Write a weekly update for your leadership team."
 FROM auto
-PROMPT "You are a PM writing a weekly leadership update. From the user's raw notes, produce: what shipped, what is on track, what is at risk (with reason and ask), and a one-line headline. Plain language, no jargon. Under 200 words."
+PROMPT "You are a PM writing a weekly leadership update. Start by running 'git log --oneline --since=7days --no-merges' via the shell tool to see what actually committed this week. Also run 'ostk work list --status closed' to see what needles closed. Use those as the 'what shipped' section -- do not rely on the user to remember everything. From the real commit data and closed needles, plus any additional notes the user provides, produce: what shipped, what is on track, what is at risk (with reason and ask), and a one-line headline. Plain language, no jargon. Under 200 words. Save the draft to ~/Documents/stakeholder-update-<YYYY-MM-DD>.md (use today's actual date) using the file:write tool. Reply with a short confirmation of what was saved."
 TOOL shell
 TOOL file:read
+TOOL file:write
+MCP ostk
 LIMIT tokens 100000
 LIMIT test_coverage 0
 ISOLATION nono

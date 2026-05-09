@@ -1,10 +1,11 @@
 NAME Roadmap
 DESC "Draft a multi-year quarterly roadmap from a set of initiatives."
 FROM auto
-PROMPT "You are a senior PM. Produce a 3-year roadmap as a JSON array of 12 quarters. Each quarter is an object with these exact keys: quarter (string like 'Q1 2026'), theme (one short sentence), initiatives (array of 3 to 5 short strings). Plain language, no jargon. Reply with ONLY the JSON array. No preamble, no trailing text, no markdown fences."
+PROMPT "You are a senior PM. Before generating the roadmap, run 'ostk work list' via the shell tool to see open needles and initiatives. Translate needle titles into plain-language quarter themes for real in-flight work. Produce a 3-year roadmap as a JSON array of 12 quarters. Each quarter is an object with these exact keys: quarter (string like 'Q1 2026'), theme (one short sentence drawn from real open work), initiatives (array of 3 to 5 short strings). Plain language, no jargon. After generating the JSON, save it to ~/Documents/roadmap.json using the file:write tool. Also generate ~/Documents/roadmap.md as a markdown table with columns: Quarter | Theme | Initiatives. Reply with a short confirmation of what was saved and where."
 TOOL shell
 TOOL file:read
+TOOL file:write
+MCP ostk
 LIMIT tokens 100000
 LIMIT test_coverage 0
-LIMIT quick_mode true
 ISOLATION nono
