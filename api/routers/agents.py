@@ -3784,6 +3784,35 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         release_spawn_locks as _release_spawn_locks,
         validate_locks_for_spawn as _validate_locks_for_spawn,
     )
+    # If the caller named a template, honour the agentfile's ISOLATION
+    # directive before verb detection runs. Without this, prompts containing
+    # code-edit verbs ("build", "create", "add") make decide_isolation pick
+    # "worktree", which then fails lock-validation with HTTP 400 because the
+    # frontend never passes locks for template spawns. Templates like roadmap
+    # declare ISOLATION nono, explicitly opting out of worktree isolation.
+    # This block was introduced in 4b6af76 and accidentally dropped by
+    # dafd9f3 (file-upload feature). Keep it above _decide_isolation always.
+    if body.template and not body.isolation:
+        try:
+            from services.agentfile_parser import (
+                get_agent_config_by_template as _pre_get_tpl_cfg,
+            )
+            from services.agent_templates_store import _BUILTIN_BY_ID, _resolve_alias
+            _pre_alias = _resolve_alias(body.template)
+            if _pre_alias:
+                _pre_tpl_meta = _BUILTIN_BY_ID.get(_pre_alias, {})
+                _pre_stem = (
+                    _pre_tpl_meta.get("name", body.template)
+                    .lower()
+                    .replace(" ", "-")
+                )
+            else:
+                _pre_stem = body.template.lower().replace(" ", "-")
+            _pre_cfg = _pre_get_tpl_cfg(_pre_stem)
+            if _pre_cfg is not None and _pre_cfg.isolation in ("none", "nono"):
+                body.isolation = _pre_cfg.isolation
+        except Exception:
+            pass
     body.isolation = _decide_isolation(
         description=body.description,
         prompt=body.prompt,
