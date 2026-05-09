@@ -103,7 +103,7 @@ describe('QuickLook', () => {
     })
   })
 
-  it('renders slide list for pptx files', async () => {
+  it('renders slide carousel for pptx files with prev/next navigation', async () => {
     const mockData = {
       kind: 'slides',
       slides: [
@@ -118,8 +118,18 @@ describe('QuickLook', () => {
     render(<QuickLook {...base} filePath="/test/deck.pptx" fileType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />)
     await waitFor(() => {
       expect(screen.getByTestId('quicklook-slides')).toBeInTheDocument()
+      // First slide shown by default.
       expect(screen.getByText('Welcome')).toBeInTheDocument()
+      expect(screen.getByText('Slide 1 of 2')).toBeInTheDocument()
+      // Second slide not yet visible.
+      expect(screen.queryByText('Agenda')).not.toBeInTheDocument()
+    })
+    // Navigate forward — Agenda becomes visible.
+    fireEvent.click(screen.getByTestId('slide-next'))
+    await waitFor(() => {
       expect(screen.getByText('Agenda')).toBeInTheDocument()
+      expect(screen.getByText('Slide 2 of 2')).toBeInTheDocument()
+      expect(screen.queryByText('Welcome')).not.toBeInTheDocument()
     })
   })
 

@@ -334,12 +334,31 @@ function ImagePreview({
 // ---------------------------------------------------------------------------
 
 function PdfPreview({ data }: { data: DrivePreviewData }) {
+  const [iframeError, setIframeError] = useState(false);
+  if (iframeError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-8">
+        <p className="text-slate-400 text-sm">Could not load PDF in browser.</p>
+        {data.export_url && (
+          <a
+            href={data.export_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-slate-400 hover:text-white underline"
+          >
+            Open in Drive
+          </a>
+        )}
+      </div>
+    );
+  }
   return (
     <iframe
       src={data.export_url}
       className="w-full h-full border-0"
       title={`Preview of ${data.name}`}
       data-testid="drive-preview-pdf"
+      onError={() => setIframeError(true)}
     />
   );
 }
@@ -407,30 +426,44 @@ function SheetPreview({ data }: { data: DrivePreviewData }) {
 function SlidesPreview({ data }: { data: DrivePreviewData }) {
   const sample = data.sample as SlidesSample | null;
   const slides = sample?.slides ?? [];
+  const [activeSlide, setActiveSlide] = useState(0);
   if (slides.length === 0) {
     return <FallbackToExport data={data} message="No slides to show yet." />;
   }
+  const current = slides[activeSlide] ?? slides[0];
   return (
     <div
-      className="p-4 flex flex-col gap-3 overflow-x-auto"
+      className="p-4 flex flex-col gap-3"
       data-testid="drive-preview-slides"
     >
-      <div className="flex gap-3 overflow-x-auto pb-2">
-        {slides.map((s, i) => (
-          <div
-            key={s.slide_id}
-            className="flex-shrink-0 w-60 bg-slate-800 border border-slate-700 rounded-lg overflow-hidden shadow"
-          >
-            <img
-              src={s.thumbnail_url}
-              alt={`Slide ${i + 1}`}
-              loading="lazy"
-              className="w-full h-auto object-cover"
-            />
-            <p className="px-2 py-1.5 text-[11px] text-slate-400">Slide {i + 1}</p>
-          </div>
-        ))}
+      <div className="flex items-center justify-between">
+        <button
+          data-testid="slide-prev"
+          onClick={() => setActiveSlide((i) => Math.max(0, i - 1))}
+          disabled={activeSlide === 0}
+          className="p-1 text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
+        >
+          <span className="material-symbols-outlined text-[20px]">chevron_left</span>
+        </button>
+        <span className="text-xs text-slate-500">Slide {activeSlide + 1} of {slides.length}</span>
+        <button
+          data-testid="slide-next"
+          onClick={() => setActiveSlide((i) => Math.min(slides.length - 1, i + 1))}
+          disabled={activeSlide === slides.length - 1}
+          className="p-1 text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
+        >
+          <span className="material-symbols-outlined text-[20px]">chevron_right</span>
+        </button>
       </div>
+      {current && (
+        <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden shadow">
+          <img
+            src={current.thumbnail_url}
+            alt={`Slide ${activeSlide + 1}`}
+            className="w-full h-auto object-cover"
+          />
+        </div>
+      )}
       {sample?.truncated && (
         <p className="text-xs text-slate-500">
           Showing the first slides. Open in Drive to see the full deck.

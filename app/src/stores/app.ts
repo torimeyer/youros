@@ -169,6 +169,10 @@ interface AppState {
   setGreetingStyle: (v: GreetingStyle) => void
   showBudgetCaps: boolean
   setShowBudgetCaps: (v: boolean) => void
+  // Cross-route chat prefill. Set by "What's Next" action buttons on
+  // completed agent cards; cleared by ChatPanel after consuming.
+  chatPrefill: string | null
+  setChatPrefill: (v: string | null) => void
   // Optimistic pending-spec queue. FilePreviewPane pushes a row here
   // when the user clicks "Make spec" so the Specs page can render a
   // skeleton immediately instead of waiting on AC generation.
@@ -540,6 +544,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ showBudgetCaps })
     patchServer({ show_budget_caps: showBudgetCaps })
   },
+  chatPrefill: null,
+  setChatPrefill: (chatPrefill) => set({ chatPrefill }),
   // Optimistic pending-spec queue. Session-only, never persisted.
   pendingSpecs: {},
   addPendingSpec: (spec) => {

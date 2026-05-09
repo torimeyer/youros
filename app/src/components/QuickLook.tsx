@@ -59,6 +59,8 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
   const [previewData, setPreviewData] = useState<PreviewPayload | null>(null)
   const [fetchError, setFetchError] = useState(false)
   const [activeSheet, setActiveSheet] = useState(0)
+  const [activeSlide, setActiveSlide] = useState(0)
+  const [pdfLoadError, setPdfLoadError] = useState(false)
   const [openingNative, setOpeningNative] = useState(false)
 
   const kind = classify(fileType, filePath)
@@ -81,6 +83,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
     setPreviewData(null)
     setFetchError(false)
     setActiveSheet(0)
+    setActiveSlide(0)
     fetch(previewUrl)
       .then((r) => { if (!r.ok) throw new Error('fetch failed'); return r.json() })
       .then((data: PreviewPayload) => setPreviewData(data))
@@ -170,12 +173,22 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
           )}
 
           {kind === 'pdf' && (
-            <iframe
-              src={rawUrl}
-              title={name}
-              className="w-full h-[70vh] border-0 rounded"
-              data-testid="quicklook-pdf"
-            />
+            pdfLoadError ? (
+              <div className="flex flex-col items-center gap-3 py-12 text-center">
+                <p className="text-slate-400 text-sm">Could not load PDF in browser.</p>
+                <button onClick={handleOpenNative} className="text-xs text-slate-400 hover:text-white underline">
+                  Open in native app
+                </button>
+              </div>
+            ) : (
+              <iframe
+                src={rawUrl}
+                title={name}
+                className="w-full h-[70vh] border-0 rounded"
+                data-testid="quicklook-pdf"
+                onError={() => setPdfLoadError(true)}
+              />
+            )
           )}
 
           {kind === 'markdown' && (
@@ -224,6 +237,7 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
                         {sheets.map((s, i) => (
                           <button
                             key={s.name}
+                            data-testid={`sheet-tab-${s.name}`}
                             onClick={() => setActiveSheet(i)}
                             className={`text-xs px-3 py-1.5 rounded border shrink-0 transition-colors ${
                               i === activeSheet
@@ -284,24 +298,46 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
                   </button>
                 </div>
               )}
-              {previewData?.kind === 'slides' && (
-                <div className="flex flex-col gap-3">
-                  {previewData.slides.map((slide) => (
-                    <div key={slide.index} className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-                      <div className="text-xs text-slate-500 mb-1">Slide {slide.index}</div>
-                      {slide.title && (
-                        <div className="text-sm font-semibold text-white mb-1">{slide.title}</div>
-                      )}
-                      {slide.body && (
-                        <div className="text-xs text-slate-400 whitespace-pre-wrap">{slide.body}</div>
-                      )}
-                      {!slide.title && !slide.body && (
-                        <div className="text-xs text-slate-600 italic">No text on this slide</div>
-                      )}
+              {previewData?.kind === 'slides' && (() => {
+                const slides = previewData.slides
+                const current = slides[activeSlide] ?? slides[0]
+                return (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <button
+                        data-testid="slide-prev"
+                        onClick={() => setActiveSlide((i) => Math.max(0, i - 1))}
+                        disabled={activeSlide === 0}
+                        className="p-1 text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">chevron_left</span>
+                      </button>
+                      <span className="text-xs text-slate-500">Slide {activeSlide + 1} of {slides.length}</span>
+                      <button
+                        data-testid="slide-next"
+                        onClick={() => setActiveSlide((i) => Math.min(slides.length - 1, i + 1))}
+                        disabled={activeSlide === slides.length - 1}
+                        className="p-1 text-slate-400 hover:text-white disabled:opacity-30 transition-opacity"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">chevron_right</span>
+                      </button>
                     </div>
-                  ))}
-                </div>
-              )}
+                    {current && (
+                      <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4 min-h-[120px]">
+                        {current.title && (
+                          <div className="text-sm font-semibold text-white mb-2">{current.title}</div>
+                        )}
+                        {current.body && (
+                          <div className="text-xs text-slate-400 whitespace-pre-wrap">{current.body}</div>
+                        )}
+                        {!current.title && !current.body && (
+                          <div className="text-xs text-slate-600 italic">No text on this slide</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           )}
 

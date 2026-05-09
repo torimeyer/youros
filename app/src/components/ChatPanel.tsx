@@ -452,7 +452,7 @@ function GiphyPicker({ initialSearch, onSelect, onClose }: {
 }
 
 export function ChatPanel() {
-  const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel, setDefaultChatModel, sideBySideEnabled, setSideBySideEnabled } = useAppStore()
+  const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel, setDefaultChatModel, sideBySideEnabled, setSideBySideEnabled, chatPrefill, setChatPrefill } = useAppStore()
   const displayOsName = useAppStore((s) => s.displayOsName())
 
   // One-time "New" pulse on the All pill after a Build-it feature lands.
@@ -528,6 +528,12 @@ export function ChatPanel() {
       }
     } catch { /* ignore */ }
   }, [])
+
+  useEffect(() => {
+    if (!chatPrefill) return
+    setInput(chatPrefill)
+    setChatPrefill(null)
+  }, [chatPrefill, setChatPrefill])
 
   const [isListening, setIsListening] = useState(false)
   const speechRecRef = useRef<SpeechRecognition | null>(null)

@@ -2166,6 +2166,7 @@ export default function Agents() {
   const [transcriptModal, setTranscriptModal] = useState<{name: string; content: string; loading: boolean; error?: string; retryable?: boolean} | null>(null);
   const { confirm, confirmProps } = useConfirm();
   const setAgentsLastViewed = useAppStore((s) => s.setAgentsLastViewed);
+  const setChatPrefill = useAppStore((s) => s.setChatPrefill);
 
   // Mark agents as viewed on mount and when the window regains focus so the
   // sidebar badge clears the moment the user looks at this page.
@@ -4497,9 +4498,22 @@ export default function Agents() {
                                 <button
                                   key={action.label}
                                   data-testid="follow-on-action-btn"
-                                  onClick={() => {
-                                    try { sessionStorage.setItem('chat_pending_input', action.prompt); } catch { /* ignore */ }
-                                    navigate('/');
+                                  onClick={async () => {
+                                    const isSlide = action.label.toLowerCase().includes('slide');
+                                    if (isSlide) {
+                                      let context = '';
+                                      try {
+                                        const data = await fetch(`/api/agents/${encodeURIComponent(agent.name)}/transcript`).then(r => r.json());
+                                        if (!data.empty && data.content) context = data.content;
+                                      } catch { /* proceed without transcript */ }
+                                      const slideName = `slide-deck-${Date.now()}`;
+                                      const slidePrompt = `Using fcp-slides, create a slide deck presentation from the following content. Save the .pptx file to ~/myos/files/.\n\n${context || action.prompt}`;
+                                      handleSpawn(slideName, slidePrompt);
+                                      navigate('/agents');
+                                    } else {
+                                      setChatPrefill(action.prompt);
+                                      navigate('/');
+                                    }
                                   }}
                                   className="inline-flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-emerald-900/60 border border-slate-700 hover:border-emerald-700 text-slate-300 hover:text-emerald-300 rounded-full px-3 py-1 transition-colors"
                                 >

@@ -151,11 +151,15 @@ describe('DrivePreview', () => {
     );
     const strip = screen.getByTestId('drive-preview-slides');
     expect(strip).toBeInTheDocument();
+    // Carousel shows one slide at a time — first slide visible by default.
     const imgs = strip.querySelectorAll('img');
-    expect(imgs.length).toBe(2);
+    expect(imgs.length).toBe(1);
     expect((imgs[0] as HTMLImageElement).src).toContain('https://img/p1');
-    expect(screen.getByText('Slide 1')).toBeInTheDocument();
-    expect(screen.getByText('Slide 2')).toBeInTheDocument();
+    expect(screen.getByText('Slide 1 of 2')).toBeInTheDocument();
+    // Navigate to slide 2.
+    fireEvent.click(screen.getByTestId('slide-next'));
+    expect(strip.querySelectorAll('img')[0] as HTMLImageElement).toBeDefined();
+    expect(screen.getByText('Slide 2 of 2')).toBeInTheDocument();
   });
 
   it('renders formatted headings and paragraphs for docs', () => {
