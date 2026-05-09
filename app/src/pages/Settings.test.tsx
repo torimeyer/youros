@@ -503,19 +503,26 @@ describe('Settings', () => {
     })
   })
 
-  describe('ostk-managed MCP servers', () => {
-    it('shows ostk-managed servers from the API', async () => {
+  describe('MCP servers panel moved to Agents tab', () => {
+    it('does not show Connected Tools in Settings', async () => {
+      renderSettings()
+
+      await waitFor(() => {
+        expect(screen.queryByText('Connected Tools')).not.toBeInTheDocument()
+      })
+    })
+
+    it('does not show MCP servers section heading in Settings', async () => {
+      renderSettings()
+
+      await waitFor(() => {
+        expect(screen.queryByText('MCP servers')).not.toBeInTheDocument()
+      })
+    })
+
+    it('does not show ostk-managed server content in Settings', async () => {
       const mockedApiGet = vi.mocked(api.get)
       mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/settings/mcp-servers') {
-          return Promise.resolve({
-            ostk_servers: [
-              { name: 'linear', command: 'npx -y @anthropic/linear-mcp-server' },
-              { name: 'github', command: 'gh mcp-server' },
-            ],
-            manual_servers: [],
-          })
-        }
         if (path === '/secrets/key-status') {
           return Promise.resolve({ google_oauth_available: false })
         }
@@ -525,58 +532,8 @@ describe('Settings', () => {
       renderSettings()
 
       await waitFor(() => {
-        expect(screen.getByText('linear')).toBeInTheDocument()
+        expect(screen.queryByText('Managed automatically (configured in your profile)')).not.toBeInTheDocument()
       })
-      expect(screen.getByText('github')).toBeInTheDocument()
-      expect(screen.getByText('Managed automatically (configured in your profile)')).toBeInTheDocument()
-    })
-
-    it('does not show the ostk section when no ostk servers exist', async () => {
-      const mockedApiGet = vi.mocked(api.get)
-      mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/settings/mcp-servers') {
-          return Promise.resolve({ ostk_servers: [], manual_servers: [] })
-        }
-        if (path === '/secrets/key-status') {
-          return Promise.resolve({ google_oauth_available: false })
-        }
-        return Promise.resolve({})
-      })
-
-      renderSettings()
-
-      // Wait for render cycle
-      await waitFor(() => {
-        expect(screen.getByText('Connected Tools')).toBeInTheDocument()
-      })
-
-      expect(screen.queryByText('Managed automatically (configured in your profile)')).not.toBeInTheDocument()
-    })
-
-    it('shows "Added manually" label when both ostk and manual servers exist', async () => {
-      const mockedApiGet = vi.mocked(api.get)
-      mockedApiGet.mockImplementation((path: string) => {
-        if (path === '/settings/mcp-servers') {
-          return Promise.resolve({
-            ostk_servers: [{ name: 'linear', command: 'npx -y @anthropic/linear-mcp-server' }],
-            manual_servers: [],
-          })
-        }
-        if (path === '/secrets/key-status') {
-          return Promise.resolve({ google_oauth_available: false })
-        }
-        return Promise.resolve({
-          mcp_servers: [{ name: 'stitch', url: 'https://stitch.example.com', enabled: true }],
-        })
-      })
-
-      renderSettings()
-
-      await waitFor(() => {
-        expect(screen.getByText('linear')).toBeInTheDocument()
-      })
-      expect(screen.getByText('stitch')).toBeInTheDocument()
-      expect(screen.getByText('Added manually')).toBeInTheDocument()
     })
   })
 
@@ -881,24 +838,12 @@ describe('Settings - Enter key submit', () => {
     })
   })
 
-  it('Enter on the MCP URL field adds the server', async () => {
-    mockedApiPatch.mockResolvedValue({ ok: true })
+  it('MCP server add form is not present in Settings (moved to Agents)', async () => {
     renderSettings()
 
-    const nameInput = await screen.findByPlaceholderText('Server name (e.g. Stitch)')
-    const urlInput = await screen.findByPlaceholderText('Paste your server URL after running setup')
-
-    fireEvent.change(nameInput, { target: { value: 'TestServer' } })
-    fireEvent.change(urlInput, { target: { value: 'https://example.com/mcp' } })
-    fireEvent.keyDown(urlInput, { key: 'Enter' })
-
     await waitFor(() => {
-      expect(mockedApiPatch).toHaveBeenCalledWith(
-        '/settings',
-        expect.objectContaining({ mcp_servers: expect.arrayContaining([
-          expect.objectContaining({ name: 'TestServer', url: 'https://example.com/mcp' })
-        ]) }),
-      )
+      expect(screen.queryByPlaceholderText('Server name (e.g. Stitch)')).not.toBeInTheDocument()
+      expect(screen.queryByPlaceholderText('Paste your server URL after running setup')).not.toBeInTheDocument()
     })
   })
 
