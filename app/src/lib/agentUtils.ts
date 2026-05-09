@@ -75,6 +75,10 @@ export interface AgentInfo {
   prompt?: string;
   /** Pre-derived chat title threaded through from the list endpoint. */
   chat_title?: string;
+  /** Template name stored at spawn time (e.g. "Roadmap", "pm-roadmap"). */
+  template?: string;
+  /** True when the spawning template had produces_doc=True. */
+  template_produces_doc?: boolean;
 }
 
 /**

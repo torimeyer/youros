@@ -518,7 +518,15 @@ export function ChatPanel() {
     if (seed) {
       setInput(seed)
       localStorage.removeItem('myos-onboarding-seed')
+      return
     }
+    try {
+      const pending = sessionStorage.getItem('chat_pending_input')
+      if (pending) {
+        setInput(pending)
+        sessionStorage.removeItem('chat_pending_input')
+      }
+    } catch { /* ignore */ }
   }, [])
 
   const [isListening, setIsListening] = useState(false)

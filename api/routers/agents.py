@@ -7725,6 +7725,16 @@ def _build_templates_list() -> list[dict]:
     return templates
 
 
+@router.get("/agents/roadmap-output")
+async def get_roadmap_output():
+    """Return the raw text of ~/.myos/files/roadmap.md for frontend parsing."""
+    roadmap_path = Path.home() / ".myos" / "files" / "roadmap.md"
+    if not roadmap_path.exists():
+        raise HTTPException(status_code=404, detail="No roadmap found")
+    content = roadmap_path.read_text(encoding="utf-8")
+    return {"content": content}
+
+
 @router.get("/agents/templates")
 async def list_templates():
     """List every Agentfile in the repo with parsed capabilities.

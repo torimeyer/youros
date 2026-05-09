@@ -18,6 +18,8 @@ import { hasSpeakerPrefixes, parseTranscript } from "../lib/transcript";
 import { Button, EmptyState, Card } from "../components/ui";
 import AgentInsights from "../components/AgentInsights";
 import AgentTemplateFileUpload from "../components/AgentTemplateFileUpload";
+import { RoadmapCards } from "../components/RoadmapCards";
+import { parseRoadmapJson, type RoadmapQuarter } from "../lib/parseRoadmapJson";
 import { formatTokenBudget, formatTokenBudgetApprox } from "../lib/budgetDisplay";
 
 
@@ -2068,6 +2070,7 @@ const MCP_DIRECTORY: MCPDirectoryEntry[] = [
 export default function Agents() {
   const [activeTab, setActiveTab] = useState("Active");
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   // Ref so fetchAgents can read the current tab without a stale closure.
   const activeTabRef = useRef("Active");
   const setActiveTabWithRef = (tab: string) => {
@@ -2268,6 +2271,7 @@ export default function Agents() {
   // never silent (feedback_chat_response_silent.md).
   const [nudgeErrors, setNudgeErrors] = useState<Record<string, string>>({});
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [agentRoadmaps, setAgentRoadmaps] = useState<Record<string, RoadmapQuarter[]>>({});
   // Active Sessions cards start collapsed so the list is scannable at a
   // glance. Clicking Expand on a card reveals the metrics bar, chat
   // thread, message input, and transcript controls. Each agent has its
@@ -2819,6 +2823,22 @@ export default function Agents() {
     }
   };
 
+  function isRoadmapAgent(agent: AgentInfo): boolean {
+    const tpl = (agent.template || '').toLowerCase().trim();
+    return ['roadmap', 'pm-roadmap', 'builtin-pm-roadmap'].includes(tpl);
+  }
+
+  const fetchRoadmapForAgent = useCallback(async (agentName: string) => {
+    if (agentRoadmaps[agentName] !== undefined) return;
+    try {
+      const data = await api.get<{ content: string }>('/agents/roadmap-output');
+      const quarters = parseRoadmapJson(data.content);
+      if (quarters && quarters.length > 0) {
+        setAgentRoadmaps((prev) => ({ ...prev, [agentName]: quarters }));
+      }
+    } catch { /* no roadmap yet */ }
+  }, [agentRoadmaps]);
+
   const handleClearMemory = async (agentName: string) => {
     setMemoryClearing((prev) => ({ ...prev, [agentName]: true }));
     try {
@@ -3204,6 +3224,15 @@ export default function Agents() {
       return () => clearInterval(interval);
     }
   }, [activeTab, allAgents, runningAgentNames, fetchContextPressure]);
+
+  // Fetch roadmap content for completed roadmap agents so RoadmapCards renders
+  useEffect(() => {
+    if (activeTab !== "Recent") return;
+    allAgents
+      .filter((a) => a.status === 'completed' && isRoadmapAgent(a))
+      .forEach((a) => fetchRoadmapForAgent(a.name));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, allAgents]);
 
   // Fetch workspace messages when the Workspace tab is selected
   useEffect(() => {
@@ -4419,6 +4448,12 @@ export default function Agents() {
                             </button>
                           </div>
                         </div>
+                        {isRoadmapAgent(agent) && agent.status === 'completed' && agentRoadmaps[agent.name] && (
+                          <RoadmapCards
+                            quarters={agentRoadmaps[agent.name]}
+                            onNavigateToChat={() => navigate('/')}
+                          />
+                        )}
                         {isRecentExpanded && (
                           <div className="mt-3 pt-3 border-t border-slate-800">
                             <AgentMemorySection
