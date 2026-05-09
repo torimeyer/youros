@@ -730,3 +730,82 @@ async def reply_to_chat(chat_id: int, text: str) -> dict:
         ),
         timeout=20.0,
     )
+
+
+def _names_match(query: str, name: str) -> bool:
+    """Fuzzy-match a query string against a contact display name.
+
+    Accepts: exact match, prefix match, substring match, or all query words
+    appearing somewhere in the name (handles nicknames like "Lil Oatmeal").
+    """
+    q = query.lower().strip()
+    n = name.lower().strip()
+    if not q or not n:
+        return False
+    if q == n:
+        return True
+    if n.startswith(q) or q in n:
+        return True
+    q_words = q.split()
+    n_words = n.split()
+    return all(any(qw in nw or nw.startswith(qw) for nw in n_words) for qw in q_words)
+
+
+def resolve_contact_phrase_sync(phrase: str) -> dict:
+    """Resolve a contact name and message from a natural-language phrase.
+
+    Tries splitting the phrase at word positions 1 through 4 and fuzzy-matches
+    each candidate name prefix against known contacts (cache then conversations).
+
+    Args:
+        phrase: text after the intent verb, e.g. "lil oatmeal goodnight"
+
+    Returns:
+        { identifier, display_name, message_text }
+
+    Raises:
+        ValueError if no matching contact is found.
+    """
+    words = phrase.strip().split()
+    if len(words) < 2:
+        raise ValueError("Need at least a contact name and a message word.")
+
+    cache = _load_contacts_cache()
+    try:
+        conversations = get_conversations_sync(limit=200)
+    except Exception:
+        conversations = []
+
+    # Iterate longest possible name first so "lil oatmeal goodnight" resolves
+    # to name="lil oatmeal" + message="goodnight" rather than name="lil" +
+    # message="oatmeal goodnight" (which a prefix match on "lil" would give).
+    for name_len in range(min(4, len(words) - 1), 0, -1):
+        candidate_name = " ".join(words[:name_len])
+        candidate_msg = " ".join(words[name_len:])
+        if not candidate_msg.strip():
+            continue
+
+        for identifier, cached_name in cache.items():
+            if _names_match(candidate_name, cached_name):
+                return {
+                    "identifier": identifier,
+                    "display_name": cached_name,
+                    "message_text": candidate_msg,
+                }
+
+        for conv in conversations:
+            if _names_match(candidate_name, conv["display_name"]):
+                return {
+                    "identifier": conv["identifier"],
+                    "display_name": conv["display_name"],
+                    "message_text": candidate_msg,
+                }
+
+    raise ValueError(f"No contact found matching '{phrase}'.")
+
+
+async def resolve_contact_phrase(phrase: str) -> dict:
+    """Async wrapper for resolve_contact_phrase_sync."""
+    return await asyncio.get_event_loop().run_in_executor(
+        None, lambda: resolve_contact_phrase_sync(phrase)
+    )

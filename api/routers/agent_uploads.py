@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from services import recent_deletes
 from services.agent_templates_store import agent_templates_store
 
 router = APIRouter(tags=["agents"])
@@ -177,6 +178,7 @@ async def delete_template_file(template_id: str, filename: str):
         raise HTTPException(status_code=404, detail="File not found")
 
     path.unlink(missing_ok=True)
+    recent_deletes.record_id(f"template-upload:{template_id}:{safe}")
 
     attached = [f for f in (tpl.get("attached_files") or []) if f != safe]
     agent_templates_store.update_attached_files(template_id, attached)

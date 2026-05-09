@@ -199,6 +199,40 @@ async def imessage_reply(chat_id: int, body: ReplyRequest):
     return result
 
 
+@router.get("/imessage/resolve-contact")
+async def imessage_resolve_contact(phrase: str = Query(..., min_length=2)):
+    """Resolve a contact name and message from a natural-language phrase.
+
+    Used by the chat panel when the user types something like
+    'tell lil oatmeal goodnight'. Tries different word splits and fuzzy-matches
+    each candidate against known contacts.
+
+    Returns { identifier, display_name, message_text } on success.
+    Returns 404 if no matching contact is found.
+    """
+    _require_macos()
+    status = imessage_service.is_available()
+    if not status["available"]:
+        raise HTTPException(status_code=503, detail=status["reason"])
+
+    try:
+        result = await imessage_service.resolve_contact_phrase(phrase)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="Contact resolution timed out. Try again.",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Contact resolution failed: {exc}",
+        ) from exc
+
+    return result
+
+
 @router.get("/imessage/search")
 async def imessage_search(q: str = Query(..., min_length=2), limit: int = Query(50, ge=1, le=200)):
     """Search iMessage history by text content.
