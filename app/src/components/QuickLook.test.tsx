@@ -25,14 +25,30 @@ describe('QuickLook', () => {
     expect(screen.getByTestId('quicklook-modal')).toBeInTheDocument()
   })
 
-  it('renders an img when fileType is image/png', () => {
+  it('renders an img when fileType is image/png', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock-image-url')
+    vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(new Blob(['img'], { type: 'image/png' })),
+    }))
     render(<QuickLook {...base} filePath="/test/photo.png" fileType="image/png" />)
-    expect(screen.getByTestId('quicklook-image')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('quicklook-image')).toBeInTheDocument()
+    })
   })
 
-  it('renders an iframe when fileType is application/pdf', () => {
+  it('renders an iframe when fileType is application/pdf', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock-pdf-url')
+    vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(new Blob(['%PDF'], { type: 'application/pdf' })),
+    }))
     render(<QuickLook {...base} filePath="/test/doc.pdf" fileType="application/pdf" />)
-    expect(screen.getByTestId('quicklook-pdf')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('quicklook-pdf')).toBeInTheDocument()
+    })
   })
 
   it('renders rendered markdown when fileType is text/markdown', async () => {

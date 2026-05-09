@@ -62,6 +62,8 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
   const [activeSlide, setActiveSlide] = useState(0)
   const [pdfLoadError, setPdfLoadError] = useState(false)
   const [openingNative, setOpeningNative] = useState(false)
+  const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null)
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
 
   const kind = classify(fileType, filePath)
   const rawUrl = `/api/files/raw?path=${encodeURIComponent(filePath)}`
@@ -91,11 +93,55 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
   }, [isOpen, filePath, kind, previewUrl])
 
   useEffect(() => {
+    if (!isOpen || kind !== 'image') return
+    let revoked = false
+    let blobUrl: string | null = null
+    setImageBlobUrl(null)
+    setFetchError(false)
+    fetch(rawUrl)
+      .then(r => { if (!r.ok) throw new Error('fetch failed'); return r.blob() })
+      .then(blob => {
+        if (!revoked) {
+          blobUrl = URL.createObjectURL(blob)
+          setImageBlobUrl(blobUrl)
+        }
+      })
+      .catch(() => setFetchError(true))
+    return () => {
+      revoked = true
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
+    }
+  }, [isOpen, filePath, kind, rawUrl])
+
+  useEffect(() => {
+    if (!isOpen || kind !== 'pdf') return
+    let revoked = false
+    let blobUrl: string | null = null
+    setPdfBlobUrl(null)
+    setPdfLoadError(false)
+    fetch(rawUrl)
+      .then(r => { if (!r.ok) throw new Error('fetch failed'); return r.blob() })
+      .then(blob => {
+        if (!revoked) {
+          blobUrl = URL.createObjectURL(blob)
+          setPdfBlobUrl(blobUrl)
+        }
+      })
+      .catch(() => setPdfLoadError(true))
+    return () => {
+      revoked = true
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
+    }
+  }, [isOpen, filePath, kind, rawUrl])
+
+  useEffect(() => {
     if (!isOpen) {
       setTextContent(null)
       setPreviewData(null)
       setFetchError(false)
       setOpeningNative(false)
+      setImageBlobUrl(null)
+      setPdfBlobUrl(null)
     }
   }, [isOpen])
 
@@ -163,12 +209,20 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
         <div className="flex-1 overflow-auto min-h-0 p-4">
           {kind === 'image' && (
             <div className="flex items-center justify-center h-full min-h-[200px]">
-              <img
-                src={rawUrl}
-                alt={name}
-                className="max-w-full max-h-[70vh] object-contain"
-                data-testid="quicklook-image"
-              />
+              {imageBlobUrl === null && !fetchError && (
+                <p className="text-slate-500 text-sm">Loading…</p>
+              )}
+              {fetchError && (
+                <p className="text-red-400 text-sm">Could not load this image.</p>
+              )}
+              {imageBlobUrl !== null && (
+                <img
+                  src={imageBlobUrl}
+                  alt={name}
+                  className="max-w-full max-h-[70vh] object-contain"
+                  data-testid="quicklook-image"
+                />
+              )}
             </div>
           )}
 
@@ -180,9 +234,11 @@ export default function QuickLook({ filePath, fileType, onClose, isOpen }: Quick
                   Open in native app
                 </button>
               </div>
+            ) : pdfBlobUrl === null ? (
+              <p className="text-slate-500 text-sm">Loading…</p>
             ) : (
               <iframe
-                src={rawUrl}
+                src={pdfBlobUrl}
                 title={name}
                 className="w-full h-[70vh] border-0 rounded"
                 data-testid="quicklook-pdf"
