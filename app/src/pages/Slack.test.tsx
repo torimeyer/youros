@@ -379,6 +379,94 @@ describe('Slack ConnectCard (chunk-d migration)', () => {
   })
 })
 
+describe('Slack one-click OAuth button', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.removeItem('myos.slackChannels.v2')
+  })
+
+  it('shows "Enter credentials manually" link when configured=true', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: false, team_name: '', team_id: '', configured: true })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('slack-enter-credentials-link')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking "Enter credentials manually" shows the credential form', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: false, team_name: '', team_id: '', configured: true })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('slack-enter-credentials-link')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('slack-enter-credentials-link'))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Client ID')).toBeInTheDocument()
+      expect(screen.getByLabelText('Client Secret')).toBeInTheDocument()
+    })
+  })
+
+  it('shows "Back to Connect" link in the form when configured=true', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: false, team_name: '', team_id: '', configured: true })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('slack-enter-credentials-link')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('slack-enter-credentials-link'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('slack-back-to-connect')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('slack-back-to-connect'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('slack-oauth-connect-btn')).toBeInTheDocument()
+    })
+  })
+
+  it('does not show "Enter credentials manually" link when configured=false', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/slack/status')) {
+        return Promise.resolve({ connected: false, team_name: '', team_id: '', configured: false })
+      }
+      return Promise.resolve({})
+    })
+
+    renderSlack()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Client ID')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByTestId('slack-enter-credentials-link')).not.toBeInTheDocument()
+  })
+})
+
 describe('Slack configure form', () => {
   beforeEach(() => {
     vi.clearAllMocks()

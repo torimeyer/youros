@@ -49,6 +49,8 @@ export default function Confluence() {
   const [connectSite, setConnectSite] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
+  const [oauthAvailable, setOauthAvailable] = useState(false)
+  const [forceTokenForm, setForceTokenForm] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -86,8 +88,9 @@ export default function Confluence() {
   useEffect(() => {
     ;(async () => {
       try {
-        const defaults = await api.get<{ site: string }>('/atlassian/defaults')
+        const defaults = await api.get<{ site: string; oauth_available?: boolean }>('/atlassian/defaults')
         if (defaults.site) setConnectSite(defaults.site)
+        if (defaults.oauth_available) setOauthAvailable(true)
       } catch {
         // ignore — pre-fill is best-effort
       }
@@ -171,56 +174,75 @@ export default function Confluence() {
             title="Connect Atlassian"
             description="See your recently-updated Confluence pages inside myOS. You need an Atlassian API token."
             primaryAction={
-              <div className="w-full space-y-3 text-left">
-                <div>
-                  <label className="block text-sm text-slate-400 mb-1">Site URL</label>
-                  <input
-                    type="text"
-                    value={connectSite}
-                    onChange={(e) => setConnectSite(e.target.value)}
-                    placeholder="yourco.atlassian.net"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-400 mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={connectEmail}
-                    onChange={(e) => setConnectEmail(e.target.value)}
-                    placeholder="you@company.com"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-400 mb-1">API Token</label>
-                  <input
-                    type="password"
-                    value={connectToken}
-                    onChange={(e) => setConnectToken(e.target.value)}
-                    placeholder="ATATT3x..."
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
-                  />
-                </div>
-                <button
-                  onClick={handleConnect}
-                  disabled={connecting}
-                  className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors disabled:opacity-50"
-                >
-                  {connecting ? 'Connecting...' : 'Connect'}
-                </button>
-                <p className="text-xs text-slate-500">
-                  Create a token at{' '}
-                  <a
-                    href="https://id.atlassian.com/manage-profile/security/api-tokens"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-400 hover:text-blue-300"
+              oauthAvailable && !forceTokenForm ? (
+                <div className="w-full space-y-3 text-left">
+                  <button
+                    onClick={() => window.open('/api/atlassian/auth', '_self')}
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors text-white"
+                    data-testid="confluence-oauth-connect"
                   >
-                    id.atlassian.com
-                  </a>
-                </p>
-              </div>
+                    Connect Atlassian
+                  </button>
+                  <button
+                    onClick={() => setForceTokenForm(true)}
+                    className="text-xs text-slate-400 underline hover:opacity-80"
+                    data-testid="confluence-use-token"
+                  >
+                    Use a token instead
+                  </button>
+                </div>
+              ) : (
+                <div className="w-full space-y-3 text-left">
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">Site URL</label>
+                    <input
+                      type="text"
+                      value={connectSite}
+                      onChange={(e) => setConnectSite(e.target.value)}
+                      placeholder="yourco.atlassian.net"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={connectEmail}
+                      onChange={(e) => setConnectEmail(e.target.value)}
+                      placeholder="you@company.com"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">API Token</label>
+                    <input
+                      type="password"
+                      value={connectToken}
+                      onChange={(e) => setConnectToken(e.target.value)}
+                      placeholder="ATATT3x..."
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                    />
+                  </div>
+                  <button
+                    onClick={handleConnect}
+                    disabled={connecting}
+                    className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium transition-colors disabled:opacity-50"
+                  >
+                    {connecting ? 'Connecting...' : 'Connect'}
+                  </button>
+                  <p className="text-xs text-slate-500">
+                    Create a token at{' '}
+                    <a
+                      href="https://id.atlassian.com/manage-profile/security/api-tokens"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-400 hover:text-blue-300"
+                    >
+                      id.atlassian.com
+                    </a>
+                  </p>
+                </div>
+              )
             }
             error={connectError ?? undefined}
           />

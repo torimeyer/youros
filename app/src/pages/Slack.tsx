@@ -90,6 +90,7 @@ export default function Slack() {
   const [clientSecret, setClientSecret] = useState('')
   const [configuring, setConfiguring] = useState(false)
   const [configureError, setConfigureError] = useState<string | null>(null)
+  const [showCredForm, setShowCredForm] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -282,15 +283,39 @@ export default function Slack() {
             title="Connect Slack"
             description="See your Slack messages, reply to conversations, and create tasks from messages without leaving myOS."
             primaryAction={
-              status?.configured ? (
-                <button
-                  onClick={handleConnect}
-                  className="w-full py-3 bg-purple-600 hover:bg-purple-700 rounded-xl font-medium transition-colors"
-                >
-                  Connect Slack workspace
-                </button>
+              status?.configured && !showCredForm ? (
+                <div className="space-y-3">
+                  <button
+                    onClick={handleConnect}
+                    data-testid="slack-oauth-connect-btn"
+                    className="w-full py-3 bg-purple-600 hover:bg-purple-700 rounded-xl font-medium transition-colors"
+                  >
+                    Connect Slack workspace
+                  </button>
+                  <p className="text-xs text-slate-400 text-center">
+                    One click. Slack will ask for permission, then bring you back.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowCredForm(true)}
+                    data-testid="slack-enter-credentials-link"
+                    className="text-xs text-slate-500 hover:text-slate-300 underline w-full text-center"
+                  >
+                    Enter credentials manually
+                  </button>
+                </div>
               ) : (
                 <form onSubmit={handleConfigure} className="text-sm text-left space-y-3">
+                  {status?.configured && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCredForm(false)}
+                      data-testid="slack-back-to-connect"
+                      className="text-xs text-slate-500 hover:text-slate-300 underline"
+                    >
+                      ← Back to Connect
+                    </button>
+                  )}
                   <div>
                     <label htmlFor="slack-client-id" className="block text-slate-400 mb-1">Client ID</label>
                     <input
