@@ -18,6 +18,10 @@ from services.ostk import read_audit_entries
 # Opus 4 $15 in/$75 out, cache creation 1.25x input, cache read 0.1x input.
 _MODEL_PRICES: dict[str, tuple[float, float, float, float]] = {
     # (input $/M, output $/M, cache_creation $/M, cache_read $/M)
+    # Explicit version IDs listed first so longest-prefix matching hits them before the family prefix.
+    "claude-opus-4-7":      (15.00, 75.00, 18.75, 1.50),
+    "claude-sonnet-4-6":    (3.00,  15.00,  3.75, 0.30),
+    "claude-haiku-4-5":     (0.80,   4.00,  1.00, 0.08),
     "claude-opus-4":        (15.00, 75.00, 18.75, 1.50),
     "claude-sonnet-4":      (3.00,  15.00,  3.75, 0.30),
     "claude-haiku-4":       (0.80,   4.00,  1.00, 0.08),
@@ -1024,12 +1028,21 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
 
         sub_input = 0
         sub_output = 0
+        sub_saved = 0.0
         for ev in audit_events:
             budget = float(ev.get("budget", 0) or 0)
             if budget == 0:
-                sub_input += int(ev.get("input_tokens", 0) or 0)
-                sub_output += int(ev.get("output_tokens", 0) or 0)
-        sub_saved = round(sub_input * 3 / 1_000_000 + sub_output * 15 / 1_000_000, 2)
+                # chat.completion events carry "model" (written by safe_record_chat_turn /
+                # record_chat_completion in chat_providers.py).  Older events that pre-date
+                # the model field fall back to Sonnet 4 rates; backfill of historical rows
+                # is not possible without the original model ID.
+                model = ev.get("model") or "claude-sonnet-4"
+                input_tok = int(ev.get("input_tokens", 0) or 0)
+                output_tok = int(ev.get("output_tokens", 0) or 0)
+                sub_input += input_tok
+                sub_output += output_tok
+                sub_saved += _token_cost_usd(model, input_tok, output_tok, 0, 0)
+        sub_saved = round(sub_saved, 2)
         result["subscription_savings_usd"] = sub_saved
         result["subscription_input_tokens"] = sub_input
         result["subscription_output_tokens"] = sub_output

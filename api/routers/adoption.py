@@ -120,6 +120,44 @@ def _template_id_from_name(name: str) -> Optional[str]:
     return None
 
 
+def _build_cooccurrence(entries: list[dict]) -> dict[str, dict[str, int]]:
+    """Build a pairwise co-occurrence map from agent.spawned events in the last 90 days.
+
+    Returns {template_id: {neighbor_template_id: count}} where count is the number
+    of ISO weeks in which both templates were used.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+    week_to_tids: dict[str, set[str]] = {}
+    for entry in entries:
+        if entry.get("event") != "agent.spawned":
+            continue
+        ts = entry.get("timestamp", "")
+        if not ts:
+            continue
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if dt < cutoff:
+            continue
+        tid = entry.get("template_id") or _template_id_from_name(entry.get("name", ""))
+        if not tid:
+            continue
+        week_key = dt.strftime("%G-W%V")
+        week_to_tids.setdefault(week_key, set()).add(tid)
+
+    cooccurrence: dict[str, dict[str, int]] = {}
+    for tids in week_to_tids.values():
+        tids_list = sorted(tids)
+        for i, a in enumerate(tids_list):
+            for b in tids_list[i + 1:]:
+                cooccurrence.setdefault(a, {}).setdefault(b, 0)
+                cooccurrence[a][b] += 1
+                cooccurrence.setdefault(b, {}).setdefault(a, 0)
+                cooccurrence[b][a] += 1
+    return cooccurrence
+
+
 def _within_window(ts_str: str, since: datetime) -> bool:
     if not ts_str:
         return False
@@ -147,6 +185,7 @@ async def get_whats_working():
     template_counts: dict[str, int] = {}
     prev_week_counts: dict[str, int] = {}
     agent_runs_completed = 0
+    agent_runs_failed = 0
 
     for entry in entries:
         ts = entry.get("timestamp", "")
@@ -156,15 +195,16 @@ async def get_whats_working():
             continue
         ev = entry.get("event", "")
         if ev == "agent.spawned":
-            name = entry.get("name", "")
-            tid = _template_id_from_name(name)
+            tid = entry.get("template_id") or _template_id_from_name(entry.get("name", ""))
             if tid:
                 if in_this_week:
                     template_counts[tid] = template_counts.get(tid, 0) + 1
                 else:
                     prev_week_counts[tid] = prev_week_counts.get(tid, 0) + 1
-        elif ev in ("agent.completed", "agent.failed") and in_this_week:
+        elif ev == "agent.completed" and in_this_week:
             agent_runs_completed += 1
+        elif ev == "agent.failed" and in_this_week:
+            agent_runs_failed += 1
 
     sorted_skills = sorted(template_counts.items(), key=lambda x: x[1], reverse=True)
     top_skills = []
@@ -179,11 +219,27 @@ async def get_whats_working():
             })
 
     used_ids = {s["id"] for s in top_skills}
+
+    # Use real co-occurrence data when there are at least 3 distinct weeks of history;
+    # fall back to the static adjacency map for new users.
+    cooccurrence = _build_cooccurrence(entries)
+    distinct_weeks = len({
+        datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).strftime("%G-W%V")
+        for e in entries
+        if e.get("event") == "agent.spawned" and e.get("timestamp")
+    }) if entries else 0
+    use_cooccurrence = distinct_weeks >= 3
+
     candidate_recs: dict[str, int] = {}
     for tid in used_ids:
-        for neighbor in _SKILL_NEIGHBORS.get(tid, []):
-            if neighbor not in used_ids:
-                candidate_recs[neighbor] = candidate_recs.get(neighbor, 0) + 1
+        if use_cooccurrence:
+            for neighbor, count in cooccurrence.get(tid, {}).items():
+                if neighbor not in used_ids:
+                    candidate_recs[neighbor] = candidate_recs.get(neighbor, 0) + count
+        else:
+            for neighbor in _SKILL_NEIGHBORS.get(tid, []):
+                if neighbor not in used_ids:
+                    candidate_recs[neighbor] = candidate_recs.get(neighbor, 0) + 1
 
     sorted_recs = sorted(candidate_recs.items(), key=lambda x: x[1], reverse=True)
     recommendations = []
@@ -191,11 +247,18 @@ async def get_whats_working():
         tmpl = _TEMPLATE_BY_ID.get(rid)
         if not tmpl:
             continue
-        trigger_names = [
-            _TEMPLATE_BY_ID[uid]["name"]
-            for uid in used_ids
-            if rid in _SKILL_NEIGHBORS.get(uid, [])
-        ]
+        if use_cooccurrence:
+            trigger_names = [
+                _TEMPLATE_BY_ID[uid]["name"]
+                for uid in used_ids
+                if rid in cooccurrence.get(uid, {})
+            ]
+        else:
+            trigger_names = [
+                _TEMPLATE_BY_ID[uid]["name"]
+                for uid in used_ids
+                if rid in _SKILL_NEIGHBORS.get(uid, [])
+            ]
         why = f"you've been using {trigger_names[0]}" if trigger_names else "based on your activity"
         recommendations.append({"id": rid, "name": tmpl["name"], "why": why})
 
@@ -219,6 +282,7 @@ async def get_whats_working():
         "recommendations": recommendations,
         "this_week": {
             "agent_runs_completed": agent_runs_completed,
+            "agent_runs_failed": agent_runs_failed,
             "top_spec_or_task": top_spec_or_task,
         },
     }
