@@ -7,10 +7,13 @@ All cached data lives in ~/.myos/drive_cache/ -- never inside the repo.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
@@ -1178,7 +1181,8 @@ async def _fetch_slides_thumbnails(file_id: str) -> list[dict]:
                     .execute()
                 )
                 out.append({"slide_id": sid, "thumbnail_url": thumb.get("contentUrl", "")})
-            except Exception:
+            except Exception as _thumb_exc:
+                logger.debug("getThumbnail failed for slide %s in %s: %s", sid, file_id, _thumb_exc)
                 out.append({"slide_id": sid, "thumbnail_url": ""})
         return out
 
@@ -1326,13 +1330,15 @@ async def drive_file_structured_preview(file_id: str):
         try:
             sheets = await _export_all_sheets(file_id)
             sample = {"sheets": sheets}
-        except Exception:
+        except Exception as _sheets_exc:
+            logger.warning("Sheets API failed for %s, falling back to CSV: %s", file_id, _sheets_exc)
             # Fall back to single-sheet CSV export.
             try:
                 csv_text = await _export_sheet_csv(file_id)
                 single = _parse_csv_sample(csv_text)
                 sample = {"sheets": [{"name": "Sheet 1", **single}]}
-            except Exception:
+            except Exception as _csv_exc:
+                logger.warning("CSV fallback also failed for %s: %s", file_id, _csv_exc)
                 sample = None
 
     elif kind == "doc":
@@ -1355,7 +1361,8 @@ async def drive_file_structured_preview(file_id: str):
                 "slides": slides,
                 "truncated": len(slides) >= _SLIDES_MAX_THUMBS,
             }
-        except Exception:
+        except Exception as _slides_exc:
+            logger.warning("Slides API failed for %s, falling back to Drive thumbnail: %s", file_id, _slides_exc)
             # Slides API unavailable — fall back to Drive thumbnail if present.
             if thumbnail_url:
                 sample = {"slides": [{"slide_id": "p1", "thumbnail_url": thumbnail_url}], "truncated": False}

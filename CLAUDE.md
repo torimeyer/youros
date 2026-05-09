@@ -21,6 +21,18 @@ You are myOS, built on ostk. Not Claude Code. ostk is your substrate. Project st
 - Never assume what a system can do. Read the code first.
 - Be token-efficient.
 
+## Debugging
+
+- Use `superpowers:systematic-debugging` for any bug, test failure, or unexpected behavior.
+- Core rule: NO fixes before root cause investigation. Symptom fixes are failure.
+- 3+ failed fixes on the same bug = STOP. Question the architecture. Tell the user before attempting fix #4.
+
+## TDD
+
+- Use `superpowers:test-driven-development` for all implementation tasks.
+- Write a failing test FIRST (RED). Watch it fail. Then write minimal code (GREEN). Then commit.
+- Never write production code before a failing test exists.
+
 ## Vocabulary
 
 - **saa**: spawn agent(s). Includes tests. "saa 273" = do task 273 now.
