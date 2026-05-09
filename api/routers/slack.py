@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from services import connections_cache, recent_deletes
@@ -12,6 +12,10 @@ from services import slack as slack_service
 from services import slack_reply as slack_reply_service
 
 router = APIRouter(tags=["slack"])
+
+
+def _frontend_url(request: Request) -> str:
+    return os.environ.get("FRONTEND_URL") or str(request.base_url).rstrip("/")
 
 # Cache key used by the in-memory TTL cache around /slack/status.
 _SLACK_STATUS_CACHE_KEY = "slack_status"
@@ -58,7 +62,7 @@ async def slack_auth():
 
 
 @router.get("/slack/callback")
-async def slack_callback(code: str = ""):
+async def slack_callback(request: Request, code: str = ""):
     """Handle the OAuth callback from Slack."""
     if not code:
         raise HTTPException(status_code=400, detail="No authorization code received.")
@@ -77,8 +81,7 @@ async def slack_callback(code: str = ""):
 
     # Redirect back to the Slack page in the frontend
     from fastapi.responses import RedirectResponse
-    frontend_url = os.environ.get("FRONTEND_URL", "https://localhost:3010")
-    return RedirectResponse(url=f"{frontend_url}/slack?connected=true")
+    return RedirectResponse(url=f"{_frontend_url(request)}/slack?connected=true")
 
 
 def _compute_slack_status() -> dict:

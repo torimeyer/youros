@@ -658,16 +658,6 @@ if [ "$SKIP_LIVE" != "1" ]; then
         # --- Drive auth status ---
         check_http_json "GET /api/drive/auth/status responds"            "/api/drive/auth/status"     '"authenticated"'
 
-        # --- Transcripts endpoint ---
-        check_http_json "GET /api/transcripts returns list"              "/api/transcripts"           '"transcripts"'
-
-        # --- Export endpoints ---
-        check_http_json "GET /api/export/tasks returns markdown"         "/api/export/tasks"          ""
-        check_http_json "GET /api/export/timeline returns markdown"      "/api/export/timeline"       ""
-
-        # --- Notifications endpoint ---
-        check_http_json "GET /api/notifications returns list"            "/api/notifications"         ""
-
         # --- Agent register + complete lifecycle ---
         lifecycle_agent="e2e-lifecycle-$(date +%s)"
         reg_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/agents/register" \
@@ -1114,6 +1104,18 @@ print(s.get('features',{}).get('Specs', True))
         else
             phase_fail "journey: Drive auth status unexpected ($drive_auth)"
         fi
+        atlassian_auth=$(curl -sS $CURL_OPTS "${API_BASE}/api/atlassian/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('connected','missing'))" 2>/dev/null)
+        if [ "$atlassian_auth" = "True" ] || [ "$atlassian_auth" = "False" ]; then
+            phase_pass "journey: Atlassian auth status returns boolean"
+        else
+            phase_fail "journey: Atlassian auth status unexpected ($atlassian_auth)"
+        fi
+        github_auth=$(curl -sS $CURL_OPTS "${API_BASE}/api/github/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('connected','missing'))" 2>/dev/null)
+        if [ "$github_auth" = "True" ] || [ "$github_auth" = "False" ]; then
+            phase_pass "journey: GitHub auth status returns boolean"
+        else
+            phase_fail "journey: GitHub auth status unexpected ($github_auth)"
+        fi
 
         # --- Journey: Transcripts list ---
         check_http_json "journey: transcripts list loads"           "/api/transcripts"           '"transcripts"'
@@ -1306,7 +1308,13 @@ print(d.get('id', d.get('note_id', d.get('note',{}).get('id',''))))
         fi
 
         # --- Journey: Secrets key status ---
-        check_http_json "journey: secrets key status"               "/api/secrets/key-status"    ""
+        # Verify key-status returns expected boolean fields
+        key_status_resp=$(curl -sS $CURL_OPTS "${API_BASE}/api/secrets/key-status" 2>/dev/null)
+        if echo "$key_status_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); assert isinstance(d.get('google_connected'), bool), 'google_connected not bool'; assert 'anthropic' in d, 'anthropic missing'" 2>/dev/null; then
+            phase_pass "journey: secrets key-status has google_connected bool + anthropic field"
+        else
+            phase_fail "journey: secrets key-status missing expected fields (body: $key_status_resp)"
+        fi
 
         # --- Journey: Adventures templates ---
         check_http_json "journey: adventures templates"             "/api/adventures/templates"  ""
@@ -1574,6 +1582,13 @@ print(d.get('id', d.get('member',{}).get('id','')))
 
         # SSO: get config (should work even without SSO configured)
         check_http_json "enterprise: GET SSO config"                     "/api/enterprise/sso"        ""
+        # SSO login URL endpoint (verifies redirect_uri is dynamically derived)
+        sso_login_resp=$(curl -sS $CURL_OPTS "${API_BASE}/api/enterprise/sso/login" 2>/dev/null)
+        if echo "$sso_login_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'url' in d or 'detail' in d" 2>/dev/null; then
+            phase_pass "enterprise: SSO login URL endpoint responds"
+        else
+            phase_fail "enterprise: SSO login URL endpoint failed (body: $sso_login_resp)"
+        fi
 
         # Agentfile
         check_http_json "enterprise: GET agentfile"                      "/api/enterprise/agentfile"  ""
@@ -1594,6 +1609,13 @@ print(d.get('id', d.get('member',{}).get('id','')))
                 phase_pass "no hardcoded localhost:5173 in routers"
             else
                 phase_fail "found $hardcoded hardcoded localhost:5173 references in routers"
+            fi
+            # --- No hardcoded https://localhost:3010 in routers ---
+            hardcoded_3010=$(grep -r 'https://localhost:3010' "$REPO_DIR/api/routers/" 2>/dev/null | grep -v '.pyc' | wc -l | tr -d ' ')
+            if [ "$hardcoded_3010" = "0" ]; then
+                phase_pass "no hardcoded https://localhost:3010 in routers"
+            else
+                phase_fail "found $hardcoded_3010 hardcoded https://localhost:3010 references in routers (use _frontend_url(request))"
             fi
         fi
 

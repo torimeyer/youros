@@ -202,7 +202,14 @@ tori() {
   local _boot_exit=0
   ~/.local/bin/ostk boot >>"$HOME/.myos/logs/ostk-boot.log" 2>&1 || _boot_exit=$?
   if [ "$_boot_exit" -ne 0 ]; then
-    printf '\033[38;2;255;200;80m  ⚠ ostk boot warnings — see ~/.myos/logs/ostk-boot.log\033[0m\n'
+    # Suppress known advisory noise (HUMANFILE OAE + primefile T0 trust anchor).
+    # Only show the warning line if there are real errors beyond those.
+    local _real_errors=0
+    _real_errors=$(grep "^error:" "$HOME/.myos/logs/ostk-boot.log" \
+      | grep -cv "ENTITYFILE OAE\|primefile.*trust root") || _real_errors=0
+    if [ "$_real_errors" -gt 0 ]; then
+      printf '\033[38;2;255;200;80m  ⚠ ostk boot warnings — see ~/.myos/logs/ostk-boot.log\033[0m\n'
+    fi
   fi
 
   # Run :boot tack as soon as ostk is up
