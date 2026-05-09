@@ -465,6 +465,12 @@ async def _has_unmerged_commits(cwd: str, branch: str) -> bool:
         return True  # conservative: assume unmerged on any error
 
 
+async def branch_has_unmerged_commits(project_root: str, branch: str) -> bool:
+    """Return True if branch has commits not yet on main. Public wrapper for callers
+    that need to check before acquiring spawn locks."""
+    return await _has_unmerged_commits(project_root, branch)
+
+
 async def _unmerged_onelines(cwd: str, branch: str, max_commits: int = 3) -> str:
     """Return a short log of commits ahead of main, for human-readable log messages."""
     try:

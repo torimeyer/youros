@@ -3786,6 +3786,33 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
         agent_name=body.name,
     )
 
+    # When the expected worktree branch already has unmerged commits from a
+    # prior run, auto-suffix the agent name so this spawn gets a fresh branch.
+    # Without this, create_worktree() refuses to overwrite the branch (data
+    # safety guard) and the spawn fails with a 500 -- making the "comprehensive
+    # build" button appear broken even though the previous run's work is intact.
+    if body.isolation == "worktree":
+        try:
+            from config import PROJECT_ROOT as _PR_unmerged
+            from services.spawn_isolation import (
+                branch_has_unmerged_commits as _branch_has_unmerged,
+            )
+            _candidate_branch = f"worktree-agent-{body.name}"
+            if await _branch_has_unmerged(str(_PR_unmerged), _candidate_branch):
+                import random as _random
+                import string as _string_mod
+                _sfx = "".join(
+                    _random.choices(_string_mod.ascii_lowercase + _string_mod.digits, k=4)
+                )
+                _old_name = body.name
+                body.name = f"{body.name}-r{_sfx}"
+                logger.info(
+                    "spawn.auto_suffix.unmerged_branch old=%s new=%s branch=%s",
+                    _old_name, body.name, _candidate_branch,
+                )
+        except Exception as _sfx_exc:
+            logger.debug("spawn.auto_suffix.check_failed err=%s", _sfx_exc)
+
     # Mandatory lock-on-spawn: edit-capable spawns (isolation resolved
     # to "worktree") MUST declare which paths they will touch so
     # parallel spawns cannot race on the same files. Read-only spawns
