@@ -82,7 +82,7 @@ async def test_whats_working_recommendations_exclude_already_used():
 
 @pytest.mark.asyncio
 async def test_whats_working_this_week_counts_completed_agents():
-    """Only completed agents within the 7-day window count."""
+    """Completed and failed agents are counted separately; out-of-window events excluded."""
     fake_entries = [
         # Inside window
         _audit_entry("agent.completed", ts=RECENT),
@@ -98,7 +98,8 @@ async def test_whats_working_this_week_counts_completed_agents():
             resp = await client.get("/api/adoption/whats-working")
 
     data = resp.json()
-    assert data["this_week"]["agent_runs_completed"] == 3
+    assert data["this_week"]["agent_runs_completed"] == 2
+    assert data["this_week"]["agent_runs_failed"] == 1
 
 
 @pytest.mark.asyncio
@@ -115,6 +116,7 @@ async def test_whats_working_handles_no_activity_gracefully():
     assert data["top_skills"] == []
     assert data["recommendations"] == []
     assert data["this_week"]["agent_runs_completed"] == 0
+    assert data["this_week"]["agent_runs_failed"] == 0
     assert data["this_week"]["top_spec_or_task"] is None
 
 

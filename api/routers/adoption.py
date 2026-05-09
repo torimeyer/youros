@@ -201,10 +201,10 @@ async def get_whats_working():
                     template_counts[tid] = template_counts.get(tid, 0) + 1
                 else:
                     prev_week_counts[tid] = prev_week_counts.get(tid, 0) + 1
-        elif ev in ("agent.completed", "agent.failed") and in_this_week:
+        elif ev == "agent.completed" and in_this_week:
             agent_runs_completed += 1
-            if ev == "agent.failed":
-                agent_runs_failed += 1
+        elif ev == "agent.failed" and in_this_week:
+            agent_runs_failed += 1
 
     sorted_skills = sorted(template_counts.items(), key=lambda x: x[1], reverse=True)
     top_skills = []

@@ -119,7 +119,7 @@ async def test_recommendation_has_why_field():
 
 @pytest.mark.asyncio
 async def test_completed_agent_count_in_this_week():
-    """agent_runs_completed includes both completed and failed runs this week."""
+    """agent_runs_completed and agent_runs_failed are tracked separately."""
     entries = [
         _completed(),
         _completed(),
@@ -132,7 +132,8 @@ async def test_completed_agent_count_in_this_week():
             resp = await client.get("/api/adoption/whats-working")
 
     data = resp.json()
-    assert data["this_week"]["agent_runs_completed"] == 3
+    assert data["this_week"]["agent_runs_completed"] == 2
+    assert data["this_week"]["agent_runs_failed"] == 1
 
 
 @pytest.mark.asyncio
