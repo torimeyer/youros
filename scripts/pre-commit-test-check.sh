@@ -115,6 +115,24 @@ if [ -n "${SECRETS_HITS}" ]; then
   exit 1
 fi
 
+# --- CRITICAL-BLOCK removal guard ---------------------------------------
+# If a commit removes a line tagged CRITICAL-BLOCK-DO-NOT-REMOVE the commit
+# is blocked. These markers protect blocks that have been silently dropped
+# in large rewrites before (see b9023e5, dafd9f3). The first line of the
+# marker names the block; grep for "CRITICAL-BLOCK-DO-NOT-REMOVE" to find
+# all protected sites. Bypass intentional deletions with --no-verify after
+# confirming the corresponding regression test still passes without the block.
+CRITICAL_BLOCK_REMOVED="$(git diff --cached -U0 | grep -E '^-.*CRITICAL-BLOCK-DO-NOT-REMOVE' || true)"
+if [ -n "${CRITICAL_BLOCK_REMOVED}" ]; then
+  fail "CRITICAL-BLOCK-DO-NOT-REMOVE line is being removed from the commit:"
+  echo "${CRITICAL_BLOCK_REMOVED}" | head -5 | sed 's/^/    /'
+  fail "This marker protects code that has been silently dropped in past rewrites."
+  fail "Before removing it: confirm the regression test for this block still catches"
+  fail "its absence. See api/tests/test_spawn_template_isolation.py for an example."
+  fail "To bypass (after verification): git commit --no-verify"
+  exit 1
+fi
+
 API_STAGED="$(echo "${STAGED}" | grep -E '^api/.*\.py$' || true)"
 APP_STAGED="$(echo "${STAGED}" | grep -E '^app/src/.*\.(ts|tsx|js|jsx)$' || true)"
 TS_STAGED="$(echo "${STAGED}" | grep -E '\.(ts|tsx)$' | grep -E '^app/' || true)"
@@ -171,6 +189,12 @@ if [ -n "${API_STAGED}" ]; then
       if [ -f "${REPO_DIR}/${candidate}" ]; then
         TEST_TARGETS+=("${candidate}")
       fi
+      # Extra pinned tests: always include these when their guarded file is staged.
+      case "${f}" in
+        api/routers/agents.py)
+          TEST_TARGETS+=("api/tests/test_spawn_template_isolation.py")
+          ;;
+      esac
     done
     # De-dupe.
     if [ "${#TEST_TARGETS[@]}" -gt 0 ]; then

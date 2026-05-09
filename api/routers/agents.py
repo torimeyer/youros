@@ -3826,6 +3826,14 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
     # declare ISOLATION nono, explicitly opting out of worktree isolation.
     # This block was introduced in 4b6af76 and accidentally dropped by
     # dafd9f3 (file-upload feature). Keep it above _decide_isolation always.
+    # CRITICAL-BLOCK-DO-NOT-REMOVE: isolation pre-resolution for template spawns
+    # Without this, prompts with code-edit verbs ("build", "create", "add") make
+    # decide_isolation pick "worktree" for template spawns. validate_locks_for_spawn
+    # then rejects with HTTP 400 (frontend never sends locks for templates), the
+    # optimistic placeholder is removed, and the agent never appears in /api/agents.
+    # This block was introduced in 4b6af76 and accidentally dropped by dafd9f3
+    # (file-upload feature, large agents.py rewrite). Keep it above _decide_isolation.
+    # Regression test: api/tests/test_spawn_template_isolation.py
     if body.template and not body.isolation:
         try:
             from services.agentfile_parser import (
