@@ -211,3 +211,92 @@ async def test_hook_body_is_accepted_by_register_endpoint():
     # Cleanup the in-memory registration we just created.
     from routers.agents import agent_metadata
     agent_metadata.pop(body["name"], None)
+
+
+# ---------------------------------------------------------------------------
+# Slug special-character normalization (regression for bridge slugify bug)
+#
+# Both register-agent.sh and task-isolation-bridge.sh slugify a task
+# description into an agent name. The bug: the slug regex used "" as the
+# replacement for disallowed chars, silently dropping them instead of
+# replacing with "-". This caused "Diagnose+fix" to become "diagnosefix"
+# rather than "diagnose-fix".
+#
+# These tests use descriptions that avoid bridge-guard verbs
+# (edit/write/fix/diagnose/build/etc.) so the hook does not bail early.
+# They cover the three separator patterns: +, parens+&, and underscores.
+# ---------------------------------------------------------------------------
+
+
+def test_hook_slug_plus_becomes_hyphen():
+    """+ between words must produce a hyphen, not be silently dropped.
+
+    Before fix: "search+compare" -> "searchcompare"
+    After fix:  "search+compare" -> "search-compare"
+    """
+    out = _run_hook_dry(
+        {
+            "tool_name": "Agent",
+            "tool_input": {
+                "description": "search+compare two approaches",
+                "prompt": "please compare the approaches",
+            },
+            "cwd": str(HOOK_PATH.parent.parent.parent),
+        },
+        backend_url=None,
+    )
+    name = (out.get("body") or {}).get("name", "")
+    assert name == "search-compare-two-approaches", (
+        f"+ between words should produce a hyphen, got {name!r}"
+    )
+
+
+def test_hook_slug_parens_and_ampersand_become_hyphens():
+    """Parentheses and & with no surrounding spaces must produce hyphens, not be dropped.
+
+    The bug only manifests when special chars are NOT adjacent to spaces, because
+    .replace(" ", "-") masked the issue for space-surrounded parens. This test
+    uses chars glued directly to words to expose the deletion behavior.
+
+    Before fix: "probe(items)and&counts" -> "probeitemsandcounts" (chars deleted)
+    After fix:  "probe(items)and&counts" -> "probe-items-and-counts"
+    """
+    out = _run_hook_dry(
+        {
+            "tool_name": "Agent",
+            "tool_input": {
+                "description": "probe(items)and&counts",
+                "prompt": "probe the items and counts",
+            },
+            "cwd": str(HOOK_PATH.parent.parent.parent),
+        },
+        backend_url=None,
+    )
+    name = (out.get("body") or {}).get("name", "")
+    assert name == "probe-items-and-counts", (
+        f"parens and & glued to words should become hyphens, got {name!r}"
+    )
+
+
+def test_hook_slug_underscores_become_single_hyphen():
+    """Multiple underscores must collapse to a single hyphen.
+
+    Before fix: "foo___bar" -> "foo---bar" then collapsing gives "foo-bar"
+    -- actually underscores were dropped giving "foobar".
+    After fix:  "foo___bar" -> "foo-bar".
+    """
+    out = _run_hook_dry(
+        {
+            "tool_name": "Agent",
+            "tool_input": {
+                "description": "foo___bar",
+                "prompt": "run foo bar task",
+            },
+            "cwd": str(HOOK_PATH.parent.parent.parent),
+        },
+        backend_url=None,
+    )
+    name = (out.get("body") or {}).get("name", "")
+    assert name == "foo-bar", (
+        f"underscores should collapse to a single hyphen, got {name!r}"
+    )
