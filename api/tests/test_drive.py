@@ -228,6 +228,7 @@ async def test_drive_auth_callback_error_param(client):
     )
     assert resp.status_code == 302
     assert "access_denied" in resp.headers["location"]
+    assert resp.headers["location"].startswith("http://test/")
 
 
 @pytest.mark.asyncio
@@ -239,6 +240,7 @@ async def test_drive_auth_callback_invalid_state(client):
     )
     assert resp.status_code == 302
     assert "invalid_state" in resp.headers["location"]
+    assert resp.headers["location"].startswith("http://test/")
 
 
 @pytest.mark.asyncio
@@ -791,6 +793,9 @@ def test_google_auth_redirect_uri_is_dynamic():
     assert "redirect_uri" in sig.parameters, (
         "get_auth_url must accept a redirect_uri parameter. "
         "The old hardcoded REDIRECT_URI constant has been removed."
+    )
+    assert "redirect_uri" in inspect.signature(google_auth.exchange_code).parameters, (
+        "exchange_code must accept redirect_uri param (hardcoded REDIRECT_URI was removed)"
     )
     assert not hasattr(google_auth, "REDIRECT_URI"), (
         "REDIRECT_URI constant must be removed; redirect_uri is now passed as a parameter."
