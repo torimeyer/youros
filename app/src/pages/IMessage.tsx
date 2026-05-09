@@ -123,6 +123,7 @@ export default function IMessage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const messagesScrollRef = useRef<HTMLDivElement | null>(null)
+  const locallyReadRef = useRef<Set<number>>(new Set())
 
   // When a conversation opens or new messages load, jump to the bottom
   // so the user sees the latest message first (iMessage native behavior).
@@ -151,7 +152,9 @@ export default function IMessage() {
   const fetchConversations = useCallback(async () => {
     try {
       const res = await api.get<{ conversations: Conversation[] }>('/imessage/conversations')
-      const fetched = res.conversations || []
+      const fetched = (res.conversations || []).map(c =>
+        locallyReadRef.current.has(c.id) ? { ...c, unread_count: 0 } : c
+      )
       setConversations(fetched)
       writeCache(fetched)
     } catch {
@@ -210,6 +213,14 @@ export default function IMessage() {
     setReplyError(null)
     setReplySuccess(false)
     fetchMessages(chatId)
+    locallyReadRef.current.add(chatId)
+    setConversations(prev => {
+      const updated = prev.map(c =>
+        c.id === chatId ? { ...c, unread_count: 0 } : c
+      )
+      writeCache(updated)
+      return updated
+    })
   }
 
   const handleReply = async (chatId: number, text: string) => {

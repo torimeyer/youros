@@ -206,6 +206,91 @@ describe('iMessage page', () => {
     })
   })
 
+  it('clears unread dot immediately when a conversation is opened', async () => {
+    const convos = [
+      {
+        id: 1,
+        identifier: '+15550001111',
+        display_name: 'Alice',
+        service: 'iMessage',
+        last_message_date: '2026-04-10T10:00:00+00:00',
+        last_message_preview: 'Hey',
+        message_count: 5,
+        unread_count: 3,
+      },
+    ]
+    const messages = [
+      { id: 1, text: 'Hey', date: '2026-04-10T10:00:00+00:00', is_from_me: false, is_read: false, sender: '+15550001111' },
+    ]
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/messages')) return Promise.resolve({ messages })
+      if (path.includes('/imessage/conversations')) return Promise.resolve({ conversations: convos })
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+
+    await screen.findByText('Alice')
+    expect(screen.getByText('3')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Alice'))
+
+    await waitFor(() => {
+      expect(screen.queryByText('3')).not.toBeInTheDocument()
+    })
+  })
+
+  it('keeps unread dot cleared after a background refetch returns stale data', async () => {
+    const convos = [
+      {
+        id: 1,
+        identifier: '+15550001111',
+        display_name: 'Alice',
+        service: 'iMessage',
+        last_message_date: '2026-04-10T10:00:00+00:00',
+        last_message_preview: 'Hey',
+        message_count: 5,
+        unread_count: 3,
+      },
+    ]
+    const messages = [
+      { id: 1, text: 'Hey', date: '2026-04-10T10:00:00+00:00', is_from_me: false, is_read: false, sender: '+15550001111' },
+    ]
+
+    let conversationFetchCount = 0
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path.includes('/imessage/status')) return Promise.resolve(AVAILABLE_STATUS)
+      if (path.includes('/messages')) return Promise.resolve({ messages })
+      if (path.includes('/imessage/conversations')) {
+        conversationFetchCount++
+        // Always return unread_count: 3 to simulate stale backend cache
+        return Promise.resolve({ conversations: convos })
+      }
+      return Promise.resolve({})
+    })
+
+    renderIMessage()
+
+    await screen.findByText('Alice')
+    fireEvent.click(screen.getByText('Alice'))
+
+    await waitFor(() => {
+      expect(screen.queryByText('3')).not.toBeInTheDocument()
+    })
+
+    // Simulate window focus triggering a background refetch
+    fireEvent.focus(window)
+
+    await waitFor(() => {
+      expect(conversationFetchCount).toBeGreaterThan(1)
+    })
+
+    // Dot must remain cleared even though backend returned stale unread_count: 3
+    expect(screen.queryByText('3')).not.toBeInTheDocument()
+  })
+
   it('shows search results when searching', async () => {
     const results = [
       {
