@@ -60,11 +60,11 @@ export default function AboutMyOS() {
       heading: 'The kernel underneath: ostk',
       body: (
         <p className="text-sm text-slate-400">
-          myOS is the part you see. Underneath, it runs on ostk, an open coordination kernel built
-          by Scott Walters. ostk tracks who changed what, prevents agents from stepping on each
-          other, keeps a record of every action, and remembers context across sessions. Without it,
-          agents would conflict and forget. With it, they cooperate and pick up where they left
-          off.
+          myOS is the part you see. Underneath, it runs on ostk, an independent open-source
+          coordination kernel that myOS is built on top of. ostk tracks who changed what, prevents
+          agents from stepping on each other, keeps a record of every action, and remembers
+          context across sessions. Without it, agents would conflict and forget. With it, they
+          cooperate and pick up where they left off.
         </p>
       ),
     },

@@ -82,10 +82,11 @@ describe('AboutMyOS page', () => {
     expect(screen.getByTestId('about-hero').textContent).toMatch(/myOS/)
   })
 
-  it('credits Scott Walters as ostk creator', () => {
+  it('describes ostk as an independent project, not by author name', () => {
     renderPage()
     const section = screen.getByTestId('about-section-kernel-underneath')
-    expect(section.textContent).toMatch(/Scott Walters/i)
+    expect(section.textContent).toMatch(/independent/i)
+    expect(section.textContent).not.toMatch(/Scott/i)
   })
 
   it('points the repo link to the real github URL', () => {
