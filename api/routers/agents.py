@@ -4164,6 +4164,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None):
                     _spawn_cwd = str(_wt_path)
                     _spawn_env["OSTK_PROJECT_ROOT"] = str(_wt_path)
                     _spawn_env["OSTK_ROOT"] = str(_wt_path)
+                    # CLAUDE_PROJECT_DIR is inherited from the parent env
+                    # (line 4127: _spawn_env = {**os.environ}), which points
+                    # to the parent repo. Without this override, hooks and
+                    # Claude Code itself resolve file paths against the parent
+                    # checkout, causing all edits to land there instead of the
+                    # worktree. This is the cwd-leak root cause (→932, →916).
+                    _spawn_env["CLAUDE_PROJECT_DIR"] = str(_wt_path)
                     # heartbeat-agent.sh reads MYOS_AGENT_NAME to route its
                     # hook-fired heartbeats to the correct registered row.
                     # Without this the hook derives a session_id-based name
